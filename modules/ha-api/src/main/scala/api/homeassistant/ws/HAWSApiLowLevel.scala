@@ -3,6 +3,7 @@ package api.homeassistant.ws
 import cats.syntax.all.*
 import api.homeassistant.ws.client.WSCommandPhaseClient
 import api.homeassistant.ws.server.WSCommandPhaseServer
+import cats.effect.kernel.Deferred
 import cats.effect.std.{MapRef, QueueSource}
 import cats.effect.{IO, Ref, Resource}
 import io.circe.syntax.*
@@ -20,11 +21,16 @@ import org.http4s.client.websocket.{
 
 // TODO its high level
 trait HAWSApiLowLevel[F[_]] {
-  def receiveStream: Stream[F, WSCommandPhaseServer]
+  // def receiveStream: Stream[F, WSCommandPhaseServer]
   // TODO sendSync return Int id, deferred to receiveStream to get response for that id
-  def send(in: WSCommandPhaseClient): F[Unit]
+  // TODO move WSCommandPhaseClient into just being a trait?
+  // def send(in: WSCommandPhaseClient): F[Unit]
   // TODO subsctiveEvents(event_type = "state_changed")
-  def subscribeStateChanged: Resource[IO, QueueSource[IO, WSCommandPhaseServer]]
+  // def subscribeStateChanged: Resource[IO, QueueSource[IO, WSCommandPhaseServer]]
+
+  def sendCommand[Command: Encoder](
+      command: Command
+  )[Response: Decoder]: IO[Response]
 }
 
 object HAWSApiLowLevel {
@@ -106,6 +112,11 @@ object HAWSApiLowLevel {
             .drain
             .background
 
+          // Overview of listeners for one specific message
+          idDeferreds <- MapRef
+            .ofSingleImmutableMap[IO, Int, Deferred[IO, WSCommandPhaseServer]]()
+            .toResource
+
           // Overview of listeners for specific ha subscriptions
           idQueue <- MapRef
             .ofSingleImmutableMap[IO, Int, Queue[IO, WSCommandPhaseServer]]()
@@ -118,7 +129,11 @@ object HAWSApiLowLevel {
                 idQueue(command.id).get.flatMap {
                   case Some(queue) => queue.offer(command)
                   case None        => IO.unit
-                }
+                } >>
+                  idDeferreds(command.id).get.flatMap {
+                    case Some(deferred) => deferred.complete(command)
+                    case None           => IO.unit
+                  }
               )
             )
             .compile
@@ -131,6 +146,14 @@ object HAWSApiLowLevel {
             .map(ref => ref.getAndUpdate(_ + 1))
             .toResource
         } yield {
+
+          def sendCommandPhase(id: Int, in: Json): IO[Unit] = {
+            // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
+            val idJson = Json.obj(("id" -> Json.fromInt(id)))
+            val toSend = in.deepMerge(idJson)
+            println(s"Sending ${toSend.spaces4}")
+            ha.sendText(toSend.noSpaces)
+          }
 
           def sendRaw(in: Int => WSCommandPhaseClient): IO[Int] =
             incrementer.flatMap(id => ha.sendEncode(in(id)).as(id))
@@ -169,6 +192,39 @@ object HAWSApiLowLevel {
             def receiveStream: Stream[IO, WSCommandPhaseServer] =
               topic.subscribeUnbounded
 
+            // todo sendSubscribe (replacement for the one below subscribeStateChanged)
+            def sendCommand[Command: Encoder](
+                command: Command
+            )[Response: Decoder]: IO[Response] =
+              (IO.deferred[WSCommandPhaseServer], incrementer).flatMapN {
+                (deferred, id) =>
+                  (idDeferreds.setKeyValue(id, deferred) >>
+                    sendCommandPhase(id, command.asJson) >> deferred.get)
+                    .guarantee(idDeferreds.unsetKey(id))
+                    .flatMap {
+                      case WSCommandPhaseServer.result(
+                            _,
+                            true,
+                            Some(result),
+                            _
+                          ) =>
+                        result.as[Response].liftTo[IO]
+                      case WSCommandPhaseServer.result(
+                            _,
+                            false,
+                            _,
+                            Some(error)
+                          ) =>
+                        IO.raiseError(
+                          new Exception(s"$command failed with $error")
+                        )
+                      case nonsense =>
+                        IO.raiseError(
+                          new Exception(s"$command responsed with $nonsense")
+                        )
+                    }
+              }
+
             def send(in: WSCommandPhaseClient): IO[Unit] = ha.sendEncode(in)
 
             //
@@ -179,6 +235,7 @@ object HAWSApiLowLevel {
             // https://developers.home-assistant.io/docs/api/websocket#subscribe-to-events
             // TODO stream instead?
             // TODO event types
+            @Deprecated
             def subscribeStateChanged
                 : Resource[IO, QueueSource[IO, WSCommandPhaseServer]] =
               Resource

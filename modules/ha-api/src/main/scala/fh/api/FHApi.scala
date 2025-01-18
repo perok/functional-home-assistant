@@ -1,6 +1,6 @@
 package fh.api
 
-import api.homeassistant.ws.HAWSApiLowLevel
+import api.homeassistant.ws.{HAWSApi, HAWSApiLowLevel}
 import api.homeassistant.rest.restApi
 import cats.effect.IO
 import cats.effect.Resource
@@ -15,7 +15,7 @@ import java.net.http.HttpClient
 object FHApi {
   def fromEnv: Resource[
     IO,
-    (HomeAssistantApiService[IO], HAWSApiLowLevel[IO])
+    (HomeAssistantApiService[IO], HAWSApi[IO])
   ] = for {
     server <- Env[IO]
       .get("SERVER")
@@ -32,7 +32,7 @@ object FHApi {
   // TODO websocket api https://developers.home-assistant.io/docs/api/websocket
   def from(api: Uri, secretToken: String): Resource[
     IO,
-    (HomeAssistantApiService[IO], HAWSApiLowLevel[IO])
+    (HomeAssistantApiService[IO], HAWSApi[IO])
   ] = for {
     wsUri <- utils.haUriHttpToWS[IO](api).toResource
 
@@ -52,6 +52,6 @@ object FHApi {
       wsClient,
       wsUri,
       secretToken
-    )
+    ).map(HAWSApi.fromLowLevel)
   } yield (api, wsApi)
 }

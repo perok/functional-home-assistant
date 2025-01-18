@@ -10,16 +10,19 @@ object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
   import WSCommandPhaseClient.*
 
+  enum CommandPhase derives ConfiguredEncoder {
+
+    // https://github.com/home-assistant-ecosystem/home-assistant-cli
+    // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/device_registry.py
+    case `config/device_registry/list`()
+    case `device_automation/trigger/list`(device_id: String)
+  }
+
   enum WSCommandPhaseClient {
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-trigger
     // https://www.home-assistant.io/docs/automation/trigger/
     // TODO
     case subscribe_trigger(id: Int, triggerData: List[TriggerData])
-
-    // https://github.com/home-assistant-ecosystem/home-assistant-cli
-    // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/device_registry.py
-    case `config/device_registry/list`()
-    case `device_automation/trigger/list`(deviceId: String)
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case subscribe_events(id: Int, event_type: Option[String])
@@ -98,24 +101,8 @@ context:
 
      */
 
-    // TODO everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
-    // Use this to create it sync
     given Encoder[WSCommandPhaseClient] = Encoder.instance {
 
-      case `device_automation/trigger/list`(deviceId) =>
-        Json.obj(
-          ("id", Json.fromInt(12322)),
-          ("type", Json.fromString("device_automation/trigger/list")),
-          ("device_id", Json.fromString(deviceId))
-        )
-
-      case `config/device_registry/list`() =>
-        // TODO are  config entries interesting?
-        // - The identifiers says zha, this is helpful to say something about a thing
-        Json.obj(
-          ("id", Json.fromInt(12321)),
-          ("type", Json.fromString("config/device_registry/list"))
-        )
       case subscribe_trigger(id, triggerData) =>
         val triggers = triggerData.map { trigger =>
           val platform = trigger match {
@@ -123,6 +110,7 @@ context:
             case _: TriggerData.Sun   => "sun"
           }
 
+          // TODO platform as discriminator
           trigger.asJson.deepMerge(Json.obj("platform" -> platform.asJson))
         }
 

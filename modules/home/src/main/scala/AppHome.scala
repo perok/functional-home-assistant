@@ -1,11 +1,13 @@
 //import scala.meta.* // scalameta for code generation. does not support dotty
-import api.homeassistant.ws.HAWSApiLowLevel
+import api.homeassistant.ws.{HAWSApi, HAWSApiLowLevel}
 import api.homeassistant.ws.client.WSCommandPhaseClient
 import api.homeassistant.rest.restApi.*
 import cats.effect.*
+
 import scala.concurrent.duration.*
 import perok.ha.*
 import fh.api.FHApi
+import io.circe.Json
 
 object AppHome extends IOApp.Simple {
   val run = (for {
@@ -16,7 +18,7 @@ object AppHome extends IOApp.Simple {
     _ <- program(api, wsApi)
   } yield ()).use_
 
-  def program(api: HomeAssistantApiService[IO], wsApi: HAWSApiLowLevel[IO]) =
+  def program(api: HomeAssistantApiService[IO], wsApi: HAWSApi[IO]) =
     for {
       // _ <- hello.testit(api).debug("Operation").toResource
       _ <- api.floors.debug("floors").toResource
@@ -43,15 +45,14 @@ object AppHome extends IOApp.Simple {
           // .debug("DEvices")
           .toResource
 
-      _ <- wsApi.receiveStream.debug().compile.drain.background
+      // _ <- wsApi.receiveStream.debug().compile.drain.background
       _ <- {
         // WE HAVE IT!
         wsApi
-          .send(
-            WSCommandPhaseClient.`device_automation/trigger/list`(
-              "031d4786b1d7b98aa271b0de2298bc38"
-            )
+          .deviceAutomationTriggerList(
+            "031d4786b1d7b98aa271b0de2298bc38"
           )
+          .debug("test")
           // .send(WSCommandPhaseClient.`config/device_registry/list`())
           .toResource
       }
