@@ -4,12 +4,11 @@ import perok.ha.EntityId
 import io.circe.*
 import io.circe.given
 import io.circe.syntax.*
-import io.circe.derivation.ConfiguredEncoder
+import io.circe.derivation.{Configuration, ConfiguredEncoder}
 import defaults.given
 
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
-  import WSCommandPhaseClient.*
 
   sealed trait CommandResponse[R] {
     val decoder: Decoder[R]
@@ -43,17 +42,16 @@ object client {
     case class unsubscribe_events(subscription: Int)
         extends CommandPhase
         with CommandResponse.Void derives ConfiguredEncoder
-  }
 
-  enum WSCommandPhaseClient {
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-trigger
     // https://www.home-assistant.io/docs/automation/trigger/
     // TODO
-    case subscribe_trigger(id: Int, triggerData: List[TriggerData])
-
+    case class subscribe_trigger(triggerData: List[TriggerData])
+        extends CommandPhase
+        with CommandResponse.Void derives ConfiguredEncoder
   }
-  object WSCommandPhaseClient {
-    /*
+
+  /*
     device trigger
     how to fetch the information necessary to create this code?
 
@@ -90,8 +88,8 @@ actions:
     target:
       entity_id: light.nabu_casa_skyconnect_v1_0_lys_bibliotek
 
-     */
-    /*
+   */
+  /*
 An event
 
 event_type: zha_event
@@ -121,59 +119,41 @@ context:
   parent_id: null
   user_id: null
 
-     */
+   */
 
-    given Encoder[WSCommandPhaseClient] = Encoder.instance {
+  given Encoder["sunset" | "sunrise"] =
+    Encoder.instance(Json.fromString)
 
-      case subscribe_trigger(id, triggerData) =>
-        val triggers = triggerData.map { trigger =>
-          val platform = trigger match {
-            case _: TriggerData.State => "state"
-            case _: TriggerData.Sun   => "sun"
-          }
-
-          // TODO platform as discriminator
-          trigger.asJson.deepMerge(Json.obj("platform" -> platform.asJson))
-        }
-
-        Json
-          .obj(
-            ("id", Json.fromInt(id)),
-            ("type", Json.fromString("subscribe_trigger")),
-            ("trigger", triggers.asJson)
-          )
-          .deepMerge(triggerData.asJson)
-    }
-
-    given Encoder["sunset" | "sunrise"] =
-      Encoder.instance(Json.fromString)
-
-    /*    trait Platform(s: String) {
+  /*    trait Platform(s: String) {
       val platform: String = s
     }*/
-    enum TriggerData derives ConfiguredEncoder {
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#event-trigger
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger
-      // You cannot use from and not_from at the same time. The same applies to to and not_to.
-      // https://www.home-assistant.io/docs/automation/trigger/#state-trigger
-      case State(
-          entity_id: String = "",
-          attribute: Option[String],
-          from: List[String],
-          notFrom: List[String],
-          to: String,
-          notTo: String
-      ) extends TriggerData // with Platform("state")
-      // https://www.home-assistant.io/docs/automation/trigger/#sun-trigger
-      case Sun(event: "sunset" | "sunrise", offset: Option[String])
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#zone-trigger
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#calendar-trigger
-      // TODO https://www.home-assistant.io/docs/automation/trigger/#sentence-trigger
-    }
+  enum TriggerData {
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#event-trigger
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger
+    // You cannot use from and not_from at the same time. The same applies to to and not_to.
+    // https://www.home-assistant.io/docs/automation/trigger/#state-trigger
+    case State(
+        entity_id: String = "",
+        attribute: Option[String],
+        from: List[String],
+        notFrom: List[String],
+        to: String,
+        notTo: String
+    ) extends TriggerData
+    // https://www.home-assistant.io/docs/automation/trigger/#sun-trigger
+    case Sun(event: "sunset" | "sunrise", offset: Option[String])
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#zone-trigger
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#calendar-trigger
+    // TODO https://www.home-assistant.io/docs/automation/trigger/#sentence-trigger
+  }
 
+  object TriggerData {
+    given Encoder[TriggerData] = ConfiguredEncoder.derive(
+      discriminator = Some("platform")
+    )
   }
 }

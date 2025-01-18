@@ -1,6 +1,5 @@
 //import scala.meta.* // scalameta for code generation. does not support dotty
-import api.homeassistant.ws.{HAWSApi, HAWSApiLowLevel}
-import api.homeassistant.ws.client.WSCommandPhaseClient
+import api.homeassistant.ws.HAWSApi
 import api.homeassistant.rest.restApi.*
 import cats.effect.*
 

@@ -1,11 +1,7 @@
 package api.homeassistant.ws
 
 import cats.syntax.all.*
-import api.homeassistant.ws.client.{
-  CommandPhase,
-  CommandResponse,
-  WSCommandPhaseClient
-}
+import api.homeassistant.ws.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.server.WSCommandPhaseServer
 import cats.effect.kernel.Deferred
 import cats.effect.std.{MapRef, QueueSource}
@@ -165,9 +161,6 @@ object HAWSApiLowLevel {
             ha.sendText(toSend.noSpaces)
           }
 
-          def sendRaw(in: Int => WSCommandPhaseClient): IO[Int] =
-            incrementer.flatMap(id => ha.sendEncode(in(id)).as(id))
-
           new HAWSApiLowLevel[IO] {
             def receiveStream: Stream[IO, WSCommandPhaseServer] =
               topic.subscribeUnbounded
@@ -207,8 +200,6 @@ object HAWSApiLowLevel {
                         )
                     }
               }
-
-            def send(in: WSCommandPhaseClient): IO[Unit] = ha.sendEncode(in)
 
             //
             // todo https://developers.home-assistant.io/docs/api/websocket#fire-an-event
