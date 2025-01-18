@@ -46,16 +46,15 @@ object AppHome extends IOApp.Simple {
           .toResource
 
       // _ <- wsApi.receiveStream.debug().compile.drain.background
-      _ <- {
-        // WE HAVE IT!
-        wsApi
-          .deviceAutomationTriggerList(
-            "031d4786b1d7b98aa271b0de2298bc38"
-          )
-          .debug("test")
-          // .send(WSCommandPhaseClient.`config/device_registry/list`())
-          .toResource
-      }
+
+      _ <- wsApi.configDeviceRegistryList.debug("lol").toResource
+      _ <- wsApi
+        .deviceAutomationTriggerList(
+          "031d4786b1d7b98aa271b0de2298bc38"
+        )
+        .debug("test")
+        .toResource
+
       // _ <- {
       //  wsApi
       //    .send(WSCommandPhaseClient.subscribe_events(1, None))

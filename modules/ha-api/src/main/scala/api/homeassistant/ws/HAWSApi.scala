@@ -1,8 +1,9 @@
 package api.homeassistant.ws
 
+import api.homeassistant.ws.client.{CommandPhase, CommandResponse}
 import cats.effect.IO
-import io.circe.Json
-import client.CommandPhase.*
+import io.circe.{Encoder, Decoder, Json}
+import CommandPhase.*
 
 trait HAWSApi[F[_]] {
   def configDeviceRegistryList: IO[Json]
@@ -10,10 +11,12 @@ trait HAWSApi[F[_]] {
 }
 
 object HAWSApi {
-  def fromLowLevel(in: HAWSApiLowLevel[IO]): HAWSApi[IO] = new HAWSApi[IO]:
+  def fromLowLevel(in: HAWSApiLowLevel[IO]): HAWSApi[IO] = new HAWSApi[IO] {
     def configDeviceRegistryList: IO[Json] =
-      in.sendCommand(`config/device_registry/list`())[Json]
+      in.sendCommandWithResponse(`config/device_registry/list`()).map(_._2)
 
     def deviceAutomationTriggerList(deviceId: String): IO[Json] =
-      in.sendCommand(`device_automation/trigger/list`(deviceId))[Json]
+      in.sendCommandWithResponse(`device_automation/trigger/list`(deviceId))
+        .map(_._2)
+  }
 }

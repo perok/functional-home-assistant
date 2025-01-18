@@ -2,6 +2,7 @@ package api.homeassistant.ws
 
 import perok.ha.EntityId
 import io.circe.*
+import io.circe.given
 import io.circe.syntax.*
 import io.circe.derivation.ConfiguredEncoder
 import defaults.given
@@ -10,12 +11,38 @@ object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
   import WSCommandPhaseClient.*
 
-  enum CommandPhase derives ConfiguredEncoder {
+  sealed trait CommandResponse[R] {
+    val decoder: Decoder[R]
+  }
+  object CommandResponse {
+    trait Void(val decoder: Decoder[Unit] = Decoder.decodeUnit)
+        extends CommandResponse[Unit]
+    trait As[R](using val decoder: Decoder[R]) extends CommandResponse[R]
+  }
+
+  sealed trait CommandPhase derives ConfiguredEncoder
+  object CommandPhase {
 
     // https://github.com/home-assistant-ecosystem/home-assistant-cli
     // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/device_registry.py
-    case `config/device_registry/list`()
-    case `device_automation/trigger/list`(device_id: String)
+
+    case class `config/device_registry/list`()
+        extends CommandPhase
+        with CommandResponse.As[Json] derives ConfiguredEncoder
+
+    case class `device_automation/trigger/list`(device_id: String)
+        extends CommandPhase
+        with CommandResponse.As[Json] derives ConfiguredEncoder
+
+    // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
+    case class subscribe_events(event_type: Option[String])
+        extends CommandPhase
+        with CommandResponse.Void derives ConfiguredEncoder
+
+    // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
+    case class unsubscribe_events(subscription: Int)
+        extends CommandPhase
+        with CommandResponse.Void derives ConfiguredEncoder
   }
 
   enum WSCommandPhaseClient {
@@ -24,11 +51,6 @@ object client {
     // TODO
     case subscribe_trigger(id: Int, triggerData: List[TriggerData])
 
-    // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
-    case subscribe_events(id: Int, event_type: Option[String])
-
-    // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
-    case unsubscribe_events(id: Int, subscription: Int)
   }
   object WSCommandPhaseClient {
     /*
@@ -121,18 +143,6 @@ context:
             ("trigger", triggers.asJson)
           )
           .deepMerge(triggerData.asJson)
-      case unsubscribe_events(id, subscription) =>
-        Json.obj(
-          ("id", Json.fromInt(id)),
-          ("type", Json.fromString("unsubscribe_events")),
-          ("subscription", Json.fromInt(subscription))
-        )
-      case subscribe_events(id, event_type) =>
-        Json.obj(
-          ("id", Json.fromInt(id)),
-          ("type", Json.fromString("subscribe_events")),
-          ("event_type", event_type.asJson)
-        )
     }
 
     given Encoder["sunset" | "sunrise"] =

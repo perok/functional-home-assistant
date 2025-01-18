@@ -1,7 +1,11 @@
 package api.homeassistant.ws
 
 import cats.syntax.all.*
-import api.homeassistant.ws.client.WSCommandPhaseClient
+import api.homeassistant.ws.client.{
+  CommandPhase,
+  CommandResponse,
+  WSCommandPhaseClient
+}
 import api.homeassistant.ws.server.WSCommandPhaseServer
 import cats.effect.kernel.Deferred
 import cats.effect.std.{MapRef, QueueSource}
@@ -30,7 +34,13 @@ trait HAWSApiLowLevel[F[_]] {
 
   def sendCommand[Command: Encoder](
       command: Command
-  )[Response: Decoder]: IO[Response]
+  )[Response: Decoder]: IO[(Int, Response)]
+
+  def sendCommandWithResponse[Response](
+      msg: CommandPhase & CommandResponse[Response]
+  ): IO[(Int, Response)] =
+    given Decoder[Response] = msg.decoder
+    sendCommand(msg: CommandPhase)[Response]
 }
 
 object HAWSApiLowLevel {
@@ -158,36 +168,6 @@ object HAWSApiLowLevel {
           def sendRaw(in: Int => WSCommandPhaseClient): IO[Int] =
             incrementer.flatMap(id => ha.sendEncode(in(id)).as(id))
 
-          def sendEvent(event: Int => WSCommandPhaseClient): IO[Int] =
-            topic.subscribeAwaitUnbounded.use(commands =>
-              sendRaw(id => event(id)).flatTap(id =>
-                commands
-                  .collectFirst {
-                    case a @ WSCommandPhaseServer.result(id, _, _, _) =>
-                      a
-                  }
-                  .compile
-                  .lastOrError
-                  .flatMap {
-                    case WSCommandPhaseServer.result(_, true, _, _) =>
-                      IO.unit
-                    case WSCommandPhaseServer
-                          .result(_, false, _, error) =>
-                      IO.raiseError(
-                        new Exception(s"subscribing failed: $error")
-                      )
-                  }
-                  // Try to ensure that subscription is cancelled, if there
-                  // are other reasons for things failing
-                  .onError(_ =>
-                    sendRaw(cancelId =>
-                      WSCommandPhaseClient
-                        .unsubscribe_events(cancelId, id)
-                    ).void
-                  )
-              )
-            )
-
           new HAWSApiLowLevel[IO] {
             def receiveStream: Stream[IO, WSCommandPhaseServer] =
               topic.subscribeUnbounded
@@ -195,7 +175,7 @@ object HAWSApiLowLevel {
             // todo sendSubscribe (replacement for the one below subscribeStateChanged)
             def sendCommand[Command: Encoder](
                 command: Command
-            )[Response: Decoder]: IO[Response] =
+            )[Response: Decoder]: IO[(Int, Response)] =
               (IO.deferred[WSCommandPhaseServer], incrementer).flatMapN {
                 (deferred, id) =>
                   (idDeferreds.setKeyValue(id, deferred) >>
@@ -208,7 +188,10 @@ object HAWSApiLowLevel {
                             Some(result),
                             _
                           ) =>
-                        result.as[Response].liftTo[IO]
+                        result
+                          .as[Response]
+                          .liftTo[IO]
+                          .map(response => (id, response))
                       case WSCommandPhaseServer.result(
                             _,
                             false,
@@ -240,13 +223,12 @@ object HAWSApiLowLevel {
                 : Resource[IO, QueueSource[IO, WSCommandPhaseServer]] =
               Resource
                 .make(
-                  sendEvent(id =>
-                    WSCommandPhaseClient
-                      .subscribe_events(id, Some("state_changed"))
-                  )
+                  sendCommandWithResponse(
+                    CommandPhase.subscribe_events(Some("state_changed"))
+                  ).map(_._1)
                 )(id =>
-                  sendEvent(cancelId =>
-                    WSCommandPhaseClient.unsubscribe_events(cancelId, id)
+                  sendCommandWithResponse(
+                    CommandPhase.unsubscribe_events(id)
                   ).void
                 )
                 .evalMap { id =>
