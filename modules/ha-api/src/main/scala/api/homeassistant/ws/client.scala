@@ -1,9 +1,8 @@
 package api.homeassistant.ws
 
+import api.homeassistant.ws.server.Event
 import perok.ha.EntityId
 import io.circe.*
-import io.circe.given
-import io.circe.syntax.*
 import io.circe.derivation.{Configuration, ConfiguredEncoder}
 import defaults.given
 
@@ -11,12 +10,17 @@ object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
   sealed trait CommandResponse[R] {
-    val decoder: Decoder[R]
+    val resultDecoder: Decoder[R]
   }
   object CommandResponse {
-    trait Void(val decoder: Decoder[Unit] = Decoder.decodeUnit)
-        extends CommandResponse[Unit]
-    trait As[R](using val decoder: Decoder[R]) extends CommandResponse[R]
+
+    // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
+    trait AsEvent extends CommandResponse[Unit] {
+      val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
+    }
+
+    trait AsResult[R](using val resultDecoder: Decoder[R])
+        extends CommandResponse[R]
   }
 
   sealed trait CommandPhase derives ConfiguredEncoder
@@ -27,28 +31,29 @@ object client {
 
     case class `config/device_registry/list`()
         extends CommandPhase
-        with CommandResponse.As[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
     case class `device_automation/trigger/list`(device_id: String)
         extends CommandPhase
-        with CommandResponse.As[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case class subscribe_events(event_type: Option[String])
         extends CommandPhase
-        with CommandResponse.Void derives ConfiguredEncoder
+        with CommandResponse.AsEvent derives ConfiguredEncoder
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)
         extends CommandPhase
-        with CommandResponse.Void derives ConfiguredEncoder
+        with CommandResponse.AsResult[Unit] derives ConfiguredEncoder
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-trigger
     // https://www.home-assistant.io/docs/automation/trigger/
+    // https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L717-L728
     // TODO
     case class subscribe_trigger(triggerData: List[TriggerData])
         extends CommandPhase
-        with CommandResponse.Void derives ConfiguredEncoder
+        with CommandResponse.AsEvent derives ConfiguredEncoder
   }
 
   /*
@@ -141,7 +146,7 @@ context:
         notTo: String
     ) extends TriggerData
     // https://www.home-assistant.io/docs/automation/trigger/#sun-trigger
-    case Sun(event: "sunset" | "sunrise", offset: Option[String])
+    case Sun(event: "sunset" | "sunrise", offset: Option[String] = None)
     // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
     // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
