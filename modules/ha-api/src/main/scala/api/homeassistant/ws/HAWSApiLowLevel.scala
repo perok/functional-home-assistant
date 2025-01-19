@@ -18,6 +18,7 @@ import org.http4s.client.websocket.{
   WSFrame,
   WSRequest
 }
+import scala.concurrent.duration.*
 
 // TODO its high level
 trait HAWSApiLowLevel[F[_]] {
@@ -28,41 +29,37 @@ trait HAWSApiLowLevel[F[_]] {
   // TODO subsctiveEvents(event_type = "state_changed")
   // def subscribeStateChanged: Resource[IO, QueueSource[IO, WSCommandPhaseServer]]
 
-  def sendCommand[Command: Encoder](
-      command: Command
-  )[Response: Decoder]: IO[(Int, Response)]
+  def sendCommand[Response](
+      command: CommandPhase & CommandResponse[Response]
+  ): IO[(Int, Response)]
 
-  def sendCommandWithResponse[Response](
-      msg: CommandPhase & CommandResponse[Response]
-  ): IO[(Int, Response)] =
-    given Decoder[Response] = msg.decoder
-    sendCommand(msg: CommandPhase)[Response]
+  def sendCommandStream(
+      msg: CommandPhase & CommandResponse.Stream
+  ): Resource[IO, QueueSource[IO, WSCommandPhaseServer]]
 }
 
 object HAWSApiLowLevel {
 
   extension (wsClient: WSConnectionHighLevel[IO])
-    def sendEncode[Body: Encoder](in: Body) =
+    def sendEncode[Body: Encoder](in: Body): IO[Unit] =
       wsClient.sendText(in.asJson.noSpaces)
 
-    def receiveStreamDecode[Body: Decoder] =
+    def receiveStreamDecode[Body: Decoder]: Stream[IO, Body] =
       wsClient.receiveStream.evalMap {
         case WSFrame.Text(data, true) =>
-          // TODO handle [info] {"id":null,"type":"result","success":false,"error":{"code":"invalid_format","message":"Message incorrectly formatted."}}
+          println(s"Receiving: $data")
           decode[Body](data).liftTo[IO].onError { err =>
-
-            pprint("")
-            err.printStackTrace()
-            IO.println("ERR") >>
-              IO.println(decode[Json](data))
+            IO.println(s"receiveStreamDecode error decoding: $data")
           }
         case unknown =>
-          IO.raiseError(new Throwable(s"Received unknown: $unknown"))
+          IO.raiseError(
+            new Throwable(s"receiveStreamDecode received unknown: $unknown")
+          )
       }
 
     def receiveDecode[Body: Decoder](
         validate: PartialFunction[Body, Body] = (b: Body) => b
-    ) =
+    ): IO[Body] =
       wsClient.receive.flatMap {
         case Some(WSFrame.Text(data, true)) =>
           decode[Body](data)
@@ -84,8 +81,6 @@ object HAWSApiLowLevel {
       uri: Uri,
       secretToken: String
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
-    import fs2.concurrent.Channel
-    import fs2.concurrent.Topic
     import fs2.concurrent.Topic
     import cats.effect.std.Queue
 
@@ -108,6 +103,12 @@ object HAWSApiLowLevel {
       .flatMap { ha =>
         for {
           // TODO ping pong in the background https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
+
+          // Always new unique id
+          incrementer <- Ref[IO]
+            .of(1)
+            .map(ref => ref.getAndUpdate(_ + 1))
+            .toResource
 
           // Receives all messages. All can listen
           topic <- Topic[IO, WSCommandPhaseServer].toResource
@@ -132,32 +133,31 @@ object HAWSApiLowLevel {
           _ <- topic.subscribeUnbounded
             .through(
               _.evalMap(command =>
-                idQueue(command.id).get.flatMap {
-                  case Some(queue) => queue.offer(command)
-                  case None        => IO.unit
-                } >>
+                (
+                  idQueue(command.id).get.flatMap {
+                    case Some(queue) => queue.offer(command)
+                    case None        => IO.unit
+                  },
                   idDeferreds(command.id).get.flatMap {
-                    case Some(deferred) => deferred.complete(command)
-                    case None           => IO.unit
+                    case Some(deferred) =>
+                      // There is only one deferred complete, so we can safely try to remove it
+                      idDeferreds.unsetKey(command.id) >>
+                        deferred.complete(command)
+                    case None => IO.unit
                   }
+                ).parTupled
               )
             )
             .compile
             .drain
             .background
-
-          // Always new unique id
-          incrementer <- Ref[IO]
-            .of(1)
-            .map(ref => ref.getAndUpdate(_ + 1))
-            .toResource
         } yield {
 
           def sendCommandPhase(id: Int, in: Json): IO[Unit] = {
             // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
             val idJson = Json.obj(("id" -> Json.fromInt(id)))
             val toSend = in.deepMerge(idJson)
-            println(s"Sending ${toSend.spaces4}")
+            println(s"Sending ${toSend.noSpaces}")
             ha.sendText(toSend.noSpaces)
           }
 
@@ -165,22 +165,27 @@ object HAWSApiLowLevel {
             def receiveStream: Stream[IO, WSCommandPhaseServer] =
               topic.subscribeUnbounded
 
-            // todo sendSubscribe (replacement for the one below subscribeStateChanged)
-            def sendCommand[Command: Encoder](
-                command: Command
-            )[Response: Decoder]: IO[(Int, Response)] =
+            def sendCommand[Response](
+                command: CommandPhase & CommandResponse[Response]
+            ): IO[(Int, Response)] =
               (IO.deferred[WSCommandPhaseServer], incrementer).flatMapN {
                 (deferred, id) =>
+                  //  TODO idDeffereds set as Resource
                   (idDeferreds.setKeyValue(id, deferred) >>
-                    sendCommandPhase(id, command.asJson) >> deferred.get)
+                    sendCommandPhase(
+                      id,
+                      (command: CommandPhase).asJson
+                    ) >> deferred.get)
                     .guarantee(idDeferreds.unsetKey(id))
                     .flatMap {
                       case WSCommandPhaseServer.result(
                             _,
                             true,
-                            Some(result),
+                            result,
                             _
                           ) =>
+                        given Decoder[Response] = command.decoder
+
                         result
                           .as[Response]
                           .liftTo[IO]
@@ -189,14 +194,14 @@ object HAWSApiLowLevel {
                             _,
                             false,
                             _,
-                            Some(error)
+                            error
                           ) =>
                         IO.raiseError(
                           new Exception(s"$command failed with $error")
                         )
                       case nonsense =>
                         IO.raiseError(
-                          new Exception(s"$command responsed with $nonsense")
+                          new Exception(s"$command responded with $nonsense")
                         )
                     }
               }
@@ -207,25 +212,22 @@ object HAWSApiLowLevel {
             // todo https://developers.home-assistant.io/docs/api/websocket#subscribe-to-trigger
 
             // https://developers.home-assistant.io/docs/api/websocket#subscribe-to-events
-            // TODO stream instead?
             // TODO event types
-            @Deprecated
-            def subscribeStateChanged
-                : Resource[IO, QueueSource[IO, WSCommandPhaseServer]] =
+            def sendCommandStream(
+                msg: CommandPhase & CommandResponse.Stream
+            ): Resource[IO, QueueSource[IO, WSCommandPhaseServer]] =
               Resource
                 .make(
-                  sendCommandWithResponse(
-                    CommandPhase.subscribe_events(Some("state_changed"))
-                  ).map(_._1)
-                )(id =>
-                  sendCommandWithResponse(
-                    CommandPhase.unsubscribe_events(id)
-                  ).void
-                )
-                .evalMap { id =>
-                  Queue
-                    .synchronous[IO, WSCommandPhaseServer]
-                    .flatMap(q => idQueue(id).set(Some(q)).as(q))
+                  sendCommand(msg).map(_._1)
+                )(id => sendCommand(CommandPhase.unsubscribe_events(id)).void)
+                .flatMap { id =>
+                  //  TODO idQueue set as Resource
+                  // TODO needs to happen before the sendCommand to ensure receiving everything
+                  Resource.make(
+                    Queue
+                      .unbounded[IO, WSCommandPhaseServer]
+                      .flatMap(q => idQueue.setKeyValue(id, q).as(q))
+                  )(_ => idQueue.unsetKey(id))
                 }
           }
         }

@@ -57,8 +57,7 @@ object server {
     case result(
         id: Int,
         success: Boolean,
-        // result: Option[ResultData],
-        result: Option[Json],
+        result: Json,
         error: Option[Json]
     )
     case event(id: Int, event: Event)
