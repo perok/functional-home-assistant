@@ -1,6 +1,7 @@
 package api.homeassistant.ws
 
-import api.homeassistant.ws.server.Event
+import api.homeassistant.ws.server.WSCommandPhaseServer.event
+import api.homeassistant.ws.server.{Event, WSCommandPhaseServer}
 import perok.ha.EntityId
 import io.circe.*
 import io.circe.derivation.{Configuration, ConfiguredEncoder}
@@ -15,8 +16,17 @@ object client {
   object CommandResponse {
 
     // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
-    trait AsEvent extends CommandResponse[Unit] {
+    trait AsStream[R] extends CommandResponse[Unit] {
       val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
+      val f: PartialFunction[WSCommandPhaseServer, R]
+    }
+    object AsStream {
+      trait AsEvent extends AsStream[Event] {
+        val f: PartialFunction[WSCommandPhaseServer, Event] = {
+          case event(_, event) =>
+            event
+        }
+      }
     }
 
     trait AsResult[R](using val resultDecoder: Decoder[R])
@@ -40,7 +50,7 @@ object client {
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case class subscribe_events(event_type: Option[String])
         extends CommandPhase
-        with CommandResponse.AsEvent derives ConfiguredEncoder
+        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)
@@ -53,7 +63,7 @@ object client {
     // TODO
     case class subscribe_trigger(triggerData: List[TriggerData])
         extends CommandPhase
-        with CommandResponse.AsEvent derives ConfiguredEncoder
+        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
   }
 
   /*

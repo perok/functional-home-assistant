@@ -34,9 +34,9 @@ trait HAWSApiLowLevel[F[_]] {
       command: CommandPhase & CommandResponse.AsResult[Response]
   ): IO[Response]
 
-  def subscribeEvents(
-      msg: CommandPhase & CommandResponse.AsEvent
-  ): Resource[IO, QueueSource[IO, Event]]
+  def subscribeStream[Result](
+      msg: CommandPhase & CommandResponse.AsStream[Result]
+  ): Resource[IO, QueueSource[IO, Result]]
 }
 
 object HAWSApiLowLevel {
@@ -222,9 +222,9 @@ object HAWSApiLowLevel {
             // TODO [info] Receiving: {"type":"event","event":{"event_type":"state_changed","data":{"entity_id":"sensor.ams_1a4e_daycost","old_state":{"entity_id":"sensor.ams_1a4e_daycost","state":"113.37","attributes":{"unit_of_measurement":"NOK","device_class":"monetary","friendly_name":"AMS reader Current day cost"},"last_changed":"2025-01-19T21:06:13.631582+00:00","last_reported":"2025-01-19T21:06:13.631582+00:00","last_updated":"2025-01-19T21:06:13.631582+00:00","context":{"id":"01JJ066DZZHGND4KT787YF4F0M","parent_id":null,"user_id":null}},"new_state":{"entity_id":"sensor.ams_1a4e_daycost","state":"113.38","attributes":{"unit_of_measurement":"NOK","device_class":"monetary","friendly_name":"AMS reader Current day cost"},"last_changed":"2025-01-19T21:06:16.124989+00:00","last_reported":"2025-01-19T21:06:16.124989+00:00","last_updated":"2025-01-19T21:06:16.124989+00:00","context":{"id":"01JJ066GDWGK26020G3AKHHVAZ","parent_id":null,"user_id":null}}},"origin":"LOCAL","time_fired":"2025-01-19T21:06:16.124989+00:00","context":{"id":"01JJ066GDWGK26020G3AKHHVAZ","parent_id":null,"user_id":null}},"id":2}
             //   type: trigger
             //   etc
-            def subscribeEvents(
-                msg: CommandPhase & CommandResponse.AsEvent
-            ): Resource[IO, QueueSource[IO, Event]] =
+            def subscribeStream[Result](
+                msg: CommandPhase & CommandResponse.AsStream[Result]
+            ): Resource[IO, QueueSource[IO, Result]] =
               Resource
                 .make(
                   sendCommandWrapper(msg).map(_._1)
@@ -239,11 +239,9 @@ object HAWSApiLowLevel {
                       .unbounded[IO, WSCommandPhaseServer]
                       .flatMap(q => idQueue.setKeyValue(id, q).as(q))
                       .nested
-                      .map {
-                        case WSCommandPhaseServer.event(_, event) =>
-                          event
-                        case other =>
-                          throw new Exception(s"Event stream received $other")
+                      .map { r =>
+                        msg.f(r)
+                        // throw new Exception(s"Event stream received $other")
                       }
                       .value
                   )(_ => idQueue.unsetKey(id))
