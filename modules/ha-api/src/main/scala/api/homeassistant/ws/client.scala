@@ -156,7 +156,7 @@ context:
         notTo: String
     ) extends TriggerData
     // https://www.home-assistant.io/docs/automation/trigger/#sun-trigger
-    case Sun(event: "sunset" | "sunrise", offset: Option[String] = None)
+    case sun(event: "sunset" | "sunrise", offset: Option[String] = None) extends TriggerData
     // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
     // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
@@ -167,8 +167,10 @@ context:
   }
 
   object TriggerData {
-    given Encoder[TriggerData] = ConfiguredEncoder.derive(
-      discriminator = Some("platform")
-    )
+    given Encoder[TriggerData] = ConfiguredEncoder
+      .derive[TriggerData](
+        discriminator = Some("platform")
+      )
+      .mapJson(_.dropNullValues) // null is considered configured in HA
   }
 }
