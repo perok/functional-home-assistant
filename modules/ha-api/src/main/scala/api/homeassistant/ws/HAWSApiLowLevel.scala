@@ -189,11 +189,25 @@ object HAWSApiLowLevel {
                   ) >> deferred.get)
                   .guarantee(idDeferreds.unsetKey(id))
                   .flatMap(_.parsedPayload.liftTo[IO])
+                  .map {
+                    // The logic afterwards expects to parse empty json
+                    // If it's a success without data.
+                    // But the result key is not set on errors, so this helps
+                    // with aligning those two cases.
+                    case d @ WSCommandPhaseServer.result(
+                          _,
+                          true,
+                          None,
+                          _
+                        ) =>
+                      d.copy(result = Some(Json.Null))
+                    case other => other
+                  }
                   .flatMap {
                     case WSCommandPhaseServer.result(
                           _,
                           true,
-                          result,
+                          Some(result),
                           _
                         ) =>
                       given Decoder[Response] = command.resultDecoder
@@ -208,7 +222,9 @@ object HAWSApiLowLevel {
                           error
                         ) =>
                       IO.raiseError(
-                        new Exception(s"$command failed with $error")
+                        new Exception(
+                          s"Message $command failed. Error:\n$error"
+                        )
                       )
                     case nonsense =>
                       IO.raiseError(
