@@ -1,6 +1,7 @@
 package api.homeassistant.ws
 
 import io.circe.Json
+import io.circe.Decoder
 import io.circe.derivation.{ConfiguredCodec, ConfiguredDecoder}
 import defaults.given
 
@@ -53,6 +54,17 @@ object server {
 
   }
 
+  case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
+    lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
+      payload.as[WSCommandPhaseServer]
+  }
+  object WSCommandPhaseServerPayload {
+    given Decoder[WSCommandPhaseServerPayload] = Decoder.instance { cursor =>
+      cursor
+        .get[Int]("id")
+        .map(id => WSCommandPhaseServerPayload(id, cursor.top.get))
+    }
+  }
   enum WSCommandPhaseServer extends WithId derives ConfiguredDecoder {
     case result(
         id: Int,

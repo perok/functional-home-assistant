@@ -2,7 +2,11 @@ package api.homeassistant.ws
 
 import cats.syntax.all.*
 import api.homeassistant.ws.client.{CommandPhase, CommandResponse}
-import api.homeassistant.ws.server.{Event, WSCommandPhaseServer}
+import api.homeassistant.ws.server.{
+  Event,
+  WSCommandPhaseServer,
+  WSCommandPhaseServerPayload
+}
 import cats.effect.kernel.Deferred
 import cats.effect.std.{MapRef, QueueSource}
 import cats.effect.{IO, Ref, Resource}
@@ -112,25 +116,35 @@ object HAWSApiLowLevel {
             .toResource
 
           // Receives all messages. All can listen
-          topic <- Topic[IO, WSCommandPhaseServer].toResource
+          // TODO worth skipping this and go right to defered and queue?
+          //  Means that we accept loosing messages that are not subscribed in any way
+          topic <- Topic[IO, WSCommandPhaseServerPayload].toResource
           _ <- ha
-            .receiveStreamDecode[WSCommandPhaseServer]
+            .receiveStreamDecode[WSCommandPhaseServerPayload]
             .through(topic.publish)
+            // TODO onError restart
             .compile
             .drain
             .background
 
           // Overview of listeners for one specific message
           idDeferreds <- MapRef
-            .ofSingleImmutableMap[IO, Int, Deferred[IO, WSCommandPhaseServer]]()
+            .ofSingleImmutableMap[IO, Int, Deferred[
+              IO,
+              WSCommandPhaseServerPayload
+            ]]()
             .toResource
 
           // Overview of listeners for specific ha subscriptions
           idQueue <- MapRef
-            .ofSingleImmutableMap[IO, Int, Queue[IO, WSCommandPhaseServer]]()
+            .ofSingleImmutableMap[IO, Int, Queue[
+              IO,
+              WSCommandPhaseServerPayload
+            ]]()
             .toResource
 
           // Subscribe to all events and push them to listeners overview
+          // TODO errors in parsing before passing on the message can deadlock things
           _ <- topic.subscribeUnbounded
             .through(
               _.evalMap(command =>
@@ -165,7 +179,7 @@ object HAWSApiLowLevel {
           def sendCommandWrapper[Response](
               command: CommandPhase & CommandResponse[Response]
           ): IO[(Int, Response)] =
-            (IO.deferred[WSCommandPhaseServer], incrementer).flatMapN {
+            (IO.deferred[WSCommandPhaseServerPayload], incrementer).flatMapN {
               (deferred, id) =>
                 //  TODO idDeffereds set as Resource
                 (idDeferreds.setKeyValue(id, deferred) >>
@@ -174,6 +188,7 @@ object HAWSApiLowLevel {
                     (command: CommandPhase).asJson
                   ) >> deferred.get)
                   .guarantee(idDeferreds.unsetKey(id))
+                  .flatMap(_.parsedPayload.liftTo[IO])
                   .flatMap {
                     case WSCommandPhaseServer.result(
                           _,
@@ -203,7 +218,7 @@ object HAWSApiLowLevel {
             }
 
           new HAWSApiLowLevel[IO] {
-            def receiveStream: Stream[IO, WSCommandPhaseServer] =
+            def receiveStream: Stream[IO, WSCommandPhaseServerPayload] =
               topic.subscribeUnbounded
 
             def sendCommand[Response](
@@ -236,12 +251,17 @@ object HAWSApiLowLevel {
                   // TODO needs to happen before the sendCommand to ensure receiving everything
                   Resource.make(
                     Queue
-                      .unbounded[IO, WSCommandPhaseServer]
-                      .flatMap(q => idQueue.setKeyValue(id, q).as(q))
+                      .unbounded[IO, WSCommandPhaseServerPayload]
+                      .flatMap(q =>
+                        idQueue
+                          .setKeyValue(id, q)
+                          .as(q)
+                      )
                       .nested
                       .map { r =>
-                        msg.f(r)
-                        // throw new Exception(s"Event stream received $other")
+                        // TODO handle better
+                        val rr = r.parsedPayload.fold(throw _, identity)
+                        msg.f(rr)
                       }
                       .value
                   )(_ => idQueue.unsetKey(id))
