@@ -5,6 +5,8 @@ import io.circe.Decoder
 import io.circe.derivation.{ConfiguredCodec, ConfiguredDecoder}
 import defaults.given
 
+import scala.util.control.NoStackTrace
+
 object server {
 
   // TODO?
@@ -54,6 +56,10 @@ object server {
 
   }
 
+  case class WSHAError(code: String, message: String) extends NoStackTrace
+      derives ConfiguredCodec {
+    override def getMessage = s"code=$code\n$message"
+  }
   case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
     lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
       payload.as[WSCommandPhaseServer]

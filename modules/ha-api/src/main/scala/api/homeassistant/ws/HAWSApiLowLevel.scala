@@ -3,9 +3,9 @@ package api.homeassistant.ws
 import cats.syntax.all.*
 import api.homeassistant.ws.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.server.{
-  Event,
   WSCommandPhaseServer,
-  WSCommandPhaseServerPayload
+  WSCommandPhaseServerPayload,
+  WSHAError
 }
 import cats.effect.kernel.Deferred
 import cats.effect.std.{MapRef, QueueSource}
@@ -222,9 +222,13 @@ object HAWSApiLowLevel {
                           error
                         ) =>
                       IO.raiseError(
-                        new Exception(
-                          s"Message $command failed. Error:\n$error"
-                        )
+                        error
+                          .flatMap(json => json.as[WSHAError].toOption)
+                          .getOrElse(
+                            new Exception(
+                              s"Message $command failed. Error:\n$error"
+                            )
+                          )
                       )
                     case nonsense =>
                       IO.raiseError(
