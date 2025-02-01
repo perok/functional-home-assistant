@@ -1,6 +1,6 @@
 package api.homeassistant.ws
 
-import api.homeassistant.ws.server.WSCommandPhaseServer.event
+import api.homeassistant.ws.domain.{Device, Entity, Trigger}
 import api.homeassistant.ws.server.{Event, WSCommandPhaseServer}
 import perok.ha.EntityId
 import io.circe.*
@@ -23,8 +23,15 @@ object client {
     object AsStream {
       trait AsEvent extends AsStream[Event] {
         val f: PartialFunction[WSCommandPhaseServer, Event] = {
-          case event(_, event) =>
+          case WSCommandPhaseServer.event(_, event) =>
             event
+        }
+      }
+
+      trait AsTrigger extends AsStream[Json] {
+        val f: PartialFunction[WSCommandPhaseServer, Json] = {
+          case WSCommandPhaseServer.trigger(_, trigger) =>
+            trigger
         }
       }
     }
@@ -34,18 +41,29 @@ object client {
   }
 
   sealed trait CommandPhase derives ConfiguredEncoder
+
+  // https://github.com/home-assistant-ecosystem/home-assistant-cli
   object CommandPhase {
-
-    // https://github.com/home-assistant-ecosystem/home-assistant-cli
     // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/device_registry.py
-
+    // https://github.com/home-assistant/core/blob/efcfd97d1b4a3485ae754c821a65a581491cf677/homeassistant/helpers/device_registry.py#L83-L105
     case class `config/device_registry/list`()
         extends CommandPhase
-        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[List[Device]] derives ConfiguredEncoder
 
-    case class `device_automation/trigger/list`(device_id: String)
+    case class `config/entity_registry/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Entity]] derives ConfiguredEncoder
+
+    // "config/entity_registry/get" https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L93
+    case class `config/entity_registry/get`(entity_id: String)
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+
+
+    // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/device_automation/__init__.py#L422
+    case class `device_automation/trigger/list`(device_id: String)
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Trigger]] derives ConfiguredEncoder
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case class subscribe_events(event_type: Option[String])
@@ -61,9 +79,9 @@ object client {
     // https://www.home-assistant.io/docs/automation/trigger/
     // https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L717-L728
     // TODO
-    case class subscribe_trigger(triggerData: List[TriggerData])
+    case class subscribe_trigger(trigger: List[TriggerData])
         extends CommandPhase
-        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
+        with CommandResponse.AsStream.AsTrigger derives ConfiguredEncoder
   }
 
   /*
@@ -142,12 +160,15 @@ context:
   /*    trait Platform(s: String) {
       val platform: String = s
     }*/
-  enum TriggerData {
+  sealed trait TriggerData
+
+  object TriggerData {
     // TODO https://www.home-assistant.io/docs/automation/trigger/#event-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger
+
     // You cannot use from and not_from at the same time. The same applies to to and not_to.
     // https://www.home-assistant.io/docs/automation/trigger/#state-trigger
-    case State(
+    case class State(
         entity_id: String = "",
         attribute: Option[String],
         from: List[String],
@@ -155,18 +176,20 @@ context:
         to: String,
         notTo: String
     ) extends TriggerData
+
     // https://www.home-assistant.io/docs/automation/trigger/#sun-trigger
-    case sun(event: "sunset" | "sunrise", offset: Option[String] = None) extends TriggerData
+    case class sun(event: "sunset" | "sunrise", offset: Option[String] = None)
+        extends TriggerData
+
     // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
+    case class device(json: Json) extends TriggerData // TODO de nest this?
+
     // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
     // TODO https://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#zone-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#calendar-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#sentence-trigger
-  }
-
-  object TriggerData {
     given Encoder[TriggerData] = ConfiguredEncoder
       .derive[TriggerData](
         discriminator = Some("platform")

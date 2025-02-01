@@ -60,6 +60,7 @@ object server {
       derives ConfiguredCodec {
     override def getMessage = s"code=$code\n$message"
   }
+
   case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
     lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
       payload.as[WSCommandPhaseServer]
@@ -79,5 +80,6 @@ object server {
         error: Option[Json]
     )
     case event(id: Int, event: Event)
+    case trigger(id: Int, trigger: Json)
   }
 }
