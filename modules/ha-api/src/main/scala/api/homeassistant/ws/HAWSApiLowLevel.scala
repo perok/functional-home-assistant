@@ -8,7 +8,7 @@ import api.homeassistant.ws.server.{
   WSHAError
 }
 import cats.effect.kernel.Deferred
-import cats.effect.std.{MapRef, QueueSource}
+import cats.effect.std.{MapRef, Mutex, QueueSource}
 import cats.effect.{IO, Ref, Resource}
 import io.circe.syntax.*
 import io.circe.parser.*
@@ -109,6 +109,7 @@ object HAWSApiLowLevel {
         for {
           // TODO ping pong in the background https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
 
+          mutex <- Mutex[IO].toResource
           // Always new unique id
           incrementer <- Ref[IO]
             .of(1)
@@ -179,63 +180,82 @@ object HAWSApiLowLevel {
           def sendCommandWrapper[Response](
               command: CommandPhase & CommandResponse[Response]
           ): IO[(Int, Response)] =
-            (IO.deferred[WSCommandPhaseServerPayload], incrementer).flatMapN {
-              (deferred, id) =>
-                //  TODO idDeffereds set as Resource
-                (idDeferreds.setKeyValue(id, deferred) >>
-                  sendCommandPhase(
-                    id,
-                    (command: CommandPhase).asJson
-                  ) >> deferred.get)
-                  .guarantee(idDeferreds.unsetKey(id))
-                  .flatMap(_.parsedPayload.liftTo[IO])
-                  .map {
-                    // The logic afterwards expects to parse empty json
-                    // If it's a success without data.
-                    // But the result key is not set on errors, so this helps
-                    // with aligning those two cases.
-                    case d @ WSCommandPhaseServer.result(
-                          _,
-                          true,
-                          None,
-                          _
-                        ) =>
-                      d.copy(result = Some(Json.Null))
-                    case other => other
-                  }
-                  .flatMap {
-                    case WSCommandPhaseServer.result(
-                          _,
-                          true,
-                          Some(result),
-                          _
-                        ) =>
-                      given Decoder[Response] = command.resultDecoder
-                      result
-                        .as[Response]
-                        .liftTo[IO]
-                        .map(response => (id, response))
-                    case WSCommandPhaseServer.result(
-                          _,
-                          false,
-                          _,
-                          error
-                        ) =>
-                      IO.raiseError(
-                        error
-                          .flatMap(json => json.as[WSHAError].toOption)
-                          .getOrElse(
-                            new Exception(
-                              s"Message $command failed. Error:\n$error"
-                            )
-                          )
+            // error code=id_reuse
+            // Mutex s around incrementer and send.
+            // It always has to send the id's linearly.
+            // Waiting can happen async. That's why we trick around with the ref stuff.
+            (
+              IO.ref[Option[Deferred[IO, WSCommandPhaseServerPayload]]](None),
+              IO.ref[Option[Int]](None)
+            ).flatMapN { (deferredRef, idRef) =>
+              mutex.lock
+                .surround(
+                  (
+                    IO.deferred[WSCommandPhaseServerPayload]
+                      .flatTap(d => deferredRef.set(Some(d))),
+                    incrementer.flatTap(id => idRef.set(Some(id)))
+                  )
+                    .flatMapN { (deferred, id) =>
+                      //  TODO idDeffereds set as Resource
+                      idDeferreds.setKeyValue(id, deferred) >>
+                        sendCommandPhase(
+                          id,
+                          (command: CommandPhase).asJson
+                        )
+                    }
+                )
+                .flatMap(_ => deferredRef.get.map(_.get).flatMap(_.get))
+                .guarantee(
+                  // On cancel because of failure then idRef can be not set. Therefore voidError
+                  idRef.get.map(_.get).flatMap(idDeferreds.unsetKey).voidError
+                )
+            }.flatMap(_.parsedPayload.liftTo[IO])
+              .map {
+                // The logic afterwards expects to parse empty json
+                // If it's a success without data.
+                // But the result key is not set on errors, so this helps
+                // with aligning those two cases.
+                case d @ WSCommandPhaseServer.result(
+                      _,
+                      true,
+                      None,
+                      _
+                    ) =>
+                  d.copy(result = Some(Json.Null))
+                case other => other
+              }
+              .flatMap {
+                case WSCommandPhaseServer.result(
+                      id,
+                      true,
+                      Some(result),
+                      _
+                    ) =>
+                  given Decoder[Response] = command.resultDecoder
+                  result
+                    .as[Response]
+                    .liftTo[IO]
+                    .map(response => (id, response))
+                case WSCommandPhaseServer.result(
+                      _,
+                      false,
+                      _,
+                      error
+                    ) =>
+                  IO.raiseError(
+                    error
+                      .flatMap(json => json.as[WSHAError].toOption)
+                      .getOrElse(
+                        new Exception(
+                          s"Message $command failed. Error:\n$error"
+                        )
                       )
-                    case nonsense =>
-                      IO.raiseError(
-                        new Exception(s"$command responded with $nonsense")
-                      )
-                  }
-            }
+                  )
+                case nonsense =>
+                  IO.raiseError(
+                    new Exception(s"$command responded with $nonsense")
+                  )
+              }
 
           new HAWSApiLowLevel[IO] {
             def receiveStream: Stream[IO, WSCommandPhaseServerPayload] =
