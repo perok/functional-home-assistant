@@ -2,6 +2,8 @@ package fh
 
 import smithy4s.Document
 
+import java.nio.file.Path
+
 object util {
 
   def getBitValues(in: Int): List[Int] = {
@@ -14,7 +16,7 @@ object util {
     )
   }
 
-  def writeToFile(path: String, content: String) = {
+  def writeToFile(path: String, content: String): Path = {
     import java.nio.charset.StandardCharsets
     import java.nio.file.{Files, Paths}
 

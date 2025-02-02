@@ -36,6 +36,7 @@ lazy val `fh-domain` = project
   .settings(
     commonSettings,
     libraryDependencies ++= Seq(
+      "io.circe" %% "circe-core" % "0.14.10",
       "org.http4s" %% "http4s-core" % http4sVersion
     )
   )
