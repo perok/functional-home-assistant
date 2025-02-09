@@ -6,36 +6,40 @@ case class Field(
     label: String,
     staticInstantiate: String
 )
+
 trait StaticCode[T] {
   def fields(in: T): List[Field]
   def label: String
-
-  def toStatic(
-      in: T,
-      `type`: String = "object",
-      overrideLabel: Option[String] = None,
-      `extends`: List[String] = List.empty,
-      additionalContent: String = ""
-  ) = {
-
-    val allFields = fields(in)
-      .map { case Field(name, value) =>
-        s"val ${Helpers.paramNameSafe(name)} = $value"
-      }
-      .mkString("\n")
-
-    s"""
-       |object ${Helpers.objectNameSafe(
-        overrideLabel.getOrElse(label)
-      )} ${`extends`.mkString("extends ", ", ", "")} {
-       | $allFields
-       | 
-       | $additionalContent
-       |}
-       |""".stripMargin
-  }
 }
+
 object StaticCode {
+  extension [T](sc: StaticCode[T])
+    def toStatic(
+        in: T,
+        `type`: String = "object",
+        overrideLabel: Option[String] = None,
+        `extends`: List[String] = List.empty,
+        additionalContent: String = ""
+    ): String = {
+
+      val allFields = sc
+        .fields(in)
+        .map { case Field(name, value) =>
+          s"val ${Helpers.paramNameSafe(name)} = $value"
+        }
+        .mkString("\n")
+
+      val label = Helpers.objectNameSafe(overrideLabel.getOrElse(sc.label))
+
+      s"""
+         |${`type`} $label ${`extends`.mkString("extends ", ", ", "")} {
+         | $allFields
+         |
+         | $additionalContent
+         |}
+         |""".stripMargin
+    }
+
   def apply[A](using a: StaticCode[A]): StaticCode[A] = a
 
   given derived[T](using

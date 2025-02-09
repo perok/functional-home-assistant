@@ -1,15 +1,8 @@
-import cats.effect.{IO, Resource}
+import cats.effect.{IO}
 import cats.syntax.all.*
-import perok.ha.{
-  HomeAssistantApiService,
-  PostServiceApiOutput,
-  ServicesApiOutput
-}
+import perok.ha.{HomeAssistantApiService, PostServiceApiOutput}
 import ha.generated.*
 import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.client.TriggerData
-import cats.effect.std.QueueSource
-import io.circe.Json
 import scala.concurrent.duration.*
 
 object hello {
@@ -25,7 +18,7 @@ object hello {
     val switchOveretasje = devices.hue_dimmer_switch_gang_overetasje
     api
       .trigger(
-        switchOveretasje.triggers.remote_button_short_press_turn_on
+        switchOveretasje.triggers.zha.remote_button_short_press_turn_on
       )
       .use(_.take)
       .void

@@ -7,6 +7,7 @@ opaque type EntityId = String
 
 object EntityId {
   def of(in: String): EntityId = in
+  def toString(in: EntityId): String = in
   given Codec[EntityId] = Codec.from(Decoder[String], Encoder[String])
   given ToCode[EntityId] = in => s"EntityId.of(s\"$in\")"
 }

@@ -61,7 +61,7 @@ object Plugin extends IOApp {
       //   serializer.write("test_services.blob", services)
       // }
 
-      codeGenDevices = new CodeGenDevices(allDevices, allTriggers)
+      codeGenDevices = new CodeGenDevices(allDevices, allTriggers, allEntities)
       codeGenEntities = new CodeGenEntities(state)
       codeGenServices = new CodeGenServices(services)
 

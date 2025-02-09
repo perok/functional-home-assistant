@@ -30,7 +30,12 @@ case class Entity(
     platform: String,
     translation_key: Option[String],
     unique_id: String
-) extends IsEntity derives StaticCode
+) extends IsEntity derives StaticCode {
+  def bestName: String = name
+    .flatMap(_.asString)
+    .orElse(original_name)
+    .getOrElse(EntityId.toString(id))
+}
 
 object Entity {
   given Decoder[Entity] = Helper.derived

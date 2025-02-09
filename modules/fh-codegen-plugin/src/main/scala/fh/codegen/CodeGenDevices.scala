@@ -7,9 +7,12 @@ import cats.data.NonEmptyList
 import fh.codegen.utils.*
 
 // TODO split into more files
+// TODO warn about duplicates before compilation issues? That is a case of usually
+// things with a status of not working. Or could we detect that and hide em?
 class CodeGenDevices(
     devices: Map[DeviceId, Device],
-    deviceTriggers: Map[DeviceId, NonEmptyList[DeviceTrigger]]
+    deviceTriggers: Map[DeviceId, NonEmptyList[DeviceTrigger]],
+    entities: Map[EntityId, Entity]
 ) {
   // val platformThenDevices = devices.values.map(d => (d.))
   // area_id, id, name_by_user, name
@@ -24,42 +27,47 @@ class CodeGenDevices(
     val name = device.name_by_user.getOrElse(device.name)
 
     val allTriggers = deviceTriggers.get(id).map(_.toList).toList.flatten
+    val domainGroupedTriggers = allTriggers.groupBy(_.domain)
 
-    val triggers = deviceTriggers
-      .get(id)
-      .nested
-      .map { trigger =>
-        val name = trigger.name
+    def triggerToCode(
+        trigger: DeviceTrigger,
+        nameCollision: Boolean
+    ): String = {
+      val name = trigger.name
 
-        val moreThanOne = allTriggers.count(_.name == name) > 1
+      val controlledName =
+        if nameCollision then
+          s"${name}_${entities(trigger.entity_id.get).bestName}"
+        else name
 
-        val controlledName =
-          // TODO should be entity name
-          if moreThanOne then s"${name}_${trigger.entity_id.get}"
-          else name
+      StaticCode[DeviceTrigger].toStatic(
+        trigger,
+        overrideLabel = Some(controlledName),
+        `extends` = List("IsDeviceTrigger")
+      )
+    }
 
-        StaticCode[DeviceTrigger].toStatic(
-          trigger,
-          overrideLabel = Some(controlledName),
-          `extends` = List("IsDeviceTrigger")
-        )
-      }
-      .value
-      .map { triggers =>
-        triggers.mkString_("  ", "\n", "")
-      }
-      .map { strings =>
-        s"""object triggers {
-          |$strings
-          |}""".stripMargin
-      }
-      .orEmpty
+    val triggers = domainGroupedTriggers
+      .map((domain, triggers) =>
+        val triggersCode = triggers
+          .map(trigger =>
+            triggerToCode(trigger, triggers.count(_.name == trigger.name) > 1)
+          )
+          .mkString("\n")
+
+        s"""object ${Helpers.objectNameSafe(domain)} {
+         |  $triggersCode
+         |}""".stripMargin
+      )
+      .mkString("\n")
 
     StaticCode[Device].toStatic(
       device,
       overrideLabel = Some(name),
       `extends` = List("IsDevice"),
-      additionalContent = triggers
+      additionalContent = s"""object triggers {
+           |$triggers
+           |}""".stripMargin
     )
   }
 

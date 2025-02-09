@@ -22,7 +22,8 @@ trait HomeAssistantApi[F[_]] {
   def configDeviceRegistryList: IO[Map[DeviceId, Device]]
 
   def configEntityRegistryList
-      : IO[List[Entity]] // Exposes entity_id and device_id
+      : IO[Map[EntityId, Entity]] // Exposes entity_id and device_id
+
   def configEntityRegistryGet(entityId: EntityId): IO[Json]
 
   def deviceAutomationTriggerList(deviceId: DeviceId): IO[List[DeviceTrigger]]
@@ -53,9 +54,13 @@ object HomeAssistantApi {
           .value
           .map(_.toMap)
 
-      def configEntityRegistryList: IO[List[Entity]] =
+      def configEntityRegistryList: IO[Map[EntityId, Entity]] =
         in.sendCommand(`config/entity_registry/list`())
-          .map(_.filter(e => e.disabled_by.isEmpty || e.hidden_by.isEmpty))
+          .nested
+          .filter(e => e.disabled_by.isEmpty || e.hidden_by.isEmpty)
+          .map(device => (device.id, device))
+          .value
+          .map(_.toMap)
 
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))
