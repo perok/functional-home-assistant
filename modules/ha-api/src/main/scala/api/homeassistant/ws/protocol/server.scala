@@ -1,9 +1,8 @@
-package api.homeassistant.ws
+package api.homeassistant.ws.protocol
 
-import io.circe.Json
-import io.circe.Decoder
+import api.homeassistant.ws.utils.defaults.given
+import io.circe.{Decoder, Json}
 import io.circe.derivation.{ConfiguredCodec, ConfiguredDecoder}
-import defaults.given
 
 import scala.util.control.NoStackTrace
 
@@ -72,7 +71,7 @@ object server {
         .map(id => WSCommandPhaseServerPayload(id, cursor.top.get))
     }
   }
-  enum WSCommandPhaseServer extends WithId derives ConfiguredDecoder {
+  enum WSCommandPhaseServer derives ConfiguredDecoder {
     case result(
         id: Int,
         success: Boolean,

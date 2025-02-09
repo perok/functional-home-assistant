@@ -3,11 +3,11 @@ package api.homeassistant
 import api.DocumentJson
 import api.homeassistant.ws.HAWSApiLowLevel
 import cats.syntax.all.*
-import api.homeassistant.ws.client.CommandPhase.*
-import api.homeassistant.ws.client.TriggerData
+import api.homeassistant.ws.protocol.client.CommandPhase.*
+import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
 import ha.runtime.definitions.{EntityId, DeviceId}
-import api.homeassistant.ws.server.Event
+import api.homeassistant.ws.protocol.server.Event
 import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
 import io.circe.{Decoder, Json}

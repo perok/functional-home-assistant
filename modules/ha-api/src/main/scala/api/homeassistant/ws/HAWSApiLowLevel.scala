@@ -1,8 +1,8 @@
 package api.homeassistant.ws
 
 import cats.syntax.all.*
-import api.homeassistant.ws.client.{CommandPhase, CommandResponse}
-import api.homeassistant.ws.server.{
+import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
+import api.homeassistant.ws.protocol.server.{
   WSCommandPhaseServer,
   WSCommandPhaseServerPayload,
   WSHAError

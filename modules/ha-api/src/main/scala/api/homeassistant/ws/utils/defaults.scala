@@ -1,4 +1,4 @@
-package api.homeassistant.ws
+package api.homeassistant.ws.utils
 
 import io.circe.derivation.Configuration
 

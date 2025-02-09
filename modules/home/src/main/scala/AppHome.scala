@@ -1,7 +1,7 @@
 //import scala.meta.* // scalameta for code generation. does not support dotty
 
 import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.client.TriggerData
+import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
 import ha.runtime.definitions.{EntityId, DeviceId}
 import cats.data.NonEmptyList

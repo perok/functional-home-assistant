@@ -1,7 +1,7 @@
-package api.homeassistant.ws
+package api.homeassistant.ws.protocol
 
+import api.homeassistant.ws.utils.defaults.given
 import io.circe.derivation.{ConfiguredDecoder, ConfiguredEncoder}
-import defaults.given
 
 object authentication {
 

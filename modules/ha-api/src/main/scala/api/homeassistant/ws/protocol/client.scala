@@ -1,12 +1,12 @@
-package api.homeassistant.ws
+package api.homeassistant.ws.protocol
 
-import api.homeassistant.ws.server.{Event, WSCommandPhaseServer}
 import api.homeassistant.ws.domain.*
-import io.circe.*
-import io.circe.syntax.*
-import io.circe.derivation.{Configuration, ConfiguredEncoder}
-import defaults.given
+import server.{Event, WSCommandPhaseServer}
+import api.homeassistant.ws.utils.defaults.given
 import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
+import io.circe.*
+import io.circe.derivation.{Configuration, ConfiguredEncoder}
+import io.circe.syntax.*
 
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
