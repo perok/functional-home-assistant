@@ -61,8 +61,15 @@ object Plugin extends IOApp {
       //   serializer.write("test_services.blob", services)
       // }
 
+      codeGenDevices = new CodeGenDevices(allDevices, allTriggers)
       codeGenEntities = new CodeGenEntities(state)
       codeGenServices = new CodeGenServices(services)
+
+      _ = fh.util.writeToFile(
+        s"$outputDirectory/ha/generated/CodeGeneratedDevice.scala",
+        codeGenDevices.code
+      )
+
       _ = fh.util.writeToFile(
         s"$outputDirectory/ha/generated/CodeGenerated.scala",
         codeGenEntities.entitiesCode

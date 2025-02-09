@@ -2,7 +2,8 @@
 
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.client.TriggerData
-import api.homeassistant.ws.domain.{DeviceId, DeviceTrigger}
+import api.homeassistant.ws.domain.*
+import ha.runtime.definitions.{EntityId, DeviceId}
 import cats.data.NonEmptyList
 import cats.effect.*
 import cats.effect.syntax.all.*
@@ -27,31 +28,7 @@ object AppHome extends IOApp.Simple {
 
       allEntities <- api.configEntityRegistryList.debug("entities")
 
-      allDevices <- api.configDeviceRegistryList
-
-      allTriggers <- allDevices.values.toSeq
-        .parTraverseN(10) { device =>
-          wsApi
-            .deviceAutomationTriggerList(device.id)
-            .map(triggers => (device.id, triggers))
-        }
-        .map(_.toMap.mapFilter(NonEmptyList.fromList))
-        .debug("done")
-
-      _ <- allEntities
-        .find(e => e.device_id.nonEmpty && e.name.nonEmpty)
-        .traverse { entity =>
-
-          val d = allDevices.get(entity.device_id.get)
-
-          pprint.pprintln(entity)
-          pprint.pprintln(d)
-
-          api
-            .deviceAutomationTriggerList(d.get.id)
-            .debug("automatins")
-        }
-        .whenA(false)
+      _ <- hello.testTrigger(api)
 
       // _ <- wsApi
       //   .event(Some("state_changed"))

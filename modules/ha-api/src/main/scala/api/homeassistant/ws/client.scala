@@ -1,11 +1,12 @@
 package api.homeassistant.ws
 
-import api.homeassistant.ws.domain.{Device, Entity, Trigger}
 import api.homeassistant.ws.server.{Event, WSCommandPhaseServer}
-import perok.ha.EntityId
+import api.homeassistant.ws.domain.*
 import io.circe.*
+import io.circe.syntax.*
 import io.circe.derivation.{Configuration, ConfiguredEncoder}
 import defaults.given
+import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
 
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
@@ -30,8 +31,8 @@ object client {
 
       trait AsTrigger extends AsStream[Json] {
         val f: PartialFunction[WSCommandPhaseServer, Json] = {
-          case WSCommandPhaseServer.trigger(_, trigger) =>
-            trigger
+          case WSCommandPhaseServer.trigger(_, event) =>
+            event
         }
       }
     }
@@ -54,16 +55,19 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[Entity]] derives ConfiguredEncoder
 
-    // "config/entity_registry/get" https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L93
-    case class `config/entity_registry/get`(entity_id: String)
+    // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L93
+    case class `config/entity_registry/get`(entity_id: EntityId)
+        extends CommandPhase
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
 
     // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/device_automation/__init__.py#L422
-    case class `device_automation/trigger/list`(device_id: String)
+    case class `device_automation/trigger/list`(device_id: DeviceId)
         extends CommandPhase
-        with CommandResponse.AsResult[List[Trigger]] derives ConfiguredEncoder
+        with CommandResponse.AsResult[List[DeviceTrigger]]
+        derives ConfiguredEncoder
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case class subscribe_events(event_type: Option[String])
@@ -181,8 +185,13 @@ context:
     case class sun(event: "sunset" | "sunrise", offset: Option[String] = None)
         extends TriggerData
 
-    // TODO https://www.home-assistant.io/docs/automation/trigger/#device-triggers
-    case class device(json: Json) extends TriggerData // TODO de nest this?
+    // https://www.home-assistant.io/docs/automation/trigger/#device-triggers
+    case class device(deviceTrigger: DeviceTrigger) extends TriggerData
+    object device {
+      given Encoder[device] = Encoder.instance { d =>
+        d.deviceTrigger.asJson
+      }
+    }
 
     // TODO https://www.home-assistant.io/docs/automation/trigger/#time-trigger
     // TODO https://www.home-assistant.io/docs/automation/trigger/#sensors-of-datetime-device-class
@@ -196,4 +205,7 @@ context:
       )
       .mapJson(_.dropNullValues) // null is considered configured in HA
   }
+
+  given Conversion[IsDeviceTrigger, TriggerData] = in =>
+    TriggerData.device(summon[Conversion[IsDeviceTrigger, DeviceTrigger]](in))
 }

@@ -1,14 +1,13 @@
-package api.homeassistant.ws.domain
+package fh.domain.utils
 
 import io.circe.Decoder
 
 import scala.deriving.Mirror
 
-
 object Helper {
   inline final def derived[A <: Product](using
-                                         inline A: Mirror.Of[A]
-                                        ): Decoder[A] = {
+      inline A: Mirror.Of[A]
+  ): Decoder[A] = {
     val decoder = Decoder.derived[A]
 
     Decoder { cursor =>

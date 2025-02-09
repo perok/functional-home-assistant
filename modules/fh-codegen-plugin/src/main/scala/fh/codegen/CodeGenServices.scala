@@ -8,6 +8,7 @@ import scala.util.chaining.*
 // TODO should this wrapping be on the API layer as the types exposed?
 // Then codegen with scalameta can produce the actual code here that is just variations of that
 
+// TODO migrate to StaticCode
 class CodeGenServices(
     services: List[ServiceDomain]
 ) {

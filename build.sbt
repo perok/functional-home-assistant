@@ -1,7 +1,7 @@
 import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
 
-val scala3Version = "3.6.2"
+val scala3Version = "3.6.3"
 
 val http4sVersion = "0.23.30"
 
@@ -9,13 +9,16 @@ val commonSettings = Seq(
   scalaVersion := scala3Version,
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.5.7",
+    "io.scalaland" %% "chimney" % "1.7.3",
     "com.lihaoyi" %% "pprint" % "0.9.0"
   )
 )
+addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
   .enablePlugins(Smithy4sCodegenPlugin)
+  .dependsOn(`fh-domain`)
   .settings(
     commonSettings,
     libraryDependencies ++= Seq(
@@ -36,6 +39,7 @@ lazy val `fh-domain` = project
   .settings(
     commonSettings,
     libraryDependencies ++= Seq(
+      "org.typelevel" %% "shapeless3-deriving" % "3.4.3",
       "io.circe" %% "circe-core" % "0.14.10",
       "org.http4s" %% "http4s-core" % http4sVersion
     )

@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import perok.ha.*
 import Helpers.*
 
+// TODO migrate to StaticCode
 class CodeGenEntities(
     entities: List[GetStatesData]
 ) {

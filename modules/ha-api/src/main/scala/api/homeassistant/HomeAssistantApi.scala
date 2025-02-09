@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import api.homeassistant.ws.client.CommandPhase.*
 import api.homeassistant.ws.client.TriggerData
 import api.homeassistant.ws.domain.*
+import ha.runtime.definitions.{EntityId, DeviceId}
 import api.homeassistant.ws.server.Event
 import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
@@ -47,12 +48,14 @@ object HomeAssistantApi {
       def configDeviceRegistryList: IO[Map[DeviceId, Device]] =
         in.sendCommand(`config/device_registry/list`())
           .nested
+          .filter(_.disabled_by.isEmpty)
           .map(device => (device.id, device))
           .value
           .map(_.toMap)
 
       def configEntityRegistryList: IO[List[Entity]] =
         in.sendCommand(`config/entity_registry/list`())
+          .map(_.filter(e => e.disabled_by.isEmpty || e.hidden_by.isEmpty))
 
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))

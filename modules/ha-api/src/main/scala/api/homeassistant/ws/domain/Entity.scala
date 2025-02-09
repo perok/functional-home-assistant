@@ -1,19 +1,11 @@
 package api.homeassistant.ws.domain
 
-import io.circe.{Codec, Decoder, Json, Encoder}
+import fh.codegen.utils.{StaticCode, ToCode}
+import fh.domain.utils.Helper
+import ha.runtime.definitions.*
+import io.circe.{Codec, Decoder, Encoder, Json}
 
-opaque type DeviceId = String
-object DeviceId {
-  def of(in: String): DeviceId = in
-  given Codec[DeviceId] = Codec.from(Decoder[String], Encoder[String])
-}
-
-opaque type EntityId = String
-
-object EntityId {
-  given Codec[EntityId] = Codec.from(Decoder[String], Encoder[String])
-}
-
+given ToCode[Json] = in => "io.circe.Json.obj()" // TODO
 // platform, device_id, entity_id
 // has_entity_name, name
 // original_name
@@ -38,9 +30,7 @@ case class Entity(
     platform: String,
     translation_key: Option[String],
     unique_id: String
-) {
-  lazy val domain: String = entity_id.split('.')(0)
-}
+) extends IsEntity derives StaticCode
 
 object Entity {
   given Decoder[Entity] = Helper.derived
@@ -63,12 +53,12 @@ case class Device(
     serial_number: Option[String],
     modified_at: Json,
     name_by_user: Option[String],
-    name: Option[Json],
+    name: String,
     primary_config_entry: Option[String],
     serial_numer: Option[String],
     sw_version: Option[String],
     via_device_id: Option[String]
-)
+) extends IsDevice derives StaticCode
 
 object Device {
   given Decoder[Device] = Helper.derived
@@ -82,8 +72,17 @@ case class DeviceTrigger(
     domain: String,
     subtype: Option[String],
     metadata: Json
-) derives Encoder
+) extends IsDeviceTrigger derives Encoder, StaticCode
 
 object DeviceTrigger {
+  import io.scalaland.chimney.dsl._
+
   given Decoder[DeviceTrigger] = Helper.derived
+  given Conversion[IsDeviceTrigger, DeviceTrigger] = trigger =>
+    trigger
+      .into[DeviceTrigger]
+      .enableInheritedAccessors
+      .enableMethodAccessors
+      .transform
+
 }

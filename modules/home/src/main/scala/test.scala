@@ -6,6 +6,11 @@ import perok.ha.{
   ServicesApiOutput
 }
 import ha.generated.*
+import api.homeassistant.HomeAssistantApi
+import api.homeassistant.ws.client.TriggerData
+import cats.effect.std.QueueSource
+import io.circe.Json
+import scala.concurrent.duration.*
 
 object hello {
   // TODO https://developers.home-assistant.io/docs/core/entity/light/
@@ -16,8 +21,20 @@ object hello {
   // lys.turn_on()
 
   // services.input_button.Press
+  def testTrigger(api: HomeAssistantApi[IO]): IO[Unit] = {
+    val switchOveretasje = devices.hue_dimmer_switch_gang_overetasje
+    api
+      .trigger(
+        switchOveretasje.triggers.remote_button_short_press_turn_on
+      )
+      .use(_.take)
+      .void
+      .timeout(2.seconds)
+  }
 
-  def testit(api: HomeAssistantApiService[IO]): IO[PostServiceApiOutput] = {
+  def postServiceApiTest(
+      api: HomeAssistantApiService[IO]
+  ): IO[PostServiceApiOutput] = {
     val lys2 = entities.light.plantelys
     val service = services.light.Toggle()
     // val service= services.light.Toggle()
