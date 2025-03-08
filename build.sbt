@@ -1,12 +1,14 @@
 import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
-
-val scala3Version = "3.6.3"
+import org.typelevel.scalacoptions.ScalacOptions
 
 val http4sVersion = "0.23.30"
 
 val commonSettings = Seq(
-  scalaVersion := scala3Version,
+  scalaVersion := "3.6.4",
+  tpolecatExcludeOptions ++= Set(
+    ScalacOptions.fatalWarnings
+  ),
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.5.7",
     "io.scalaland" %% "chimney" % "1.7.3",
@@ -39,7 +41,7 @@ lazy val `fh-domain` = project
   .settings(
     commonSettings,
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "shapeless3-deriving" % "3.4.3",
+      "org.typelevel" %% "shapeless3-deriving" % "3.5.0",
       "io.circe" %% "circe-core" % "0.14.10",
       "org.http4s" %% "http4s-core" % http4sVersion
     )
@@ -56,8 +58,10 @@ lazy val `fh-codegen-plugin` = project
   .dependsOn(`ha-api`, `fh-domain`)
   .settings(
     commonSettings,
+    // TOdo alias instead
+    // fhTaskCodeGen := (ThisBuild / scalafmt).dependsOn(fhTaskCodeGen),
     libraryDependencies ++= Seq(
-      // "org.scalameta" %% "scalameta" % "4.12.6",
+      // "org.scalameta" %% "scalameta" % "4.12.7", https://github.com/scalameta/scalameta/issues/4145
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
       "io.circe" %% "circe-core" % "0.14.10",
@@ -91,6 +95,10 @@ lazy val home = project // using the others as if they are libs
       "SERVER" -> (`home-codegen` / haUrl).value,
       "SECRET" -> secretToken
     ),
+    run / javaOptions ++= Seq(
+      "-Dcats.effect.tracing.mode=full"
+      // "-Dcats.effect.tracing.buffer.size=1024"
+    ),
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
@@ -115,7 +123,7 @@ lazy val root = project
     commonSettings,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.0.4" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.1.0" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
