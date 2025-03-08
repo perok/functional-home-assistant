@@ -1,6 +1,7 @@
 package fh.codegen
 
 //import scala.meta.* // scalameta for code generation. does not support dotty
+import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.syntax.all.*
 import cats.effect.*
@@ -15,7 +16,9 @@ object Plugin extends IOApp {
       haServer <- Uri.fromString(args(1)).liftTo[IO]
       outputDirectory = args(0)
       haSecret = args(2)
-      _ <- program(outputDirectory, haServer, haSecret).use_
+      _ <- FHApi
+        .from(haServer, haSecret)
+        .use(api => program(outputDirectory, api))
     } yield ExitCode.Success
 
   // TODO Get all sensors
@@ -26,21 +29,26 @@ object Plugin extends IOApp {
 
   def program(
       outputDirectory: String,
-      api: Uri,
-      secretToken: String
-  ): Resource[IO, Unit] =
+      api: HomeAssistantApi[IO]
+  ): IO[Unit] =
     for {
-      api <- FHApi.from(api, secretToken)
       // _ <- service.postServiceApi("", "", "hello").toResource
       // _ <- hello.testit(service).debug("operatin").toResource
       (state, services) <- (
         api.getStates,
         api.getServices
-      ).parTupled.toResource
+      ).parTupled
 
-      allEntities <- api.configEntityRegistryList.debug("entities").toResource
+      allEntities <- api.configEntityRegistryList.debug("entities")
 
-      allDevices <- api.configDeviceRegistryList.toResource
+      allDevices <- api.configDeviceRegistryList
+
+      allManifests <- api
+        .manifestList()
+        .map(_.map(m => (m.domain, m)).toMap)
+      allConfigEntries <- api
+        .configEntriesGet()
+        .map(_.map(c => (c.entry_id, c)).toMap)
 
       allTriggers <- allDevices.values.toSeq
         .parTraverseN(10) { device =>
@@ -49,8 +57,6 @@ object Plugin extends IOApp {
             .map(triggers => (device.id, triggers))
         }
         .map(_.toMap.mapFilter(NonEmptyList.fromList))
-        .debug("Triggers")
-        .toResource
 
       // (state, services) = (
       //   serializer.read[List[GetStatesData]]("test_state.blob"),
@@ -61,7 +67,13 @@ object Plugin extends IOApp {
       //   serializer.write("test_services.blob", services)
       // }
 
-      codeGenDevices = new CodeGenDevices(allDevices, allTriggers, allEntities)
+      codeGenDevices = new CodeGenDevices(
+        allManifests,
+        allConfigEntries,
+        allDevices,
+        allTriggers,
+        allEntities
+      )
       codeGenEntities = new CodeGenEntities(state)
       codeGenServices = new CodeGenServices(services)
 

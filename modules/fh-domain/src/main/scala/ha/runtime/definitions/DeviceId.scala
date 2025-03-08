@@ -1,7 +1,7 @@
 package ha.runtime.definitions
 
 import fh.codegen.utils.ToCode
-import io.circe.{Codec, Decoder, Encoder, Json}
+import io.circe.{Codec, Decoder, Encoder}
 
 opaque type DeviceId = String
 object DeviceId {

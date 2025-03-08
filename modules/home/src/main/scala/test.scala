@@ -1,4 +1,4 @@
-import cats.effect.{IO}
+import cats.effect.IO
 import cats.syntax.all.*
 import perok.ha.{HomeAssistantApiService, PostServiceApiOutput}
 import ha.generated.*
@@ -15,7 +15,10 @@ object hello {
 
   // services.input_button.Press
   def testTrigger(api: HomeAssistantApi[IO]): IO[Unit] = {
-    val switchOveretasje = devices.hue_dimmer_switch_gang_overetasje
+
+    val switchOveretasje =
+      integrations.`Zigbee Home Automation`.`Home Assistant SkyConnect`.hue_dimmer_switch_gang_overetasje
+
     api
       .trigger(
         switchOveretasje.triggers.zha.remote_button_short_press_turn_on

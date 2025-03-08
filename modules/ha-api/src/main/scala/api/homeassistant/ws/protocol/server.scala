@@ -8,11 +8,6 @@ import scala.util.control.NoStackTrace
 
 object server {
 
-  // TODO?
-  enum SubscribeTypes {
-    case state_changed
-  }
-
   case class ResultContext(
       id: String,
       parent_id: Option[Json],
@@ -79,6 +74,7 @@ object server {
         error: Option[Json]
     )
     case event(id: Int, event: Event)
-    case trigger(id: Int, trigger: Json)
+    // TODO trigger is still keyed by "event"
+    case trigger(id: Int, event: Json)
   }
 }

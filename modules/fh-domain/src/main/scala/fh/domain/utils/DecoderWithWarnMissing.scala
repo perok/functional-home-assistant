@@ -4,7 +4,7 @@ import io.circe.Decoder
 
 import scala.deriving.Mirror
 
-object Helper {
+object DecoderWithWarnMissing {
   inline final def derived[A <: Product](using
       inline A: Mirror.Of[A]
   ): Decoder[A] = {

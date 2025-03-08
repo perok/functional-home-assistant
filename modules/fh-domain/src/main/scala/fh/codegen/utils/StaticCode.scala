@@ -42,22 +42,21 @@ object StaticCode {
 
   def apply[A](using a: StaticCode[A]): StaticCode[A] = a
 
-  given derived[T](using
+  def derived[T](using
       inst: K0.ProductInstances[ToCode, T],
       labelling: Labelling[T]
-  ): StaticCode[T] with
-    val label = labelling.label
+  ): StaticCode[T] = new StaticCode[T]:
+    val label: String = labelling.label
 
+    private val elemLabels = labelling.elemLabels.zipWithIndex.toList
     def fields(t: T): List[Field] =
-      labelling.elemLabels.zipWithIndex
-        .map((label, i) =>
-          val stringInstantiatedValue = inst.project(t)(i)(
-            [t] => (tc: ToCode[t], v: t) => tc.staticInstantiate(v)
-          )
-
-          Field(label, stringInstantiatedValue)
+      elemLabels.map((label, i) =>
+        val stringInstantiatedValue = inst.project(t)(i)(
+          [t] => (tc: ToCode[t], v: t) => tc.staticInstantiate(v)
         )
-        .toList
+
+        Field(label, stringInstantiatedValue)
+      )
 
 }
 

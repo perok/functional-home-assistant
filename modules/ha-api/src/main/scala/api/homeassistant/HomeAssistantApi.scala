@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import api.homeassistant.ws.protocol.client.CommandPhase.*
 import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
-import ha.runtime.definitions.{EntityId, DeviceId}
+import ha.runtime.definitions.*
 import api.homeassistant.ws.protocol.server.Event
 import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
@@ -25,6 +25,13 @@ trait HomeAssistantApi[F[_]] {
       : IO[Map[EntityId, Entity]] // Exposes entity_id and device_id
 
   def configEntityRegistryGet(entityId: EntityId): IO[Json]
+
+  def manifestList(): IO[List[Manifest]]
+
+  def configEntriesGet(
+      type_filter: List[String] = List.empty,
+      domain: Option[String] = None
+  ): IO[List[ConfigEntry]]
 
   def deviceAutomationTriggerList(deviceId: DeviceId): IO[List[DeviceTrigger]]
 
@@ -64,6 +71,22 @@ object HomeAssistantApi {
 
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))
+
+      def manifestList(): IO[List[Manifest]] =
+        in.sendCommand(`manifest/list`())
+        
+      def configEntriesGet(
+          type_filter: List[String] = List.empty,
+          domain: Option[String] = None
+      ): IO[List[ConfigEntry]] =
+        in.sendCommand(
+          `config_entries/get`(
+            //   Option.when(type_filter.nonEmpty)(type_filter),
+            //  domain
+          )
+        ).nested
+          .filter(_.state == "loaded")
+          .value
 
       def deviceAutomationTriggerList(
           deviceId: DeviceId

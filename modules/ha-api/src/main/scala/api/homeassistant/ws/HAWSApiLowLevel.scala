@@ -92,7 +92,7 @@ object HAWSApiLowLevel {
     client
       .connectHighLevel(WSRequest(uri))
       .evalTap { ha =>
-        import authentication.WSAuthenticationPhase
+        import api.homeassistant.ws.protocol.authentication.WSAuthenticationPhase
         for {
           _ <- ha.receiveDecode[WSAuthenticationPhase] {
             case a @ WSAuthenticationPhase.auth_required => a

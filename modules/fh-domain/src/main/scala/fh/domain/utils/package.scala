@@ -27,7 +27,7 @@ val pprint: PPrinter = _root_.pprint
         "Json",
         Iterator(
           pprint.treeify(
-            a.noSpaces,
+            a.spaces4,
             _root_.pprint.defaultEscapeUnicode,
             _root_.pprint.defaultShowFieldNames
           )

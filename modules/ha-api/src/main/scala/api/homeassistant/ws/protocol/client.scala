@@ -45,6 +45,26 @@ object client {
 
   // https://github.com/home-assistant-ecosystem/home-assistant-cli
   object CommandPhase {
+    //
+    // Stuff
+    //
+
+    //
+    // Configs
+    //
+
+    case class `manifest/list`( // integrations: Option[String]
+    ) extends CommandPhase
+        with CommandResponse.AsResult[List[Manifest]] derives ConfiguredEncoder
+
+    // TODO config_entries/* https://github.com/home-assistant/core/blob/7c9d30eb067f6d7ae9b0315f7d77ed5e01e5a1d7/homeassistant/components/config/config_entries.py#L480
+    case class `config_entries/get`(
+        // type_filter: Option[List[String]],
+        // domain: Option[String]
+    ) extends CommandPhase
+        with CommandResponse.AsResult[List[ConfigEntry]]
+        derives ConfiguredEncoder
+
     // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/device_registry.py
     // https://github.com/home-assistant/core/blob/efcfd97d1b4a3485ae754c821a65a581491cf677/homeassistant/helpers/device_registry.py#L83-L105
     case class `config/device_registry/list`()
@@ -59,6 +79,10 @@ object client {
     case class `config/entity_registry/get`(entity_id: EntityId)
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+
+    //
+    // Devices
+    //
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
@@ -68,6 +92,10 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[DeviceTrigger]]
         derives ConfiguredEncoder
+
+    //
+    // Subscriptions
+    //
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     case class subscribe_events(event_type: Option[String])
