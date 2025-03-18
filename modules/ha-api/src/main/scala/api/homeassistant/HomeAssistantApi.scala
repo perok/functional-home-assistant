@@ -111,7 +111,7 @@ object HomeAssistantApi {
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         restApi
           .template(template)
-          .flatMap(_.output.decode(DocumentJson.decoder).liftTo[IO])
+          .flatMap(_.output.decode(using DocumentJson.decoder).liftTo[IO])
           .flatMap(_.as[Body].liftTo[IO])
     }
 

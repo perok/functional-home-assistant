@@ -7,9 +7,9 @@ import scala.concurrent.duration.*
 
 object hello {
   // TODO https://developers.home-assistant.io/docs/core/entity/light/
-  val lys = entities.light.`lysgruppe Bibliotek`
+  val lys = entities.light.hue_led_list_kjokken_light
 
-  entities.automation.off
+  // entities.automation.off
   services.light.`Turn on`()
   // lys.turn_on()
 
@@ -31,7 +31,7 @@ object hello {
   def postServiceApiTest(
       api: HomeAssistantApiService[IO]
   ): IO[PostServiceApiOutput] = {
-    val lys2 = entities.light.plantelys
+    val lys2 = entities.light.plug
     val service = services.light.Toggle()
     // val service= services.light.Toggle()
 

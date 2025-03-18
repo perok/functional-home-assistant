@@ -21,7 +21,10 @@ case class ConfigEntry(
     disabled_by: Option[String]
 ) extends IsConfigEntry derives Encoder, Decoder
 
-given ToCode[Json] = in => "io.circe.Json.obj()" // TODO
+given ToCode[Json] = in =>
+  s"io.circe.Json.obj(${
+      if in != Json.obj() then s"/*${in.spaces4}*/" else ""
+    })" // TODO
 
 // platform, device_id, entity_id
 // has_entity_name, name
@@ -29,7 +32,7 @@ given ToCode[Json] = in => "io.circe.Json.obj()" // TODO
 case class Entity(
     area_id: Option[String],
     categories: Json,
-    config_entry_id: Option[String],
+    config_entry_id: Option[String], // TODO entryid?
     created_at: Double,
     device_id: Option[DeviceId],
     disabled_by: Option[String],
@@ -50,7 +53,7 @@ case class Entity(
 ) extends IsEntity derives StaticCode {
   def bestName: String = name
     .orElse(original_name)
-    .getOrElse(EntityId.toString(id))
+    .getOrElse(ReadableEntityId.toString(entity_id))
 }
 
 object Entity {

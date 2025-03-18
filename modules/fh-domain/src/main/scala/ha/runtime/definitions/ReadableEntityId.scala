@@ -9,6 +9,7 @@ object ReadableEntityId {
   inline def of(in: String): ReadableEntityId = in
   inline def toString(in: ReadableEntityId): String = in
   def domain(in: ReadableEntityId): String = in.split('.')(0)
+  def name(in: ReadableEntityId): String = in.split('.')(1)
   given Codec[ReadableEntityId] = Codec.from(Decoder[String], Encoder[String])
   given ToCode[ReadableEntityId] = in => s"ReadableEntityId.of(s\"$in\")"
 }

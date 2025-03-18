@@ -67,25 +67,31 @@ object Plugin extends IOApp {
       //   serializer.write("test_services.blob", services)
       // }
 
+      given AbsolutePosition = AbsolutePosition(
+        outputDirectory,
+        List("ha", "generated")
+      )
+
+      codeGenEntities2 = new CodeGenEntities2(allEntities)
       codeGenDevices = new CodeGenDevices(
         allManifests,
         allConfigEntries,
         allDevices,
         allTriggers,
-        allEntities
+        codeGenEntities2.refererenceOverview
       )
-      codeGenEntities = new CodeGenEntities(state)
+
       codeGenServices = new CodeGenServices(services)
+
+      _ = codeGenEntities2.refererenceOverview.values.foreach { thing =>
+        fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
+      }
 
       _ = fh.util.writeToFile(
         s"$outputDirectory/ha/generated/CodeGeneratedDevice.scala",
         codeGenDevices.code
       )
 
-      _ = fh.util.writeToFile(
-        s"$outputDirectory/ha/generated/CodeGenerated.scala",
-        codeGenEntities.entitiesCode
-      )
       _ = fh.util.writeToFile(
         s"$outputDirectory/ha/generated/CodeGeneratedServices.scala",
         codeGenServices.serviceCode

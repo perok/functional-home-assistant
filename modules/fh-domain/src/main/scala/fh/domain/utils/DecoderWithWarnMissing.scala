@@ -8,7 +8,7 @@ object DecoderWithWarnMissing {
   inline final def derived[A <: Product](using
       inline A: Mirror.Of[A]
   ): Decoder[A] = {
-    val decoder = Decoder.derived[A]
+    val decoder = Decoder.derived[A](using A)
 
     Decoder { cursor =>
       decoder(cursor).map { entity =>

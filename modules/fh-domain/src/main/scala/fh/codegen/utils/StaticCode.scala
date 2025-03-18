@@ -19,6 +19,7 @@ object StaticCode {
         `type`: String = "object",
         overrideLabel: Option[String] = None,
         `extends`: List[String] = List.empty,
+        imports: List[String] = List.empty,
         additionalContent: String = ""
     ): String = {
 
@@ -32,6 +33,9 @@ object StaticCode {
       val label = Helpers.objectNameSafe(overrideLabel.getOrElse(sc.label))
 
       s"""
+         |
+         |${imports.map(i => s"import $i").mkString("\n")}
+         |
          |${`type`} $label ${`extends`.mkString("extends ", ", ", "")} {
          | $allFields
          |

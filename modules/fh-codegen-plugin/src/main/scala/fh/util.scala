@@ -16,11 +16,10 @@ object util {
     )
   }
 
-  def writeToFile(path: String, content: String): Path = {
+  def writeToFile(f: java.nio.file.Path, content: String): Path = {
     import java.nio.charset.StandardCharsets
-    import java.nio.file.{Files, Paths}
+    import java.nio.file.{Files}
 
-    val f = Paths.get(path)
 
     Files.createDirectories(f.getParent)
 
@@ -28,6 +27,12 @@ object util {
       f,
       content.getBytes(StandardCharsets.UTF_8)
     )
+  }
+  def writeToFile(path: String, content: String): Path = {
+    import java.nio.file.Paths
+    val f = Paths.get(path)
+
+    writeToFile(f, content)
   }
 
   object serializer {

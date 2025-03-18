@@ -1,6 +1,10 @@
 import sbt.*
 import Keys.*
 
+import java.io.IOException
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.{FileVisitResult, Files, Path, SimpleFileVisitor}
+
 object FHCodegenPlugin extends AutoPlugin {
   override def trigger = noTrigger
 
@@ -27,6 +31,26 @@ object FHCodegenPlugin extends AutoPlugin {
       val url = haUrl.value
       val secret = haSecret.value
 
+      Files.walkFileTree(
+        dir.toPath,
+        new SimpleFileVisitor[Path] {
+          override def visitFile(
+              file: Path,
+              attrs: BasicFileAttributes
+          ): FileVisitResult = {
+            Files.deleteIfExists(file)
+            super.visitFile(file, attrs)
+          }
+
+          override def postVisitDirectory(
+              dir: Path,
+              exc: IOException
+          ): FileVisitResult = {
+            Files.deleteIfExists(dir)
+            super.postVisitDirectory(dir, exc)
+          }
+        }
+      )
       Def.task {
         val result = (project / Compile / runMain)
           .toTask(
