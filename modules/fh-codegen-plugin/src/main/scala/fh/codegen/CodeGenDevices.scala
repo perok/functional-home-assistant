@@ -65,7 +65,7 @@ class CodeGenDevices(
             e,
             0,
             entity =>
-              s"val ${Helpers.objectNameSafe(entity.name)}: ha.runtime.definitions.IsEntity = ${entity.almostFullyQualifiedName}"
+              s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
           )
         )
         .orEmpty
@@ -127,7 +127,7 @@ class CodeGenConfigEntries(
         0,
         entity =>
           // TODO should be object.type as type? usefull when we add more stuff
-          s"val ${Helpers.objectNameSafe(entity.name)}: ha.runtime.definitions.IsDevice = ${entity.almostFullyQualifiedName}"
+          s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
       )
 
       ThingReference(
@@ -178,7 +178,7 @@ class CodeGenManifests(
         configsInManifest,
         0,
         entity =>
-          s"val ${Helpers.objectNameSafe(entity.name)}: ha.runtime.definitions.IsConfigEntry = ${entity.almostFullyQualifiedName}"
+          s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
       )
 
       ThingReference(
