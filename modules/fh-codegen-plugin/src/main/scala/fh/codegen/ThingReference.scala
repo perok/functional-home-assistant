@@ -26,6 +26,9 @@ case class ThingReference[T](
        |""".stripMargin
   }
 
+  def toRootReferenceAsObjectType(using abspos: AbsolutePosition): String =
+    s"$almostFullyQualifiedName.type"
+
   def almostFullyQualifiedName(using abspos: AbsolutePosition): String =
     s"_root_${abspos.namespace.appendedAll(pckage).mkString(".", ".", ".")}${Helpers.objectNameSafe(name)}"
 }

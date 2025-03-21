@@ -1,8 +1,8 @@
 package fh.codegen
 
-import api.homeassistant.ws.domain.*
 import cats.data.NonEmptyList
 import cats.syntax.all.*
+import api.homeassistant.ws.domain.*
 import fh.codegen.utils.*
 import ha.runtime.definitions.*
 
@@ -103,99 +103,5 @@ class CodeGenDevices(
                                  |}""".stripMargin
           )
       )
-    }.toMap
-}
-
-class CodeGenConfigEntries(
-    allConfigEntries: Map[EntryId, ConfigEntry],
-    deviceReferences: Map[DeviceId, ThingReference[Device]]
-)(using AbsolutePosition) {
-
-  val configEntriesReferences: Map[EntryId, ThingReference[ConfigEntry]] =
-    allConfigEntries.view.mapValues { configEntry =>
-      val name =
-        if configEntry.title.isEmpty then configEntry.entry_id.toString
-        else configEntry.title
-
-      val devicesInConfig: Iterable[ThingReference[Device]] =
-        deviceReferences.values.filter(
-          _.thing.primary_config_entry == Some(configEntry.entry_id)
-        )
-
-      val configsList = consume(
-        devicesInConfig,
-        0,
-        entity =>
-          // TODO should be object.type as type? usefull when we add more stuff
-          s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
-      )
-
-      ThingReference(
-        configEntry,
-        name,
-        List("config_entries", ManifestDomain.toString(configEntry.domain)),
-        () =>
-          StaticCode[ConfigEntry].toStatic(
-            configEntry,
-            overrideLabel = Some(name),
-            `extends` = List("IsConfigEntry"),
-            imports = List("ha.runtime.definitions.*"),
-            additionalContent = s"""
-                 |$configsList
-                 |""".stripMargin
-          )
-      )
-
-    }.toMap
-}
-
-class CodeGenManifests(
-    allManifests: Map[ManifestDomain, Manifest],
-    configEntries: Map[EntryId, ThingReference[ConfigEntry]]
-)(using AbsolutePosition) {
-
-  { // All config entries has
-    val missingManifests = configEntries.values.toList.mapFilter(ce =>
-      Option.when(!allManifests.contains(ce.thing.domain))(ce.thing)
-    )
-
-    if missingManifests.nonEmpty then
-      throw UnsupportedOperationException(
-        missingManifests
-          .map(ce => s"${ce.title} with ${ce.domain} missing")
-          .mkString(", ")
-      )
-  }
-
-  val manifestReferences: Map[ManifestDomain, ThingReference[Manifest]] =
-    allManifests.view.mapValues { manifest =>
-      val name = manifest.name
-
-      val configsInManifest: Iterable[ThingReference[ConfigEntry]] =
-        configEntries.values.filter(_.thing.domain == manifest.domain)
-
-      val configsList = consume(
-        configsInManifest,
-        0,
-        entity =>
-          s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
-      )
-
-      ThingReference(
-        manifest,
-        name,
-        List("manifest"), // , manifest.domain),
-        () =>
-          StaticCode[Manifest].toStatic(
-            manifest,
-            overrideLabel = Some(name),
-            `extends` = List("IsManifest"),
-            imports = List("ha.runtime.definitions.*"),
-            additionalContent = s"""
-               |$configsList
-               |""".stripMargin
-          )
-      )
-
     }.toMap
 }
