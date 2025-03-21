@@ -16,8 +16,11 @@ object hello {
   // services.input_button.Press
   def testTrigger(api: HomeAssistantApi[IO]): IO[Unit] = {
 
+    // TODO services
+    manifest.`Zigbee Home Automation`.config_entries.zha.`Home Assistant SkyConnect`.devices.hue_light_D21FB3_bibliotek.entities.number.hue_light_d21fb3_bibliotek_start_up_color_temperature
+
     val switchOveretasje =
-      integrations.`Zigbee Home Automation`.`Home Assistant SkyConnect`.hue_dimmer_switch_gang_overetasje
+      manifest.`Zigbee Home Automation`.config_entries.zha.`Home Assistant SkyConnect`.devices.hue_dimmer_switch_gang_overetasje
 
     api
       .trigger(

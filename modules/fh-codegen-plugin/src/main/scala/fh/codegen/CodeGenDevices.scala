@@ -1,34 +1,26 @@
 package fh.codegen
 
 import api.homeassistant.ws.domain.*
-import cats.syntax.all.*
-import ha.runtime.definitions.*
 import cats.data.NonEmptyList
+import cats.syntax.all.*
 import fh.codegen.utils.*
+import ha.runtime.definitions.*
 
-// TODO split into more files
 // TODO warn about duplicates before compilation issues? That is a case of usually
 // things with a status of not working. Or could we detect that and hide em?
+// TODO could we instead have a few select things we output and then have a json dump that we can easily extract
+// the data from? or sqllite or something. Worth investigating if the file size is an issue
 class CodeGenDevices(
-    allManifests: Map[ManifestDomain, Manifest],
-    allConfigEntries: Map[EntryId, ConfigEntry],
     devices: Map[DeviceId, Device],
     deviceTriggers: Map[DeviceId, NonEmptyList[DeviceTrigger]],
     entities: Map[EntityId, ThingReference[Entity]]
 )(using AbsolutePosition) {
 
-  { // All config entries has
-    val missingManifests = allConfigEntries.values.toList.mapFilter(ce =>
-      Option.when(!allManifests.contains(ce.domain))(ce)
-    )
+  // How to get categories of the sort?
+  // controls
+  // sensors
+  // diagnostics
 
-    if missingManifests.nonEmpty then
-      throw UnsupportedOperationException(
-        missingManifests
-          .map(ce => s"${ce.title} with ${ce.domain} missing")
-          .mkString(", ")
-      )
-  }
   // val platformThenDevices = devices.values.map(d => (d.))
   // area_id, id, name_by_user, name
   // io.circe.parser.decode[io.circe.Json]("").toOption.get
@@ -36,8 +28,10 @@ class CodeGenDevices(
   extension (trigger: DeviceTrigger)
     def name = trigger.`type` + trigger.subtype.map(st => s"_$st").orEmpty
 
-  val phaseDevices: List[(Option[EntryId], List[(Device, String)])] =
-    devices.values.toList.map { device =>
+  val deviceToEntities = entities.values.groupBy(_.thing.device_id)
+
+  val deviceReferences: Map[DeviceId, ThingReference[Device]] =
+    devices.view.mapValues { device =>
       val areaId = device.area_id
       val id = device.id
       val name = device.name_by_user.getOrElse(device.name)
@@ -90,79 +84,118 @@ class CodeGenDevices(
         )
         .mkString("\n")
 
-      device.primary_config_entry -> List(
-        (
-          device,
+      ThingReference(
+        device,
+        name,
+        List("devices"),
+        () =>
           StaticCode[Device].toStatic(
             device,
             overrideLabel = Some(name),
             `extends` = List("IsDevice"),
+            imports = List("ha.runtime.definitions.*"),
             additionalContent = s"""
-           |
-           |$entitiesList
-           |
-           |object triggers {
-           |  $triggers
-           |}""".stripMargin
+                                 |
+                                 |$entitiesList
+                                 |
+                                 |object triggers {
+                                 |  $triggers
+                                 |}""".stripMargin
           )
-        )
       )
-    }
+    }.toMap
+}
 
-  val phaseConfigs: Map[Option[ManifestDomain], List[String]] =
-    phaseDevices
-      .map {
-        case (Some(entryId), stuff) =>
+class CodeGenConfigEntries(
+    allConfigEntries: Map[EntryId, ConfigEntry],
+    deviceReferences: Map[DeviceId, ThingReference[Device]]
+)(using AbsolutePosition) {
 
-          val entry = allConfigEntries(entryId)
-          Option.when(entry.title.nonEmpty)(entryId) -> stuff
-        case other => other
-      }
-      .groupMapReduce(_._1)(_._2)(_ ++ _)
-      .map {
-        case (None, devices) =>
-          val code = s"""object unknown {
-         |  ${devices.map(_._2).mkString("\n")}
-         |}
-         |""".stripMargin
+  val configEntriesReferences: Map[EntryId, ThingReference[ConfigEntry]] =
+    allConfigEntries.view.mapValues { configEntry =>
+      val name =
+        if configEntry.title.isEmpty then configEntry.entry_id.toString
+        else configEntry.title
 
-          Option.empty[ManifestDomain] -> List(code)
-        case (Some(entryId), devices) =>
+      val devicesInConfig: Iterable[ThingReference[Device]] =
+        deviceReferences.values.filter(
+          _.thing.primary_config_entry == Some(configEntry.entry_id)
+        )
 
-          val entry = allConfigEntries(entryId)
+      val configsList = consume(
+        devicesInConfig,
+        0,
+        entity =>
+          // TODO should be object.type as type? usefull when we add more stuff
+          s"val ${Helpers.objectNameSafe(entity.name)}: ha.runtime.definitions.IsDevice = ${entity.almostFullyQualifiedName}"
+      )
 
-          if (devices.size == 1 && devices.head._1.name == entry.title) {
-            entry.domain.some -> List(devices.head._2)
-          } else {
-            val code =
-              s"""
-                  |object ${Helpers.objectNameSafe(entry.title)} {
-                  |  ${devices.map(_._2).mkString("\n")}
-                  |}
-                  |""".stripMargin
+      ThingReference(
+        configEntry,
+        name,
+        List("config_entries", ManifestDomain.toString(configEntry.domain)),
+        () =>
+          StaticCode[ConfigEntry].toStatic(
+            configEntry,
+            overrideLabel = Some(name),
+            `extends` = List("IsConfigEntry"),
+            imports = List("ha.runtime.definitions.*"),
+            additionalContent = s"""
+                 |$configsList
+                 |""".stripMargin
+          )
+      )
 
-            entry.domain.some -> List(code)
-          }
-      }
+    }.toMap
+}
 
-  val phaseManifests = phaseConfigs.map {
-    case (None, code) => code.mkString("\n")
-    case (Some(manifestDomain), configCode) =>
-      val manifest = allManifests(manifestDomain)
+class CodeGenManifests(
+    allManifests: Map[ManifestDomain, Manifest],
+    configEntries: Map[EntryId, ThingReference[ConfigEntry]]
+)(using AbsolutePosition) {
 
-      s"""object ${Helpers.objectNameSafe(manifest.name)} {
-         |  ${configCode.mkString("\n")}
-         |}
-         |""".stripMargin
+  { // All config entries has
+    val missingManifests = configEntries.values.toList.mapFilter(ce =>
+      Option.when(!allManifests.contains(ce.thing.domain))(ce.thing)
+    )
+
+    if missingManifests.nonEmpty then
+      throw UnsupportedOperationException(
+        missingManifests
+          .map(ce => s"${ce.title} with ${ce.domain} missing")
+          .mkString(", ")
+      )
   }
 
-  val code = s"""
-    |package ha.generated
-    |
-    |import ha.runtime.definitions.*
-    |object integrations {
-    |  ${phaseManifests.mkString("\n")}
-    |}
-    |""".stripMargin
+  val manifestReferences: Map[ManifestDomain, ThingReference[Manifest]] =
+    allManifests.view.mapValues { manifest =>
+      val name = manifest.name
 
+      val configsInManifest: Iterable[ThingReference[ConfigEntry]] =
+        configEntries.values.filter(_.thing.domain == manifest.domain)
+
+      val configsList = consume(
+        configsInManifest,
+        0,
+        entity =>
+          s"val ${Helpers.objectNameSafe(entity.name)}: ha.runtime.definitions.IsConfigEntry = ${entity.almostFullyQualifiedName}"
+      )
+
+      ThingReference(
+        manifest,
+        name,
+        List("manifest"), // , manifest.domain),
+        () =>
+          StaticCode[Manifest].toStatic(
+            manifest,
+            overrideLabel = Some(name),
+            `extends` = List("IsManifest"),
+            imports = List("ha.runtime.definitions.*"),
+            additionalContent = s"""
+               |$configsList
+               |""".stripMargin
+          )
+      )
+
+    }.toMap
 }

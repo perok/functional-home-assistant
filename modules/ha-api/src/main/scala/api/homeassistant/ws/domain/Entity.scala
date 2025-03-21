@@ -9,7 +9,7 @@ case class Manifest(
     domain: ManifestDomain,
     name: String,
     integration_type: Option[String]
-) extends IsManifest derives Encoder, Decoder
+) extends IsManifest derives Encoder, Decoder, StaticCode
 
 case class ConfigEntry(
     entry_id: EntryId,
@@ -19,7 +19,7 @@ case class ConfigEntry(
     state: String, // loaded not_loaded
     supported_options: Option[String],
     disabled_by: Option[String]
-) extends IsConfigEntry derives Encoder, Decoder
+) extends IsConfigEntry derives Encoder, Decoder, StaticCode
 
 given ToCode[Json] = in =>
   s"io.circe.Json.obj(${

@@ -73,24 +73,37 @@ object Plugin extends IOApp {
       )
 
       codeGenEntities = new CodeGenEntities(allEntities)
-      codeGenDevices = new CodeGenDevices(
-        allManifests,
-        allConfigEntries,
+
+      codeGenDevices2 = new CodeGenDevices(
         allDevices,
         allTriggers,
         codeGenEntities.refererenceOverview
       )
 
       codeGenServices = new CodeGenServices(services)
+      codeGenConfigEntires = new CodeGenConfigEntries(
+        allConfigEntries,
+        codeGenDevices2.deviceReferences
+      )
+      codeGenManifests = new CodeGenManifests(
+        allManifests,
+        codeGenConfigEntires.configEntriesReferences
+      )
+
+      _ = codeGenConfigEntires.configEntriesReferences.values.foreach { thing =>
+        fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
+      }
+      _ = codeGenManifests.manifestReferences.values.foreach { thing =>
+        fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
+      }
 
       _ = codeGenEntities.refererenceOverview.values.foreach { thing =>
         fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
       }
 
-      _ = fh.util.writeToFile(
-        s"$outputDirectory/ha/generated/CodeGeneratedDevice.scala",
-        codeGenDevices.code
-      )
+      _ = codeGenDevices2.deviceReferences.values.foreach { thing =>
+        fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
+      }
 
       _ = fh.util.writeToFile(
         s"$outputDirectory/ha/generated/CodeGeneratedServices.scala",

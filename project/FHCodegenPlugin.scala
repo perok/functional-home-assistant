@@ -31,26 +31,30 @@ object FHCodegenPlugin extends AutoPlugin {
       val url = haUrl.value
       val secret = haSecret.value
 
-      Files.walkFileTree(
-        dir.toPath,
-        new SimpleFileVisitor[Path] {
-          override def visitFile(
-              file: Path,
-              attrs: BasicFileAttributes
-          ): FileVisitResult = {
-            Files.deleteIfExists(file)
-            super.visitFile(file, attrs)
-          }
+      try {
+        Files.walkFileTree(
+          dir.toPath,
+          new SimpleFileVisitor[Path] {
+            override def visitFile(
+                file: Path,
+                attrs: BasicFileAttributes
+            ): FileVisitResult = {
+              Files.deleteIfExists(file)
+              super.visitFile(file, attrs)
+            }
 
-          override def postVisitDirectory(
-              dir: Path,
-              exc: IOException
-          ): FileVisitResult = {
-            Files.deleteIfExists(dir)
-            super.postVisitDirectory(dir, exc)
+            override def postVisitDirectory(
+                dir: Path,
+                exc: IOException
+            ): FileVisitResult = {
+              Files.deleteIfExists(dir)
+              super.postVisitDirectory(dir, exc)
+            }
           }
-        }
-      )
+        )
+      } catch {
+        case e => e.printStackTrace()
+      }
       Def.task {
         val result = (project / Compile / runMain)
           .toTask(
