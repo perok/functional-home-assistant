@@ -72,18 +72,18 @@ object Plugin extends IOApp {
         List("ha", "generated")
       )
 
-      codeGenEntities2 = new CodeGenEntities2(allEntities)
+      codeGenEntities = new CodeGenEntities(allEntities)
       codeGenDevices = new CodeGenDevices(
         allManifests,
         allConfigEntries,
         allDevices,
         allTriggers,
-        codeGenEntities2.refererenceOverview
+        codeGenEntities.refererenceOverview
       )
 
       codeGenServices = new CodeGenServices(services)
 
-      _ = codeGenEntities2.refererenceOverview.values.foreach { thing =>
+      _ = codeGenEntities.refererenceOverview.values.foreach { thing =>
         fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
       }
 
