@@ -3,8 +3,8 @@ package fh.codegen
 import fh.util.*
 import cats.syntax.all.*
 import perok.ha.*
-import Helpers.*
 import scala.util.chaining.*
+import fh.codegen.utils.Helpers.*
 // TODO should this wrapping be on the API layer as the types exposed?
 // Then codegen with scalameta can produce the actual code here that is just variations of that
 
