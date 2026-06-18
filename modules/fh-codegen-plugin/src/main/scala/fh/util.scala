@@ -19,13 +19,16 @@ object util {
   def writeToFile(f: java.nio.file.Path, content: String): Path = {
     import java.nio.charset.StandardCharsets
     import java.nio.file.{Files}
+    import org.scalafmt.Scalafmt
 
+    println(s"Writing $f")
 
     Files.createDirectories(f.getParent)
 
     Files.write(
       f,
-      content.getBytes(StandardCharsets.UTF_8)
+      // TODO read scalafmt file?
+      Scalafmt.format(content).get.getBytes(StandardCharsets.UTF_8)
     )
   }
   def writeToFile(path: String, content: String): Path = {

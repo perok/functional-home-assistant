@@ -26,6 +26,7 @@ trait HomeAssistantApi[F[_]] {
 
   def configEntityRegistryGet(entityId: EntityId): IO[Json]
 
+  // Not interesting
   def manifestList(): IO[List[Manifest]]
 
   def configEntriesGet(
@@ -35,7 +36,13 @@ trait HomeAssistantApi[F[_]] {
 
   def deviceAutomationTriggerList(deviceId: DeviceId): IO[List[DeviceTrigger]]
 
-  def deviceAutomationActionList(deviceId: DeviceId): IO[Json]
+  def deviceAutomationActionList(deviceId: DeviceId): IO[List[Json]]
+
+  def deviceAutomationActionCapabilities(action: Json): IO[Json]
+
+  def getConfigWS: IO[Json]
+
+  def getServicesWS: IO[Json]
 
   def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]]
   def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]]
@@ -44,6 +51,7 @@ trait HomeAssistantApi[F[_]] {
 
   def getServices: IO[List[ServiceDomain]]
 
+  // Assumes | to_json as the end
   def templateFunc[Body: Decoder](template: String): IO[Body]
 }
 
@@ -74,7 +82,7 @@ object HomeAssistantApi {
 
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())
-        
+
       def configEntriesGet(
           type_filter: List[String] = List.empty,
           domain: Option[String] = None
@@ -85,7 +93,8 @@ object HomeAssistantApi {
             //  domain
           )
         ).nested
-          .filter(_.state == "loaded")
+          // Will crash on codegen if things are not there
+          .filter(ce => List("loaded", "setup_error").contains(ce.state))
           .value
 
       def deviceAutomationTriggerList(
@@ -93,8 +102,11 @@ object HomeAssistantApi {
       ): IO[List[DeviceTrigger]] =
         in.sendCommand(`device_automation/trigger/list`(deviceId))
 
-      def deviceAutomationActionList(deviceId: DeviceId): IO[Json] =
+      def deviceAutomationActionList(deviceId: DeviceId): IO[List[Json]] =
         in.sendCommand(`device_automation/action/list`(deviceId))
+
+      def deviceAutomationActionCapabilities(action: Json): IO[Json] =
+        in.sendCommand(`device_automation/action/capabilities`(action))
 
       def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
         in.subscribeStream(subscribe_events(Some("state_changed")))
@@ -104,6 +116,12 @@ object HomeAssistantApi {
 
       def getStates: IO[List[GetStatesData]] =
         restApi.getStates().map(_.output)
+
+      def getConfigWS: IO[Json] =
+        in.sendCommand(`get_config`())
+
+      def getServicesWS: IO[Json] =
+        in.sendCommand(`get_services`())
 
       def getServices: IO[List[ServiceDomain]] =
         restApi.getServicesApi().map(_.output)

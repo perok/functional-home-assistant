@@ -89,6 +89,7 @@ object HAWSApiLowLevel {
     import fs2.concurrent.Topic
     import cats.effect.std.Queue
 
+    // TODO coalesce https://github.com/home-assistant/developers.home-assistant/pull/2128/files
     client
       .connectHighLevel(WSRequest(uri))
       .evalTap { ha =>
@@ -135,6 +136,20 @@ object HAWSApiLowLevel {
               WSCommandPhaseServerPayload
             ]]()
             .toResource
+
+          // TODO id must be input
+          setDeferred =
+            (
+              IO.deferred[WSCommandPhaseServerPayload],
+              incrementer
+            ).tupled.toResource
+              .flatMap((deferred, id) =>
+                Resource
+                  .make(idDeferreds.setKeyValue(id, deferred))(_ =>
+                    idDeferreds.unsetKey(id)
+                  )
+                  .as(deferred)
+              )
 
           // Overview of listeners for specific ha subscriptions
           idQueue <- MapRef
@@ -287,8 +302,8 @@ object HAWSApiLowLevel {
                   sendCommandWrapper(CommandPhase.unsubscribe_events(id)).void
                 )
                 .flatMap { id =>
-                  //  TODO idQueue set as Resource
                   // TODO needs to happen before the sendCommand to ensure receiving everything
+                  //   sendCommandWrapper needs to accept an id
                   Resource.make(
                     Queue
                       .unbounded[IO, WSCommandPhaseServerPayload]
@@ -309,7 +324,5 @@ object HAWSApiLowLevel {
           }
         }
       }
-
   }
-
 }

@@ -1,6 +1,7 @@
 package fh.codegen
 
 import fh.codegen.utils.Helpers
+import java.util.stream.Collectors
 
 case class AbsolutePosition(directory: String, namespace: List[String])
 case class ThingReference[T](
@@ -9,8 +10,17 @@ case class ThingReference[T](
     pckage: List[String],
     toCode: () => String
 ) {
+  assume(name.nonEmpty, s"Name for a thing $thing missing")
+
+
   def toPath(using abspos: AbsolutePosition) = {
-    val nameEscaped = name.replace(" ", "-").replace("/", "_")
+    // File names cannot have emojies for the compiler to work.
+    val nameLol = name.codePoints().mapToObj(cp => 
+        if (Character.isEmojiPresentation(cp)) then Character.getName(cp)
+        else new String(Array(cp), 0, 1)
+      ).collect(Collectors.joining())
+
+    val nameEscaped = nameLol.replace(" ", "-").replace("/", "_")
     java.nio.file.Paths
       .get(
         abspos.directory,

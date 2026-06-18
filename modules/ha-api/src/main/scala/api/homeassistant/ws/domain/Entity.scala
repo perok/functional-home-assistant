@@ -4,6 +4,9 @@ import fh.codegen.utils.{StaticCode, ToCode}
 import fh.domain.utils.DecoderWithWarnMissing
 import ha.runtime.definitions.*
 import io.circe.{Codec, Decoder, Encoder, Json}
+// TODO make these into package api.homeassistant.ws private?
+
+// TODO neotypes? https://github.com/kitlangton/neotype/blob/main/modules/neotype-circe/shared/src/main/scala/neotype/interop/circe/Main.scala
 
 case class Manifest(
     domain: ManifestDomain,

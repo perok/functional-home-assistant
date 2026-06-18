@@ -60,4 +60,4 @@ val pprint: PPrinter = _root_.pprint
   })
 
 given [A]: Show[A] =
-  Show.show(something => pprint.apply(something, height = 30).toString)
+  Show.show(something => pprint.apply(something, height = 30000).toString)

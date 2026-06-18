@@ -1,3 +1,5 @@
+modules/home-codegen/src/main/scala/ha/generated
+
 # macOS
 .DS_Store
 

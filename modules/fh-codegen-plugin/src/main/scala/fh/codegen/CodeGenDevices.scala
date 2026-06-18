@@ -31,7 +31,7 @@ class CodeGenDevices(
   val deviceToEntities = entities.values.groupBy(_.thing.device_id)
 
   val deviceReferences: Map[DeviceId, ThingReference[Device]] =
-    devices.view.mapValues { device =>
+    devices.view.filterNot((_, device) => device.name.isEmpty).mapValues { device =>
       val areaId = device.area_id
       val id = device.id
       val name = device.name_by_user.getOrElse(device.name)
@@ -73,6 +73,7 @@ class CodeGenDevices(
       val triggers = domainGroupedTriggers
         .map((domain, triggers) =>
           val triggersCode = triggers
+            .distinctBy(trigger => trigger.name) // TODO handle better, some have only different attributes.. 
             .map(trigger =>
               triggerToCode(trigger, triggers.count(_.name == trigger.name) > 1)
             )

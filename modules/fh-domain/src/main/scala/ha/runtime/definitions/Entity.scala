@@ -26,6 +26,7 @@ trait IsConfigEntry {
 // platform device_id entity_id
 // has_entity_name name
 // original_name
+// TODO type up entity value type
 trait IsEntity {
   def area_id: Option[String]
   def categories: Json

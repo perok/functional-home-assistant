@@ -25,7 +25,7 @@ object FHCodegenPlugin extends AutoPlugin {
     // Need to output to unmanaged source directory since we don't have anything to "cache from"
     fhOutputDirectory := (Compile / scalaSource).value,
     // TODO Could we trigger this when dependencies changes? and on first compile?
-    fhTaskCodeGen := Def.taskDyn {
+    fhTaskCodeGen := Def.uncached { Def.taskDyn {
       val dir = fhOutputDirectory.value
       val project = fhCodegenPluginProject.value
       val url = haUrl.value
@@ -56,7 +56,7 @@ object FHCodegenPlugin extends AutoPlugin {
         case e => e.printStackTrace()
       }
       Def.task {
-        val result = (project / Compile / runMain)
+        val result = (Compile / runMain)
           .toTask(
             s" fh.codegen.Plugin $dir $url $secret"
           )
@@ -64,7 +64,7 @@ object FHCodegenPlugin extends AutoPlugin {
 
         (dir ** "*.scala").get()
       }
-    }.value
+    }.value }
     /*    Compile / sourceGenerators += Def.taskDyn {
       val dir = fhOutputDirectory.value
       val project = fhProject.value

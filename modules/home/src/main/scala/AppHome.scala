@@ -3,13 +3,9 @@
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
-import ha.runtime.definitions.{EntityId, DeviceId}
-import cats.data.NonEmptyList
 import cats.effect.*
-import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import fh.api.FHApi
-import io.circe.Json
 import fh.domain.utils.given
 
 object AppHome extends IOApp.Simple {
@@ -21,14 +17,45 @@ object AppHome extends IOApp.Simple {
     _ <- program(api).toResource
   } yield ()).use_
 
+  // TODO? https://github.com/keirlawson/fs2-progress/blob/main/src/main/scala/fs2/progress/ProgressBar.scala
   def program(api: HomeAssistantApi[IO]) =
+
     for {
-      // _ <- hello.testit(api).debug("Operation").toResource
-      _ <- api.floors.debug("floors")
+      _ <- IO.unit
+      // _ <- api.getConfigWS.debug("get config")
+      //things <- api
+      //  .deviceAutomationActionList(
+      //    ha.generated.manifest.`Zigbee Home Automation`.config_entries.zha.`Home Assistant SkyConnect`.devices.hue_led_list_kjøkken.id
+      //  )
+      //  .debug("deviceautomationList")
+      //_ <- api
+      //  .deviceAutomationActionCapabilities(
+      //    things
+      //      .find(
+      //        _.hcursor.downField("type").as[String].toOption.get == "set_value"
+      //      )
+      //      .get
+      //  )
+      //  .debug("woot")
+      // result <- api
+      //  .deviceAutomationActionList(
+      //    // devices.hue_dimmer_switch_gang_overetasje.id
+      //    devices.hue_led_list_kjøkken.id
+      //  )
+      //  .debug("device action list")
 
-      allEntities <- api.configEntityRegistryList.debug("entities")
+      // _ <- api
+      //  .deviceAutomationActionCapabilities(
+      //    result
+      //      .find(
+      //        _.hcursor.downField("domain").as[String].toOption.get == "light"
+      //      )
+      //      .get
+      //  )
+      //  .debug("capabilities")
+      // _ <- api.getServices.debug("services")
 
-      _ <- hello.testTrigger(api)
+      // _ <- hello.testTrigger(api)
 
       // _ <- wsApi
       //   .event(Some("state_changed"))

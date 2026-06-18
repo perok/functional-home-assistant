@@ -170,13 +170,13 @@ map ServiceOperations {
 }
 
 structure Service {
-    @required
+    //@required
     name: String
 
     description: String
 
-    @required
-    fields: ServiceFields
+    //@required
+    //fields: ServiceFields
 
     //  target: ServiceTarget
     target: ServiceTargetEntity
@@ -260,7 +260,7 @@ structure ServiceField {
 
     advanced: Boolean
 
-    fields: Document
+    //fields: Document
 
     // collpased: Boolean
     // fields: map?
@@ -285,7 +285,7 @@ union ServiceFieldDefault {
 }
 
 structure ServiceFieldSelector {
-    boolean: Boolean
+//    boolean: Boolean
 
     text: ServiceFieldSelectorText
 
@@ -313,11 +313,16 @@ structure ServiceFieldSelectorSelect {
 }
 
 list ServiceFieldSelectorSelectOptions {
-    member: String
+    member: Document
+}
+
+structure ServiceFieldSelectorSelectOptionsEntity {
+    @jsonUnknown
+    unknown: UnknownProperties
 }
 
 structure ServiceFieldSelectorEntity {
-    domain: String
+    //domain: String
 
     @jsonUnknown
     unknown: UnknownProperties

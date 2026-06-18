@@ -32,14 +32,9 @@ object Plugin extends IOApp {
       api: HomeAssistantApi[IO]
   ): IO[Unit] =
     for {
-      // _ <- service.postServiceApi("", "", "hello").toResource
-      // _ <- hello.testit(service).debug("operatin").toResource
-      (state, services) <- (
-        api.getStates,
-        api.getServices
-      ).parTupled
+      services <- api.getServices
 
-      allEntities <- api.configEntityRegistryList.debug("entities")
+      allEntities <- api.configEntityRegistryList
 
       allDevices <- api.configDeviceRegistryList
 
@@ -105,6 +100,10 @@ object Plugin extends IOApp {
         fh.util.writeToFile(thing.toPath, thing.toCodeFileContent)
       }
 
+      // _ = fh.util.writeToFile(
+      //  s"$outputDirectory/ha/generated/CodeGeneratedEntities.scala",
+      //  codeGenEntities.entitiesCode
+      // )
       _ = fh.util.writeToFile(
         s"$outputDirectory/ha/generated/CodeGeneratedServices.scala",
         codeGenServices.serviceCode
@@ -121,4 +120,3 @@ object Plugin extends IOApp {
   // service.floors
   //   .debug("output")
 }
-

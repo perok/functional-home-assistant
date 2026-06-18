@@ -13,10 +13,10 @@ class CodeGenServices(
     services: List[ServiceDomain]
 ) {
 
-  // services.find(_.domain == "light").pipe(pprint.pprintln(_, height = 2000))
+  //services.find(_.domain == "light").pipe(pprint.pprintln(_, height = 2000))
   // pprint.pprintln(entitiesMap.get("binary_sensor"))
   // pprint.pprintln(servicesWithEntities.find(_.domain == "light"))
-  // services
+  // services"${s
   //   .groupBy(_.domain)
   //   .mapValues(_.length)
   //   .tap(pprint.pprintln(_))
@@ -51,15 +51,17 @@ class CodeGenServices(
         .groupBy(_._2)
         .view
         .filter(_._2.nonEmpty)
+        .filterNot(stuff => stuff._2.isEmpty )
         .map { (targetDomain, stuff) =>
 
           val domainDifferent = targetDomain =!= domain.domain.some
 
           val services = stuff
+            //.filterNot((_, _, service) => service.name.isEmpty)
             .map((serviceId, _, service) =>
-              val name = objectNameSafe(service.name)
+              val name = objectNameSafe(service.name.getOrElse(serviceId))
 
-              val attributes = service.fields.map((fieldId, field) =>
+              val attributes = List() /*service.fields.map((fieldId, field) => // TODO started getting ints, how to model in smithy4s?
                 val isNotRequired = field.required.forall(!_)
                 // TODO default value
                 val tpe =
@@ -69,13 +71,13 @@ class CodeGenServices(
                 // todo fieldId - how to encode so that we can
                 // use nonewrapped version
                 s"${paramNameSafe(fieldId)}: $tpe, // ${field.filter.map(_.supported_features)}"
-              )
+              ) */
 
               // TODO should be objects and not case classes?
               // TODO add val static = true field? Could be useful for debugging n stuff
               s"""
                  | /*
-                 |   ${pprint(service, escapeUnicode = true).plainText}
+                 |   TODO {pprint(service, escapeUnicode = true).plainText}
                  | */
                  |   /**
                  |   ${service.description}
@@ -90,11 +92,12 @@ class CodeGenServices(
             )
 
           targetDomain match {
-            case Some(targetDomain) =>
+            case Some(targetDomain) if services.nonEmpty =>
+
               s"""
                  |${
                   if domainDifferent then
-                    s"object ${objectNameSafe(domain.domain)} {"
+                    s"object ${objectNameSafe(domain.domain)}_${objectNameSafe(targetDomain)} {"
                   else ""
                 }
                  | object ${objectNameSafe(targetDomain)} {
@@ -103,7 +106,7 @@ class CodeGenServices(
                  |}
                  |
                  |""".stripMargin
-            case None => ""
+            case _ => "" // No services in domain
           }
         }
         .toList

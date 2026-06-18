@@ -23,6 +23,7 @@ object client {
     }
     object AsStream {
       trait AsEvent extends AsStream[Event] {
+        // TODO why not working? extends AsStream[Event]({ case event(_, event) => event })
         val f: PartialFunction[WSCommandPhaseServer, Event] = {
           case WSCommandPhaseServer.event(_, event) =>
             event
@@ -44,10 +45,30 @@ object client {
   sealed trait CommandPhase derives ConfiguredEncoder
 
   // https://github.com/home-assistant-ecosystem/home-assistant-cli
+  // All websocket calls https://github.com/search?q=repo%3Ahome-assistant%2Fcore+%40websocket_api.websocket_command%28&type=code&p=1
   object CommandPhase {
     //
     // Stuff
     //
+
+    // TODO call_service https://developers.home-assistant.io/docs/api/websocket#calling-a-service-action
+
+    // TODO get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
+
+    // TODO get_config https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L515
+    // alt av devices og services og whatnot ligger under det
+    case class `get_config`()
+        extends CommandPhase
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+
+    // TODO supported_features https://github.com/home-assistant/core/blob/f5fd49d8cb710c95cde30fc5071c20af351760b4/homeassistant/components/websocket_api/commands.py#L906
+
+    // TODO ping https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L574 for heartbeats
+
+    // get_services https://developers.home-assistant.io/docs/api/websocket#fetching-service-actions
+    case class `get_services`()
+        extends CommandPhase
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
     //
     // Configs
@@ -80,12 +101,34 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
+    // TODO config/entity_registry/get_entries entity_ids https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L122
+
+    // TODO config/floor_registry/list https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/floor_registry.py#L26C32-L26C58
+
     //
     // Devices
     //
+
+    // https://github.com/home-assistant/core/blob/3b69a2bbd190844258b8761342f075f5e15284ab/homeassistant/components/device_automation/__init__.py#L380
+    // https://www.home-assistant.io/docs/automation/action/
+    // https://developers.home-assistant.io/docs/device_automation_action/
+    // Is it the same as services? https://data.home-assistant.io/docs/services
+    case class `device_automation/action/list`(device_id: DeviceId)
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Json]] derives ConfiguredEncoder
+
+    // TODO device_automation/action/capabilities https://github.com/home-assistant/core/blob/634e1dd9eb7855a4adcdaaff99769c83473a5e8b/homeassistant/components/device_automation/__init__.py#L443
+    case class `device_automation/action/capabilities`(
+        action: Json
+    ) // is actionid a thing?
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
+    // TODO device_automation/condition/list
+
+    // TODO device_automation/condition/capabilities
+
+    // TODO device_automation/trigger/capabilities
 
     // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/device_automation/__init__.py#L422
     case class `device_automation/trigger/list`(device_id: DeviceId)
@@ -98,9 +141,12 @@ object client {
     //
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
+    // https://data.home-assistant.io/docs/events
     case class subscribe_events(event_type: Option[String])
         extends CommandPhase
         with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
+
+    // TODO subscribe_entities https://community.home-assistant.io/t/terrible-performance-on-seemingly-most-android-tablets/760318/78?u=perok
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)
@@ -110,81 +156,12 @@ object client {
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-trigger
     // https://www.home-assistant.io/docs/automation/trigger/
     // https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L717-L728
+    // TODO variables?
     // TODO
     case class subscribe_trigger(trigger: List[TriggerData])
         extends CommandPhase
         with CommandResponse.AsStream.AsTrigger derives ConfiguredEncoder
   }
-
-  /*
-    device trigger
-    how to fetch the information necessary to create this code?
-
-// Automation trigger defintion
-
-// https://www.home-assistant.io/docs/automation/trigger/#device-triggers
-// Hmm, how to ge the domain of a device?
-
-// https://github.com/home-assistant/core/blob/abc256fb3e1163859e77be5d478912b0205ea21b/homeassistant/components/hue/v1/device_trigger.py#L37
-// Type remomte_button_short_Press is at least a concept of device
-// NOOO hue..
-
-// TODO how to call this! https://github.com/home-assistant/core/blob/5ea54130644fb904f40655066ed754cceaeaa499/homeassistant/components/zha/device_trigger.py#L92-L113
-// configs?
-// THIS? https://www.home-assistant.io/docs/automation/templating/#device
-// No this? https://github.com/home-assistant/core/blob/c601170b1d901c4a577f49aa61c6d2e91a1c26ab/homeassistant/components/config/config_entries.py#L81-L84
-// "/api/config/config_entries/entry/{entry_id}"
-// https://github.com/home-assistant/core/blob/c601170b1d901c4a577f49aa61c6d2e91a1c26ab/homeassistant/components/device_automation/__init__.py#L420
-
-alias: Light on
-description: ""
-mode: single
-triggers:
-  - device_id: 518ff41eac9e275872e15aa3c692b7fb
-    domain: zha
-    type: remote_button_short_press
-    subtype: turn_on
-    trigger: device
-conditions: []
-actions:
-  - action: light.turn_on
-    metadata: {}
-    data: {}
-    target:
-      entity_id: light.nabu_casa_skyconnect_v1_0_lys_bibliotek
-
-   */
-  /*
-An event
-
-event_type: zha_event
-data:
-  device_ieee: 00:17:88:01:08:0c:05:da
-  unique_id: 00:17:88:01:08:0c:05:da:2:0xfc00
-  device_id: 518ff41eac9e275872e15aa3c692b7fb
-  endpoint_id: 2
-  cluster_id: 64512
-  command: on_short_release
-  args:
-    button: "on"
-    press_type: short_release
-    command_id: 0
-    duration: 1
-    args:
-      - 1
-      - 3145728
-      - 2
-      - 33
-      - 1
-  params: {}
-origin: LOCAL
-time_fired: "2024-12-11T19:45:54.132915+00:00"
-context:
-  id: 01JEVM3AEMWTS5T4314ZEM45FY
-  parent_id: null
-  user_id: null
-
-   */
 
   given Encoder["sunset" | "sunrise"] =
     Encoder.instance(Json.fromString)
