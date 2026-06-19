@@ -21,10 +21,11 @@ case class ThingReference[T](
       ).collect(Collectors.joining())
 
     val nameEscaped = nameLol.replace(" ", "-").replace("/", "_")
+    val moreSanitized =  nameEscaped.replaceAll("[\\\\/\\\\:*?\\\"<>|]", "_")
     java.nio.file.Paths
       .get(
         abspos.directory,
-        abspos.namespace.appendedAll(pckage).appended(s"$nameEscaped.scala")*
+        abspos.namespace.appendedAll(pckage).appended(s"$moreSanitized.scala")*
       )
   }
 
