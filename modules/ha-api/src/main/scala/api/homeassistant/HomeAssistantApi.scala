@@ -47,6 +47,16 @@ trait HomeAssistantApi[F[_]] {
   def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]]
   def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]]
 
+  /** Call a Home Assistant service/action on an entity via the WebSocket API.
+    * `serviceData` carries extra parameters (e.g. `{ "brightness": 128 }`).
+    */
+  def callService(
+      domain: String,
+      service: String,
+      entityId: String,
+      serviceData: Json
+  ): IO[Json]
+
   def getStates: IO[List[GetStatesData]]
 
   def getServices: IO[List[ServiceDomain]]
@@ -114,6 +124,21 @@ object HomeAssistantApi {
       def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
         in.subscribeStream(subscribe_trigger(data.toList))
 
+      def callService(
+          domain: String,
+          service: String,
+          entityId: String,
+          serviceData: Json
+      ): IO[Json] =
+        in.sendCommand(
+          `call_service`(
+            domain,
+            service,
+            serviceData,
+            CallServiceTarget(entityId)
+          )
+        )
+
       def getStates: IO[List[GetStatesData]] =
         restApi.getStates().map(_.output)
 
@@ -148,7 +173,7 @@ object HomeAssistantApi {
         .templateFunc[String](s"{{ floor_areas('$floor') | to_json }}")
 
     // devices with entities https://community.home-assistant.io/t/devices-via-rest-api/455634/3
-    def devicec(): IO[io.circe.Json] =
+    def devices: IO[io.circe.Json] =
       service.templateFunc[io.circe.Json]("""
                                             |    {% set devices = states | map(attribute='entity_id') | map('device_id') | unique | reject('eq', None) | list %}
                                             |

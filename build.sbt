@@ -19,6 +19,9 @@ val commonSettings = Seq(
   )
 )
 addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
+// Datastar dashboard: build phase (regenerate dashboard.json) and runtime server.
+addCommandAlias("dashboardBuild", "fh-datastar-view/runMain fh.view.build.BuildApp")
+addCommandAlias("dashboardServe", "fh-datastar-view/runMain fh.view.runtime.ServerApp")
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
@@ -114,6 +117,30 @@ lazy val home = project // using the others as if they are libs
     )
   )
 
+lazy val `fh-datastar-view` = project
+  .in(file("modules/fh-datastar-view"))
+  .dependsOn(`ha-api`)
+  .settings(
+    commonSettings,
+    run / fork := true,
+    run / envVars := Map(
+      "SERVER" -> (`home-codegen` / haUrl).value,
+      "SECRET" -> secretToken
+    ),
+    libraryDependencies ++= Seq(
+      "org.http4s" %% "http4s-core" % http4sVersion,
+      "org.http4s" %% "http4s-dsl" % http4sVersion,
+      "org.http4s" %% "http4s-ember-server" % http4sVersion,
+      "io.circe" %% "circe-core" % "0.14.15",
+      "io.circe" %% "circe-parser" % "0.14.15",
+      // jsonnet evaluation for the build phase (pure-JVM)
+      "com.databricks" %% "sjsonnet" % "0.5.0",
+      // mustache templating for runtime value injection (pure Java)
+      "com.samskivert" % "jmustache" % "1.16",
+      "org.scalameta" %% "munit" % "1.3.3" % Test
+    )
+  )
+
 lazy val root = project
   .in(file("."))
   .dependsOn(`ha-api`, `fh-domain`)
@@ -124,6 +151,7 @@ lazy val root = project
     `fh-codegen-plugin`,
     `fh-automation`,
     `home-codegen`,
+    `fh-datastar-view`,
     home
   )
   .settings(

@@ -47,11 +47,26 @@ object client {
   // https://github.com/home-assistant-ecosystem/home-assistant-cli
   // All websocket calls https://github.com/search?q=repo%3Ahome-assistant%2Fcore+%40websocket_api.websocket_command%28&type=code&p=1
   object CommandPhase {
+
+    /** Target of a `call_service` command. Entity-scoped; extend with
+      * area/device ids if needed.
+      */
+    case class CallServiceTarget(entity_id: String) derives ConfiguredEncoder
+
     //
     // Stuff
     //
 
-    // TODO call_service https://developers.home-assistant.io/docs/api/websocket#calling-a-service-action
+    // call_service https://developers.home-assistant.io/docs/api/websocket#calling-a-service-action
+    // service_data carries arbitrary parameters (e.g. brightness); target is the
+    // entity to act on. Kept null-free so HA does not receive stray null fields.
+    case class `call_service`(
+        domain: String,
+        service: String,
+        service_data: Json,
+        target: CallServiceTarget
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
     // TODO get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
 
