@@ -9,8 +9,7 @@ import io.circe.{Json, JsonObject}
   * Scala port of `../ha-frontend/script.sh`: it asks Home Assistant to render a
   * Jinja template (via `/api/template`) producing
   * `{ floors, areas, entities }`, then transforms each list into an object
-  * keyed by a dotless, sanitized id (for ergonomic jsonnet autocomplete) plus a
-  * `"*"` key listing every id.
+  * keyed by a dotless, sanitized id (for ergonomic jsonnet autocomplete).
   *
   * The result is written next to the dashboard jsonnet as `dump.libsonnet` and
   * imported by `dashboard.jsonnet`, so authors reference real entities by name.
@@ -68,9 +67,9 @@ object DataDump {
   def fetch(api: HomeAssistantApi[IO]): IO[Json] =
     api.templateFunc[Json](template).map(transform)
 
-  /** Replicates the second `jq` stage in `script.sh`: turn `areas`/`floors`/
-    * `entities` lists into objects keyed by a sanitized id, each gaining a
-    * `"*"` member listing all original ids.
+  /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
+    * sanitized, dotless id (a valid jsonnet field name), so authors reference
+    * entities by name.
     */
   def transform(raw: Json): Json = {
     def keyBy(arr: Json, idField: String): Json =
@@ -82,14 +81,7 @@ object DataDump {
               sanitize(id) -> item
             }
           }
-          val ids = entries.map { case (_, item) =>
-            item.hcursor.get[String](idField).getOrElse("")
-          }
-          Json.fromJsonObject(
-            JsonObject
-              .fromIterable(entries)
-              .add("*", Json.fromValues(ids.map(Json.fromString)))
-          )
+          Json.fromJsonObject(JsonObject.fromIterable(entries))
       }
 
     raw.asObject match {

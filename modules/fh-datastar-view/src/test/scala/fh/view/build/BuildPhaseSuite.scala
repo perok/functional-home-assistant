@@ -12,7 +12,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       case d: LayoutNode.Dynamic   => List(d)
     }
 
-  test("DataDump.transform keys lists by sanitized id and adds a '*' member") {
+  test("DataDump.transform keys lists by sanitized id (no '*' member)") {
     val raw = parser
       .parse("""
         {
@@ -37,9 +37,11 @@ class BuildPhaseSuite extends munit.FunSuite {
       Some("Temp")
     )
 
-    // "*" lists the original ids
-    val all = entities.get[List[String]]("*").toOption.get.toSet
-    assertEquals(all, Set("sensor.temp", "light.kitchen"))
+    // the clunky "*" all-ids member is gone; keys are exactly the entities
+    assertEquals(
+      entities.keys.map(_.toSet),
+      Some(Set("sensor_temp", "light_kitchen"))
+    )
   }
 
   test(
@@ -55,15 +57,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     // Minimal fake dump standing in for the build-phase HA dump.
     val fakeDump = io.circe.Json
       .obj(
-        "areas" -> io.circe.Json.obj("*" -> List.empty[String].asJson),
-        "floors" -> io.circe.Json.obj("*" -> List.empty[String].asJson),
+        "areas" -> io.circe.Json.obj(),
+        "floors" -> io.circe.Json.obj(),
         "entities" -> io.circe.Json.obj(
           "sensor_temp" -> io.circe.Json.obj(
             "entity_id" -> "sensor.temp".asJson,
             "friendly_name" -> "Temperature".asJson,
             "domain" -> "sensor".asJson
-          ),
-          "*" -> List("sensor.temp").asJson
+          )
         )
       )
     os.write(tmp / "dump.libsonnet", fakeDump.spaces2)
