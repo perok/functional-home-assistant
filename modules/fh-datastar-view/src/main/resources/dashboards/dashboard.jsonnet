@@ -31,8 +31,12 @@ local sensors = pick('sensor', 6);
 // "dynamic" for live chaning things while viewing the dashboard. For.ex all with battery below X
 
 
-// TODO global tabs that can be accessed independely, or should it just be new dashboard files?
-// TODO a static reference to an entity in dump
+// Decision: multiple top-level views are separate dashboard files, not in-page
+// tabs. The runtime already evaluates a chosen jsonnet entry (ServerApp's
+// `dashboard.jsonnet`, overridable), so a "view" = its own entry file; this
+// keeps each view independently addressable and avoids loading/streaming every
+// view at once. (An in-page `tabs` container is possible later, but it needs
+// per-child labels — richer child metadata than today's `{html}` children.)
 {
   templates: c.templates,
   // TODO rename card and templates as cards
