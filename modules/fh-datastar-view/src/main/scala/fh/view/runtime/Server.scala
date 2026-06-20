@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
+import cats.effect.kernel.Ref
 import fs2.Stream
 import io.circe.Json
 import org.http4s.*
@@ -22,7 +23,10 @@ import scala.concurrent.duration.*
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    renderer: Renderer
+    renderer: Renderer,
+    // Last HTML pushed per node id; lets us skip pushes that wouldn't change the
+    // client ("re-render and diff before sending"). Shared across SSE clients.
+    lastRendered: Ref[IO, Map[String, String]]
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -36,11 +40,24 @@ class Server(
       val patches: Stream[IO, ServerSentEvent] =
         stateStore.changes
           .evalMap { entityId =>
-            stateStore.snapshot.map { states =>
-              renderer
-                .componentsFor(entityId)
-                .toList
-                .flatMap(id => renderer.renderComponent(id, states))
+            stateStore.snapshot.flatMap { states =>
+              // Static components depending on this entity + all dynamic groups
+              // (their membership can change with any entity).
+              val ids =
+                renderer.componentsFor(entityId).toList ++
+                  renderer.dynamicContainerIds
+              val rendered =
+                ids.flatMap(id =>
+                  renderer.renderNodeById(id, states).map(id -> _)
+                )
+              // Only push fragments whose HTML actually changed.
+              lastRendered.modify { cache =>
+                val changed =
+                  rendered.filterNot { case (id, html) =>
+                    cache.get(id).contains(html)
+                  }
+                (cache ++ changed, changed.map(_._2))
+              }
             }
           }
           .flatMap(fragments =>
@@ -94,6 +111,10 @@ class Server(
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <title>Home Assistant</title>
        |  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+       |  <style>
+       |    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
+       |    .fh-col{display:flex;flex-direction:column;gap:1rem}
+       |  </style>
        |  <script type="module" src="${Server.DatastarCdn}"></script>
        |</head>
        |<body data-init="@get('/sse/datastar-patch')">

@@ -37,12 +37,22 @@ object BuildApp extends IOApp {
         .liftTo[IO]
 
       // Validate the artifact decodes into our runtime model before writing it.
-      _ <- dashboardJson
+      dashboard <- dashboardJson
         .as[Dashboard]
         .leftMap(err =>
           new RuntimeException(s"dashboard.json is not a valid Dashboard: $err")
         )
         .liftTo[IO]
+
+      // Validate every template reference resolves and its inputs are supplied.
+      _ <- dashboard.validate match {
+        case Nil => IO.unit
+        case errs =>
+          new RuntimeException(
+            s"dashboard.json failed validation (${errs.size} error(s)):\n" +
+              errs.mkString("\n")
+          ).raiseError[IO, Unit]
+      }
 
       _ <- IO(os.write.over(outputPath, dashboardJson.spaces2))
       _ <- IO.println(s"Wrote dashboard artifact to $outputPath")

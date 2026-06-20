@@ -38,25 +38,18 @@ class StateStore private (
   private def applyEvent(event: Event): IO[Unit] = {
     val entityId = event.data.entity_id
     val ns = event.data.new_state
-    // The typed WS event carries only a few attributes; merge them over the
-    // last known full attribute set so values like brightness from the seed
-    // snapshot are not lost on a state change.
-    val attrs = event.data.new_state.attributes
-    val updates = List(
-      "state_class" -> attrs.state_class,
-      "unit_of_measurement" -> attrs.unit_of_measurement,
-      "device_class" -> attrs.device_class,
-      "friendly_name" -> attrs.friendly_name
-    ).collect { case (k, Some(v)) => k -> Json.fromString(v) }.toMap
+    // The WS event carries the FULL attribute set, so we replace wholesale —
+    // every attribute stays live, matching the seed snapshot.
+    val next = EntityState(StateStore.jsonToString(ns.state), ns.attributes)
 
-    ref.update { current =>
-      val prevAttrs =
-        current.get(entityId).map(_.attributes).getOrElse(Map.empty)
-      current.updated(
-        entityId,
-        EntityState(StateStore.jsonToString(ns.state), prevAttrs ++ updates)
-      )
-    } *> topic.publish1(entityId).void
+    // Re-render/diff happens downstream; here we only publish when the entity's
+    // state actually changed, so identical events don't churn the SSE stream.
+    ref
+      .modify { current =>
+        if (current.get(entityId).contains(next)) (current, false)
+        else (current.updated(entityId, next), true)
+      }
+      .flatMap(changed => IO.whenA(changed)(topic.publish1(entityId).void))
   }
 }
 

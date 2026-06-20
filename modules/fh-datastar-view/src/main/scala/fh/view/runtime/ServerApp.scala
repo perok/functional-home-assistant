@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.{ExitCode, IO, IOApp}
+import cats.effect.kernel.Ref
 import cats.effect.std.Env
 import cats.syntax.all.*
 import com.comcast.ip4s.{Host, Port, host, port}
@@ -27,6 +28,17 @@ object ServerApp extends IOApp {
         .get("DASHBOARD_JSON")
         .map(_.getOrElse(defaultDashboardJson))
       dashboard <- loadDashboard(dashboardPath)
+      _ <- dashboard.validate match {
+        case Nil => IO.unit
+        case errs =>
+          IO.raiseError(
+            new RuntimeException(
+              s"Invalid dashboard (${errs.size} error(s)):\n" + errs.mkString(
+                "\n"
+              )
+            )
+          )
+      }
       bindHost <- Env[IO]
         .get("HOST")
         .map(_.flatMap(Host.fromString).getOrElse(host"0.0.0.0"))
@@ -40,7 +52,8 @@ object ServerApp extends IOApp {
         api <- FHApi.fromEnv
         store <- StateStore.create(api)
         renderer = new Renderer(dashboard, Templates.from(dashboard))
-        server = new Server(api, store, renderer)
+        lastRendered <- Ref[IO].of(Map.empty[String, String]).toResource
+        server = new Server(api, store, renderer, lastRendered)
         _ <- EmberServerBuilder
           .default[IO]
           .withHost(bindHost)

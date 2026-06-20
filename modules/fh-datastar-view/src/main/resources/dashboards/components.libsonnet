@@ -1,182 +1,164 @@
 // Dashboard components — pure composition (build phase only).
 //
-// Each component function returns a record { id, template, entities, slots }
-// where `template` is a Mustache string (the server injects runtime values into
-// `{{ }}` slots) and `entities`/`slots` declare its runtime dependencies.
+// Two parts:
+//   1. `templates`: a SHARED library of Mustache strings keyed by name, each
+//      declaring the `inputs` it references (validated at build time). A
+//      template is defined ONCE and reused by every instance.
+//   2. builder functions returning layout-tree nodes (`row`/`column`/component
+//      leaves / `dynamic` groups). The node is where static values (label, id,
+//      entity, service…) and dynamic slot references are supplied — NOT the
+//      template.
 //
 // Datastar v1 attribute syntax uses COLONS: `data-on:click`, `data-bind`,
-// `data-signals`. Interactions call the server's action routes:
+// `data-signals`. Action routes:
 //   - no data:   @post('/sse/action/<domain>/<service>/<entity>')
 //   - one value: @post('/sse/action/<domain>/<service>/<entity>/<key>/' + $signal)
-// The resulting HA state change flows back over the persistent SSE stream.
 //
-// PHASE DISCIPLINE: do NOT inject live entity values here. Static, author-known
-// values (labels, ids) are inlined at build time; everything dynamic is a `{{slot}}`.
+// PHASE DISCIPLINE: templates never embed live values. Escaped `{{slot}}` values
+// are HTML-safe; raw author values (action URLs, entity ids) use `{{{...}}}`.
+// Literal template text (the `@post('...')` scaffolding) is emitted verbatim.
 {
-  local actionUrl(domain, service, entity) =
-    "@post('/sse/action/" + domain + '/' + service + '/' + entity + "')",
+  // ---- shared template library: name -> { template, inputs } ----
+  templates: {
+    sectionTitle: {
+      template: '<h2 class="section">{{label}}</h2>',
+      inputs: ['label'],
+    },
 
-  local valueActionUrl(domain, service, entity, key, signal) =
-    "@post('/sse/action/" + domain + '/' + service + '/' + entity + '/' + key + "/' + $" + signal + ')',
+    // Read-only: friendly name + current state.
+    stateCard: {
+      template:
+        '<article class="card" id="{{id}}">'
+        + '<header>{{label}}</header>'
+        + '<span class="state">{{state}}</span>'
+        + '</article>',
+      inputs: ['id', 'label', 'state'],
+    },
 
-  // Static section heading (no entity dependency).
-  sectionTitle(id, text):: {
-    id: id,
-    template: '<h2 class="section">' + text + '</h2>',
-    entities: [],
-    slots: {},
+    // Generic service-call button (toggle, scene activate, lock…).
+    button: {
+      template:
+        '<button class="card" id="{{id}}" data-on:click="'
+        + "@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')"
+        + '">{{label}}</button>',
+      inputs: ['id', 'label', 'domain', 'service', 'entity'],
+    },
+
+    // Value slider (brightness, target temperature…). The per-instance signal
+    // name is derived from the (unique) id, so it works for both static and
+    // dynamic instances without a separate `sig` input.
+    slider: {
+      template:
+        '<article class="card" id="{{id}}">'
+        + '<header><strong>{{label}}</strong>: <span>{{state}}</span></header>'
+        + '<input type="range" min="{{min}}" max="{{max}}" '
+        + 'data-signals="{ val_{{id}}: {{value}} }" '
+        + 'data-bind="val_{{id}}" '
+        + 'data-on:change="'
+        + "@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}/{{key}}/' + $val_{{id}})"
+        + '" />'
+        + '</article>',
+      inputs: ['id', 'label', 'min', 'max', 'domain', 'service', 'entity', 'key', 'state', 'value'],
+    },
   },
 
-  // Read-only: friendly name + current state.
+  // ---- query AST helpers (Predicate) ----
+  cmp(property, op, value):: { kind: 'cmp', property: property, op: op, value: value },
+  and(items):: { kind: 'and', items: items },
+  or(items):: { kind: 'or', items: items },
+  pnot(item):: { kind: 'not', item: item },
+  // Matches every entity (domain is never literally this sentinel).
+  always:: self.cmp('domain', 'ne', '__never__'),
+  whenDomain(d):: self.cmp('domain', 'eq', d),
+  whenDeviceClass(cls):: self.cmp('attr:device_class', 'eq', cls),
+  // e.g. attrLessThan('battery_level', 20)
+  attrLessThan(attr, value):: self.cmp('attr:' + attr, 'lt', value),
+  stateLessThan(value):: self.cmp('state', 'lt', value),
+  // Battery sensors expose the % as their STATE with device_class "battery"
+  // (non-numeric states like "unavailable" simply don't match `state < x`).
+  lowBattery(threshold):: self.and([
+    self.whenDeviceClass('battery'),
+    self.stateLessThan(threshold),
+  ]),
+
+  // ---- layout container builders ----
+  row(children):: { kind: 'row', children: children },
+  column(children):: { kind: 'column', children: children },
+
+  // ---- component leaf builders ----
   stateCard(id, label, entity):: {
+    kind: 'component',
     id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header>' + label + '</header>'
-      + '<span class="state">{{state}}</span>'
-      + '</article>',
+    template: 'stateCard',
+    params: { id: id, label: label, entity: entity },
     entities: [entity],
     slots: { state: { entity: entity } },
   },
 
-  // Sensor value + unit of measurement.
-  sensorCard(id, label, entity):: {
+  sectionTitle(id, label):: {
+    kind: 'component',
     id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header>' + label + '</header>'
-      + '<span class="value">{{state}}</span> <span class="unit">{{unit}}</span>'
-      + '</article>',
-    entities: [entity],
-    slots: {
-      state: { entity: entity },
-      unit: { entity: entity, attribute: 'unit_of_measurement' },
-    },
-  },
-
-  // Numeric sensor as a progress gauge (expects a 0-100 value).
-  gaugeCard(id, label, entity):: {
-    id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header>' + label + ': {{state}} {{unit}}</header>'
-      + '<progress value="{{state}}" max="100"></progress>'
-      + '</article>',
-    entities: [entity],
-    slots: {
-      state: { entity: entity, default: '0' },
-      unit: { entity: entity, attribute: 'unit_of_measurement' },
-    },
-  },
-
-  // Generic service-call button (scenes, scripts, button.press, ...).
-  buttonCard(id, label, domain, service, entity):: {
-    id: id,
-    template:
-      '<button class="card" id="' + id + '" data-on:click="' + actionUrl(domain, service, entity) + '">'
-      + label
-      + '</button>',
+    template: 'sectionTitle',
+    params: { label: label },
     entities: [],
     slots: {},
   },
 
-  // Toggle (lights / switches / fans) via homeassistant.toggle.
-  toggle(id, label, entity):: {
+  button(id, label, domain, service, entity):: {
+    kind: 'component',
     id: id,
-    template:
-      '<button class="card" id="' + id + '" data-on:click="' + actionUrl('homeassistant', 'toggle', entity) + '">'
-      + '<strong>' + label + '</strong>: <span>{{state}}</span>'
-      + '</button>',
-    entities: [entity],
-    slots: { state: { entity: entity } },
+    template: 'button',
+    params: { id: id, label: label, domain: domain, service: service, entity: entity },
+    entities: [],
+    slots: {},
   },
 
-  // Light: toggle (click the name) + brightness slider.
-  lightCard(id, label, entity):: {
-    local sig = 'bri_' + id,
+  slider(id, label, entity, domain, service, key, attr, min, max):: {
+    kind: 'component',
     id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header><button class="ghost" data-on:click="' + actionUrl('homeassistant', 'toggle', entity) + '">'
-      + '<strong>' + label + '</strong></button>: <span>{{state}}</span></header>'
-      + '<input type="range" min="1" max="255" '
-      + 'data-signals="{' + sig + ': {{brightness}}}" '
-      + 'data-bind="' + sig + '" '
-      + 'data-on:change="' + valueActionUrl('light', 'turn_on', entity, 'brightness', sig) + '" />'
-      + '</article>',
+    template: 'slider',
+    params: {
+      id: id,
+      label: label,
+      min: '' + min,
+      max: '' + max,
+      domain: domain,
+      service: service,
+      entity: entity,
+      key: key,
+    },
     entities: [entity],
     slots: {
       state: { entity: entity },
-      brightness: { entity: entity, attribute: 'brightness', default: '0' },
+      value: { entity: entity, attribute: attr, default: '0' },
     },
   },
 
-  // Cover: open / stop / close.
-  coverCard(id, label, entity):: {
-    id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header><strong>' + label + '</strong>: <span>{{state}}</span></header>'
-      + '<div role="group">'
-      + '<button data-on:click="' + actionUrl('cover', 'open_cover', entity) + '">▲</button>'
-      + '<button data-on:click="' + actionUrl('cover', 'stop_cover', entity) + '">■</button>'
-      + '<button data-on:click="' + actionUrl('cover', 'close_cover', entity) + '">▼</button>'
-      + '</div></article>',
-    entities: [entity],
-    slots: { state: { entity: entity } },
+  // Brightness slider preset.
+  brightnessSlider(id, label, entity)::
+    self.slider(id, label, entity, 'light', 'turn_on', 'brightness', 'brightness', 1, 255),
+
+  // ---- dynamic group ----
+  // A case: entities matching the group query render with the FIRST case whose
+  // `when` matches. `id`/`entity`/`label` are auto-injected per matched entity;
+  // dynamic slots use a placeholder entity (rebound at render). For a dynamic
+  // slider, the value attribute lives in `slots`, the static config in `params`.
+  case(when, template, params={}, slots={}):: {
+    when: when,
+    template: template,
+    params: params,
+    slots: slots,
   },
 
-  // Lock: lock / unlock.
-  lockCard(id, label, entity):: {
-    id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header><strong>' + label + '</strong>: <span>{{state}}</span></header>'
-      + '<div role="group">'
-      + '<button data-on:click="' + actionUrl('lock', 'lock', entity) + '">Lock</button>'
-      + '<button data-on:click="' + actionUrl('lock', 'unlock', entity) + '">Unlock</button>'
-      + '</div></article>',
-    entities: [entity],
-    slots: { state: { entity: entity } },
-  },
+  // Convenience cases for the built-in templates inside a dynamic group.
+  dynStateCard(when):: self.case(when, 'stateCard', {}, { state: { entity: '$self' } }),
+  dynButton(when, domain, service):: self.case(when, 'button', { domain: domain, service: service }),
+  dynSlider(when, domain, service, key, attr, min, max):: self.case(
+    when,
+    'slider',
+    { min: '' + min, max: '' + max, domain: domain, service: service, key: key },
+    { state: { entity: '$self' }, value: { entity: '$self', attribute: attr, default: '0' } },
+  ),
 
-  // Media player: previous / play-pause / next + current title.
-  mediaPlayerCard(id, label, entity):: {
-    id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header><strong>' + label + '</strong>: <span>{{state}}</span></header>'
-      + '<small>{{title}}</small>'
-      + '<div role="group">'
-      + '<button data-on:click="' + actionUrl('media_player', 'media_previous_track', entity) + '">⏮</button>'
-      + '<button data-on:click="' + actionUrl('media_player', 'media_play_pause', entity) + '">⏯</button>'
-      + '<button data-on:click="' + actionUrl('media_player', 'media_next_track', entity) + '">⏭</button>'
-      + '</div></article>',
-    entities: [entity],
-    slots: {
-      state: { entity: entity },
-      title: { entity: entity, attribute: 'media_title', default: '' },
-    },
-  },
-
-  // Climate: current temperature + target temperature slider.
-  climateCard(id, label, entity):: {
-    local sig = 'temp_' + id,
-    id: id,
-    template:
-      '<article class="card" id="' + id + '">'
-      + '<header><strong>' + label + '</strong>: <span>{{state}}</span></header>'
-      + '<small>now {{current}}° → target {{target}}°</small>'
-      + '<input type="range" min="7" max="30" step="0.5" '
-      + 'data-signals="{' + sig + ': {{target}}}" '
-      + 'data-bind="' + sig + '" '
-      + 'data-on:change="' + valueActionUrl('climate', 'set_temperature', entity, 'temperature', sig) + '" />'
-      + '</article>',
-    entities: [entity],
-    slots: {
-      state: { entity: entity },
-      current: { entity: entity, attribute: 'current_temperature', default: '?' },
-      target: { entity: entity, attribute: 'temperature', default: '20' },
-    },
-  },
+  dynamic(id, query, cases):: { kind: 'dynamic', id: id, query: query, cases: cases },
 }
