@@ -3,43 +3,28 @@ package fh.view.runtime
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.kernel.Ref
 import cats.effect.std.Env
-import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.model.Dashboard
-import io.circe.parser
+import fh.view.build.DashboardBuild
 import org.http4s.ember.server.EmberServerBuilder
 
 /** Runtime phase entry point.
   *
-  * Loads the prebuilt `dashboard.json`, seeds live state from Home Assistant,
-  * and serves the dashboard with live Datastar updates. Run via
+  * Connects to Home Assistant, evaluates the dashboard jsonnet **in memory**
+  * into the runtime model (no prebuilt `dashboard.json` needed), seeds live
+  * state, and serves the dashboard with live Datastar updates. Run via
   * `fh-datastar-view/runMain fh.view.runtime.ServerApp` with `SERVER`/`SECRET`
   * set.
   */
 object ServerApp extends IOApp {
 
   // Relative to the module directory (the forked `run` working dir).
-  private val defaultDashboardJson = "dashboard.json"
+  private val defaultDashboardsDir = "src/main/resources/dashboards"
 
-  def run(args: List[String]): IO[ExitCode] = {
+  def run(args: List[String]): IO[ExitCode] =
     for {
-      dashboardPath <- Env[IO]
-        .get("DASHBOARD_JSON")
-        .map(_.getOrElse(defaultDashboardJson))
-      dashboard <- loadDashboard(dashboardPath)
-      _ <- dashboard.validate match {
-        case Nil => IO.unit
-        case errs =>
-          IO.raiseError(
-            new RuntimeException(
-              s"Invalid dashboard (${errs.size} error(s)):\n" + errs.mkString(
-                "\n"
-              )
-            )
-          )
-      }
+      dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       bindHost <- Env[IO]
         .get("HOST")
         .map(_.flatMap(Host.fromString).getOrElse(host"0.0.0.0"))
@@ -51,6 +36,10 @@ object ServerApp extends IOApp {
 
       _ <- (for {
         api <- FHApi.fromEnv
+        // Evaluate the jsonnet dashboard in memory against the live instance.
+        dashboard <- DashboardBuild
+          .build(api, dashboardsDir, "dashboard.jsonnet")
+          .toResource
         store <- StateStore.create(api)
         renderer = new Renderer(dashboard, Templates.from(dashboard))
         lastRendered <- Ref[IO].of(Map.empty[String, String]).toResource
@@ -67,16 +56,10 @@ object ServerApp extends IOApp {
           .toResource
       } yield ()).useForever
     } yield ExitCode.Success
-  }
 
-  private def loadDashboard(path: String): IO[Dashboard] =
-    IO(os.read(os.Path(path, os.pwd)))
-      .flatMap(parser.parse(_).liftTo[IO])
-      .flatMap(_.as[Dashboard].liftTo[IO])
-      .adaptError { case e =>
-        new RuntimeException(
-          s"Failed to load dashboard from $path (run the build phase first): ${e.getMessage}",
-          e
-        )
-      }
+  private def pathFromEnv(name: String, default: String): IO[os.Path] =
+    Env[IO]
+      .get(name)
+      .map(_.getOrElse(default))
+      .map(s => os.Path(s, os.pwd))
 }
