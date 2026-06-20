@@ -31,78 +31,86 @@ class CodeGenDevices(
   val deviceToEntities = entities.values.groupBy(_.thing.device_id)
 
   val deviceReferences: Map[DeviceId, ThingReference[Device]] =
-    devices.view.filterNot((_, device) => device.name.isEmpty).mapValues { device =>
-      val areaId = device.area_id
-      val id = device.id
-      val name = device.name_by_user.getOrElse(device.name)
+    devices.view
+      .filterNot((_, device) => device.name.isEmpty)
+      .mapValues { device =>
+        val areaId = device.area_id
+        val id = device.id
+        val name = device.name_by_user.getOrElse(device.name)
 
-      val allTriggers = deviceTriggers.get(id).map(_.toList).toList.flatten
-      val domainGroupedTriggers = allTriggers.groupBy(_.domain)
+        val allTriggers = deviceTriggers.get(id).map(_.toList).toList.flatten
+        val domainGroupedTriggers = allTriggers.groupBy(_.domain)
 
-      def triggerToCode(
-          trigger: DeviceTrigger,
-          nameCollision: Boolean
-      ): String = {
-        val name = trigger.name
+        def triggerToCode(
+            trigger: DeviceTrigger,
+            nameCollision: Boolean
+        ): String = {
+          val name = trigger.name
 
-        val controlledName =
-          if nameCollision then
-            s"${name}_${entities(trigger.entity_id.get).thing.bestName}"
-          else name
+          val controlledName =
+            if nameCollision then
+              s"${name}_${entities(trigger.entity_id.get).thing.bestName}"
+            else name
 
-        StaticCode[DeviceTrigger].toStatic(
-          trigger,
-          overrideLabel = Some(controlledName),
-          `extends` = List("IsDeviceTrigger")
-        )
-      }
-
-      val entitiesInDevice = deviceToEntities.get(Some(device.id))
-
-      val entitiesList = entitiesInDevice
-        .map(e =>
-          consume(
-            e,
-            0,
-            entity =>
-              s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
+          StaticCode[DeviceTrigger].toStatic(
+            trigger,
+            overrideLabel = Some(controlledName),
+            `extends` = List("IsDeviceTrigger")
           )
-        )
-        .orEmpty
+        }
 
-      val triggers = domainGroupedTriggers
-        .map((domain, triggers) =>
-          val triggersCode = triggers
-            .distinctBy(trigger => trigger.name) // TODO handle better, some have only different attributes.. 
-            .map(trigger =>
-              triggerToCode(trigger, triggers.count(_.name == trigger.name) > 1)
+        val entitiesInDevice = deviceToEntities.get(Some(device.id))
+
+        val entitiesList = entitiesInDevice
+          .map(e =>
+            consume(
+              e,
+              0,
+              entity =>
+                s"val ${Helpers.objectNameSafe(entity.name)}: ${entity.toRootReferenceAsObjectType} = ${entity.almostFullyQualifiedName}"
             )
-            .mkString("\n")
+          )
+          .orEmpty
 
-          s"""object ${Helpers.objectNameSafe(domain)} {
+        val triggers = domainGroupedTriggers
+          .map((domain, triggers) =>
+            val triggersCode = triggers
+              .distinctBy(trigger =>
+                trigger.name
+              ) // TODO handle better, some have only different attributes..
+              .map(trigger =>
+                triggerToCode(
+                  trigger,
+                  triggers.count(_.name == trigger.name) > 1
+                )
+              )
+              .mkString("\n")
+
+            s"""object ${Helpers.objectNameSafe(domain)} {
          |  $triggersCode
          |}""".stripMargin
-        )
-        .mkString("\n")
+          )
+          .mkString("\n")
 
-      ThingReference(
-        device,
-        name,
-        List("devices"),
-        () =>
-          StaticCode[Device].toStatic(
-            device,
-            overrideLabel = Some(name),
-            `extends` = List("IsDevice"),
-            imports = List("ha.runtime.definitions.*"),
-            additionalContent = s"""
+        ThingReference(
+          device,
+          name,
+          List("devices"),
+          () =>
+            StaticCode[Device].toStatic(
+              device,
+              overrideLabel = Some(name),
+              `extends` = List("IsDevice"),
+              imports = List("ha.runtime.definitions.*"),
+              additionalContent = s"""
                                  |
                                  |$entitiesList
                                  |
                                  |object triggers {
                                  |  $triggers
                                  |}""".stripMargin
-          )
-      )
-    }.toMap
+            )
+        )
+      }
+      .toMap
 }

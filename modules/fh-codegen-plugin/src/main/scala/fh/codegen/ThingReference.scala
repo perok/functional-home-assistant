@@ -12,16 +12,18 @@ case class ThingReference[T](
 ) {
   assume(name.nonEmpty, s"Name for a thing $thing missing")
 
-
   def toPath(using abspos: AbsolutePosition) = {
     // File names cannot have emojies for the compiler to work.
-    val nameLol = name.codePoints().mapToObj(cp => 
+    val nameLol = name
+      .codePoints()
+      .mapToObj(cp =>
         if (Character.isEmojiPresentation(cp)) then Character.getName(cp)
         else new String(Array(cp), 0, 1)
-      ).collect(Collectors.joining())
+      )
+      .collect(Collectors.joining())
 
     val nameEscaped = nameLol.replace(" ", "-").replace("/", "_")
-    val moreSanitized =  nameEscaped.replaceAll("[\\\\/\\\\:*?\\\"<>|]", "_")
+    val moreSanitized = nameEscaped.replaceAll("[\\\\/\\\\:*?\\\"<>|]", "_")
     java.nio.file.Paths
       .get(
         abspos.directory,
