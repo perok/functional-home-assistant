@@ -162,6 +162,11 @@
     },
   },
 
+  // Toggle button preset (lights, switches, fans…) via homeassistant.toggle —
+  // the assumed action for a togglable entity, so callers needn't spell out the
+  // domain/service.
+  toggle(eo, label=null):: self.button(eo, 'homeassistant', 'toggle', label=label),
+
   // Brightness slider preset.
   brightnessSlider(eo, label=null)::
     self.slider(eo, 'light', 'turn_on', 'brightness', 'brightness', 1, 255, label=label),
