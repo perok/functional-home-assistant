@@ -31,17 +31,13 @@ object server {
         old_state: EventDataState
     ) derives ConfiguredCodec
 
-    case class EventDataStateAttributes(
-        state_class: Option[String],
-        unit_of_measurement: Option[String],
-        device_class: Option[String],
-        friendly_name: Option[String]
-    ) derives ConfiguredCodec
-
     case class EventDataState(
         entity_id: String,
         state: Json,
-        attributes: EventDataStateAttributes,
+        // Full attribute set: HA's `state_changed` new_state carries the
+        // complete attributes object, so we keep it all (not just a few typed
+        // fields) for live attribute queries/slots.
+        attributes: Map[String, Json],
         last_changed: String,
         last_reported: String,
         last_updated: String,
