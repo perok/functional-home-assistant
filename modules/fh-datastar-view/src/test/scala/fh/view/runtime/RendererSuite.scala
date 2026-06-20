@@ -25,8 +25,21 @@ class RendererSuite extends munit.FunSuite {
       """<button id="{{id}}">{{label}}</button>""",
       List("id", "label")
     ),
-    "gauge" -> TemplateDef("""<i id="{{id}}">{{bri}}</i>""", List("id", "bri"))
+    "gauge" -> TemplateDef("""<i id="{{id}}">{{bri}}</i>""", List("id", "bri")),
+    "col" -> TemplateDef(
+      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
+      Nil
+    ),
+    "row" -> TemplateDef(
+      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
+      Nil
+    )
   )
+
+  private def col(kids: LayoutNode*): LayoutNode =
+    LayoutNode.Component("col", children = kids.toList)
+  private def row(kids: LayoutNode*): LayoutNode =
+    LayoutNode.Component("row", children = kids.toList)
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(templates, layout)
@@ -51,7 +64,7 @@ class RendererSuite extends munit.FunSuite {
   )
 
   test("reverse index maps entity to the generated component id") {
-    val r = renderer(LayoutNode.Column(List(card)))
+    val r = renderer(col(card))
     // root column -> child at index 0 -> "c_0"
     assertEquals(r.componentsFor("sensor.t"), Set("c_0"))
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
@@ -71,14 +84,8 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(html, """<div id="c"><span></span> </div>""")
   }
 
-  test("layout tree nests rows/columns and ids encode location") {
-    val layout = LayoutNode.Column(
-      List(
-        LayoutNode.Row(
-          List(LayoutNode.Component("btn", Map("label" -> "Go")))
-        )
-      )
-    )
+  test("container templates splice children; ids encode tree location") {
+    val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
     assert(
@@ -89,7 +96,15 @@ class RendererSuite extends munit.FunSuite {
     )
     // column[0] -> row[0] -> "c_0_0"
     assert(page.contains("""<button id="c_0_0">Go</button>"""), clue = page)
-    assertEquals(r.renderNodeById("c_0_0", Map.empty).get, """<button id="c_0_0">Go</button>""")
+    assertEquals(
+      r.renderNodeById("c_0_0", Map.empty).get,
+      """<button id="c_0_0">Go</button>"""
+    )
+    // a container is addressable too and re-renders its children
+    assertEquals(
+      r.renderNodeById("c_0", Map.empty).get,
+      """<div class="fh-row"><button id="c_0_0">Go</button></div>"""
+    )
     assert(page.endsWith("</div></div></main>"), clue = page)
   }
 

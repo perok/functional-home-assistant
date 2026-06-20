@@ -9,34 +9,44 @@ import fh.view.model.{
   SlotSource
 }
 
-import scala.jdk.CollectionConverters.*
-
 /** Renders the recursive dashboard layout tree from current entity state.
   *
-  * Composition is done in Scala (row/column containers); leaves reference
-  * shared templates by name. Addressable nodes get a stable, location-based id
-  * derived from their index path in the tree ([[LayoutNode.pathId]]) — authors
-  * never invent ids. [[componentsFor]] + [[dynamicContainerIds]] drive the live
-  * update loop, and [[renderNodeById]] re-renders a single patchable node.
+  * Every node is a `Component` referencing a shared template by name; a
+  * container is just a Component whose template splices its rendered `children`
+  * (`{{#children}}{{{html}}}{{/children}}`), so container kinds (row, column,
+  * grid, …) are defined as templates rather than special-cased here.
+  *
+  * Addressable nodes get a stable, location-based id derived from their index
+  * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
+  * [[componentsFor]] + [[dynamicContainerIds]] drive the live update loop, and
+  * [[renderNodeById]] re-renders a single patchable node.
   */
 class Renderer(dashboard: Dashboard, templates: Templates) {
 
-  /** Every addressable node (Component / Dynamic) keyed by its generated id. */
-  private val nodeIndex: Map[String, LayoutNode] = {
-    def walk(node: LayoutNode, path: List[Int]): List[(String, LayoutNode)] =
+  /** Every addressable node keyed by its generated id, paired with its path
+    * (needed to re-render a container's children by id).
+    */
+  private val indexed: Map[String, (LayoutNode, List[Int])] = {
+    def walk(
+        node: LayoutNode,
+        path: List[Int]
+    ): List[(String, (LayoutNode, List[Int]))] = {
+      val self = LayoutNode.pathId(path) -> (node, path)
       node match {
-        case LayoutNode.Row(cs)      => children(cs, path)(walk)
-        case LayoutNode.Column(cs)   => children(cs, path)(walk)
-        case c: LayoutNode.Component => List(LayoutNode.pathId(path) -> c)
-        case d: LayoutNode.Dynamic   => List(LayoutNode.pathId(path) -> d)
+        case c: LayoutNode.Component =>
+          self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
+            walk(ch, path :+ i)
+          }
+        case _: LayoutNode.Dynamic => List(self)
       }
+    }
     walk(dashboard.layout, Nil).toMap
   }
 
-  /** Reverse index: entityId -> static components that depend on it. */
+  /** Reverse index: entityId -> components that depend on it. */
   private val byEntity: Map[String, Set[String]] =
-    nodeIndex.toList
-      .collect { case (id, c: LayoutNode.Component) => id -> c }
+    indexed.toList
+      .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
       .flatMap { case (id, c) => c.entities.map(_ -> id) }
       .groupMap(_._1)(_._2)
       .view
@@ -47,7 +57,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     * membership is data-dependent, so they can't be reverse-indexed).
     */
   val dynamicContainerIds: List[String] =
-    nodeIndex.collect { case (id, _: LayoutNode.Dynamic) => id }.toList
+    indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
 
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
@@ -65,45 +75,28 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
       id: String,
       states: Map[String, EntityState]
   ): Option[String] =
-    nodeIndex.get(id).map {
-      case c: LayoutNode.Component => renderComponent(id, c, states)
-      case d: LayoutNode.Dynamic   => renderDynamic(id, d, states)
-      case _                       => ""
-    }
-
-  private def children[A](nodes: List[LayoutNode], path: List[Int])(
-      f: (LayoutNode, List[Int]) => List[A]
-  ): List[A] =
-    nodes.zipWithIndex.flatMap { case (n, i) => f(n, path :+ i) }
+    indexed.get(id).map { case (node, path) => render(node, path, states) }
 
   private def render(
       node: LayoutNode,
       path: List[Int],
       states: Map[String, EntityState]
-  ): String = {
-    def renderChildren(cs: List[LayoutNode]): String =
-      cs.zipWithIndex.map { case (c, i) =>
-        render(c, path :+ i, states)
-      }.mkString
-
+  ): String =
     node match {
-      case LayoutNode.Row(cs) =>
-        s"""<div class="fh-row">${renderChildren(cs)}</div>"""
-      case LayoutNode.Column(cs) =>
-        s"""<div class="fh-col">${renderChildren(cs)}</div>"""
       case c: LayoutNode.Component =>
-        renderComponent(LayoutNode.pathId(path), c, states)
+        val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
+          render(child, path :+ i, states)
+        }
+        renderTemplate(
+          c.template,
+          Map("id" -> LayoutNode.pathId(path)) ++ c.params,
+          c.slots,
+          childrenHtml,
+          states
+        )
       case d: LayoutNode.Dynamic =>
         renderDynamic(LayoutNode.pathId(path), d, states)
     }
-  }
-
-  private def renderComponent(
-      id: String,
-      c: LayoutNode.Component,
-      states: Map[String, EntityState]
-  ): String =
-    renderTemplate(c.template, Map("id" -> id) ++ c.params, c.slots, states)
 
   private def renderDynamic(
       id: String,
@@ -144,13 +137,14 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     )
     // Rebind each slot to the matched entity (jsonnet uses a placeholder).
     val boundSlots = c.slots.view.mapValues(_.copy(entity = entityId)).toMap
-    renderTemplate(c.template, autoParams ++ c.params, boundSlots, states)
+    renderTemplate(c.template, autoParams ++ c.params, boundSlots, Nil, states)
   }
 
   private def renderTemplate(
       templateName: String,
       params: Map[String, String],
       slots: Map[String, SlotSource],
+      childrenHtml: List[String],
       states: Map[String, EntityState]
   ): String =
     templates.components.get(templateName) match {
@@ -165,7 +159,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
             .getOrElse("")
           slot -> value
         }
-        tpl.execute((params ++ resolved).asJava)
+        tpl.execute(Renderer.javaContext(params ++ resolved, childrenHtml))
     }
 }
 
@@ -174,6 +168,27 @@ object Renderer {
   /** Slug an entity id into a valid HTML id fragment. */
   def sanitize(entityId: String): String =
     entityId.replaceAll("[^A-Za-z0-9_]", "_")
+
+  /** Build the jmustache context at the Java boundary: the string slot/param
+    * context plus, when present, a `children` list of `{html}` maps for
+    * container templates (`{{#children}}{{{html}}}{{/children}}`). Kept here so
+    * the rest of the renderer works in plain `Map[String, String]`.
+    */
+  private def javaContext(
+      context: Map[String, String],
+      childrenHtml: List[String]
+  ): java.util.Map[String, AnyRef] = {
+    val m = new java.util.HashMap[String, AnyRef](context.size + 1)
+    context.foreach { case (k, v) => m.put(k, v) }
+    if (childrenHtml.nonEmpty) {
+      val list = new java.util.ArrayList[AnyRef](childrenHtml.size)
+      childrenHtml.foreach(h =>
+        list.add(java.util.Collections.singletonMap("html", h))
+      )
+      m.put("children", list)
+    }
+    m
+  }
 
   /** Evaluate a query predicate against one entity's live state. */
   def matches(p: Predicate, entityId: String, st: EntityState): Boolean =

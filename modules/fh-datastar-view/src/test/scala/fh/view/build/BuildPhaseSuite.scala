@@ -8,10 +8,8 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
     node match {
-      case LayoutNode.Row(children)    => children.flatMap(dynamics)
-      case LayoutNode.Column(children) => children.flatMap(dynamics)
-      case d: LayoutNode.Dynamic       => List(d)
-      case _                           => Nil
+      case c: LayoutNode.Component => c.children.flatMap(dynamics)
+      case d: LayoutNode.Dynamic   => List(d)
     }
 
   test("DataDump.transform keys lists by sanitized id and adds a '*' member") {
@@ -81,8 +79,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(d.templates.contains("stateCard"), clue = d.templates.keySet)
     assert(d.templates.contains("button"), clue = d.templates.keySet)
     assert(d.templates.contains("slider"), clue = d.templates.keySet)
-    // Recursive layout: top-level column with exactly one dynamic group inside.
-    assert(d.layout.isInstanceOf[LayoutNode.Column], clue = d.layout)
+    // Recursive layout: top-level container (column) with exactly one dynamic
+    // group somewhere inside.
+    assertEquals(
+      d.layout.asInstanceOf[LayoutNode.Component].template,
+      "fhcol"
+    )
     assertEquals(dynamics(d.layout).size, 1)
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)

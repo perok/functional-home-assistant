@@ -20,6 +20,18 @@
 {
   // ---- shared template library: name -> { template, inputs } ----
   templates: {
+    // Containers: splice the backend-rendered children. Add new container
+    // kinds (grids, titled sections, tabs…) by adding a template here + a
+    // builder below — no Scala change needed.
+    fhrow: {
+      template: '<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>',
+      inputs: [],
+    },
+    fhcol: {
+      template: '<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>',
+      inputs: [],
+    },
+
     sectionTitle: {
       template: '<h2 class="section">{{label}}</h2>',
       inputs: ['label'],
@@ -81,9 +93,9 @@
     self.stateLessThan(threshold),
   ]),
 
-  // ---- layout container builders ----
-  row(children):: { kind: 'row', children: children },
-  column(children):: { kind: 'column', children: children },
+  // ---- layout container builders (templated components with children) ----
+  row(children):: { kind: 'component', template: 'fhrow', children: children },
+  column(children):: { kind: 'component', template: 'fhcol', children: children },
 
   // ---- component leaf builders ----
   // NOTE: ids are NOT authored here — the backend derives a stable,

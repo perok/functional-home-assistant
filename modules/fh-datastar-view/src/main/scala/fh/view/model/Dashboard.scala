@@ -77,13 +77,11 @@ case class DynamicCase(
 /** A node in the recursive dashboard layout tree. */
 sealed trait LayoutNode derives ConfiguredCodec
 object LayoutNode:
-  /** Horizontal container. */
-  case class Row(children: List[LayoutNode]) extends LayoutNode
-
-  /** Vertical container. */
-  case class Column(children: List[LayoutNode]) extends LayoutNode
-
-  /** A leaf instance referencing a shared template by name.
+  /** A node referencing a shared template by name. Both leaves and containers
+    * are Components — a container is simply a Component whose template splices
+    * its rendered `children` via `{{#children}}{{{html}}}{{/children}}` (e.g.
+    * the `fhrow`/`fhcol` templates), so new container kinds are added as
+    * templates with no Scala change.
     *
     *   - `params`: static, author-known values (label, entity, service…),
     *     injected into the template alongside resolved slots. The `id` is NOT
@@ -91,12 +89,15 @@ object LayoutNode:
     *     injects it as the `id` param (see [[pathId]]).
     *   - `entities`: runtime deps (drives the reverse index `entityId -> ids`).
     *   - `slots`: dynamic state bindings.
+    *   - `children`: nested nodes, rendered first and exposed to the template
+    *     as a `children` list of `{html}` (empty for leaves).
     */
   case class Component(
       template: String,
       params: Map[String, String] = Map.empty,
       entities: List[String] = Nil,
-      slots: Map[String, SlotSource] = Map.empty
+      slots: Map[String, SlotSource] = Map.empty,
+      children: List[LayoutNode] = Nil
   ) extends LayoutNode
 
   /** A runtime-resolved group with per-entity template dispatch.
@@ -157,15 +158,13 @@ case class Dashboard(
 
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Row(cs)    => children(cs, path)
-        case LayoutNode.Column(cs) => children(cs, path)
-        case LayoutNode.Component(template, params, _, slots) =>
+        case LayoutNode.Component(template, params, _, slots, kids) =>
           // `id` is always backend-injected, so it counts as available.
           checkRef(
             LayoutNode.pathId(path),
             template,
             Set("id") ++ params.keySet ++ slots.keySet
-          )
+          ) ++ children(kids, path)
         case LayoutNode.Dynamic(_, cases) =>
           cases.flatMap { c =>
             checkRef(
