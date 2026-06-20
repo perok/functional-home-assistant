@@ -84,16 +84,26 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
   ): String =
     node match {
       case c: LayoutNode.Component =>
+        val id = LayoutNode.pathId(path)
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, states)
         }
-        renderTemplate(
+        // `id` stays available to the template (e.g. the slider derives its
+        // signal name from it) even though it is no longer the morph target.
+        val html = renderTemplate(
           c.template,
-          Map("id" -> LayoutNode.pathId(path)) ++ c.params,
+          Map("id" -> id) ++ c.params,
           c.slots,
           childrenHtml,
           states
         )
+        // The backend owns the Datastar morph target: any component that can be
+        // live-patched (it depends on entities) is wrapped in an id'd element so
+        // templates don't have to carry `id="{{id}}"` themselves. The wrapper is
+        // layout-neutral (`.fh-cell { display: contents }`).
+        if (c.entities.nonEmpty)
+          s"""<div class="fh-cell" id="$id">$html</div>"""
+        else html
       case d: LayoutNode.Dynamic =>
         renderDynamic(LayoutNode.pathId(path), d, states)
     }

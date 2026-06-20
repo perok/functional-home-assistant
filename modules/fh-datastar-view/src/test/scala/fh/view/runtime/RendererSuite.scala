@@ -16,16 +16,15 @@ class RendererSuite extends munit.FunSuite {
   private def st(state: String, attrs: (String, Json)*): EntityState =
     EntityState(state, attrs.toMap)
 
+  // Templates are pure content; the backend wraps entity-bound components in the
+  // id'd morph target.
   private val templates = Map(
     "card" -> TemplateDef(
-      """<div id="{{id}}"><span>{{state}}</span> {{unit}}</div>""",
-      List("id", "state")
+      """<div><span>{{state}}</span> {{unit}}</div>""",
+      List("state")
     ),
-    "btn" -> TemplateDef(
-      """<button id="{{id}}">{{label}}</button>""",
-      List("id", "label")
-    ),
-    "gauge" -> TemplateDef("""<i id="{{id}}">{{bri}}</i>""", List("id", "bri")),
+    "btn" -> TemplateDef("""<button>{{label}}</button>""", List("label")),
+    "gauge" -> TemplateDef("""<i>{{bri}}</i>""", List("bri")),
     "col" -> TemplateDef(
       """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
       Nil
@@ -70,9 +69,10 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
   }
 
-  test("component slot values are filled and HTML-escaped; id is injected") {
+  test("entity-bound component is wrapped in the id'd morph target; slots escaped") {
     val html = renderer(card).renderNodeById("c", states).get
-    assert(html.startsWith("""<div id="c">"""), clue = html)
+    // backend-owned morph target wraps the pure-content template
+    assert(html.startsWith("""<div class="fh-cell" id="c"><div>"""), clue = html)
     assert(html.contains("&lt;"), clue = html)
     assert(html.contains("&amp;"), clue = html)
     assert(html.contains("°C"), clue = html)
@@ -81,31 +81,26 @@ class RendererSuite extends munit.FunSuite {
 
   test("missing entity renders empty slots rather than throwing") {
     val html = renderer(card).renderNodeById("c", Map.empty).get
-    assertEquals(html, """<div id="c"><span></span> </div>""")
+    assertEquals(
+      html,
+      """<div class="fh-cell" id="c"><div><span></span> </div></div>"""
+    )
   }
 
-  test("container templates splice children; ids encode tree location") {
+  test("container templates splice children; entity-less nodes are not wrapped") {
     val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    assert(
-      page.startsWith(
-        """<main class="container"><div class="fh-col"><div class="fh-row">"""
-      ),
-      clue = page
-    )
-    // column[0] -> row[0] -> "c_0_0"
-    assert(page.contains("""<button id="c_0_0">Go</button>"""), clue = page)
+    // no entities anywhere -> no morph wrappers, no ids in the markup
     assertEquals(
-      r.renderNodeById("c_0_0", Map.empty).get,
-      """<button id="c_0_0">Go</button>"""
+      page,
+      """<main class="container"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
     )
-    // a container is addressable too and re-renders its children
+    // containers are still addressable and re-render their children by id
     assertEquals(
       r.renderNodeById("c_0", Map.empty).get,
-      """<div class="fh-row"><button id="c_0_0">Go</button></div>"""
+      """<div class="fh-row"><button>Go</button></div>"""
     )
-    assert(page.endsWith("</div></div></main>"), clue = page)
   }
 
   test("slot default applies when value is missing, empty, or JSON null") {
@@ -117,11 +112,12 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = renderer(g)
-    assertEquals(r.renderNodeById("c", Map.empty).get, """<i id="c">0</i>""")
+    val wrap = (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
+    assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
     val off = Map("light.x" -> st("off", "brightness" -> Json.Null))
-    assertEquals(r.renderNodeById("c", off).get, """<i id="c">0</i>""")
+    assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
     val on = Map("light.x" -> st("on", "brightness" -> Json.fromInt(200)))
-    assertEquals(r.renderNodeById("c", on).get, """<i id="c">200</i>""")
+    assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
   }
 
   test("dynamic group filters by query and dispatches per matching case") {
@@ -145,13 +141,15 @@ class RendererSuite extends munit.FunSuite {
       "sensor.c" -> st("cold", "battery" -> Json.fromInt(50))
     )
     val r = renderer(dyn)
-    // dynamic as layout root -> container id "c", children "c_<sanitized entity>"
+    // dynamic as layout root -> the group's own id'd container "c" is the morph
+    // target; children are rendered inside it (not individually wrapped).
     val html = r.renderNodeById("c", states).get
     assert(html.startsWith("""<div id="c">"""), clue = html)
-    assert(html.contains("""<button id="c_light_a">Lamp</button>"""), clue = html)
-    assert(html.contains("""<div id="c_sensor_b"><span>hot</span>"""), clue = html)
+    // light.a dispatched to the btn case, sensor.b to the card case
+    assert(html.contains("""<button>Lamp</button>"""), clue = html)
+    assert(html.contains("""<div><span>hot</span>"""), clue = html)
     // sensor.c excluded by the membership query (battery 50)
-    assert(!html.contains("c_sensor_c"), clue = html)
+    assert(!html.contains("cold"), clue = html)
     assertEquals(r.dynamicContainerIds, List("c"))
   }
 
