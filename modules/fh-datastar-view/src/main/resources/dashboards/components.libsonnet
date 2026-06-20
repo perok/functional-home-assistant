@@ -38,21 +38,25 @@
     },
 
     // Read-only: friendly name + current state.
+    // NOTE (multiline templates): each HTML *attribute value* must stay on one
+    // physical line — line breaks between tags/attributes are harmless
+    // whitespace, but a newline inside an attribute would break it.
     stateCard: {
-      template:
-        '<article class="card" id="{{id}}">'
-        + '<header>{{label}}</header>'
-        + '<span class="state">{{state}}</span>'
-        + '</article>',
+      template: |||
+        <article class="card" id="{{id}}">
+          <header>{{label}}</header>
+          <span class="state">{{state}}</span>
+        </article>
+      |||,
       inputs: ['id', 'label', 'state'],
     },
 
     // Generic service-call button (toggle, scene activate, lock…).
     button: {
-      template:
-        '<button class="card" id="{{id}}" data-on:click="'
-        + "@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')"
-        + '">{{label}}</button>',
+      template: |||
+        <button class="card" id="{{id}}"
+          data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')">{{label}}</button>
+      |||,
       inputs: ['id', 'label', 'domain', 'service', 'entity'],
     },
 
@@ -60,16 +64,15 @@
     // name is derived from the (unique) id, so it works for both static and
     // dynamic instances without a separate `sig` input.
     slider: {
-      template:
-        '<article class="card" id="{{id}}">'
-        + '<header><strong>{{label}}</strong>: <span>{{state}}</span></header>'
-        + '<input type="range" min="{{min}}" max="{{max}}" '
-        + 'data-signals="{ val_{{id}}: {{value}} }" '
-        + 'data-bind="val_{{id}}" '
-        + 'data-on:change="'
-        + "@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}/{{key}}/' + $val_{{id}})"
-        + '" />'
-        + '</article>',
+      template: |||
+        <article class="card" id="{{id}}">
+          <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
+          <input type="range" min="{{min}}" max="{{max}}"
+            data-signals="{ val_{{id}}: {{value}} }"
+            data-bind="val_{{id}}"
+            data-on:change="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}/{{key}}/' + $val_{{id}})" />
+        </article>
+      |||,
       inputs: ['id', 'label', 'min', 'max', 'domain', 'service', 'entity', 'key', 'state', 'value'],
     },
   },
