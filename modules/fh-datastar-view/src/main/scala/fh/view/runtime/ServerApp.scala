@@ -4,6 +4,7 @@ import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.kernel.Ref
 import cats.effect.std.Env
 import cats.syntax.all.*
+import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
 import fh.view.model.Dashboard
@@ -59,6 +60,7 @@ object ServerApp extends IOApp {
           .withHost(bindHost)
           .withPort(bindPort)
           .withHttpApp(server.routes.orNotFound)
+          .withShutdownTimeout(0.seconds)
           .build
         _ <- IO
           .println(s"Dashboard serving on http://$bindHost:$bindPort")
