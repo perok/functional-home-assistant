@@ -25,9 +25,9 @@ object Templates {
 
   def from(dashboard: Dashboard): Templates =
     new Templates(
-      components = dashboard.templates.view
-        .mapValues(td => compiler.compile(td.template))
+      components = dashboard.cards.view
+        .mapValues(cd => compiler.compile(cd.template))
         .toMap,
-      inputs = dashboard.templates.view.mapValues(_.inputs).toMap
+      inputs = dashboard.cards.view.mapValues(_.inputs).toMap
     )
 }

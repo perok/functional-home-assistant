@@ -1,13 +1,13 @@
 // Dashboard components — pure composition (build phase only).
 //
 // Two parts:
-//   1. `templates`: a SHARED library of Mustache strings keyed by name, each
-//      declaring the `inputs` it references (validated at build time). A
-//      template is defined ONCE and reused by every instance.
+//   1. `cards`: a SHARED library of cards keyed by name, each a Mustache
+//      `template` declaring the `inputs` it references (validated at build
+//      time). A card is defined ONCE and reused by every instance.
 //   2. builder functions returning layout-tree nodes (`row`/`column`/component
-//      leaves / `dynamic` groups). The node is where static values (label, id,
-//      entity, service…) and dynamic slot references are supplied — NOT the
-//      template.
+//      leaves / `dynamic` groups). The node references a card by name and is
+//      where static values (label, entity, service…) and dynamic slot
+//      references are supplied — NOT the card template.
 //
 // Datastar v1 attribute syntax uses COLONS: `data-on:click`, `data-bind`,
 // `data-signals`. Action routes:
@@ -18,8 +18,9 @@
 // are HTML-safe; raw author values (action URLs, entity ids) use `{{{...}}}`.
 // Literal template text (the `@post('...')` scaffolding) is emitted verbatim.
 {
-  // ---- shared template library: name -> { template, inputs } ----
-  templates: {
+  // ---- shared card library: name -> { template, inputs } ----
+  // (a node references a card by name; each card has a Mustache `template`.)
+  cards: {
     // Containers: splice the backend-rendered children. Add new container
     // kinds (grids, titled sections, tabs…) by adding a template here + a
     // builder below — no Scala change needed.
@@ -102,8 +103,8 @@
   ]),
 
   // ---- layout container builders (templated components with children) ----
-  row(children):: { kind: 'component', template: 'fhrow', children: children },
-  column(children):: { kind: 'component', template: 'fhcol', children: children },
+  row(children):: { kind: 'component', card: 'fhrow', children: children },
+  column(children):: { kind: 'component', card: 'fhcol', children: children },
 
   // ---- component leaf builders ----
   // Leaf builders take a dump entity object `eo` (a reference into the dump —
@@ -115,7 +116,7 @@
 
   stateCard(eo, label=null):: {
     kind: 'component',
-    template: 'stateCard',
+    card: 'stateCard',
     params: { label: nameOf(eo, label), entity: eo.entity_id },
     entities: [eo.entity_id],
     slots: { state: { entity: eo.entity_id } },
@@ -124,7 +125,7 @@
   // Static title text (not bound to an entity).
   sectionTitle(label):: {
     kind: 'component',
-    template: 'sectionTitle',
+    card: 'sectionTitle',
     params: { label: label },
     entities: [],
     slots: {},
@@ -132,7 +133,7 @@
 
   button(eo, domain, service, label=null):: {
     kind: 'component',
-    template: 'button',
+    card: 'button',
     params: {
       label: nameOf(eo, label),
       domain: domain,
@@ -145,7 +146,7 @@
 
   slider(eo, domain, service, key, attr, min, max, label=null):: {
     kind: 'component',
-    template: 'slider',
+    card: 'slider',
     params: {
       label: nameOf(eo, label),
       min: '' + min,
@@ -176,14 +177,14 @@
   // `when` matches. `id`/`entity`/`label` are auto-injected per matched entity;
   // dynamic slots use a placeholder entity (rebound at render). For a dynamic
   // slider, the value attribute lives in `slots`, the static config in `params`.
-  case(when, template, params={}, slots={}):: {
+  case(when, card, params={}, slots={}):: {
     when: when,
-    template: template,
+    card: card,
     params: params,
     slots: slots,
   },
 
-  // Convenience cases for the built-in templates inside a dynamic group.
+  // Convenience cases for the built-in cards inside a dynamic group.
   dynStateCard(when):: self.case(when, 'stateCard', {}, { state: { entity: '$self' } }),
   dynButton(when, domain, service):: self.case(when, 'button', { domain: domain, service: service }),
   dynSlider(when, domain, service, key, attr, min, max):: self.case(

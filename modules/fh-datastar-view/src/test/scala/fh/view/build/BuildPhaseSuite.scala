@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{Dashboard, LayoutNode, TemplateDef}
+import fh.view.model.{CardDef, Dashboard, LayoutNode}
 import io.circe.parser
 import io.circe.syntax.*
 
@@ -76,14 +76,14 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(dashboard.isRight, clue = dashboard)
 
     val d = dashboard.toOption.get
-    // Shared template library is referenced by name (not baked per entity).
-    assert(d.templates.contains("stateCard"), clue = d.templates.keySet)
-    assert(d.templates.contains("button"), clue = d.templates.keySet)
-    assert(d.templates.contains("slider"), clue = d.templates.keySet)
+    // Shared card library is referenced by name (not baked per entity).
+    assert(d.cards.contains("stateCard"), clue = d.cards.keySet)
+    assert(d.cards.contains("button"), clue = d.cards.keySet)
+    assert(d.cards.contains("slider"), clue = d.cards.keySet)
     // Recursive layout: top-level container (column) with exactly one dynamic
     // group somewhere inside.
     assertEquals(
-      d.layout.asInstanceOf[LayoutNode.Component].template,
+      d.layout.asInstanceOf[LayoutNode.Component].card,
       "fhcol"
     )
     assertEquals(dynamics(d.layout).size, 1)
@@ -91,24 +91,24 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(d.validate, Nil)
   }
 
-  test("validate reports a component missing a required template input") {
+  test("validate reports a component missing a required card input") {
     val d = Dashboard(
-      templates = Map(
-        "card" -> TemplateDef("""<div id="{{id}}">{{label}}</div>""", List("id", "label"))
+      cards = Map(
+        "card" -> CardDef("""<div id="{{id}}">{{label}}</div>""", List("id", "label"))
       ),
       // `id` is backend-injected; only "label" is missing here.
-      layout = LayoutNode.Component(template = "card")
+      layout = LayoutNode.Component(card = "card")
     )
     val errs = d.validate
     assert(errs.exists(_.contains("label")), clue = errs)
     assert(!errs.exists(_.contains("missing inputs: id")), clue = errs)
   }
 
-  test("validate reports a reference to an unknown template") {
+  test("validate reports a reference to an unknown card") {
     val d = Dashboard(
-      templates = Map.empty,
+      cards = Map.empty,
       layout = LayoutNode.Component("nope")
     )
-    assert(d.validate.exists(_.contains("unknown template")), clue = d.validate)
+    assert(d.validate.exists(_.contains("unknown card")), clue = d.validate)
   }
 }

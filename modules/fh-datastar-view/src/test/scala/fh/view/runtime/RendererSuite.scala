@@ -1,13 +1,13 @@
 package fh.view.runtime
 
 import fh.view.model.{
+  CardDef,
   Dashboard,
   DynamicCase,
   LayoutNode,
   Op,
   Predicate,
-  SlotSource,
-  TemplateDef
+  SlotSource
 }
 import io.circe.Json
 
@@ -16,20 +16,20 @@ class RendererSuite extends munit.FunSuite {
   private def st(state: String, attrs: (String, Json)*): EntityState =
     EntityState(state, attrs.toMap)
 
-  // Templates are pure content; the backend wraps entity-bound components in the
-  // id'd morph target.
-  private val templates = Map(
-    "card" -> TemplateDef(
+  // Card templates are pure content; the backend wraps entity-bound components
+  // in the id'd morph target.
+  private val cards = Map(
+    "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
       List("state")
     ),
-    "btn" -> TemplateDef("""<button>{{label}}</button>""", List("label")),
-    "gauge" -> TemplateDef("""<i>{{bri}}</i>""", List("bri")),
-    "col" -> TemplateDef(
+    "btn" -> CardDef("""<button>{{label}}</button>""", List("label")),
+    "gauge" -> CardDef("""<i>{{bri}}</i>""", List("bri")),
+    "col" -> CardDef(
       """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
       Nil
     ),
-    "row" -> TemplateDef(
+    "row" -> CardDef(
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
       Nil
     )
@@ -41,13 +41,13 @@ class RendererSuite extends munit.FunSuite {
     LayoutNode.Component("row", children = kids.toList)
 
   private def renderer(layout: LayoutNode): Renderer = {
-    val d = Dashboard(templates, layout)
+    val d = Dashboard(cards, layout)
     new Renderer(d, Templates.from(d))
   }
 
   // A single component as the layout root gets the path id "c".
   private val card = LayoutNode.Component(
-    template = "card",
+    card = "card",
     entities = List("sensor.t"),
     slots = Map(
       "state" -> SlotSource("sensor.t", None),
