@@ -44,8 +44,7 @@ local sensors = pick('sensor', 6);
 
     // A row of light toggles, then a row of brightness sliders.
     c.row([
-    // TODO toggle should be a default assumed action for light entities in button, hyprscript? https://hyperscript.org/
-      c.button(eo, 'homeassistant', 'toggle')
+      c.toggle(eo)
       for eo in lights
     ]),
     c.row([
