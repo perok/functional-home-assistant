@@ -86,39 +86,36 @@
   column(children):: { kind: 'column', children: children },
 
   // ---- component leaf builders ----
-  stateCard(id, label, entity):: {
+  // NOTE: ids are NOT authored here — the backend derives a stable,
+  // location-based id while recursing the layout tree and injects it as `{{id}}`.
+  stateCard(label, entity):: {
     kind: 'component',
-    id: id,
     template: 'stateCard',
-    params: { id: id, label: label, entity: entity },
+    params: { label: label, entity: entity },
     entities: [entity],
     slots: { state: { entity: entity } },
   },
 
-  sectionTitle(id, label):: {
+  sectionTitle(label):: {
     kind: 'component',
-    id: id,
     template: 'sectionTitle',
     params: { label: label },
     entities: [],
     slots: {},
   },
 
-  button(id, label, domain, service, entity):: {
+  button(label, domain, service, entity):: {
     kind: 'component',
-    id: id,
     template: 'button',
-    params: { id: id, label: label, domain: domain, service: service, entity: entity },
+    params: { label: label, domain: domain, service: service, entity: entity },
     entities: [],
     slots: {},
   },
 
-  slider(id, label, entity, domain, service, key, attr, min, max):: {
+  slider(label, entity, domain, service, key, attr, min, max):: {
     kind: 'component',
-    id: id,
     template: 'slider',
     params: {
-      id: id,
       label: label,
       min: '' + min,
       max: '' + max,
@@ -135,8 +132,8 @@
   },
 
   // Brightness slider preset.
-  brightnessSlider(id, label, entity)::
-    self.slider(id, label, entity, 'light', 'turn_on', 'brightness', 'brightness', 1, 255),
+  brightnessSlider(label, entity)::
+    self.slider(label, entity, 'light', 'turn_on', 'brightness', 'brightness', 1, 255),
 
   // ---- dynamic group ----
   // A case: entities matching the group query render with the FIRST case whose
@@ -160,5 +157,5 @@
     { state: { entity: '$self' }, value: { entity: '$self', attribute: attr, default: '0' } },
   ),
 
-  dynamic(id, query, cases):: { kind: 'dynamic', id: id, query: query, cases: cases },
+  dynamic(query, cases):: { kind: 'dynamic', query: query, cases: cases },
 }

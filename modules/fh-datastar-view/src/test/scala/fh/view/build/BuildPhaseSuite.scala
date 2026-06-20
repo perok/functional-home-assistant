@@ -6,12 +6,13 @@ import io.circe.syntax.*
 
 class BuildPhaseSuite extends munit.FunSuite {
 
-  private def dynamicIds(node: LayoutNode): List[String] = node match {
-    case LayoutNode.Row(children)    => children.flatMap(dynamicIds)
-    case LayoutNode.Column(children) => children.flatMap(dynamicIds)
-    case d: LayoutNode.Dynamic       => List(d.id)
-    case _                           => Nil
-  }
+  private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
+    node match {
+      case LayoutNode.Row(children)    => children.flatMap(dynamics)
+      case LayoutNode.Column(children) => children.flatMap(dynamics)
+      case d: LayoutNode.Dynamic       => List(d)
+      case _                           => Nil
+    }
 
   test("DataDump.transform keys lists by sanitized id and adds a '*' member") {
     val raw = parser
@@ -80,9 +81,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(d.templates.contains("stateCard"), clue = d.templates.keySet)
     assert(d.templates.contains("button"), clue = d.templates.keySet)
     assert(d.templates.contains("slider"), clue = d.templates.keySet)
-    // Recursive layout: top-level column with a dynamic group inside.
+    // Recursive layout: top-level column with exactly one dynamic group inside.
     assert(d.layout.isInstanceOf[LayoutNode.Column], clue = d.layout)
-    assertEquals(dynamicIds(d.layout), List("low_batt"))
+    assertEquals(dynamics(d.layout).size, 1)
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)
   }
@@ -92,20 +93,18 @@ class BuildPhaseSuite extends munit.FunSuite {
       templates = Map(
         "card" -> TemplateDef("""<div id="{{id}}">{{label}}</div>""", List("id", "label"))
       ),
-      layout = LayoutNode.Component(
-        id = "c1",
-        template = "card",
-        params = Map("id" -> "c1") // no "label"
-      )
+      // `id` is backend-injected; only "label" is missing here.
+      layout = LayoutNode.Component(template = "card")
     )
     val errs = d.validate
     assert(errs.exists(_.contains("label")), clue = errs)
+    assert(!errs.exists(_.contains("missing inputs: id")), clue = errs)
   }
 
   test("validate reports a reference to an unknown template") {
     val d = Dashboard(
       templates = Map.empty,
-      layout = LayoutNode.Component("c1", "nope", Map("id" -> "c1"))
+      layout = LayoutNode.Component("nope")
     )
     assert(d.validate.exists(_.contains("unknown template")), clue = d.validate)
   }

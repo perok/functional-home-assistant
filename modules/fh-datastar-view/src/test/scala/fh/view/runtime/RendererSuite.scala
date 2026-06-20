@@ -33,10 +33,9 @@ class RendererSuite extends munit.FunSuite {
     new Renderer(d, Templates.from(d))
   }
 
-  private val card1 = LayoutNode.Component(
-    id = "c1",
+  // A single component as the layout root gets the path id "c".
+  private val card = LayoutNode.Component(
     template = "card",
-    params = Map("id" -> "c1"),
     entities = List("sensor.t"),
     slots = Map(
       "state" -> SlotSource("sensor.t", None),
@@ -51,14 +50,16 @@ class RendererSuite extends munit.FunSuite {
     )
   )
 
-  test("reverse index maps entity to dependent components") {
-    val r = renderer(LayoutNode.Column(List(card1)))
-    assertEquals(r.componentsFor("sensor.t"), Set("c1"))
+  test("reverse index maps entity to the generated component id") {
+    val r = renderer(LayoutNode.Column(List(card)))
+    // root column -> child at index 0 -> "c_0"
+    assertEquals(r.componentsFor("sensor.t"), Set("c_0"))
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
   }
 
-  test("component slot values are filled and HTML-escaped") {
-    val html = renderer(card1).renderNodeById("c1", states).get
+  test("component slot values are filled and HTML-escaped; id is injected") {
+    val html = renderer(card).renderNodeById("c", states).get
+    assert(html.startsWith("""<div id="c">"""), clue = html)
     assert(html.contains("&lt;"), clue = html)
     assert(html.contains("&amp;"), clue = html)
     assert(html.contains("°C"), clue = html)
@@ -66,50 +67,50 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("missing entity renders empty slots rather than throwing") {
-    val html = renderer(card1).renderNodeById("c1", Map.empty).get
-    assertEquals(html, """<div id="c1"><span></span> </div>""")
+    val html = renderer(card).renderNodeById("c", Map.empty).get
+    assertEquals(html, """<div id="c"><span></span> </div>""")
   }
 
-  test("layout tree nests rows and columns") {
+  test("layout tree nests rows/columns and ids encode location") {
     val layout = LayoutNode.Column(
       List(
         LayoutNode.Row(
-          List(
-            LayoutNode
-              .Component("b1", "btn", Map("id" -> "b1", "label" -> "Go"))
-          )
+          List(LayoutNode.Component("btn", Map("label" -> "Go")))
         )
       )
     )
-    val page = renderer(layout).renderPage(Map.empty)
+    val r = renderer(layout)
+    val page = r.renderPage(Map.empty)
     assert(
-      page.startsWith("""<main class="container"><div class="fh-col"><div class="fh-row">"""),
+      page.startsWith(
+        """<main class="container"><div class="fh-col"><div class="fh-row">"""
+      ),
       clue = page
     )
-    assert(page.contains("""<button id="b1">Go</button>"""), clue = page)
+    // column[0] -> row[0] -> "c_0_0"
+    assert(page.contains("""<button id="c_0_0">Go</button>"""), clue = page)
+    assertEquals(r.renderNodeById("c_0_0", Map.empty).get, """<button id="c_0_0">Go</button>""")
     assert(page.endsWith("</div></div></main>"), clue = page)
   }
 
   test("slot default applies when value is missing, empty, or JSON null") {
     val g = LayoutNode.Component(
-      "g",
       "gauge",
-      params = Map("id" -> "g"),
       entities = List("light.x"),
-      slots =
-        Map("bri" -> SlotSource("light.x", Some("brightness"), default = Some("0")))
+      slots = Map(
+        "bri" -> SlotSource("light.x", Some("brightness"), default = Some("0"))
+      )
     )
     val r = renderer(g)
-    assertEquals(r.renderNodeById("g", Map.empty).get, """<i id="g">0</i>""")
+    assertEquals(r.renderNodeById("c", Map.empty).get, """<i id="c">0</i>""")
     val off = Map("light.x" -> st("off", "brightness" -> Json.Null))
-    assertEquals(r.renderNodeById("g", off).get, """<i id="g">0</i>""")
+    assertEquals(r.renderNodeById("c", off).get, """<i id="c">0</i>""")
     val on = Map("light.x" -> st("on", "brightness" -> Json.fromInt(200)))
-    assertEquals(r.renderNodeById("g", on).get, """<i id="g">200</i>""")
+    assertEquals(r.renderNodeById("c", on).get, """<i id="c">200</i>""")
   }
 
   test("dynamic group filters by query and dispatches per matching case") {
     val dyn = LayoutNode.Dynamic(
-      id = "grp",
       query = Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
       cases = List(
         DynamicCase(
@@ -128,15 +129,15 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> st("hot", "battery" -> Json.fromInt(5)),
       "sensor.c" -> st("cold", "battery" -> Json.fromInt(50))
     )
-    val html = renderer(dyn).renderNodeById("grp", states).get
-    // light -> btn (auto label from friendly_name), sensor under threshold -> card
-    assert(html.contains("""<button id="grp_light_a">Lamp</button>"""), clue = html)
-    assert(html.contains("""<div id="grp_sensor_b"><span>hot</span>"""), clue = html)
+    val r = renderer(dyn)
+    // dynamic as layout root -> container id "c", children "c_<sanitized entity>"
+    val html = r.renderNodeById("c", states).get
+    assert(html.startsWith("""<div id="c">"""), clue = html)
+    assert(html.contains("""<button id="c_light_a">Lamp</button>"""), clue = html)
+    assert(html.contains("""<div id="c_sensor_b"><span>hot</span>"""), clue = html)
     // sensor.c excluded by the membership query (battery 50)
-    assert(!html.contains("grp_sensor_c"), clue = html)
-    assert(html.startsWith("""<div id="grp">"""), clue = html)
-    // dynamic container id is exposed for the live-update loop
-    assertEquals(renderer(dyn).dynamicContainerIds, List("grp"))
+    assert(!html.contains("c_sensor_c"), clue = html)
+    assertEquals(r.dynamicContainerIds, List("c"))
   }
 
   test("Predicate evaluation: comparisons and boolean combinators") {
