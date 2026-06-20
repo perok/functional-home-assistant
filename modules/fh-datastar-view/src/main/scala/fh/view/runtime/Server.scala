@@ -73,10 +73,12 @@ class Server(
       Ok(patches.merge(heartbeat))
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
+    // `domain` is the SERVICE's domain, which is not always the entity's domain
+    // (e.g. `homeassistant.toggle` on a `light.*`), so it can't be derived from
+    // entityId in general and is passed explicitly.
     case POST -> Root / "sse" / "action" / domain / service / entityId =>
       callService(domain, service, entityId, Json.obj())
 
-    // TODO domain can be looked up by entityId
     // Single-value action (brightness, cover position, target temperature...).
     // The value rides in the URL path (Datastar builds it via `'.../key/' + $sig`).
     case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
