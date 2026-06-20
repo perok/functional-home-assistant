@@ -16,8 +16,7 @@ local pick(domain, limit) =
   local all = [
     dump.entities[k]
     for k in std.objectFields(dump.entities)
-    if k != '*' // TODO is star needed with dynamic? do that in other ways to avoid clunky workarounds
-       && dump.entities[k].domain == domain
+    if dump.entities[k].domain == domain
        && dump.entities[k].friendly_name != null
   ];
   all[0:std.min(limit, std.length(all))];
