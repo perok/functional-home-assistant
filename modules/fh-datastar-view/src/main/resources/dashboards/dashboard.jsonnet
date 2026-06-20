@@ -1,11 +1,11 @@
 // Example dashboard definition.
 //
 // Composes components against the live entity dump (generated as `dump.libsonnet`
-// by the build phase) into the `dashboard.json` artifact `{ templates, layout }`.
+// by the build phase) into the `dashboard.json` artifact `{ cards, layout }`.
 // The layout is a RECURSIVE tree of rows/columns and component leaves; leaves
-// reference shared templates by name (see components.libsonnet).
+// reference shared cards by name (see components.libsonnet).
 //
-// The "design system" is exactly that shared card-template library (`c.templates`):
+// The "design system" is exactly that shared card library (`c.cards`):
 // re-skin the whole dashboard by editing/replacing those Mustache templates (or
 // importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
@@ -44,8 +44,7 @@ local ifPresent(id, fn) =
 // view at once. (An in-page `tabs` container is possible later, but it needs
 // per-child labels — richer child metadata than today's `{html}` children.)
 {
-  templates: c.templates,
-  // TODO rename card and templates as cards
+  cards: c.cards,
   layout: c.column([
     c.sectionTitle('Dashboard'),
 

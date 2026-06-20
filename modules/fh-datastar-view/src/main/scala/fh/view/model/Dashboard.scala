@@ -24,14 +24,14 @@ case class SlotSource(
     default: Option[String] = None
 ) derives ConfiguredCodec
 
-/** A reusable template in the shared library.
+/** A reusable card in the shared library (a node references one by name).
   *
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
   *   - `inputs`: the param/slot names the template references — used by
   *     [[Dashboard.validate]] to check every instance supplies them.
   */
-case class TemplateDef(
+case class CardDef(
     template: String,
     inputs: List[String] = Nil
 ) derives ConfiguredCodec
@@ -69,7 +69,7 @@ object Predicate:
   */
 case class DynamicCase(
     when: Predicate,
-    template: String,
+    card: String,
     params: Map[String, String] = Map.empty,
     slots: Map[String, SlotSource] = Map.empty
 ) derives ConfiguredCodec
@@ -93,7 +93,7 @@ object LayoutNode:
     *     as a `children` list of `{html}` (empty for leaves).
     */
   case class Component(
-      template: String,
+      card: String,
       params: Map[String, String] = Map.empty,
       entities: List[String] = Nil,
       slots: Map[String, SlotSource] = Map.empty,
@@ -123,33 +123,33 @@ object LayoutNode:
 
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
-  *   - `templates`: `templateName -> TemplateDef` (shared, reused library).
+  *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
   *   - `layout`: the recursive layout tree. Component HTML is composed in Scala
   *     (see `Renderer`), not via mustache layout placeholders.
   */
 case class Dashboard(
-    templates: Map[String, TemplateDef],
+    cards: Map[String, CardDef],
     layout: LayoutNode
 ) derives ConfiguredCodec:
 
-  /** Validate that every template reference resolves and supplies the inputs
-    * the template declares. Returns human-readable errors (empty = valid).
+  /** Validate that every card reference resolves and supplies the inputs the
+    * card's template declares. Returns human-readable errors (empty = valid).
     */
   def validate: List[String] =
     def checkRef(
         nodeId: String,
-        templateName: String,
+        cardName: String,
         available: Set[String]
     ): List[String] =
-      templates.get(templateName) match
+      cards.get(cardName) match
         case None =>
-          List(s"$nodeId: references unknown template '$templateName'")
-        case Some(td) =>
-          val missing = td.inputs.toSet -- available
+          List(s"$nodeId: references unknown card '$cardName'")
+        case Some(cd) =>
+          val missing = cd.inputs.toSet -- available
           if missing.isEmpty then Nil
           else
             List(
-              s"$nodeId: template '$templateName' missing inputs: " +
+              s"$nodeId: card '$cardName' missing inputs: " +
                 missing.toList.sorted.mkString(", ")
             )
 
@@ -158,18 +158,18 @@ case class Dashboard(
 
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(template, params, _, slots, kids) =>
+        case LayoutNode.Component(card, params, _, slots, kids) =>
           // `id` is always backend-injected, so it counts as available.
           checkRef(
             LayoutNode.pathId(path),
-            template,
+            card,
             Set("id") ++ params.keySet ++ slots.keySet
           ) ++ children(kids, path)
         case LayoutNode.Dynamic(_, cases) =>
           cases.flatMap { c =>
             checkRef(
-              s"${LayoutNode.pathId(path)}/${c.template}",
-              c.template,
+              s"${LayoutNode.pathId(path)}/${c.card}",
+              c.card,
               Set("id", "entity", "label") ++ c.params.keySet ++ c.slots.keySet
             )
           }

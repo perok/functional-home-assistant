@@ -91,7 +91,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
         // `id` stays available to the template (e.g. the slider derives its
         // signal name from it) even though it is no longer the morph target.
         val html = renderTemplate(
-          c.template,
+          c.card,
           Map("id" -> id) ++ c.params,
           c.slots,
           childrenHtml,
@@ -147,17 +147,17 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     )
     // Rebind each slot to the matched entity (jsonnet uses a placeholder).
     val boundSlots = c.slots.view.mapValues(_.copy(entity = entityId)).toMap
-    renderTemplate(c.template, autoParams ++ c.params, boundSlots, Nil, states)
+    renderTemplate(c.card, autoParams ++ c.params, boundSlots, Nil, states)
   }
 
   private def renderTemplate(
-      templateName: String,
+      cardName: String,
       params: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: List[String],
       states: Map[String, EntityState]
   ): String =
-    templates.components.get(templateName) match {
+    templates.components.get(cardName) match {
       case None => ""
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
