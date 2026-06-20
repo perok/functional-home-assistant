@@ -106,16 +106,22 @@
   column(children):: { kind: 'component', template: 'fhcol', children: children },
 
   // ---- component leaf builders ----
+  // Leaf builders take a dump entity object `eo` (a reference into the dump —
+  // see `pick`/`at` in dashboard.jsonnet), NOT a hand-typed name + id. `label`
+  // defaults to the entity's `friendly_name` and can be overridden per call.
   // NOTE: ids are NOT authored here — the backend derives a stable,
   // location-based id while recursing the layout tree and injects it as `{{id}}`.
-  stateCard(label, entity):: {
+  local nameOf(eo, label) = if label != null then label else eo.friendly_name,
+
+  stateCard(eo, label=null):: {
     kind: 'component',
     template: 'stateCard',
-    params: { label: label, entity: entity },
-    entities: [entity],
-    slots: { state: { entity: entity } },
+    params: { label: nameOf(eo, label), entity: eo.entity_id },
+    entities: [eo.entity_id],
+    slots: { state: { entity: eo.entity_id } },
   },
 
+  // Static title text (not bound to an entity).
   sectionTitle(label):: {
     kind: 'component',
     template: 'sectionTitle',
@@ -124,36 +130,41 @@
     slots: {},
   },
 
-  button(label, domain, service, entity):: {
+  button(eo, domain, service, label=null):: {
     kind: 'component',
     template: 'button',
-    params: { label: label, domain: domain, service: service, entity: entity },
+    params: {
+      label: nameOf(eo, label),
+      domain: domain,
+      service: service,
+      entity: eo.entity_id,
+    },
     entities: [],
     slots: {},
   },
 
-  slider(label, entity, domain, service, key, attr, min, max):: {
+  slider(eo, domain, service, key, attr, min, max, label=null):: {
     kind: 'component',
     template: 'slider',
     params: {
-      label: label,
+      label: nameOf(eo, label),
       min: '' + min,
       max: '' + max,
       domain: domain,
       service: service,
-      entity: entity,
+      entity: eo.entity_id,
       key: key,
     },
-    entities: [entity],
+    entities: [eo.entity_id],
     slots: {
-      state: { entity: entity },
-      value: { entity: entity, attribute: attr, default: '0' },
+      state: { entity: eo.entity_id },
+      value: { entity: eo.entity_id, attribute: attr, default: '0' },
     },
   },
 
   // Brightness slider preset.
-  brightnessSlider(label, entity)::
-    self.slider(label, entity, 'light', 'turn_on', 'brightness', 'brightness', 1, 255),
+  brightnessSlider(eo, label=null)::
+    self.slider(eo, 'light', 'turn_on', 'brightness', 'brightness', 1, 255, label=label),
 
   // ---- dynamic group ----
   // A case: entities matching the group query render with the FIRST case whose

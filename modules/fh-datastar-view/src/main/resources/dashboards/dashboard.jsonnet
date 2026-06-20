@@ -45,20 +45,18 @@ local sensors = pick('sensor', 6);
     // A row of light toggles, then a row of brightness sliders.
     c.row([
     // TODO toggle should be a default assumed action for light entities in button, hyprscript? https://hyperscript.org/
-    // TODO friendly_name should not use the static value, but be a reference for it, and it should be a default to use that can be overriden here
-
-      c.button(eo.friendly_name, 'homeassistant', 'toggle', eo.entity_id)
+      c.button(eo, 'homeassistant', 'toggle')
       for eo in lights
     ]),
     c.row([
-      c.brightnessSlider(eo.friendly_name, eo.entity_id)
+      c.brightnessSlider(eo)
       for eo in lights
     ]),
 
     // A grid of sensor readings.
     c.sectionTitle('Sensors'),
     c.row([
-      c.stateCard(eo.friendly_name, eo.entity_id)
+      c.stateCard(eo)
       for eo in sensors
     ]),
 
