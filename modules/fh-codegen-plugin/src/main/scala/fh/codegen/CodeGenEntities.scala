@@ -4,7 +4,6 @@ import api.homeassistant.ws.domain.Entity
 import fh.codegen.utils.StaticCode
 import ha.runtime.definitions.*
 
-
 class CodeGenEntities(
     entities: Map[EntityId, Entity]
 ) {

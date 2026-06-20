@@ -13,7 +13,7 @@ class CodeGenServices(
     services: List[ServiceDomain]
 ) {
 
-  //services.find(_.domain == "light").pipe(pprint.pprintln(_, height = 2000))
+  // services.find(_.domain == "light").pipe(pprint.pprintln(_, height = 2000))
   // pprint.pprintln(entitiesMap.get("binary_sensor"))
   // pprint.pprintln(servicesWithEntities.find(_.domain == "light"))
   // services"${s
@@ -51,17 +51,18 @@ class CodeGenServices(
         .groupBy(_._2)
         .view
         .filter(_._2.nonEmpty)
-        .filterNot(stuff => stuff._2.isEmpty )
+        .filterNot(stuff => stuff._2.isEmpty)
         .map { (targetDomain, stuff) =>
 
           val domainDifferent = targetDomain =!= domain.domain.some
 
           val services = stuff
-            //.filterNot((_, _, service) => service.name.isEmpty)
+            // .filterNot((_, _, service) => service.name.isEmpty)
             .map((serviceId, _, service) =>
               val name = objectNameSafe(service.name.getOrElse(serviceId))
 
-              val attributes = List() /*service.fields.map((fieldId, field) => // TODO started getting ints, how to model in smithy4s?
+              val attributes =
+                List() /*service.fields.map((fieldId, field) => // TODO started getting ints, how to model in smithy4s?
                 val isNotRequired = field.required.forall(!_)
                 // TODO default value
                 val tpe =
