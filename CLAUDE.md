@@ -63,8 +63,16 @@ HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment
   `src/main/resources/dashboards/` (`components.libsonnet`, `dashboard.jsonnet`); `dump.libsonnet`
   and `dashboard.json` are generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`); `POST /sse/action/:domain/:service/:entityId` triggers it and
-  the resulting state change flows back over the persistent SSE stream.
+  `HomeAssistantApi.callService`). `POST /sse/action/:domain/:service/:entityId` triggers a no-data
+  service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
+  rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
+  use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
+  the persistent SSE stream.
+- Components (`components.libsonnet`) are HA-card-like: sectionTitle, stateCard, sensorCard,
+  gaugeCard, buttonCard, toggle, lightCard (brightness slider), coverCard, lockCard, mediaPlayerCard,
+  climateCard (target-temp slider). Datastar attributes use **colon** syntax (`data-on:click`,
+  `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
+  when a light is off).
 
 ### The sbt plugin glue
 

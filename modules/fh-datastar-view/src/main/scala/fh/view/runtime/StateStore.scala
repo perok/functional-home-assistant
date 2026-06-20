@@ -62,8 +62,10 @@ class StateStore private (
 
 object StateStore {
 
+  // JSON null is treated as absent so slot defaults apply (e.g. brightness is
+  // null when a light is off).
   def jsonToString(json: Json): String =
-    json.asString.getOrElse(json.noSpaces)
+    if (json.isNull) "" else json.asString.getOrElse(json.noSpaces)
 
   /** Build the store: take a full snapshot, then run a background fiber that
     * keeps it current from the live `state_changed` stream.
