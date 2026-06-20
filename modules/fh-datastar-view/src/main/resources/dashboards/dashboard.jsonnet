@@ -24,6 +24,13 @@ local pick(domain, limit) =
 local lights = pick('light', 4);
 local sensors = pick('sensor', 6);
 
+// A static reference to one named entity in the dump (vs the `pick` lists).
+local at(id) = dump.entities[std.strReplace(id, '.', '_')];
+// `[fn(entity)]` if `id` exists in this dump, else `[]` — keeps the example
+// portable when a referenced entity is absent.
+local ifPresent(id, fn) =
+  if std.objectHas(dump.entities, std.strReplace(id, '.', '_')) then [fn(at(id))] else [];
+
 
 // "static dynamic" for room entities and things like that. Things that are not going to live changing when viewing the dashboard.
 // Every now and so often the system could recreate the dump and combine the setup to have a dashboard.json with the latest changes.
@@ -41,6 +48,10 @@ local sensors = pick('sensor', 6);
   // TODO rename card and templates as cards
   layout: c.column([
     c.sectionTitle('Dashboard'),
+
+    // Static reference: a card for one specifically-named entity (rendered only
+    // if present in this dump). Adjust the id to an entity on your instance.
+    c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
 
     // A row of light toggles, then a row of brightness sliders.
     c.row([
