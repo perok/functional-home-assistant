@@ -85,13 +85,14 @@ object LayoutNode:
 
   /** A leaf instance referencing a shared template by name.
     *
-    *   - `params`: static, author-known values (id, label, entity, signal
-    *     names…), injected into the template alongside resolved slots.
+    *   - `params`: static, author-known values (label, entity, service…),
+    *     injected into the template alongside resolved slots. The `id` is NOT
+    *     authored — the renderer derives a stable, location-based id and
+    *     injects it as the `id` param (see [[pathId]]).
     *   - `entities`: runtime deps (drives the reverse index `entityId -> ids`).
     *   - `slots`: dynamic state bindings.
     */
   case class Component(
-      id: String,
       template: String,
       params: Map[String, String] = Map.empty,
       entities: List[String] = Nil,
@@ -104,13 +105,20 @@ object LayoutNode:
     *   - `cases`: each matched entity renders with the first case whose `when`
     *     matches (skipped if none). The renderer auto-injects `id`, `entity`,
     *     and `label` params per matched entity and rebinds each case's slot
-    *     entities to the match.
+    *     entities to the match. The group's own id is location-derived.
     */
   case class Dynamic(
-      id: String,
       query: Option[Predicate] = None,
       cases: List[DynamicCase] = Nil
   ) extends LayoutNode
+
+  /** Stable, location-based id for an addressable node, derived from its index
+    * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
+    * authors never invent ids; underscore-joined so it is also a valid signal
+    * name (`val_{{id}}`).
+    */
+  def pathId(path: List[Int]): String =
+    if path.isEmpty then "c" else path.mkString("c_", "_", "")
 
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
@@ -144,19 +152,27 @@ case class Dashboard(
                 missing.toList.sorted.mkString(", ")
             )
 
-    def walk(node: LayoutNode): List[String] =
+    def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
+      nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
+
+    def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Row(children)    => children.flatMap(walk)
-        case LayoutNode.Column(children) => children.flatMap(walk)
-        case LayoutNode.Component(id, template, params, _, slots) =>
-          checkRef(id, template, params.keySet ++ slots.keySet)
-        case LayoutNode.Dynamic(id, _, cases) =>
+        case LayoutNode.Row(cs)    => children(cs, path)
+        case LayoutNode.Column(cs) => children(cs, path)
+        case LayoutNode.Component(template, params, _, slots) =>
+          // `id` is always backend-injected, so it counts as available.
+          checkRef(
+            LayoutNode.pathId(path),
+            template,
+            Set("id") ++ params.keySet ++ slots.keySet
+          )
+        case LayoutNode.Dynamic(_, cases) =>
           cases.flatMap { c =>
             checkRef(
-              s"$id/${c.template}",
+              s"${LayoutNode.pathId(path)}/${c.template}",
               c.template,
               Set("id", "entity", "label") ++ c.params.keySet ++ c.slots.keySet
             )
           }
 
-    walk(layout)
+    walk(layout, Nil)

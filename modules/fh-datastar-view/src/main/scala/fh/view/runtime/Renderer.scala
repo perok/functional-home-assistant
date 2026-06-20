@@ -14,28 +14,30 @@ import scala.jdk.CollectionConverters.*
 /** Renders the recursive dashboard layout tree from current entity state.
   *
   * Composition is done in Scala (row/column containers); leaves reference
-  * shared templates by name. [[componentsFor]] + [[dynamicContainerIds]] drive
-  * the live update loop, and [[renderNodeById]] re-renders a single patchable
-  * node.
+  * shared templates by name. Addressable nodes get a stable, location-based id
+  * derived from their index path in the tree ([[LayoutNode.pathId]]) — authors
+  * never invent ids. [[componentsFor]] + [[dynamicContainerIds]] drive the live
+  * update loop, and [[renderNodeById]] re-renders a single patchable node.
   */
 class Renderer(dashboard: Dashboard, templates: Templates) {
 
-  /** Every addressable node (Component / Dynamic) keyed by its id. */
+  /** Every addressable node (Component / Dynamic) keyed by its generated id. */
   private val nodeIndex: Map[String, LayoutNode] = {
-    def walk(node: LayoutNode): List[(String, LayoutNode)] = node match {
-      case LayoutNode.Row(children)    => children.flatMap(walk)
-      case LayoutNode.Column(children) => children.flatMap(walk)
-      case c: LayoutNode.Component     => List(c.id -> c)
-      case d: LayoutNode.Dynamic       => List(d.id -> d)
-    }
-    walk(dashboard.layout).toMap
+    def walk(node: LayoutNode, path: List[Int]): List[(String, LayoutNode)] =
+      node match {
+        case LayoutNode.Row(cs)      => children(cs, path)(walk)
+        case LayoutNode.Column(cs)   => children(cs, path)(walk)
+        case c: LayoutNode.Component => List(LayoutNode.pathId(path) -> c)
+        case d: LayoutNode.Dynamic   => List(LayoutNode.pathId(path) -> d)
+      }
+    walk(dashboard.layout, Nil).toMap
   }
 
   /** Reverse index: entityId -> static components that depend on it. */
   private val byEntity: Map[String, Set[String]] =
-    nodeIndex.values.toList
-      .collect { case c: LayoutNode.Component => c }
-      .flatMap(c => c.entities.map(_ -> c.id))
+    nodeIndex.toList
+      .collect { case (id, c: LayoutNode.Component) => id -> c }
+      .flatMap { case (id, c) => c.entities.map(_ -> id) }
       .groupMap(_._1)(_._2)
       .view
       .mapValues(_.toSet)
@@ -45,57 +47,81 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     * membership is data-dependent, so they can't be reverse-indexed).
     */
   val dynamicContainerIds: List[String] =
-    nodeIndex.values.toList.collect { case d: LayoutNode.Dynamic => d.id }
+    nodeIndex.collect { case (id, _: LayoutNode.Dynamic) => id }.toList
 
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
 
   /** Render the full page as the walked layout tree. */
   def renderPage(states: Map[String, EntityState]): String =
-    s"""<main class="container">${render(dashboard.layout, states)}</main>"""
+    s"""<main class="container">${render(
+        dashboard.layout,
+        Nil,
+        states
+      )}</main>"""
 
   /** Render a single addressable node (for live SSE patches). */
   def renderNodeById(
       id: String,
       states: Map[String, EntityState]
   ): Option[String] =
-    nodeIndex.get(id).map(render(_, states))
+    nodeIndex.get(id).map {
+      case c: LayoutNode.Component => renderComponent(id, c, states)
+      case d: LayoutNode.Dynamic   => renderDynamic(id, d, states)
+      case _                       => ""
+    }
+
+  private def children[A](nodes: List[LayoutNode], path: List[Int])(
+      f: (LayoutNode, List[Int]) => List[A]
+  ): List[A] =
+    nodes.zipWithIndex.flatMap { case (n, i) => f(n, path :+ i) }
 
   private def render(
       node: LayoutNode,
+      path: List[Int],
+      states: Map[String, EntityState]
+  ): String = {
+    def renderChildren(cs: List[LayoutNode]): String =
+      cs.zipWithIndex.map { case (c, i) =>
+        render(c, path :+ i, states)
+      }.mkString
+
+    node match {
+      case LayoutNode.Row(cs) =>
+        s"""<div class="fh-row">${renderChildren(cs)}</div>"""
+      case LayoutNode.Column(cs) =>
+        s"""<div class="fh-col">${renderChildren(cs)}</div>"""
+      case c: LayoutNode.Component =>
+        renderComponent(LayoutNode.pathId(path), c, states)
+      case d: LayoutNode.Dynamic =>
+        renderDynamic(LayoutNode.pathId(path), d, states)
+    }
+  }
+
+  private def renderComponent(
+      id: String,
+      c: LayoutNode.Component,
       states: Map[String, EntityState]
   ): String =
-    node match {
-      case LayoutNode.Row(children) =>
-        s"""<div class="fh-row">${children
-            .map(render(_, states))
-            .mkString}</div>"""
-      case LayoutNode.Column(children) =>
-        s"""<div class="fh-col">${children
-            .map(render(_, states))
-            .mkString}</div>"""
-      case c: LayoutNode.Component =>
-        renderTemplate(c.template, c.params, c.slots, states)
-      case d: LayoutNode.Dynamic =>
-        renderDynamic(d, states)
-    }
+    renderTemplate(c.template, Map("id" -> id) ++ c.params, c.slots, states)
 
   private def renderDynamic(
+      id: String,
       d: LayoutNode.Dynamic,
       states: Map[String, EntityState]
   ): String = {
     val children =
       states.toList
         .sortBy(_._1)
-        .filter { case (id, st) =>
-          d.query.forall(Renderer.matches(_, id, st))
+        .filter { case (entityId, st) =>
+          d.query.forall(Renderer.matches(_, entityId, st))
         }
         .flatMap { case (entityId, st) =>
           d.cases
             .find(c => Renderer.matches(c.when, entityId, st))
-            .map(renderCase(d.id, entityId, st, _, states))
+            .map(renderCase(id, entityId, st, _, states))
         }
-    s"""<div id="${d.id}">${children.mkString}</div>"""
+    s"""<div id="$id">${children.mkString}</div>"""
   }
 
   private def renderCase(
