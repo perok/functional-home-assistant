@@ -2,17 +2,18 @@ package fh.view.build
 
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Env
-import cats.syntax.all.*
 import fh.api.FHApi
-import fh.view.model.Dashboard
 
 /** Build phase entry point.
   *
-  * Connects to Home Assistant, writes the entity dump next to the dashboard
-  * jsonnet, evaluates the jsonnet into a `dashboard.json` artifact, and
-  * validates that it decodes into the [[Dashboard]] model. Run via
-  * `fh-datastar-view/run` (or the `dashboardBuild` alias) with
-  * `SERVER`/`SECRET` set.
+  * Connects to Home Assistant, evaluates the dashboard jsonnet into a
+  * `dashboard.json` artifact (validating it decodes into the runtime model
+  * along the way), and writes it. Run via `fh-datastar-view/run` (or the
+  * `dashboardBuild` alias) with `SERVER`/`SECRET` set.
+  *
+  * The artifact is for inspection/CI; the runtime
+  * ([[fh.view.runtime.ServerApp]]) evaluates the same jsonnet in memory and
+  * does not need it.
   */
 object BuildApp extends IOApp {
 
@@ -25,34 +26,15 @@ object BuildApp extends IOApp {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
 
-      dump <- FHApi.fromEnv.use(DataDump.fetch)
-      _ <- IO(os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2))
+      dashboardJson <- FHApi.fromEnv.use(
+        DashboardBuild.evaluate(_, dashboardsDir, "dashboard.jsonnet")
+      )
       _ <- IO.println(
         s"Wrote entity dump to ${dashboardsDir / "dump.libsonnet"}"
       )
 
-      dashboardJson <- JsonnetBuild
-        .eval(dashboardsDir, "dashboard.jsonnet")
-        .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
-        .liftTo[IO]
-
-      // Validate the artifact decodes into our runtime model before writing it.
-      dashboard <- dashboardJson
-        .as[Dashboard]
-        .leftMap(err =>
-          new RuntimeException(s"dashboard.json is not a valid Dashboard: $err")
-        )
-        .liftTo[IO]
-
-      // Validate every template reference resolves and its inputs are supplied.
-      _ <- dashboard.validate match {
-        case Nil => IO.unit
-        case errs =>
-          new RuntimeException(
-            s"dashboard.json failed validation (${errs.size} error(s)):\n" +
-              errs.mkString("\n")
-          ).raiseError[IO, Unit]
-      }
+      // Validate it decodes into the runtime model before writing it.
+      _ <- DashboardBuild.decode(dashboardJson)
 
       _ <- IO(os.write.over(outputPath, dashboardJson.spaces2))
       _ <- IO.println(s"Wrote dashboard artifact to $outputPath")

@@ -47,32 +47,43 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
 HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
 
-- **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): connects to HA, writes
-  an entity dump (`DataDump`, a port of `../ha-frontend/script.sh`) next to the jsonnet, then
-  evaluates `dashboard.jsonnet` **in-process via sjsonnet** (`JsonnetBuild`) into the
-  `dashboard.json` artifact `{ templates, registry, layout }`. Jsonnet does **composition only**
-  and emits Mustache template strings — it never injects live values. Run once / on config change.
-- **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): loads `dashboard.json`,
-  pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
+- **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
+  `../ha-frontend/script.sh`), writes it next to the jsonnet, then evaluates `dashboard.jsonnet`
+  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ templates, layout }` model — a shared
+  library of named Mustache templates plus a **recursive layout tree** of templated component nodes.
+  Jsonnet does **composition only** and emits Mustache template strings + static node params; it
+  never injects live values, and authors never write node ids (the backend derives stable,
+  location-based ids while recursing — `LayoutNode.pathId`).
+- **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
+  `dashboard.json` artifact for inspection/CI. The runtime does not need it.
+- **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
+  jsonnet in memory on startup** (so sjsonnet *is* on the startup path — but never on the live hot
+  path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
   `/api/states` and keeps it live from the `state_changed` WS stream (`StateStore`, a `Ref` +
-  fs2 `Topic`). On each change it re-renders dependent components (`Renderer`, component-keyed via
-  a reverse index `entityId -> componentId`) and pushes `datastar-patch-elements` fragments over
-  SSE (`Server`, http4s ember). **sjsonnet is never on the runtime path.**
-- **Phase discipline**: component templates escape `{{slot}}` values; the layout includes
-  component HTML unescaped via `{{{componentId}}}`. Jsonnet sources live in
-  `src/main/resources/dashboards/` (`components.libsonnet`, `dashboard.jsonnet`); `dump.libsonnet`
-  and `dashboard.json` are generated + gitignored.
+  fs2 `Topic`, full attributes; publishes only on real change). On each change it re-renders the
+  affected components (`Renderer`, reverse index `entityId -> generated id`) plus all dynamic groups,
+  and pushes only the `datastar-patch-elements` fragments whose HTML actually changed (`Server`
+  keeps a per-node last-rendered cache; http4s ember).
+- **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
+  children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
+  URLs, ids) use `{{{...}}}`. Jsonnet sources live in `src/main/resources/dashboards/`
+  (`components.libsonnet`, `dashboard.jsonnet`); `dump.libsonnet` and `dashboard.json` are
+  generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/action/:domain/:service/:entityId` triggers a no-data
   service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
   rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
-- Components (`components.libsonnet`) are HA-card-like: sectionTitle, stateCard, sensorCard,
-  gaugeCard, buttonCard, toggle, lightCard (brightness slider), coverCard, lockCard, mediaPlayerCard,
-  climateCard (target-temp slider). Datastar attributes use **colon** syntax (`data-on:click`,
+- Templates (`components.libsonnet`): `fhrow`/`fhcol` containers, `sectionTitle`, `stateCard`,
+  `button`, `slider` — each declares its `inputs`, checked by `Dashboard.validate`. Builders return
+  layout nodes referencing a template by name; new container/leaf kinds are added as a template +
+  builder with no Scala change. Datastar attributes use **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
   when a light is off).
+- Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
+  And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
+  entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
 
 ### The sbt plugin glue
 
