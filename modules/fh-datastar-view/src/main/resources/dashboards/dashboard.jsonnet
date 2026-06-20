@@ -4,7 +4,10 @@
 // by the build phase) into the `dashboard.json` artifact `{ templates, layout }`.
 // The layout is a RECURSIVE tree of rows/columns and component leaves; leaves
 // reference shared templates by name (see components.libsonnet).
-// TODO a design system that is customizeable
+//
+// The "design system" is exactly that shared card-template library (`c.templates`):
+// re-skin the whole dashboard by editing/replacing those Mustache templates (or
+// importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
 local dump = import 'dump.libsonnet';
 
