@@ -76,6 +76,7 @@ class Server(
     case POST -> Root / "sse" / "action" / domain / service / entityId =>
       callService(domain, service, entityId, Json.obj())
 
+    // TODO domain can be looked up by entityId
     // Single-value action (brightness, cover position, target temperature...).
     // The value rides in the URL path (Datastar builds it via `'.../key/' + $sig`).
     case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
@@ -114,6 +115,7 @@ class Server(
        |  <style>
        |    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
        |    .fh-col{display:flex;flex-direction:column;gap:1rem}
+       |    .fh-cell{display:contents}
        |  </style>
        |  <script type="module" src="${Server.DatastarCdn}"></script>
        |</head>

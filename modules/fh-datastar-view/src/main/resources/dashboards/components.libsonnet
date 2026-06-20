@@ -38,34 +38,39 @@
     },
 
     // Read-only: friendly name + current state.
+    // Templates carry no `id`: the backend wraps any entity-bound component in
+    // the id'd element Datastar morphs (see Renderer). Templates are pure
+    // content.
     // NOTE (multiline templates): each HTML *attribute value* must stay on one
     // physical line — line breaks between tags/attributes are harmless
     // whitespace, but a newline inside an attribute would break it.
     stateCard: {
       template: |||
-        <article class="card" id="{{id}}">
+        <article class="card">
           <header>{{label}}</header>
           <span class="state">{{state}}</span>
         </article>
       |||,
-      inputs: ['id', 'label', 'state'],
+      inputs: ['label', 'state'],
     },
 
-    // Generic service-call button (toggle, scene activate, lock…).
+    // Generic service-call button (toggle, scene activate, lock…). No `id`: it
+    // has no entities/slots, so it never re-renders or gets patched.
     button: {
       template: |||
-        <button class="card" id="{{id}}"
+        <button class="card"
           data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')">{{label}}</button>
       |||,
-      inputs: ['id', 'label', 'domain', 'service', 'entity'],
+      inputs: ['label', 'domain', 'service', 'entity'],
     },
 
-    // Value slider (brightness, target temperature…). The per-instance signal
-    // name is derived from the (unique) id, so it works for both static and
+    // Value slider (brightness, target temperature…). The backend wraps it in
+    // the id'd morph target; the template uses `{{id}}` only to derive a unique
+    // per-instance signal name (`val_{{id}}`), working for both static and
     // dynamic instances without a separate `sig` input.
     slider: {
       template: |||
-        <article class="card" id="{{id}}">
+        <article class="card">
           <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
           <input type="range" min="{{min}}" max="{{max}}"
             data-signals="{ val_{{id}}: {{value}} }"
