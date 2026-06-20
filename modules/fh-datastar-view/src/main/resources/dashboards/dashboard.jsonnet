@@ -4,6 +4,7 @@
 // by the build phase) into the `dashboard.json` artifact `{ templates, layout }`.
 // The layout is a RECURSIVE tree of rows/columns and component leaves; leaves
 // reference shared templates by name (see components.libsonnet).
+// TODO a design system that is customizeable
 local c = import 'components.libsonnet';
 local dump = import 'dump.libsonnet';
 
@@ -12,7 +13,7 @@ local pick(domain, limit) =
   local all = [
     dump.entities[k]
     for k in std.objectFields(dump.entities)
-    if k != '*'
+    if k != '*' // TODO is star needed with dynamic? do that in other ways to avoid clunky workarounds
        && dump.entities[k].domain == domain
        && dump.entities[k].friendly_name != null
   ];
@@ -21,13 +22,25 @@ local pick(domain, limit) =
 local lights = pick('light', 4);
 local sensors = pick('sensor', 6);
 
+
+// "static dynamic" for room entities and things like that. Things that are not going to live changing when viewing the dashboard.
+// Every now and so often the system could recreate the dump and combine the setup to have a dashboard.json with the latest changes.
+// "dynamic" for live chaning things while viewing the dashboard. For.ex all with battery below X
+
+
+// TODO global tabs that can be accessed independely, or should it just be new dashboard files?
+// TODO a static reference to an entity in dump
 {
   templates: c.templates,
+  // TODO rename card and templates as cards
   layout: c.column([
     c.sectionTitle('Dashboard'),
 
     // A row of light toggles, then a row of brightness sliders.
     c.row([
+    // TODO toggle should be a default assumed action for light entities in button, hyprscript? https://hyperscript.org/
+    // TODO friendly_name should not use the static value, but be a reference for it, and it should be a default to use that can be overriden here
+
       c.button(eo.friendly_name, 'homeassistant', 'toggle', eo.entity_id)
       for eo in lights
     ]),
