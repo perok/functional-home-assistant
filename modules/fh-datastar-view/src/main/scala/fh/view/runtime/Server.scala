@@ -55,18 +55,35 @@ class Server(
 
       Ok(patches.merge(heartbeat))
 
+    // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     case POST -> Root / "sse" / "action" / domain / service / entityId =>
-      // Datastar reads live updates from the persistent SSE stream, so the POST
-      // itself just triggers the service and returns no content.
-      api
-        .callService(domain, service, entityId, Json.obj())
-        .attempt
-        .flatMap {
-          case Right(_) => NoContent()
-          case Left(err) =>
-            BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
-        }
+      callService(domain, service, entityId, Json.obj())
+
+    // Single-value action (brightness, cover position, target temperature...).
+    // The value rides in the URL path (Datastar builds it via `'.../key/' + $sig`).
+    case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
+      callService(
+        domain,
+        service,
+        entityId,
+        Json.obj(dataKey -> Server.parseValue(dataValue))
+      )
   }
+
+  /** Datastar reads live updates from the persistent SSE stream, so an action
+    * POST just triggers the service and returns no content.
+    */
+  private def callService(
+      domain: String,
+      service: String,
+      entityId: String,
+      serviceData: Json
+  ): IO[Response[IO]] =
+    api.callService(domain, service, entityId, serviceData).attempt.flatMap {
+      case Right(_) => NoContent()
+      case Left(err) =>
+        BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
+    }
 
   /** Full HTML document wrapping the rendered dashboard. */
   private def page(body: String): String =
@@ -94,4 +111,13 @@ object Server {
     */
   val DatastarCdn: String =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
+
+  /** Parse a URL-path action value into the most specific JSON type (int, then
+    * double, else string) so HA receives `brightness: 128` rather than `"128"`.
+    */
+  def parseValue(raw: String): Json =
+    raw.toIntOption
+      .map(Json.fromInt)
+      .orElse(raw.toDoubleOption.flatMap(Json.fromDouble))
+      .getOrElse(Json.fromString(raw))
 }

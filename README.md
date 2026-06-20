@@ -22,6 +22,7 @@ https://github.com/hassio-addons/addon-appdaemon/blob/edc32b49dba7e0757e95916ea6
 https://netdaemon.xyz/ using websockets
 
 on the rest API! https://github.com/home-assistant/core/issues/96273#issuecomment-1650479691
+FUCK FRENCK
 
 # other
 

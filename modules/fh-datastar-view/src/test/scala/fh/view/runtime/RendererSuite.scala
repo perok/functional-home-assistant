@@ -53,4 +53,36 @@ class RendererSuite extends munit.FunSuite {
     assert(page.startsWith("<main><div id=\"c1\">"), clue = page)
     assert(page.endsWith("</div></main>"), clue = page)
   }
+
+  test("slot default applies when the value is missing, empty, or JSON null") {
+    val dash = Dashboard(
+      templates = Map("g" -> """<i id="g">{{bri}}</i>"""),
+      registry = Map(
+        "g" -> ComponentDef(
+          entities = List("light.x"),
+          slots = Map(
+            "bri" -> SlotSource(
+              "light.x",
+              Some("brightness"),
+              default = Some("0")
+            )
+          )
+        )
+      ),
+      layout = "{{{g}}}"
+    )
+    val r = new Renderer(dash, Templates.from(dash))
+
+    // missing entity entirely
+    assertEquals(r.renderComponent("g", Map.empty).get, """<i id="g">0</i>""")
+    // attribute present but JSON null (light off)
+    val offState =
+      Map("light.x" -> EntityState("off", Map("brightness" -> Json.Null)))
+    assertEquals(r.renderComponent("g", offState).get, """<i id="g">0</i>""")
+    // attribute present with a value
+    val onState = Map(
+      "light.x" -> EntityState("on", Map("brightness" -> Json.fromInt(200)))
+    )
+    assertEquals(r.renderComponent("g", onState).get, """<i id="g">200</i>""")
+  }
 }

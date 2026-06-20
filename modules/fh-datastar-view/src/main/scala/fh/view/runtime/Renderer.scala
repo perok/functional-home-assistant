@@ -39,10 +39,10 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
       cdef <- dashboard.registry.get(componentId)
     } yield {
       val context = cdef.slots.map { case (slot, source) =>
-        val value = states
-          .get(source.entity)
-          .map(_.slotValue(source.attribute))
-          .getOrElse("")
+        val resolved =
+          states.get(source.entity).map(_.slotValue(source.attribute))
+        val value =
+          resolved.filter(_.nonEmpty).orElse(source.default).getOrElse("")
         slot -> value
       }
       template.execute(context.asJava)

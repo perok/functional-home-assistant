@@ -12,7 +12,10 @@ given Configuration = Configuration.default.withDefaults
 
 case class SlotSource(
     entity: String,
-    attribute: Option[String] = None
+    attribute: Option[String] = None,
+    // Used when the entity/attribute is absent or empty (e.g. brightness when a
+    // light is off). Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
+    default: Option[String] = None
 ) derives ConfiguredCodec
 
 /** A component instance's runtime dependencies.
