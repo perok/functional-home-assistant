@@ -4,7 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.Dashboard
-import io.circe.Json
+import io.circe.{Json, JsonObject}
 
 /** Turns the jsonnet dashboard sources into a validated [[Dashboard]].
   *
@@ -33,12 +33,36 @@ object DashboardBuild {
         .liftTo[IO]
     } yield json
 
+  /** Accept a node's `children` written as a single node (not an array): wrap
+    * any object-valued `children` into a one-element list so authors can write
+    * `c.row(child)` as well as `c.row([child])`. Recurses the whole tree.
+    */
+  def normalizeChildren(json: Json): Json =
+    json.fold(
+      json,
+      _ => json,
+      _ => json,
+      _ => json,
+      arr => Json.fromValues(arr.map(normalizeChildren)),
+      obj =>
+        Json.fromJsonObject(
+          obj.toIterable.foldLeft(JsonObject.empty) { case (acc, (k, v)) =>
+            val nv = normalizeChildren(v)
+            val fixed =
+              if (k == "children" && nv.asArray.isEmpty && !nv.isNull)
+                Json.arr(nv)
+              else nv
+            acc.add(k, fixed)
+          }
+        )
+    )
+
   /** Decode the dashboard JSON into the runtime model and fail fast if any
-    * template reference is unknown or an input is unsatisfied.
+    * card reference is unknown or an input is unsatisfied.
     */
   def decode(json: Json): IO[Dashboard] =
     for {
-      dashboard <- json
+      dashboard <- normalizeChildren(json)
         .as[Dashboard]
         .leftMap(err =>
           new RuntimeException(s"dashboard is not a valid Dashboard: $err")

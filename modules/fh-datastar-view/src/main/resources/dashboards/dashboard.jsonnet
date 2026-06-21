@@ -44,6 +44,8 @@ local ifPresent(id, fn) =
 // "dynamic" for live chaning things while viewing the dashboard. For.ex all with battery below X
 
 
+// TODO live reload of changes to the dashboard file
+
 // Decision: multiple top-level views are separate dashboard files, not in-page
 // tabs. The runtime already evaluates a chosen jsonnet entry (ServerApp's
 // `dashboard.jsonnet`, overridable), so a "view" = its own entry file; this
@@ -59,7 +61,8 @@ local ifPresent(id, fn) =
     // Static reference: a card for one specifically-named entity (rendered only
     // if present in this dump). Adjust the id to an entity on your instance.
     //c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
-    c.row([c.stateCard(dump.entities.sensor_ams_1a4e_p)]),
+    // A single child may be passed without an array (normalized in the backend).
+    c.row(c.stateCard(dump.entities.sensor_ams_1a4e_p)),
 
     c.sectionTitle('Kitchen'),
     // A row of light toggles, then a row of brightness sliders.
