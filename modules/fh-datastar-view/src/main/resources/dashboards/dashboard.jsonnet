@@ -69,11 +69,11 @@ local ifPresent(id, fn) =
     // A row of light toggles, then a row of brightness sliders.
     c.row([
       c.toggle(eo)
-      for eo in entities if eo.domain == 'light'// && eo.area_id == dump.areas.kitchen.area_id
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
     ]),
     c.row([
       c.brightnessSlider(eo)
-      for eo in entities if eo.domain == 'light' //&& eo.area_id == dump.areas.kitchen.area_id
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
     ]),
 
     // A grid of sensor readings.
