@@ -25,7 +25,11 @@ local lights = pick('light', 4);
 local sensors = pick('sensor', 6);
 
 // A static reference to one named entity in the dump (vs the `pick` lists).
-local at(id) = dump.entities[std.strReplace(id, '.', '_')];
+// The dump intentionally keys entities by a dotless id (`light.disco` ->
+// `light_disco`) so an editor's LSP autocompletes `dump.entities.<id>`. Keying
+// by the raw `entity_id` instead would drop that autocomplete, so we keep the
+// dotless keys and let `at` map a real entity_id back to its key.
+local at(id) = dump.entities[std.strReplace(id, '.', '_')]; # TODO only the first dot must be replaced, is this the case?
 // `[fn(entity)]` if `id` exists in this dump, else `[]` — keeps the example
 // portable when a referenced entity is absent.
 local ifPresent(id, fn) =
@@ -45,6 +49,7 @@ local ifPresent(id, fn) =
 // per-child labels — richer child metadata than today's `{html}` children.)
 {
   cards: c.cards,
+  # TODO rename layout to card
   layout: c.column([
     c.sectionTitle('Dashboard'),
 
