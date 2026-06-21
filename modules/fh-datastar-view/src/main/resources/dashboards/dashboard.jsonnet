@@ -10,6 +10,7 @@
 // importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
 local dump = import 'dump.libsonnet';
+local entities = std.objectValues(dump.entities);
 
 // Named, non-hidden entities in a given domain, capped for the demo.
 local pick(domain, limit) =
@@ -57,16 +58,18 @@ local ifPresent(id, fn) =
 
     // Static reference: a card for one specifically-named entity (rendered only
     // if present in this dump). Adjust the id to an entity on your instance.
-    c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
+    //c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
+    c.row([c.stateCard(dump.entities.sensor_ams_1a4e_p)]),
 
+    c.sectionTitle('Kitchen'),
     // A row of light toggles, then a row of brightness sliders.
     c.row([
       c.toggle(eo)
-      for eo in lights
+      for eo in entities if eo.domain == 'light'// && eo.area_id == dump.areas.kitchen.area_id
     ]),
     c.row([
       c.brightnessSlider(eo)
-      for eo in lights
+      for eo in entities if eo.domain == 'light' //&& eo.area_id == dump.areas.kitchen.area_id
     ]),
 
     // A grid of sensor readings.
