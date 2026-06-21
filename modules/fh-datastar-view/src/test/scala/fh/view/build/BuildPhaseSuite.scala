@@ -69,6 +69,8 @@ class BuildPhaseSuite extends munit.FunSuite {
     val tmp = os.temp.dir()
     os.copy.into(resources / "components.libsonnet", tmp)
     os.copy.into(resources / "dashboard.jsonnet", tmp)
+    os.copy.into(resources / "tokens.libsonnet", tmp)
+    os.copy.into(resources / "theme.libsonnet", tmp)
 
     // Minimal fake dump standing in for the build-phase HA dump.
     val fakeDump = io.circe.Json
@@ -112,6 +114,13 @@ class BuildPhaseSuite extends munit.FunSuite {
       "fhcol"
     )
     assertEquals(dynamics(d.card).size, 1)
+    // The theme carries tokens (+ dark overrides) AND its stylesheets/CSS, so
+    // the CSS framework (Pico) is a theme property, not baked into the app.
+    assert(d.theme.tokens.contains("primary-color"), clue = d.theme.tokens.keySet)
+    assertEquals(d.theme.tokens.get("ha-card-border-radius"), Some("12px"))
+    assert(d.theme.tokensDark.contains("card-background-color"), clue = d.theme.tokensDark)
+    assert(d.theme.stylesheets.exists(_.contains("pico")), clue = d.theme.stylesheets)
+    assert(d.theme.styles.contains(".card"), clue = d.theme.styles.take(80))
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)
   }

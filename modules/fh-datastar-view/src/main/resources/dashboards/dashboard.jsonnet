@@ -10,6 +10,7 @@
 // importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
 local dump = import 'dump.libsonnet';
+local theme = import 'theme.libsonnet';
 local entities = std.objectValues(dump.entities);
 
 // Named, non-hidden entities in a given domain, capped for the demo.
@@ -38,6 +39,8 @@ local at(id) = dump.entities[std.strReplace(id, '.', '_')];
 local ifPresent(id, fn) =
   if std.objectHas(dump.entities, std.strReplace(id, '.', '_')) then [fn(at(id))] else [];
 
+//dump.entities.light_light_hue_e0e381_kjokken_light
+//dump.areas.b60e3722ed314fe893d385684d6509f0
 
 // "static dynamic" for room entities and things like that. Things that are not going to live changing when viewing the dashboard.
 // Every now and so often the system could recreate the dump and combine the setup to have a dashboard.json with the latest changes.
@@ -55,8 +58,12 @@ local ifPresent(id, fn) =
 // per-child labels — richer child metadata than today's `{html}` children.)
 {
   cards: c.cards,
+  // All presentation (design tokens + stylesheets + CSS) lives in the theme,
+  // so the app isn't tied to a CSS framework. See theme.libsonnet.
+  theme: theme,
   // The root of the view is itself a card (here a column container).
   card: c.column([
+    // TODO config parameters for card, vs properties of valuest to show
     c.sectionTitle('Dashboard'),
 
     // Static reference: a card for one specifically-named entity (rendered only

@@ -121,16 +121,39 @@ object LayoutNode:
   def pathId(path: List[Int]): String =
     if path.isEmpty then "c" else path.mkString("c_", "_", "")
 
+/** The dashboard's presentation, owned entirely by the theme (so the app isn't
+  * tied to any particular CSS framework — e.g. Pico is just a `stylesheets`
+  * entry here, not baked into the server).
+  *
+  *   - `tokens`: design tokens — Home Assistant frontend theme variable name ->
+  *     value (e.g. `"primary-color" -> "#03a9f4"`). Injected as CSS custom
+  *     properties `--<name>` so the component CSS can `var(--…)`.
+  *   - `tokensDark`: token overrides applied under
+  *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
+  *     light/dark setting.
+  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the Pico CDN).
+  *   - `styles`: inline CSS — framework→token mapping plus the rules that style
+  *     the component classes (`.card`, `.fh-row`, …) from the tokens.
+  */
+case class Theme(
+    tokens: Map[String, String] = Map.empty,
+    tokensDark: Map[String, String] = Map.empty,
+    stylesheets: List[String] = Nil,
+    styles: String = ""
+) derives ConfiguredCodec
+
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
   *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
+  *   - `theme`: all presentation (tokens + stylesheets + CSS); see [[Theme]].
   *   - `card`: the root of the recursive layout tree (itself a card, usually a
   *     container). Component HTML is composed in Scala (see `Renderer`), not
   *     via mustache layout placeholders.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
-    card: LayoutNode
+    card: LayoutNode,
+    theme: Theme = Theme()
 ) derives ConfiguredCodec:
 
   /** Validate that every card reference resolves and supplies the inputs the

@@ -62,11 +62,40 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
 
+  /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
+  def stylesheets: List[String] = dashboard.theme.stylesheets
+
+  /** The theme as one `<style>` block: design tokens as `:root` custom
+    * properties (dark overrides under `@media (prefers-color-scheme: dark)`, so
+    * the page follows the browser) followed by the theme's inline `styles`.
+    * Lives inside the patched page so a live reload repaints it. Empty when the
+    * theme carries no tokens or styles.
+    */
+  private val themeStyle: String = {
+    val theme = dashboard.theme
+    def vars(tokens: Map[String, String]): String =
+      tokens.toList
+        .sortBy(_._1)
+        .map { case (name, value) => s"--$name:$value;" }
+        .mkString
+
+    val parts = List(
+      if (theme.tokens.isEmpty) ""
+      else s":root{color-scheme:light dark;${vars(theme.tokens)}}",
+      if (theme.tokensDark.isEmpty) ""
+      else
+        s"@media (prefers-color-scheme:dark){:root{${vars(theme.tokensDark)}}}",
+      theme.styles
+    ).filter(_.nonEmpty)
+
+    if (parts.isEmpty) "" else parts.mkString("<style>", "", "</style>")
+  }
+
   /** Render the full page as the walked layout tree. The root carries
     * `id="dashboard"` so a live reload can patch the whole page in place.
     */
   def renderPage(states: Map[String, EntityState]): String =
-    s"""<main class="container" id="dashboard">${render(
+    s"""<main class="container" id="dashboard">$themeStyle${render(
         dashboard.card,
         Nil,
         states
