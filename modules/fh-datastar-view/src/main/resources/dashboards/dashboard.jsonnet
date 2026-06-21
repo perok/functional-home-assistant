@@ -29,7 +29,9 @@ local sensors = pick('sensor', 6);
 // `light_disco`) so an editor's LSP autocompletes `dump.entities.<id>`. Keying
 // by the raw `entity_id` instead would drop that autocomplete, so we keep the
 // dotless keys and let `at` map a real entity_id back to its key.
-local at(id) = dump.entities[std.strReplace(id, '.', '_')]; # TODO only the first dot must be replaced, is this the case?
+// (An entity_id is `domain.object_id` with exactly one dot, so replacing all
+// dots equals replacing the first — and mirrors DataDump's `sanitize`.)
+local at(id) = dump.entities[std.strReplace(id, '.', '_')];
 // `[fn(entity)]` if `id` exists in this dump, else `[]` — keeps the example
 // portable when a referenced entity is absent.
 local ifPresent(id, fn) =
