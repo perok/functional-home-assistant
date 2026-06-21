@@ -51,8 +51,8 @@ local ifPresent(id, fn) =
 // per-child labels — richer child metadata than today's `{html}` children.)
 {
   cards: c.cards,
-  # TODO rename layout to card
-  layout: c.column([
+  // The root of the view is itself a card (here a column container).
+  card: c.column([
     c.sectionTitle('Dashboard'),
 
     // Static reference: a card for one specifically-named entity (rendered only

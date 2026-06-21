@@ -49,9 +49,9 @@ HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment
 
 - **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
   `../ha-frontend/script.sh`), writes it next to the jsonnet, then evaluates `dashboard.jsonnet`
-  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ cards, layout }` model — a shared
-  library of named cards (Mustache templates) plus a **recursive layout tree** of component nodes
-  that reference cards by name.
+  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ cards, card }` model — a shared
+  library of named cards (Mustache templates) plus a **recursive layout tree** (`card` = its root)
+  of component nodes that reference cards by name.
   Jsonnet does **composition only** and emits Mustache template strings + static node params; it
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).

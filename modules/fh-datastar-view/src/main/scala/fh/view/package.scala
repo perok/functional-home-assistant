@@ -8,8 +8,8 @@ package fh
   *     that reference cards by name (containers splice their children; leaves
   *     bind entity slots). Jsonnet emits template strings and static node
   *     params; it never injects runtime values. `DashboardBuild` fetches the
-  *     live entity dump and evaluates the jsonnet into the `{ cards, layout }`
-  *     model.
+  *     live entity dump and evaluates the jsonnet into the `{ cards, card }`
+  *     model (`card` is the root layout node).
   *   - build phase (`fh.view.build` / `BuildApp`): evaluates + persists the
   *     `dashboard.json` artifact for inspection/CI.
   *   - runtime phase (`fh.view.runtime` / `ServerApp`): evaluates the same

@@ -83,10 +83,10 @@ class BuildPhaseSuite extends munit.FunSuite {
     // Recursive layout: top-level container (column) with exactly one dynamic
     // group somewhere inside.
     assertEquals(
-      d.layout.asInstanceOf[LayoutNode.Component].card,
+      d.card.asInstanceOf[LayoutNode.Component].card,
       "fhcol"
     )
-    assertEquals(dynamics(d.layout).size, 1)
+    assertEquals(dynamics(d.card).size, 1)
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)
   }
@@ -97,7 +97,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card" -> CardDef("""<div id="{{id}}">{{label}}</div>""", List("id", "label"))
       ),
       // `id` is backend-injected; only "label" is missing here.
-      layout = LayoutNode.Component(card = "card")
+      card = LayoutNode.Component(card = "card")
     )
     val errs = d.validate
     assert(errs.exists(_.contains("label")), clue = errs)
@@ -107,7 +107,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate reports a reference to an unknown card") {
     val d = Dashboard(
       cards = Map.empty,
-      layout = LayoutNode.Component("nope")
+      card = LayoutNode.Component("nope")
     )
     assert(d.validate.exists(_.contains("unknown card")), clue = d.validate)
   }
