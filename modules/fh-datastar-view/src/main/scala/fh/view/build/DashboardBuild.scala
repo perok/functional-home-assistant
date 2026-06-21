@@ -57,8 +57,8 @@ object DashboardBuild {
         )
     )
 
-  /** Decode the dashboard JSON into the runtime model and fail fast if any
-    * card reference is unknown or an input is unsatisfied.
+  /** Decode the dashboard JSON into the runtime model and fail fast if any card
+    * reference is unknown or an input is unsatisfied.
     */
   def decode(json: Json): IO[Dashboard] =
     for {
@@ -85,4 +85,15 @@ object DashboardBuild {
       entry: String
   ): IO[Dashboard] =
     evaluate(api, dashboardsDir, entry).flatMap(decode)
+
+  /** Re-evaluate the jsonnet against the dump ALREADY on disk (no HA fetch, no
+    * rewrite of `dump.libsonnet`) — used by live reload when only the dashboard
+    * sources changed.
+    */
+  def reevaluate(dashboardsDir: os.Path, entry: String): IO[Dashboard] =
+    JsonnetBuild
+      .eval(dashboardsDir, entry)
+      .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
+      .liftTo[IO]
+      .flatMap(decode)
 }

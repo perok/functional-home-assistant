@@ -3,7 +3,9 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
+import cats.syntax.all.*
 import fs2.Stream
+import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -23,7 +25,9 @@ import scala.concurrent.duration.*
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    renderer: Renderer,
+    // Hot-swappable so a live reload of the dashboard sources can replace it;
+    // `.discrete` drives a full-page repaint over SSE.
+    rendererRef: SignallingRef[IO, Renderer],
     // Last HTML pushed per node id; lets us skip pushes that wouldn't change the
     // client ("re-render and diff before sending"). Shared across SSE clients.
     lastRendered: Ref[IO, Map[String, String]]
@@ -31,7 +35,7 @@ class Server(
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root =>
-      stateStore.snapshot.flatMap { states =>
+      (rendererRef.get, stateStore.snapshot).flatMapN { (renderer, states) =>
         Ok(page(renderer.renderPage(states)))
           .map(_.withContentType(`Content-Type`(MediaType.text.html)))
       }
@@ -40,29 +44,36 @@ class Server(
       val patches: Stream[IO, ServerSentEvent] =
         stateStore.changes
           .evalMap { entityId =>
-            stateStore.snapshot.flatMap { states =>
+            for {
+              renderer <- rendererRef.get
+              states <- stateStore.snapshot
               // Static components depending on this entity + all dynamic groups
               // (their membership can change with any entity).
-              val ids =
-                renderer.componentsFor(entityId).toList ++
-                  renderer.dynamicContainerIds
-              val rendered =
-                ids.flatMap(id =>
-                  renderer.renderNodeById(id, states).map(id -> _)
-                )
+              ids = renderer.componentsFor(entityId).toList ++
+                renderer.dynamicContainerIds
+              rendered = ids
+                .flatMap(id => renderer.renderNodeById(id, states).map(id -> _))
               // Only push fragments whose HTML actually changed.
-              lastRendered.modify { cache =>
+              pushed <- lastRendered.modify { cache =>
                 val changed =
                   rendered.filterNot { case (id, html) =>
                     cache.get(id).contains(html)
                   }
                 (cache ++ changed, changed.map(_._2))
               }
-            }
+            } yield pushed
           }
           .flatMap(fragments =>
             Stream.emits(fragments.map(Datastar.patchElements))
           )
+
+      // On a live reload (renderer swapped), repaint the whole page. `discrete`
+      // replays the current renderer on subscribe, so skip that first element.
+      val reloads: Stream[IO, ServerSentEvent] =
+        rendererRef.discrete
+          .drop(1)
+          .evalMap(renderer => stateStore.snapshot.map(renderer.renderPage))
+          .map(Datastar.patchElements)
 
       // Comment heartbeat keeps proxies/clients from dropping an idle stream.
       val heartbeat: Stream[IO, ServerSentEvent] =
@@ -70,7 +81,7 @@ class Server(
           .awakeEvery[IO](15.seconds)
           .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
 
-      Ok(patches.merge(heartbeat))
+      Ok(patches.merge(reloads).merge(heartbeat))
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
