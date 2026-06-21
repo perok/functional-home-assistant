@@ -64,6 +64,12 @@ class BuildPhaseSuite extends munit.FunSuite {
             "entity_id" -> "sensor.temp".asJson,
             "friendly_name" -> "Temperature".asJson,
             "domain" -> "sensor".asJson
+          ),
+          // The example dashboard statically references this entity by name.
+          "sensor_ams_1a4e_p" -> io.circe.Json.obj(
+            "entity_id" -> "sensor.ams_1a4e_p".asJson,
+            "friendly_name" -> "Power".asJson,
+            "domain" -> "sensor".asJson
           )
         )
       )
@@ -72,7 +78,10 @@ class BuildPhaseSuite extends munit.FunSuite {
     val result = JsonnetBuild.eval(tmp, "dashboard.jsonnet")
     assert(result.isRight, clue = result)
 
-    val dashboard = result.flatMap(_.as[Dashboard].left.map(_.getMessage))
+    // `decode`'s normalization lets `c.row(child)` (single child, no array) work.
+    val dashboard = result.flatMap(
+      DashboardBuild.normalizeChildren(_).as[Dashboard].left.map(_.getMessage)
+    )
     assert(dashboard.isRight, clue = dashboard)
 
     val d = dashboard.toOption.get
@@ -89,6 +98,31 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(dynamics(d.card).size, 1)
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)
+  }
+
+  test("normalizeChildren wraps a single (non-array) child into a list") {
+    val single = parser
+      .parse("""{ "kind":"component", "card":"fhrow",
+                 "children": { "kind":"component", "card":"x" } }""")
+      .toOption
+      .get
+    val fixed = DashboardBuild.normalizeChildren(single)
+    val kids = fixed.hcursor.downField("children")
+    assert(kids.values.nonEmpty, clue = fixed) // now an array
+    assertEquals(kids.downN(0).get[String]("card").toOption, Some("x"))
+
+    // an existing array is left as-is
+    val arr = parser
+      .parse("""{ "children": [ { "card":"a" }, { "card":"b" } ] }""")
+      .toOption
+      .get
+    assertEquals(
+      DashboardBuild.normalizeChildren(arr).hcursor
+        .downField("children")
+        .values
+        .map(_.size),
+      Some(2)
+    )
   }
 
   test("validate reports a component missing a required card input") {
