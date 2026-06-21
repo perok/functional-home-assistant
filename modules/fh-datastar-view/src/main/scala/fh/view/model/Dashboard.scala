@@ -124,12 +124,13 @@ object LayoutNode:
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
   *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
-  *   - `layout`: the recursive layout tree. Component HTML is composed in Scala
-  *     (see `Renderer`), not via mustache layout placeholders.
+  *   - `card`: the root of the recursive layout tree (itself a card, usually a
+  *     container). Component HTML is composed in Scala (see `Renderer`), not
+  *     via mustache layout placeholders.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
-    layout: LayoutNode
+    card: LayoutNode
 ) derives ConfiguredCodec:
 
   /** Validate that every card reference resolves and supplies the inputs the
@@ -174,4 +175,4 @@ case class Dashboard(
             )
           }
 
-    walk(layout, Nil)
+    walk(card, Nil)

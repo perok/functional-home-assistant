@@ -40,7 +40,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
         case _: LayoutNode.Dynamic => List(self)
       }
     }
-    walk(dashboard.layout, Nil).toMap
+    walk(dashboard.card, Nil).toMap
   }
 
   /** Reverse index: entityId -> components that depend on it. */
@@ -65,7 +65,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
   /** Render the full page as the walked layout tree. */
   def renderPage(states: Map[String, EntityState]): String =
     s"""<main class="container">${render(
-        dashboard.layout,
+        dashboard.card,
         Nil,
         states
       )}</main>"""
