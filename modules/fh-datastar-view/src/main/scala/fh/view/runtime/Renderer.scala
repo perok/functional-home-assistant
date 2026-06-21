@@ -62,9 +62,11 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
 
-  /** Render the full page as the walked layout tree. */
+  /** Render the full page as the walked layout tree. The root carries
+    * `id="dashboard"` so a live reload can patch the whole page in place.
+    */
   def renderPage(states: Map[String, EntityState]): String =
-    s"""<main class="container">${render(
+    s"""<main class="container" id="dashboard">${render(
         dashboard.card,
         Nil,
         states

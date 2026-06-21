@@ -44,7 +44,8 @@ local ifPresent(id, fn) =
 // "dynamic" for live chaning things while viewing the dashboard. For.ex all with battery below X
 
 
-// TODO live reload of changes to the dashboard file
+// Live reload: ServerApp watches these source files and hot-swaps the renderer
+// on change (the browser repaints over SSE) — see ServerApp.watchSources.
 
 // Decision: multiple top-level views are separate dashboard files, not in-page
 // tabs. The runtime already evaluates a chosen jsonnet entry (ServerApp's

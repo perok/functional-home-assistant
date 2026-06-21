@@ -94,7 +94,7 @@ class RendererSuite extends munit.FunSuite {
     // no entities anywhere -> no morph wrappers, no ids in the markup
     assertEquals(
       page,
-      """<main class="container"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
     )
     // containers are still addressable and re-render their children by id
     assertEquals(
