@@ -68,17 +68,19 @@ object DataDump {
     api.templateFunc[Json](template).map(transform)
 
   /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
-    * sanitized, dotless id (a valid jsonnet field name), so authors reference
-    * entities by name.
+    * sanitized field (a valid jsonnet field name), so authors reference them by
+    * name. Entities are keyed by `entity_id` (dots -> underscores); areas/floors
+    * by their NAME (`area_name`/`floor_name`), slugified for `dump.areas.<name>`
+    * access (e.g. `Kjøkken` -> `kjokken`, `Living Room` -> `living_room`).
     */
   def transform(raw: Json): Json = {
-    def keyBy(arr: Json, idField: String): Json =
+    def keyBy(arr: Json, keyField: String, key: String => String): Json =
       arr.asArray match {
         case None => arr
         case Some(items) =>
           val entries = items.flatMap { item =>
-            item.hcursor.get[String](idField).toOption.map { id =>
-              sanitize(id) -> item
+            item.hcursor.get[String](keyField).toOption.map { raw =>
+              key(raw) -> item
             }
           }
           Json.fromJsonObject(JsonObject.fromIterable(entries))
@@ -89,21 +91,38 @@ object DataDump {
       case Some(obj) =>
         Json.fromJsonObject(
           obj
-            .add("areas", keyBy(obj("areas").getOrElse(Json.arr()), "area_id"))
+            .add(
+              "areas",
+              keyBy(obj("areas").getOrElse(Json.arr()), "area_name", slug)
+            )
             .add(
               "floors",
-              keyBy(obj("floors").getOrElse(Json.arr()), "floor_id")
+              keyBy(obj("floors").getOrElse(Json.arr()), "floor_name", slug)
             )
             .add(
               "entities",
-              keyBy(obj("entities").getOrElse(Json.arr()), "entity_id")
+              keyBy(obj("entities").getOrElse(Json.arr()), "entity_id", entityKey)
             )
         )
     }
   }
 
-  /** Same sanitization the jq script applies: dots become underscores so the id
-    * is a valid jsonnet field name.
+  /** Entity key: just dots -> underscores (entity_ids are already
+    * `[a-z0-9_]`-plus-one-dot, and `at(id)` in jsonnet mirrors this exactly).
     */
-  private def sanitize(id: String): String = id.replace(".", "_")
+  private def entityKey(id: String): String = id.replace(".", "_")
+
+  /** A friendly, valid jsonnet field name from a free-form name: lower-cased,
+    * Nordic letters and diacritics folded to ASCII, runs of anything else
+    * collapsed to a single underscore (`Kjøkken` -> `kjokken`).
+    */
+  private def slug(name: String): String =
+    java.text.Normalizer
+      .normalize(
+        name.toLowerCase.replace("ø", "o").replace("æ", "ae").replace("å", "a"),
+        java.text.Normalizer.Form.NFD
+      )
+      .replaceAll("\\p{M}+", "") // strip combining diacritics (é -> e)
+      .replaceAll("[^a-z0-9]+", "_")
+      .replaceAll("^_+|_+$", "")
 }

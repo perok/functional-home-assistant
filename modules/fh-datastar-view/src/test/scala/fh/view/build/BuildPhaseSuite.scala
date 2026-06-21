@@ -12,12 +12,17 @@ class BuildPhaseSuite extends munit.FunSuite {
       case d: LayoutNode.Dynamic   => List(d)
     }
 
-  test("DataDump.transform keys lists by sanitized id (no '*' member)") {
+  test("DataDump.transform keys entities by id, areas/floors by name") {
     val raw = parser
       .parse("""
         {
-          "areas": [],
-          "floors": [],
+          "areas": [
+            { "area_id": "kitchen_1", "floor_id": "g", "area_name": "Kjøkken" },
+            { "area_id": "lr_2", "floor_id": "g", "area_name": "Living Room" }
+          ],
+          "floors": [
+            { "floor_id": "g", "floor_name": "Ground floor" }
+          ],
           "entities": [
             { "entity_id": "sensor.temp", "friendly_name": "Temp", "domain": "sensor" },
             { "entity_id": "light.kitchen", "friendly_name": "Kitchen", "domain": "light" }
@@ -27,20 +32,31 @@ class BuildPhaseSuite extends munit.FunSuite {
       .toOption
       .get
 
-    val entities = DataDump.transform(raw).hcursor.downField("entities")
+    val transformed = DataDump.transform(raw).hcursor
+    val entities = transformed.downField("entities")
 
-    // dotless, sanitized keys
+    // entities: dotless, sanitized keys (no '*' member)
     assert(entities.downField("sensor_temp").succeeded)
     assert(entities.downField("light_kitchen").succeeded)
     assertEquals(
       entities.downField("sensor_temp").get[String]("friendly_name").toOption,
       Some("Temp")
     )
-
-    // the clunky "*" all-ids member is gone; keys are exactly the entities
     assertEquals(
       entities.keys.map(_.toSet),
       Some(Set("sensor_temp", "light_kitchen"))
+    )
+
+    // areas/floors: keyed by their NAME, slugified (lower-cased, ASCII-folded)
+    val areas = transformed.downField("areas")
+    assertEquals(areas.keys.map(_.toSet), Some(Set("kjokken", "living_room")))
+    assertEquals(
+      areas.downField("kjokken").get[String]("area_id").toOption,
+      Some("kitchen_1")
+    )
+    assertEquals(
+      transformed.downField("floors").keys.map(_.toSet),
+      Some(Set("ground_floor"))
     )
   }
 
