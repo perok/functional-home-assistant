@@ -36,7 +36,7 @@ class Server(
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root =>
       (rendererRef.get, stateStore.snapshot).flatMapN { (renderer, states) =>
-        Ok(page(renderer.renderPage(states)))
+        Ok(page(renderer.renderPage(states), renderer.stylesheets))
           .map(_.withContentType(`Content-Type`(MediaType.text.html)))
       }
 
@@ -116,20 +116,22 @@ class Server(
         BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
     }
 
-  /** Full HTML document wrapping the rendered dashboard. */
-  private def page(body: String): String =
+  /** Full HTML document wrapping the rendered dashboard. The theme owns all
+    * presentation: its `stylesheets` are `<link>`-ed here (e.g. Pico), and its
+    * tokens + inline CSS travel inside the rendered body (see Renderer). The
+    * only thing the app injects is Datastar (its runtime engine).
+    */
+  private def page(body: String, stylesheets: List[String]): String = {
+    val links = stylesheets
+      .map(href => s"""  <link rel="stylesheet" href="$href">""")
+      .mkString("\n")
     s"""<!doctype html>
        |<html lang="en">
        |<head>
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <title>Home Assistant</title>
-       |  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-       |  <style>
-       |    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
-       |    .fh-col{display:flex;flex-direction:column;gap:1rem}
-       |    .fh-cell{display:contents}
-       |  </style>
+       |$links
        |  <script type="module" src="${Server.DatastarCdn}"></script>
        |</head>
        |<body data-init="@get('/sse/datastar-patch')">
@@ -137,6 +139,7 @@ class Server(
        |</body>
        |</html>
        |""".stripMargin
+  }
 }
 
 object Server {

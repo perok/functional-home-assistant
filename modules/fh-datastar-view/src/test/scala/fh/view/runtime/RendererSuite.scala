@@ -7,7 +7,8 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  SlotSource
+  SlotSource,
+  Theme
 }
 import io.circe.Json
 
@@ -151,6 +152,51 @@ class RendererSuite extends munit.FunSuite {
     // sensor.c excluded by the membership query (battery 50)
     assert(!html.contains("cold"), clue = html)
     assertEquals(r.dynamicContainerIds, List("c"))
+  }
+
+  test("theme tokens + styles are injected as a <style> block") {
+    val d = Dashboard(
+      cards,
+      col(),
+      theme = Theme(
+        tokens = Map("primary-color" -> "#bada55", "accent-color" -> "#000"),
+        styles = ".card{color:red}"
+      )
+    )
+    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    // sorted token vars, then the theme's inline styles; no dark overrides
+    assert(
+      page.startsWith(
+        """<main class="container" id="dashboard"><style>:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style>"""
+      ),
+      clue = page
+    )
+    assert(!page.contains("prefers-color-scheme"), clue = page)
+  }
+
+  test("dark token overrides go under prefers-color-scheme: dark") {
+    val d = Dashboard(
+      cards,
+      col(),
+      theme = Theme(
+        tokens = Map("primary-text-color" -> "#212121"),
+        tokensDark = Map("primary-text-color" -> "#e1e1e1")
+      )
+    )
+    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    assert(
+      page.contains(
+        "@media (prefers-color-scheme:dark){:root{--primary-text-color:#e1e1e1;}}"
+      ),
+      clue = page
+    )
+  }
+
+  test("no theme -> no :root style block") {
+    val d = Dashboard(cards, col())
+    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    assert(!page.contains("<style>"), clue = page)
+    assertEquals(new Renderer(d, Templates.from(d)).stylesheets, Nil)
   }
 
   test("Predicate evaluation: comparisons and boolean combinators") {
