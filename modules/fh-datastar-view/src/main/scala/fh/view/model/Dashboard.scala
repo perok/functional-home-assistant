@@ -9,8 +9,10 @@ import io.circe.derivation.{Configuration, ConfiguredCodec}
   * (e.g. `unit_of_measurement`, `brightness`).
   *
   * `transform` is an optional [[Transform]] JSONata expression applied to the
-  * resolved value before display (e.g. `$round($number($), 1) & " kW"`). It
-  * runs on present values only — an absent value falls back to `default`,
+  * resolved value before display (e.g. `$round($number($), 1) & " kW"`). The
+  * value is `$`; the same entity's `state` and `attributes` are also bound
+  * (`$state`, `$attr.unit_of_measurement`), but no other entity is reachable.
+  * It runs on present values only — an absent value falls back to `default`,
   * untransformed.
   *
   * In a [[LayoutNode.Dynamic]] case, `entity` is a placeholder (e.g.

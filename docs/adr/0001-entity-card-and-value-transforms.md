@@ -93,13 +93,17 @@ but bespoke *functions* plus an engine swap.
 2. Add **`SlotSource.transform: Option[String]`**, a **JSONata** expression
    evaluated by the renderer per live value.
 
-The live value (always a String) is the JSONata input `$`. Examples:
+The resolved value (always a String) is the JSONata input `$`. Examples:
 
 ```jsonnet
 c.entityCard(power, attribute='power', transform='$round($number($) * 1000) & " W"')
 c.entityCard(temp,                      transform='$round($number($) * 1.8 + 32, 1)')
 c.entityCard(door,                      transform='$ = "on" ? "Open" : "Closed"')
 ```
+
+> Revised 2026-06-22: this `$`-as-value binding was later replaced by explicit
+> `$state`/`$attr` (no bare `$`), which also removed the unit slot — see the
+> updates below.
 
 ## Consequences
 
@@ -161,3 +165,35 @@ shares **one** compiled instance across fibers **without locking**.
 - `sbt fh-datastar-view/Compile/compile` — clean (only a pre-existing unrelated
   warning in `Renderer.javaContext`).
 - Live (`dashboardServe`) walkthrough — pending; needs the HA instance reachable.
+
+## Update — 2026-06-22: same-entity context (relaxed "no lookups")
+
+The original design fed a transform only the single resolved value. That blocked
+genuinely useful same-entity shaping — most concretely, appending an entity's own
+`unit_of_measurement`, or formatting from a sibling attribute (`brightness`).
+
+The rule is relaxed to **no _cross-entity_ lookups** (the real safety boundary)
+while allowing same-entity reads. The renderer binds the producing entity's
+context onto a per-call JSONata frame:
+
+- `$state` — the entity's raw state (String).
+- `$attr` — the entity's attribute object (`$attr.unit_of_measurement`,
+  `$attr.brightness`); numbers stay numeric so arithmetic needs no `$number`.
+
+There is **no bare `$`**: a transform addresses the entity explicitly through
+`$state`/`$attr`, and the slot value is whatever the expression returns
+(evaluation input is null). This dropped the original "`$` is the resolved
+value" binding — it was ambiguous once same-entity context existed, and removing
+it let the dedicated **`unit` slot go away**: the entity card's value is now a
+JSONata that, by default, shows the state (or chosen attribute) and appends
+`unit_of_measurement` when present (`entityCard`'s `valueTransform` builds it; a
+custom transform replaces it and owns the unit). This also fixes the prior
+double-unit hazard (a value transform plus an independent auto-unit slot).
+
+No binding exposes any other entity, so transforms remain a pure function of one
+entity's state. Bindings use `createFrame()` + `Frame.bind` (a fresh child of the
+shared, read-only std-library environment) — **not** `assign`, which would mutate
+shared instance state — so the one compiled instance stays safely shared across
+fibers without locking. `Transform.run` takes a `Transform.Context(value, state,
+attributes)` where `value` is only the error fallback; `Renderer` threads the
+slot entity's `EntityState` through.

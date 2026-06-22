@@ -193,16 +193,17 @@ class Renderer(
       states: Map[String, EntityState]
   ): String =
     templates.components.get(cardName) match {
-      case None => ""
+      case None => "" // TODO should be a hard failure?
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
-          // Resolve the live value, run its transform (present values only),
-          // then fall back to the default when absent/empty.
-          val transformed = states
-            .get(source.entity)
-            .map(_.slotValue(source.attribute))
-            .filter(_.nonEmpty)
-            .map(v => source.transform.fold(v)(transforms.run(_, v)))
+          // Resolve the live value, run its transform (present values only,
+          // with the entity's own state/attributes as context), then fall back
+          // to the default when absent/empty.
+          val transformed = states.get(source.entity).flatMap { st =>
+            val raw = st.slotValue(source.attribute)
+            if (raw.isEmpty) None
+            else Some(source.transform.fold(raw)(transforms.run(_, raw, st)))
+          }
           val value = transformed
             .filter(_.nonEmpty)
             .orElse(source.default)
