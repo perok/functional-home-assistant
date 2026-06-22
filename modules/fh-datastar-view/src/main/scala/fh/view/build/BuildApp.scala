@@ -26,9 +26,10 @@ object BuildApp extends IOApp {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
 
-      dashboardJson <- FHApi.fromEnv.use(
+      result <- FHApi.fromEnv.use(
         DashboardBuild.evaluate(_, dashboardsDir, "dashboard.jsonnet")
       )
+      dashboardJson = result.value
       _ <- IO.println(
         s"Wrote entity dump to ${dashboardsDir / "dump.libsonnet"}"
       )

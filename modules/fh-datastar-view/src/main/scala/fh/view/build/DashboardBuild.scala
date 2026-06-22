@@ -17,21 +17,22 @@ import io.circe.{Json, JsonObject}
 object DashboardBuild {
 
   /** Fetch the live entity dump, write it next to the jsonnet sources (so the
-    * `import 'dump.libsonnet'` resolves), and evaluate `entry` into JSON.
+    * `import 'dump.libsonnet'` resolves), and evaluate `entry` into JSON + the
+    * set of files read (entry + transitive imports).
     */
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entry: String
-  ): IO[Json] =
+  ): IO[JsonnetBuild.Result] =
     for {
       dump <- DataDump.fetch(api)
       _ <- IO(os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2))
-      json <- JsonnetBuild
+      result <- JsonnetBuild
         .eval(dashboardsDir, entry)
         .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
         .liftTo[IO]
-    } yield json
+    } yield result
 
   /** Accept a node's `children` written as a single node (not an array): wrap
     * any object-valued `children` into a one-element list so authors can write
@@ -78,22 +79,29 @@ object DashboardBuild {
       }
     } yield dashboard
 
-  /** Evaluate + decode + validate in one step (in-memory; no artifact file). */
+  /** Evaluate + decode + validate in one step (in-memory; no artifact file).
+    * Returns the dashboard and the files it was built from (for watching).
+    */
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entry: String
-  ): IO[Dashboard] =
-    evaluate(api, dashboardsDir, entry).flatMap(decode)
+  ): IO[(Dashboard, Set[os.Path])] =
+    evaluate(api, dashboardsDir, entry).flatMap { r =>
+      decode(r.value).map(_ -> r.imports)
+    }
 
   /** Re-evaluate the jsonnet against the dump ALREADY on disk (no HA fetch, no
     * rewrite of `dump.libsonnet`) — used by live reload when only the dashboard
-    * sources changed.
+    * sources changed. Returns the dashboard + its current import set.
     */
-  def reevaluate(dashboardsDir: os.Path, entry: String): IO[Dashboard] =
+  def reevaluate(
+      dashboardsDir: os.Path,
+      entry: String
+  ): IO[(Dashboard, Set[os.Path])] =
     JsonnetBuild
       .eval(dashboardsDir, entry)
       .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
       .liftTo[IO]
-      .flatMap(decode)
+      .flatMap(r => decode(r.value).map(_ -> r.imports))
 }
