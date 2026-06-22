@@ -13,34 +13,6 @@ local dump = import 'dump.libsonnet';
 local theme = import 'theme.libsonnet';
 local entities = std.objectValues(dump.entities);
 
-// Named, non-hidden entities in a given domain, capped for the demo.
-local pick(domain, limit) =
-  local all = [
-    dump.entities[k]
-    for k in std.objectFields(dump.entities)
-    if dump.entities[k].domain == domain
-       && dump.entities[k].friendly_name != null
-  ];
-  all[0:std.min(limit, std.length(all))];
-
-local lights = pick('light', 4);
-local sensors = pick('sensor', 6);
-
-// A static reference to one named entity in the dump (vs the `pick` lists).
-// The dump intentionally keys entities by a dotless id (`light.disco` ->
-// `light_disco`) so an editor's LSP autocompletes `dump.entities.<id>`. Keying
-// by the raw `entity_id` instead would drop that autocomplete, so we keep the
-// dotless keys and let `at` map a real entity_id back to its key.
-// (An entity_id is `domain.object_id` with exactly one dot, so replacing all
-// dots equals replacing the first — and mirrors DataDump's `sanitize`.)
-local at(id) = dump.entities[std.strReplace(id, '.', '_')];
-// `[fn(entity)]` if `id` exists in this dump, else `[]` — keeps the example
-// portable when a referenced entity is absent.
-local ifPresent(id, fn) =
-  if std.objectHas(dump.entities, std.strReplace(id, '.', '_')) then [fn(at(id))] else [];
-
-//dump.entities.light_light_hue_e0e381_kjokken_light
-//dump.areas.b60e3722ed314fe893d385684d6509f0
 
 // "static dynamic" for room entities and things like that. Things that are not going to live changing when viewing the dashboard.
 // Every now and so often the system could recreate the dump and combine the setup to have a dashboard.json with the latest changes.
@@ -66,9 +38,6 @@ local ifPresent(id, fn) =
     // TODO config parameters for card, vs properties of valuest to show
     c.sectionTitle('Dashboard'),
 
-    // Static reference: a card for one specifically-named entity (rendered only
-    // if present in this dump). Adjust the id to an entity on your instance.
-    //c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
     // A single child may be passed without an array (normalized in the backend).
     // Round the state to 1 decimal and append the entity's own unit (JSONata in
     // the backend; $state is the value, $attr its attributes — same-entity only).
