@@ -201,8 +201,12 @@ class Renderer(
           // to the default when absent/empty.
           val transformed = states.get(source.entity).flatMap { st =>
             val raw = st.slotValue(source.attribute)
+            // An unavailable/unknown entity shows its raw value (e.g.
+            // "unavailable") and never enters the transform — that bypass, not
+            // the transform itself, is what keeps such states readable.
             if (raw.isEmpty) None
-            else Some(source.transform.fold(raw)(transforms.run(_, raw, st)))
+            else if (st.unavailable) Some(raw)
+            else Some(source.transform.fold(raw)(transforms.run(_, st)))
           }
           val value = transformed
             .filter(_.nonEmpty)
