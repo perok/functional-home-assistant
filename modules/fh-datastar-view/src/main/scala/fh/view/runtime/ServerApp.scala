@@ -11,6 +11,7 @@ import fh.view.build.DashboardBuild
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
+import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
   *
@@ -41,15 +42,14 @@ object ServerApp extends IOApp {
         api <- FHApi.fromEnv
         // Evaluate the jsonnet dashboard in memory against the live instance;
         // `imports` is the entry + every file it transitively imports.
-        built <- DashboardBuild
+        (dashboard, imports0) <- DashboardBuild
           .build(api, dashboardsDir, "dashboard.jsonnet")
           .toResource
-        (dashboard, imports0) = built
         store <- StateStore.create(api)
         rendererRef <- SignallingRef[IO]
           .of(new Renderer(dashboard, Templates.from(dashboard)))
           .toResource
-        importsRef <- SignallingRef[IO].of(imports0).toResource
+        importsRef <- SignallingRef[IO].of(imports0.map(fs2Path)).toResource
         lastRendered <- Ref[IO].of(Map.empty[String, String]).toResource
         server = new Server(api, store, rendererRef, lastRendered)
         // Live reload: re-evaluate (reusing the on-disk dump) when any watched
@@ -73,12 +73,21 @@ object ServerApp extends IOApp {
       } yield ()).useForever
     } yield ExitCode.Success
 
-  /** Poll the files the dashboard was built from (the entry + its transitive
-    * imports, reported by sjsonnet) and, on change, re-evaluate and hot-swap
-    * the renderer. The watched set comes from `importsRef`, which each
-    * re-evaluation refreshes — so adding/removing an `import` starts/stops
-    * watching that file. A failed re-eval logs and keeps the previous renderer
-    * serving.
+  private val watchedEvents = List(
+    Watcher.EventType.Created,
+    Watcher.EventType.Modified,
+    Watcher.EventType.Deleted
+  )
+
+  /** Watch the files the dashboard was built from (the entry + its transitive
+    * imports, reported by sjsonnet) with an `fs2.io.file.Watcher`, registering
+    * each file individually, and, on change, re-evaluate and hot-swap the
+    * renderer. The watched set tracks `importsRef`, which each re-evaluation
+    * refreshes: a concurrent reconcile registers newly-imported files and
+    * cancels ones no longer imported, so adding/removing an `import`
+    * starts/stops watching that file. Events are debounced to coalesce the
+    * burst a single editor save produces. A failed re-eval logs and keeps the
+    * previous renderer serving.
     *
     * (`reevaluate` reuses the on-disk `dump.libsonnet` and never rewrites it,
     * so watching it can't self-trigger.)
@@ -86,40 +95,56 @@ object ServerApp extends IOApp {
   private def watchSources(
       dashboardsDir: os.Path,
       rendererRef: SignallingRef[IO, Renderer],
-      importsRef: SignallingRef[IO, Set[os.Path]],
+      importsRef: SignallingRef[IO, Set[Path]],
       lastRendered: Ref[IO, Map[String, String]]
   ): Stream[IO, Unit] =
-    Stream
-      .awakeEvery[IO](1.second)
-      .evalMap(_ => importsRef.get.flatMap(signatureOf))
-      .changes
-      .drop(1) // skip the initial signature
-      .evalMap { _ =>
-        DashboardBuild
-          .reevaluate(dashboardsDir, "dashboard.jsonnet")
-          .attempt
-          .flatMap {
-            case Right((dash, imports)) =>
-              rendererRef.set(new Renderer(dash, Templates.from(dash))) *>
-                importsRef.set(imports) *>
-                lastRendered.set(Map.empty) *>
-                IO.println("Dashboard reloaded")
-            case Left(err) =>
-              IO.println(
-                s"Dashboard reload failed (keeping previous): ${err.getMessage}"
-              )
+    Stream.resource(Watcher.default[IO]).flatMap { watcher =>
+      // Keep the watcher registered on exactly the current import set: register
+      // files that appeared and run the cancel handle for files that vanished.
+      val reconcile =
+        Stream.eval(Ref[IO].of(Map.empty[Path, IO[Unit]])).flatMap { active =>
+          importsRef.discrete.evalMap { imports =>
+            active.get.flatMap { current =>
+              val toAdd = imports -- current.keySet
+              val toCancel = current.keySet -- imports
+              for {
+                added <- toAdd.toList.traverse(p =>
+                  watcher.watch(p, watchedEvents).tupleLeft(p)
+                )
+                _ <- toCancel.toList.traverse_(p =>
+                  current.getOrElse(p, IO.unit)
+                )
+                _ <- active.set((current ++ added) -- toCancel)
+              } yield ()
+            }
           }
-      }
+        }
 
-  /** mtimes of the given files (sorted, existing only), used as a change key.
-    */
-  private def signatureOf(paths: Set[os.Path]): IO[List[(String, Long)]] =
-    IO {
-      paths.toList
-        .filter(os.exists)
-        .map(p => p.toString -> os.mtime(p))
-        .sorted
+      val reload =
+        watcher
+          .events()
+          .debounce(200.millis) // coalesce the event burst of a single save
+          .evalMap { _ =>
+            DashboardBuild
+              .reevaluate(dashboardsDir, "dashboard.jsonnet")
+              .attempt
+              .flatMap {
+                case Right((dash, imports)) =>
+                  rendererRef.set(new Renderer(dash, Templates.from(dash))) *>
+                    importsRef.set(imports.map(fs2Path)) *>
+                    lastRendered.set(Map.empty) *>
+                    IO.println("Dashboard reloaded")
+                case Left(err) =>
+                  IO.println(
+                    s"Dashboard reload failed (keeping previous): ${err.getMessage}"
+                  )
+              }
+          }
+
+      reload.concurrently(reconcile)
     }
+
+  private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]
