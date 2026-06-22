@@ -108,12 +108,10 @@ object ServerApp extends IOApp {
               val toAdd = imports -- current.keySet
               val toCancel = current.keySet -- imports
               for {
-                added <- toAdd.toList.traverse(p =>
-                  watcher.watch(p, watchedEvents).tupleLeft(p)
-                )
-                _ <- toCancel.toList.traverse_(p =>
-                  current.getOrElse(p, IO.unit)
-                )
+                added <- toAdd.toList
+                  .traverse(p => watcher.watch(p, watchedEvents).tupleLeft(p))
+                _ <- toCancel.toList
+                  .traverse_(p => current.getOrElse(p, IO.unit))
                 _ <- active.set((current ++ added) -- toCancel)
               } yield ()
             }

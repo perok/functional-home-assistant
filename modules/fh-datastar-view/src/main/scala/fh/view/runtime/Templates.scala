@@ -20,8 +20,14 @@ class Templates private (
 
 object Templates {
 
+  // `emptyStringIsFalse` makes `{{#x}}…{{/x}}` sections vanish when `x` resolves
+  // to "" — so optional pieces (unit, secondary, tap) render only when present.
   private val compiler: Mustache.Compiler =
-    Mustache.compiler().escapeHTML(true).defaultValue("")
+    Mustache
+      .compiler()
+      .escapeHTML(true)
+      .defaultValue("")
+      .emptyStringIsFalse(true)
 
   def from(dashboard: Dashboard): Templates =
     new Templates(

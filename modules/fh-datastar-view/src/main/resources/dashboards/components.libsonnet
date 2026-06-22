@@ -38,21 +38,27 @@
       inputs: ['label'],
     },
 
-    // Read-only: friendly name + current state.
+    // HA-like entity card: friendly name + a value (state or a chosen
+    // attribute), optionally with a unit, a secondary info line, and a tap
+    // action. Optional pieces are mustache sections that render only when their
+    // value is non-empty (the compiler treats "" as falsey); only `label`/`value`
+    // are required `inputs` — the rest are supplied per instance when used.
     // Templates carry no `id`: the backend wraps any entity-bound component in
     // the id'd element Datastar morphs (see Renderer). Templates are pure
     // content.
     // NOTE (multiline templates): each HTML *attribute value* must stay on one
     // physical line — line breaks between tags/attributes are harmless
     // whitespace, but a newline inside an attribute would break it.
-    stateCard: {
+    entityCard: {
       template: |||
-        <article class="card">
+        <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
+          data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')"{{/tappable}}>
           <header>{{label}}</header>
-          <span class="state">{{state}}</span>
+          <span class="state">{{value}}{{#unit}} {{unit}}{{/unit}}</span>{{#secondary}}
+          <span class="secondary">{{secondary}}</span>{{/secondary}}
         </article>
       |||,
-      inputs: ['label', 'state'],
+      inputs: ['label', 'value'],
     },
 
     // Generic service-call button (toggle, scene activate, lock…). No `id`: it
@@ -114,13 +120,42 @@
   // location-based id while recursing the layout tree and injects it as `{{id}}`.
   local nameOf(eo, label) = if label != null then label else eo.friendly_name,
 
-  stateCard(eo, label=null):: {
+  // Tap presets: pass as `tap=` to make a card call a service on click.
+  toggleTap:: { domain: 'homeassistant', service: 'toggle' },
+
+  // HA-like entity card.
+  //   attribute  null -> the entity's state, else a named attribute to show.
+  //   transform  null -> raw value, else a JSONata expression evaluated in the
+  //              backend per live value ($ = the value), e.g.
+  //              '$round($number($), 1) & " kW"'.
+  //   secondary  null -> no second line, else an attribute shown under the value.
+  //   tap        null -> read-only, else { domain, service } to call on click.
+  // The unit is offered automatically and shows only when the entity has one.
+  entityCard(eo, label=null, attribute=null, transform=null, secondary=null, tap=null):: {
     kind: 'component',
-    card: 'stateCard',
-    params: { label: nameOf(eo, label), entity: eo.entity_id },
+    card: 'entityCard',
+    params: {
+      label: nameOf(eo, label),
+      entity: eo.entity_id,
+      [if tap != null then 'domain']: tap.domain,
+      [if tap != null then 'service']: tap.service,
+      [if tap != null then 'tappable']: '1',
+    },
     entities: [eo.entity_id],
-    slots: { state: { entity: eo.entity_id } },
+    slots: {
+      value: {
+        entity: eo.entity_id,
+        [if attribute != null then 'attribute']: attribute,
+        [if transform != null then 'transform']: transform,
+      },
+      unit: { entity: eo.entity_id, attribute: 'unit_of_measurement', default: '' },
+      [if secondary != null then 'secondary']:
+        { entity: eo.entity_id, attribute: secondary, default: '' },
+    },
   },
+
+  // Back-compat alias: the old read-only state card is just an entity card.
+  stateCard(eo, label=null):: self.entityCard(eo, label=label),
 
   // Static title text (not bound to an entity).
   sectionTitle(label):: {
@@ -144,7 +179,7 @@
     slots: {},
   },
 
-  slider(eo, domain, service, key, attr, min, max, label=null):: {
+  slider(eo, domain, service, key, attr, min, max, label=null, transform=null):: {
     kind: 'component',
     card: 'slider',
     params: {
@@ -159,7 +194,12 @@
     entities: [eo.entity_id],
     slots: {
       state: { entity: eo.entity_id },
-      value: { entity: eo.entity_id, attribute: attr, default: '0' },
+      value: {
+        entity: eo.entity_id,
+        attribute: attr,
+        default: '0',
+        [if transform != null then 'transform']: transform,
+      },
     },
   },
 
@@ -184,8 +224,31 @@
     slots: slots,
   },
 
-  // Convenience cases for the built-in cards inside a dynamic group.
-  dynStateCard(when):: self.case(when, 'stateCard', {}, { state: { entity: '$self' } }),
+  // Convenience cases for the built-in cards inside a dynamic group. Slots use
+  // the '$self' placeholder entity; the renderer rebinds it to each matched
+  // entity (and auto-injects id/entity/label) — see Renderer.renderCase.
+  dynEntityCard(when, attribute=null, transform=null, secondary=null, tap=null):: self.case(
+    when,
+    'entityCard',
+    {
+      [if tap != null then 'domain']: tap.domain,
+      [if tap != null then 'service']: tap.service,
+      [if tap != null then 'tappable']: '1',
+    },
+    {
+      value: {
+        entity: '$self',
+        [if attribute != null then 'attribute']: attribute,
+        [if transform != null then 'transform']: transform,
+      },
+      unit: { entity: '$self', attribute: 'unit_of_measurement', default: '' },
+      [if secondary != null then 'secondary']:
+        { entity: '$self', attribute: secondary, default: '' },
+    },
+  ),
+
+  // Back-compat alias.
+  dynStateCard(when):: self.dynEntityCard(when),
   dynButton(when, domain, service):: self.case(when, 'button', { domain: domain, service: service }),
   dynSlider(when, domain, service, key, attr, min, max):: self.case(
     when,

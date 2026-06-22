@@ -41,6 +41,9 @@ local tokens = import 'tokens.libsonnet';
       border:1px solid var(--divider-color,rgba(0,0,0,.12));border-radius:var(--ha-card-border-radius,12px)}
     .section{color:var(--primary-color,#03a9f4)}
     .state{color:var(--secondary-text-color,#727272)}
+    /* Entity card: secondary info line + tappable affordance. */
+    .entity .secondary{display:block;font-size:.8em;color:var(--secondary-text-color,#727272)}
+    .card.tappable{cursor:pointer}
     button.card{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border:none;cursor:pointer}
     input[type=range]{accent-color:var(--accent-color,#ff9800)}
   |||,

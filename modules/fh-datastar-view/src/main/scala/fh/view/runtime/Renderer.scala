@@ -6,7 +6,8 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  SlotSource
+  SlotSource,
+  Transform
 }
 
 /** Renders the recursive dashboard layout tree from current entity state.
@@ -58,6 +59,26 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     */
   val dynamicContainerIds: List[String] =
     indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
+
+  /** Every distinct slot `transform` (JSONata) compiled once here, so the hot
+    * path never re-compiles. Expressions that fail to compile are omitted (the
+    * slot then renders untransformed) — [[Dashboard.validate]] already surfaces
+    * those as build-time errors.
+    */
+  private val compiledTransforms: Map[String, Transform.Compiled] = {
+    def slotsOf(node: LayoutNode): List[SlotSource] = node match {
+      case c: LayoutNode.Component =>
+        c.slots.values.toList ++ c.children.flatMap(slotsOf)
+      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
+    }
+    slotsOf(dashboard.card)
+      .flatMap(_.transform)
+      .distinct
+      .flatMap { t =>
+        Transform.parse(t).toOption.map(t -> _)
+      }
+      .toMap
+  }
 
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
@@ -192,9 +213,18 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
       case None => ""
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
-          val value = states
+          // Resolve the live value, run its transform (present values only),
+          // then fall back to the default when absent/empty.
+          val transformed = states
             .get(source.entity)
             .map(_.slotValue(source.attribute))
+            .filter(_.nonEmpty)
+            .map(v =>
+              source.transform
+                .flatMap(compiledTransforms.get)
+                .fold(v)(expr => Transform.run(expr, v))
+            )
+          val value = transformed
             .filter(_.nonEmpty)
             .orElse(source.default)
             .getOrElse("")

@@ -70,7 +70,9 @@ local ifPresent(id, fn) =
     // if present in this dump). Adjust the id to an entity on your instance.
     //c.row(ifPresent('sensor.ams_1a4e_p', function(eo) c.stateCard(eo))),
     // A single child may be passed without an array (normalized in the backend).
-    c.row(c.stateCard(dump.entities.sensor_ams_1a4e_p)),
+    // Round the live value to 1 decimal in the backend (JSONata, $ = the value);
+    // the unit is appended automatically when the entity has one.
+    c.row(c.entityCard(dump.entities.sensor_ams_1a4e_p, transform='$round($number($), 1)')),
 
     c.sectionTitle('Kitchen'),
     // A row of light toggles, then a row of brightness sliders.
@@ -82,12 +84,19 @@ local ifPresent(id, fn) =
       c.brightnessSlider(eo)
       for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
     ]),
+    c.sectionTitle('Living room'),
+    // Living-room lights as tap-to-toggle entity cards, with a secondary line
+    // showing the brightness attribute.
+    c.row([
+      c.entityCard(eo, secondary='brightness', tap=c.toggleTap)
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.living_room.area_id
+    ]),
 
-    // A grid of sensor readings.
+    // A grid of sensor readings, rounded to one decimal (unit auto-appended).
     c.sectionTitle('Sensors'),
     c.row([
-      c.stateCard(eo)
-      for eo in sensors
+      c.entityCard(eo, transform='$round($number($), 1)')
+      for eo in entities if eo.domain == 'sensor'
     ]),
 
     // DYNAMIC group: every `device_class: battery` sensor whose state (the
@@ -96,7 +105,7 @@ local ifPresent(id, fn) =
     c.sectionTitle('Low battery'),
     c.dynamic(
       c.lowBattery(20),
-      [c.dynStateCard(c.always)]
+      [c.dynEntityCard(c.always)]
     ),
   ]),
 }
