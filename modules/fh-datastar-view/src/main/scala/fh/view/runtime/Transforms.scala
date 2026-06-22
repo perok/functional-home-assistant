@@ -18,12 +18,16 @@ class Transforms private (
     private val compiled: Map[String, Transform.Compiled]
 ) {
 
-  /** Apply the transform named by `expr` to a single live value. `expr` is
+  /** Apply the transform named by `expr` to `value`, with the producing
+    * entity's `state`/`attributes` bound as same-entity context. `expr` is
     * always one the dashboard declared (the map is total over the layout's
     * transforms), so a miss is a bug, not a runtime condition.
     */
-  def run(expr: String, value: String): String =
-    Transform.run(compiled(expr), value)
+  def run(expr: String, value: String, entity: EntityState): String =
+    Transform.run(
+      compiled(expr),
+      Transform.Context(value, entity.state, entity.attributes)
+    )
 }
 
 object Transforms {

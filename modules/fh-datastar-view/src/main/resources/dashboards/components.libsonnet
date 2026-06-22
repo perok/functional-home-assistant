@@ -54,7 +54,7 @@
         <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
           data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')"{{/tappable}}>
           <header>{{label}}</header>
-          <span class="state">{{value}}{{#unit}} {{unit}}{{/unit}}</span>{{#secondary}}
+          <span class="state">{{value}}</span>{{#secondary}}
           <span class="secondary">{{secondary}}</span>{{/secondary}}
         </article>
       |||,
@@ -120,17 +120,29 @@
   // location-based id while recursing the layout tree and injects it as `{{id}}`.
   local nameOf(eo, label) = if label != null then label else eo.friendly_name,
 
+  // The displayed value of an entity card, as a JSONata expression (there is no
+  // bare `$` — the value is whatever the expression returns). A custom transform
+  // wins; otherwise show the state (or the chosen attribute) and append the
+  // entity's unit_of_measurement when it has one. This is why the entity card
+  // needs no separate unit slot.
+  local valueTransform(attribute, transform) =
+    if transform != null then
+      transform
+    else
+      local base = if attribute != null then '$attr.' + attribute else '$state';
+      base + ' & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")',
+
   // Tap presets: pass as `tap=` to make a card call a service on click.
   toggleTap:: { domain: 'homeassistant', service: 'toggle' },
 
   // HA-like entity card.
   //   attribute  null -> the entity's state, else a named attribute to show.
-  //   transform  null -> raw value, else a JSONata expression evaluated in the
-  //              backend per live value ($ = the value), e.g.
-  //              '$round($number($), 1) & " kW"'.
+  //   transform  null -> the value with its unit auto-appended, else a JSONata
+  //              expression over $state/$attr evaluated in the backend per live
+  //              value (you own the output, unit included), e.g.
+  //              '$round($number($state), 1) & " kW"'.
   //   secondary  null -> no second line, else an attribute shown under the value.
   //   tap        null -> read-only, else { domain, service } to call on click.
-  // The unit is offered automatically and shows only when the entity has one.
   entityCard(eo, label=null, attribute=null, transform=null, secondary=null, tap=null):: {
     kind: 'component',
     card: 'entityCard',
@@ -146,9 +158,8 @@
       value: {
         entity: eo.entity_id,
         [if attribute != null then 'attribute']: attribute,
-        [if transform != null then 'transform']: transform,
+        transform: valueTransform(attribute, transform),
       },
-      unit: { entity: eo.entity_id, attribute: 'unit_of_measurement', default: '' },
       [if secondary != null then 'secondary']:
         { entity: eo.entity_id, attribute: secondary, default: '' },
     },
@@ -239,9 +250,8 @@
       value: {
         entity: '$self',
         [if attribute != null then 'attribute']: attribute,
-        [if transform != null then 'transform']: transform,
+        transform: valueTransform(attribute, transform),
       },
-      unit: { entity: '$self', attribute: 'unit_of_measurement', default: '' },
       [if secondary != null then 'secondary']:
         { entity: '$self', attribute: secondary, default: '' },
     },

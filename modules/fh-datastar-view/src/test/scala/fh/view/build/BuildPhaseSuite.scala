@@ -207,15 +207,18 @@ class BuildPhaseSuite extends munit.FunSuite {
     os.write(
       dir / "dashboard.jsonnet",
       "local c = import 'x';\n" +
-        "{ value: c.entityCard(p, transform='$round($number($), 1)') }\n"
+        "{ value: c.entityCard(p, transform='$round($number($state), 1)') }\n"
     )
     // The generated dump is skipped even if it contains the literal.
-    os.write(dir / "dump.libsonnet", "{ x: '$round($number($), 1)' }\n")
+    os.write(dir / "dump.libsonnet", "{ x: '$round($number($state), 1)' }\n")
 
     val locate = JsonnetBuild.literalLocator(
       Set(dir / "dashboard.jsonnet", dir / "dump.libsonnet")
     )
-    assertEquals(locate("$round($number($), 1)"), Some("dashboard.jsonnet:2"))
+    assertEquals(
+      locate("$round($number($state), 1)"),
+      Some("dashboard.jsonnet:2")
+    )
     assertEquals(locate("$nope($)"), None)
   }
 }
