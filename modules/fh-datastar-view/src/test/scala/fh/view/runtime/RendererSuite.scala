@@ -43,7 +43,7 @@ class RendererSuite extends munit.FunSuite {
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(cards, layout)
-    new Renderer(d, Templates.from(d))
+    Renderer.create(d)
   }
 
   // A single component as the layout root gets the path id "c".
@@ -175,7 +175,7 @@ class RendererSuite extends munit.FunSuite {
         styles = ".card{color:red}"
       )
     )
-    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    val page = Renderer.create(d).renderPage(Map.empty)
     // sorted token vars, then the theme's inline styles; no dark overrides
     assert(
       page.startsWith(
@@ -195,7 +195,7 @@ class RendererSuite extends munit.FunSuite {
         tokensDark = Map("primary-text-color" -> "#e1e1e1")
       )
     )
-    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    val page = Renderer.create(d).renderPage(Map.empty)
     assert(
       page.contains(
         "@media (prefers-color-scheme:dark){:root{--primary-text-color:#e1e1e1;}}"
@@ -206,9 +206,9 @@ class RendererSuite extends munit.FunSuite {
 
   test("no theme -> no :root style block") {
     val d = Dashboard(cards, col())
-    val page = new Renderer(d, Templates.from(d)).renderPage(Map.empty)
+    val page = Renderer.create(d).renderPage(Map.empty)
     assert(!page.contains("<style>"), clue = page)
-    assertEquals(new Renderer(d, Templates.from(d)).stylesheets, Nil)
+    assertEquals(Renderer.create(d).stylesheets, Nil)
   }
 
   test("Predicate evaluation: comparisons and boolean combinators") {

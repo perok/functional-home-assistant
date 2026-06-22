@@ -47,7 +47,7 @@ object ServerApp extends IOApp {
           .toResource
         store <- StateStore.create(api)
         rendererRef <- SignallingRef[IO]
-          .of(new Renderer(dashboard, Templates.from(dashboard)))
+          .of(Renderer.create(dashboard))
           .toResource
         importsRef <- SignallingRef[IO].of(imports0.map(fs2Path)).toResource
         lastRendered <- Ref[IO].of(Map.empty[String, String]).toResource
@@ -128,7 +128,7 @@ object ServerApp extends IOApp {
               .attempt
               .flatMap {
                 case Right((dash, imports)) =>
-                  rendererRef.set(new Renderer(dash, Templates.from(dash))) *>
+                  rendererRef.set(Renderer.create(dash)) *>
                     importsRef.set(imports.map(fs2Path)) *>
                     lastRendered.set(Map.empty) *>
                     IO.println("Dashboard reloaded")

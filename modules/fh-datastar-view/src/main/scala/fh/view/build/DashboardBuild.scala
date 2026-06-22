@@ -60,8 +60,11 @@ object DashboardBuild {
 
   /** Decode the dashboard JSON into the runtime model and fail fast if any card
     * reference is unknown or an input is unsatisfied.
+    *
+    * `sources` (the entry + transitive imports) is used only to point invalid
+    * transforms back at their jsonnet line; pass `Set.empty` when unavailable.
     */
-  def decode(json: Json): IO[Dashboard] =
+  def decode(json: Json, sources: Set[os.Path] = Set.empty): IO[Dashboard] =
     for {
       dashboard <- normalizeChildren(json)
         .as[Dashboard]
@@ -69,7 +72,7 @@ object DashboardBuild {
           new RuntimeException(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
-      _ <- dashboard.validate match {
+      _ <- dashboard.validate(JsonnetBuild.literalLocator(sources)) match {
         case Nil => IO.unit
         case errs =>
           new RuntimeException(
@@ -88,7 +91,7 @@ object DashboardBuild {
       entry: String
   ): IO[(Dashboard, Set[os.Path])] =
     evaluate(api, dashboardsDir, entry).flatMap { r =>
-      decode(r.value).map(_ -> r.imports)
+      decode(r.value, r.imports).map(_ -> r.imports)
     }
 
   /** Re-evaluate the jsonnet against the dump ALREADY on disk (no HA fetch, no
@@ -103,5 +106,5 @@ object DashboardBuild {
       .eval(dashboardsDir, entry)
       .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
       .liftTo[IO]
-      .flatMap(r => decode(r.value).map(_ -> r.imports))
+      .flatMap(r => decode(r.value, r.imports).map(_ -> r.imports))
 }

@@ -148,7 +148,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assert(d.theme.styles.contains(".card"), clue = d.theme.styles.take(80))
     // The composed dashboard is internally consistent.
-    assertEquals(d.validate, Nil)
+    assertEquals(d.validate(), Nil)
   }
 
   test("normalizeChildren wraps a single (non-array) child into a list") {
@@ -189,7 +189,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       // `id` is backend-injected; only "label" is missing here.
       card = LayoutNode.Component(card = "card")
     )
-    val errs = d.validate
+    val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
     assert(!errs.exists(_.contains("missing inputs: id")), clue = errs)
   }
@@ -199,6 +199,23 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map.empty,
       card = LayoutNode.Component("nope")
     )
-    assert(d.validate.exists(_.contains("unknown card")), clue = d.validate)
+    assert(d.validate().exists(_.contains("unknown card")), clue = d.validate())
+  }
+
+  test("literalLocator points a transform back at its jsonnet line") {
+    val dir = os.temp.dir()
+    os.write(
+      dir / "dashboard.jsonnet",
+      "local c = import 'x';\n" +
+        "{ value: c.entityCard(p, transform='$round($number($), 1)') }\n"
+    )
+    // The generated dump is skipped even if it contains the literal.
+    os.write(dir / "dump.libsonnet", "{ x: '$round($number($), 1)' }\n")
+
+    val locate = JsonnetBuild.literalLocator(
+      Set(dir / "dashboard.jsonnet", dir / "dump.libsonnet")
+    )
+    assertEquals(locate("$round($number($), 1)"), Some("dashboard.jsonnet:2"))
+    assertEquals(locate("$nope($)"), None)
   }
 }
