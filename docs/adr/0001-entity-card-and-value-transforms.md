@@ -194,6 +194,20 @@ No binding exposes any other entity, so transforms remain a pure function of one
 entity's state. Bindings use `createFrame()` + `Frame.bind` (a fresh child of the
 shared, read-only std-library environment) — **not** `assign`, which would mutate
 shared instance state — so the one compiled instance stays safely shared across
-fibers without locking. `Transform.run` takes a `Transform.Context(value, state,
-attributes)` where `value` is only the error fallback; `Renderer` threads the
-slot entity's `EntityState` through.
+fibers without locking. `Transform.run(expr, EntityState)` takes the entity
+state directly (a transitional coupling until state is JSONata-native). On an
+evaluation failure it returns the **JSONata error message**, so the failing
+**card shows the error** — contained to that card, never silently falling back to
+the raw value and never crashing the render. The earlier `Context.value` fallback
+field is gone — the entity state is passed directly.
+
+Two distinct failure modes, kept separate:
+
+- **Non-value states.** An `"unavailable"`/`"unknown"` entity
+  (`EntityState.unavailable`) is handled in the **renderer, before the
+  transform**: it shows its raw state and skips JSONata entirely. So such a
+  sensor stays readable even under a custom numeric transform (e.g.
+  `$round($number($state), 1)`) that would otherwise error — the bypass, not the
+  transform, is what keeps it readable.
+- **A genuinely broken transform** on a real value still renders the JSONata
+  error message on its card (above).

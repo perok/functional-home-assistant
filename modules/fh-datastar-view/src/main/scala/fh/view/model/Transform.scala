@@ -2,6 +2,7 @@ package fh.view.model
 
 import com.dashjoin.jsonata.Jsonata
 import com.dashjoin.jsonata.Jsonata.jsonata
+import fh.view.runtime.EntityState
 import io.circe.Json
 
 /** Per-slot value transforms, expressed as [JSONata](https://jsonata.org).
@@ -23,26 +24,20 @@ import io.circe.Json
   *   - `$state = "on" ? "Open" : "Closed"` — map a state to display text
   *
   * Compilation happens once at build/validate time; the renderer reuses the
-  * compiled expression. Evaluation errors (e.g. `$number` on a non-numeric
-  * state) and null results fall back to the raw value, so a transient odd value
-  * never blanks a card.
+  * compiled expression. A failing evaluation is **not** swallowed nor allowed
+  * to crash the render — the card shows the JSONata error message, contained to
+  * that one card, so a genuinely broken expression is visible. (Unavailable/
+  * unknown entities never reach here — the renderer shows their raw state and
+  * skips the transform, see `EntityState.unavailable`.) A `null` result becomes
+  * `""` (the slot's `default` then applies).
+  *
+  * Takes an [[EntityState]] directly for now — a transitional coupling until
+  * state is represented JSONata-natively (a JSON document) end to end.
   */
 object Transform {
 
   /** A compiled JSONata expression. */
   type Compiled = Jsonata
-
-  /** What a transform evaluates against: the SAME entity's `state` and
-    * `attributes` (bound as `$state`/`$attr`). Carries no other entity, so
-    * transforms cannot reach across entities. `value` is the already-resolved
-    * slot value, used only as the fallback when evaluation errors — it is *not*
-    * exposed to the expression (there is no bare `$`).
-    */
-  final case class Context(
-      value: String,
-      state: String,
-      attributes: Map[String, Json]
-  )
 
   /** Compile a JSONata expression (build/validate time). */
   def parse(src: String): Either[String, Compiled] = {
@@ -53,23 +48,26 @@ object Transform {
       catch case e: Exception => Left(s"invalid JSONata: ${e.getMessage}")
   }
 
-  /** Evaluate a compiled expression against one entity's [[Context]],
-    * stringified for the template. On evaluation error, returns the raw value
-    * unchanged.
+  /** Evaluate a compiled expression against one entity's state, stringified for
+    * the template. On evaluation failure, returns the JSONata error message so
+    * the card shows it (contained — never throws into the render).
     */
-  def run(expr: Compiled, ctx: Context): String =
-    try
-      // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a
-      // fresh child of the (shared, read-only) std-library environment, so
-      // binding `$state`/`$attr` here is local to this call and the renderer
-      // safely shares one compiled instance across fibers without locking.
-      val frame = expr.createFrame()
-      frame.bind("state", ctx.state)
-      frame.bind("attr", attrObject(ctx.attributes))
-      // No input context: the expression addresses the entity via $state/$attr,
-      // so there is no bare `$`.
-      asString(expr.evaluate(null, frame))
-    catch case _: Exception => ctx.value
+  def run(expr: Compiled, entity: EntityState): String =
+    // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a fresh
+    // child of the (shared, read-only) std-library environment, so binding
+    // `$state`/`$attr` here is local to this call and the renderer safely
+    // shares one compiled instance across fibers without locking.
+    // TODO add domain?
+    val frame = expr.createFrame()
+    frame.bind("state", entity.state)
+    frame.bind("attr", attrObject(entity.attributes))
+    // No input context: the expression addresses the entity via $state/$attr,
+    // so there is no bare `$`.
+    try asString(expr.evaluate(null, frame))
+    catch case e: Exception => errorText(e)
+
+  private def errorText(e: Throwable): String =
+    Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getSimpleName)
 
   // JSONata navigates plain Java values, so expose attributes as a Java map of
   // converted JSON (numbers stay numeric for `$attr.brightness` arithmetic,

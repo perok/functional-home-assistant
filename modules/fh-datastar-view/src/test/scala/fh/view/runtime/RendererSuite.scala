@@ -85,6 +85,33 @@ class RendererSuite extends munit.FunSuite {
     assert(!html.contains("2 < 3"), clue = html)
   }
 
+  test("unavailable entity bypasses the transform and shows its raw state") {
+    val node = LayoutNode.Component(
+      card = "card",
+      entities = List("sensor.t"),
+      slots = Map(
+        "state" -> SlotSource(
+          "sensor.t",
+          None,
+          transform = Some("$round($number($state), 1)")
+        )
+      )
+    )
+    val r = renderer(node)
+    // A real value is transformed...
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("21.46")))
+        .get
+        .contains("<span>21.5</span>")
+    )
+    // ...but "unavailable" never enters JSONata (which would error) — shown raw.
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("unavailable")))
+        .get
+        .contains("<span>unavailable</span>")
+    )
+  }
+
   test("missing entity renders empty slots rather than throwing") {
     val html = renderer(card).renderNodeById("c", Map.empty).get
     assertEquals(

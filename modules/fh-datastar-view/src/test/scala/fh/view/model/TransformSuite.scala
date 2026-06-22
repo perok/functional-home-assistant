@@ -1,20 +1,19 @@
 package fh.view.model
 
+import fh.view.runtime.EntityState
 import io.circe.Json
 
 class TransformSuite extends munit.FunSuite {
 
-  // The slot value is the entity's state here, so `value` (the error fallback)
-  // and `$state` are the same; attributes default to none.
+  private def compile(src: String): Transform.Compiled =
+    Transform.parse(src).fold(e => fail(e), identity)
+
   private def run(
       src: String,
       state: String,
       attributes: Map[String, Json] = Map.empty
   ): String =
-    Transform.run(
-      Transform.parse(src).fold(e => fail(e), identity),
-      Transform.Context(state, state, attributes)
-    )
+    Transform.run(compile(src), EntityState(state, attributes))
 
   test("round to n decimals") {
     assertEquals(run("$round($number($state), 1)", "21.44"), "21.4")
@@ -82,13 +81,16 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(run(expr, "42"), "42")
   }
 
-  test("evaluation error on a non-numeric value falls back to the raw value") {
-    // $number("unavailable") throws; the card shows the raw state instead.
-    assertEquals(
-      run("$round($number($state), 1)", "unavailable"),
-      "unavailable"
-    )
+  test("evaluation error renders the JSONata message on the card (no crash)") {
+    // $number("unavailable") fails; the card shows the error rather than the raw
+    // value or crashing the render.
+    val out = run("$round($number($state), 1)", "unavailable")
+    assert(out.nonEmpty, clue = out)
+    assertNotEquals(out, "unavailable")
   }
+
+  // Note: unavailable/unknown entities never reach a transform — the renderer
+  // bypasses it and shows the raw state (see RendererSuite).
 
   test("null result becomes empty (so the slot default can take over)") {
     assertEquals(run("$state = \"x\" ? \"y\" : null", "z"), "")

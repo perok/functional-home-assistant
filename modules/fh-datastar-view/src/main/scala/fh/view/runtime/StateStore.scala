@@ -16,6 +16,16 @@ case class EntityState(state: String, attributes: Map[String, Json]) {
       case Some(a) =>
         attributes.get(a).map(StateStore.jsonToString).getOrElse("")
     }
+
+  /** HA's non-value states: the entity has no real reading. Such a value should
+    * be shown verbatim and NOT run through a JSONata transform — it would
+    * either error (`$number("unavailable")`) or be meaningless.
+    */
+  def unavailable: Boolean = EntityState.unavailableStates(state)
+}
+
+object EntityState {
+  val unavailableStates: Set[String] = Set("unavailable", "unknown")
 }
 
 /** The runtime single source of truth for all entity state.
