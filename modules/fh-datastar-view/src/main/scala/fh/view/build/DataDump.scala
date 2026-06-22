@@ -69,9 +69,15 @@ object DataDump {
 
   /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
     * sanitized field (a valid jsonnet field name), so authors reference them by
-    * name. Entities are keyed by `entity_id` (dots -> underscores); areas/floors
-    * by their NAME (`area_name`/`floor_name`), slugified for `dump.areas.<name>`
-    * access (e.g. `Kjøkken` -> `kjokken`, `Living Room` -> `living_room`).
+    * name. Entities are keyed by `entity_id` (dots -> underscores);
+    * areas/floors by their NAME (`area_name`/`floor_name`), slugified for
+    * `dump.areas.<name>` access (e.g. `Kjøkken` -> `kjokken`, `Living Room` ->
+    * `living_room`).
+    *
+    * Each floor additionally carries a nested, slug-keyed `areas` sub-object of
+    * just the areas on that floor (matched by `floor_id`), so authors can drill
+    * `dump.floors.<floor>.areas.<area>.area_id` with editor autocomplete. The
+    * flat top-level `dump.areas` map is left intact — the nesting is additive.
     */
   def transform(raw: Json): Json = {
     def keyBy(arr: Json, keyField: String, key: String => String): Json =
@@ -89,19 +95,38 @@ object DataDump {
     raw.asObject match {
       case None => raw
       case Some(obj) =>
+        val areasArr = obj("areas").getOrElse(Json.arr())
+        val areaItems = areasArr.asArray.getOrElse(Vector.empty)
+
+        // Add to each floor a slug-keyed `areas` sub-object of the areas whose
+        // `floor_id` references it.
+        def withAreas(floor: Json): Json = {
+          val fid = floor.hcursor.get[String]("floor_id").toOption
+          val mine = Json.fromValues(
+            areaItems.filter(a =>
+              a.hcursor.get[String]("floor_id").toOption == fid
+            )
+          )
+          floor.deepMerge(Json.obj("areas" -> keyBy(mine, "area_name", slug)))
+        }
+
+        val floorsArr = obj("floors").getOrElse(Json.arr())
+        val enrichedFloors = floorsArr.asArray match {
+          case Some(items) => Json.fromValues(items.map(withAreas))
+          case None        => floorsArr
+        }
+
         Json.fromJsonObject(
           obj
-            .add(
-              "areas",
-              keyBy(obj("areas").getOrElse(Json.arr()), "area_name", slug)
-            )
-            .add(
-              "floors",
-              keyBy(obj("floors").getOrElse(Json.arr()), "floor_name", slug)
-            )
+            .add("areas", keyBy(areasArr, "area_name", slug))
+            .add("floors", keyBy(enrichedFloors, "floor_name", slug))
             .add(
               "entities",
-              keyBy(obj("entities").getOrElse(Json.arr()), "entity_id", entityKey)
+              keyBy(
+                obj("entities").getOrElse(Json.arr()),
+                "entity_id",
+                entityKey
+              )
             )
         )
     }
