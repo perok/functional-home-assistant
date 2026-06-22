@@ -96,9 +96,26 @@ class BuildPhaseSuite extends munit.FunSuite {
     val result = JsonnetBuild.eval(tmp, "dashboard.jsonnet")
     assert(result.isRight, clue = result)
 
+    // The import set is the entry + its transitive imports (any depth).
+    val importNames = result.toOption.get.imports.map(_.last)
+    assert(
+      Set(
+        "dashboard.jsonnet",
+        "components.libsonnet",
+        "theme.libsonnet",
+        "tokens.libsonnet",
+        "dump.libsonnet"
+      ).subsetOf(importNames),
+      clue = importNames
+    )
+
     // `decode`'s normalization lets `c.row(child)` (single child, no array) work.
-    val dashboard = result.flatMap(
-      DashboardBuild.normalizeChildren(_).as[Dashboard].left.map(_.getMessage)
+    val dashboard = result.flatMap(r =>
+      DashboardBuild
+        .normalizeChildren(r.value)
+        .as[Dashboard]
+        .left
+        .map(_.getMessage)
     )
     assert(dashboard.isRight, clue = dashboard)
 
