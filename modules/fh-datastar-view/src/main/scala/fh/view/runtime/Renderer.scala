@@ -6,8 +6,7 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  SlotSource,
-  Transform
+  SlotSource
 }
 
 /** Renders the recursive dashboard layout tree from current entity state.
@@ -22,7 +21,11 @@ import fh.view.model.{
   * [[componentsFor]] + [[dynamicContainerIds]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
   */
-class Renderer(dashboard: Dashboard, templates: Templates) {
+class Renderer(
+    dashboard: Dashboard,
+    templates: Templates,
+    transforms: Transforms
+) {
 
   /** Every addressable node keyed by its generated id, paired with its path
     * (needed to re-render a container's children by id).
@@ -59,26 +62,6 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
     */
   val dynamicContainerIds: List[String] =
     indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
-
-  /** Every distinct slot `transform` (JSONata) compiled once here, so the hot
-    * path never re-compiles. Expressions that fail to compile are omitted (the
-    * slot then renders untransformed) — [[Dashboard.validate]] already surfaces
-    * those as build-time errors.
-    */
-  private val compiledTransforms: Map[String, Transform.Compiled] = {
-    def slotsOf(node: LayoutNode): List[SlotSource] = node match {
-      case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.children.flatMap(slotsOf)
-      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
-    }
-    slotsOf(dashboard.card)
-      .flatMap(_.transform)
-      .distinct
-      .flatMap { t =>
-        Transform.parse(t).toOption.map(t -> _)
-      }
-      .toMap
-  }
 
   def componentsFor(entityId: String): Set[String] =
     byEntity.getOrElse(entityId, Set.empty)
@@ -219,11 +202,7 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
             .get(source.entity)
             .map(_.slotValue(source.attribute))
             .filter(_.nonEmpty)
-            .map(v =>
-              source.transform
-                .flatMap(compiledTransforms.get)
-                .fold(v)(expr => Transform.run(expr, v))
-            )
+            .map(v => source.transform.fold(v)(transforms.run(_, v)))
           val value = transformed
             .filter(_.nonEmpty)
             .orElse(source.default)
@@ -235,6 +214,17 @@ class Renderer(dashboard: Dashboard, templates: Templates) {
 }
 
 object Renderer {
+
+  /** Build a renderer from a (validated) dashboard, compiling its template and
+    * transform libraries up front. The single construction point so call sites
+    * never wire `Templates`/`Transforms` by hand.
+    */
+  def create(dashboard: Dashboard): Renderer =
+    new Renderer(
+      dashboard,
+      Templates.from(dashboard),
+      Transforms.from(dashboard)
+    )
 
   /** Slug an entity id into a valid HTML id fragment. */
   def sanitize(entityId: String): String =

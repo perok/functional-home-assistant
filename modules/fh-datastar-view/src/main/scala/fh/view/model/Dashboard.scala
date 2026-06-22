@@ -166,8 +166,16 @@ case class Dashboard(
 
   /** Validate that every card reference resolves and supplies the inputs the
     * card's template declares. Returns human-readable errors (empty = valid).
+    *
+    * `locateTransform` maps a transform expression back to a source location
+    * (e.g. `dashboard.jsonnet:42`) for friendlier errors. Jsonnet evaluation
+    * erases positions, so the build phase supplies a best-effort locator that
+    * greps the jsonnet sources for the literal; the default ignores it (the
+    * model stays pure and source-agnostic).
     */
-  def validate: List[String] =
+  def validate(
+      locateTransform: String => Option[String] = _ => None
+  ): List[String] =
     def checkRef(
         nodeId: String,
         cardName: String,
@@ -191,10 +199,12 @@ case class Dashboard(
         slots: Map[String, SlotSource]
     ): List[String] =
       slots.toList.flatMap { case (name, src) =>
-        src.transform.flatMap(t => Transform.parse(t).left.toOption).map {
-          err =>
-            s"$nodeId: slot '$name' has an invalid transform: $err"
-        }
+        src.transform.flatMap(t =>
+          Transform.parse(t).left.toOption.map { err =>
+            val at = locateTransform(t).fold("")(loc => s" (at $loc)")
+            s"$nodeId: slot '$name' has an invalid transform$at: $err"
+          }
+        )
       }
 
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
