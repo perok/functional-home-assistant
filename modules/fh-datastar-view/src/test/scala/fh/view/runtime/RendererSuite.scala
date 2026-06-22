@@ -70,10 +70,15 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
   }
 
-  test("entity-bound component is wrapped in the id'd morph target; slots escaped") {
+  test(
+    "entity-bound component is wrapped in the id'd morph target; slots escaped"
+  ) {
     val html = renderer(card).renderNodeById("c", states).get
     // backend-owned morph target wraps the pure-content template
-    assert(html.startsWith("""<div class="fh-cell" id="c"><div>"""), clue = html)
+    assert(
+      html.startsWith("""<div class="fh-cell" id="c"><div>"""),
+      clue = html
+    )
     assert(html.contains("&lt;"), clue = html)
     assert(html.contains("&amp;"), clue = html)
     assert(html.contains("°C"), clue = html)
@@ -88,7 +93,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("container templates splice children; entity-less nodes are not wrapped") {
+  test(
+    "container templates splice children; entity-less nodes are not wrapped"
+  ) {
     val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
@@ -113,7 +120,8 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = renderer(g)
-    val wrap = (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
+    val wrap =
+      (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
     assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
     val off = Map("light.x" -> st("off", "brightness" -> Json.Null))
     assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
@@ -137,7 +145,11 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val states = Map(
-      "light.a" -> st("on", "battery" -> Json.fromInt(10), "friendly_name" -> Json.fromString("Lamp")),
+      "light.a" -> st(
+        "on",
+        "battery" -> Json.fromInt(10),
+        "friendly_name" -> Json.fromString("Lamp")
+      ),
       "sensor.b" -> st("hot", "battery" -> Json.fromInt(5)),
       "sensor.c" -> st("cold", "battery" -> Json.fromInt(50))
     )
@@ -201,11 +213,41 @@ class RendererSuite extends munit.FunSuite {
 
   test("Predicate evaluation: comparisons and boolean combinators") {
     val s = st("18", "battery" -> Json.fromInt(15))
-    assert(Renderer.matches(Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")), "sensor.x", s))
-    assert(!Renderer.matches(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), "sensor.x", s))
-    assert(Renderer.matches(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)), "sensor.x", s))
-    assert(!Renderer.matches(Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)), "sensor.x", s))
-    assert(Renderer.matches(Predicate.Cmp("state", Op.Lte, Json.fromInt(18)), "sensor.x", s))
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
+        "sensor.x",
+        s
+      )
+    )
+    assert(
+      !Renderer.matches(
+        Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+        "sensor.x",
+        s
+      )
+    )
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)),
+        "sensor.x",
+        s
+      )
+    )
+    assert(
+      !Renderer.matches(
+        Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)),
+        "sensor.x",
+        s
+      )
+    )
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("state", Op.Lte, Json.fromInt(18)),
+        "sensor.x",
+        s
+      )
+    )
 
     val both = Predicate.And(
       List(
@@ -217,7 +259,9 @@ class RendererSuite extends munit.FunSuite {
     assert(Renderer.matches(Predicate.Not(both), "light.x", s))
     assert(
       Renderer.matches(
-        Predicate.Or(List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)),
+        Predicate.Or(
+          List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)
+        ),
         "sensor.x",
         s
       )

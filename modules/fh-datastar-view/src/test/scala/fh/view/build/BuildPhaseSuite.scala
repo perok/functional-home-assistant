@@ -121,7 +121,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
     val d = dashboard.toOption.get
     // Shared card library is referenced by name (not baked per entity).
-    assert(d.cards.contains("stateCard"), clue = d.cards.keySet)
+    assert(d.cards.contains("entityCard"), clue = d.cards.keySet)
     assert(d.cards.contains("button"), clue = d.cards.keySet)
     assert(d.cards.contains("slider"), clue = d.cards.keySet)
     // Recursive layout: top-level container (column) with exactly one dynamic
@@ -133,10 +133,19 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(dynamics(d.card).size, 1)
     // The theme carries tokens (+ dark overrides) AND its stylesheets/CSS, so
     // the CSS framework (Pico) is a theme property, not baked into the app.
-    assert(d.theme.tokens.contains("primary-color"), clue = d.theme.tokens.keySet)
+    assert(
+      d.theme.tokens.contains("primary-color"),
+      clue = d.theme.tokens.keySet
+    )
     assertEquals(d.theme.tokens.get("ha-card-border-radius"), Some("12px"))
-    assert(d.theme.tokensDark.contains("card-background-color"), clue = d.theme.tokensDark)
-    assert(d.theme.stylesheets.exists(_.contains("pico")), clue = d.theme.stylesheets)
+    assert(
+      d.theme.tokensDark.contains("card-background-color"),
+      clue = d.theme.tokensDark
+    )
+    assert(
+      d.theme.stylesheets.exists(_.contains("pico")),
+      clue = d.theme.stylesheets
+    )
     assert(d.theme.styles.contains(".card"), clue = d.theme.styles.take(80))
     // The composed dashboard is internally consistent.
     assertEquals(d.validate, Nil)
@@ -159,7 +168,9 @@ class BuildPhaseSuite extends munit.FunSuite {
       .toOption
       .get
     assertEquals(
-      DashboardBuild.normalizeChildren(arr).hcursor
+      DashboardBuild
+        .normalizeChildren(arr)
+        .hcursor
         .downField("children")
         .values
         .map(_.size),
@@ -170,7 +181,10 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate reports a component missing a required card input") {
     val d = Dashboard(
       cards = Map(
-        "card" -> CardDef("""<div id="{{id}}">{{label}}</div>""", List("id", "label"))
+        "card" -> CardDef(
+          """<div id="{{id}}">{{label}}</div>""",
+          List("id", "label")
+        )
       ),
       // `id` is backend-injected; only "label" is missing here.
       card = LayoutNode.Component(card = "card")

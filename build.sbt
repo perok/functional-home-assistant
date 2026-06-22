@@ -137,6 +137,8 @@ lazy val `fh-datastar-view` = project
       "com.databricks" %% "sjsonnet" % "0.5.0",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
+      // JSONata for per-slot value transforms (pure-JVM port of the spec)
+      "com.dashjoin" % "jsonata" % "0.9.8",
       "org.scalameta" %% "munit" % "1.3.3" % Test
     )
   )

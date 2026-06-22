@@ -8,6 +8,11 @@ import io.circe.derivation.{Configuration, ConfiguredCodec}
   * `attribute = None` means the entity's `state`; otherwise the named attribute
   * (e.g. `unit_of_measurement`, `brightness`).
   *
+  * `transform` is an optional [[Transform]] JSONata expression applied to the
+  * resolved value before display (e.g. `$round($number($), 1) & " kW"`). It
+  * runs on present values only — an absent value falls back to `default`,
+  * untransformed.
+  *
   * In a [[LayoutNode.Dynamic]] case, `entity` is a placeholder (e.g.
   * `"$self"`); the renderer rebinds it to each matched entity.
   */
@@ -21,7 +26,10 @@ case class SlotSource(
     attribute: Option[String] = None,
     // Used when the entity/attribute is absent or empty (e.g. brightness when a
     // light is off). Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
-    default: Option[String] = None
+    default: Option[String] = None,
+    // A `Transform` JSONata expression applied to the resolved value, compiled
+    // at build time (validated below) and reused by the renderer.
+    transform: Option[String] = None
 ) derives ConfiguredCodec
 
 /** A reusable card in the shared library (a node references one by name).
@@ -177,6 +185,18 @@ case class Dashboard(
                 missing.toList.sorted.mkString(", ")
             )
 
+    // Each slot's optional `transform` must be a parseable pipe pipeline.
+    def slotErrors(
+        nodeId: String,
+        slots: Map[String, SlotSource]
+    ): List[String] =
+      slots.toList.flatMap { case (name, src) =>
+        src.transform.flatMap(t => Transform.parse(t).left.toOption).map {
+          err =>
+            s"$nodeId: slot '$name' has an invalid transform: $err"
+        }
+      }
+
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
       nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
 
@@ -188,14 +208,16 @@ case class Dashboard(
             LayoutNode.pathId(path),
             card,
             Set("id") ++ params.keySet ++ slots.keySet
-          ) ++ children(kids, path)
+          ) ++ slotErrors(LayoutNode.pathId(path), slots) ++
+            children(kids, path)
         case LayoutNode.Dynamic(_, cases) =>
           cases.flatMap { c =>
+            val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
             checkRef(
-              s"${LayoutNode.pathId(path)}/${c.card}",
+              nodeId,
               c.card,
               Set("id", "entity", "label") ++ c.params.keySet ++ c.slots.keySet
-            )
+            ) ++ slotErrors(nodeId, c.slots)
           }
 
     walk(card, Nil)
