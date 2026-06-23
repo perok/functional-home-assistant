@@ -151,12 +151,12 @@ class Renderer(
     val children =
       states.toList
         .sortBy(_._1)
-        .filter { case (entityId, st) =>
-          d.query.forall(Renderer.matches(_, entityId, st))
+        .filter { case (_, st) =>
+          d.query.forall(Renderer.matches(_, st))
         }
         .flatMap { case (entityId, st) =>
           d.cases
-            .find(c => Renderer.matches(c.when, entityId, st))
+            .find(c => Renderer.matches(c.when, st))
             .map(renderCase(id, entityId, st, _, states))
         }
     s"""<div id="$id">${children.mkString}</div>"""
@@ -199,7 +199,12 @@ class Renderer(
           // The entity id is always known (from the slot source), even when no
           // state has arrived yet — so identity-derived slots (e.g. an action
           // from $domain) still resolve. Missing state is an empty state.
-          val st = states.getOrElse(source.entity, EntityState("", Map.empty))
+          // TODO should throw or log a warning?
+          val st =
+            states.getOrElse(
+              source.entity,
+              EntityState(source.entity, "", Map.empty)
+            )
           val value =
             // An unavailable/unknown entity on a value-display slot shows its raw
             // state and never enters the transform — that bypass, not the
@@ -207,7 +212,7 @@ class Renderer(
             // it off so an action still resolves.
             if (source.bypassUnavailable && st.unavailable) st.state
             else {
-              val out = transforms.run(source.transform, source.entity, st)
+              val out = transforms.run(source.transform, st)
               if (out.nonEmpty) out else source.default.getOrElse("")
             }
           slot -> value
@@ -254,15 +259,17 @@ object Renderer {
     m
   }
 
-  /** Evaluate a query predicate against one entity's live state. */
-  def matches(p: Predicate, entityId: String, st: EntityState): Boolean =
+  /** Evaluate a query predicate against one entity's live state. The entity's
+    * id and domain come off the [[EntityState]] itself.
+    */
+  def matches(p: Predicate, st: EntityState): Boolean =
     p match {
-      case Predicate.And(items) => items.forall(matches(_, entityId, st))
-      case Predicate.Or(items)  => items.exists(matches(_, entityId, st))
-      case Predicate.Not(item)  => !matches(item, entityId, st)
+      case Predicate.And(items) => items.forall(matches(_, st))
+      case Predicate.Or(items)  => items.exists(matches(_, st))
+      case Predicate.Not(item)  => !matches(item, st)
       case Predicate.Cmp(property, op, value) =>
         val lhs = property match {
-          case "domain" => entityId.takeWhile(_ != '.')
+          case "domain" => st.domain
           case "state"  => st.state
           case other if other.startsWith("attr:") =>
             st.attributes

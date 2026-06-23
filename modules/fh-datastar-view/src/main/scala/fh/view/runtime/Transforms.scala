@@ -19,12 +19,12 @@ class Transforms private (
 ) {
 
   /** Apply the transform named by `expr` to the producing entity, reading its
-    * `state`/`attributes`/`domain`/`id` as same-entity context. `expr` is
-    * always one the dashboard declared (the map is total over the layout's
+    * `state`/`attributes`/`domain`/`entity_id` as same-entity context. `expr`
+    * is always one the dashboard declared (the map is total over the layout's
     * transforms), so a miss is a bug, not a runtime condition.
     */
-  def run(expr: String, entityId: String, entity: EntityState): String =
-    Transform.run(compiled(expr), entityId, entity)
+  def run(expr: String, entity: EntityState): String =
+    Transform.run(compiled(expr), entity)
 }
 
 object Transforms {

@@ -35,9 +35,10 @@ import io.circe.Json
   * skips the transform instead — see `EntityState.unavailable`.) A `null`
   * result becomes `""` (the slot's `default` then applies).
   *
-  * Takes an [[EntityState]] plus the entity id for now — a transitional
-  * coupling until state is represented JSONata-natively (a JSON document) end
-  * to end.
+  * Takes an [[EntityState]], which carries the entity's identity (`entityId`,
+  * and `domain` derived from it) alongside its live `state`/`attributes`, so
+  * the `$domain`/`$entity_id` bindings come straight off the fetched state
+  * rather than being recomputed here.
   */
 object Transform {
 
@@ -60,13 +61,13 @@ object Transform {
     * action). On evaluation failure, returns the JSONata error message so the
     * card shows it (contained — never throws into the render).
     */
-  def run(expr: Compiled, entityId: String, entity: EntityState): String =
+  def run(expr: Compiled, entity: EntityState): String =
     evalBound(
       expr,
       "state" -> entity.state,
       "attr" -> attrObject(entity.attributes),
-      "entity_id" -> entityId,
-      "domain" -> entityId.takeWhile(_ != '.') // TODO take this from the actual domain data instead of calculating it every time
+      "entity_id" -> entity.entityId,
+      "domain" -> entity.domain
     )
 
   // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a fresh
