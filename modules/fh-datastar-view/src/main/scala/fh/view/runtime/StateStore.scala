@@ -10,16 +10,11 @@ import io.circe.Json
 
 /** A single entity's current value as the runtime cares about it. */
 case class EntityState(state: String, attributes: Map[String, Json]) {
-  def slotValue(attribute: Option[String]): String =
-    attribute match {
-      case None => state
-      case Some(a) =>
-        attributes.get(a).map(StateStore.jsonToString).getOrElse("")
-    }
 
-  /** HA's non-value states: the entity has no real reading. Such a value should
-    * be shown verbatim and NOT run through a JSONata transform — it would
-    * either error (`$number("unavailable")`) or be meaningless.
+  /** HA's non-value states: the entity has no real reading. A value-display
+    * slot marked `bypassUnavailable` shows this verbatim instead of running its
+    * transform — which would otherwise error (`$number("unavailable")`) or be
+    * meaningless.
     */
   def unavailable: Boolean = EntityState.unavailableStates(state)
 }

@@ -11,8 +11,9 @@ import io.circe.Json
   * [[SlotSource.transform]]) and evaluated by the renderer per live value.
   *
   * A transform reads the entity through bound variables — `$state` (its raw
-  * state String) and `$attr` (its full attribute object, navigated as
-  * `$attr.unit_of_measurement`); numbers stay numeric, so coerce a String state
+  * state String), `$attr` (its full attribute object, navigated as
+  * `$attr.unit_of_measurement`), `$domain` (the entity-id prefix) and
+  * `$entity_id` (the full id); numbers stay numeric, so coerce a String state
   * with `$number($state)` for arithmetic. Only this entity is reachable —
   * lookups are same-entity only — and there is no bare `$`: the slot value is
   * whatever the expression returns. Examples:
@@ -22,17 +23,21 @@ import io.circe.Json
   *     unit
   *   - `$round($number($state) * 1.8 + 32, 1)` — °C → °F, one decimal
   *   - `$state = "on" ? "Open" : "Closed"` — map a state to display text
+  *   - `$lookup({"scene": "scene/turn_on"}, $domain) ? … : "homeassistant/toggle"`
+  *     — an identity-derived value (a tap action), independent of live state
   *
   * Compilation happens once at build/validate time; the renderer reuses the
   * compiled expression. A failing evaluation is **not** swallowed nor allowed
   * to crash the render — the card shows the JSONata error message, contained to
-  * that one card, so a genuinely broken expression is visible. (Unavailable/
-  * unknown entities never reach here — the renderer shows their raw state and
-  * skips the transform, see `EntityState.unavailable`.) A `null` result becomes
-  * `""` (the slot's `default` then applies).
+  * that one card, so a genuinely broken expression is visible. (A value-display
+  * slot can opt out for unavailable/unknown entities via
+  * `SlotSource.bypassUnavailable`, where the renderer shows the raw state and
+  * skips the transform instead — see `EntityState.unavailable`.) A `null`
+  * result becomes `""` (the slot's `default` then applies).
   *
-  * Takes an [[EntityState]] directly for now — a transitional coupling until
-  * state is represented JSONata-natively (a JSON document) end to end.
+  * Takes an [[EntityState]] plus the entity id for now — a transitional
+  * coupling until state is represented JSONata-natively (a JSON document) end
+  * to end.
   */
 object Transform {
 
@@ -48,21 +53,30 @@ object Transform {
       catch case e: Exception => Left(s"invalid JSONata: ${e.getMessage}")
   }
 
-  /** Evaluate a compiled expression against one entity's state, stringified for
-    * the template. On evaluation failure, returns the JSONata error message so
-    * the card shows it (contained — never throws into the render).
+  /** Evaluate a compiled expression against one entity, stringified for the
+    * template. Binds the entity's full context — `$state`/`$attr` (its live
+    * value) and `$domain`/`$entity_id` (its identity, from the id) — so the
+    * same mechanism serves value slots and identity-derived slots (e.g. a tap
+    * action). On evaluation failure, returns the JSONata error message so the
+    * card shows it (contained — never throws into the render).
     */
-  def run(expr: Compiled, entity: EntityState): String =
-    // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a fresh
-    // child of the (shared, read-only) std-library environment, so binding
-    // `$state`/`$attr` here is local to this call and the renderer safely
-    // shares one compiled instance across fibers without locking.
-    // TODO add domain?
+  def run(expr: Compiled, entityId: String, entity: EntityState): String =
+    evalBound(
+      expr,
+      "state" -> entity.state,
+      "attr" -> attrObject(entity.attributes),
+      "entity_id" -> entityId,
+      "domain" -> entityId.takeWhile(_ != '.') // TODO take this from the actual domain data instead of calculating it every time
+    )
+
+  // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a fresh
+  // child of the (shared, read-only) std-library environment, so binding here is
+  // local to this call and the renderer safely shares one compiled instance
+  // across fibers without locking. No input context: the expression addresses
+  // the entity via $state/$attr/$domain/$entity_id, so there is no bare `$`.
+  private def evalBound(expr: Compiled, bindings: (String, Any)*): String =
     val frame = expr.createFrame()
-    frame.bind("state", entity.state)
-    frame.bind("attr", attrObject(entity.attributes))
-    // No input context: the expression addresses the entity via $state/$attr,
-    // so there is no bare `$`.
+    bindings.foreach { case (name, value) => frame.bind(name, value) }
     try asString(expr.evaluate(null, frame))
     catch case e: Exception => errorText(e)
 

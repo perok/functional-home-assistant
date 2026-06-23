@@ -177,7 +177,7 @@ class Renderer(
         .getOrElse(entityId)
     val autoParams = Map(
       "id" -> s"${groupId}_${Renderer.sanitize(entityId)}",
-      "entity" -> entityId,
+      "entity_id" -> entityId,
       "label" -> label
     )
     // Rebind each slot to the matched entity (jsonnet uses a placeholder).
@@ -196,22 +196,20 @@ class Renderer(
       case None => "" // TODO should be a hard failure?
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
-          // Resolve the live value, run its transform (present values only,
-          // with the entity's own state/attributes as context), then fall back
-          // to the default when absent/empty.
-          val transformed = states.get(source.entity).flatMap { st =>
-            val raw = st.slotValue(source.attribute)
-            // An unavailable/unknown entity shows its raw value (e.g.
-            // "unavailable") and never enters the transform — that bypass, not
-            // the transform itself, is what keeps such states readable.
-            if (raw.isEmpty) None
-            else if (st.unavailable) Some(raw)
-            else Some(source.transform.fold(raw)(transforms.run(_, st)))
-          }
-          val value = transformed
-            .filter(_.nonEmpty)
-            .orElse(source.default)
-            .getOrElse("")
+          // The entity id is always known (from the slot source), even when no
+          // state has arrived yet — so identity-derived slots (e.g. an action
+          // from $domain) still resolve. Missing state is an empty state.
+          val st = states.getOrElse(source.entity, EntityState("", Map.empty))
+          val value =
+            // An unavailable/unknown entity on a value-display slot shows its raw
+            // state and never enters the transform — that bypass, not the
+            // transform, is what keeps such states readable. Identity slots leave
+            // it off so an action still resolves.
+            if (source.bypassUnavailable && st.unavailable) st.state
+            else {
+              val out = transforms.run(source.transform, source.entity, st)
+              if (out.nonEmpty) out else source.default.getOrElse("")
+            }
           slot -> value
         }
         tpl.execute(Renderer.javaContext(params ++ resolved, childrenHtml))

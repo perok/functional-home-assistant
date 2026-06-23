@@ -211,3 +211,56 @@ Two distinct failure modes, kept separate:
   transform, is what keeps it readable.
 - **A genuinely broken transform** on a real value still renders the JSONata
   error message on its card (above).
+
+## Update — 2026-06-23: transform-only slots, typed inputs, identity actions
+
+The project is **pre-v1 alpha** (see the root `README.md`), so this round took
+breaking changes freely to collapse accumulated special cases. Three linked
+changes:
+
+**1. A slot is just a transform.** `SlotSource` is now
+`{ entity, transform = "$state", default, bypassUnavailable = false }` — the
+`attribute` field is **gone**. Selecting a value *is* the transform: `"$state"`
+(the default) shows the state, `"$attr.brightness"` an attribute,
+`"$lookup(…, $domain)"` an identity-derived value. The transform context gains
+two identity bindings alongside `$state`/`$attr`: **`$domain`** (the entity-id
+prefix) and **`$entity_id`** (the full id). So one mechanism — a JSONata
+expression over the entity's full context — serves both live values and
+identity-derived values; there is no separate "computed"/"compute" concept. The
+renderer synthesizes an empty state for an absent entity, so an identity slot
+(e.g. an action from `$domain`) resolves even before any state has arrived.
+`Transform.run(expr, entityId, entity)` takes the id alongside the
+`EntityState`.
+
+**2. The unavailable bypass is an explicit per-slot flag.** The 2026-06-22
+"renderer skips the transform for unavailable/unknown" behaviour is no longer
+automatic — it would wrongly clobber an identity slot (an action must resolve
+regardless of availability). It is now `SlotSource.bypassUnavailable`, **off by
+default**, set `true` by the *value-display* builders (entity card value /
+secondary, slider state). When on, an unavailable/unknown entity shows its raw
+state and skips the transform; when off, the transform runs (and a genuinely
+broken one still shows its error on the card).
+
+**3. Service actions default from the entity's domain, as data — no Scala
+domain table.** The `entity` card / `button` / `slider` templates build the
+action route from a single **`{{{action}}}`** param (`"<domain>/<service>"`,
+e.g. `"homeassistant/toggle"`) instead of separate `{{domain}}/{{service}}`.
+`action` is an ordinary **identity slot** whose transform is authored in the
+card builder (`components.libsonnet` `defaultToggleAction`): a JSONata
+`$lookup` over `$domain` (scene/script → `turn_on`, button → `press`, else
+`homeassistant/toggle`), overridable by `serviceTap(...)` / an explicit `action`
+arg. So `dynButton`/`toggle` no longer take `domain`/`service` — the renderer
+never knows about HA domains; the mapping lives as data with the card that
+"knows its action". (We chose a JSONata-computed param over Handlebars helpers:
+helpers would relocate the same logic into Scala or force an engine migration,
+which ADR option B already rejected.)
+
+**Supporting model changes.** `CardDef` replaced the flat `inputs: List[String]`
+with typed **`params`** (static/injected) + **`slots`** (live), so
+`Dashboard.validate` checks each against the right source instead of
+hardcoding the injected set inline; the injected names are the single-source-of-
+truth constants `Dashboard.injectedStatic` (`id`) / `injectedDynamic`
+(`id`, `entity_id`, `label`). The template param carrying the entity id was
+renamed `{{{entity}}}` → **`{{{entity_id}}}`** so both channels (template param
+and JSONata binding) match HA's `entity_id`. The dropped `unit` slot and the
+`stateCard`/`dynStateCard` aliases from earlier updates remain as described.

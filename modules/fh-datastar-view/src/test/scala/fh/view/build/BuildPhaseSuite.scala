@@ -178,12 +178,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  test("validate reports a component missing a required card input") {
+  test("validate reports a component missing a required card param") {
     val d = Dashboard(
       cards = Map(
         "card" -> CardDef(
           """<div id="{{id}}">{{label}}</div>""",
-          List("id", "label")
+          params = List("id", "label")
         )
       ),
       // `id` is backend-injected; only "label" is missing here.
@@ -191,7 +191,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
-    assert(!errs.exists(_.contains("missing inputs: id")), clue = errs)
+    assert(!errs.exists(_.contains("missing params: id")), clue = errs)
   }
 
   test("validate reports a reference to an unknown card") {

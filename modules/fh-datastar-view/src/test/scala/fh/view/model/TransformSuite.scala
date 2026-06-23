@@ -11,9 +11,10 @@ class TransformSuite extends munit.FunSuite {
   private def run(
       src: String,
       state: String,
-      attributes: Map[String, Json] = Map.empty
+      attributes: Map[String, Json] = Map.empty,
+      entity: String = "sensor.x"
   ): String =
-    Transform.run(compile(src), EntityState(state, attributes))
+    Transform.run(compile(src), entity, EntityState(state, attributes))
 
   test("round to n decimals") {
     assertEquals(run("$round($number($state), 1)", "21.44"), "21.4")
@@ -94,6 +95,30 @@ class TransformSuite extends munit.FunSuite {
 
   test("null result becomes empty (so the slot default can take over)") {
     assertEquals(run("$state = \"x\" ? \"y\" : null", "z"), "")
+  }
+
+  test("identity bindings: $domain and $entity_id come from the entity id") {
+    assertEquals(run("$domain", "on", entity = "light.kitchen"), "light")
+    assertEquals(
+      run("$entity_id", "on", entity = "light.kitchen"),
+      "light.kitchen"
+    )
+  }
+
+  test("identity-derived action: maps domain to a service, with a default") {
+    val expr =
+      """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
+        """$a ? $a : "homeassistant/toggle")"""
+    assertEquals(run(expr, "on", entity = "scene.movie"), "scene/turn_on")
+    assertEquals(
+      run(expr, "on", entity = "light.kitchen"),
+      "homeassistant/toggle"
+    )
+    // identity-only: resolves even with no usable state (never reads $state)
+    assertEquals(
+      run(expr, "unavailable", entity = "scene.movie"),
+      "scene/turn_on"
+    )
   }
 
   test("parse rejects malformed JSONata and empty input") {

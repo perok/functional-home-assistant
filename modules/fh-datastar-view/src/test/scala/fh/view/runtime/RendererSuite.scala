@@ -22,17 +22,19 @@ class RendererSuite extends munit.FunSuite {
   private val cards = Map(
     "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
-      List("state")
+      slots = List("state")
     ),
-    "btn" -> CardDef("""<button>{{label}}</button>""", List("label")),
-    "gauge" -> CardDef("""<i>{{bri}}</i>""", List("bri")),
+    "btn" -> CardDef("""<button>{{label}}</button>""", params = List("label")),
+    "gauge" -> CardDef("""<i>{{bri}}</i>""", slots = List("bri")),
+    "act" -> CardDef(
+      """<a href="{{{action}}}">go</a>""",
+      slots = List("action")
+    ),
     "col" -> CardDef(
-      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
-      Nil
+      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>"""
     ),
     "row" -> CardDef(
-      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
-      Nil
+      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
     )
   )
 
@@ -51,8 +53,8 @@ class RendererSuite extends munit.FunSuite {
     card = "card",
     entities = List("sensor.t"),
     slots = Map(
-      "state" -> SlotSource("sensor.t", None),
-      "unit" -> SlotSource("sensor.t", Some("unit_of_measurement"))
+      "state" -> SlotSource("sensor.t"),
+      "unit" -> SlotSource("sensor.t", "$attr.unit_of_measurement")
     )
   )
 
@@ -92,8 +94,8 @@ class RendererSuite extends munit.FunSuite {
       slots = Map(
         "state" -> SlotSource(
           "sensor.t",
-          None,
-          transform = Some("$round($number($state), 1)")
+          transform = "$round($number($state), 1)",
+          bypassUnavailable = true
         )
       )
     )
@@ -109,6 +111,33 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById("c", Map("sensor.t" -> st("unavailable")))
         .get
         .contains("<span>unavailable</span>")
+    )
+  }
+
+  test("an identity (action) slot resolves from the entity id with no state") {
+    val expr =
+      """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
+        """$a ? $a : "homeassistant/toggle")"""
+    def actionNode(entity: String): LayoutNode =
+      LayoutNode.Component(
+        card = "act",
+        entities = List(entity),
+        slots = Map("action" -> SlotSource(entity, transform = expr))
+      )
+    // No state at all: the action still resolves from the entity's domain.
+    assert(
+      renderer(actionNode("scene.movie"))
+        .renderNodeById("c", Map.empty)
+        .get
+        .contains("""href="scene/turn_on""""),
+      clue = "scene domain -> scene/turn_on"
+    )
+    assert(
+      renderer(actionNode("light.x"))
+        .renderNodeById("c", Map.empty)
+        .get
+        .contains("""href="homeassistant/toggle""""),
+      clue = "other domain -> homeassistant/toggle"
     )
   }
 
@@ -143,7 +172,11 @@ class RendererSuite extends munit.FunSuite {
       "gauge",
       entities = List("light.x"),
       slots = Map(
-        "bri" -> SlotSource("light.x", Some("brightness"), default = Some("0"))
+        "bri" -> SlotSource(
+          "light.x",
+          transform = "$attr.brightness",
+          default = Some("0")
+        )
       )
     )
     val r = renderer(g)

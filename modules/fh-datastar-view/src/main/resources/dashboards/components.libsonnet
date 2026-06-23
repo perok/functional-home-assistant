@@ -26,16 +26,19 @@
     // builder below — no Scala change needed.
     fhrow: {
       template: '<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>',
-      inputs: [],
+      params: [],
+      slots: [],
     },
     fhcol: {
       template: '<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>',
-      inputs: [],
+      params: [],
+      slots: [],
     },
 
     sectionTitle: {
       template: '<h2 class="section">{{label}}</h2>',
-      inputs: ['label'],
+      params: ['label'],
+      slots: [],
     },
 
     // HA-like entity card: friendly name + a value (state or a chosen
@@ -49,26 +52,33 @@
     // NOTE (multiline templates): each HTML *attribute value* must stay on one
     // physical line — line breaks between tags/attributes are harmless
     // whitespace, but a newline inside an attribute would break it.
+    // The tap `action` is a single "<domain>/<service>" path (e.g.
+    // "homeassistant/toggle"), spliced raw into the action route; it is an
+    // optional slot the builder fills (a default resolved from the entity's
+    // domain, or an override), so it needs no `params`/`slots` entry.
     entityCard: {
       template: |||
         <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-          data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')"{{/tappable}}>
+          data-on:click="@post('/sse/action/{{{action}}}/{{{entity_id}}}')"{{/tappable}}>
           <header>{{label}}</header>
           <span class="state">{{value}}</span>{{#secondary}}
           <span class="secondary">{{secondary}}</span>{{/secondary}}
         </article>
       |||,
-      inputs: ['label', 'value'],
+      params: ['label'],
+      slots: ['value'],
     },
 
     // Generic service-call button (toggle, scene activate, lock…). No `id`: it
-    // has no entities/slots, so it never re-renders or gets patched.
+    // has no entities, so it never re-renders or gets patched. `entity_id` is
+    // structural (always supplied by the builder); `action` is a computed slot.
     button: {
       template: |||
         <button class="card"
-          data-on:click="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}')">{{label}}</button>
+          data-on:click="@post('/sse/action/{{{action}}}/{{{entity_id}}}')">{{label}}</button>
       |||,
-      inputs: ['label', 'domain', 'service', 'entity'],
+      params: ['label'],
+      slots: ['action'],
     },
 
     // Value slider (brightness, target temperature…). The backend wraps it in
@@ -82,10 +92,11 @@
           <input type="range" min="{{min}}" max="{{max}}"
             data-signals="{ val_{{id}}: {{value}} }"
             data-bind="val_{{id}}"
-            data-on:change="@post('/sse/action/{{domain}}/{{service}}/{{{entity}}}/{{key}}/' + $val_{{id}})" />
+            data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
         </article>
       |||,
-      inputs: ['id', 'label', 'min', 'max', 'domain', 'service', 'entity', 'key', 'state', 'value'],
+      params: ['label', 'min', 'max', 'key'],
+      slots: ['state', 'value', 'action'],
     },
   },
 
@@ -132,8 +143,25 @@
       local base = if attribute != null then '$attr.' + attribute else '$state';
       base + ' & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")',
 
+  // The default tap action, as a JSONata expression resolved per entity in the
+  // backend ($domain is the entity-id prefix). Scenes/scripts turn_on, buttons
+  // press, everything else homeassistant.toggle. Override with serviceTap(...).
+  // https://www.home-assistant.io/docs/scripts/perform-actions/#homeassistant-actions
+  local defaultToggleAction =
+    '($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", ' +
+    '"button": "button/press", "input_button": "input_button/press"}, $domain); ' +
+    '$a ? $a : "homeassistant/toggle")',
+
+  // The action transform for a tap: an explicit override becomes a constant
+  // JSONata string literal; otherwise the domain-derived default.
+  local tapAction(tap) =
+    if std.objectHas(tap, 'action') then '"' + tap.action + '"' else defaultToggleAction,
+
   // Tap presets: pass as `tap=` to make a card call a service on click.
-  toggleTap:: { domain: 'homeassistant', service: 'toggle' },
+  //   toggleTap     -> action resolved from the entity's domain (the default).
+  //   serviceTap(a) -> explicit "<domain>/<service>" override, e.g. "lock/lock".
+  toggleTap:: {},
+  serviceTap(action):: { action: action },
 
   // HA-like entity card.
   //   attribute  null -> the entity's state, else a named attribute to show.
@@ -148,20 +176,20 @@
     card: 'entityCard',
     params: {
       label: nameOf(eo, label),
-      entity: eo.entity_id,
-      [if tap != null then 'domain']: tap.domain,
-      [if tap != null then 'service']: tap.service,
+      entity_id: eo.entity_id,
       [if tap != null then 'tappable']: '1',
     },
     entities: [eo.entity_id],
     slots: {
       value: {
         entity: eo.entity_id,
-        [if attribute != null then 'attribute']: attribute,
         transform: valueTransform(attribute, transform),
+        bypassUnavailable: true,
       },
       [if secondary != null then 'secondary']:
-        { entity: eo.entity_id, attribute: secondary, default: '' },
+        { entity: eo.entity_id, transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
+      [if tap != null then 'action']:
+        { entity: eo.entity_id, transform: tapAction(tap) },
     },
   },
 
@@ -177,51 +205,55 @@
     slots: {},
   },
 
-  button(eo, domain, service, label=null):: {
+  // Generic service-call button. `action` is "<domain>/<service>"; null lets it
+  // default from the entity's domain (resolved in the backend), overridable.
+  button(eo, action=null, label=null):: {
     kind: 'component',
     card: 'button',
     params: {
       label: nameOf(eo, label),
-      domain: domain,
-      service: service,
-      entity: eo.entity_id,
+      entity_id: eo.entity_id,
     },
     entities: [],
-    slots: {},
+    slots: {
+      action: {
+        entity: eo.entity_id,
+        transform: if action != null then '"' + action + '"' else defaultToggleAction,
+      },
+    },
   },
 
-  slider(eo, domain, service, key, attr, min, max, label=null, transform=null):: {
+  // `action` is the slider's "<domain>/<service>" (e.g. "light/turn_on"); `key`
+  // the service_data key the value rides on (e.g. "brightness").
+  slider(eo, action, key, attr, min, max, label=null, transform=null):: {
     kind: 'component',
     card: 'slider',
     params: {
       label: nameOf(eo, label),
       min: '' + min,
       max: '' + max,
-      domain: domain,
-      service: service,
-      entity: eo.entity_id,
+      entity_id: eo.entity_id,
       key: key,
     },
     entities: [eo.entity_id],
     slots: {
-      state: { entity: eo.entity_id },
+      state: { entity: eo.entity_id, bypassUnavailable: true },
       value: {
         entity: eo.entity_id,
-        attribute: attr,
+        transform: if transform != null then transform else '$attr.' + attr,
         default: '0',
-        [if transform != null then 'transform']: transform,
       },
+      action: { entity: eo.entity_id, transform: '"' + action + '"' },
     },
   },
 
-  // Toggle button preset (lights, switches, fans…) via homeassistant.toggle —
-  // the assumed action for a togglable entity, so callers needn't spell out the
-  // domain/service.
-  toggle(eo, label=null):: self.button(eo, 'homeassistant', 'toggle', label=label),
+  // Toggle button preset (lights, switches, fans…) — the action defaults from
+  // the entity's domain, so callers needn't spell out the service.
+  toggle(eo, label=null):: self.button(eo, label=label),
 
   // Brightness slider preset.
   brightnessSlider(eo, label=null)::
-    self.slider(eo, 'light', 'turn_on', 'brightness', 'brightness', 1, 255, label=label),
+    self.slider(eo, 'light/turn_on', 'brightness', 'brightness', 1, 255, label=label),
 
   // ---- dynamic group ----
   // A case: entities matching the group query render with the FIRST case whose
@@ -241,30 +273,34 @@
   dynEntityCard(when, attribute=null, transform=null, secondary=null, tap=null):: self.case(
     when,
     'entityCard',
+    { [if tap != null then 'tappable']: '1' },
     {
-      [if tap != null then 'domain']: tap.domain,
-      [if tap != null then 'service']: tap.service,
-      [if tap != null then 'tappable']: '1',
-    },
-    {
-      value: {
-        entity: '$self',
-        [if attribute != null then 'attribute']: attribute,
-        transform: valueTransform(attribute, transform),
-      },
+      value: { entity: '$self', transform: valueTransform(attribute, transform), bypassUnavailable: true },
       [if secondary != null then 'secondary']:
-        { entity: '$self', attribute: secondary, default: '' },
+        { entity: '$self', transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
+      [if tap != null then 'action']: { entity: '$self', transform: tapAction(tap) },
     },
   ),
 
   // Back-compat alias.
   dynStateCard(when):: self.dynEntityCard(when),
-  dynButton(when, domain, service):: self.case(when, 'button', { domain: domain, service: service }),
-  dynSlider(when, domain, service, key, attr, min, max):: self.case(
+  // `action` null -> resolved from the matched entity's domain; else an explicit
+  // "<domain>/<service>" override.
+  dynButton(when, action=null):: self.case(when, 'button', {}, {
+    action: {
+      entity: '$self',
+      transform: if action != null then '"' + action + '"' else defaultToggleAction,
+    },
+  }),
+  dynSlider(when, action, key, attr, min, max):: self.case(
     when,
     'slider',
-    { min: '' + min, max: '' + max, domain: domain, service: service, key: key },
-    { state: { entity: '$self' }, value: { entity: '$self', attribute: attr, default: '0' } },
+    { min: '' + min, max: '' + max, key: key },
+    {
+      state: { entity: '$self', bypassUnavailable: true },
+      value: { entity: '$self', transform: '$attr.' + attr, default: '0' },
+      action: { entity: '$self', transform: '"' + action + '"' },
+    },
   ),
 
   dynamic(query, cases):: { kind: 'dynamic', query: query, cases: cases },
