@@ -8,8 +8,23 @@ import fs2.Stream
 import fs2.concurrent.Topic
 import io.circe.Json
 
-/** A single entity's current value as the runtime cares about it. */
-case class EntityState(state: String, attributes: Map[String, Json]) {
+/** A single entity's current value as the runtime cares about it.
+  *
+  * Carries its own `entityId` so the entity's identity (id and `domain`)
+  * travels with its value — derived once at ingest from the fetched data, not
+  * recomputed from the id on every render.
+  */
+case class EntityState(
+    entityId: String,
+    state: String,
+    attributes: Map[String, Json]
+) {
+
+  /** The entity's domain, i.e. the entity-id prefix (`light.kitchen` ->
+    * `light`) — the same value HA exposes as `state.domain`. A `val` so it is
+    * computed once per state rather than re-derived per transform/predicate.
+    */
+  val domain: String = entityId.takeWhile(_ != '.')
 
   /** HA's non-value states: the entity has no real reading. A value-display
     * slot marked `bypassUnavailable` shows this verbatim instead of running its
@@ -45,7 +60,8 @@ class StateStore private (
     val ns = event.data.new_state
     // The WS event carries the FULL attribute set, so we replace wholesale —
     // every attribute stays live, matching the seed snapshot.
-    val next = EntityState(StateStore.jsonToString(ns.state), ns.attributes)
+    val next =
+      EntityState(entityId, StateStore.jsonToString(ns.state), ns.attributes)
 
     // Re-render/diff happens downstream; here we only publish when the entity's
     // state actually changed, so identical events don't churn the SSE stream.
@@ -103,6 +119,7 @@ object StateStore {
             .mapValues(docToJson)
             .toMap
         s.entity_id.value -> EntityState(
+          s.entity_id.value,
           jsonToString(docToJson(s.state)),
           unknown ++ typed
         )

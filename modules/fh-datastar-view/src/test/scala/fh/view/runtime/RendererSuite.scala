@@ -14,8 +14,12 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  private def st(state: String, attrs: (String, Json)*): EntityState =
-    EntityState(state, attrs.toMap)
+  private def st(
+      entityId: String,
+      state: String,
+      attrs: (String, Json)*
+  ): EntityState =
+    EntityState(entityId, state, attrs.toMap)
 
   // Card templates are pure content; the backend wraps entity-bound components
   // in the id'd morph target.
@@ -60,6 +64,7 @@ class RendererSuite extends munit.FunSuite {
 
   private val states = Map(
     "sensor.t" -> st(
+      "sensor.t",
       """2 < 3 & "x"""",
       "unit_of_measurement" -> Json.fromString("°C")
     )
@@ -102,13 +107,13 @@ class RendererSuite extends munit.FunSuite {
     val r = renderer(node)
     // A real value is transformed...
     assert(
-      r.renderNodeById("c", Map("sensor.t" -> st("21.46")))
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21.46")))
         .get
         .contains("<span>21.5</span>")
     )
     // ...but "unavailable" never enters JSONata (which would error) — shown raw.
     assert(
-      r.renderNodeById("c", Map("sensor.t" -> st("unavailable")))
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
         .get
         .contains("<span>unavailable</span>")
     )
@@ -183,9 +188,10 @@ class RendererSuite extends munit.FunSuite {
     val wrap =
       (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
     assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
-    val off = Map("light.x" -> st("off", "brightness" -> Json.Null))
+    val off = Map("light.x" -> st("light.x", "off", "brightness" -> Json.Null))
     assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
-    val on = Map("light.x" -> st("on", "brightness" -> Json.fromInt(200)))
+    val on =
+      Map("light.x" -> st("light.x", "on", "brightness" -> Json.fromInt(200)))
     assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
   }
 
@@ -206,12 +212,13 @@ class RendererSuite extends munit.FunSuite {
     )
     val states = Map(
       "light.a" -> st(
+        "light.a",
         "on",
         "battery" -> Json.fromInt(10),
         "friendly_name" -> Json.fromString("Lamp")
       ),
-      "sensor.b" -> st("hot", "battery" -> Json.fromInt(5)),
-      "sensor.c" -> st("cold", "battery" -> Json.fromInt(50))
+      "sensor.b" -> st("sensor.b", "hot", "battery" -> Json.fromInt(5)),
+      "sensor.c" -> st("sensor.c", "cold", "battery" -> Json.fromInt(50))
     )
     val r = renderer(dyn)
     // dynamic as layout root -> the group's own id'd container "c" is the morph
@@ -272,39 +279,34 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("Predicate evaluation: comparisons and boolean combinators") {
-    val s = st("18", "battery" -> Json.fromInt(15))
+    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
     assert(
       Renderer.matches(
         Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
-        "sensor.x",
         s
       )
     )
     assert(
       !Renderer.matches(
         Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-        "sensor.x",
         s
       )
     )
     assert(
       Renderer.matches(
         Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)),
-        "sensor.x",
         s
       )
     )
     assert(
       !Renderer.matches(
         Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)),
-        "sensor.x",
         s
       )
     )
     assert(
       Renderer.matches(
         Predicate.Cmp("state", Op.Lte, Json.fromInt(18)),
-        "sensor.x",
         s
       )
     )
@@ -315,14 +317,15 @@ class RendererSuite extends munit.FunSuite {
         Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
       )
     )
-    assert(Renderer.matches(both, "sensor.x", s))
-    assert(Renderer.matches(Predicate.Not(both), "light.x", s))
+    assert(Renderer.matches(both, s))
+    // A light-domain entity fails the `domain == sensor` arm, so `Not(both)`.
+    val sLight = st("light.x", "18", "battery" -> Json.fromInt(15))
+    assert(Renderer.matches(Predicate.Not(both), sLight))
     assert(
       Renderer.matches(
         Predicate.Or(
           List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)
         ),
-        "sensor.x",
         s
       )
     )
