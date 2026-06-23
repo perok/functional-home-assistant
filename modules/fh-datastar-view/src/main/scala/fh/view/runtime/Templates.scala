@@ -14,14 +14,13 @@ import fh.view.model.Dashboard
   * Missing slots render as empty strings rather than throwing.
   */
 class Templates private (
-    val components: Map[String, Template],
-    val inputs: Map[String, List[String]]
+    val components: Map[String, Template]
 )
 
 object Templates {
 
   // `emptyStringIsFalse` makes `{{#x}}…{{/x}}` sections vanish when `x` resolves
-  // to "" — so optional pieces (unit, secondary, tap) render only when present.
+  // to "" — so optional pieces (secondary, tap) render only when present.
   private val compiler: Mustache.Compiler =
     Mustache
       .compiler()
@@ -33,7 +32,6 @@ object Templates {
     new Templates(
       components = dashboard.cards.view
         .mapValues(cd => compiler.compile(cd.template))
-        .toMap,
-      inputs = dashboard.cards.view.mapValues(_.inputs).toMap
+        .toMap
     )
 }

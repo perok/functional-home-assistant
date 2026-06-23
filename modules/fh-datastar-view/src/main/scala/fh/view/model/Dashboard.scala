@@ -3,17 +3,24 @@ package fh.view.model
 import io.circe.{Codec, Decoder, Encoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredCodec}
 
-/** Where a single mustache slot pulls its value from at runtime.
+/** Where a single mustache slot gets its value at runtime.
   *
-  * `attribute = None` means the entity's `state`; otherwise the named attribute
-  * (e.g. `unit_of_measurement`, `brightness`).
+  * A slot's value is the [[Transform]] JSONata expression `transform`,
+  * evaluated by the renderer against the producing entity. The entity's full
+  * context is bound: `$state` (raw state String), `$attr` (its attribute
+  * object, e.g. `$attr.brightness`), `$domain` (the entity-id prefix) and
+  * `$entity_id` (the id). So selecting a value *is* the transform — `"$state"`
+  * (the default) shows the state, `"$attr.brightness"` an attribute,
+  * `"$lookup(…, $domain)"` an identity-derived value like a service action. No
+  * other entity is reachable.
   *
-  * `transform` is an optional [[Transform]] JSONata expression applied to the
-  * resolved value before display (e.g. `$round($number($), 1) & " kW"`). The
-  * value is `$`; the same entity's `state` and `attributes` are also bound
-  * (`$state`, `$attr.unit_of_measurement`), but no other entity is reachable.
-  * It runs on present values only — an absent value falls back to `default`,
-  * untransformed.
+  * `default` applies when the transform yields an empty string (e.g.
+  * `$attr.brightness` when a light is off). `bypassUnavailable` (off by
+  * default) makes an `"unavailable"`/`"unknown"` entity show its raw state
+  * *instead of* running the transform — set it on value-display slots whose
+  * transform would error on a non-numeric state (`$number($state)`); leave it
+  * off for identity-derived slots (an action must resolve regardless of
+  * availability).
   *
   * In a [[LayoutNode.Dynamic]] case, `entity` is a placeholder (e.g.
   * `"$self"`); the renderer rebinds it to each matched entity.
@@ -25,25 +32,34 @@ given Configuration =
 
 case class SlotSource(
     entity: String,
-    attribute: Option[String] = None,
-    // Used when the entity/attribute is absent or empty (e.g. brightness when a
-    // light is off). Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
+    // The value expression — JSONata over $state/$attr/$domain/$entity_id, compiled
+    // at build time (validated below) and reused by the renderer. Defaults to the
+    // entity's raw state.
+    transform: String = "$state",
+    // Used when the transform yields "" (e.g. brightness when a light is off).
+    // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
-    // A `Transform` JSONata expression applied to the resolved value, compiled
-    // at build time (validated below) and reused by the renderer.
-    transform: Option[String] = None
+    // When the entity is unavailable/unknown, show its raw state and skip the
+    // transform (keeps a numeric value-display readable). Off for identity slots.
+    bypassUnavailable: Boolean = false
 ) derives ConfiguredCodec
 
 /** A reusable card in the shared library (a node references one by name).
   *
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - `inputs`: the param/slot names the template references — used by
-  *     [[Dashboard.validate]] to check every instance supplies them.
+  *   - `params`: required *static* template vars — supplied by the author at
+  *     build time or backend-injected (`id`; `entity_id`/`label` in a dynamic
+  *     case).
+  *   - `slots`: required *live* template vars — bound per render from entity
+  *     state (a [[SlotSource]] transform). Optional pieces (a tap `action`, a
+  *     `secondary` line) need no entry — [[Dashboard.validate]] only flags
+  *     missing *required* inputs and ignores extra ones.
   */
 case class CardDef(
     template: String,
-    inputs: List[String] = Nil
+    params: List[String] = Nil,
+    slots: List[String] = Nil
 ) derives ConfiguredCodec
 
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
@@ -93,7 +109,7 @@ object LayoutNode:
     * the `fhrow`/`fhcol` templates), so new container kinds are added as
     * templates with no Scala change.
     *
-    *   - `params`: static, author-known values (label, entity, service…),
+    *   - `params`: static, author-known values (label, entity_id, min/max…),
     *     injected into the template alongside resolved slots. The `id` is NOT
     *     authored — the renderer derives a stable, location-based id and
     *     injects it as the `id` param (see [[pathId]]).
@@ -114,9 +130,10 @@ object LayoutNode:
     *
     *   - `query`: overall membership filter (absent = match all entities).
     *   - `cases`: each matched entity renders with the first case whose `when`
-    *     matches (skipped if none). The renderer auto-injects `id`, `entity`,
-    *     and `label` params per matched entity and rebinds each case's slot
-    *     entities to the match. The group's own id is location-derived.
+    *     matches (skipped if none). The renderer auto-injects `id`,
+    *     `entity_id`, and `label` params per matched entity and rebinds each
+    *     case's slot entities to the match. The group's own id is
+    *     location-derived.
     */
   case class Dynamic(
       query: Option[Predicate] = None,
@@ -178,35 +195,44 @@ case class Dashboard(
   def validate(
       locateTransform: String => Option[String] = _ => None
   ): List[String] =
+    // A required param is satisfied by an author/injected param; a required slot
+    // only by a slot (a live value can't come from a static param). `injected`
+    // names are backend-supplied: `id` always, plus `entity_id`/`label` per
+    // matched entity inside a dynamic case.
     def checkRef(
         nodeId: String,
         cardName: String,
-        available: Set[String]
+        injected: Set[String],
+        paramNames: Set[String],
+        slotNames: Set[String]
     ): List[String] =
       cards.get(cardName) match
         case None =>
           List(s"$nodeId: references unknown card '$cardName'")
         case Some(cd) =>
-          val missing = cd.inputs.toSet -- available
-          if missing.isEmpty then Nil
-          else
-            List(
-              s"$nodeId: card '$cardName' missing inputs: " +
-                missing.toList.sorted.mkString(", ")
+          val missingParams = cd.params.toSet -- injected -- paramNames
+          val missingSlots = cd.slots.toSet -- slotNames
+          List(
+            Option.when(missingParams.nonEmpty)(
+              s"$nodeId: card '$cardName' missing params: " +
+                missingParams.toList.sorted.mkString(", ")
+            ),
+            Option.when(missingSlots.nonEmpty)(
+              s"$nodeId: card '$cardName' missing slots: " +
+                missingSlots.toList.sorted.mkString(", ")
             )
+          ).flatten
 
-    // Each slot's optional `transform` must be a parseable pipe pipeline.
+    // Every slot's value is a `transform`, which must be parseable JSONata.
     def slotErrors(
         nodeId: String,
         slots: Map[String, SlotSource]
     ): List[String] =
       slots.toList.flatMap { case (name, src) =>
-        src.transform.flatMap(t =>
-          Transform.parse(t).left.toOption.map { err =>
-            val at = locateTransform(t).fold("")(loc => s" (at $loc)")
-            s"$nodeId: slot '$name' has an invalid transform$at: $err"
-          }
-        )
+        Transform.parse(src.transform).left.toOption.map { err =>
+          val at = locateTransform(src.transform).fold("")(loc => s" (at $loc)")
+          s"$nodeId: slot '$name' has an invalid transform$at: $err"
+        }
       }
 
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
@@ -215,21 +241,35 @@ case class Dashboard(
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
         case LayoutNode.Component(card, params, _, slots, kids) =>
-          // `id` is always backend-injected, so it counts as available.
+          val nodeId = LayoutNode.pathId(path)
           checkRef(
-            LayoutNode.pathId(path),
+            nodeId,
             card,
-            Set("id") ++ params.keySet ++ slots.keySet
-          ) ++ slotErrors(LayoutNode.pathId(path), slots) ++
-            children(kids, path)
+            Dashboard.injectedStatic,
+            params.keySet,
+            slots.keySet
+          ) ++ slotErrors(nodeId, slots) ++ children(kids, path)
         case LayoutNode.Dynamic(_, cases) =>
           cases.flatMap { c =>
             val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
             checkRef(
               nodeId,
               c.card,
-              Set("id", "entity", "label") ++ c.params.keySet ++ c.slots.keySet
+              Dashboard.injectedDynamic,
+              c.params.keySet,
+              c.slots.keySet
             ) ++ slotErrors(nodeId, c.slots)
           }
 
     walk(card, Nil)
+
+object Dashboard:
+  /** Backend-injected param names available to a *static* component: only the
+    * stable location-based `id`.
+    */
+  val injectedStatic: Set[String] = Set("id")
+
+  /** Backend-injected param names available inside a *dynamic* case: `id` plus
+    * the matched entity's `entity_id` and `label` (friendly name).
+    */
+  val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id", "label")
