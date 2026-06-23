@@ -79,7 +79,7 @@ object Transform {
     val frame = expr.createFrame()
     bindings.foreach { case (name, value) => frame.bind(name, value) }
     try asString(expr.evaluate(null, frame))
-    catch case e: Exception => errorText(e)
+    catch case e: Exception => s"JSONata error: ${errorText(e)}"
 
   private def errorText(e: Throwable): String =
     Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getSimpleName)
