@@ -282,8 +282,6 @@
     },
   ),
 
-  // Back-compat alias.
-  dynStateCard(when):: self.dynEntityCard(when),
   // `action` null -> resolved from the matched entity's domain; else an explicit
   // "<domain>/<service>" override.
   dynButton(when, action=null):: self.case(when, 'button', {}, {
