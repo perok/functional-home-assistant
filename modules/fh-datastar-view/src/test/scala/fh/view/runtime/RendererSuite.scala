@@ -54,7 +54,6 @@ class RendererSuite extends munit.FunSuite {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
-        entities = List(s"sensor.$name"),
         slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
       )
     Dashboard(
@@ -88,7 +87,6 @@ class RendererSuite extends munit.FunSuite {
   // A single component as the layout root gets the path id "c".
   private val card = LayoutNode.Component(
     card = "card",
-    entities = List("sensor.t"),
     slots = Map(
       "state" -> SlotSource(Some("sensor.t")),
       "unit" -> SlotSource(Some("sensor.t"), "$attr.unit_of_measurement")
@@ -129,7 +127,6 @@ class RendererSuite extends munit.FunSuite {
     // No explicit bypassUnavailable — bypassing is the DEFAULT (true).
     val node = LayoutNode.Component(
       card = "card",
-      entities = List("sensor.t"),
       slots = Map(
         "state" -> SlotSource(
           Some("sensor.t"),
@@ -158,7 +155,6 @@ class RendererSuite extends munit.FunSuite {
     // the literal "unavailable".
     val node = LayoutNode.Component(
       card = "card",
-      entities = List("sensor.t"),
       slots = Map(
         "state" -> SlotSource(
           Some("sensor.t"),
@@ -183,7 +179,6 @@ class RendererSuite extends munit.FunSuite {
     def actionNode(entity: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
-        entities = List(entity),
         slots = Map("action" -> SlotSource(Some(entity), transform = expr))
       )
     // No state at all: the action still resolves from the entity's domain.
@@ -233,7 +228,6 @@ class RendererSuite extends munit.FunSuite {
   test("slot default applies when value is missing, empty, or JSON null") {
     val g = LayoutNode.Component(
       "gauge",
-      entities = List("light.x"),
       slots = Map(
         "bri" -> SlotSource(
           Some("light.x"),
@@ -260,19 +254,17 @@ class RendererSuite extends munit.FunSuite {
         DynamicCase(
           Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
           "btn",
-          // label is a slot now (entity-bound to the match placeholder), so the
-          // renderer rebinds it to the matched entity's live friendly_name.
+          // label is a slot now (no entityId → inherits the matched entity, which
+          // the renderer injects as the entity_id param), so it resolves to the
+          // matched entity's live friendly_name.
           slots = Map(
-            "label" -> SlotSource(
-              Some("$self"),
-              transform = "$attr.friendly_name"
-            )
+            "label" -> SlotSource(transform = "$attr.friendly_name")
           )
         ),
         DynamicCase(
           Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
           "card",
-          slots = Map("state" -> SlotSource(Some("$self")))
+          slots = Map("state" -> SlotSource())
         )
       )
     )
@@ -456,7 +448,6 @@ class RendererSuite extends munit.FunSuite {
         "detail" -> Surface(
           LayoutNode.Component(
             "card",
-            entities = List("sensor.t"),
             slots = Map("state" -> SlotSource(Some("sensor.t")))
           )
         )

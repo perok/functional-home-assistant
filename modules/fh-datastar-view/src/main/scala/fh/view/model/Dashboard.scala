@@ -25,15 +25,24 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * and a slider's numeric position (fall back to its `default`, not the literal
   * `"unavailable"` string).
   *
-  * `entityId` is the entity whose state feeds the transform; `None` marks a
-  * CONSTANT slot whose transform reads no entity (e.g. a literal label). A
-  * constant slot is evaluated against an empty state — so it builds no
-  * attribute context — and is never rebound to a matched entity in a dynamic
-  * case.
+  * `entityId` is the slot's OWN entity. When `None`, the slot INHERITS the
+  * component's `entity_id` param (the card's one entity) — so a card binds its
+  * entity once and every slot reads it, while a slot that names a different
+  * `entityId` overrides the inheritance (the multi-entity card). With neither
+  * (no slot `entityId`, no `entity_id` param) the transform runs against an
+  * empty state — the constant case (e.g. a `"Hi"` JSONata literal).
   *
-  * In a [[LayoutNode.Dynamic]] case, an entity-bound `entityId` is a
-  * placeholder (e.g. `Some("$self")`); the renderer rebinds it to each matched
-  * entity. A `None` (constant) slot is left untouched.
+  * `reactive` (ON by default) is whether a state change of this slot's entity
+  * should re-render the component: a reactive slot's entity joins
+  * [[LayoutNode.Component.liveEntities]] (the reverse index + morph-wrapper
+  * decision). Turn it OFF for a slot that reads its entity for IDENTITY only —
+  * an onclick/action resolving `$entity_id`/`$domain`, whose value never
+  * changes with state — so it does not register a needless live dependency. A
+  * literal slot carries no entity and is excluded regardless.
+  *
+  * In a [[LayoutNode.Dynamic]] case the matched entity is injected as the
+  * `entity_id` param per match, so an inheriting (`entityId = None`) slot binds
+  * to each match automatically — no per-slot placeholder.
   *
   * `literal` is the cheapest slot: a hardcoded value used verbatim — no entity,
   * no JSONata, no compilation. A label like `"Kitchen"` or a constant action
@@ -48,8 +57,10 @@ given Configuration =
     .withTransformConstructorNames(_.toLowerCase)
 
 case class SlotSource(
-    // The entity whose live state feeds this slot, or `None` for a constant slot
-    // (a literal whose transform reads no entity — resolved against empty state).
+    // This slot's OWN entity, or `None` to inherit the component's `entity_id`
+    // param (the card's one entity). An explicit value overrides the inheritance
+    // — the multi-entity card. With neither, the transform runs against an empty
+    // state (the constant case).
     entityId: Option[String] = None,
     // The value expression — JSONata over $state/$attr/$domain/$entity_id, compiled
     // at build time (validated below) and reused by the renderer. Defaults to the
@@ -66,7 +77,12 @@ case class SlotSource(
     // A hardcoded value used verbatim: no entity, no JSONata. When set, the
     // fields above are unused. Authored (and decoded) as a bare JSON string
     // rather than an object — see the decoder below.
-    literal: Option[String] = None
+    literal: Option[String] = None,
+    // Whether a state change of this slot's entity re-renders the component (so
+    // its entity joins Component.liveEntities). ON by default; turn OFF for an
+    // identity-only slot (an onclick/action reading $entity_id/$domain) that
+    // binds an entity but never varies with its state.
+    reactive: Boolean = true
 )
 
 object SlotSource:
@@ -145,18 +161,32 @@ object LayoutNode:
     *     injected into the template alongside resolved slots. The `id` is NOT
     *     authored — the renderer derives a stable, location-based id and
     *     injects it as the `id` param (see [[pathId]]).
-    *   - `entities`: runtime deps (drives the reverse index `entityId -> ids`).
     *   - `slots`: dynamic state bindings.
     *   - `children`: nested nodes, rendered first and exposed to the template
     *     as a `children` list of `{html}` (empty for leaves).
+    *
+    * The live-dependency entities are DERIVED from the slots
+    * ([[liveEntities]]), not authored — so adding a live slot is all it takes
+    * to make a component track an entity.
     */
   case class Component(
       card: String,
       params: Map[String, String] = Map.empty,
-      entities: List[String] = Nil,
       slots: Map[String, SlotSource] = Map.empty,
       children: List[LayoutNode] = Nil
-  ) extends LayoutNode
+  ) extends LayoutNode:
+    /** The entities whose live state this component depends on. A slot
+      * contributes when it is reactive and not a constant literal; its source
+      * is its own `entityId`, or the component's `entity_id` param when the
+      * slot leaves it unset (slot-level inheritance). Drives the reverse index
+      * and the morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML,
+      * never patched.
+      */
+    def liveEntities: List[String] =
+      slots.values.toList
+        .filter(s => s.reactive && s.literal.isEmpty)
+        .flatMap(s => s.entityId.orElse(params.get("entity_id")))
+        .distinct
 
   /** A runtime-resolved group with per-entity template dispatch.
     *
@@ -306,7 +336,7 @@ case class Dashboard(
 
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(card, params, _, slots, kids) =>
+        case LayoutNode.Component(card, params, slots, kids) =>
           val nodeId = LayoutNode.pathId(path)
           checkRef(
             nodeId,
