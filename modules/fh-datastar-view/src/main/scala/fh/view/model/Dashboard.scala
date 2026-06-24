@@ -22,8 +22,15 @@ import io.circe.derivation.{Configuration, ConfiguredCodec}
   * off for identity-derived slots (an action must resolve regardless of
   * availability).
   *
-  * In a [[LayoutNode.Dynamic]] case, `entity` is a placeholder (e.g.
-  * `"$self"`); the renderer rebinds it to each matched entity.
+  * `entityId` is the entity whose state feeds the transform; `None` marks a
+  * CONSTANT slot whose transform reads no entity (e.g. a literal label). A
+  * constant slot is evaluated against an empty state — so it builds no
+  * attribute context — and is never rebound to a matched entity in a dynamic
+  * case.
+  *
+  * In a [[LayoutNode.Dynamic]] case, an entity-bound `entityId` is a
+  * placeholder (e.g. `Some("$self")`); the renderer rebinds it to each matched
+  * entity. A `None` (constant) slot is left untouched.
   */
 given Configuration =
   Configuration.default.withDefaults
@@ -31,7 +38,9 @@ given Configuration =
     .withTransformConstructorNames(_.toLowerCase)
 
 case class SlotSource(
-    entity: String,
+    // The entity whose live state feeds this slot, or `None` for a constant slot
+    // (a literal whose transform reads no entity — resolved against empty state).
+    entityId: Option[String] = None,
     // The value expression — JSONata over $state/$attr/$domain/$entity_id, compiled
     // at build time (validated below) and reused by the renderer. Defaults to the
     // entity's raw state.
@@ -49,8 +58,8 @@ case class SlotSource(
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
   *   - `params`: required *static* template vars — supplied by the author at
-  *     build time or backend-injected (`id`; `entity_id`/`label` in a dynamic
-  *     case).
+  *     build time or backend-injected (`id`; `entity_id` in a dynamic case).
+  *     A `label` is a *slot*, not a param (it can derive from the entity).
   *   - `slots`: required *live* template vars — bound per render from entity
   *     state (a [[SlotSource]] transform). Optional pieces (a tap `action`, a
   *     `secondary` line) need no entry — [[Dashboard.validate]] only flags
@@ -130,9 +139,11 @@ object LayoutNode:
     *
     *   - `query`: overall membership filter (absent = match all entities).
     *   - `cases`: each matched entity renders with the first case whose `when`
-    *     matches (skipped if none). The renderer auto-injects `id`,
-    *     `entity_id`, and `label` params per matched entity and rebinds each
-    *     case's slot entities to the match. The group's own id is
+    *     matches (skipped if none). The renderer auto-injects `id` and
+    *     `entity_id` params per matched entity and rebinds each case's
+    *     entity-bound slot to the match (so the `label` slot's
+    *     `$attr.friendly_name`, and any value/action slots, resolve against the
+    *     match; constant slots are left untouched). The group's own id is
     *     location-derived.
     */
   case class Dynamic(
@@ -225,8 +236,8 @@ case class Dashboard(
   ): List[String] =
     // A required param is satisfied by an author/injected param; a required slot
     // only by a slot (a live value can't come from a static param). `injected`
-    // names are backend-supplied: `id` always, plus `entity_id`/`label` per
-    // matched entity inside a dynamic case.
+    // names are backend-supplied: `id` always, plus `entity_id` per matched
+    // entity inside a dynamic case (the label is a slot, not a param).
     def checkRef(
         nodeId: String,
         cardName: String,
@@ -304,6 +315,8 @@ object Dashboard:
   val injectedStatic: Set[String] = Set("id")
 
   /** Backend-injected param names available inside a *dynamic* case: `id` plus
-    * the matched entity's `entity_id` and `label` (friendly name).
+    * the matched entity's `entity_id`. The label is no longer a param — entity
+    * cards bind it as a slot (live `$attr.friendly_name`), so it is validated
+    * as a slot, not injected here.
     */
-  val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id", "label")
+  val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id")

@@ -32,10 +32,52 @@ case class EntityState(
     * meaningless.
     */
   def unavailable: Boolean = EntityState.unavailableStates(state)
+
+  /** The attributes as plain Java values for JSONata's `$attr.*` navigation,
+    * converted **once per state version** and reused across every
+    * slot/transform on this entity (a card with three `$attr` slots converts
+    * the map once, not three times). A fresh `EntityState` is built on every
+    * change, so this cache invalidates naturally. Numbers stay numeric (so
+    * `$attr.brightness` arithmetic works), nested objects/arrays recurse, null
+    * fields drop out.
+    */
+  lazy val javaAttributes: java.util.Map[String, Any] =
+    EntityState.toJavaObject(attributes)
 }
 
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
+
+  /** Convert a circe attribute map to a Java map for JSONata. Kept here (with
+    * the cached [[EntityState.javaAttributes]]) rather than in [[Transform]],
+    * so the conversion happens once per state, not once per transform
+    * evaluation.
+    */
+  private[runtime] def toJavaObject(
+      attrs: Map[String, Json]
+  ): java.util.Map[String, Any] = {
+    val m = new java.util.LinkedHashMap[String, Any](attrs.size)
+    attrs.foreach { case (k, v) => m.put(k, toJava(v)) }
+    m
+  }
+
+  private def toJava(j: Json): Any =
+    j.fold(
+      null,
+      b => b,
+      n => n.toLong.map(l => l: Any).getOrElse(n.toDouble),
+      s => s,
+      arr => {
+        val l = new java.util.ArrayList[Any](arr.size)
+        arr.foreach(x => l.add(toJava(x)))
+        l
+      },
+      obj => {
+        val m = new java.util.LinkedHashMap[String, Any]()
+        obj.toIterable.foreach { case (k, v) => m.put(k, toJava(v)) }
+        m
+      }
+    )
 }
 
 /** The runtime single source of truth for all entity state.

@@ -265,7 +265,7 @@ class Renderer(
         .flatMap { case (entityId, st) =>
           d.cases
             .find(c => Renderer.matches(c.when, st))
-            .map(renderCase(id, entityId, st, _, states))
+            .map(renderCase(id, entityId, _, states))
         }
     s"""<div id="$id">${children.mkString}</div>"""
   }
@@ -273,23 +273,23 @@ class Renderer(
   private def renderCase(
       groupId: String,
       entityId: String,
-      st: EntityState,
       c: DynamicCase,
       states: Map[String, EntityState]
   ): String = {
-    val label =
-      st.attributes
-        .get("friendly_name")
-        .map(StateStore.jsonToString)
-        .filter(_.nonEmpty)
-        .getOrElse(entityId)
     val autoParams = Map(
       "id" -> s"${groupId}_${Renderer.sanitize(entityId)}",
-      "entity_id" -> entityId,
-      "label" -> label
+      "entity_id" -> entityId
     )
-    // Rebind each slot to the matched entity (jsonnet uses a placeholder).
-    val boundSlots = c.slots.view.mapValues(_.copy(entity = entityId)).toMap
+    // Rebind each entity-bound slot to the matched entity (jsonnet uses a
+    // placeholder); a constant slot (no entityId, e.g. a literal label) reads no
+    // entity, so it is left untouched. The label is itself a slot now
+    // (`$attr.friendly_name`), so it is rebound here like any other value.
+    val boundSlots =
+      c.slots.view
+        .mapValues(s =>
+          if (s.entityId.isDefined) s.copy(entityId = Some(entityId)) else s
+        )
+        .toMap
     renderTemplate(c.card, autoParams ++ c.params, boundSlots, Nil, states)
   }
 
@@ -304,15 +304,18 @@ class Renderer(
       case None => "" // TODO should be a hard failure?
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
-          // The entity id is always known (from the slot source), even when no
-          // state has arrived yet — so identity-derived slots (e.g. an action
-          // from $domain) still resolve. Missing state is an empty state.
+          // An entity-bound slot resolves against its entity's state (even before
+          // any state has arrived — so identity-derived slots like a `$domain`
+          // action still resolve; missing state is an empty state). A constant
+          // slot (`entityId = None`, e.g. a literal label) reads no entity, so it
+          // resolves against an empty state and builds no attribute context.
           // TODO should throw or log a warning?
           val st =
-            states.getOrElse(
-              source.entity,
-              EntityState(source.entity, "", Map.empty)
-            )
+            source.entityId
+              .flatMap(states.get)
+              .getOrElse(
+                EntityState(source.entityId.getOrElse(""), "", Map.empty)
+              )
           val value =
             // An unavailable/unknown entity on a value-display slot shows its raw
             // state and never enters the transform — that bypass, not the

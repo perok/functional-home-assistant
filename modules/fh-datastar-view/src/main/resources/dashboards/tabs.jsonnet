@@ -34,7 +34,7 @@ local entities = std.objectValues(dump.entities);
         content: c.row([
           c.entityCard(
             eo,
-            transform='$round($number($state), 1) & " " & $attr.unit_of_measurement',
+            value=c.expr('$round($number($state), 1) & " " & $attr.unit_of_measurement'),
           )
           for eo in entities
           if eo.domain == 'sensor'

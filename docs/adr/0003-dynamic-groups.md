@@ -1,8 +1,14 @@
 # ADR 0003 — Dynamic groups: live membership + per-entity card dispatch
 
-- **Status:** Accepted
+- **Status:** Accepted (decision 2 partly superseded by [ADR 0004](0004-label-as-slot-and-predicate-engine.md))
 - **Date:** 2026-06-24
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
+
+> **Update (ADR 0004):** decision 2's `matched` decoy and the `case`-strip
+> changed. `label` is now a *slot* (not an injected param), so the decoy shrank
+> to `{ entity_id: '$self' }` and `dynamic.case` strips only `entity_id`. The
+> Predicate AST in decision 1 is explicitly **kept** (not moved to JSONata) for
+> performance — see ADR 0004.
 
 ## Context
 

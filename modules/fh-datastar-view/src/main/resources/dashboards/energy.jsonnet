@@ -17,7 +17,7 @@ local entities = std.objectValues(dump.entities);
     // Every power/energy sensor, rounded with its own unit appended.
     c.row([
       c.entityCard(eo
-      //, transform='test'
+      //, value=c.expr('$round($number($state), 1)')
       )
       for eo in entities
       if eo.domain == 'sensor'
