@@ -140,6 +140,14 @@
   // the expression to the entity (and rebinds it per match for `d.matched`).
   expr(s):: { transform: s },
 
+  // Like c.expr, but sources the value from ANOTHER entity (binds the slot to
+  // `eo` rather than inheriting the card's `entity_id`). This is the multi-entity
+  // card: a `label`/`value`/`secondary` reading a DIFFERENT entity than the one
+  // the card is about. The card joins both entities' live-dependency sets, so it
+  // re-renders when EITHER changes.
+  //   c.entityCard(power, secondary=c.exprOf(voltage, '$state & " V"'))
+  exprOf(eo, s):: { entityId: eo.entity_id, transform: s },
+
   // ---- layout container builders (templated components with children) ----
   row(children):: { kind: 'component', card: 'fhrow', children: children },
   column(children):: { kind: 'component', card: 'fhcol', children: children },
@@ -162,7 +170,6 @@
 
     kind: 'component',
     card: 'tabs',
-    entities: [],
     slots: {},
     params: {
       sig: sig,
@@ -211,17 +218,18 @@
   //     lookup, no entity binding) — the cheap default for the common case.
   local labelSlot(eo, label) =
     if label != null && std.isObject(label) then
-      // c.expr(...) -> { transform: <expr> }; bind it to the entity so it is live
-      // (and, for the match sentinel, rebound per entity by the renderer).
+      // c.expr(...) -> { transform: <expr> }; it inherits the card's entity, so
+      // it is live (and binds to each match in a dynamic case).
       // bypassUnavailable: false — a label must keep running its transform so an
       // unavailable entity still shows its name, not the literal "unavailable".
-      (if eo != null then { entityId: eo.entity_id, bypassUnavailable: false } else {}) + label
+      { bypassUnavailable: false } + label
     else if label != null then
       label
     else if eo == null then
       ''
     else if eo.entity_id == '$self' then
-      { entityId: '$self', transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id', bypassUnavailable: false }
+      // Dynamic default: a LIVE friendly_name, inheriting the matched entity.
+      { transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id', bypassUnavailable: false }
     else
       (if std.objectHas(eo, 'friendly_name') && eo.friendly_name != '' then eo.friendly_name else eo.entity_id),
 
@@ -238,6 +246,16 @@
   local exprOrAttr(field) =
     if std.isObject(field) then field.transform else '$attr.' + field,
 
+  // Carry an explicit cross-entity binding through a display-field descriptor: a
+  // `c.exprOf(eo, ...)` field names its own `entityId`, so the slot reads that
+  // entity instead of inheriting the card's. A plain string / `c.expr(...)` (no
+  // entityId) inherits as before. (labelSlot needs none of this — it merges the
+  // whole descriptor object, so an `entityId` already rides along.)
+  local entityOf(field) =
+    if std.isObject(field) && std.objectHas(field, 'entityId') then
+      { entityId: field.entityId }
+    else {},
+
   // The card's `value` SLOT (the primary reading). Like `label`, ONE argument
   // accepting either form, plus a smart default:
   //   - null          -> the entity's state, unit auto-appended.
@@ -245,23 +263,23 @@
   //   - c.expr('...')  -> your JSONata expression verbatim (you own the output,
   //     unit included) — the live escape hatch, the SAME wrapper as `label`.
   // (Unit applies to the shortcut/default forms, not to a c.expr you own.)
-  local valueSlot(eo, value) = {
-    entityId: eo.entity_id,
+  // (No entityId: it inherits the card's `entity_id` — the static entity, or
+  // the matched entity in a dynamic case.)
+  local valueSlot(value) = {
     transform:
       if std.isObject(value) then value.transform
       else (if value == null then '$state' else '$attr.' + value) + UNIT,
-  },
+  } + entityOf(value),
 
   // The card's optional `secondary` SLOT (a second line). A STRING -> that
   // attribute (no unit); c.expr('...') -> your expression. (Only built when the
   // author passes a secondary, so it need not handle null.)
-  local secondarySlot(eo, secondary) =
+  local secondarySlot(secondary) =
     {
-      entityId: eo.entity_id,
       transform: exprOrAttr(secondary),
       default: '',
       bypassUnavailable: true,
-    },
+    } + entityOf(secondary),
 
   // The default service route (domain/service) for a tap, resolved per entity in
   // the backend ($domain is the entity-id prefix). Scenes/scripts turn_on,
@@ -300,13 +318,16 @@
   // expression reading the entity — bound here) or a bare-string literal (a
   // constant click, e.g. a popup open referencing a fixed surface id via NODE,
   // which the hoist splices in). jsonnet, not the backend, composes the onclick.
-  local tapSlot(tap, eo) =
+  local tapSlot(tap) =
     if tap != null && std.objectHas(tap, 'onclick') then
       { onclick:
         if std.isObject(tap.onclick) then
-          // bypassUnavailable: false — the click expression is identity-derived
-          // and must resolve even when the entity is unavailable.
-          { entityId: eo.entity_id, bypassUnavailable: false } + tap.onclick
+          // The click expression is identity-derived: it inherits the card's
+          // `entity_id` to resolve `$entity_id`/`$domain`, but reactive: false
+          // keeps it OUT of the live-dependency set (its value never changes
+          // with state), and bypassUnavailable: false keeps it resolving even
+          // when the entity is unavailable.
+          { bypassUnavailable: false, reactive: false } + tap.onclick
         else tap.onclick }
     else {},
 
@@ -358,15 +379,17 @@
   entityCard(eo, label=null, value=null, secondary=null, tap=null):: {
     kind: 'component',
     card: 'entityCard',
+    // entity_id is the card's one entity — every slot inherits it (and the
+    // derived live-dependency set comes from the slots that read it).
     params: {
+      entity_id: eo.entity_id,
       [if tap != null then 'tappable']: '1',
     },
-    entities: [eo.entity_id],
     slots: {
       label: labelSlot(eo, label),
-      value: valueSlot(eo, value),
-      [if secondary != null then 'secondary']: secondarySlot(eo, secondary),
-    } + tapSlot(tap, eo),
+      value: valueSlot(value),
+      [if secondary != null then 'secondary']: secondarySlot(secondary),
+    } + tapSlot(tap),
   } + tapInline(tap),
 
   // Back-compat alias: the old read-only state card is just an entity card.
@@ -377,7 +400,6 @@
     kind: 'component',
     card: 'sectionTitle',
     params: { label: label },
-    entities: [],
     slots: {},
   },
 
@@ -392,16 +414,17 @@
   //           the expression holds). Used by `c.tabs`.
   button(eo=null, action=null, label=null, active=null):: (
     local tap = if action == null then defaultTap else action;
-    local entity = if eo != null then eo.entity_id else '';
     {
       kind: 'component',
       card: 'button',
       params: {
+        // The onclick inherits this to resolve $entity_id/$domain; it is
+        // reactive: false, so the button stays out of the live set (no re-render)
+        // unless a live `label` slot pulls the entity in.
         [if eo != null then 'entity_id']: eo.entity_id,
         [if active != null then 'active']: active,
       },
-      entities: [],
-      slots: { label: labelSlot(eo, label) } + tapSlot(tap, { entity_id: entity }),
+      slots: { label: labelSlot(eo, label) } + tapSlot(tap),
     } + tapInline(tap)
   ),
 
@@ -415,21 +438,21 @@
   slider(eo, action, key, min, max, value=null, label=null):: {
     kind: 'component',
     card: 'slider',
+    // entity_id is the card's one entity (template action URL + slot inheritance).
     params: {
       min: '' + min,
       max: '' + max,
       entity_id: eo.entity_id,
       key: key,
     },
-    entities: [eo.entity_id],
     slots: {
       label: labelSlot(eo, label),
-      // state is the display header — bypassUnavailable defaults to true.
-      state: { entityId: eo.entity_id },
+      // state is the display header (inherits entity_id) — bypassUnavailable
+      // defaults to true.
+      state: {},
       // value is the range input's numeric position: opt OUT so an unavailable
       // entity falls back to `default` ('0') rather than the string "unavailable".
       value: {
-        entityId: eo.entity_id,
         transform: if value == null then '$state' else exprOrAttr(value),
         default: '0',
         bypassUnavailable: false,
@@ -486,16 +509,16 @@
     ]),
 
     // The placeholder "current entity" for a case. Any leaf builder takes it like
-    // a real dump entity; the renderer rebinds '$self' (in slot entityIds,
-    // including the label slot's `$attr.friendly_name`) to each match at render
-    // time. Only `entity_id` is needed — the label is a slot now, not a field
-    // read off this object.
+    // a real dump entity; its slots leave `entityId` unset and so inherit the
+    // matched entity, which the renderer injects as the `entity_id` param per
+    // match (the `$self` sentinel is build-time only — it tells `labelSlot` to
+    // emit a LIVE friendly_name default rather than a baked literal).
     matched:: { entity_id: '$self' },
 
     // One branch: a predicate + the card (built against `matched`) to render when
-    // it matches. Keeps the card + its slots; drops the `entity_id` param the
-    // renderer injects per match (and the unused entities/children). The label is
-    // a slot (entity-bound to '$self', rebound per match), so it rides in `slots`.
+    // it matches. Keeps the card + its slots; drops the `entity_id` param (the
+    // renderer injects the match) and the unused children. The label is a slot
+    // (inheriting the match), so it rides in `slots`.
     case(when, node):: {
       when: when,
       card: node.card,

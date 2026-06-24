@@ -59,7 +59,7 @@ class Renderer(
     val byEntity: Map[String, Set[String]] =
       indexed.toList
         .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
-        .flatMap { case (id, c) => c.entities.map(_ -> id) }
+        .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
         .groupMap(_._1)(_._2)
         .view
         .mapValues(_.toSet)
@@ -244,7 +244,7 @@ class Renderer(
         // live-patched (it depends on entities) is wrapped in an id'd element so
         // templates don't have to carry `id="{{id}}"` themselves. The wrapper is
         // layout-neutral (`.fh-cell { display: contents }`).
-        if (c.entities.nonEmpty)
+        if (c.liveEntities.nonEmpty)
           s"""<div class="fh-cell" id="$id">$html</div>"""
         else html
       case d: LayoutNode.Dynamic =>
@@ -276,21 +276,16 @@ class Renderer(
       c: DynamicCase,
       states: Map[String, EntityState]
   ): String = {
+    // The matched entity is injected as the `entity_id` param, so every
+    // inheriting slot (no own `entityId`) binds to it — including the label slot
+    // (`$attr.friendly_name`). A slot that names its own entity keeps it (a
+    // cross-entity slot is not overridden by the match), and a constant literal
+    // reads no entity at all.
     val autoParams = Map(
       "id" -> s"${groupId}_${Renderer.sanitize(entityId)}",
       "entity_id" -> entityId
     )
-    // Rebind each entity-bound slot to the matched entity (jsonnet uses a
-    // placeholder); a constant slot (no entityId, e.g. a literal label) reads no
-    // entity, so it is left untouched. The label is itself a slot now
-    // (`$attr.friendly_name`), so it is rebound here like any other value.
-    val boundSlots =
-      c.slots.view
-        .mapValues(s =>
-          if (s.entityId.isDefined) s.copy(entityId = Some(entityId)) else s
-        )
-        .toMap
-    renderTemplate(c.card, autoParams ++ c.params, boundSlots, Nil, states)
+    renderTemplate(c.card, autoParams ++ c.params, c.slots, Nil, states)
   }
 
   private def renderTemplate(
@@ -309,17 +304,19 @@ class Renderer(
             // transform — the cheap path for a hardcoded label/action.
             case Some(text) => text
             case None       =>
-              // An entity-bound slot resolves against its entity's state (even
-              // before any state has arrived — so identity-derived slots like a
-              // `$domain` action still resolve; missing state is an empty state).
-              // A constant slot (`entityId = None`) reads no entity, so it
-              // resolves against an empty state and builds no attribute context.
+              // The slot's entity is its own `entityId`, or the component's
+              // `entity_id` param when it leaves it unset (slot-level
+              // inheritance — the card's one entity, or the matched entity in a
+              // dynamic case). It resolves against that entity's state even
+              // before any has arrived (so `$domain` actions still resolve);
+              // with no entity at all the state is empty.
               // TODO should throw or log a warning?
+              val srcEntity = source.entityId.orElse(params.get("entity_id"))
               val st =
-                source.entityId
+                srcEntity
                   .flatMap(states.get)
                   .getOrElse(
-                    EntityState(source.entityId.getOrElse(""), "", Map.empty)
+                    EntityState(srcEntity.getOrElse(""), "", Map.empty)
                   )
               // An unavailable/unknown entity on a value-display slot shows its
               // raw state and never enters the transform — that bypass, not the

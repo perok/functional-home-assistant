@@ -402,7 +402,6 @@ class BuildPhaseSuite extends munit.FunSuite {
         Map("card" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
       card = LayoutNode.Component(
         "card",
-        entities = List("e.x"),
         // unterminated string literal -> JSONata compile failure
         slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
       )

@@ -104,6 +104,19 @@ local entities = std.objectValues(dump.entities);
       for eo in entities if eo.domain == 'sensor'
     ]),
 
+    // MULTI-ENTITY card: the card is ABOUT the active-power sensor (its value),
+    // but the secondary line is sourced from a DIFFERENT entity (the L1 line
+    // voltage) via `c.exprOf`. The card joins both sensors' live-dependency sets,
+    // so it repaints when EITHER changes — only possible now that a slot can name
+    // its own entity instead of inheriting the card's.
+    c.sectionTitle('Multi-entity'),
+    c.row([
+      c.entityCard(
+        dump.entities.sensor_ams_1a4e_p,
+        secondary=c.exprOf(dump.entities.sensor_ams_1a4e_u1, '"L1 " & $state & " V"'),
+      ),
+    ]),
+
     // DYNAMIC group with PER-DOMAIN dispatch. `d.group(query, card)` renders one
     // card per live entity matching `query`; here the card is a `d.when`
     // selector, so the FIRST matching branch picks it. Membership AND the chosen
