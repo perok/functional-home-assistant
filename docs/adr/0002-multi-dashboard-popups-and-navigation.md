@@ -114,15 +114,61 @@ shell) only re-posts the swap for the slug already in the URL — a distinction 
 the client can make, so the server stays out of URL handling. `/d/:slug`
 deep-loads directly.
 
-### 6. Inline popups hoisted to the registry at build time
+### 6. Inline surfaces hoisted to the registry at build time — a *generic* pass
 
 Authoring is primarily a **top-level registry** (`surfaces: { id: { content } }`)
 referenced by `openPopup('id')`. An **inline** form (`openPopup(c.column([...]))`)
-is also allowed; jsonnet can't mint a stable id or mutate the registry, so it
-emits a node-level `inlineSurface` marker that a build-phase pass
-(`DashboardBuild.hoistInlineSurfaces`, sibling to `normalizeChildren`) lifts into
-`surfaces` under a position-derived id, rewriting the trigger to a
-`surface/open/<id>` onclick. The runtime model is then always the registry form.
+is also allowed; jsonnet can't mint a stable id or mutate the registry, so a
+build-phase pass (`DashboardBuild.hoistInlineSurfaces`, sibling to
+`normalizeChildren`) does it.
+
+The pass is deliberately **generic** — it knows nothing about popups, tabs,
+buttons, signals, or onclick wiring. A node carries an `inlineSurfaces: {
+<localKey>: { content, group?, mount? }, … }` map; for each marker-bearing node
+the pass (1) mints a stable `idBase` from position, (2) splices that id into every
+`@@NODE@@` token in the node's subtree, and (3) lifts each surface to
+`surfaces["<idBase>_<localKey>"]`. The *trigger* — which template, the click
+expression, any highlight — is composed entirely in **jsonnet**, which references
+the id it can't mint as `@@NODE@@_<localKey>` (the builders embed the token; see
+`NodeIdToken`). The hoist only borrows ids and lifts content; it does **not** build
+onclick strings. The runtime model is then always the registry form.
+
+This is the single mechanism behind both inline popups and tabs (decision 7) — no
+per-feature build-pass special-casing.
+
+### 7. Tabs as a thin layer over surfaces
+
+Tabs are the payoff of modelling popups as a general *surface* abstraction
+(decision 3). A tab group is **N surfaces sharing one exclusivity `group` and one
+inline `mount`** (the panel container), plus a generated tab bar. No new runtime
+state: the per-connection open-set already gives "show one at a time, update only
+the visible one", and group eviction already implements switching.
+
+Two small *runtime* additions make it tabs rather than popups:
+
+- **Mount-aware rendering.** `Renderer.renderSurface` wraps an inline-mounted
+  surface in a plain `<div id="s_<id>" class="tab-panel-content">` (no `<dialog>`,
+  no ✕); `Server.openSurface` `inner`-patches the named `mount` (replace in place)
+  instead of `append`-ing to `#popups` (stack). Switching is thus the existing
+  open path with a different patch mode.
+- **Default panel baked inline.** The `tabs` container carries an `initial`
+  surface id; `Renderer` renders that surface's content into the panel at page-
+  render time (with the surface's own `s_<id>__…` ids, so the baked HTML matches a
+  later switch-back), and exposes `defaultOpenSurfaces`. The SSE handler seeds the
+  session's open-set with them on connect / navigate / reload, so the default tab
+  is live from the first paint with no round-trip and no empty-panel flash.
+
+Everything *else* is plain composition in jsonnet — **no tabs logic in the
+backend**. `c.tabs([{ label, content }, …])` builds, per tab, a normal
+`c.button` whose click both opens the panel and sets a per-group signal to the
+active surface id; the same signal drives the button's **`active` highlight**
+(`data-class`, client-side, zero round-trip) and, seeded to the first id, the
+default panel. Each panel rides the generic `inlineSurfaces` marker (decision 6),
+referencing its id as `@@NODE@@_<i>`. A tab is therefore **just a `button` with an
+`active` expression** — `tabButton` was folded into `button` (an optional `active`
+param adds the `tab` class + the `data-class` highlight; absent ⇒ a plain button),
+the same consolidation as `actionButton`→`button`. No `Surface`/model change —
+`group` + `mount` already carry it.
 
 ## Consequences
 
@@ -132,9 +178,14 @@ emits a node-level `inlineSurface` marker that a build-phase pass
   indices/render. `Transforms.from` now also compiles surface slot transforms.
 - Open/close/navigate are pure backend state transitions whose patches ride the
   one SSE stream; closed popups are free.
-- **Not yet covered:** a tab *builder* (the surface mechanism supports it via
-  `group` + an inline `mount`, but no `c.tabs(...)` sugar yet); a nav-menu UI
-  between dashboards; live actuation against real devices (untested in-browser).
+- **Tabs** landed on this foundation (decision 7): mount-aware `renderSurface` /
+  `openSurface`, baked default panel + `defaultOpenSurfaces` seeding, a client-side
+  active signal, and `c.tabs(...)` composed entirely in jsonnet over the generic
+  `inlineSurfaces` hoist (decision 6). `tabButton` was folded into `button`.
+- **Not yet covered:** a nav-menu UI between dashboards; live actuation against
+  real devices and the in-browser Datastar specifics (multi-stream, `__window`
+  popstate, tab active-class, append/inner/remove) — verified by tests, not yet
+  in-browser.
 - Datastar specifics relied upon (patch modes `append`/`inner`/`remove`; signals
   round-tripping `conn`; `data-on:…__window`; client `history` access) are pinned
   to v1.0.2 — re-verify on upgrade.

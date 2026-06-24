@@ -55,6 +55,7 @@ local entities = std.objectValues(dump.entities);
     // Cross-dashboard navigation: in-place swap to /d/energy (URL updates too).
     c.row([
       c.button(action=c.navigate('energy'), label='Energy »'),
+      c.button(action=c.navigate('tabs'), label='Tabs test »'),
     ]),
 
     // Tapping the first card opens the registered 'detail' popup; the second

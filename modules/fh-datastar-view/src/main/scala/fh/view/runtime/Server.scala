@@ -83,6 +83,11 @@ class Server(
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
+      // Seed the open set with this dashboard's default tab panels, so the
+      // baked-inline default tabs receive live updates from the first paint.
+      _ <- renderers
+        .get(slug)
+        .traverse_(_.get.flatMap(r => session.open.set(r.defaultOpenSurfaces)))
 
       patches = stateStore.changes
         .evalMap(changedPatches(session, _))
@@ -97,7 +102,11 @@ class Server(
             session.slug.get.flatMap { cur =>
               if (cur != s) IO.pure(Option.empty[ServerSentEvent])
               else
-                (session.lastRendered.set(Map.empty) *> stateStore.snapshot)
+                // The repaint re-bakes the body (default tabs included), so
+                // reset the diff cache AND re-seed the open set to match.
+                (session.lastRendered.set(Map.empty) *>
+                  session.open.set(r.defaultOpenSurfaces) *>
+                  stateStore.snapshot)
                   .map(st =>
                     Some(
                       Datastar
@@ -193,12 +202,15 @@ class Server(
           }
           _ <- session.open.update(_ + id)
           states <- stateStore.snapshot
+          // An inline mount (tab panel) is REPLACED in place (`inner`), so only
+          // one tab shows at a time; the default overlay mount STACKS popups
+          // (`append` into `#popups`).
           mount = "#" + surf.mount.getOrElse("popups")
+          mode = if (surf.mount.isDefined) PatchMode.Inner else PatchMode.Append
           _ <- renderer
             .renderSurface(id, states)
             .traverse_(html =>
-              session.control
-                .offer(Datastar.patch(html, PatchMode.Append, Some(mount)))
+              session.control.offer(Datastar.patch(html, mode, Some(mount)))
             )
         } yield ()
     }
@@ -216,7 +228,9 @@ class Server(
           renderer <- ref.get
           states <- stateStore.snapshot
           _ <- session.slug.set(slug)
-          _ <- session.open.set(Set.empty)
+          // Reset popups, but seed the target dashboard's default tab panels
+          // (its body is rendered with them baked in below).
+          _ <- session.open.set(renderer.defaultOpenSurfaces)
           _ <- session.lastRendered.set(Map.empty)
           _ <- session.control.offer(
             Datastar.patch("""<div id="popups"></div>""", PatchMode.Outer, None)

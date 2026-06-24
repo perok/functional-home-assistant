@@ -46,5 +46,13 @@ local tokens = import 'tokens.libsonnet';
     .card.tappable{cursor:pointer}
     button.card{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border:none;cursor:pointer}
     input[type=range]{accent-color:var(--accent-color,#ff9800)}
+    /* Tabs: a bar of buttons over one inline panel; the active tab is flagged
+       client-side via a signal (see the tabButton's data-class). */
+    .tabs{display:flex;flex-direction:column;gap:1rem}
+    .tabbar{display:flex;gap:.5rem;flex-wrap:wrap}
+    .tabbar .tab{background:transparent;color:var(--primary-text-color,#212121);
+      border:1px solid var(--divider-color,rgba(0,0,0,.12))}
+    .tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
+    .tab-panel{display:contents}
   |||,
 }

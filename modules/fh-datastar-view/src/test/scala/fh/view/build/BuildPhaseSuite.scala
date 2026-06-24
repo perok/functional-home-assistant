@@ -152,6 +152,62 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
   }
 
+  test("the tabs example evaluates, hoists, and validates end-to-end") {
+    val resources =
+      os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
+    val tmp = os.temp.dir()
+    for (
+      f <- Seq(
+        "components.libsonnet",
+        "tabs.jsonnet",
+        "tokens.libsonnet",
+        "theme.libsonnet"
+      )
+    )
+      os.copy.into(resources / f, tmp)
+
+    // A light + a sensor so each tab's comprehension yields a card.
+    val fakeDump = io.circe.Json.obj(
+      "areas" -> io.circe.Json.obj(),
+      "floors" -> io.circe.Json.obj(),
+      "entities" -> io.circe.Json.obj(
+        "light_k" -> io.circe.Json.obj(
+          "entity_id" -> "light.k".asJson,
+          "friendly_name" -> "Kitchen".asJson,
+          "domain" -> "light".asJson
+        ),
+        "sensor_t" -> io.circe.Json.obj(
+          "entity_id" -> "sensor.t".asJson,
+          "friendly_name" -> "Temp".asJson,
+          "domain" -> "sensor".asJson,
+          "attributes" -> io.circe.Json.obj()
+        )
+      )
+    )
+    os.write(tmp / "dump.libsonnet", fakeDump.spaces2)
+
+    val result = JsonnetBuild.eval(tmp, "tabs.jsonnet")
+    assert(result.isRight, clue = result)
+    val dashboard = result.flatMap(r =>
+      DashboardBuild
+        .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+        .as[Dashboard]
+        .left
+        .map(_.getMessage)
+    )
+    assert(dashboard.isRight, clue = dashboard)
+    val d = dashboard.toOption.get
+    // The sugar produced two grouped tab surfaces and a consistent dashboard.
+    assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
+    assert(d.surfaces.values.forall(_.mount.isDefined), clue = d.surfaces)
+    assertEquals(
+      d.surfaces.values.flatMap(_.group).toSet.size,
+      1,
+      clue = d.surfaces
+    )
+    assertEquals(d.validate(), Nil)
+  }
+
   test("normalizeChildren wraps a single (non-array) child into a list") {
     val single = parser
       .parse("""{ "kind":"component", "card":"fhrow",
@@ -195,7 +251,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("missing params: id")), clue = errs)
   }
 
-  test("hoistInlineSurfaces lifts an inline popup into the surfaces registry") {
+  test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
+    // The node already carries the authored onclick referencing the future id
+    // via the NODE token; the hoist only lifts the content + splices the id.
     val json = parser
       .parse("""
         {
@@ -204,9 +262,12 @@ class BuildPhaseSuite extends munit.FunSuite {
             "kind": "component", "card": "fhcol",
             "children": [
               { "kind": "component", "card": "button",
-                "params": { "label": "More", "entity_id": "light.x" },
+                "params": { "label": "More" },
                 "entities": [],
-                "inlineSurface": { "content": { "kind": "component", "card": "card" } } }
+                "slots": { "onclick": { "entity": "",
+                  "transform": "\"@post('/sse/surface/open/@@NODE@@_self')\"" } },
+                "inlineSurfaces": { "self": {
+                  "content": { "kind": "component", "card": "card" } } } }
             ]
           }
         }
@@ -215,15 +276,14 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // a single surface was created, id derived from the trigger's position
+    // surface lifted under "<idBase>_self" (idBase = inline_0 for card child 0)
     val keys = hoisted.downField("surfaces").keys.map(_.toList).getOrElse(Nil)
-    assertEquals(keys.size, 1, clue = keys)
-    val id = keys.head
+    assertEquals(keys, List("inline_0_self"), clue = keys)
 
-    // the trigger lost its marker and gained a `surface/open/<id>` onclick
+    // the trigger lost its marker; the NODE token was spliced with the real id
     val trigger = hoisted.downField("card").downField("children").downN(0)
     assert(
-      trigger.downField("inlineSurface").failed,
+      trigger.downField("inlineSurfaces").failed,
       clue = "marker not removed"
     )
     assertEquals(
@@ -232,17 +292,92 @@ class BuildPhaseSuite extends munit.FunSuite {
         .downField("onclick")
         .get[String]("transform")
         .toOption,
-      Some("\"@post('/sse/surface/open/" + id + "')\"")
+      Some("\"@post('/sse/surface/open/inline_0_self')\"")
     )
     // the moved content lives under the new surface id
     assertEquals(
       hoisted
         .downField("surfaces")
-        .downField(id)
+        .downField("inline_0_self")
         .downField("content")
         .get[String]("card")
         .toOption,
       Some("card")
+    )
+  }
+
+  test(
+    "hoistInlineSurfaces lifts a multi-entry marker and splices ids across the subtree"
+  ) {
+    // Shaped like what c.tabs emits: a container with N inline surfaces + child
+    // triggers referencing the future ids via the NODE token (here the top-level
+    // card is the marker-bearing node, so idBase = "inline").
+    val json = parser
+      .parse("""
+        {
+          "cards": {},
+          "card": {
+            "kind": "component", "card": "tabs", "entities": [], "slots": {},
+            "params": { "initial": "@@NODE@@_0", "mount": "panel_@@NODE@@", "sig": "tab_@@NODE@@" },
+            "children": [
+              { "kind": "component", "card": "button", "entities": [],
+                "params": { "active": "$tab_@@NODE@@ == '@@NODE@@_0'" },
+                "slots": { "onclick": { "entity": "",
+                  "transform": "\"@post('/sse/surface/open/@@NODE@@_0')\"" } } }
+            ],
+            "inlineSurfaces": {
+              "0": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE@@", "mount":"panel_@@NODE@@" },
+              "1": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE@@", "mount":"panel_@@NODE@@" }
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
+
+    // both surfaces lifted under "<idBase>_<localKey>", sharing one group+mount
+    val surfaces = h.downField("surfaces")
+    assertEquals(
+      surfaces.keys.map(_.toSet).getOrElse(Set.empty),
+      Set("inline_0", "inline_1")
+    )
+    val mount = "panel_inline"
+    for (k <- Set("inline_0", "inline_1")) {
+      assertEquals(
+        surfaces.downField(k).get[String]("group").toOption,
+        Some(mount)
+      )
+      assertEquals(
+        surfaces.downField(k).get[String]("mount").toOption,
+        Some(mount)
+      )
+    }
+
+    // the container lost its marker; the NODE token was spliced everywhere
+    val node = h.downField("card")
+    assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
+    assertEquals(
+      node.downField("params").get[String]("initial").toOption,
+      Some("inline_0")
+    )
+    assertEquals(
+      node.downField("params").get[String]("mount").toOption,
+      Some(mount)
+    )
+
+    val first = node.downField("children").downN(0)
+    assertEquals(
+      first.downField("params").get[String]("active").toOption,
+      Some("$tab_inline == 'inline_0'")
+    )
+    assertEquals(
+      first
+        .downField("slots")
+        .downField("onclick")
+        .get[String]("transform")
+        .toOption,
+      Some("\"@post('/sse/surface/open/inline_0')\"")
     )
   }
 

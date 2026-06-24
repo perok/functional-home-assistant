@@ -40,8 +40,40 @@ class RendererSuite extends munit.FunSuite {
     ),
     "row" -> CardDef(
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    "tabs" -> CardDef(
+      """<div class="tabs"><div class="tabbar">{{#children}}{{{html}}}{{/children}}</div><div class="tab-panel" id="{{mount}}">{{{panel}}}</div></div>""",
+      params = List("sig", "initial", "mount")
     )
   )
+
+  // A tabs container as the hoist produces it: a `tabs` component (the bar
+  // buttons as children, `initial` naming the default panel) plus one grouped,
+  // inline-mounted surface per tab.
+  private def tabsDashboard: Dashboard = {
+    def panel(name: String): LayoutNode.Component =
+      LayoutNode.Component(
+        "card",
+        entities = List(s"sensor.$name"),
+        slots = Map("state" -> SlotSource(s"sensor.$name"))
+      )
+    Dashboard(
+      cards,
+      LayoutNode.Component(
+        "tabs",
+        params =
+          Map("sig" -> "tab_c", "mount" -> "c_panel", "initial" -> "c_0"),
+        children = List(
+          LayoutNode.Component("btn", Map("label" -> "A")),
+          LayoutNode.Component("btn", Map("label" -> "B"))
+        )
+      ),
+      surfaces = Map(
+        "c_0" -> Surface(panel("a"), Some("c_panel"), Some("c_panel")),
+        "c_1" -> Surface(panel("b"), Some("c_panel"), Some("c_panel"))
+      )
+    )
+  }
 
   private def col(kids: LayoutNode*): LayoutNode =
     LayoutNode.Component("col", children = kids.toList)
@@ -374,6 +406,45 @@ class RendererSuite extends munit.FunSuite {
     )
     // unknown surface -> None
     assertEquals(r.renderSurface("nope", states), None)
+  }
+
+  test(
+    "tabs: default panel is baked inline, an inline surface renders without dialog chrome"
+  ) {
+    val r = tabsDashboard
+    val rr = Renderer.create(r)
+    val states = Map(
+      "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
+      "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
+    )
+    // The default (initial) tab is registered as the only default-open surface.
+    assertEquals(rr.defaultOpenSurfaces, Set("c_0"))
+
+    // renderBody bakes the first tab's content into the panel mount, with the
+    // surface-namespaced ids it would carry after a later switch-back.
+    val body = rr.renderBody(states)
+    assert(
+      body.contains("""<div class="tab-panel" id="c_panel">"""),
+      clue = body
+    )
+    assert(body.contains("""id="s_c_0__c""""), clue = body)
+    assert(body.contains("<span>AA</span>"), clue = body)
+    // the second tab is NOT baked in
+    assert(!body.contains("<span>BB</span>"), clue = body)
+
+    // An inline-mounted surface renders as a plain div (no <dialog>, no ✕).
+    val panelB = rr.renderSurface("c_1", states).get
+    assert(
+      panelB.startsWith("""<div id="s_c_1" class="tab-panel-content">"""),
+      clue = panelB
+    )
+    assert(!panelB.contains("<dialog"), clue = panelB)
+    assert(!panelB.contains("surface/close"), clue = panelB)
+    assert(panelB.contains("<span>BB</span>"), clue = panelB)
+
+    // each tab's entity drives only its own surface index
+    assertEquals(rr.surfaceComponentsFor("c_0", "sensor.a"), Set("s_c_0__c"))
+    assertEquals(rr.surfaceComponentsFor("c_1", "sensor.b"), Set("s_c_1__c"))
   }
 
   test(

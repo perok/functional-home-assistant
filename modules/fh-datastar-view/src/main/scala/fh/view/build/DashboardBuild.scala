@@ -58,23 +58,56 @@ object DashboardBuild {
         )
     )
 
-  /** Hoist inline popup definitions into the `surfaces` registry.
+  /** The literal token an authored node uses to refer to its own backend-minted
+    * id namespace; [[hoistInlineSurfaces]] splices the real id in. Authors
+    * never type it directly — the `c.openPopup`/`c.tabs` builders embed it (so
+    * jsonnet composes the trigger fully and only borrows the id it cannot
+    * mint).
+    */
+  val NodeIdToken: String = "@@NODE@@"
+
+  /** Hoist inline surface definitions into the `surfaces` registry.
     *
-    * A trigger written with inline content (`c.openPopup(c.column([...]))`)
-    * emits a node-level `inlineSurface: { content, group?, mount? }` marker
-    * instead of a `surface/open/<id>` onclick (jsonnet can't mint a stable id
-    * or mutate the top-level registry). This pass walks `card` (and existing
-    * surfaces' content), and for each marker: derives a stable id from the
-    * node's position, moves the content (+ group/mount) into `surfaces[id]`,
-    * rewrites the node by removing the marker and adding the `onclick` slot
-    * `@post('/sse/surface/open/<id>')`. The runtime model is then always the
+    * A node may carry an `inlineSurfaces: { <localKey>: { content, group?,
+    * mount? }, … }` marker (jsonnet can't mint a stable id or mutate the
+    * top-level registry, so it inlines the content and refers to the future id
+    * via [[NodeIdToken]]). This pass is deliberately generic — it knows nothing
+    * about popups, tabs, buttons, signals, or onclick wiring. For each
+    * marker-bearing node it:
+    *
+    *   1. mints a stable `idBase` from the node's position;
+    *   2. recurses each surface's `content` (nested inline surfaces resolve
+    *      first, bottom-up);
+    *   3. splices `idBase` into every [[NodeIdToken]] in the node's subtree, so
+    *      the author-composed onclick / active-binding / `initial` / mount that
+    *      reference `<token>_<localKey>` now point at the real ids;
+    *   4. lifts each surface to `surfaces["<idBase>_<localKey>"]` and drops the
+    *      marker.
+    *
+    * All trigger structure (which template, the click expression, any
+    * highlight) is composed in jsonnet; the runtime model is always the
     * registry form. Idempotent on marker-free input.
     */
   def hoistInlineSurfaces(json: Json): Json = {
-    def addSlot(obj: JsonObject, name: String, slot: Json): JsonObject = {
-      val slots = obj("slots").flatMap(_.asObject).getOrElse(JsonObject.empty)
-      obj.add("slots", Json.fromJsonObject(slots.add(name, slot)))
-    }
+    // Replace every occurrence of `token` in every String leaf of `j`.
+    def splice(j: Json, token: String, value: String): Json =
+      j.fold(
+        j,
+        _ => j,
+        _ => j,
+        s => Json.fromString(s.replace(token, value)),
+        arr => Json.fromValues(arr.map(splice(_, token, value))),
+        obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
+      )
+
+    // Keep only the surface's own fields (content + optional group/mount).
+    def surfaceOf(defObj: JsonObject): Json =
+      Json.fromJsonObject(
+        JsonObject.fromIterable(
+          defObj("content").map("content" -> _).toList ++
+            List("group", "mount").flatMap(k => defObj(k).map(k -> _))
+        )
+      )
 
     // Returns the rewritten node and the surfaces collected from it (and its
     // subtree). `idBase` is the node's position-derived id namespace.
@@ -95,34 +128,44 @@ object DashboardBuild {
                 )
               case None => (obj0, Nil)
             }
-          obj1("inlineSurface").flatMap(_.asObject) match {
-            case None => (Json.fromJsonObject(obj1), childSurfaces)
+          obj1("inlineSurfaces").flatMap(_.asObject) match {
+            case None         => (Json.fromJsonObject(obj1), childSurfaces)
             case Some(marker) =>
-              val id = idBase
-              val (content, nested) =
-                walk(marker("content").getOrElse(Json.Null), s"${id}_c")
-              val surface = Json.fromJsonObject(
-                JsonObject.fromIterable(
-                  ("content" -> content) ::
-                    List("group", "mount").flatMap(k => marker(k).map(k -> _))
+              // Resolve nested inline surfaces inside each panel first, so the
+              // only `NodeIdToken`s left in this subtree belong to THIS node.
+              val resolved = marker.toList.map { case (key, sd) =>
+                val sdObj = sd.asObject.getOrElse(JsonObject.empty)
+                val (content, nested) =
+                  walk(
+                    sdObj("content").getOrElse(Json.Null),
+                    s"${idBase}_${key}_c"
+                  )
+                (key, sdObj.add("content", content), nested)
+              }
+              val withResolved = obj1.add(
+                "inlineSurfaces",
+                Json.fromJsonObject(
+                  JsonObject.fromIterable(
+                    resolved.map(r => r._1 -> Json.fromJsonObject(r._2))
+                  )
                 )
               )
-              val entityId = obj1("params")
+              // Splice this node's real id into the author-composed trigger.
+              val spliced =
+                splice(Json.fromJsonObject(withResolved), NodeIdToken, idBase)
+              val splicedObj = spliced.asObject.getOrElse(JsonObject.empty)
+              val lifted = splicedObj("inlineSurfaces")
                 .flatMap(_.asObject)
-                .flatMap(_("entity_id"))
-                .flatMap(_.asString)
-                .getOrElse("")
-              val onclick = Json.obj(
-                "entity" -> Json.fromString(entityId),
-                "transform" -> Json.fromString(
-                  s"\"@post('/sse/surface/open/$id')\""
-                )
-              )
-              val rewritten =
-                addSlot(obj1, "onclick", onclick).remove("inlineSurface")
+                .getOrElse(JsonObject.empty)
+                .toList
+                .map { case (key, sd) =>
+                  s"${idBase}_$key" -> surfaceOf(
+                    sd.asObject.getOrElse(JsonObject.empty)
+                  )
+                }
               (
-                Json.fromJsonObject(rewritten),
-                childSurfaces ++ nested :+ (id -> surface)
+                Json.fromJsonObject(splicedObj.remove("inlineSurfaces")),
+                childSurfaces ++ resolved.flatMap(_._3) ++ lifted
               )
           }
       }
