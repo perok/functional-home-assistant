@@ -98,30 +98,54 @@ local entities = std.objectValues(dump.entities);
     c.row([
       c.entityCard(
         eo,
-        // Custom sample
-        transform='$round($number($state), 1) & " " & $attr.unit_of_measurement',
+        // Custom sample: a live value expression (same wrapper as a live label)
+        value=c.expr('$round($number($state), 1) & " " & $attr.unit_of_measurement'),
       )
       for eo in entities if eo.domain == 'sensor'
     ]),
 
     // DYNAMIC group with PER-DOMAIN dispatch. `d.group(query, card)` renders one
     // card per live entity matching `query`; here the card is a `d.when`
-    // selector, so the FIRST matching branch picks it — lights get a brightness
-    // slider, switches a toggle, everything else (the `fallback`) a tappable
-    // entity card. Membership AND the chosen card track live state. Branches
-    // reuse the SAME leaf builders as static cards, with `d.matched` as the
-    // entity (no separate dyn* builders). The whole DSL is namespaced under
-    // `c.dynamic` (aliased `d` above).
+    // selector, so the FIRST matching branch picks it. Membership AND the chosen
+    // card track live state. Branches reuse the SAME leaf builders as static
+    // cards, with `d.matched` as the entity (no separate dyn* builders). The
+    // whole DSL is namespaced under `c.dynamic` (aliased `d` above).
+    //
+    // Each branch also shows a LIVE label via `c.expr(...)` (a JSONata expr over
+    // the matched entity, in the SAME `label` arg that takes a plain string): a
+    // light's brightness slider is labelled with its live brightness %, and the
+    // catch-all card appends each entity's live state — labels are slots now, so
+    // they repaint with the entity (ADR 0004).
     c.sectionTitle('Active now'),
     d.group(d.whenState('on'), d.when([
-      d.case(d.whenDomain('light'), c.brightnessSlider(d.matched)),
+      d.case(
+        d.whenDomain('light'),
+        c.brightnessSlider(
+          d.matched,
+          // name · 45%  (guarded: an "on" light may briefly have no brightness)
+          label=c.expr('$attr.friendly_name & ($attr.brightness ? " · " & $round($number($attr.brightness) / 2.55) & "%" : "")'),
+        ),
+      ),
       d.case(d.whenDomain('switch'), c.toggle(d.matched)),
-    ], fallback=c.entityCard(d.matched, tap=c.toggleTap))),
+    ], fallback=c.entityCard(
+      d.matched,
+      tap=c.toggleTap,
+      label=c.expr('$attr.friendly_name & " (" & $state & ")"'),
+    ))),
 
     // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
     // `device_class: battery` sensor under 20%, tracked live as batteries drain.
-    // No dispatch needed, so the card is just a leaf.
+    // No dispatch needed (one card for every match), but the card is richer than
+    // a bare default: a live label carrying the percentage and a secondary line
+    // naming the device class.
     c.sectionTitle('Low battery'),
-    d.group(d.lowBattery(20), c.entityCard(d.matched)),
+    d.group(
+      d.lowBattery(20),
+      c.entityCard(
+        d.matched,
+        label=c.expr('$attr.friendly_name & " — " & $state & "%"'),
+        secondary='device_class',
+      ),
+    ),
   ]),
 }

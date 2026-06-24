@@ -404,7 +404,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card",
         entities = List("e.x"),
         // unterminated string literal -> JSONata compile failure
-        slots = Map("state" -> SlotSource("e.x", transform = "'unclosed"))
+        slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
       )
     )
     assert(

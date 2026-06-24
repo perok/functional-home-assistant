@@ -3,7 +3,6 @@ package fh.view.model
 import com.dashjoin.jsonata.Jsonata
 import com.dashjoin.jsonata.Jsonata.jsonata
 import fh.view.runtime.EntityState
-import io.circe.Json
 
 /** Per-slot value transforms, expressed as [JSONata](https://jsonata.org).
   *
@@ -65,7 +64,11 @@ object Transform {
     evalBound(
       expr,
       "state" -> entity.state,
-      "attr" -> attrObject(entity.attributes),
+      // Cached on the EntityState (converted once per state version — see
+      // EntityState.javaAttributes), so repeated evals on the same entity (a card
+      // with several `$attr` slots, or a dynamic group scanning a hot entity) do
+      // not each rebuild the attribute map.
+      "attr" -> entity.javaAttributes,
       "entity_id" -> entity.entityId,
       "domain" -> entity.domain
     )
@@ -84,34 +87,8 @@ object Transform {
   private def errorText(e: Throwable): String =
     Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getSimpleName)
 
-  // JSONata navigates plain Java values, so expose attributes as a Java map of
-  // converted JSON (numbers stay numeric for `$attr.brightness` arithmetic,
-  // strings stay strings, nested objects/arrays recurse). null fields drop out.
-  private def attrObject(
-      attrs: Map[String, Json]
-  ): java.util.Map[String, Any] = {
-    val m = new java.util.LinkedHashMap[String, Any](attrs.size)
-    attrs.foreach { case (k, v) => m.put(k, toJava(v)) }
-    m
-  }
-
-  private def toJava(j: Json): Any =
-    j.fold(
-      null,
-      b => b,
-      n => n.toLong.map(l => l: Any).getOrElse(n.toDouble),
-      s => s,
-      arr => {
-        val l = new java.util.ArrayList[Any](arr.size)
-        arr.foreach(x => l.add(toJava(x)))
-        l
-      },
-      obj => {
-        val m = new java.util.LinkedHashMap[String, Any]()
-        obj.toIterable.foreach { case (k, v) => m.put(k, toJava(v)) }
-        m
-      }
-    )
+  // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,
+  // cached per state version, so it runs once per entity rather than per eval.)
 
   // JSONata produces Java values; render them the way the spec's string
   // coercion (`&` / $string) would, so bare-number results match concatenated

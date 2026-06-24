@@ -55,7 +55,7 @@ class RendererSuite extends munit.FunSuite {
       LayoutNode.Component(
         "card",
         entities = List(s"sensor.$name"),
-        slots = Map("state" -> SlotSource(s"sensor.$name"))
+        slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
       )
     Dashboard(
       cards,
@@ -90,8 +90,8 @@ class RendererSuite extends munit.FunSuite {
     card = "card",
     entities = List("sensor.t"),
     slots = Map(
-      "state" -> SlotSource("sensor.t"),
-      "unit" -> SlotSource("sensor.t", "$attr.unit_of_measurement")
+      "state" -> SlotSource(Some("sensor.t")),
+      "unit" -> SlotSource(Some("sensor.t"), "$attr.unit_of_measurement")
     )
   )
 
@@ -131,7 +131,7 @@ class RendererSuite extends munit.FunSuite {
       entities = List("sensor.t"),
       slots = Map(
         "state" -> SlotSource(
-          "sensor.t",
+          Some("sensor.t"),
           transform = "$round($number($state), 1)",
           bypassUnavailable = true
         )
@@ -160,7 +160,7 @@ class RendererSuite extends munit.FunSuite {
       LayoutNode.Component(
         card = "act",
         entities = List(entity),
-        slots = Map("action" -> SlotSource(entity, transform = expr))
+        slots = Map("action" -> SlotSource(Some(entity), transform = expr))
       )
     // No state at all: the action still resolves from the entity's domain.
     assert(
@@ -212,7 +212,7 @@ class RendererSuite extends munit.FunSuite {
       entities = List("light.x"),
       slots = Map(
         "bri" -> SlotSource(
-          "light.x",
+          Some("light.x"),
           transform = "$attr.brightness",
           default = Some("0")
         )
@@ -235,12 +235,20 @@ class RendererSuite extends munit.FunSuite {
       cases = List(
         DynamicCase(
           Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-          "btn"
+          "btn",
+          // label is a slot now (entity-bound to the match placeholder), so the
+          // renderer rebinds it to the matched entity's live friendly_name.
+          slots = Map(
+            "label" -> SlotSource(
+              Some("$self"),
+              transform = "$attr.friendly_name"
+            )
+          )
         ),
         DynamicCase(
           Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
           "card",
-          slots = Map("state" -> SlotSource("$self"))
+          slots = Map("state" -> SlotSource(Some("$self")))
         )
       )
     )
@@ -265,6 +273,55 @@ class RendererSuite extends munit.FunSuite {
     // sensor.c excluded by the membership query (battery 50)
     assert(!html.contains("cold"), clue = html)
     assertEquals(r.dynamicContainerIds, List("c"))
+  }
+
+  test(
+    "a constant slot (no entityId) resolves its literal against empty state"
+  ) {
+    val node = LayoutNode.Component(
+      card = "btn",
+      slots = Map("label" -> SlotSource(transform = "\"Hi\""))
+    )
+    val html = renderer(node).renderNodeById("c", Map.empty).get
+    assert(html.contains("<button>Hi</button>"), clue = html)
+  }
+
+  test("a dynamic case's constant label slot is NOT rebound to the match") {
+    // A per-case literal label (entityId = None) must survive: the matched
+    // entity's friendly_name does not override an author-fixed label.
+    val dyn = LayoutNode.Dynamic(
+      query = None,
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+          "btn",
+          slots = Map("label" -> SlotSource(transform = "\"Fixed\""))
+        )
+      )
+    )
+    val states =
+      Map(
+        "light.a" -> st(
+          "light.a",
+          "on",
+          "friendly_name" -> Json.fromString("Lamp")
+        )
+      )
+    val html = renderer(dyn).renderNodeById("c", states).get
+    assert(html.contains("<button>Fixed</button>"), clue = html)
+    assert(!html.contains("Lamp"), clue = html)
+  }
+
+  test("EntityState.javaAttributes is converted once and reused") {
+    val es =
+      EntityState("light.x", "on", Map("brightness" -> Json.fromInt(200)))
+    // Same instance on every access (cached per state version), and numbers stay
+    // numeric for `$attr.brightness` arithmetic.
+    assert(
+      es.javaAttributes eq es.javaAttributes,
+      clue = "identity-stable cache"
+    )
+    assertEquals(es.javaAttributes.get("brightness"), 200L)
   }
 
   test("theme tokens + styles are injected as a <style> block") {
@@ -376,7 +433,7 @@ class RendererSuite extends munit.FunSuite {
           LayoutNode.Component(
             "card",
             entities = List("sensor.t"),
-            slots = Map("state" -> SlotSource("sensor.t"))
+            slots = Map("state" -> SlotSource(Some("sensor.t")))
           )
         )
       )

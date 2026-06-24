@@ -70,8 +70,8 @@
           <span class="secondary">{{secondary}}</span>{{/secondary}}
         </article>
       |||,
-      params: ['label'],
-      slots: ['value'],
+      params: [],
+      slots: ['label', 'value'],
     },
 
     // Generic click button (service call, popup open/close, navigate, tab…). No
@@ -88,8 +88,8 @@
         <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
           data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
       |||,
-      params: ['label'],
-      slots: ['onclick'],
+      params: [],
+      slots: ['label', 'onclick'],
     },
 
     // Value slider (brightness, target temperature…). The backend wraps it in
@@ -106,8 +106,8 @@
             data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
         </article>
       |||,
-      params: ['label', 'min', 'max', 'key'],
-      slots: ['state', 'value', 'action'],
+      params: ['min', 'max', 'key'],
+      slots: ['label', 'state', 'value', 'action'],
     },
 
     // Tabs container: a bar of tab buttons + a single inline panel showing one
@@ -130,6 +130,14 @@
       slots: [],
     },
   },
+
+  // A LIVE value expression for a display field that also accepts a plain string
+  // literal (currently `label`). Wrap a JSONata expression over the entity
+  // ($state/$attr/$domain/$entity_id) so the field tracks state and repaints
+  //   c.entityCard(eo, label=c.expr('$attr.friendly_name & " " & $state'))
+  // vs the literal form `c.entityCard(eo, label='Kitchen')`. The builder binds
+  // the expression to the entity (and rebinds it per match for `d.matched`).
+  expr(s):: { transform: s },
 
   // ---- layout container builders (templated components with children) ----
   row(children):: { kind: 'component', card: 'fhrow', children: children },
@@ -188,19 +196,75 @@
   // defaults to the entity's `friendly_name` and can be overridden per call.
   // NOTE: ids are NOT authored here — the backend derives a stable,
   // location-based id while recursing the layout tree and injects it as `{{id}}`.
-  local nameOf(eo, label) = if label != null then label else eo.friendly_name,
 
-  // The displayed value of an entity card, as a JSONata expression (there is no
-  // bare `$` — the value is whatever the expression returns). A custom transform
-  // wins; otherwise show the state (or the chosen attribute) and append the
-  // entity's unit_of_measurement when it has one. This is why the entity card
-  // needs no separate unit slot.
-  local valueTransform(attribute, transform) =
-    if transform != null then
-      transform
+  // Quote a string as a JSONata literal (escape \ and "), so a label/name with
+  // a quote can't break the transform it is spliced into.
+  local jsonStr(s) = '"' + std.strReplace(std.strReplace(s, '\\', '\\\\'), '"', '\\"') + '"',
+
+  // The card's `label` SLOT (not a param). label is entity-derivable, so it goes
+  // through the same transform machinery as `value`/`secondary`. ONE `label`
+  // argument, accepting either form:
+  //   - a STRING → a literal: a constant slot (no entity, so no per-render
+  //     attribute conversion); just the given text.
+  //   - `c.expr('<jsonata>')` → a LIVE expression over the entity (e.g.
+  //     '$attr.friendly_name & " " & $state'), entity-bound and repainting live.
+  // When no label is given:
+  //   - the dynamic match sentinel ($self) → the matched entity's live
+  //     friendly_name (falling back to its id), rebound per match by the renderer.
+  //   - a static dump entity → its friendly_name baked as a CONSTANT (no live
+  //     lookup, no entity binding) — the cheap default for the common case.
+  local labelSlot(eo, label) =
+    if label != null && std.isObject(label) then
+      // c.expr(...) -> { transform: <expr> }; bind it to the entity so it is live
+      // (and, for the match sentinel, rebound per entity by the renderer).
+      (if eo != null then { entityId: eo.entity_id } else {}) + label
+    else if label != null then
+      { transform: jsonStr(label) }
+    else if eo == null then
+      { transform: '""' }
+    else if eo.entity_id == '$self' then
+      { entityId: '$self', transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id' }
     else
-      local base = if attribute != null then '$attr.' + attribute else '$state';
-      base + ' & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")',
+      { transform: jsonStr(if std.objectHas(eo, 'friendly_name') && eo.friendly_name != '' then eo.friendly_name else eo.entity_id) },
+
+  // Auto-appended unit for a value-display: the entity's unit_of_measurement,
+  // space-separated, when it has one. This is why the entity card needs no
+  // separate unit slot.
+  local UNIT = ' & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")',
+
+  // A `string | c.expr(...)` display field -> a JSONata transform:
+  //   c.expr('...') -> its expression verbatim; a STRING -> that attribute.
+  // The shared decode behind value/secondary (entity card) and the slider's
+  // position. Unit auto-appending is layered on TOP by the entity card's value
+  // (a display string); other fields use this raw (no unit).
+  local exprOrAttr(field) =
+    if std.isObject(field) then field.transform else '$attr.' + field,
+
+  // The card's `value` SLOT (the primary reading). Like `label`, ONE argument
+  // accepting either form, plus a smart default:
+  //   - null          -> the entity's state, unit auto-appended.
+  //   - a STRING       -> that attribute, unit auto-appended (a shortcut).
+  //   - c.expr('...')  -> your JSONata expression verbatim (you own the output,
+  //     unit included) — the live escape hatch, the SAME wrapper as `label`.
+  // (Unit applies to the shortcut/default forms, not to a c.expr you own.)
+  local valueSlot(eo, value) = {
+    entityId: eo.entity_id,
+    transform:
+      if std.isObject(value) then value.transform
+      else (if value == null then '$state' else '$attr.' + value) + UNIT,
+    bypassUnavailable: true,
+  },
+
+  // The card's optional `secondary` SLOT (a second line). A STRING -> that
+  // attribute (no unit); c.expr('...') -> your expression. (Only built when the
+  // author passes a secondary, so it need not handle null.)
+  local secondarySlot(eo, secondary) =
+    {
+      entityId: eo.entity_id,
+      transform: exprOrAttr(secondary),
+      default: '',
+      bypassUnavailable: true,
+    },
 
   // The default service route (domain/service) for a tap, resolved per entity in
   // the backend ($domain is the entity-id prefix). Scenes/scripts turn_on,
@@ -239,7 +303,7 @@
   // hoist splices in — jsonnet, not the backend, composes the onclick.
   local tapSlot(tap, eo) =
     if tap != null && std.objectHas(tap, 'onclick') then
-      { onclick: { entity: eo.entity_id, transform: tap.onclick } }
+      { onclick: { entityId: eo.entity_id, transform: tap.onclick } }
     else {},
 
   // Attach the inline-surfaces marker (a node-level map the backend hoists into
@@ -278,31 +342,26 @@
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
   ) },
 
-  // HA-like entity card.
-  //   attribute  null -> the entity's state, else a named attribute to show.
-  //   transform  null -> the value with its unit auto-appended, else a JSONata
-  //              expression over $state/$attr evaluated in the backend per live
-  //              value (you own the output, unit included), e.g.
-  //              '$round($number($state), 1) & " kW"'.
-  //   secondary  null -> no second line, else an attribute shown under the value.
-  //   tap        null -> read-only, else { domain, service } to call on click.
-  entityCard(eo, label=null, attribute=null, transform=null, secondary=null, tap=null):: {
+  // HA-like entity card. The three display fields share ONE convention — a plain
+  // string for the field-specific shortcut, or `c.expr('<jsonata>')` for a live
+  // expression over the entity ($state/$attr/$domain/$entity_id):
+  //   label      null -> friendly_name; STRING -> literal text; c.expr -> live.
+  //   value      null -> state (+ unit); STRING -> that attribute (+ unit);
+  //              c.expr -> your expression verbatim, e.g.
+  //              c.expr('$round($number($state), 1) & " kW"').
+  //   secondary  null -> no second line; STRING -> an attribute; c.expr -> live.
+  //   tap        null -> read-only, else a tap descriptor to call on click.
+  entityCard(eo, label=null, value=null, secondary=null, tap=null):: {
     kind: 'component',
     card: 'entityCard',
     params: {
-      label: nameOf(eo, label),
-      entity_id: eo.entity_id,
       [if tap != null then 'tappable']: '1',
     },
     entities: [eo.entity_id],
     slots: {
-      value: {
-        entity: eo.entity_id,
-        transform: valueTransform(attribute, transform),
-        bypassUnavailable: true,
-      },
-      [if secondary != null then 'secondary']:
-        { entity: eo.entity_id, transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
+      label: labelSlot(eo, label),
+      value: valueSlot(eo, value),
+      [if secondary != null then 'secondary']: secondarySlot(eo, secondary),
     } + tapSlot(tap, eo),
   } + tapInline(tap),
 
@@ -334,22 +393,25 @@
       kind: 'component',
       card: 'button',
       params: {
-        label: nameOf(eo, label),
         [if eo != null then 'entity_id']: eo.entity_id,
         [if active != null then 'active']: active,
       },
       entities: [],
-      slots: tapSlot(tap, { entity_id: entity }),
+      slots: { label: labelSlot(eo, label) } + tapSlot(tap, { entity_id: entity }),
     } + tapInline(tap)
   ),
 
   // `action` is the slider's "<domain>/<service>" (e.g. "light/turn_on"); `key`
   // the service_data key the value rides on (e.g. "brightness").
-  slider(eo, action, key, attr, min, max, label=null, transform=null):: {
+  //   value  the slider position source, SAME `string | c.expr(...)` convention
+  //          as the entity card: null -> the entity's state; a STRING -> that
+  //          attribute (e.g. 'brightness'); c.expr('...') -> your expression.
+  //          NO unit is appended — the position is a bare number for the range
+  //          input's signal, unlike the entity card's display value.
+  slider(eo, action, key, min, max, value=null, label=null):: {
     kind: 'component',
     card: 'slider',
     params: {
-      label: nameOf(eo, label),
       min: '' + min,
       max: '' + max,
       entity_id: eo.entity_id,
@@ -357,13 +419,14 @@
     },
     entities: [eo.entity_id],
     slots: {
-      state: { entity: eo.entity_id, bypassUnavailable: true },
+      label: labelSlot(eo, label),
+      state: { entityId: eo.entity_id, bypassUnavailable: true },
       value: {
-        entity: eo.entity_id,
-        transform: if transform != null then transform else '$attr.' + attr,
+        entityId: eo.entity_id,
+        transform: if value == null then '$state' else exprOrAttr(value),
         default: '0',
       },
-      action: { entity: eo.entity_id, transform: '"' + action + '"' },
+      action: { entityId: eo.entity_id, transform: '"' + action + '"' },
     },
   },
 
@@ -373,7 +436,7 @@
 
   // Brightness slider preset.
   brightnessSlider(eo, label=null)::
-    self.slider(eo, 'light/turn_on', 'brightness', 'brightness', 1, 255, label=label),
+    self.slider(eo, 'light/turn_on', 'brightness', 1, 255, value='brightness', label=label),
 
   // ---- dynamic groups (the whole DSL, namespaced under `dynamic`) ----
   // A dynamic group renders one card PER live entity matching a `query`,
@@ -414,20 +477,23 @@
     ]),
 
     // The placeholder "current entity" for a case. Any leaf builder takes it like
-    // a real dump entity; '$self' is rebound to each match at render time.
-    // (`friendly_name` is unused — the renderer injects the matched label.)
-    matched:: { entity_id: '$self', friendly_name: '' },
+    // a real dump entity; the renderer rebinds '$self' (in slot entityIds,
+    // including the label slot's `$attr.friendly_name`) to each match at render
+    // time. Only `entity_id` is needed — the label is a slot now, not a field
+    // read off this object.
+    matched:: { entity_id: '$self' },
 
     // One branch: a predicate + the card (built against `matched`) to render when
-    // it matches. Keeps the card + its slots; drops the per-entity params the
-    // renderer injects (entity_id/label) and the unused entities/children.
+    // it matches. Keeps the card + its slots; drops the `entity_id` param the
+    // renderer injects per match (and the unused entities/children). The label is
+    // a slot (entity-bound to '$self', rebound per match), so it rides in `slots`.
     case(when, node):: {
       when: when,
       card: node.card,
       params: {
         [k]: node.params[k]
         for k in std.objectFields(node.params)
-        if k != 'entity_id' && k != 'label'
+        if k != 'entity_id'
       },
       slots: node.slots,
     },
