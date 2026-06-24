@@ -15,12 +15,15 @@ import io.circe.derivation.{Configuration, ConfiguredCodec}
   * other entity is reachable.
   *
   * `default` applies when the transform yields an empty string (e.g.
-  * `$attr.brightness` when a light is off). `bypassUnavailable` (off by
-  * default) makes an `"unavailable"`/`"unknown"` entity show its raw state
-  * *instead of* running the transform — set it on value-display slots whose
-  * transform would error on a non-numeric state (`$number($state)`); leave it
-  * off for identity-derived slots (an action must resolve regardless of
-  * availability).
+  * `$attr.brightness` when a light is off). `bypassUnavailable` (ON by default)
+  * makes an `"unavailable"`/`"unknown"` entity show its raw state *instead of*
+  * running the transform — what keeps a value-display readable when its
+  * transform would otherwise error on a non-numeric state (`$number($state)`).
+  * Set it to `false` on the slots that must run their transform regardless of
+  * availability: identity-derived slots (an action resolves from `$domain`, not
+  * state), labels (keep the friendly_name rather than showing `"unavailable"`),
+  * and a slider's numeric position (fall back to its `default`, not the literal
+  * `"unavailable"` string).
   *
   * `entityId` is the entity whose state feeds the transform; `None` marks a
   * CONSTANT slot whose transform reads no entity (e.g. a literal label). A
@@ -48,9 +51,11 @@ case class SlotSource(
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
-    // When the entity is unavailable/unknown, show its raw state and skip the
-    // transform (keeps a numeric value-display readable). Off for identity slots.
-    bypassUnavailable: Boolean = false
+    // When the entity is unavailable/unknown, show its raw state (the literal
+    // "unavailable"/"unknown") and skip the transform — keeps a value-display
+    // readable. ON by default; opt OUT (false) on slots that must still run
+    // their transform: identity slots (actions), labels, a slider's position.
+    bypassUnavailable: Boolean = true
 ) derives ConfiguredCodec
 
 /** A reusable card in the shared library (a node references one by name).
@@ -58,8 +63,8 @@ case class SlotSource(
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
   *   - `params`: required *static* template vars — supplied by the author at
-  *     build time or backend-injected (`id`; `entity_id` in a dynamic case).
-  *     A `label` is a *slot*, not a param (it can derive from the entity).
+  *     build time or backend-injected (`id`; `entity_id` in a dynamic case). A
+  *     `label` is a *slot*, not a param (it can derive from the entity).
   *   - `slots`: required *live* template vars — bound per render from entity
   *     state (a [[SlotSource]] transform). Optional pieces (a tap `action`, a
   *     `secondary` line) need no entry — [[Dashboard.validate]] only flags

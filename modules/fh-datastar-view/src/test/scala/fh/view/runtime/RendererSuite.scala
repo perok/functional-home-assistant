@@ -126,14 +126,14 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("unavailable entity bypasses the transform and shows its raw state") {
+    // No explicit bypassUnavailable — bypassing is the DEFAULT (true).
     val node = LayoutNode.Component(
       card = "card",
       entities = List("sensor.t"),
       slots = Map(
         "state" -> SlotSource(
           Some("sensor.t"),
-          transform = "$round($number($state), 1)",
-          bypassUnavailable = true
+          transform = "$round($number($state), 1)"
         )
       )
     )
@@ -149,6 +149,30 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
         .get
         .contains("<span>unavailable</span>")
+    )
+  }
+
+  test("bypassUnavailable=false runs the transform even when unavailable") {
+    // A label/action/slider-position opts out so its transform still runs (a
+    // label keeps the name, an action stays resolvable) instead of collapsing to
+    // the literal "unavailable".
+    val node = LayoutNode.Component(
+      card = "card",
+      entities = List("sensor.t"),
+      slots = Map(
+        "state" -> SlotSource(
+          Some("sensor.t"),
+          transform = "$state & \"!\"",
+          bypassUnavailable = false
+        )
+      )
+    )
+    val r = renderer(node)
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
+        .get
+        .contains("<span>unavailable!</span>"),
+      clue = "transform should run, not be bypassed"
     )
   }
 

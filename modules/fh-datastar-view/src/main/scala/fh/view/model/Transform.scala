@@ -28,10 +28,10 @@ import fh.view.runtime.EntityState
   * Compilation happens once at build/validate time; the renderer reuses the
   * compiled expression. A failing evaluation is **not** swallowed nor allowed
   * to crash the render — the card shows the JSONata error message, contained to
-  * that one card, so a genuinely broken expression is visible. (A value-display
-  * slot can opt out for unavailable/unknown entities via
-  * `SlotSource.bypassUnavailable`, where the renderer shows the raw state and
-  * skips the transform instead — see `EntityState.unavailable`.) A `null`
+  * that one card, so a genuinely broken expression is visible. (For
+  * unavailable/unknown entities the renderer shows the raw state and skips the
+  * transform by default — `SlotSource.bypassUnavailable`, ON unless an action /
+  * label / slider position opts out — see `EntityState.unavailable`.) A `null`
   * result becomes `""` (the slot's `default` then applies).
   *
   * Takes an [[EntityState]], which carries the entity's identity (`entityId`,

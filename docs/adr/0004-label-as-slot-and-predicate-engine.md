@@ -130,6 +130,16 @@ applies to **every** transform, not just labels.
   This is purely an authoring convenience over the already-generic slot model —
   every slot is one `SlotSource` (entity + transform), so `c.expr` is just a
   partial `SlotSource` and is not field-specific.
+- `SlotSource.bypassUnavailable` now defaults to **`true`** (was `false`): an
+  `unavailable`/`unknown` entity shows its raw state instead of running the
+  transform, so a value-display can't error on `$number("unavailable")` without
+  each value slot opting in. The slots that must still run their transform opt
+  **out** with `false`: identity-derived **actions** (resolve from `$domain`,
+  not state), **labels** (keep the friendly_name), and a **slider's numeric
+  position** (fall back to its `default` `'0'`, not the literal `"unavailable"`).
+  Net: three former opt-ins (value/secondary/slider-state) become the default;
+  the opt-outs are localized to the `labelSlot`/`tapSlot` helpers and the
+  slider. (Constant slots are unaffected — an empty state is never unavailable.)
 - Dynamic queries keep their fast path; the cost model is explicit (AST for
   membership, JSONata for values).
 - Attribute conversion is amortized per state version across all slots/evals.
