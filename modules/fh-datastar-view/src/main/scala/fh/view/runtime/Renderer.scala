@@ -90,6 +90,20 @@ class Renderer(
     */
   val dynamicContainerIds: List[String] = mainIndex.dynamicIds
 
+  /** Surfaces shown by default on the main page — each tabs container's first
+    * (`initial`) panel. A connection seeds its open set with these so the baked
+    * default tab receives live updates from the first paint (and on a navigate
+    * swap), with no user interaction.
+    */
+  val defaultOpenSurfaces: Set[String] =
+    mainIndex.indexed.values
+      .collect {
+        case (c: LayoutNode.Component, _) if c.card == "tabs" =>
+          c.params.get("initial")
+      }
+      .flatten
+      .toSet
+
   def componentsFor(entityId: String): Set[String] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
@@ -160,16 +174,25 @@ class Renderer(
       states: Map[String, EntityState]
   ): Option[String] =
     dashboard.surfaces.get(surfaceId).map { s =>
+      val rootId = Renderer.surfaceRootId(surfaceId)
       val inner =
         render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
-      // The wrapper supplies a close control wired to the (backend-known) id, so
-      // inline popups close without the author knowing the generated id. Authors
-      // can still add their own `closePopup(id)` button to a registered surface.
-      val close =
-        s"""<button class="popup-close" data-on:click="@post('/sse/surface/close/$surfaceId')">✕</button>"""
-      s"""<dialog id="${Renderer.surfaceRootId(
-          surfaceId
-        )}" open class="popup">$close$inner</dialog>"""
+      s.mount match {
+        // An inline mount (a tab panel) renders into a named container in the
+        // page and is swapped by an `inner` patch (one of its group at a time),
+        // so it needs no overlay chrome or close control — just the id'd
+        // wrapper so live patches and group-eviction can target it.
+        case Some(_) =>
+          s"""<div id="$rootId" class="tab-panel-content">$inner</div>"""
+        // The default overlay popup: a modal `<dialog>` appended to `#popups`,
+        // with a close control wired to the (backend-known) id so inline popups
+        // close without the author knowing the generated id. Authors can still
+        // add their own `closePopup(id)` button to a registered surface.
+        case None =>
+          val close =
+            s"""<button class="popup-close" data-on:click="@post('/sse/surface/close/$surfaceId')">✕</button>"""
+          s"""<dialog id="$rootId" open class="popup">$close$inner</dialog>"""
+      }
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
@@ -194,11 +217,25 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states)
         }
+        // A tabs container bakes its `initial` panel inline (rendered with that
+        // surface's id prefix, so the baked HTML and a later switch-back share
+        // ids) — the first paint shows it with no open round-trip. `panel` is
+        // empty for every other component (the template ignores it).
+        val panel = c.params
+          .get("initial")
+          .flatMap(initId =>
+            dashboard.surfaces
+              .get(initId)
+              .map(s =>
+                render(s.content, Nil, Renderer.surfacePrefix(initId), states)
+              )
+          )
+          .getOrElse("")
         // `id` stays available to the template (e.g. the slider derives its
         // signal name from it) even though it is no longer the morph target.
         val html = renderTemplate(
           c.card,
-          Map("id" -> id) ++ c.params,
+          Map("id" -> id, "panel" -> panel) ++ c.params,
           c.slots,
           childrenHtml,
           states

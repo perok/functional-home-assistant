@@ -74,15 +74,19 @@
       slots: ['value'],
     },
 
-    // Generic click button (service call, popup open/close, navigate…). No `id`:
-    // it has no entities, so it never re-renders or gets patched. `onclick` is a
-    // computed slot carrying the WHOLE Datastar click expression (a `@post(...)`,
-    // optionally followed by a `history.pushState(...)` for navigation), so the
-    // template stays action-agnostic.
+    // Generic click button (service call, popup open/close, navigate, tab…). No
+    // `id`: it has no entities, so it never re-renders or gets patched. `onclick`
+    // is a computed slot carrying the WHOLE Datastar click expression (a
+    // `@post(...)`, optionally followed by a `history.pushState(...)` for
+    // navigation, or a signal-set for a tab), so the template stays
+    // action-agnostic. `active` is an OPTIONAL Datastar boolean expression: when
+    // present the button becomes a tab (the `tab` class + a `data-class` that
+    // highlights it while the expression is true) — that is the whole difference
+    // between a button and a tab.
     button: {
       template: |||
-        <button class="card"
-          data-on:click="{{{onclick}}}">{{label}}</button>
+        <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
+          data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
       |||,
       params: ['label'],
       slots: ['onclick'],
@@ -104,6 +108,26 @@
       |||,
       params: ['label', 'min', 'max', 'key'],
       slots: ['state', 'value', 'action'],
+    },
+
+    // Tabs container: a bar of tab buttons + a single inline panel showing one
+    // tab at a time. The panel's content IS a surface (one per tab, sharing an
+    // exclusivity group + this `mount`), so switching reuses the popup
+    // open/close machinery — it just patches `inner` into the mount instead of
+    // appending an overlay. `panel` is the first tab's HTML, baked in by the
+    // backend so the initial paint shows it with no round-trip; `initial` seeds
+    // the active-tab signal `{{sig}}` (client-side highlight). The author never
+    // writes any of these — `c.tabs(...)` emits an inline marker the build-phase
+    // hoist expands (see DashboardBuild.hoistInlineSurfaces).
+    tabs: {
+      template: |||
+        <div class="tabs" data-signals="{ {{sig}}: '{{initial}}' }">
+          <div class="tabbar">{{#children}}{{{html}}}{{/children}}</div>
+          <div class="tab-panel" id="{{mount}}">{{{panel}}}</div>
+        </div>
+      |||,
+      params: ['sig', 'initial', 'mount'],
+      slots: [],
     },
   },
 
@@ -129,6 +153,53 @@
   // ---- layout container builders (templated components with children) ----
   row(children):: { kind: 'component', card: 'fhrow', children: children },
   column(children):: { kind: 'component', card: 'fhcol', children: children },
+
+  // Tabs: a tab bar over a single inline panel, one tab visible at a time.
+  //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
+  //
+  // This is PURE composition: each tab is a normal `button` whose `content`
+  // becomes an inline surface (all sharing one exclusivity group + one inline
+  // mount, so opening one swaps the panel). The bar button opens its panel AND
+  // sets a per-group signal to the active surface id; the same signal drives the
+  // button's `active` highlight and (seeded to the first id) the baked default
+  // panel. Every surface id is written as 'NODE_<i>' — the build-phase hoist
+  // mints the real id namespace and splices it in (and lifts the surfaces to the
+  // top-level registry); no tabs/popup logic lives in the backend.
+  tabs(tabs):: {
+    local mount = 'panel_' + NODE,  // the shared inline panel container id
+    local sig = 'tab_' + NODE,      // per-group active-tab signal (holds an id)
+    local sid(i) = NODE + '_' + i,  // local key i -> future surface id
+
+    kind: 'component',
+    card: 'tabs',
+    entities: [],
+    slots: {},
+    params: {
+      sig: sig,
+      mount: mount,
+      initial: sid(0),  // default panel: baked inline + seeds the signal
+    },
+    inlineSurfaces: {
+      [std.toString(i)]: {
+        content: tabs[i].content,
+        group: mount,
+        mount: mount,
+      }
+      for i in std.range(0, std.length(tabs) - 1)
+    },
+    children: [
+      // `self` here is this tabs object; `$` is the library root (where the
+      // `button` builder lives).
+      $.button(
+        label=tabs[i].label,
+        action={ onclick: constOnclick(
+          '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = \'' + sid(i) + '\''
+        ) },
+        active='$' + sig + ' == \'' + sid(i) + '\'',
+      )
+      for i in std.range(0, std.length(tabs) - 1)
+    ],
+  },
 
   // ---- component leaf builders ----
   // Leaf builders take a dump entity object `eo` (a reference into the dump —
@@ -171,22 +242,31 @@
   // `js` must use only single quotes so it is safe inside JSONata double quotes.
   local constOnclick(js) = '"' + js + '"',
 
+  // The placeholder a node uses to refer to its own backend-minted id namespace;
+  // the build-phase hoist (DashboardBuild.hoistInlineSurfaces / NodeIdToken)
+  // splices the real id in. This is how a builder composes a trigger that
+  // references the surface id it cannot mint: write '<NODE>_<localKey>' and pair
+  // it with an `inlineSurfaces: { <localKey>: ... }` marker.
+  local NODE = '@@NODE@@',
+
   // The default tap descriptor (domain-resolved service call).
   local defaultTap = { onclick: serviceOnclick(defaultRoute) },
 
-  // Add the `onclick` slot for a tap descriptor carrying one (service / popup /
-  // navigate); empty for an inline-surface descriptor (the backend fills onclick
-  // when it hoists the inline popup — see DashboardBuild.hoistInlineSurfaces).
+  // Add the `onclick` slot for a tap descriptor (service / popup / navigate /
+  // tab). The descriptor always carries the full click expression; for an inline
+  // popup it references the future surface id via NODE (see openPopup), which the
+  // hoist splices in — jsonnet, not the backend, composes the onclick.
   local tapSlot(tap, eo) =
     if tap != null && std.objectHas(tap, 'onclick') then
       { onclick: { entity: eo.entity_id, transform: tap.onclick } }
     else {},
 
-  // Attach the inline-surface marker (a node-level field the backend hoists into
-  // the `surfaces` registry, rewriting it to a `surface/open/<id>` onclick).
+  // Attach the inline-surfaces marker (a node-level map the backend hoists into
+  // the `surfaces` registry, keying each by '<node-id>_<localKey>'). The trigger
+  // already references those ids via NODE, so the hoist only splices + lifts.
   local tapInline(tap) =
-    if tap != null && std.objectHas(tap, 'inlineSurface') then
-      { inlineSurface: tap.inlineSurface } else {},
+    if tap != null && std.objectHas(tap, 'inlineSurfaces') then
+      { inlineSurfaces: tap.inlineSurfaces } else {},
 
   // Tap descriptors: pass as `tap=`/`action=` to give a card a click action.
   //   toggleTap        -> service call resolved from the entity's domain (default).
@@ -201,11 +281,17 @@
     if std.isString(target) then
       { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
     else
-      { inlineSurface: {
-        content: target,
-        [if group != null then 'group']: group,
-        [if mount != null then 'mount']: mount,
-      } },
+      {
+        // Reference the future surface id (NODE_self) the hoist will mint, and
+        // pair it with the inline content under the same local key.
+        onclick: constOnclick('@post(\'/sse/surface/open/' + NODE + '_self\')'),
+        // 'self' is a jsonnet keyword, so quote the local key.
+        inlineSurfaces: { 'self': {
+          content: target,
+          [if group != null then 'group']: group,
+          [if mount != null then 'mount']: mount,
+        } },
+      },
   closePopup(id):: { onclick: constOnclick('@post(\'/sse/surface/close/' + id + '\')') },
   navigate(slug):: { onclick: constOnclick(
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
@@ -257,7 +343,10 @@
   // domain-resolved service call (which needs an entity). `entity_id` is only set
   // when there's an entity; the onclick slot reads it via `$entity_id` (unused by
   // a constant popup/navigate expression, so `''` is fine when absent).
-  button(eo=null, action=null, label=null):: (
+  //   active  null -> a plain button; else a Datastar boolean expression that
+  //           makes it a TAB (the `tab` class + a `data-class` highlight while
+  //           the expression holds). Used by `c.tabs`.
+  button(eo=null, action=null, label=null, active=null):: (
     local tap = if action == null then defaultTap else action;
     local entity = if eo != null then eo.entity_id else '';
     {
@@ -266,6 +355,7 @@
       params: {
         label: nameOf(eo, label),
         [if eo != null then 'entity_id']: eo.entity_id,
+        [if active != null then 'active']: active,
       },
       entities: [],
       slots: tapSlot(tap, { entity_id: entity }),
