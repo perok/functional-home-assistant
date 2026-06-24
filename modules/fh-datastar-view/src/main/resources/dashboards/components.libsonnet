@@ -217,13 +217,15 @@
     if label != null && std.isObject(label) then
       // c.expr(...) -> { transform: <expr> }; bind it to the entity so it is live
       // (and, for the match sentinel, rebound per entity by the renderer).
-      (if eo != null then { entityId: eo.entity_id } else {}) + label
+      // bypassUnavailable: false — a label must keep running its transform so an
+      // unavailable entity still shows its name, not the literal "unavailable".
+      (if eo != null then { entityId: eo.entity_id, bypassUnavailable: false } else {}) + label
     else if label != null then
       { transform: jsonStr(label) }
     else if eo == null then
       { transform: '""' }
     else if eo.entity_id == '$self' then
-      { entityId: '$self', transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id' }
+      { entityId: '$self', transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id', bypassUnavailable: false }
     else
       { transform: jsonStr(if std.objectHas(eo, 'friendly_name') && eo.friendly_name != '' then eo.friendly_name else eo.entity_id) },
 
@@ -252,7 +254,6 @@
     transform:
       if std.isObject(value) then value.transform
       else (if value == null then '$state' else '$attr.' + value) + UNIT,
-    bypassUnavailable: true,
   },
 
   // The card's optional `secondary` SLOT (a second line). A STRING -> that
@@ -303,7 +304,9 @@
   // hoist splices in — jsonnet, not the backend, composes the onclick.
   local tapSlot(tap, eo) =
     if tap != null && std.objectHas(tap, 'onclick') then
-      { onclick: { entityId: eo.entity_id, transform: tap.onclick } }
+      // bypassUnavailable: false — the click expression is identity-derived and
+      // must resolve even when the entity is unavailable.
+      { onclick: { entityId: eo.entity_id, transform: tap.onclick, bypassUnavailable: false } }
     else {},
 
   // Attach the inline-surfaces marker (a node-level map the backend hoists into
@@ -420,13 +423,18 @@
     entities: [eo.entity_id],
     slots: {
       label: labelSlot(eo, label),
-      state: { entityId: eo.entity_id, bypassUnavailable: true },
+      // state is the display header — bypassUnavailable defaults to true.
+      state: { entityId: eo.entity_id },
+      // value is the range input's numeric position: opt OUT so an unavailable
+      // entity falls back to `default` ('0') rather than the string "unavailable".
       value: {
         entityId: eo.entity_id,
         transform: if value == null then '$state' else exprOrAttr(value),
         default: '0',
+        bypassUnavailable: false,
       },
-      action: { entityId: eo.entity_id, transform: '"' + action + '"' },
+      // action is identity-derived ("<domain>/<service>") — must always resolve.
+      action: { entityId: eo.entity_id, transform: '"' + action + '"', bypassUnavailable: false },
     },
   },
 
