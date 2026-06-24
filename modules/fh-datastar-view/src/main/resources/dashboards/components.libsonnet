@@ -11,7 +11,8 @@
 //
 // Datastar v1 attribute syntax uses COLONS: `data-on:click`, `data-bind`,
 // `data-signals`. A click is a whole Datastar expression carried by the
-// `onclick` slot (a JSONata expression evaluated in the backend per entity):
+// `onclick` slot — a bare-string literal for a constant click (popup/navigate),
+// or a `c.expr(...)` JSONata expression when it reads the entity per render:
 //   - service call: @post('/sse/action/<domain>/<service>/<entity>')
 //   - popup:        @post('/sse/surface/open|close/<id>')
 //   - navigate:     @post('/sse/navigate/<slug>'); history.pushState(...)
@@ -197,21 +198,16 @@
   // NOTE: ids are NOT authored here — the backend derives a stable,
   // location-based id while recursing the layout tree and injects it as `{{id}}`.
 
-  // Quote a string as a JSONata literal (escape \ and "), so a label/name with
-  // a quote can't break the transform it is spliced into.
-  local jsonStr(s) = '"' + std.strReplace(std.strReplace(s, '\\', '\\\\'), '"', '\\"') + '"',
-
-  // The card's `label` SLOT (not a param). label is entity-derivable, so it goes
-  // through the same transform machinery as `value`/`secondary`. ONE `label`
-  // argument, accepting either form:
-  //   - a STRING → a literal: a constant slot (no entity, so no per-render
-  //     attribute conversion); just the given text.
+  // The card's `label` SLOT (not a param). ONE `label` argument, accepting
+  // either form:
+  //   - a STRING → a hardcoded value: a bare-string literal slot (no entity, no
+  //     JSONata) — just the given text, used verbatim.
   //   - `c.expr('<jsonata>')` → a LIVE expression over the entity (e.g.
   //     '$attr.friendly_name & " " & $state'), entity-bound and repainting live.
   // When no label is given:
   //   - the dynamic match sentinel ($self) → the matched entity's live
   //     friendly_name (falling back to its id), rebound per match by the renderer.
-  //   - a static dump entity → its friendly_name baked as a CONSTANT (no live
+  //   - a static dump entity → its friendly_name baked as a literal (no live
   //     lookup, no entity binding) — the cheap default for the common case.
   local labelSlot(eo, label) =
     if label != null && std.isObject(label) then
@@ -221,13 +217,13 @@
       // unavailable entity still shows its name, not the literal "unavailable".
       (if eo != null then { entityId: eo.entity_id, bypassUnavailable: false } else {}) + label
     else if label != null then
-      { transform: jsonStr(label) }
+      label
     else if eo == null then
-      { transform: '""' }
+      ''
     else if eo.entity_id == '$self' then
       { entityId: '$self', transform: '$attr.friendly_name ? $attr.friendly_name : $entity_id', bypassUnavailable: false }
     else
-      { transform: jsonStr(if std.objectHas(eo, 'friendly_name') && eo.friendly_name != '' then eo.friendly_name else eo.entity_id) },
+      (if std.objectHas(eo, 'friendly_name') && eo.friendly_name != '' then eo.friendly_name else eo.entity_id),
 
   // Auto-appended unit for a value-display: the entity's unit_of_measurement,
   // space-separated, when it has one. This is why the entity card needs no
@@ -284,9 +280,9 @@
   local serviceOnclick(route) =
     '"@post(\'/sse/action/" & (' + route + ') & "/" & $entity_id & "\')"',
 
-  // A CONSTANT click expression (no live value), as a JSONata string literal.
-  // `js` must use only single quotes so it is safe inside JSONata double quotes.
-  local constOnclick(js) = '"' + js + '"',
+  // A CONSTANT click expression (no live value): a hardcoded literal used
+  // verbatim, so it is just the string itself — no JSONata, no entity binding.
+  local constOnclick(js) = js,
 
   // The placeholder a node uses to refer to its own backend-minted id namespace;
   // the build-phase hoist (DashboardBuild.hoistInlineSurfaces / NodeIdToken)
@@ -295,18 +291,23 @@
   // it with an `inlineSurfaces: { <localKey>: ... }` marker.
   local NODE = '@@NODE@@',
 
-  // The default tap descriptor (domain-resolved service call).
-  local defaultTap = { onclick: serviceOnclick(defaultRoute) },
+  // The default tap descriptor (domain-resolved service call). Its onclick reads
+  // `$entity_id`/`$domain`, so it is a LIVE expression (c.expr), not a literal.
+  local defaultTap = { onclick: $.expr(serviceOnclick(defaultRoute)) },
 
   // Add the `onclick` slot for a tap descriptor (service / popup / navigate /
-  // tab). The descriptor always carries the full click expression; for an inline
-  // popup it references the future surface id via NODE (see openPopup), which the
-  // hoist splices in — jsonnet, not the backend, composes the onclick.
+  // tab). A descriptor's onclick is either a `c.expr(...)` (a live click
+  // expression reading the entity — bound here) or a bare-string literal (a
+  // constant click, e.g. a popup open referencing a fixed surface id via NODE,
+  // which the hoist splices in). jsonnet, not the backend, composes the onclick.
   local tapSlot(tap, eo) =
     if tap != null && std.objectHas(tap, 'onclick') then
-      // bypassUnavailable: false — the click expression is identity-derived and
-      // must resolve even when the entity is unavailable.
-      { onclick: { entityId: eo.entity_id, transform: tap.onclick, bypassUnavailable: false } }
+      { onclick:
+        if std.isObject(tap.onclick) then
+          // bypassUnavailable: false — the click expression is identity-derived
+          // and must resolve even when the entity is unavailable.
+          { entityId: eo.entity_id, bypassUnavailable: false } + tap.onclick
+        else tap.onclick }
     else {},
 
   // Attach the inline-surfaces marker (a node-level map the backend hoists into
@@ -324,7 +325,7 @@
   //   closePopup(id)   -> close that surface (drop a close button inside it).
   //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
   toggleTap:: defaultTap,
-  serviceTap(action):: { onclick: serviceOnclick('"' + action + '"') },
+  serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
   openPopup(target, group=null, mount=null)::
     if std.isString(target) then
       { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
@@ -433,8 +434,8 @@
         default: '0',
         bypassUnavailable: false,
       },
-      // action is identity-derived ("<domain>/<service>") — must always resolve.
-      action: { entityId: eo.entity_id, transform: '"' + action + '"', bypassUnavailable: false },
+      // action is a constant "<domain>/<service>" route — a bare literal.
+      action: action,
     },
   },
 

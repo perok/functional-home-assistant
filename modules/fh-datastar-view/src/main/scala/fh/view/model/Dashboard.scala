@@ -1,7 +1,7 @@
 package fh.view.model
 
-import io.circe.{Codec, Decoder, Encoder, Json}
-import io.circe.derivation.{Configuration, ConfiguredCodec}
+import io.circe.{Decoder, Json}
+import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Where a single mustache slot gets its value at runtime.
   *
@@ -34,6 +34,13 @@ import io.circe.derivation.{Configuration, ConfiguredCodec}
   * In a [[LayoutNode.Dynamic]] case, an entity-bound `entityId` is a
   * placeholder (e.g. `Some("$self")`); the renderer rebinds it to each matched
   * entity. A `None` (constant) slot is left untouched.
+  *
+  * `literal` is the cheapest slot: a hardcoded value used verbatim — no entity,
+  * no JSONata, no compilation. A label like `"Kitchen"` or a constant action
+  * URL is this, not a `"Kitchen"` JSONata string-literal `transform`. It is
+  * authored as a bare JSON string rather than an object; when set, every other
+  * field is unused. Only a value that varies with live state needs the
+  * object/`transform` form.
   */
 given Configuration =
   Configuration.default.withDefaults
@@ -55,8 +62,22 @@ case class SlotSource(
     // "unavailable"/"unknown") and skip the transform — keeps a value-display
     // readable. ON by default; opt OUT (false) on slots that must still run
     // their transform: identity slots (actions), labels, a slider's position.
-    bypassUnavailable: Boolean = true
-) derives ConfiguredCodec
+    bypassUnavailable: Boolean = true,
+    // A hardcoded value used verbatim: no entity, no JSONata. When set, the
+    // fields above are unused. Authored (and decoded) as a bare JSON string
+    // rather than an object — see the decoder below.
+    literal: Option[String] = None
+)
+
+object SlotSource:
+  // The object form (a live-expression slot) — the standard configured decoder.
+  private val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
+
+  /** A slot is either a bare JSON string (a constant [[literal]]) or an object
+    * (a live-expression slot). Decoding accepts both forms.
+    */
+  given Decoder[SlotSource] =
+    Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
 
 /** A reusable card in the shared library (a node references one by name).
   *
@@ -74,20 +95,17 @@ case class CardDef(
     template: String,
     params: List[String] = Nil,
     slots: List[String] = Nil
-) derives ConfiguredCodec
+) derives ConfiguredDecoder
 
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
 
 object Op:
-  given Codec[Op] = Codec.from(
-    Decoder[String].emap(s =>
-      values
-        .find(_.toString.equalsIgnoreCase(s))
-        .toRight(s"unknown op: $s")
-    ),
-    Encoder[String].contramap(_.toString.toLowerCase)
+  given Decoder[Op] = Decoder[String].emap(s =>
+    values
+      .find(_.toString.equalsIgnoreCase(s))
+      .toRight(s"unknown op: $s")
   )
 
 /** A simple property-query AST evaluated at runtime against live entity state.
@@ -97,7 +115,7 @@ object Op:
   * 20%":
   * `And([Cmp("domain", Eq, "sensor"), Cmp("attr:battery_level", Lt, 20)])`.
   */
-sealed trait Predicate derives ConfiguredCodec
+sealed trait Predicate derives ConfiguredDecoder
 object Predicate:
   case class And(items: List[Predicate]) extends Predicate
   case class Or(items: List[Predicate]) extends Predicate
@@ -112,10 +130,10 @@ case class DynamicCase(
     card: String,
     params: Map[String, String] = Map.empty,
     slots: Map[String, SlotSource] = Map.empty
-) derives ConfiguredCodec
+) derives ConfiguredDecoder
 
 /** A node in the recursive dashboard layout tree. */
-sealed trait LayoutNode derives ConfiguredCodec
+sealed trait LayoutNode derives ConfiguredDecoder
 object LayoutNode:
   /** A node referencing a shared template by name. Both leaves and containers
     * are Components — a container is simply a Component whose template splices
@@ -183,7 +201,7 @@ case class Theme(
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
     styles: String = ""
-) derives ConfiguredCodec
+) derives ConfiguredDecoder
 
 /** A lazily-activated render subtree mounted on demand — a popup today, a tab
   * panel later. Registered in [[Dashboard.surfaces]] keyed by id; a component's
@@ -204,7 +222,7 @@ case class Surface(
     content: LayoutNode,
     group: Option[String] = None,
     mount: Option[String] = None
-) derives ConfiguredCodec
+) derives ConfiguredDecoder
 
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
@@ -223,7 +241,7 @@ case class Dashboard(
     theme: Theme = Theme(),
     surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard"
-) derives ConfiguredCodec:
+) derives ConfiguredDecoder:
 
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable
@@ -267,16 +285,20 @@ case class Dashboard(
             )
           ).flatten
 
-    // Every slot's value is a `transform`, which must be parseable JSONata.
+    // A live-expression slot's value is a `transform`, which must be parseable
+    // JSONata. A constant `literal` slot has no transform, so nothing to check.
     def slotErrors(
         nodeId: String,
         slots: Map[String, SlotSource]
     ): List[String] =
       slots.toList.flatMap { case (name, src) =>
-        Transform.parse(src.transform).left.toOption.map { err =>
-          val at = locateTransform(src.transform).fold("")(loc => s" (at $loc)")
-          s"$nodeId: slot '$name' has an invalid transform$at: $err"
-        }
+        if (src.literal.isDefined) None
+        else
+          Transform.parse(src.transform).left.toOption.map { err =>
+            val at =
+              locateTransform(src.transform).fold("")(loc => s" (at $loc)")
+            s"$nodeId: slot '$name' has an invalid transform$at: $err"
+          }
       }
 
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
