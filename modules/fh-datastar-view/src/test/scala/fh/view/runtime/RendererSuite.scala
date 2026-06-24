@@ -8,6 +8,7 @@ import fh.view.model.{
   Op,
   Predicate,
   SlotSource,
+  Surface,
   Theme
 }
 import io.circe.Json
@@ -160,10 +161,11 @@ class RendererSuite extends munit.FunSuite {
     val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> no morph wrappers, no ids in the markup
+    // no entities anywhere -> no morph wrappers, no ids in the markup; the
+    // stable shell carries the `#popups` overlay mount after the body.
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main><div id="popups"></div>"""
     )
     // containers are still addressable and re-render their children by id
     assertEquals(
@@ -328,6 +330,63 @@ class RendererSuite extends munit.FunSuite {
         ),
         s
       )
+    )
+  }
+
+  test(
+    "a surface renders in a dialog with namespaced ids + a close control, off the main update set"
+  ) {
+    val d = Dashboard(
+      cards,
+      col(),
+      surfaces = Map(
+        "detail" -> Surface(
+          LayoutNode.Component(
+            "card",
+            entities = List("sensor.t"),
+            slots = Map("state" -> SlotSource("sensor.t"))
+          )
+        )
+      )
+    )
+    val r = Renderer.create(d)
+    val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
+    val html = r.renderSurface("detail", states).get
+    assert(
+      html.startsWith("""<dialog id="s_detail" open class="popup">"""),
+      clue = html
+    )
+    // wrapper-provided close, wired to the (backend-known) surface id
+    assert(html.contains("/sse/surface/close/detail"), clue = html)
+    // inner node ids are surface-namespaced and individually re-renderable
+    assert(html.contains("""id="s_detail__c""""), clue = html)
+    assert(
+      r.renderNodeById("s_detail__c", states).get.contains("<span>42</span>")
+    )
+    // the surface's entity drives ONLY the surface index, not the main page
+    assert(
+      r.componentsFor("sensor.t").isEmpty,
+      clue = r.componentsFor("sensor.t")
+    )
+    assertEquals(
+      r.surfaceComponentsFor("detail", "sensor.t"),
+      Set("s_detail__c")
+    )
+    // unknown surface -> None
+    assertEquals(r.renderSurface("nope", states), None)
+  }
+
+  test(
+    "renderBody is the shell-less body (what a navigate swap inner-patches)"
+  ) {
+    val r =
+      renderer(col(row(LayoutNode.Component("btn", Map("label" -> "Go")))))
+    val body = r.renderBody(Map.empty)
+    assert(!body.contains("""id="dashboard""""), clue = body)
+    assert(!body.contains("""id="popups""""), clue = body)
+    assertEquals(
+      body,
+      """<div class="fh-col"><div class="fh-row"><button>Go</button></div></div>"""
     )
   }
 }

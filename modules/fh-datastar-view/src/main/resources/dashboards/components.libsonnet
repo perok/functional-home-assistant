@@ -10,9 +10,14 @@
 //      references are supplied — NOT the card template.
 //
 // Datastar v1 attribute syntax uses COLONS: `data-on:click`, `data-bind`,
-// `data-signals`. Action routes:
-//   - no data:   @post('/sse/action/<domain>/<service>/<entity>')
-//   - one value: @post('/sse/action/<domain>/<service>/<entity>/<key>/' + $signal)
+// `data-signals`. A click is a whole Datastar expression carried by the
+// `onclick` slot (a JSONata expression evaluated in the backend per entity):
+//   - service call: @post('/sse/action/<domain>/<service>/<entity>')
+//   - popup:        @post('/sse/surface/open|close/<id>')
+//   - navigate:     @post('/sse/navigate/<slug>'); history.pushState(...)
+// The slider's value-carrying change handler is assembled in its own template
+// (it needs the per-instance signal `$val_{{id}}`):
+//   @post('/sse/action/<domain>/<service>/<entity>/<key>/' + $signal)
 //
 // PHASE DISCIPLINE: templates never embed live values. Escaped `{{slot}}` values
 // are HTML-safe; raw author values (action URLs, entity ids) use `{{{...}}}`.
@@ -59,7 +64,7 @@
     entityCard: {
       template: |||
         <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-          data-on:click="@post('/sse/action/{{{action}}}/{{{entity_id}}}')"{{/tappable}}>
+          data-on:click="{{{onclick}}}"{{/tappable}}>
           <header>{{label}}</header>
           <span class="state">{{value}}</span>{{#secondary}}
           <span class="secondary">{{secondary}}</span>{{/secondary}}
@@ -69,16 +74,18 @@
       slots: ['value'],
     },
 
-    // Generic service-call button (toggle, scene activate, lock…). No `id`: it
-    // has no entities, so it never re-renders or gets patched. `entity_id` is
-    // structural (always supplied by the builder); `action` is a computed slot.
+    // Generic click button (service call, popup open/close, navigate…). No `id`:
+    // it has no entities, so it never re-renders or gets patched. `onclick` is a
+    // computed slot carrying the WHOLE Datastar click expression (a `@post(...)`,
+    // optionally followed by a `history.pushState(...)` for navigation), so the
+    // template stays action-agnostic.
     button: {
       template: |||
         <button class="card"
-          data-on:click="@post('/sse/action/{{{action}}}/{{{entity_id}}}')">{{label}}</button>
+          data-on:click="{{{onclick}}}">{{label}}</button>
       |||,
       params: ['label'],
-      slots: ['action'],
+      slots: ['onclick'],
     },
 
     // Value slider (brightness, target temperature…). The backend wraps it in
@@ -143,25 +150,66 @@
       local base = if attribute != null then '$attr.' + attribute else '$state';
       base + ' & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")',
 
-  // The default tap action, as a JSONata expression resolved per entity in the
-  // backend ($domain is the entity-id prefix). Scenes/scripts turn_on, buttons
-  // press, everything else homeassistant.toggle. Override with serviceTap(...).
+  // The default service route (domain/service) for a tap, resolved per entity in
+  // the backend ($domain is the entity-id prefix). Scenes/scripts turn_on,
+  // buttons press, everything else homeassistant.toggle. Override with
+  // serviceTap(...).
   // https://www.home-assistant.io/docs/scripts/perform-actions/#homeassistant-actions
-  local defaultToggleAction =
+  local defaultRoute =
     '($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", ' +
     '"button": "button/press", "input_button": "input_button/press"}, $domain); ' +
     '$a ? $a : "homeassistant/toggle")',
 
-  // The action transform for a tap: an explicit override becomes a constant
-  // JSONata string literal; otherwise the domain-derived default.
-  local tapAction(tap) =
-    if std.objectHas(tap, 'action') then '"' + tap.action + '"' else defaultToggleAction,
+  // Wrap a JSONata route expression into the full Datastar click expression
+  //   @post('/sse/action/<domain>/<service>/<entity_id>')
+  // The result is itself a JSONata expression (string concatenation with `&`);
+  // single quotes are literal inside the JSONata double-quoted segments.
+  local serviceOnclick(route) =
+    '"@post(\'/sse/action/" & (' + route + ') & "/" & $entity_id & "\')"',
 
-  // Tap presets: pass as `tap=` to make a card call a service on click.
-  //   toggleTap     -> action resolved from the entity's domain (the default).
-  //   serviceTap(a) -> explicit "<domain>/<service>" override, e.g. "lock/lock".
-  toggleTap:: {},
-  serviceTap(action):: { action: action },
+  // A CONSTANT click expression (no live value), as a JSONata string literal.
+  // `js` must use only single quotes so it is safe inside JSONata double quotes.
+  local constOnclick(js) = '"' + js + '"',
+
+  // The default tap descriptor (domain-resolved service call).
+  local defaultTap = { onclick: serviceOnclick(defaultRoute) },
+
+  // Add the `onclick` slot for a tap descriptor carrying one (service / popup /
+  // navigate); empty for an inline-surface descriptor (the backend fills onclick
+  // when it hoists the inline popup — see DashboardBuild.hoistInlineSurfaces).
+  local tapSlot(tap, eo) =
+    if tap != null && std.objectHas(tap, 'onclick') then
+      { onclick: { entity: eo.entity_id, transform: tap.onclick } }
+    else {},
+
+  // Attach the inline-surface marker (a node-level field the backend hoists into
+  // the `surfaces` registry, rewriting it to a `surface/open/<id>` onclick).
+  local tapInline(tap) =
+    if tap != null && std.objectHas(tap, 'inlineSurface') then
+      { inlineSurface: tap.inlineSurface } else {},
+
+  // Tap descriptors: pass as `tap=`/`action=` to give a card a click action.
+  //   toggleTap        -> service call resolved from the entity's domain (default).
+  //   serviceTap(a)    -> explicit "<domain>/<service>" override, e.g. "lock/lock".
+  //   openPopup(id)    -> open the surface registered under `id`.
+  //   openPopup(node)  -> inline popup content; the backend hoists it to a surface.
+  //   closePopup(id)   -> close that surface (drop a close button inside it).
+  //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
+  toggleTap:: defaultTap,
+  serviceTap(action):: { onclick: serviceOnclick('"' + action + '"') },
+  openPopup(target, group=null, mount=null)::
+    if std.isString(target) then
+      { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
+    else
+      { inlineSurface: {
+        content: target,
+        [if group != null then 'group']: group,
+        [if mount != null then 'mount']: mount,
+      } },
+  closePopup(id):: { onclick: constOnclick('@post(\'/sse/surface/close/' + id + '\')') },
+  navigate(slug):: { onclick: constOnclick(
+    '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
+  ) },
 
   // HA-like entity card.
   //   attribute  null -> the entity's state, else a named attribute to show.
@@ -188,10 +236,8 @@
       },
       [if secondary != null then 'secondary']:
         { entity: eo.entity_id, transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
-      [if tap != null then 'action']:
-        { entity: eo.entity_id, transform: tapAction(tap) },
-    },
-  },
+    } + tapSlot(tap, eo),
+  } + tapInline(tap),
 
   // Back-compat alias: the old read-only state card is just an entity card.
   stateCard(eo, label=null):: self.entityCard(eo, label=label),
@@ -205,23 +251,26 @@
     slots: {},
   },
 
-  // Generic service-call button. `action` is "<domain>/<service>"; null lets it
-  // default from the entity's domain (resolved in the backend), overridable.
-  button(eo, action=null, label=null):: {
-    kind: 'component',
-    card: 'button',
-    params: {
-      label: nameOf(eo, label),
-      entity_id: eo.entity_id,
-    },
-    entities: [],
-    slots: {
-      action: {
-        entity: eo.entity_id,
-        transform: if action != null then '"' + action + '"' else defaultToggleAction,
+  // Generic click button. `eo` is the entity (or null for an action with no
+  // entity — a popup open/close or a navigate); `action` is a tap descriptor
+  // (toggleTap / serviceTap / openPopup / navigate), null defaulting to a
+  // domain-resolved service call (which needs an entity). `entity_id` is only set
+  // when there's an entity; the onclick slot reads it via `$entity_id` (unused by
+  // a constant popup/navigate expression, so `''` is fine when absent).
+  button(eo=null, action=null, label=null):: (
+    local tap = if action == null then defaultTap else action;
+    local entity = if eo != null then eo.entity_id else '';
+    {
+      kind: 'component',
+      card: 'button',
+      params: {
+        label: nameOf(eo, label),
+        [if eo != null then 'entity_id']: eo.entity_id,
       },
-    },
-  },
+      entities: [],
+      slots: tapSlot(tap, { entity_id: entity }),
+    } + tapInline(tap)
+  ),
 
   // `action` is the slider's "<domain>/<service>" (e.g. "light/turn_on"); `key`
   // the service_data key the value rides on (e.g. "brightness").
@@ -278,18 +327,18 @@
       value: { entity: '$self', transform: valueTransform(attribute, transform), bypassUnavailable: true },
       [if secondary != null then 'secondary']:
         { entity: '$self', transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
-      [if tap != null then 'action']: { entity: '$self', transform: tapAction(tap) },
-    },
+    } + tapSlot(tap, { entity_id: '$self' }),
   ),
 
-  // `action` null -> resolved from the matched entity's domain; else an explicit
-  // "<domain>/<service>" override.
-  dynButton(when, action=null):: self.case(when, 'button', {}, {
-    action: {
-      entity: '$self',
-      transform: if action != null then '"' + action + '"' else defaultToggleAction,
-    },
-  }),
+  // `tap` is a tap descriptor (toggleTap / serviceTap / openPopup / navigate);
+  // null defaults to a service call resolved from the matched entity's domain.
+  // The renderer rebinds the '$self' slot entity to each matched entity.
+  dynButton(when, tap=null):: self.case(
+    when,
+    'button',
+    {},
+    tapSlot(if tap == null then defaultTap else tap, { entity_id: '$self' }),
+  ),
   dynSlider(when, action, key, attr, min, max):: self.case(
     when,
     'slider',

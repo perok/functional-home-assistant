@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
 import io.circe.parser
 import io.circe.syntax.*
 
@@ -109,10 +109,11 @@ class BuildPhaseSuite extends munit.FunSuite {
       clue = importNames
     )
 
-    // `decode`'s normalization lets `c.row(child)` (single child, no array) work.
+    // `decode`'s pipeline: normalize single children, then hoist inline popups
+    // into the surfaces registry, then decode.
     val dashboard = result.flatMap(r =>
       DashboardBuild
-        .normalizeChildren(r.value)
+        .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
         .as[Dashboard]
         .left
         .map(_.getMessage)
@@ -192,6 +193,89 @@ class BuildPhaseSuite extends munit.FunSuite {
     val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
     assert(!errs.exists(_.contains("missing params: id")), clue = errs)
+  }
+
+  test("hoistInlineSurfaces lifts an inline popup into the surfaces registry") {
+    val json = parser
+      .parse("""
+        {
+          "cards": {},
+          "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "component", "card": "button",
+                "params": { "label": "More", "entity_id": "light.x" },
+                "entities": [],
+                "inlineSurface": { "content": { "kind": "component", "card": "card" } } }
+            ]
+          }
+        }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
+
+    // a single surface was created, id derived from the trigger's position
+    val keys = hoisted.downField("surfaces").keys.map(_.toList).getOrElse(Nil)
+    assertEquals(keys.size, 1, clue = keys)
+    val id = keys.head
+
+    // the trigger lost its marker and gained a `surface/open/<id>` onclick
+    val trigger = hoisted.downField("card").downField("children").downN(0)
+    assert(
+      trigger.downField("inlineSurface").failed,
+      clue = "marker not removed"
+    )
+    assertEquals(
+      trigger
+        .downField("slots")
+        .downField("onclick")
+        .get[String]("transform")
+        .toOption,
+      Some("\"@post('/sse/surface/open/" + id + "')\"")
+    )
+    // the moved content lives under the new surface id
+    assertEquals(
+      hoisted
+        .downField("surfaces")
+        .downField(id)
+        .downField("content")
+        .get[String]("card")
+        .toOption,
+      Some("card")
+    )
+  }
+
+  test("validate checks card references inside a surface") {
+    val d = Dashboard(
+      cards = Map("ok" -> CardDef("<i>{{label}}</i>", params = List("label"))),
+      card = LayoutNode.Component("ok", params = Map("label" -> "x")),
+      surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
+    )
+    val errs = d.validate()
+    assert(
+      errs.exists(e => e.contains("surface 'p'") && e.contains("unknown card")),
+      clue = errs
+    )
+  }
+
+  test(
+    "validate reports a slot whose transform fails to compile (blocks load)"
+  ) {
+    val d = Dashboard(
+      cards =
+        Map("card" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
+      card = LayoutNode.Component(
+        "card",
+        entities = List("e.x"),
+        // unterminated string literal -> JSONata compile failure
+        slots = Map("state" -> SlotSource("e.x", transform = "'unclosed"))
+      )
+    )
+    assert(
+      d.validate().exists(_.contains("invalid transform")),
+      clue = d.validate()
+    )
   }
 
   test("validate reports a reference to an unknown card") {

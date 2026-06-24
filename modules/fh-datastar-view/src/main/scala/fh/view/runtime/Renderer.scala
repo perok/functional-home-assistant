@@ -6,7 +6,8 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  SlotSource
+  SlotSource,
+  Surface
 }
 
 /** Renders the recursive dashboard layout tree from current entity state.
@@ -20,6 +21,13 @@ import fh.view.model.{
   * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
   * [[componentsFor]] + [[dynamicContainerIds]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
+  *
+  * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
+  * rendered on demand by [[renderSurface]] and kept live only while a
+  * connection has them open. Their node ids are namespaced (`s_<id>__…`) so
+  * they never collide with the main page; [[surfaceComponentsFor]] /
+  * [[surfaceDynamicIds]] are the surface-scoped equivalents of the main-page
+  * update indices.
   */
 class Renderer(
     dashboard: Dashboard,
@@ -27,44 +35,77 @@ class Renderer(
     transforms: Transforms
 ) {
 
-  /** Every addressable node keyed by its generated id, paired with its path
-    * (needed to re-render a container's children by id).
+  /** An addressable index over one layout tree; generated ids carry `idPrefix`
+    * (empty for the main page, `s_<id>__` for a surface).
     */
-  private val indexed: Map[String, (LayoutNode, List[Int])] = {
-    def walk(
-        node: LayoutNode,
-        path: List[Int]
-    ): List[(String, (LayoutNode, List[Int]))] = {
-      val self = LayoutNode.pathId(path) -> (node, path)
-      node match {
-        case c: LayoutNode.Component =>
-          self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
-            walk(ch, path :+ i)
-          }
-        case _: LayoutNode.Dynamic => List(self)
+  private class Index(root: LayoutNode, val idPrefix: String) {
+    val indexed: Map[String, (LayoutNode, List[Int])] = {
+      def walk(
+          node: LayoutNode,
+          path: List[Int]
+      ): List[(String, (LayoutNode, List[Int]))] = {
+        val self = (idPrefix + LayoutNode.pathId(path)) -> (node, path)
+        node match {
+          case c: LayoutNode.Component =>
+            self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
+              walk(ch, path :+ i)
+            }
+          case _: LayoutNode.Dynamic => List(self)
+        }
       }
+      walk(root, Nil).toMap
     }
-    walk(dashboard.card, Nil).toMap
+
+    val byEntity: Map[String, Set[String]] =
+      indexed.toList
+        .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
+        .flatMap { case (id, c) => c.entities.map(_ -> id) }
+        .groupMap(_._1)(_._2)
+        .view
+        .mapValues(_.toSet)
+        .toMap
+
+    val dynamicIds: List[String] =
+      indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
   }
 
-  /** Reverse index: entityId -> components that depend on it. */
-  private val byEntity: Map[String, Set[String]] =
-    indexed.toList
-      .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
-      .flatMap { case (id, c) => c.entities.map(_ -> id) }
-      .groupMap(_._1)(_._2)
-      .view
-      .mapValues(_.toSet)
-      .toMap
+  private val mainIndex = new Index(dashboard.card, "")
 
-  /** Dynamic group container ids — re-evaluated on every state change (their
-    * membership is data-dependent, so they can't be reverse-indexed).
+  private val surfaceIndexes: Map[String, Index] =
+    dashboard.surfaces.map { case (sid, s) =>
+      sid -> new Index(s.content, Renderer.surfacePrefix(sid))
+    }
+
+  /** Every addressable node (main + all surfaces) keyed by its generated id,
+    * paired with its path and the id prefix needed to re-render it.
     */
-  val dynamicContainerIds: List[String] =
-    indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
+  private val allIndexed: Map[String, (LayoutNode, List[Int], String)] =
+    (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
+      idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
+    }.toMap
+
+  /** Dynamic group container ids on the main page — re-evaluated on every state
+    * change (their membership is data-dependent, so they can't be
+    * reverse-indexed).
+    */
+  val dynamicContainerIds: List[String] = mainIndex.dynamicIds
 
   def componentsFor(entityId: String): Set[String] =
-    byEntity.getOrElse(entityId, Set.empty)
+    mainIndex.byEntity.getOrElse(entityId, Set.empty)
+
+  /** Main-page node ids whose HTML this entity drives, scoped to one surface.
+    */
+  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[String] =
+    surfaceIndexes
+      .get(surfaceId)
+      .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
+
+  def surfaceDynamicIds(surfaceId: String): List[String] =
+    surfaceIndexes.get(surfaceId).fold(List.empty)(_.dynamicIds)
+
+  /** The surface's declaration (content/group/mount), if it exists. */
+  def surface(surfaceId: String): Option[Surface] =
+    dashboard.surfaces.get(surfaceId)
 
   /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
   def stylesheets: List[String] = dashboard.theme.stylesheets
@@ -72,8 +113,8 @@ class Renderer(
   /** The theme as one `<style>` block: design tokens as `:root` custom
     * properties (dark overrides under `@media (prefers-color-scheme: dark)`, so
     * the page follows the browser) followed by the theme's inline `styles`.
-    * Lives inside the patched page so a live reload repaints it. Empty when the
-    * theme carries no tokens or styles.
+    * Lives inside the patched body so a live reload (or a navigate swap)
+    * repaints it. Empty when the theme carries no tokens or styles.
     */
   private val themeStyle: String = {
     val theme = dashboard.theme
@@ -95,33 +136,63 @@ class Renderer(
     if (parts.isEmpty) "" else parts.mkString("<style>", "", "</style>")
   }
 
-  /** Render the full page as the walked layout tree. The root carries
-    * `id="dashboard"` so a live reload can patch the whole page in place.
+  /** The dashboard body: theme + the walked layout tree, without the page
+    * shell. This is what a navigate swap `inner`-patches into the stable
+    * `#dashboard` container (so navigation also swaps the theme).
+    */
+  def renderBody(states: Map[String, EntityState]): String =
+    s"$themeStyle${render(dashboard.card, Nil, "", states)}"
+
+  /** The full page: a stable shell (`#dashboard` body + `#popups` overlay
+    * mount) so in-place navigation and popups have fixed patch targets.
     */
   def renderPage(states: Map[String, EntityState]): String =
-    s"""<main class="container" id="dashboard">$themeStyle${render(
-        dashboard.card,
-        Nil,
+    s"""<main class="container" id="dashboard">${renderBody(
         states
-      )}</main>"""
+      )}</main><div id="popups"></div>"""
 
-  /** Render a single addressable node (for live SSE patches). */
+  /** Render a surface wrapped in its mount element — a `<dialog open>` carrying
+    * the surface's root id (`s_<id>`), so closing can `remove` it by selector.
+    * `None` if the surface id is unknown.
+    */
+  def renderSurface(
+      surfaceId: String,
+      states: Map[String, EntityState]
+  ): Option[String] =
+    dashboard.surfaces.get(surfaceId).map { s =>
+      val inner =
+        render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
+      // The wrapper supplies a close control wired to the (backend-known) id, so
+      // inline popups close without the author knowing the generated id. Authors
+      // can still add their own `closePopup(id)` button to a registered surface.
+      val close =
+        s"""<button class="popup-close" data-on:click="@post('/sse/surface/close/$surfaceId')">✕</button>"""
+      s"""<dialog id="${Renderer.surfaceRootId(
+          surfaceId
+        )}" open class="popup">$close$inner</dialog>"""
+    }
+
+  /** Render a single addressable node (for live SSE patches), main or surface.
+    */
   def renderNodeById(
       id: String,
       states: Map[String, EntityState]
   ): Option[String] =
-    indexed.get(id).map { case (node, path) => render(node, path, states) }
+    allIndexed.get(id).map { case (node, path, prefix) =>
+      render(node, path, prefix, states)
+    }
 
   private def render(
       node: LayoutNode,
       path: List[Int],
+      idPrefix: String,
       states: Map[String, EntityState]
   ): String =
     node match {
       case c: LayoutNode.Component =>
-        val id = LayoutNode.pathId(path)
+        val id = idPrefix + LayoutNode.pathId(path)
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
-          render(child, path :+ i, states)
+          render(child, path :+ i, idPrefix, states)
         }
         // `id` stays available to the template (e.g. the slider derives its
         // signal name from it) even though it is no longer the morph target.
@@ -140,7 +211,7 @@ class Renderer(
           s"""<div class="fh-cell" id="$id">$html</div>"""
         else html
       case d: LayoutNode.Dynamic =>
-        renderDynamic(LayoutNode.pathId(path), d, states)
+        renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
     }
 
   private def renderDynamic(
@@ -234,6 +305,15 @@ object Renderer {
       Transforms.from(dashboard)
     )
 
+  /** Id prefix for a surface's inner nodes (`s_<id>__c_0`). */
+  def surfacePrefix(surfaceId: String): String =
+    s"${surfaceRootId(surfaceId)}__"
+
+  /** A surface's mount/root element id (`s_<id>`) — the `remove` selector on
+    * close.
+    */
+  def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
+
   /** Slug an entity id into a valid HTML id fragment. */
   def sanitize(entityId: String): String =
     entityId.replaceAll("[^A-Za-z0-9_]", "_")
@@ -254,7 +334,7 @@ object Renderer {
       childrenHtml.foreach(h =>
         list.add(java.util.Collections.singletonMap("html", h))
       )
-      m.put("children", list)
+      val _ = m.put("children", list)
     }
     m
   }
