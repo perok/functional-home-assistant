@@ -131,25 +131,6 @@
     },
   },
 
-  // ---- query AST helpers (Predicate) ----
-  cmp(property, op, value):: { kind: 'cmp', property: property, op: op, value: value },
-  and(items):: { kind: 'and', items: items },
-  or(items):: { kind: 'or', items: items },
-  pnot(item):: { kind: 'not', item: item },
-  // Matches every entity (domain is never literally this sentinel).
-  always:: self.cmp('domain', 'ne', '__never__'),
-  whenDomain(d):: self.cmp('domain', 'eq', d),
-  whenDeviceClass(cls):: self.cmp('attr:device_class', 'eq', cls),
-  // e.g. attrLessThan('battery_level', 20)
-  attrLessThan(attr, value):: self.cmp('attr:' + attr, 'lt', value),
-  stateLessThan(value):: self.cmp('state', 'lt', value),
-  // Battery sensors expose the % as their STATE with device_class "battery"
-  // (non-numeric states like "unavailable" simply don't match `state < x`).
-  lowBattery(threshold):: self.and([
-    self.whenDeviceClass('battery'),
-    self.stateLessThan(threshold),
-  ]),
-
   // ---- layout container builders (templated components with children) ----
   row(children):: { kind: 'component', card: 'fhrow', children: children },
   column(children):: { kind: 'component', card: 'fhcol', children: children },
@@ -394,51 +375,82 @@
   brightnessSlider(eo, label=null)::
     self.slider(eo, 'light/turn_on', 'brightness', 'brightness', 1, 255, label=label),
 
-  // ---- dynamic group ----
-  // A case: entities matching the group query render with the FIRST case whose
-  // `when` matches. `id`/`entity`/`label` are auto-injected per matched entity;
-  // dynamic slots use a placeholder entity (rebound at render). For a dynamic
-  // slider, the value attribute lives in `slots`, the static config in `params`.
-  case(when, card, params={}, slots={}):: {
-    when: when,
-    card: card,
-    params: params,
-    slots: slots,
-  },
+  // ---- dynamic groups (the whole DSL, namespaced under `dynamic`) ----
+  // A dynamic group renders one card PER live entity matching a `query`,
+  // optionally dispatching the card per entity. The matched entity's
+  // id/entity_id/label are auto-injected and EVERY slot is rebound to it (see
+  // Renderer.renderCase) — so a case is built with the SAME leaf builders as a
+  // static card, just passing `dynamic.matched` as the entity. That is why there
+  // are no `dyn*` builders: `c.entityCard`/`c.button`/`c.slider` (+ presets)
+  // serve both static and dynamic use.
+  //
+  // Usage (alias `local d = c.dynamic;`):
+  //   d.group(d.whenState('on'), d.when([
+  //     d.case(d.whenDomain('light'), c.brightnessSlider(d.matched)),
+  //   ], fallback=c.entityCard(d.matched, tap=c.toggleTap)))
+  //   d.group(d.lowBattery(20), c.entityCard(d.matched))   // single card
+  //
+  // `self` inside the nested object-literal bodies (when/group) rebinds to that
+  // object, so they reach siblings via `$.dynamic.*` (the library root).
+  dynamic:: {
+    // ---- query predicates (the Predicate AST) ----
+    cmp(property, op, value):: { kind: 'cmp', property: property, op: op, value: value },
+    and(items):: { kind: 'and', items: items },
+    or(items):: { kind: 'or', items: items },
+    pnot(item):: { kind: 'not', item: item },
+    // Matches every entity (domain is never literally this sentinel).
+    always:: self.cmp('domain', 'ne', '__never__'),
+    whenDomain(d):: self.cmp('domain', 'eq', d),
+    whenState(s):: self.cmp('state', 'eq', s),
+    whenDeviceClass(cls):: self.cmp('attr:device_class', 'eq', cls),
+    // e.g. attrLessThan('battery_level', 20)
+    attrLessThan(attr, value):: self.cmp('attr:' + attr, 'lt', value),
+    stateLessThan(value):: self.cmp('state', 'lt', value),
+    // Battery sensors expose the % as their STATE with device_class "battery"
+    // (non-numeric states like "unavailable" simply don't match `state < x`).
+    lowBattery(threshold):: self.and([
+      self.whenDeviceClass('battery'),
+      self.stateLessThan(threshold),
+    ]),
 
-  // Convenience cases for the built-in cards inside a dynamic group. Slots use
-  // the '$self' placeholder entity; the renderer rebinds it to each matched
-  // entity (and auto-injects id/entity/label) — see Renderer.renderCase.
-  dynEntityCard(when, attribute=null, transform=null, secondary=null, tap=null):: self.case(
-    when,
-    'entityCard',
-    { [if tap != null then 'tappable']: '1' },
-    {
-      value: { entity: '$self', transform: valueTransform(attribute, transform), bypassUnavailable: true },
-      [if secondary != null then 'secondary']:
-        { entity: '$self', transform: '$attr.' + secondary, default: '', bypassUnavailable: true },
-    } + tapSlot(tap, { entity_id: '$self' }),
-  ),
+    // The placeholder "current entity" for a case. Any leaf builder takes it like
+    // a real dump entity; '$self' is rebound to each match at render time.
+    // (`friendly_name` is unused — the renderer injects the matched label.)
+    matched:: { entity_id: '$self', friendly_name: '' },
 
-  // `tap` is a tap descriptor (toggleTap / serviceTap / openPopup / navigate);
-  // null defaults to a service call resolved from the matched entity's domain.
-  // The renderer rebinds the '$self' slot entity to each matched entity.
-  dynButton(when, tap=null):: self.case(
-    when,
-    'button',
-    {},
-    tapSlot(if tap == null then defaultTap else tap, { entity_id: '$self' }),
-  ),
-  dynSlider(when, action, key, attr, min, max):: self.case(
-    when,
-    'slider',
-    { min: '' + min, max: '' + max, key: key },
-    {
-      state: { entity: '$self', bypassUnavailable: true },
-      value: { entity: '$self', transform: '$attr.' + attr, default: '0' },
-      action: { entity: '$self', transform: '"' + action + '"' },
+    // One branch: a predicate + the card (built against `matched`) to render when
+    // it matches. Keeps the card + its slots; drops the per-entity params the
+    // renderer injects (entity_id/label) and the unused entities/children.
+    case(when, node):: {
+      when: when,
+      card: node.card,
+      params: {
+        [k]: node.params[k]
+        for k in std.objectFields(node.params)
+        if k != 'entity_id' && k != 'label'
+      },
+      slots: node.slots,
     },
-  ),
 
-  dynamic(query, cases):: { kind: 'dynamic', query: query, cases: cases },
+    // Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
+    // the card; `fallback` is the card for entities matching no branch (omitted ⇒
+    // they render nothing). Pass the result as the single card of `group`.
+    // (`fallback`, not `else` — `else` is a jsonnet keyword.)
+    when(branches, fallback=null):: {
+      cases: branches +
+             (if fallback != null then [$.dynamic.case($.dynamic.always, fallback)] else []),
+    },
+
+    // A dynamic group: render ONE `card` for every live entity matching `query`.
+    // `card` is a single leaf (built against `matched`) or a `when(...)` selector
+    // for per-entity dispatch. Either lowers to the runtime `Dynamic(query,
+    // cases)` model.
+    group(query, card):: {
+      kind: 'dynamic',
+      query: query,
+      cases:
+        if std.objectHas(card, 'cases') then card.cases
+        else [$.dynamic.case($.dynamic.always, card)],
+    },
+  },
 }

@@ -125,13 +125,13 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(d.cards.contains("entityCard"), clue = d.cards.keySet)
     assert(d.cards.contains("button"), clue = d.cards.keySet)
     assert(d.cards.contains("slider"), clue = d.cards.keySet)
-    // Recursive layout: top-level container (column) with exactly one dynamic
-    // group somewhere inside.
+    // Recursive layout: top-level container (column) with the two dynamic
+    // groups (per-domain dispatch + low-battery) somewhere inside.
     assertEquals(
       d.card.asInstanceOf[LayoutNode.Component].card,
       "fhcol"
     )
-    assertEquals(dynamics(d.card).size, 1)
+    assertEquals(dynamics(d.card).size, 2)
     // The theme carries tokens (+ dark overrides) AND its stylesheets/CSS, so
     // the CSS framework (Pico) is a theme property, not baked into the app.
     assert(

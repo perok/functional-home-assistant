@@ -9,6 +9,7 @@
 // re-skin the whole dashboard by editing/replacing those Mustache templates (or
 // importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
+local d = c.dynamic;  // the dynamic-group DSL (query predicates + group/when/case)
 local dump = import 'dump.libsonnet';
 local theme = import 'theme.libsonnet';
 local entities = std.objectValues(dump.entities);
@@ -103,13 +104,24 @@ local entities = std.objectValues(dump.entities);
       for eo in entities if eo.domain == 'sensor'
     ]),
 
-    // DYNAMIC group: every `device_class: battery` sensor whose state (the
-    // battery %) is under 20, evaluated live. Membership tracks the threshold
-    // as batteries drain.
+    // DYNAMIC group with PER-DOMAIN dispatch. `d.group(query, card)` renders one
+    // card per live entity matching `query`; here the card is a `d.when`
+    // selector, so the FIRST matching branch picks it — lights get a brightness
+    // slider, switches a toggle, everything else (the `fallback`) a tappable
+    // entity card. Membership AND the chosen card track live state. Branches
+    // reuse the SAME leaf builders as static cards, with `d.matched` as the
+    // entity (no separate dyn* builders). The whole DSL is namespaced under
+    // `c.dynamic` (aliased `d` above).
+    c.sectionTitle('Active now'),
+    d.group(d.whenState('on'), d.when([
+      d.case(d.whenDomain('light'), c.brightnessSlider(d.matched)),
+      d.case(d.whenDomain('switch'), c.toggle(d.matched)),
+    ], fallback=c.entityCard(d.matched, tap=c.toggleTap))),
+
+    // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
+    // `device_class: battery` sensor under 20%, tracked live as batteries drain.
+    // No dispatch needed, so the card is just a leaf.
     c.sectionTitle('Low battery'),
-    c.dynamic(
-      c.lowBattery(20),
-      [c.dynEntityCard(c.always)]
-    ),
+    d.group(d.lowBattery(20), c.entityCard(d.matched)),
   ]),
 }

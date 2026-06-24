@@ -5,3 +5,5 @@ weighed, and the outcome. Supersede an old ADR with a new one rather than editin
 history. Numbered sequentially.
 
 - [0001 — Entity card + per-slot value transforms via JSONata](0001-entity-card-and-value-transforms.md)
+- [0002 — Multiple dashboards, popup surfaces, and in-place navigation](0002-multi-dashboard-popups-and-navigation.md)
+- [0003 — Dynamic groups: live membership + per-entity card dispatch](0003-dynamic-groups.md)
