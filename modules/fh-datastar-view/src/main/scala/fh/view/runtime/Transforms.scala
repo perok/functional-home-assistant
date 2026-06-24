@@ -5,14 +5,13 @@ import fh.view.model.{Dashboard, LayoutNode, SlotSource, Transform}
 /** The slot value-transform library, pre-compiled once at startup (never on the
   * hot path) — the JSONata counterpart to [[Templates]].
   *
-  * Every distinct [[SlotSource.transform]] in the layout is compiled here and
-  * thereafter only looked up, so the renderer never parses JSONata while
-  * rendering. A transform that fails to compile is an invariant breach:
-  * [[Dashboard.validate]] runs before any renderer is built and rejects (and
-  * locates) bad expressions, so reaching this with an uncompilable one means
-  * validation was bypassed — it fails loudly here, at setup, rather than mid
-  * render. This mirrors [[Templates.from]], where a malformed template string
-  * would likewise fail at compile time.
+  * Every distinct [[SlotSource.transform]] in the layout (and in every surface)
+  * is compiled here and thereafter only looked up, so the renderer never parses
+  * JSONata while rendering. A transform that fails to compile is an invariant
+  * breach: [[Dashboard.validate]] runs before any renderer is built and rejects
+  * (and locates) bad expressions, so reaching this with an uncompilable one
+  * means validation was bypassed — it fails loudly here, at setup, rather than
+  * mid render or by silently blanking a value.
   */
 class Transforms private (
     private val compiled: Map[String, Transform.Compiled]
@@ -35,7 +34,12 @@ object Transforms {
         c.slots.values.toList ++ c.children.flatMap(slotsOf)
       case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
     }
-    val compiled = slotsOf(dashboard.card)
+    // Surfaces (popups) carry their own slots — compile those too, else opening a
+    // popup would hit an uncompiled transform.
+    val allSlots =
+      slotsOf(dashboard.card) ++
+        dashboard.surfaces.values.flatMap(s => slotsOf(s.content))
+    val compiled = allSlots
       .map(_.transform)
       .distinct
       .map { t =>

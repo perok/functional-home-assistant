@@ -169,28 +169,56 @@ case class Theme(
     styles: String = ""
 ) derives ConfiguredCodec
 
+/** A lazily-activated render subtree mounted on demand — a popup today, a tab
+  * panel later. Registered in [[Dashboard.surfaces]] keyed by id; a component's
+  * click action (`surface/open/<id>`) opens it. The backend renders + streams
+  * it only while a connection has it open (see `Renderer.renderSurface` and the
+  * per-connection session in `Server`).
+  *
+  *   - `content`: the surface's own layout tree (same node vocabulary as
+  *     [[Dashboard.card]]).
+  *   - `group`: optional exclusivity group — opening a surface closes any other
+  *     open surface sharing its group (modal stacks of one; the basis for
+  *     tabs). Absent ⇒ stackable independently.
+  *   - `mount`: optional target container id to render into; absent ⇒ the
+  *     page's overlay popup mount (`#popups`). A tab panel would point at an
+  *     inline mount instead.
+  */
+case class Surface(
+    content: LayoutNode,
+    group: Option[String] = None,
+    mount: Option[String] = None
+) derives ConfiguredCodec
+
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
+  *   - `slug`: the dashboard's stable id (its route is `/d/<slug>`; navigation
+  *     targets it). ServerApp defaults it from the entry filename.
   *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
   *   - `theme`: all presentation (tokens + stylesheets + CSS); see [[Theme]].
   *   - `card`: the root of the recursive layout tree (itself a card, usually a
   *     container). Component HTML is composed in Scala (see `Renderer`), not
   *     via mustache layout placeholders.
+  *   - `surfaces`: the popup/tab subtrees, keyed by id (see [[Surface]]).
   */
 case class Dashboard(
     cards: Map[String, CardDef],
     card: LayoutNode,
-    theme: Theme = Theme()
+    theme: Theme = Theme(),
+    surfaces: Map[String, Surface] = Map.empty,
+    slug: String = "dashboard"
 ) derives ConfiguredCodec:
 
-  /** Validate that every card reference resolves and supplies the inputs the
-    * card's template declares. Returns human-readable errors (empty = valid).
+  /** Validate that every card reference resolves, supplies the params/slots the
+    * card's template declares, and that each slot's `transform` is compilable
+    * JSONata. Returns human-readable errors (empty = valid).
     *
-    * `locateTransform` maps a transform expression back to a source location
-    * (e.g. `dashboard.jsonnet:42`) for friendlier errors. Jsonnet evaluation
-    * erases positions, so the build phase supplies a best-effort locator that
-    * greps the jsonnet sources for the literal; the default ignores it (the
-    * model stays pure and source-agnostic).
+    * A transform that fails to compile is a **hard** error: the dashboard does
+    * not load (the build/reload fails with the message, and live-reload keeps
+    * the previous working renderer) — better than swapping in a dashboard whose
+    * values silently blank out. `locateTransform` maps a transform back to a
+    * source location (e.g. `dashboard.jsonnet:42`) for a friendlier error; the
+    * default ignores it (the model stays source-agnostic).
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
@@ -261,7 +289,13 @@ case class Dashboard(
             ) ++ slotErrors(nodeId, c.slots)
           }
 
-    walk(card, Nil)
+    // The main layout, then every surface's content tree (so card refs / params
+    // / slots / transforms inside popups are checked too). Surface errors are
+    // prefixed with the surface id for locatability.
+    walk(card, Nil) ++
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
+        walk(surface.content, Nil).map(err => s"surface '$sid': $err")
+      }
 
 object Dashboard:
   /** Backend-injected param names available to a *static* component: only the

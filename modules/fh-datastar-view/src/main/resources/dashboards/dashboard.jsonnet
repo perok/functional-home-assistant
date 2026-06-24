@@ -34,16 +34,43 @@ local entities = std.objectValues(dump.entities);
   // so the app isn't tied to a CSS framework. See theme.libsonnet.
   theme: theme,
   // The root of the view is itself a card (here a column container).
+  // Surfaces (popups): lazily mounted subtrees, opened by a component's
+  // openPopup(<id>) action and rendered/streamed only while open. `group` makes
+  // members mutually exclusive (the basis for tabs); absent = stackable.
+  surfaces: {
+    detail: {
+      content: c.column([
+        c.sectionTitle('Power detail'),
+        c.entityCard(dump.entities.sensor_ams_1a4e_p),
+        c.button(action=c.closePopup('detail'), label='Close'),
+      ]),
+      group: 'modal',
+    },
+  },
+
   card: c.column([
     // TODO config parameters for card, vs properties of valuest to show
     c.sectionTitle('Dashboard'),
 
-    // A single child may be passed without an array (normalized in the backend).
-    // Round the state to 1 decimal and append the entity's own unit (JSONata in
-    // the backend; $state is the value, $attr its attributes — same-entity only).
-    c.row(c.entityCard(
-      dump.entities.sensor_ams_1a4e_p,
-    )),
+    // Cross-dashboard navigation: in-place swap to /d/energy (URL updates too).
+    c.row([
+      c.button(action=c.navigate('energy'), label='Energy »'),
+    ]),
+
+    // Tapping the first card opens the registered 'detail' popup; the second
+    // opens an INLINE popup (the backend hoists its content into a surface and
+    // its close control is supplied by the popup wrapper).
+    c.row([
+      c.entityCard(dump.entities.sensor_ams_1a4e_p, tap=c.openPopup('detail')),
+      c.entityCard(
+        dump.entities.sensor_ams_1a4e_p,
+        label='Inline popup',
+        tap=c.openPopup(c.column([
+          c.sectionTitle('Inline detail'),
+          c.entityCard(dump.entities.sensor_ams_1a4e_p),
+        ])),
+      ),
+    ]),
 
     c.sectionTitle('Kitchen'),
     // A row of light toggles, then a row of brightness sliders.
