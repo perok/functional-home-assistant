@@ -40,6 +40,7 @@ object Transforms {
       slotsOf(dashboard.card) ++
         dashboard.surfaces.values.flatMap(s => slotsOf(s.content))
     val compiled = allSlots
+      .filter(_.literal.isEmpty) // constant literals carry no transform
       .map(_.transform)
       .distinct
       .map { t =>

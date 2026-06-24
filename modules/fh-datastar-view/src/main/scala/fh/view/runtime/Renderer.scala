@@ -304,28 +304,33 @@ class Renderer(
       case None => "" // TODO should be a hard failure?
       case Some(tpl) =>
         val resolved = slots.map { case (slot, source) =>
-          // An entity-bound slot resolves against its entity's state (even before
-          // any state has arrived — so identity-derived slots like a `$domain`
-          // action still resolve; missing state is an empty state). A constant
-          // slot (`entityId = None`, e.g. a literal label) reads no entity, so it
-          // resolves against an empty state and builds no attribute context.
-          // TODO should throw or log a warning?
-          val st =
-            source.entityId
-              .flatMap(states.get)
-              .getOrElse(
-                EntityState(source.entityId.getOrElse(""), "", Map.empty)
-              )
-          val value =
-            // An unavailable/unknown entity on a value-display slot shows its raw
-            // state and never enters the transform — that bypass, not the
-            // transform, is what keeps such states readable. Identity slots leave
-            // it off so an action still resolves.
-            if (source.bypassUnavailable && st.unavailable) st.state
-            else {
-              val out = transforms.run(source.transform, st)
-              if (out.nonEmpty) out else source.default.getOrElse("")
-            }
+          val value = source.literal match {
+            // A constant literal: used verbatim, reading no entity and running no
+            // transform — the cheap path for a hardcoded label/action.
+            case Some(text) => text
+            case None       =>
+              // An entity-bound slot resolves against its entity's state (even
+              // before any state has arrived — so identity-derived slots like a
+              // `$domain` action still resolve; missing state is an empty state).
+              // A constant slot (`entityId = None`) reads no entity, so it
+              // resolves against an empty state and builds no attribute context.
+              // TODO should throw or log a warning?
+              val st =
+                source.entityId
+                  .flatMap(states.get)
+                  .getOrElse(
+                    EntityState(source.entityId.getOrElse(""), "", Map.empty)
+                  )
+              // An unavailable/unknown entity on a value-display slot shows its
+              // raw state and never enters the transform — that bypass, not the
+              // transform, is what keeps such states readable. Identity slots
+              // leave it off so an action still resolves.
+              if (source.bypassUnavailable && st.unavailable) st.state
+              else {
+                val out = transforms.run(source.transform, st)
+                if (out.nonEmpty) out else source.default.getOrElse("")
+              }
+          }
           slot -> value
         }
         tpl.execute(Renderer.javaContext(params ++ resolved, childrenHtml))
