@@ -90,16 +90,17 @@ class Renderer(
     */
   val dynamicContainerIds: List[String] = mainIndex.dynamicIds
 
-  /** Surfaces shown by default on the main page — each tabs container's first
-    * (`initial`) panel. A connection seeds its open set with these so the baked
-    * default tab receives live updates from the first paint (and on a navigate
-    * swap), with no user interaction.
+  /** Surfaces shown by default on the main page — the first (`initial`) panel
+    * of any component that declares one (a tabs container today). A connection
+    * seeds its open set with these so the baked default panel receives live
+    * updates from the first paint (and on a navigate swap), with no user
+    * interaction. Keyed on the structural `initial` param, not on a card name,
+    * so the backend stays card-agnostic.
     */
   val defaultOpenSurfaces: Set[String] =
     mainIndex.indexed.values
-      .collect {
-        case (c: LayoutNode.Component, _) if c.card == "tabs" =>
-          c.params.get("initial")
+      .collect { case (c: LayoutNode.Component, _) =>
+        c.params.get("initial")
       }
       .flatten
       .toSet
