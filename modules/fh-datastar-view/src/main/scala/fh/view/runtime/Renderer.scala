@@ -134,20 +134,15 @@ class Renderer(
   def affectedDynamicIds(change: StateChange): List[String] =
     mainIndex.dynamicIds.filter(dynamicAffected(_, change))
 
-  /** Surfaces shown by default on the main page — the first (`initial`) panel
-    * of any component that declares one (a tabs container today). A connection
-    * seeds its open set with these so the baked default panel receives live
-    * updates from the first paint (and on a navigate swap), with no user
-    * interaction. Keyed on the structural `initial` param, not on a card name,
-    * so the backend stays card-agnostic.
+  /** Surfaces shown from the first paint with no user action — every surface
+    * flagged [[Surface.defaultOpen]] (a tabs container's default panel today). A
+    * connection seeds its open set with these so the baked default panel
+    * receives live updates from the first paint (and on a navigate swap). Read
+    * straight off the surface registry, so the backend stays fully card-agnostic
+    * — no `initial` slot, no card name.
     */
   val defaultOpenSurfaces: Set[String] =
-    mainIndex.indexed.values
-      .collect { case (c: LayoutNode.Component, _) =>
-        c.slots.get("initial").flatMap(_.literal)
-      }
-      .flatten
-      .toSet
+    dashboard.surfaces.collect { case (sid, s) if s.defaultOpen => sid }.toSet
 
   def componentsFor(entityId: String): Set[String] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
@@ -285,15 +280,24 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states)
         }
-        // A tabs container bakes its `initial` panel inline via the SAME
+        // A tabs container bakes its default panel inline via the SAME
         // `renderSurface` path a later switch-back uses (chrome + surface-id
         // prefix), so the baked HTML and a switch match exactly — the first
-        // paint shows it with no open round-trip. `panel` is empty for every
-        // other component (the template ignores it).
+        // paint shows it with no open round-trip. The panel is the default-open
+        // surface that mounts into THIS component (its `mount` slot equals the
+        // surface's `mount`), so nothing card-specific is read — `panel` is empty
+        // for every component without a matching default-open surface.
         val panel = c.slots
-          .get("initial")
+          .get("mount")
           .flatMap(_.literal)
-          .flatMap(initId => renderSurface(initId, states))
+          .flatMap { mountId =>
+            dashboard.surfaces
+              .collectFirst {
+                case (sid, s) if s.defaultOpen && s.mount.contains(mountId) =>
+                  sid
+              }
+              .flatMap(renderSurface(_, states))
+          }
           .getOrElse("")
         // `id`/`panel` are backend-injected template vars (the author never
         // supplies them); `id` stays available to the template (e.g. the slider
@@ -441,18 +445,13 @@ object Renderer {
       Transforms.from(dashboard)
     )
 
-  /** Id prefix for a surface's inner nodes (`s_<id>__c_0`). */
+  // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
+  // and the renderer share one story; these delegate.
   def surfacePrefix(surfaceId: String): String =
-    s"${surfaceRootId(surfaceId)}__"
-
-  /** A surface's mount/root element id (`s_<id>`) — the `remove` selector on
-    * close.
-    */
-  def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
-
-  /** Slug an entity id into a valid HTML id fragment. */
-  def sanitize(entityId: String): String =
-    entityId.replaceAll("[^A-Za-z0-9_]", "_")
+    LayoutNode.surfacePrefix(surfaceId)
+  def surfaceRootId(surfaceId: String): String =
+    LayoutNode.surfaceRootId(surfaceId)
+  def sanitize(s: String): String = LayoutNode.sanitize(s)
 
   /** Build the jmustache context at the Java boundary: the string slot/param
     * context plus, when present, a `children` list of `{html}` maps for
@@ -475,6 +474,7 @@ object Renderer {
     m
   }
 
+  // TODO a macro for rawer performance?
   /** Evaluate a query predicate against one entity's live state. The entity's
     * id and domain come off the [[EntityState]] itself.
     */
@@ -506,7 +506,7 @@ object Renderer {
                   case Op.Lte => l <= r
                   case Op.Gt  => l > r
                   case Op.Gte => l >= r
-                  case _      => false
+                  case _      => false // TODO remove, no fallbacks necessary
                 }
               case _ => false
             }

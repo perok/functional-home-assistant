@@ -225,6 +225,23 @@ object LayoutNode:
   def pathId(path: List[Int]): String =
     if path.isEmpty then "c" else path.mkString("c_", "_", "")
 
+  /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
+    * fragment — also a valid Datastar signal-name fragment.
+    */
+  def sanitize(s: String): String = s.replaceAll("[^A-Za-z0-9_]", "_")
+
+  /** A surface's mount/root element id (`s_<id>`) — the live-patch target and
+    * the `remove` selector on close.
+    */
+  def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
+
+  /** Id prefix for a surface's inner nodes, so they never collide with the main
+    * page (`s_<id>__` + [[pathId]] ⇒ `s_<id>__c_0`). This is the SAME scheme the
+    * build-phase hoist uses to name a surface's content, so a node's build-time
+    * id namespace and its render-time `{{id}}` are one story.
+    */
+  def surfacePrefix(surfaceId: String): String = s"${surfaceRootId(surfaceId)}__"
+
 /** The dashboard's presentation, owned entirely by the theme (so the app isn't
   * tied to any particular CSS framework — e.g. Pico is just a `stylesheets`
   * entry here, not baked into the server).
@@ -260,11 +277,20 @@ case class Theme(
   *   - `mount`: optional target container id to render into; absent ⇒ the
   *     page's overlay popup mount (`#popups`). A tab panel would point at an
   *     inline mount instead.
+  *   - `defaultOpen`: shown from the first paint without a user action — the
+  *     tabs default panel is this. The connection seeds its open set with every
+  *     default-open surface (so it receives live patches immediately), and the
+  *     container whose `mount` matches bakes it inline (`{{panel}}`). This is the
+  *     ONLY surface-level "shown by default" signal the backend reads — there is
+  *     no separate `initial` concept; a tabs builder just marks its first inline
+  *     surface `defaultOpen`. The client-side active-tab highlight is seeded by
+  *     an ordinary literal slot the backend never interprets.
   */
 case class Surface(
     content: LayoutNode,
     group: Option[String] = None,
-    mount: Option[String] = None
+    mount: Option[String] = None,
+    defaultOpen: Boolean = false
 ) derives ConfiguredDecoder
 
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.

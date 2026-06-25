@@ -202,3 +202,15 @@ a **literal slot** when constant. So `label` is a slot in *every* card now; the
 "derives from an entity vs not" distinction is captured by *literal vs transform*
 **within** the slot, not by *param vs slot*. Decision 3 (Predicate AST for
 queries, JSONata for values) and decision 4 (attribute memoization) stand.
+
+**Update — 2026-06-25b: `params` gone; `entity_id` is the magical inheritance
+root.** The "`params` = structural keys only" framing above is itself superseded:
+there is no `params` map anymore (see [ADR 0001](0001-entity-card-and-value-transforms.md)'s
+2026-06-25b update). The slot-inheritance model is unchanged in substance — a slot
+with `entityId: None` inherits the component's subject — but that subject is now
+the **magical slot named `entity_id`** rather than a `params("entity_id")`. The
+`entity_id` slot is the lone slot that does not inherit (it *is* the subject); a
+literal `entity_id` is the exact common case, and the rest of this update (literal
+/ inherited / `entityId: Some(other)` / `reactive`-derived `liveEntities` /
+once-memoized identity slots) applies verbatim with "the `entity_id` slot" read
+wherever it said "the `entity_id` param."

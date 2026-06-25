@@ -202,3 +202,41 @@ declares `initial`, and the panel-baking at render time already keyed on
 `initial`, not the card name). The runtime is now driven entirely by structural
 fields/params (`mount`/`group`/`content`/`initial`), never a card name — so a new
 container kind that wants a baked default panel needs no backend change.
+
+## Update — 2026-06-25b: surface chrome in the card library; tabs de-specialized; one id story; `initial` → `defaultOpen`
+
+Three changes finish moving surface/tab handling out of the backend.
+
+**Surface chrome lives in the card library, not Scala.** `renderSurface` no
+longer emits hardcoded `<dialog>`/panel HTML. Two backend-only cards —
+`popup` (the overlay `<dialog>` + a wrapper-supplied close control) and
+`tabPanel` (the chromeless inline wrapper) — carry the chrome; the renderer
+picks one by the surface's `mount` (inline ⇒ `tabPanel`, overlay ⇒ `popup`),
+renders the surface content as the card's single `children`, and injects only the
+backend-known vars (`id`, `closeAction`). A re-skin of a popup is now a template
+edit. **Panel-baking uses the same path**: a tabs container bakes its default
+panel by calling `renderSurface` (chrome + surface-id prefix included), so the
+first paint and a later switch-back produce byte-identical HTML.
+
+**`initial` is no longer a backend concept; `Surface.defaultOpen` is.** The
+2026-06-25 update keyed default-open panels on the `initial` slot. That slot is
+now purely a **client** signal seed (it initialises the active-tab highlight) the
+backend never reads. "Shown from first paint" moved onto the surface itself:
+`defaultOpen: Boolean`. `defaultOpenSurfaces` reads it straight off the registry
+(no slot, no card name, no layout scan), and panel-baking matches the default-open
+surface to its container by **`mount`** (the surface's `mount` equals the
+container's `mount` slot). A tabs builder marks only its first inline surface
+`defaultOpen: true`; the hoist's `surfaceOf` preserves the flag. The backend now
+reads *no* slot to decide what to show — only surface-level structural fields
+(`mount`/`group`/`content`/`defaultOpen`).
+
+**One id story, shared by build and runtime.** The hoist no longer mints ids in a
+separate `"inline…"` namespace. The id scheme — `pathId`, `surfaceRootId`,
+`surfacePrefix`, `sanitize` — now lives in `LayoutNode` (the model); the renderer
+delegates to it, and the hoist names a node's surfaces from the **same** scheme,
+so a node's build-time id namespace equals its render-time `{{id}}`. The
+build-time placeholder a builder splices was renamed **`@@NODE@@` → `@@NODE_ID@@`**
+to say what it is: *this node's backend-assigned id*. The spike result stands —
+jsonnet still can't mint per-instance ids, so the backend owns them (`pathId`) and
+the hoist remains the build-time half of that one id system; only the *naming* was
+unified, not the ownership.

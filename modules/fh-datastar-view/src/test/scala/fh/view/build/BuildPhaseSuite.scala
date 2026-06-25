@@ -211,6 +211,23 @@ class BuildPhaseSuite extends munit.FunSuite {
       1,
       clue = d.surfaces
     )
+    // Surface ids + mount use the unified id scheme (idBase = pathId, not the old
+    // "inline" base): the tabs node's `{{id}}` namespaces both.
+    assert(
+      d.surfaces.keySet.forall(_.matches("c(_\\d+)+")),
+      clue = d.surfaces.keySet
+    )
+    assert(
+      d.surfaces.values.flatMap(_.mount).forall(_.startsWith("panel_c")),
+      clue = d.surfaces
+    )
+    // Exactly the first tab is the default-open panel (the only backend-read
+    // "shown by default" signal — no `initial` slot is consulted).
+    assertEquals(
+      d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
+      Set(d.surfaces.keys.toList.sorted.head),
+      clue = d.surfaces
+    )
     assertEquals(d.validate(), Nil)
   }
 
@@ -271,7 +288,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "params": { "label": "More" },
                 "entities": [],
                 "slots": { "onclick": { "entity": "",
-                  "transform": "\"@post('/sse/surface/open/@@NODE@@_self')\"" } },
+                  "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "component", "card": "card" } } } }
             ]
@@ -282,9 +299,10 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // surface lifted under "<idBase>_self" (idBase = inline_0 for card child 0)
+    // surface lifted under "<idBase>_self" (idBase = c_0, the render-time `{{id}}`
+    // of card child 0 — the build/hoist id scheme equals LayoutNode.pathId)
     val keys = hoisted.downField("surfaces").keys.map(_.toList).getOrElse(Nil)
-    assertEquals(keys, List("inline_0_self"), clue = keys)
+    assertEquals(keys, List("c_0_self"), clue = keys)
 
     // the trigger lost its marker; the NODE token was spliced with the real id
     val trigger = hoisted.downField("card").downField("children").downN(0)
@@ -298,13 +316,13 @@ class BuildPhaseSuite extends munit.FunSuite {
         .downField("onclick")
         .get[String]("transform")
         .toOption,
-      Some("\"@post('/sse/surface/open/inline_0_self')\"")
+      Some("\"@post('/sse/surface/open/c_0_self')\"")
     )
     // the moved content lives under the new surface id
     assertEquals(
       hoisted
         .downField("surfaces")
-        .downField("inline_0_self")
+        .downField("c_0_self")
         .downField("content")
         .get[String]("card")
         .toOption,
@@ -317,23 +335,23 @@ class BuildPhaseSuite extends munit.FunSuite {
   ) {
     // Shaped like what c.tabs emits: a container with N inline surfaces + child
     // triggers referencing the future ids via the NODE token (here the top-level
-    // card is the marker-bearing node, so idBase = "inline").
+    // card is the marker-bearing node, so idBase = "c" = pathId(Nil)).
     val json = parser
       .parse("""
         {
           "cards": {},
           "card": {
             "kind": "component", "card": "tabs", "entities": [], "slots": {},
-            "params": { "initial": "@@NODE@@_0", "mount": "panel_@@NODE@@", "sig": "tab_@@NODE@@" },
+            "params": { "initial": "@@NODE_ID@@_0", "mount": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "children": [
               { "kind": "component", "card": "button", "entities": [],
-                "params": { "active": "$tab_@@NODE@@ == '@@NODE@@_0'" },
+                "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
                 "slots": { "onclick": { "entity": "",
-                  "transform": "\"@post('/sse/surface/open/@@NODE@@_0')\"" } } }
+                  "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ],
             "inlineSurfaces": {
-              "0": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE@@", "mount":"panel_@@NODE@@" },
-              "1": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE@@", "mount":"panel_@@NODE@@" }
+              "0": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE_ID@@", "mount":"panel_@@NODE_ID@@" },
+              "1": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE_ID@@", "mount":"panel_@@NODE_ID@@" }
             }
           }
         }
@@ -346,10 +364,10 @@ class BuildPhaseSuite extends munit.FunSuite {
     val surfaces = h.downField("surfaces")
     assertEquals(
       surfaces.keys.map(_.toSet).getOrElse(Set.empty),
-      Set("inline_0", "inline_1")
+      Set("c_0", "c_1")
     )
-    val mount = "panel_inline"
-    for (k <- Set("inline_0", "inline_1")) {
+    val mount = "panel_c"
+    for (k <- Set("c_0", "c_1")) {
       assertEquals(
         surfaces.downField(k).get[String]("group").toOption,
         Some(mount)
@@ -365,7 +383,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
     assertEquals(
       node.downField("params").get[String]("initial").toOption,
-      Some("inline_0")
+      Some("c_0")
     )
     assertEquals(
       node.downField("params").get[String]("mount").toOption,
@@ -375,7 +393,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val first = node.downField("children").downN(0)
     assertEquals(
       first.downField("params").get[String]("active").toOption,
-      Some("$tab_inline == 'inline_0'")
+      Some("$tab_c == 'c_0'")
     )
     assertEquals(
       first
@@ -383,7 +401,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         .downField("onclick")
         .get[String]("transform")
         .toOption,
-      Some("\"@post('/sse/surface/open/inline_0')\"")
+      Some("\"@post('/sse/surface/open/c_0')\"")
     )
   }
 
