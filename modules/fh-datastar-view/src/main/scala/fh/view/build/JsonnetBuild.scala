@@ -2,7 +2,7 @@ package fh.view.build
 
 import io.circe.Json
 import io.circe.parser
-import sjsonnet.{DefaultParseCache, Interpreter, OsPath, Settings, SjsonnetMain}
+import sjsonnet.{DefaultParseCache, Interpreter, OsPath, Settings, SjsonnetMainBase}
 
 /** In-process jsonnet evaluation for the build phase.
   *
@@ -26,7 +26,7 @@ object JsonnetBuild {
       entryFile: String
   ): Either[String, Result] = {
     val entry = dashboardsDir / entryFile
-    val importer = SjsonnetMain.resolveImport(Seq(OsPath(dashboardsDir)), None)
+    val importer = SjsonnetMainBase.SimpleImporter(Seq(OsPath(dashboardsDir)), None)
     // The parse cache is keyed by every parsed file, so after interpretation its
     // keys are the entry + all transitive imports.
     val cache = new DefaultParseCache
