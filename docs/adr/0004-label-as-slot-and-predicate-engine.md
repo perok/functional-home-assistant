@@ -149,3 +149,56 @@ applies to **every** transform, not just labels.
   renders live; `EntityState.javaAttributes` is identity-stable; and the
   build-phase e2e still evaluates the real `components.libsonnet` → hoist →
   validate with `label` as a required slot. Not browser-tested live.
+
+## Update — 2026-06-25: the slot model — literal vs inherited vs reactive; params are structural; identity slots memoized
+
+Decision 2 (`entityId: None` ⇒ constant) and decision 1 (`sectionTitle` keeps
+`label` as a param) have been superseded as the slot model matured.
+
+**A slot is one of three things now.** `SlotSource` is
+`{ entityId, transform = "$state", default, bypassUnavailable = true, literal,
+reactive = true }`:
+
+- **`literal`** (a bare-string `SlotSource`) is the *true* constant — used
+  verbatim, no entity, no transform, no compile. This is what a hardcoded
+  `label`/`min`/action URL is now. (Decision 2's "constant slot" was a JSONata
+  string-literal `{ transform: '"…"' }`; the dedicated `literal` field replaced
+  it.)
+- **`entityId: None`** no longer means "constant" — it means the slot
+  **inherits the component's `entity_id` param** (the card's one entity, or the
+  matched entity injected per match in a dynamic case). This slot-level
+  inheritance is why a card binds its entity once and every slot reads it.
+- **`entityId: Some(other)`** names a *different* entity — the **multi-entity
+  card**: `c.exprOf(other, …)` makes a `value`/`secondary` read another entity,
+  and the card joins **both** entities' live-dependency sets, repainting when
+  either changes.
+
+**The live-dependency set is derived, not declared.** A component no longer
+lists its entities; `Component.liveEntities` derives them from its slots — a slot
+contributes its entity iff it is non-literal **and `reactive`** (default true).
+The reverse index and the morph-wrapper decision read this. So adding a live slot
+is all it takes to make a component track an entity.
+
+**`reactive: false` ⇒ identity-only, resolved once.** Turn `reactive` off for a
+slot that reads its entity for **identity only** — an onclick/action or the
+slider's `$domain` config, whose value is a pure function of `$domain`/
+`$entity_id` and never varies with state. Such a slot (a) stays out of
+`liveEntities` (no needless re-render dependency) and (b) is resolved **once per
+`(entity, transform)` and memoized** on the `Renderer` (`$entity_id` is in the
+key, since the action URL embeds it). This is what keeps the per-event dynamic
+render path cheap — a dynamic group re-renders every matched card, but their
+action/config slots are a cache lookup, not a JSONata eval (and it also removed
+the pre-existing per-render re-eval of every onclick). Live slots
+(`reactive: true`) always re-resolve.
+
+**`params` = structural keys only; `label` is a slot everywhere.** Decision 1
+kept `sectionTitle`'s `label` a param because it "can't derive from an entity."
+The params/slots boundary has since been redefined (see
+[ADR 0001](0001-entity-card-and-value-transforms.md)'s 2026-06-25 update):
+`params` holds **only** the structural set the backend reads by name
+(`entity_id`, injected `id`/`panel`, tabs `initial`/`mount`/`sig`); every other
+value, including a non-entity constant like `sectionTitle`'s label, is a slot —
+a **literal slot** when constant. So `label` is a slot in *every* card now; the
+"derives from an entity vs not" distinction is captured by *literal vs transform*
+**within** the slot, not by *param vs slot*. Decision 3 (Predicate AST for
+queries, JSONata for values) and decision 4 (attribute memoization) stand.

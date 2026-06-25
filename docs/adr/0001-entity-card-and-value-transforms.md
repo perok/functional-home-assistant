@@ -264,3 +264,48 @@ truth constants `Dashboard.injectedStatic` (`id`) / `injectedDynamic`
 renamed `{{{entity}}}` → **`{{{entity_id}}}`** so both channels (template param
 and JSONata binding) match HA's `entity_id`. The dropped `unit` slot and the
 `stateCard`/`dynStateCard` aliases from earlier updates remain as described.
+
+## Update — 2026-06-25: co-located components + derived cards; params reduced to a structural set; a domain-aware slider
+
+**One definition site per component; `cards` derived.** `components.libsonnet`
+now defines each component as a single hidden `_components` entry — its
+`template`, its declared `params`/`slots`, and its `build` function *together* —
+and **derives** the backend-facing `cards` map from those entries by
+comprehension (`{ [name]: { template, params, slots } for name in
+std.objectFields(_components) }`). The public builders (`c.entityCard`,
+`c.slider`, …) are thin **static top-level fields** delegating to each entry's
+`build`. Motivation: the template and the builder that fills it must agree on
+input names, but previously sat far apart (cards map at the top, builders
+below); co-locating makes the contract local. Builders stay static fields (the
+only thing editors autocomplete); the derived `cards` map is dynamic-keyed (not
+autocompletable) but **backend-facing only** — authors call builders, never
+`c.cards.*`. The `dynamic` DSL self-references via a named local (`dyn`) rather
+than `$.dynamic.*`. No model/runtime change — output is byte-identical.
+
+**`params` = the structural set the backend reads by name; everything else is a
+slot.** The 2026-06-23 "params = static / slots = live" split was leaky (a
+`literal` slot is static too). `params` now carries **only** the keys the
+backend interprets by name: `entity_id` (the slot-inheritance root + the
+slider's action-URL splice), the injected `id`/`panel`, and a tabs container's
+surface wiring (`initial`/`mount`/`sig`). Every plain constant — `sectionTitle`'s
+label, a button's `tappable`/`active`, the slider's `min`/`max`/`key` — is now a
+**literal slot** (a bare-string `SlotSource`), sharing the one slot vocabulary.
+The honest axis is *value-resolved fill (slots)* vs *structural keys (params)*.
+Rendered HTML is unchanged: params and resolved slots merge into one Mustache
+context. (The slot model itself — `literal` vs inherited vs `reactive` — is in
+[ADR 0004](0004-label-as-slot-and-predicate-engine.md)'s 2026-06-25 update.)
+
+**The slider resolves its whole config from `$domain`, as data.** The 2026-06-23
+update made a tap **action** resolve from `$domain` via a JSONata `$lookup`, as
+data, with no Scala domain table. The slider now does the same for its **entire**
+config: `action`/`key`/`min`/`max` and the position attribute are
+`$lookup(<map>, $domain)` transforms generated from one jsonnet `sliderSpec`
+table. So `c.slider(eo)` configures itself from the entity's domain and works
+uniformly for a static light *and* a dynamic `d.matched` (whose dispatch branch
+need not be single-domain — each matched entity resolves its own config). This
+**dropped the `brightnessSlider` and `toggle` presets**: `c.slider(eo)` *is* the
+brightness slider for a light, and `c.button(eo)` already toggles via its
+`$domain` service lookup. Add a domain (cover/fan/climate) by extending
+`sliderSpec` — no builder change. These identity-derived config slots are
+`reactive: false`, so they are resolved **once per entity** and memoized (ADR
+0004's 2026-06-25 update), keeping the dynamic render path cheap.

@@ -141,3 +141,38 @@ Since `dynamic` is now an object, the group constructor is the named field
 - Verified by `BuildPhaseSuite` (the example dashboard evaluates → hoists →
   validates, exercising the namespaced DSL) and `RendererSuite` (query filtering +
   per-case dispatch + slot rebinding + label injection). Not browser-tested live.
+
+## Update — 2026-06-25: re-render a group only when a change touches its query; presets dropped
+
+**Targeted re-render.** Decision 1 (and the consequences) had a dynamic
+container re-render on **every** `state_changed` event, because membership is
+data-dependent and can't be reverse-indexed. That stands as the fallback, but the
+common case is now filtered. The state-change stream carries the entity's
+**previous + current** value (`StateStore` publishes a `StateChange(entityId,
+previous, current)` instead of a bare id), and a group re-renders only when the
+changed entity matched its query **before or after** the change — covering an add
+(¬prev ∧ cur), a remove (prev ∧ ¬cur), and an in-place update of a member (prev ∧
+cur), while an **unrelated entity is skipped** (its change leaves the group's HTML
+identical). `Renderer.affectedDynamicIds(change)` / `affectedSurfaceDynamicIds`
+replace the unconditional `dynamicContainerIds` in the change loop.
+
+This is **stateless** — no per-group membership cache. A shared member-set cache
+would be unsafe with the per-connection diff caches: one connection updating the
+shared set (on a removal) would make another connection, which hasn't rendered
+that removal yet, *skip* it and keep a stale card. Testing old-or-new query match
+needs no shared state and is correct per connection. (A cross-entity slot inside a
+dynamic case — a card reading another entity — would defeat this assumption; that
+is not a current pattern and dynamic cards bind to the matched entity.)
+
+The identity/config slots inside the re-rendered cards are memoized (ADR 0004's
+2026-06-25 update), so a re-render costs ~2 live JSONata evals per card. **Future
+work** (noted at the change loop in `Server`): coalesce/debounce bursts so we
+bound how *often* a group re-renders, not just *what* — the narrowing here bounds
+the set of nodes; batching would bound the rate.
+
+**Examples updated.** The `brightnessSlider` / `toggle` presets in decisions 2–3
+are gone. The same cases now read `c.slider(d.matched)` / `c.button(d.matched)`,
+which resolve their range config / service from the **matched entity's `$domain`
+at runtime** (ADR 0001's 2026-06-25 update) — so a dispatch branch that is not
+single-domain is handled per matched entity, no build-time domain assumption. The
+`matched` decoy is unchanged (`{ entity_id: '$self' }`).
