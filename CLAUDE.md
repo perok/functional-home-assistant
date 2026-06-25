@@ -44,6 +44,12 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 
 ### `fh-datastar-view` — the Datastar dashboard
 
+> **Before changing this module, read its ADRs in [`docs/adr/`](docs/adr/README.md).**
+> They record the design decisions (entity card + JSONata transforms, surfaces/tabs,
+> dynamic groups, the params/slots + label-as-slot model) with their rationale.
+> Check a change against them; when a change supersedes a decision, add a new
+> numbered ADR (don't edit the old one) rather than letting the record drift.
+
 A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
 HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
 
