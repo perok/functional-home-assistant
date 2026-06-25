@@ -99,12 +99,16 @@ object SlotSource:
   *
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - `params`: required *static* template vars — supplied by the author at
-  *     build time or backend-injected (`id`; `entity_id` in a dynamic case). A
-  *     `label` is a *slot*, not a param (it can derive from the entity).
-  *   - `slots`: required *live* template vars — bound per render from entity
-  *     state (a [[SlotSource]] transform). Optional pieces (a tap `action`, a
-  *     `secondary` line) need no entry — [[Dashboard.validate]] only flags
+  *   - `params`: required *structural* template vars — the small set the
+  *     backend reads/supplies by name: `entity_id` (slot-inheritance root + URL
+  *     splice), backend-injected `id`/`panel`, and a tabs container's surface
+  *     wiring (`initial`/`mount`/`sig`). NOT a place for plain constants — a
+  *     constant like a `label`, a slider's `min`/`max`, or a button's `active`
+  *     is a *literal slot* (see [[SlotSource]]), so it shares the one slot
+  *     vocabulary.
+  *   - `slots`: required template vars filled from a [[SlotSource]] — a live
+  *     entity transform OR a constant literal. Optional pieces (a tap `action`,
+  *     a `secondary` line) need no entry — [[Dashboard.validate]] only flags
   *     missing *required* inputs and ignores extra ones.
   */
 case class CardDef(
@@ -157,11 +161,15 @@ object LayoutNode:
     * the `fhrow`/`fhcol` templates), so new container kinds are added as
     * templates with no Scala change.
     *
-    *   - `params`: static, author-known values (label, entity_id, min/max…),
-    *     injected into the template alongside resolved slots. The `id` is NOT
-    *     authored — the renderer derives a stable, location-based id and
-    *     injects it as the `id` param (see [[pathId]]).
-    *   - `slots`: dynamic state bindings.
+    *   - `params`: the small *structural* set the backend reads by name —
+    *     `entity_id` (slot-inheritance root + URL splice) and a tabs
+    *     container's surface wiring (`initial`/`mount`/`sig`) — injected into
+    *     the template alongside resolved slots. The `id` is NOT authored — the
+    *     renderer derives a stable, location-based id and injects it (see
+    *     [[pathId]]). Plain constants (a `label`, `min`/`max`, `active`) are
+    *     literal slots, not params.
+    *   - `slots`: per-render values from a [[SlotSource]] — a live entity
+    *     transform or a constant literal.
     *   - `children`: nested nodes, rendered first and exposed to the template
     *     as a `children` list of `{html}` (empty for leaves).
     *
