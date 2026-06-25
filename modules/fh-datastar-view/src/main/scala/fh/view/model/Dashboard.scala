@@ -103,21 +103,19 @@ object SlotSource:
   *
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - `params`: required *structural* template vars — the small set the
-  *     backend reads/supplies by name: `entity_id` (slot-inheritance root + URL
-  *     splice), backend-injected `id`/`panel`, and a tabs container's surface
-  *     wiring (`initial`/`mount`/`sig`). NOT a place for plain constants — a
-  *     constant like a `label`, a slider's `min`/`max`, or a button's `active`
-  *     is a *literal slot* (see [[SlotSource]]), so it shares the one slot
-  *     vocabulary.
-  *   - `slots`: required template vars filled from a [[SlotSource]] — a live
-  *     entity transform OR a constant literal. Optional pieces (a tap `action`,
-  *     a `secondary` line) need no entry — [[Dashboard.validate]] only flags
-  *     missing *required* inputs and ignores extra ones.
+  *   - `slots`: every required template var, each filled from a [[SlotSource]] —
+  *     a live entity transform OR a constant literal. This is the *one*
+  *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
+  *     like a `label`/`min` is a literal slot, a live value is a transform slot.
+  *     The only non-slot template vars are backend-*injected* ones the author
+  *     never supplies (`id`, `panel`, and the matched `entity_id` inside a
+  *     dynamic case — see [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]),
+  *     so they need no entry. Optional pieces (a tap `action`, a `secondary`
+  *     line) need no entry either — [[Dashboard.validate]] only flags missing
+  *     *required* slots and ignores extra ones.
   */
 case class CardDef(
     template: String,
-    params: List[String] = Nil,
     slots: List[String] = Nil
 ) derives ConfiguredDecoder
 
@@ -152,7 +150,6 @@ object Predicate:
 case class DynamicCase(
     when: Predicate,
     card: String,
-    params: Map[String, String] = Map.empty,
     slots: Map[String, SlotSource] = Map.empty
 ) derives ConfiguredDecoder
 
@@ -165,15 +162,11 @@ object LayoutNode:
     * the `fhrow`/`fhcol` templates), so new container kinds are added as
     * templates with no Scala change.
     *
-    *   - `params`: the small *structural* set the backend reads by name —
-    *     `entity_id` (slot-inheritance root + URL splice) and a tabs
-    *     container's surface wiring (`initial`/`mount`/`sig`) — injected into
-    *     the template alongside resolved slots. The `id` is NOT authored — the
-    *     renderer derives a stable, location-based id and injects it (see
-    *     [[pathId]]). Plain constants (a `label`, `min`/`max`, `active`) are
-    *     literal slots, not params.
-    *   - `slots`: per-render values from a [[SlotSource]] — a live entity
-    *     transform or a constant literal.
+    *   - `slots`: every template var, each a [[SlotSource]] (a live transform
+    *     or a constant literal). There is no `params` map — the card's subject
+    *     is the magical [[subjectEntity]] slot named `entity_id`, constants are
+    *     literal slots, and the only non-slot vars are backend-*injected* (`id`
+    *     and, for tabs, `panel` — see `Renderer`); the `id` is NOT authored.
     *   - `children`: nested nodes, rendered first and exposed to the template
     *     as a `children` list of `{html}` (empty for leaves).
     *
@@ -183,33 +176,41 @@ object LayoutNode:
     */
   case class Component(
       card: String,
-      params: Map[String, String] = Map.empty,
       slots: Map[String, SlotSource] = Map.empty,
       children: List[LayoutNode] = Nil
   ) extends LayoutNode:
+    /** The card's subject entity — the `entity_id` slot's value when it is a
+      * constant `literal` (the common case). A *transform* `entity_id`
+      * (indirection) resolves only at render time, so it contributes no static
+      * subject here; its inheriting slots then track the `entity_id` slot's own
+      * source instead. `None` ⇒ no subject (a container, a button with no
+      * entity).
+      */
+    def subjectEntity: Option[String] =
+      slots.get("entity_id").flatMap(_.literal)
+
     /** The entities whose live state this component depends on. A slot
       * contributes when it is reactive and not a constant literal; its source
-      * is its own `entityId`, or the component's `entity_id` param when the
-      * slot leaves it unset (slot-level inheritance). Drives the reverse index
-      * and the morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML,
-      * never patched.
+      * is its own `entityId`, or the [[subjectEntity]] when the slot leaves it
+      * unset (slot-level inheritance). Drives the reverse index and the
+      * morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
+      * patched.
       */
     def liveEntities: List[String] =
       slots.values.toList
         .filter(s => s.reactive && s.literal.isEmpty)
-        .flatMap(s => s.entityId.orElse(params.get("entity_id")))
+        .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
   /** A runtime-resolved group with per-entity template dispatch.
     *
     *   - `query`: overall membership filter (absent = match all entities).
     *   - `cases`: each matched entity renders with the first case whose `when`
-    *     matches (skipped if none). The renderer auto-injects `id` and
-    *     `entity_id` params per matched entity and rebinds each case's
-    *     entity-bound slot to the match (so the `label` slot's
-    *     `$attr.friendly_name`, and any value/action slots, resolve against the
-    *     match; constant slots are left untouched). The group's own id is
-    *     location-derived.
+    *     matches (skipped if none). The renderer injects `id` and sets the
+    *     matched entity as the `entity_id` slot per match, so every inheriting
+    *     slot (the `label`'s `$attr.friendly_name`, value/action slots) resolves
+    *     against the match; a slot that names its own entity, or a constant
+    *     literal, is left untouched. The group's own id is location-derived.
     */
   case class Dynamic(
       query: Option[Predicate] = None,
@@ -299,33 +300,26 @@ case class Dashboard(
   def validate(
       locateTransform: String => Option[String] = _ => None
   ): List[String] =
-    // A required param is satisfied by an author/injected param; a required slot
-    // only by a slot (a live value can't come from a static param). `injected`
-    // names are backend-supplied: `id` always, plus `entity_id` per matched
-    // entity inside a dynamic case (the label is a slot, not a param).
+    // Every required template var is a slot, satisfied by an authored slot OR a
+    // backend-`injected` name: `id`/`panel` always, plus the matched `entity_id`
+    // inside a dynamic case (where the case strips the build-time one).
     def checkRef(
         nodeId: String,
         cardName: String,
         injected: Set[String],
-        paramNames: Set[String],
         slotNames: Set[String]
     ): List[String] =
       cards.get(cardName) match
         case None =>
           List(s"$nodeId: references unknown card '$cardName'")
         case Some(cd) =>
-          val missingParams = cd.params.toSet -- injected -- paramNames
-          val missingSlots = cd.slots.toSet -- slotNames
-          List(
-            Option.when(missingParams.nonEmpty)(
-              s"$nodeId: card '$cardName' missing params: " +
-                missingParams.toList.sorted.mkString(", ")
-            ),
-            Option.when(missingSlots.nonEmpty)(
+          val missingSlots = cd.slots.toSet -- slotNames -- injected
+          Option
+            .when(missingSlots.nonEmpty)(
               s"$nodeId: card '$cardName' missing slots: " +
                 missingSlots.toList.sorted.mkString(", ")
             )
-          ).flatten
+            .toList
 
     // A live-expression slot's value is a `transform`, which must be parseable
     // JSONata. A constant `literal` slot has no transform, so nothing to check.
@@ -348,13 +342,12 @@ case class Dashboard(
 
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(card, params, slots, kids) =>
+        case LayoutNode.Component(card, slots, kids) =>
           val nodeId = LayoutNode.pathId(path)
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
-            params.keySet,
             slots.keySet
           ) ++ slotErrors(nodeId, slots) ++ children(kids, path)
         case LayoutNode.Dynamic(_, cases) =>
@@ -364,7 +357,6 @@ case class Dashboard(
               nodeId,
               c.card,
               Dashboard.injectedDynamic,
-              c.params.keySet,
               c.slots.keySet
             ) ++ slotErrors(nodeId, c.slots)
           }
@@ -378,14 +370,14 @@ case class Dashboard(
       }
 
 object Dashboard:
-  /** Backend-injected param names available to a *static* component: only the
-    * stable location-based `id`.
+  /** Backend-injected template vars available to a *static* component (the
+    * author never supplies them): the stable location-based `id` and a tabs
+    * container's baked `panel`.
     */
-  val injectedStatic: Set[String] = Set("id")
+  val injectedStatic: Set[String] = Set("id", "panel")
 
-  /** Backend-injected param names available inside a *dynamic* case: `id` plus
-    * the matched entity's `entity_id`. The label is no longer a param — entity
-    * cards bind it as a slot (live `$attr.friendly_name`), so it is validated
-    * as a slot, not injected here.
+  /** Backend-injected vars inside a *dynamic* case: the static set plus the
+    * matched entity's `entity_id` (the case strips the build-time `entity_id`
+    * slot; the renderer sets the matched one per render).
     */
   val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id")

@@ -144,7 +144,7 @@ class Renderer(
   val defaultOpenSurfaces: Set[String] =
     mainIndex.indexed.values
       .collect { case (c: LayoutNode.Component, _) =>
-        c.params.get("initial")
+        c.slots.get("initial").flatMap(_.literal)
       }
       .flatten
       .toSet
@@ -275,8 +275,9 @@ class Renderer(
         // surface's id prefix, so the baked HTML and a later switch-back share
         // ids) — the first paint shows it with no open round-trip. `panel` is
         // empty for every other component (the template ignores it).
-        val panel = c.params
+        val panel = c.slots
           .get("initial")
+          .flatMap(_.literal)
           .flatMap(initId =>
             dashboard.surfaces
               .get(initId)
@@ -285,11 +286,13 @@ class Renderer(
               )
           )
           .getOrElse("")
-        // `id` stays available to the template (e.g. the slider derives its
-        // signal name from it) even though it is no longer the morph target.
+        // `id`/`panel` are backend-injected template vars (the author never
+        // supplies them); `id` stays available to the template (e.g. the slider
+        // derives its signal name from it) even though it is no longer the morph
+        // target. Everything else fills from a slot.
         val html = renderTemplate(
           c.card,
-          Map("id" -> id, "panel" -> panel) ++ c.params,
+          Map("id" -> id, "panel" -> panel),
           c.slots,
           childrenHtml,
           states
@@ -330,21 +333,18 @@ class Renderer(
       c: DynamicCase,
       states: Map[String, EntityState]
   ): String = {
-    // The matched entity is injected as the `entity_id` param, so every
-    // inheriting slot (no own `entityId`) binds to it — including the label slot
-    // (`$attr.friendly_name`). A slot that names its own entity keeps it (a
-    // cross-entity slot is not overridden by the match), and a constant literal
-    // reads no entity at all.
-    val autoParams = Map(
-      "id" -> s"${groupId}_${Renderer.sanitize(entityId)}",
-      "entity_id" -> entityId
-    )
-    renderTemplate(c.card, autoParams ++ c.params, c.slots, Nil, states)
+    // Set the matched entity as the card's subject: a literal `entity_id` slot
+    // (the case stripped the build-time one). Every inheriting slot then binds
+    // to it — including the label (`$attr.friendly_name`). A slot that names its
+    // own entity keeps it; a constant literal reads no entity at all.
+    val slots = c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
+    val id = s"${groupId}_${Renderer.sanitize(entityId)}"
+    renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
   }
 
   private def renderTemplate(
       cardName: String,
-      params: Map[String, String],
+      injected: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: List[String],
       states: Map[String, EntityState]
@@ -352,17 +352,26 @@ class Renderer(
     templates.components.get(cardName) match {
       case None => "" // TODO should be a hard failure?
       case Some(tpl) =>
+        // The card's subject entity: the `entity_id` slot resolved against its
+        // OWN entity (it DEFINES the subject, so it never inherits it). Normally
+        // a literal; a transform form (indirection) grounds on its own entityId.
+        val subject: Option[String] =
+          slots.get("entity_id").map { s =>
+            s.literal.getOrElse(resolveSlot(s.entityId, s, states))
+          }
         val resolved = slots.map { case (slot, source) =>
           val value = source.literal match {
             // A constant literal: used verbatim, reading no entity and running no
             // transform — the cheap path for a hardcoded label/action.
             case Some(text) => text
             case None       =>
-              // The slot's entity is its own `entityId`, or the component's
-              // `entity_id` param when it leaves it unset (slot-level
-              // inheritance — the card's one entity, or the matched entity in a
-              // dynamic case).
-              val srcEntity = source.entityId.orElse(params.get("entity_id"))
+              // A slot's entity is its own `entityId`, or the subject when it
+              // leaves it unset (slot-level inheritance — the card's entity, or
+              // the matched entity in a dynamic case). The `entity_id` slot
+              // itself never inherits — it is the subject.
+              val srcEntity =
+                if (slot == "entity_id") source.entityId
+                else source.entityId.orElse(subject)
               // A `reactive: false` slot is identity-derived — its transform
               // reads only `$domain`/`$entity_id` (a service action, the
               // slider's domain config), both immutable for the life of the
@@ -382,7 +391,7 @@ class Renderer(
           }
           slot -> value
         }
-        tpl.execute(Renderer.javaContext(params ++ resolved, childrenHtml))
+        tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
     }
 
   /** Resolve a non-literal slot's value against its producing entity's state.

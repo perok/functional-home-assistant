@@ -241,12 +241,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  test("validate reports a component missing a required card param") {
+  test("validate reports a component missing a required card slot") {
     val d = Dashboard(
       cards = Map(
         "card" -> CardDef(
           """<div id="{{id}}">{{label}}</div>""",
-          params = List("id", "label")
+          slots = List("id", "label")
         )
       ),
       // `id` is backend-injected; only "label" is missing here.
@@ -254,7 +254,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
-    assert(!errs.exists(_.contains("missing params: id")), clue = errs)
+    assert(!errs.exists(_.contains("missing slots: id")), clue = errs)
   }
 
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
@@ -389,8 +389,11 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate checks card references inside a surface") {
     val d = Dashboard(
-      cards = Map("ok" -> CardDef("<i>{{label}}</i>", params = List("label"))),
-      card = LayoutNode.Component("ok", params = Map("label" -> "x")),
+      cards = Map("ok" -> CardDef("<i>{{label}}</i>", slots = List("label"))),
+      card = LayoutNode.Component(
+        "ok",
+        slots = Map("label" -> SlotSource(literal = Some("x")))
+      ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
     val errs = d.validate()
