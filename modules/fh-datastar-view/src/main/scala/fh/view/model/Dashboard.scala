@@ -81,7 +81,11 @@ case class SlotSource(
     // Whether a state change of this slot's entity re-renders the component (so
     // its entity joins Component.liveEntities). ON by default; turn OFF for an
     // identity-only slot (an onclick/action reading $entity_id/$domain) that
-    // binds an entity but never varies with its state.
+    // binds an entity but never varies with its state. `reactive = false`
+    // carries a second guarantee the renderer relies on: the value is a pure
+    // function of the entity's identity, so it is resolved ONCE per
+    // (entity, transform) and memoized (never re-evaluated per render) — keep
+    // it off only for slots that truly read no live state.
     reactive: Boolean = true
 )
 
