@@ -22,6 +22,9 @@ class RendererSuite extends munit.FunSuite {
   ): EntityState =
     EntityState(entityId, state, attrs.toMap)
 
+  // A constant literal slot (a bare value, no entity/transform).
+  private def lit(s: String): SlotSource = SlotSource(literal = Some(s))
+
   // Card templates are pure content; the backend wraps entity-bound components
   // in the id'd morph target.
   private val cards = Map(
@@ -29,7 +32,7 @@ class RendererSuite extends munit.FunSuite {
       """<div><span>{{state}}</span> {{unit}}</div>""",
       slots = List("state")
     ),
-    "btn" -> CardDef("""<button>{{label}}</button>""", params = List("label")),
+    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
     "gauge" -> CardDef("""<i>{{bri}}</i>""", slots = List("bri")),
     "act" -> CardDef(
       """<a href="{{{action}}}">go</a>""",
@@ -43,7 +46,7 @@ class RendererSuite extends munit.FunSuite {
     ),
     "tabs" -> CardDef(
       """<div class="tabs"><div class="tabbar">{{#children}}{{{html}}}{{/children}}</div><div class="tab-panel" id="{{mount}}">{{{panel}}}</div></div>""",
-      params = List("sig", "initial", "mount")
+      slots = List("sig", "initial", "mount")
     )
   )
 
@@ -60,11 +63,14 @@ class RendererSuite extends munit.FunSuite {
       cards,
       LayoutNode.Component(
         "tabs",
-        params =
-          Map("sig" -> "tab_c", "mount" -> "c_panel", "initial" -> "c_0"),
+        slots = Map(
+          "sig" -> lit("tab_c"),
+          "mount" -> lit("c_panel"),
+          "initial" -> lit("c_0")
+        ),
         children = List(
-          LayoutNode.Component("btn", Map("label" -> "A")),
-          LayoutNode.Component("btn", Map("label" -> "B"))
+          LayoutNode.Component("btn", Map("label" -> lit("A"))),
+          LayoutNode.Component("btn", Map("label" -> lit("B")))
         )
       ),
       surfaces = Map(
@@ -244,7 +250,7 @@ class RendererSuite extends munit.FunSuite {
   test(
     "container templates splice children; entity-less nodes are not wrapped"
   ) {
-    val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
+    val layout = col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
     // no entities anywhere -> no morph wrappers, no ids in the markup; the
@@ -608,7 +614,7 @@ class RendererSuite extends munit.FunSuite {
     "renderBody is the shell-less body (what a navigate swap inner-patches)"
   ) {
     val r =
-      renderer(col(row(LayoutNode.Component("btn", Map("label" -> "Go")))))
+      renderer(col(row(LayoutNode.Component("btn", Map("label" -> lit("Go"))))))
     val body = r.renderBody(Map.empty)
     assert(!body.contains("""id="dashboard""""), clue = body)
     assert(!body.contains("""id="popups""""), clue = body)

@@ -1,7 +1,7 @@
 // Dashboard components — pure composition (build phase only).
 //
 // Each component is defined in ONE place: a `_components` entry holding its
-// Mustache `template`, the `params`/`slots` it declares (validated at build
+// Mustache `template`, the `slots` it declares (validated at build
 // time), and its `build` function (the layout-tree node it emits). The
 // backend-facing `cards` library is then DERIVED mechanically from those
 // entries (see `cards` below), and the public builders are thin static fields
@@ -259,28 +259,23 @@
     // change needed.
     fhrow: {
       template: '<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>',
-      params: [],
       slots: [],
       build(children):: { kind: 'component', card: 'fhrow', children: children },
     },
     fhcol: {
       template: '<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>',
-      params: [],
       slots: [],
       build(children):: { kind: 'component', card: 'fhcol', children: children },
     },
 
     // Static title text (not bound to an entity). `label` is a constant LITERAL
-    // slot (a bare string), not a param — params are reserved for the small
-    // structural set the backend reads by name (entity_id, surface wiring).
+    // slot (a bare string) — there are no params; every template var is a slot.
     sectionTitle: {
       template: '<h2 class="section">{{label}}</h2>',
-      params: [],
       slots: ['label'],
       build(label):: {
         kind: 'component',
         card: 'sectionTitle',
-        params: {},
         slots: { label: label },
       },
     },
@@ -319,16 +314,15 @@
           <span class="secondary">{{secondary}}</span>{{/secondary}}
         </article>
       |||,
-      params: [],
-      slots: ['label', 'value'],
+      slots: ['label', 'value', 'entity_id'],
       build(eo, label=null, value=null, secondary=null, tap=null):: {
         kind: 'component',
         card: 'entityCard',
-        // entity_id is the card's one entity (the structural param every slot
-        // inherits); the derived live-dependency set comes from the slots that
-        // read it. `tappable` is a constant literal slot, not a param.
-        params: { entity_id: eo.entity_id },
+        // entity_id is the card's subject — the magical slot every other slot
+        // inherits; the derived live-dependency set comes from the slots that
+        // read it. `tappable` is a constant literal slot too.
         slots: {
+          entity_id: eo.entity_id,
           [if tap != null then 'tappable']: '1',
           label: labelSlot(eo, label),
           value: valueSlot(value),
@@ -361,21 +355,18 @@
         <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
           data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
       |||,
-      params: [],
       slots: ['label', 'onclick'],
       build(eo=null, action=null, label=null, active=null):: (
         local tap = if action == null then defaultTap else action;
         {
           kind: 'component',
           card: 'button',
-          // entity_id is the structural param the onclick inherits to resolve
-          // $entity_id/$domain; it is reactive: false, so the button stays out
-          // of the live set (no re-render) unless a live `label` slot pulls the
-          // entity in. `active` is a constant literal slot, not a param.
-          params: {
-            [if eo != null then 'entity_id']: eo.entity_id,
-          },
+          // entity_id is the subject the onclick inherits to resolve
+          // $entity_id/$domain (only when there's an entity); reactive: false
+          // keeps the button out of the live set unless a live `label` slot
+          // pulls the entity in. `active` is a constant literal slot.
           slots: {
+            [if eo != null then 'entity_id']: eo.entity_id,
             [if active != null then 'active']: active,
             label: labelSlot(eo, label),
           } + tapSlot(tap),
@@ -409,16 +400,15 @@
             data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
         </article>
       |||,
-      params: [],
-      slots: ['label', 'state', 'value', 'action', 'min', 'max', 'key'],
+      slots: ['label', 'state', 'value', 'action', 'min', 'max', 'key', 'entity_id'],
       build(eo, value=null, label=null, action=null, key=null, min=null, max=null):: {
         kind: 'component',
         card: 'slider',
-        // entity_id is the only structural param (template action URL + slot
-        // inheritance). action/key/min/max/value are slots, resolved from
+        // entity_id is the card's subject — the template's action URL splices it
+        // and every slot inherits it. action/key/min/max/value resolve from
         // $domain by default (or an explicit override).
-        params: { entity_id: eo.entity_id },
         slots: {
+          entity_id: eo.entity_id,
           label: labelSlot(eo, label),
           // state is the display header (inherits entity_id) — bypassUnavailable
           // defaults to true.
@@ -469,8 +459,7 @@
           <div class="tab-panel" id="{{mount}}">{{{panel}}}</div>
         </div>
       |||,
-      params: ['sig', 'initial', 'mount'],
-      slots: [],
+      slots: ['sig', 'initial', 'mount'],
       build(tabs):: {
         local mount = 'panel_' + NODE,  // the shared inline panel container id
         local sig = 'tab_' + NODE,      // per-group active-tab signal (holds an id)
@@ -478,8 +467,10 @@
 
         kind: 'component',
         card: 'tabs',
-        slots: {},
-        params: {
+        // sig/mount/initial are literal slots (constant wiring); `initial` is
+        // also read by the backend (default-open panel). Phase 3 may derive
+        // these from the node id instead.
+        slots: {
           sig: sig,
           mount: mount,
           initial: sid(0),  // default panel: baked inline + seeds the signal
@@ -507,14 +498,13 @@
     },
   },
 
-  // ---- shared card library: name -> { template, params, slots } ----
+  // ---- shared card library: name -> { template, slots } ----
   // DERIVED from `_components` (the mechanical part). A node references a card by
   // name; the backend decodes this into its template + declared inputs. Dynamic
   // keys here are fine — `cards` is backend-facing only (authors call builders).
   cards: {
     [name]: {
       template: $._components[name].template,
-      params: $._components[name].params,
       slots: $._components[name].slots,
     }
     for name in std.objectFields($._components)
@@ -585,18 +575,18 @@
       matched:: { entity_id: '$self' },
 
       // One branch: a predicate + the card (built against `matched`) to render
-      // when it matches. Keeps the card + its slots; drops the `entity_id` param
-      // (the renderer injects the match) and the unused children. The label is a
-      // slot (inheriting the match), so it rides in `slots`.
+      // when it matches. Keeps the card + its slots, but drops the build-time
+      // `entity_id` slot (the renderer sets the matched entity as the subject per
+      // match) and the unused children. Every other slot (label inheriting the
+      // match, value/action) rides along.
       case(when, node):: {
         when: when,
         card: node.card,
-        params: {
-          [k]: node.params[k]
-          for k in std.objectFields(node.params)
+        slots: {
+          [k]: node.slots[k]
+          for k in std.objectFields(node.slots)
           if k != 'entity_id'
         },
-        slots: node.slots,
       },
 
       // Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
