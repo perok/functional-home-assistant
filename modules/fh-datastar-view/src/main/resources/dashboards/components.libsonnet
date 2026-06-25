@@ -215,6 +215,37 @@
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
   ) },
 
+  // ---- domain-aware slider config ----
+  // The slider's controllable config per HA domain: the service to call, the
+  // service_data key the value rides on, the range bounds, and which attribute
+  // is the live position. The builder resolves these from the entity's $domain
+  // AT RUNTIME (JSONata $lookup, the same mechanism the button's service uses) —
+  // so one `c.slider(eo)` works for any of these domains, and a dynamic case
+  // whose branch is not single-domain resolves each matched entity correctly.
+  // Add a domain (cover/fan/climate…) by adding a row here, no builder change.
+  // https://developers.home-assistant.io/docs/core/entity/light/
+  local sliderSpec = {
+    light: { action: 'light/turn_on', key: 'brightness', min: 1, max: 255, value: 'brightness' },
+  },
+
+  // A JSONata object literal { "<domain>": <spec[field]> } over the known
+  // domains — `{"light":"light/turn_on"}` etc. (JSONata object syntax IS JSON).
+  local sliderDomainMap(field) =
+    std.manifestJsonMinified({
+      [d]: sliderSpec[d][field]
+      for d in std.objectFields(sliderSpec)
+    }),
+  // `$lookup(<map>, $domain)` — resolve a config field from the entity's domain.
+  local sliderLookup(field) = '$lookup(' + sliderDomainMap(field) + ', $domain)',
+  // The live position: read the domain's position attribute off $attr.
+  local sliderValueLookup = '$lookup($attr, ' + sliderLookup('value') + ')',
+  // A slider config slot: an explicit literal override, else the $domain lookup.
+  // Config is identity-derived (reactive: false — never a live dependency) and
+  // resolves even when the entity is unavailable (bypassUnavailable: false).
+  local sliderConfig(override, field) =
+    if override != null then '' + override
+    else { transform: sliderLookup(field), reactive: false, bypassUnavailable: false },
+
   // ---- the component library: template + declared inputs + builder, together ----
   // Hidden (the dashboard imports specific fields, never the whole object). Each
   // entry's `build` returns a layout node referencing the entry by name; new
@@ -357,14 +388,17 @@
     // per-instance signal name (`val_{{id}}`), working for both static and
     // dynamic instances without a separate `sig` input.
     //
-    // `action` is the slider's "<domain>/<service>" (e.g. "light/turn_on"); `key`
-    // the service_data key the value rides on (e.g. "brightness").
-    //   value  the slider position source, SAME `string | c.expr(...)` convention
-    //          as the entity card: null -> the entity's state; a STRING -> that
-    //          attribute (e.g. 'brightness'); c.expr('...') -> your expression.
-    //          NO unit is appended — the position is a bare number for the range
-    //          input's signal, unlike the entity card's display value.
-    // TODO for domain light we have the following properties: https://developers.home-assistant.io/docs/core/entity/light/ for brightness we will know what is max and min and etc
+    // DOMAIN-AWARE: `c.slider(eo)` configures itself from the entity's domain
+    // (see `sliderSpec`) — the service/key/range/position resolve at runtime via
+    // JSONata `$lookup($domain)`, the SAME mechanism the button's service uses.
+    // So it works for a static light AND a dynamic `d.matched` (whose branch may
+    // not be single-domain). Each config arg is an EDGE-CASE override:
+    //   value  the slider position source: null -> the domain's position
+    //          attribute; a STRING -> that attribute (e.g. 'brightness');
+    //          c.expr('...') -> your expression. No unit is appended (it is a
+    //          bare number for the range input's signal).
+    //   action/key/min/max  null -> resolved from $domain; pass a value to
+    //          override (e.g. `c.slider(eo, max=200)`).
     slider: {
       template: |||
         <article class="card">
@@ -377,13 +411,12 @@
       |||,
       params: [],
       slots: ['label', 'state', 'value', 'action', 'min', 'max', 'key'],
-      build(eo, action, key, min, max, value=null, label=null):: {
+      build(eo, value=null, label=null, action=null, key=null, min=null, max=null):: {
         kind: 'component',
         card: 'slider',
         // entity_id is the only structural param (template action URL + slot
-        // inheritance). min/max/key/action are slots — constant literals here,
-        // but the slot form lets them vary by $domain at runtime (see the
-        // domain-aware slider).
+        // inheritance). action/key/min/max/value are slots, resolved from
+        // $domain by default (or an explicit override).
         params: { entity_id: eo.entity_id },
         slots: {
           label: labelSlot(eo, label),
@@ -393,16 +426,17 @@
           // value is the range input's numeric position: opt OUT so an unavailable
           // entity falls back to `default` ('0') rather than the string "unavailable".
           value: {
-            transform: if value == null then '$state' else exprOrAttr(value),
+            transform:
+              if value == null then sliderValueLookup else exprOrAttr(value),
             default: '0',
             bypassUnavailable: false,
           },
-          // action/min/max/key are constant "<domain>/<service>" + range config —
-          // bare literal slots.
-          action: action,
-          min: '' + min,
-          max: '' + max,
-          key: key,
+          // action/min/max/key: $domain lookups (reactive: false), or a literal
+          // override.
+          action: sliderConfig(action, 'action'),
+          min: sliderConfig(min, 'min'),
+          max: sliderConfig(max, 'max'),
+          key: sliderConfig(key, 'key'),
         },
       },
     },
@@ -498,14 +532,11 @@
 
   // Back-compat alias: the old read-only state card is just an entity card.
   stateCard(eo, label=null):: $._components.entityCard.build(eo, label=label),
-
-  // Toggle button preset (lights, switches, fans…) — the action defaults from
-  // the entity's domain, so callers needn't spell out the service.
-  toggle(eo, label=null):: $._components.button.build(eo, label=label),
-
-  // Brightness slider preset.
-  brightnessSlider(eo, label=null)::
-    $._components.slider.build(eo, 'light/turn_on', 'brightness', 1, 255, value='brightness', label=label),
+  // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
+  // resolves its service from $domain at RUNTIME (so it toggles a light/switch/
+  // fan), and `c.slider(eo)` resolves its whole config from $domain too (so it
+  // is the brightness slider for a light). Both gain domain behavior from the
+  // entity, not a preset.
 
   // ---- dynamic groups (the whole DSL, namespaced under `dynamic`) ----
   // A dynamic group renders one card PER live entity matching a `query`,
@@ -518,7 +549,7 @@
   //
   // Usage (alias `local d = c.dynamic;`):
   //   d.group(d.whenState('on'), d.when([
-  //     d.case(d.whenDomain('light'), c.brightnessSlider(d.matched)),
+  //     d.case(d.whenDomain('light'), c.slider(d.matched)),
   //   ], fallback=c.entityCard(d.matched, tap=c.toggleTap)))
   //   d.group(d.lowBattery(20), c.entityCard(d.matched))   // single card
   //
