@@ -219,9 +219,13 @@ class Renderer(
         states
       )}</main><div id="popups"></div>"""
 
-  /** Render a surface wrapped in its mount element — a `<dialog open>` carrying
-    * the surface's root id (`s_<id>`), so closing can `remove` it by selector.
-    * `None` if the surface id is unknown.
+  /** Render a surface wrapped in its chrome card — the overlay `popup`
+    * (`<dialog open>` + a wrapper-supplied close control) or, for an inline
+    * mount (a tab panel), the chromeless `tabPanel`. Both carry the surface
+    * root id (`s_<id>`) so live patches / group-eviction / close-by-selector can
+    * target it. The chrome lives in the card library (`popup`/`tabPanel`), not
+    * here — the renderer only renders the content as `children` and injects the
+    * id + close action. `None` if the surface id is unknown.
     */
   def renderSurface(
       surfaceId: String,
@@ -232,22 +236,32 @@ class Renderer(
       val inner =
         render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
       s.mount match {
-        // An inline mount (a tab panel) renders into a named container in the
-        // page and is swapped by an `inner` patch (one of its group at a time),
-        // so it needs no overlay chrome or close control — just the id'd
-        // wrapper so live patches and group-eviction can target it.
-        case Some(_) =>
-          s"""<div id="$rootId" class="tab-panel-content">$inner</div>"""
-        // The default overlay popup: a modal `<dialog>` appended to `#popups`,
-        // with a close control wired to the (backend-known) id so inline popups
-        // close without the author knowing the generated id. Authors can still
-        // add their own `closePopup(id)` button to a registered surface.
+        case Some(_) => renderChrome("tabPanel", Map("id" -> rootId), inner)
         case None =>
-          val close =
-            s"""<button class="popup-close" data-on:click="@post('/sse/surface/close/$surfaceId')">✕</button>"""
-          s"""<dialog id="$rootId" open class="popup">$close$inner</dialog>"""
+          renderChrome(
+            "popup",
+            Map(
+              "id" -> rootId,
+              "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
+            ),
+            inner
+          )
       }
     }
+
+  /** Wrap already-rendered surface content in a chrome card (`popup`/`tabPanel`)
+    * from the library, splicing `inner` as the card's single child and injecting
+    * the backend-known vars (`id`, `closeAction`). Falls back to the bare inner
+    * HTML if the chrome card is absent.
+    */
+  private def renderChrome(
+      card: String,
+      injected: Map[String, String],
+      inner: String
+  ): String =
+    templates.components
+      .get(card)
+      .fold(inner)(_.execute(Renderer.javaContext(injected, List(inner))))
 
   /** Render a single addressable node (for live SSE patches), main or surface.
     */
@@ -271,20 +285,15 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states)
         }
-        // A tabs container bakes its `initial` panel inline (rendered with that
-        // surface's id prefix, so the baked HTML and a later switch-back share
-        // ids) — the first paint shows it with no open round-trip. `panel` is
-        // empty for every other component (the template ignores it).
+        // A tabs container bakes its `initial` panel inline via the SAME
+        // `renderSurface` path a later switch-back uses (chrome + surface-id
+        // prefix), so the baked HTML and a switch match exactly — the first
+        // paint shows it with no open round-trip. `panel` is empty for every
+        // other component (the template ignores it).
         val panel = c.slots
           .get("initial")
           .flatMap(_.literal)
-          .flatMap(initId =>
-            dashboard.surfaces
-              .get(initId)
-              .map(s =>
-                render(s.content, Nil, Renderer.surfacePrefix(initId), states)
-              )
-          )
+          .flatMap(initId => renderSurface(initId, states))
           .getOrElse("")
         // `id`/`panel` are backend-injected template vars (the author never
         // supplies them); `id` stays available to the template (e.g. the slider

@@ -47,6 +47,13 @@ class RendererSuite extends munit.FunSuite {
     "tabs" -> CardDef(
       """<div class="tabs"><div class="tabbar">{{#children}}{{{html}}}{{/children}}</div><div class="tab-panel" id="{{mount}}">{{{panel}}}</div></div>""",
       slots = List("sig", "initial", "mount")
+    ),
+    // Backend-only surface chrome (the renderer wraps content + injects id/close).
+    "popup" -> CardDef(
+      """<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"""
+    ),
+    "tabPanel" -> CardDef(
+      """<div id="{{id}}" class="tab-panel-content">{{#children}}{{{html}}}{{/children}}</div>"""
     )
   )
 

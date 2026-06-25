@@ -496,6 +496,20 @@
         ],
       },
     },
+
+    // Surface chrome (backend-only — no `build`; the renderer wraps a surface's
+    // content as `children` and injects `id`/`closeAction`). Keeping these in
+    // the card library, not hardcoded in Scala, means a re-skin happens here.
+    //   popup    — the overlay `<dialog>` with a wrapper-supplied close control.
+    //   tabPanel — the inline panel wrapper (no dialog chrome, no close).
+    popup: {
+      template: '<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>',
+      slots: [],
+    },
+    tabPanel: {
+      template: '<div id="{{id}}" class="tab-panel-content">{{#children}}{{{html}}}{{/children}}</div>',
+      slots: [],
+    },
   },
 
   // ---- shared card library: name -> { template, slots } ----
