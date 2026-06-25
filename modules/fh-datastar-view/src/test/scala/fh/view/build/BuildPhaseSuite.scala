@@ -83,10 +83,16 @@ class BuildPhaseSuite extends munit.FunSuite {
             "friendly_name" -> "Temperature".asJson,
             "domain" -> "sensor".asJson
           ),
-          // The example dashboard statically references this entity by name.
+          // The example dashboard statically references these entities by name
+          // (the second is the multi-entity card's cross-entity secondary line).
           "sensor_ams_1a4e_p" -> io.circe.Json.obj(
             "entity_id" -> "sensor.ams_1a4e_p".asJson,
             "friendly_name" -> "Power".asJson,
+            "domain" -> "sensor".asJson
+          ),
+          "sensor_ams_1a4e_u1" -> io.circe.Json.obj(
+            "entity_id" -> "sensor.ams_1a4e_u1".asJson,
+            "friendly_name" -> "L1 voltage".asJson,
             "domain" -> "sensor".asJson
           )
         )
