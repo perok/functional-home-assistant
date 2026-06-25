@@ -95,11 +95,44 @@ class Renderer(
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
 
-  /** Dynamic group container ids on the main page — re-evaluated on every state
-    * change (their membership is data-dependent, so they can't be
-    * reverse-indexed).
+  /** Dynamic group container ids on the main page. Their membership is
+    * data-dependent (can't be reverse-indexed by entity), but a single change
+    * only moves the *changed* entity in or out of a group, so a container needs
+    * re-rendering only when the change touches its query — see
+    * [[affectedDynamicIds]]. (The full list is kept for callers that re-render
+    * every group, e.g. a navigate/reload repaint.)
     */
   val dynamicContainerIds: List[String] = mainIndex.dynamicIds
+
+  /** Each dynamic container's query, by id (main + surfaces), for the
+    * affected-by-change test. A group with no query matches every entity.
+    */
+  private val dynamicQueries: Map[String, Option[Predicate]] =
+    allIndexed.collect { case (id, (d: LayoutNode.Dynamic, _, _)) =>
+      id -> d.query
+    }
+
+  private def dynamicAffected(
+      id: String,
+      change: StateChange
+  ): Boolean = {
+    val query = dynamicQueries.getOrElse(id, None)
+    def matchesQuery(st: EntityState): Boolean =
+      query.forall(Renderer.matches(_, st))
+    // The change touches the group iff the entity matched its query BEFORE or
+    // AFTER the change — covering an add (¬prev ∧ cur), a remove (prev ∧ ¬cur),
+    // and an in-place update of a member (prev ∧ cur). An entity that matches
+    // neither leaves the group's HTML identical, so the group is skipped.
+    change.previous.exists(matchesQuery) || matchesQuery(change.current)
+  }
+
+  /** Main-page dynamic container ids whose membership/contents this change can
+    * affect — the changed entity matched the group's query before or after the
+    * change. Unrelated entities are filtered out, sparing the whole-group
+    * re-scan + re-render on every event.
+    */
+  def affectedDynamicIds(change: StateChange): List[String] =
+    mainIndex.dynamicIds.filter(dynamicAffected(_, change))
 
   /** Surfaces shown by default on the main page — the first (`initial`) panel
     * of any component that declares one (a tabs container today). A connection
@@ -128,6 +161,15 @@ class Renderer(
 
   def surfaceDynamicIds(surfaceId: String): List[String] =
     surfaceIndexes.get(surfaceId).fold(List.empty)(_.dynamicIds)
+
+  /** Like [[affectedDynamicIds]], scoped to one open surface. */
+  def affectedSurfaceDynamicIds(
+      surfaceId: String,
+      change: StateChange
+  ): List[String] =
+    surfaceIndexes
+      .get(surfaceId)
+      .fold(List.empty[String])(_.dynamicIds.filter(dynamicAffected(_, change)))
 
   /** The surface's declaration (content/group/mount), if it exists. */
   def surface(surfaceId: String): Option[Surface] =

@@ -80,6 +80,19 @@ object EntityState {
     )
 }
 
+/** One applied state change: the entity, its `previous` value (None if newly
+  * seen), and its `current` value. Carrying both lets a consumer decide whether
+  * a change affects a data-dependent view (a dynamic group) by testing the
+  * group's query against the before AND after state — so an add, a remove, or
+  * an in-place update all register, while an unrelated entity is skipped,
+  * without any per-consumer membership tracking.
+  */
+case class StateChange(
+    entityId: String,
+    previous: Option[EntityState],
+    current: EntityState
+)
+
 /** The runtime single source of truth for all entity state.
   *
   * Seeded once from a full HA snapshot, then kept current by a background fiber
@@ -89,13 +102,13 @@ object EntityState {
   */
 class StateStore private (
     ref: Ref[IO, Map[String, EntityState]],
-    topic: Topic[IO, String]
+    topic: Topic[IO, StateChange]
 ) {
 
   def snapshot: IO[Map[String, EntityState]] = ref.get
 
-  /** Stream of entity ids whose state just changed. */
-  def changes: Stream[IO, String] = topic.subscribe(64)
+  /** Stream of state changes (entity + its previous/current value). */
+  def changes: Stream[IO, StateChange] = topic.subscribe(64)
 
   private def applyEvent(event: Event): IO[Unit] = {
     val entityId = event.data.entity_id
@@ -107,12 +120,19 @@ class StateStore private (
 
     // Re-render/diff happens downstream; here we only publish when the entity's
     // state actually changed, so identical events don't churn the SSE stream.
+    // The previous value rides along so a dynamic group can tell whether the
+    // change crossed its membership boundary.
     ref
       .modify { current =>
-        if (current.get(entityId).contains(next)) (current, false)
-        else (current.updated(entityId, next), true)
+        val previous = current.get(entityId)
+        if (previous.contains(next)) (current, None)
+        else
+          (
+            current.updated(entityId, next),
+            Some(StateChange(entityId, previous, next))
+          )
       }
-      .flatMap(changed => IO.whenA(changed)(topic.publish1(entityId).void))
+      .flatMap(_.fold(IO.unit)(change => topic.publish1(change).void))
   }
 }
 
@@ -130,7 +150,7 @@ object StateStore {
     for {
       initial <- seed(api).toResource
       ref <- Ref[IO].of(initial).toResource
-      topic <- Topic[IO, String].toResource
+      topic <- Topic[IO, StateChange].toResource
       store = new StateStore(ref, topic)
       _ <- api
         .event(Some("state_changed"))

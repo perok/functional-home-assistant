@@ -327,6 +327,56 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
+    "affectedDynamicIds includes a group only when the change touches its query"
+  ) {
+    def group(query: Option[Predicate]): LayoutNode =
+      LayoutNode.Dynamic(
+        query = query,
+        cases = List(
+          DynamicCase(
+            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+            "card",
+            slots = Map("state" -> SlotSource())
+          )
+        )
+      )
+    val r = renderer(group(Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)))))
+    def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
+    def high(id: String) = st(id, "x", "battery" -> Json.fromInt(50)) // no match
+
+    // in-place update of a member (prev ∧ cur), an add (¬prev ∧ cur), and a
+    // remove (prev ∧ ¬cur) all re-render the group; a newly-seen match too.
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.b", Some(low("sensor.b")), low("sensor.b"))),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.b", Some(high("sensor.b")), low("sensor.b"))),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.b", Some(low("sensor.b")), high("sensor.b"))),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.b", None, low("sensor.b"))),
+      List("c")
+    )
+    // An entity that matches neither before nor after leaves the group's HTML
+    // unchanged, so it is skipped — the whole point of the filter.
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))),
+      Nil
+    )
+    // A query-less group matches everything, so any change affects it.
+    val all = renderer(group(None))
+    assertEquals(
+      all.affectedDynamicIds(StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))),
+      List("c")
+    )
+  }
+
+  test(
     "a constant slot (no entityId) resolves its literal against empty state"
   ) {
     val node = LayoutNode.Component(
