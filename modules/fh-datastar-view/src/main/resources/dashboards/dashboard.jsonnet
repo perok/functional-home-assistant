@@ -75,13 +75,14 @@ local entities = std.objectValues(dump.entities);
     ]),
 
     c.sectionTitle('Kitchen'),
-    // A row of light toggles, then a row of brightness sliders.
+    // A row of light toggles, then a row of brightness sliders. `c.button` /
+    // `c.slider` configure themselves from each entity's domain (light here).
     c.row([
-      c.toggle(eo)
+      c.button(eo)
       for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
     ]),
     c.row([
-      c.brightnessSlider(eo)
+      c.slider(eo)
       for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
     ]),
     c.sectionTitle('Living room'),
@@ -133,13 +134,13 @@ local entities = std.objectValues(dump.entities);
     d.group(d.whenState('on'), d.when([
       d.case(
         d.whenDomain('light'),
-        c.brightnessSlider(
+        c.slider(
           d.matched,
           // name · 45%  (guarded: an "on" light may briefly have no brightness)
           label=c.expr('$attr.friendly_name & ($attr.brightness ? " · " & $round($number($attr.brightness) / 2.55) & "%" : "")'),
         ),
       ),
-      d.case(d.whenDomain('switch'), c.toggle(d.matched)),
+      d.case(d.whenDomain('switch'), c.button(d.matched)),
     ], fallback=c.entityCard(
       d.matched,
       tap=c.toggleTap,
