@@ -47,8 +47,9 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 > **Before changing this module, read its ADRs in [`docs/adr/`](docs/adr/README.md).**
 > They record the design decisions (entity card + JSONata transforms, surfaces/tabs,
 > dynamic groups, the params/slots + label-as-slot model) with their rationale.
-> Check a change against them; when a change supersedes a decision, add a new
-> numbered ADR (don't edit the old one) rather than letting the record drift.
+> Check a change against them; when a change supersedes a decision, keep the record
+> current by appending a dated `## Update —` section to the relevant ADR (the
+> established pattern while the design is pre-v1) that names what it supersedes.
 
 A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
 HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
