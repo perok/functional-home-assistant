@@ -239,16 +239,18 @@
       build(children):: { kind: 'component', card: 'fhcol', children: children },
     },
 
-    // Static title text (not bound to an entity).
+    // Static title text (not bound to an entity). `label` is a constant LITERAL
+    // slot (a bare string), not a param — params are reserved for the small
+    // structural set the backend reads by name (entity_id, surface wiring).
     sectionTitle: {
       template: '<h2 class="section">{{label}}</h2>',
-      params: ['label'],
-      slots: [],
+      params: [],
+      slots: ['label'],
       build(label):: {
         kind: 'component',
         card: 'sectionTitle',
-        params: { label: label },
-        slots: {},
+        params: {},
+        slots: { label: label },
       },
     },
 
@@ -291,13 +293,12 @@
       build(eo, label=null, value=null, secondary=null, tap=null):: {
         kind: 'component',
         card: 'entityCard',
-        // entity_id is the card's one entity — every slot inherits it (and the
-        // derived live-dependency set comes from the slots that read it).
-        params: {
-          entity_id: eo.entity_id,
-          [if tap != null then 'tappable']: '1',
-        },
+        // entity_id is the card's one entity (the structural param every slot
+        // inherits); the derived live-dependency set comes from the slots that
+        // read it. `tappable` is a constant literal slot, not a param.
+        params: { entity_id: eo.entity_id },
         slots: {
+          [if tap != null then 'tappable']: '1',
           label: labelSlot(eo, label),
           value: valueSlot(value),
           [if secondary != null then 'secondary']: secondarySlot(secondary),
@@ -336,14 +337,17 @@
         {
           kind: 'component',
           card: 'button',
+          // entity_id is the structural param the onclick inherits to resolve
+          // $entity_id/$domain; it is reactive: false, so the button stays out
+          // of the live set (no re-render) unless a live `label` slot pulls the
+          // entity in. `active` is a constant literal slot, not a param.
           params: {
-            // The onclick inherits this to resolve $entity_id/$domain; it is
-            // reactive: false, so the button stays out of the live set (no
-            // re-render) unless a live `label` slot pulls the entity in.
             [if eo != null then 'entity_id']: eo.entity_id,
-            [if active != null then 'active']: active,
           },
-          slots: { label: labelSlot(eo, label) } + tapSlot(tap),
+          slots: {
+            [if active != null then 'active']: active,
+            label: labelSlot(eo, label),
+          } + tapSlot(tap),
         } + tapInline(tap)
       ),
     },
@@ -371,18 +375,16 @@
             data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
         </article>
       |||,
-      params: ['min', 'max', 'key'],
-      slots: ['label', 'state', 'value', 'action'],
+      params: [],
+      slots: ['label', 'state', 'value', 'action', 'min', 'max', 'key'],
       build(eo, action, key, min, max, value=null, label=null):: {
         kind: 'component',
         card: 'slider',
-        // entity_id is the card's one entity (template action URL + slot inheritance).
-        params: {
-          min: '' + min,
-          max: '' + max,
-          entity_id: eo.entity_id,
-          key: key,
-        },
+        // entity_id is the only structural param (template action URL + slot
+        // inheritance). min/max/key/action are slots — constant literals here,
+        // but the slot form lets them vary by $domain at runtime (see the
+        // domain-aware slider).
+        params: { entity_id: eo.entity_id },
         slots: {
           label: labelSlot(eo, label),
           // state is the display header (inherits entity_id) — bypassUnavailable
@@ -395,8 +397,12 @@
             default: '0',
             bypassUnavailable: false,
           },
-          // action is a constant "<domain>/<service>" route — a bare literal.
+          // action/min/max/key are constant "<domain>/<service>" + range config —
+          // bare literal slots.
           action: action,
+          min: '' + min,
+          max: '' + max,
+          key: key,
         },
       },
     },
