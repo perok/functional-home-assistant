@@ -58,8 +58,9 @@ class RendererSuite extends munit.FunSuite {
   )
 
   // A tabs container as the hoist produces it: a `tabs` component (the bar
-  // buttons as children, `initial` naming the default panel) plus one grouped,
-  // inline-mounted surface per tab.
+  // buttons as children, `mount` naming the panel container, `initial` only
+  // seeding the client signal) plus one grouped, inline-mounted surface per tab
+  // — the first flagged `defaultOpen` (baked + seeded open).
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -81,7 +82,14 @@ class RendererSuite extends munit.FunSuite {
         )
       ),
       surfaces = Map(
-        "c_0" -> Surface(panel("a"), Some("c_panel"), Some("c_panel")),
+        // c_0 is the default-open panel: baked inline (its mount matches the
+        // tabs container's `mount` slot) + seeded open on connect.
+        "c_0" -> Surface(
+          panel("a"),
+          Some("c_panel"),
+          Some("c_panel"),
+          defaultOpen = true
+        ),
         "c_1" -> Surface(panel("b"), Some("c_panel"), Some("c_panel"))
       )
     )

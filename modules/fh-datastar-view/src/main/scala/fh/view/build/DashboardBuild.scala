@@ -3,7 +3,7 @@ package fh.view.build
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.Dashboard
+import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
 
 /** Turns the jsonnet dashboard sources into a validated [[Dashboard]].
@@ -59,12 +59,14 @@ object DashboardBuild {
     )
 
   /** The literal token an authored node uses to refer to its own backend-minted
-    * id namespace; [[hoistInlineSurfaces]] splices the real id in. Authors
-    * never type it directly — the `c.openPopup`/`c.tabs` builders embed it (so
-    * jsonnet composes the trigger fully and only borrows the id it cannot
-    * mint).
+    * id — the SAME id the renderer injects as `{{id}}` for that node
+    * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it from
+    * the node's tree position and splices it in. Authors never type it directly
+    * — the `c.openPopup`/`c.tabs` builders embed it (so jsonnet composes the
+    * trigger fully and only borrows the one value it cannot mint: the node's
+    * position-derived id).
     */
-  val NodeIdToken: String = "@@NODE@@"
+  val NodeIdToken: String = "@@NODE_ID@@"
 
   /** Hoist inline surface definitions into the `surfaces` registry.
     *
@@ -100,12 +102,14 @@ object DashboardBuild {
         obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
       )
 
-    // Keep only the surface's own fields (content + optional group/mount).
+    // Keep only the surface's own fields (content + optional
+    // group/mount/defaultOpen).
     def surfaceOf(defObj: JsonObject): Json =
       Json.fromJsonObject(
         JsonObject.fromIterable(
           defObj("content").map("content" -> _).toList ++
-            List("group", "mount").flatMap(k => defObj(k).map(k -> _))
+            List("group", "mount", "defaultOpen")
+              .flatMap(k => defObj(k).map(k -> _))
         )
       )
 
@@ -173,15 +177,24 @@ object DashboardBuild {
     json.asObject match {
       case None => json
       case Some(obj) =>
+        // The card root's id namespace is the renderer's root `pathId` ("c"), so
+        // a node's hoist-time idBase equals its render-time `{{id}}` — one id
+        // story shared with `LayoutNode.pathId`/`surfacePrefix`.
         val (newCard, cardSurfaces) =
-          obj("card").map(walk(_, "inline")).getOrElse((Json.Null, Nil))
+          obj("card")
+            .map(walk(_, LayoutNode.pathId(Nil)))
+            .getOrElse((Json.Null, Nil))
         // Existing registered surfaces may themselves contain inline triggers.
         val existing =
           obj("surfaces").flatMap(_.asObject).getOrElse(JsonObject.empty)
         val rebuilt = existing.toList.map { case (sid, sv) =>
           sv.asObject.flatMap(_("content")) match {
             case Some(c) =>
-              val (nc, extra) = walk(c, s"inline_$sid")
+              // A surface's content root carries the renderer's surface-scoped id
+              // (`s_<sid>__c`), so a nested inline trigger's idBase equals what
+              // the renderer injects there — same one id story as the main tree.
+              val (nc, extra) =
+                walk(c, LayoutNode.surfacePrefix(sid) + LayoutNode.pathId(Nil))
               (sid -> sv.mapObject(_.add("content", nc)), extra)
             case None => (sid -> sv, Nil)
           }

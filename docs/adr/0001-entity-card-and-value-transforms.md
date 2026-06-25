@@ -309,3 +309,35 @@ brightness slider for a light, and `c.button(eo)` already toggles via its
 `sliderSpec` — no builder change. These identity-derived config slots are
 `reactive: false`, so they are resolved **once per entity** and memoized (ADR
 0004's 2026-06-25 update), keeping the dynamic render path cheap.
+
+## Update — 2026-06-25b: `params` dissolved entirely; `entity_id` is a magical slot
+
+**Supersedes the "`params` = the structural set" decision above.** That update
+kept a `params` grab-bag for the handful of keys the backend read by name. On
+reflection that residue did not earn a second vocabulary: `LayoutNode.Component`
+is now **`(card, slots, children)`** — no `params` map — and `DynamicCase`/
+`CardDef` drop their `params` too. The keys that lived there are re-homed:
+
+- **`entity_id` is a magical slot.** The card's subject entity is the slot
+  *named* `entity_id`; the backend extracts it by name as the
+  slot-inheritance root and the slider's action-URL splice. It is normally a
+  `literal` (the subject id) but, being an ordinary `SlotSource`, *may* be a
+  grounded transform for indirection. The one rule that keeps it sound: the
+  `entity_id` slot is the single slot that does **not** inherit the subject — it
+  resolves from its own `entityId`/`literal` only (it *defines* the subject). A
+  literal `entity_id` yields an exact static `subjectEntity`/`liveEntities`; a
+  transform `entity_id` contributes its own source instead (it can't statically
+  reverse-index its inheritors on the resolved target).
+- **`id`/`panel` stay backend-injected**, but straight into the Mustache context
+  (`Dashboard.injectedStatic = {id, panel}`; `injectedDynamic` adds the matched
+  `entity_id`) — not via a params map. A dynamic case sets the matched entity as
+  a literal `entity_id` slot per render.
+- **The tabs wiring (`sig`/`mount`/`initial`) became ordinary literal slots** the
+  backend no longer special-cases — see [ADR 0002](0002-multi-dashboard-popups-and-navigation.md)'s
+  2026-06-25b update (`initial` is gone as a backend concept; `defaultOpen` on the
+  surface replaces it).
+
+So there is now exactly **one** authoring vocabulary — the slot — and the only
+non-slot template vars are the injected constants. Rendered HTML is unchanged
+(params and slots already merged into one context); the partition simply
+disappeared.

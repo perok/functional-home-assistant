@@ -150,12 +150,13 @@
   // verbatim, so it is just the string itself — no JSONata, no entity binding.
   local constOnclick(js) = js,
 
-  // The placeholder a node uses to refer to its own backend-minted id namespace;
-  // the build-phase hoist (DashboardBuild.hoistInlineSurfaces / NodeIdToken)
-  // splices the real id in. This is how a builder composes a trigger that
-  // references the surface id it cannot mint: write '<NODE>_<localKey>' and pair
-  // it with an `inlineSurfaces: { <localKey>: ... }` marker.
-  local NODE = '@@NODE@@',
+  // The placeholder a node uses to refer to its own backend-assigned id (the
+  // SAME id the renderer injects as `{{id}}`); the build-phase hoist
+  // (DashboardBuild.hoistInlineSurfaces / NodeIdToken) splices the real id in.
+  // This is how a builder composes a trigger that references the surface id it
+  // cannot mint: write '<NODE_ID>_<localKey>' and pair it with an
+  // `inlineSurfaces: { <localKey>: ... }` marker.
+  local NODE_ID = '@@NODE_ID@@',
 
   // The default tap descriptor (domain-resolved service call). Its onclick reads
   // `$entity_id`/`$domain`, so it is a LIVE expression (c.expr), not a literal.
@@ -164,7 +165,7 @@
   // Add the `onclick` slot for a tap descriptor (service / popup / navigate /
   // tab). A descriptor's onclick is either a `c.expr(...)` (a live click
   // expression reading the entity — bound here) or a bare-string literal (a
-  // constant click, e.g. a popup open referencing a fixed surface id via NODE,
+  // constant click, e.g. a popup open referencing a fixed surface id via NODE_ID,
   // which the hoist splices in). jsonnet, not the backend, composes the onclick.
   local tapSlot(tap) =
     if tap != null && std.objectHas(tap, 'onclick') then
@@ -181,7 +182,7 @@
 
   // Attach the inline-surfaces marker (a node-level map the backend hoists into
   // the `surfaces` registry, keying each by '<node-id>_<localKey>'). The trigger
-  // already references those ids via NODE, so the hoist only splices + lifts.
+  // already references those ids via NODE_ID, so the hoist only splices + lifts.
   local tapInline(tap) =
     if tap != null && std.objectHas(tap, 'inlineSurfaces') then
       { inlineSurfaces: tap.inlineSurfaces } else {},
@@ -200,9 +201,9 @@
       { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
     else
       {
-        // Reference the future surface id (NODE_self) the hoist will mint, and
+        // Reference the future surface id (NODE_ID_self) the hoist will mint, and
         // pair it with the inline content under the same local key.
-        onclick: constOnclick('@post(\'/sse/surface/open/' + NODE + '_self\')'),
+        onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
         // 'self' is a jsonnet keyword, so quote the local key.
         inlineSurfaces: { 'self': {
           content: target,
@@ -435,11 +436,12 @@
     // tab at a time. The panel's content IS a surface (one per tab, sharing an
     // exclusivity group + this `mount`), so switching reuses the popup
     // open/close machinery — it just patches `inner` into the mount instead of
-    // appending an overlay. `panel` is the first tab's HTML, baked in by the
-    // backend so the initial paint shows it with no round-trip; `initial` seeds
-    // the active-tab signal `{{sig}}` (client-side highlight). The author never
-    // writes any of these — `c.tabs(...)` emits an inline marker the build-phase
-    // hoist expands (see DashboardBuild.hoistInlineSurfaces).
+    // appending an overlay. `panel` is the default tab's HTML, baked in by the
+    // backend (the surface flagged `defaultOpen`, matched to this container by
+    // `mount`) so the first paint shows it with no round-trip; `initial` only
+    // seeds the active-tab signal `{{sig}}` (client-side highlight). The author
+    // never writes any of these — `c.tabs(...)` emits an inline marker the
+    // build-phase hoist expands (see DashboardBuild.hoistInlineSurfaces).
     //
     // Builder usage:
     //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
@@ -448,7 +450,7 @@
     // mount, so opening one swaps the panel). The bar button opens its panel AND
     // sets a per-group signal to the active surface id; the same signal drives
     // the button's `active` highlight and (seeded to the first id) the baked
-    // default panel. Every surface id is written as 'NODE_<i>' — the build-phase
+    // default panel. Every surface id is written as 'NODE_ID_<i>' — the build-phase
     // hoist mints the real id namespace and splices it in (and lifts the
     // surfaces to the top-level registry); no tabs/popup logic lives in the
     // backend.
@@ -461,25 +463,31 @@
       |||,
       slots: ['sig', 'initial', 'mount'],
       build(tabs):: {
-        local mount = 'panel_' + NODE,  // the shared inline panel container id
-        local sig = 'tab_' + NODE,      // per-group active-tab signal (holds an id)
-        local sid(i) = NODE + '_' + i,  // local key i -> future surface id
+        local mount = 'panel_' + NODE_ID,  // the shared inline panel container id
+        local sig = 'tab_' + NODE_ID,      // per-group active-tab signal (holds an id)
+        local sid(i) = NODE_ID + '_' + i,  // local key i -> future surface id
 
         kind: 'component',
         card: 'tabs',
-        // sig/mount/initial are literal slots (constant wiring); `initial` is
-        // also read by the backend (default-open panel). Phase 3 may derive
-        // these from the node id instead.
+        // sig/mount/initial are all literal wiring slots the backend never
+        // interprets: `mount` is the panel container id (it also links the
+        // default-open surface to this container for baking), `sig` the
+        // active-tab signal name, `initial` only SEEDS that client signal. The
+        // "shown by default" decision lives on the surface (`defaultOpen` below),
+        // not on a slot.
         slots: {
           sig: sig,
           mount: mount,
-          initial: sid(0),  // default panel: baked inline + seeds the signal
+          initial: sid(0),  // seeds the active-tab signal (client highlight only)
         },
         inlineSurfaces: {
           [std.toString(i)]: {
             content: tabs[i].content,
             group: mount,
             mount: mount,
+            // The first tab is the default panel: baked inline by the container
+            // (matched via `mount`) and seeded open on every connection.
+            [if i == 0 then 'defaultOpen']: true,
           }
           for i in std.range(0, std.length(tabs) - 1)
         },
