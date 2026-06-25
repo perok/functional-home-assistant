@@ -198,6 +198,41 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test(
+    "a reactive:false slot is resolved once and memoized; a reactive:true slot re-resolves"
+  ) {
+    // `reactive = false` promises the value is identity-only, so the renderer
+    // resolves it ONCE per (entity, transform) and reuses it — this is what
+    // keeps the dynamic render path cheap (action/domain-config slots become a
+    // cache lookup, not a JSONata eval, on every re-render). We expose the memo
+    // with a state-reading transform (a deliberate misuse): its value freezes
+    // at the first render and ignores a later state change. A `reactive = true`
+    // slot, by contrast, re-resolves every render.
+    def node(reactive: Boolean): LayoutNode =
+      LayoutNode.Component(
+        card = "act",
+        slots = Map(
+          "action" -> SlotSource(
+            Some("sensor.t"),
+            transform = "$state",
+            reactive = reactive
+          )
+        )
+      )
+
+    val frozen = renderer(node(false))
+    val a = frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val b = frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(a.contains("""href="one""""), clue = a)
+    assertEquals(b, a) // memoized: the changed state is ignored
+
+    val live = renderer(node(true))
+    val c1 = live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val c2 = live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(c1.contains("""href="one""""), clue = c1)
+    assert(c2.contains("""href="two""""), clue = c2) // re-resolved
+  }
+
   test("missing entity renders empty slots rather than throwing") {
     val html = renderer(card).renderNodeById("c", Map.empty).get
     assertEquals(

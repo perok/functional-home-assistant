@@ -71,6 +71,17 @@ class Renderer(
 
   private val mainIndex = new Index(dashboard.card, "")
 
+  /** Memo for identity-derived (`reactive: false`) slot values, keyed by
+    * `(entityId, transform)`. Such a slot reads only the entity's immutable
+    * identity (`$domain`/`$entity_id`), so its value is stable for the life of
+    * the entity — resolve once, then reuse (see `renderTemplate`). Lives on the
+    * Renderer, which is rebuilt on hot-reload/navigate, so it never needs
+    * invalidation; concurrent fibers may race to fill an entry but compute the
+    * same value.
+    */
+  private val identityCache =
+    new java.util.concurrent.ConcurrentHashMap[(String, String), String]()
+
   private val surfaceIndexes: Map[String, Index] =
     dashboard.surfaces.map { case (sid, s) =>
       sid -> new Index(s.content, Renderer.surfacePrefix(sid))
@@ -308,31 +319,53 @@ class Renderer(
               // The slot's entity is its own `entityId`, or the component's
               // `entity_id` param when it leaves it unset (slot-level
               // inheritance — the card's one entity, or the matched entity in a
-              // dynamic case). It resolves against that entity's state even
-              // before any has arrived (so `$domain` actions still resolve);
-              // with no entity at all the state is empty.
-              // TODO should throw or log a warning?
+              // dynamic case).
               val srcEntity = source.entityId.orElse(params.get("entity_id"))
-              val st =
-                srcEntity
-                  .flatMap(states.get)
-                  .getOrElse(
-                    EntityState(srcEntity.getOrElse(""), "", Map.empty)
-                  )
-              // An unavailable/unknown entity on a value-display slot shows its
-              // raw state and never enters the transform — that bypass, not the
-              // transform, is what keeps such states readable. Identity slots
-              // leave it off so an action still resolves.
-              if (source.bypassUnavailable && st.unavailable) st.state
-              else {
-                val out = transforms.run(source.transform, st)
-                if (out.nonEmpty) out else source.default.getOrElse("")
-              }
+              // A `reactive: false` slot is identity-derived — its transform
+              // reads only `$domain`/`$entity_id` (a service action, the
+              // slider's domain config), both immutable for the life of the
+              // entity. So its value never changes: resolve it ONCE per
+              // (entity, transform) and reuse forever. This is what keeps the
+              // dynamic render path slick — a dynamic group re-renders every
+              // matched card on every event, but those cards' action/config
+              // slots become a cache lookup, not a JSONata eval. Live slots
+              // (`reactive: true`) always re-resolve. `$entity_id` is in the key
+              // (the action URL embeds it), so two entities never collide.
+              if (!source.reactive)
+                identityCache.computeIfAbsent(
+                  (srcEntity.getOrElse(""), source.transform),
+                  _ => resolveSlot(srcEntity, source, states)
+                )
+              else resolveSlot(srcEntity, source, states)
           }
           slot -> value
         }
         tpl.execute(Renderer.javaContext(params ++ resolved, childrenHtml))
     }
+
+  /** Resolve a non-literal slot's value against its producing entity's state.
+    * It resolves even before any state has arrived (so a `$domain` action still
+    * resolves); with no entity at all the state is empty.
+    */
+  private def resolveSlot(
+      srcEntity: Option[String],
+      source: SlotSource,
+      states: Map[String, EntityState]
+  ): String = {
+    val st =
+      srcEntity
+        .flatMap(states.get)
+        .getOrElse(EntityState(srcEntity.getOrElse(""), "", Map.empty))
+    // An unavailable/unknown entity on a value-display slot shows its raw state
+    // and never enters the transform — that bypass, not the transform, is what
+    // keeps such states readable. Identity slots leave it off so an action still
+    // resolves.
+    if (source.bypassUnavailable && st.unavailable) st.state
+    else {
+      val out = transforms.run(source.transform, st)
+      if (out.nonEmpty) out else source.default.getOrElse("")
+    }
+  }
 }
 
 object Renderer {
