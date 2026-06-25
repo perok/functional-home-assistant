@@ -89,6 +89,15 @@ class Server(
         .get(slug)
         .traverse_(_.get.flatMap(r => session.open.set(r.defaultOpenSurfaces)))
 
+      // Each state change is re-rendered as it arrives. `changedPatches` already
+      // narrows the work (reverse index for static components, query-affected
+      // filter for dynamic groups) and the diff cache drops no-op pushes.
+      // FUTURE (ADR): under a burst of state_changed events (HA fires them
+      // constantly), coalesce — debounce/batch the stream per connection and
+      // re-render at most every X ms, collapsing repeated touches of the same
+      // node into one render+push. The narrowing here bounds *what* re-renders;
+      // batching would bound *how often*. (Fold this into the dynamic-groups ADR
+      // when the perf model is settled.)
       patches = stateStore.changes
         .evalMap(changedPatches(session, _))
         .flatMap(Stream.emits)
@@ -139,7 +148,7 @@ class Server(
     */
   private def changedPatches(
       session: Session,
-      entityId: String
+      change: StateChange
   ): IO[List[ServerSentEvent]] =
     for {
       slug <- session.slug.get
@@ -149,12 +158,15 @@ class Server(
       out <- renderer match {
         case None => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
+          // Reverse-indexed components that bind this entity, plus only the
+          // dynamic groups this change can move the entity in/out of (not every
+          // group on every event).
           val mainIds =
-            r.componentsFor(entityId).toList ++ r.dynamicContainerIds
+            r.componentsFor(change.entityId).toList ++
+              r.affectedDynamicIds(change)
           val surfaceIds = open.toList.flatMap(sid =>
-            r.surfaceComponentsFor(sid, entityId).toList ++ r.surfaceDynamicIds(
-              sid
-            )
+            r.surfaceComponentsFor(sid, change.entityId).toList ++
+              r.affectedSurfaceDynamicIds(sid, change)
           )
           val ids = (mainIds ++ surfaceIds).distinct
           val rendered =
