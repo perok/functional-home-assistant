@@ -48,25 +48,17 @@ class RendererSuite extends munit.FunSuite {
     "popup" -> CardDef(
       """<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"""
     ),
-    "tabPanel" -> CardDef(
-      """<div id="{{id}}" class="tab-panel-content">{{#children}}{{{html}}}{{/children}}</div>"""
-    ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     "tabs" -> CardDef(
       """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>"""
     )
   )
 
-  // A tabs group as `c.tabs` + the hoist produce it: a column [a `.tabbar` row of
-  // buttons, an inline `Mount`] plus one inline-mounted surface per tab — the
-  // first flagged `defaultOpen` (baked into the mount + seeded open). The mount is
-  // the column's child index 1, so its element id is "c_1" — what the surfaces
-  // name as their `mount`.
   // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
   // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
-  // filled via `{{{panel}}}` baked from the first default-open surface.
-  // The surfaces target `c_panel` (= idBase + '_panel', the hoist invariant),
-  // carry `chrome:'tabPanel'`, `stack:false`, `bakeInto:"c"`, `bakeAs:"panel"`.
+  // filled via `{{{panel}}}` baked from the first default-open surface. The
+  // surfaces target `c_panel` (= idBase + '_panel', the hoist invariant), carry
+  // `chrome:""` (no wrapper), `stack:false`, `bakeInto:"c"`, `bakeAs:"panel"`.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -90,7 +82,7 @@ class RendererSuite extends munit.FunSuite {
         "c_t0" -> Surface(
           panel("a"),
           mount = Some("c_panel"),
-          chrome = "tabPanel",
+          chrome = "",
           stack = false,
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
@@ -99,7 +91,7 @@ class RendererSuite extends munit.FunSuite {
         "c_t1" -> Surface(
           panel("b"),
           mount = Some("c_panel"),
-          chrome = "tabPanel",
+          chrome = "",
           stack = false,
           bakeInto = Some("c"),
           bakeAs = Some("panel")
@@ -644,10 +636,10 @@ class RendererSuite extends munit.FunSuite {
     // the second tab is NOT baked in
     assert(!body.contains("<span>BB</span>"), clue = body)
 
-    // An inline-mounted surface renders as a plain div (no <dialog>, no ✕).
+    // An inline-mounted surface renders bare — no chrome wrapper, no <dialog>, no ✕.
     val panelB = rr.renderSurface("c_t1", states).get
     assert(
-      panelB.startsWith("""<div id="s_c_t1" class="tab-panel-content">"""),
+      panelB.startsWith("""<div class="fh-cell" id="s_c_t1__c">"""),
       clue = panelB
     )
     assert(!panelB.contains("<dialog"), clue = panelB)

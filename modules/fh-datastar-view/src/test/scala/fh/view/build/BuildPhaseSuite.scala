@@ -230,10 +230,10 @@ class BuildPhaseSuite extends munit.FunSuite {
       },
       clue = "expected a tabs component in the layout"
     )
-    // Surfaces carry chrome:'tabPanel', stack:false, and bakeInto/bakeAs.
+    // Surfaces carry chrome:"" (no wrapper), stack:false, and bakeInto/bakeAs.
     assert(
       d.surfaces.values.forall(s =>
-        s.chrome == "tabPanel" && !s.stack && s.bakeInto.isDefined && s.bakeAs
+        s.chrome.isEmpty && !s.stack && s.bakeInto.isDefined && s.bakeAs
           .contains("panel")
       ),
       clue = d.surfaces

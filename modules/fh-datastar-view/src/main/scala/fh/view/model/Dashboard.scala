@@ -279,8 +279,9 @@ case class Theme(
   *     `tabs` card's panel div, or the page shell's `#popups`), not a layout
   *     node — the Surface itself carries how it attaches.
   *   - `chrome`: the chrome card wrapping the content — `popup` (the floating
-  *     `<dialog>` with a close control) or `tabPanel` (the bare inline
-  *     wrapper).
+  *     `<dialog>` with a close control). EMPTY (`""`) means no chrome: the
+  *     content renders straight into its host (an inline tab panel, whose host
+  *     is the `tabs` card's panel div — no per-surface wrapper needed).
   *   - `stack`: `true` ⇒ `append` (overlays stack into `#popups`); `false` ⇒
   *     `inner`-replace, evicting any open surface sharing the mount (so tab
   *     panels are mutually exclusive by construction — no separate `group`).
