@@ -3,6 +3,7 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.model.MountKind
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -156,7 +157,7 @@ class Server(
       states <- stateStore.snapshot
       open <- session.open.get
       out <- renderer match {
-        case None => IO.pure(List.empty[ServerSentEvent])
+        case None    => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
           // Reverse-indexed components that bind this entity, plus only the
           // dynamic groups this change can move the entity in/out of (not every
@@ -182,8 +183,11 @@ class Server(
       }
     } yield out
 
-  /** Open a surface for this connection: evict same-group siblings, mark it
-    * open, and append its rendered HTML into its mount (`#popups` by default).
+  /** Open a surface for this connection. The mount's [[MountKind]] decides how:
+    *   - `Inline` (a tab panel) — evict open siblings sharing this mount (the
+    *     `inner` patch overwrites the DOM, so no `removeElement` is needed) and
+    *     REPLACE the mount's content, so one tab shows at a time.
+    *   - `Overlay` (`#popups`) — STACK: append, no eviction.
     */
   private def openSurface(
       session: Session,
@@ -193,38 +197,41 @@ class Server(
     renderer.surface(id) match {
       case None => IO.unit
       case Some(surf) =>
-        for {
-          // Exclusivity group: close any open sibling sharing the group first.
-          _ <- surf.group.traverse_ { g =>
-            session.open.get.flatMap { open =>
-              open.toList
+        val mountId = surf.mount.getOrElse("popups")
+        val target = "#" + mountId
+        renderer.mountKind(mountId) match {
+          case MountKind.Inline =>
+            for {
+              open <- session.open.get
+              _ <- open.toList
                 .filter(sid =>
-                  sid != id && renderer
-                    .surface(sid)
-                    .flatMap(_.group)
-                    .contains(g)
+                  sid != id &&
+                    renderer.surface(sid).flatMap(_.mount).contains(mountId)
                 )
-                .traverse_(sid =>
-                  session.open.update(_ - sid) *>
-                    session.control.offer(
-                      Datastar.removeElement("#" + Renderer.surfaceRootId(sid))
-                    )
+                .traverse_(sid => session.open.update(_ - sid))
+              _ <- session.open.update(_ + id)
+              states <- stateStore.snapshot
+              _ <- renderer
+                .renderSurface(id, states)
+                .traverse_(html =>
+                  session.control.offer(
+                    Datastar.patch(html, PatchMode.Inner, Some(target))
+                  )
                 )
-            }
-          }
-          _ <- session.open.update(_ + id)
-          states <- stateStore.snapshot
-          // An inline mount (tab panel) is REPLACED in place (`inner`), so only
-          // one tab shows at a time; the default overlay mount STACKS popups
-          // (`append` into `#popups`).
-          mount = "#" + surf.mount.getOrElse("popups")
-          mode = if (surf.mount.isDefined) PatchMode.Inner else PatchMode.Append
-          _ <- renderer
-            .renderSurface(id, states)
-            .traverse_(html =>
-              session.control.offer(Datastar.patch(html, mode, Some(mount)))
-            )
-        } yield ()
+            } yield ()
+          case MountKind.Overlay =>
+            for {
+              _ <- session.open.update(_ + id)
+              states <- stateStore.snapshot
+              _ <- renderer
+                .renderSurface(id, states)
+                .traverse_(html =>
+                  session.control.offer(
+                    Datastar.patch(html, PatchMode.Append, Some(target))
+                  )
+                )
+            } yield ()
+        }
     }
 
   /** In-place navigate: re-point the session at `slug`, reset its popups + diff

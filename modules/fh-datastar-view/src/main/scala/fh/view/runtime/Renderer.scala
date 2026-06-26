@@ -263,9 +263,13 @@ class Renderer(
       val rootId = Renderer.surfaceRootId(surfaceId)
       val inner =
         render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
-      s.mount match {
-        case Some(_) => renderChrome("tabPanel", Map("id" -> rootId), inner)
-        case None =>
+      // Chrome follows the MOUNT KIND, not `mount.isEmpty`: an Inline mount (a
+      // tab panel) gets the bare `tabPanel`, an Overlay mount (`#popups`) the
+      // `<dialog>` `popup` with a close control.
+      mountKind(s.mount.getOrElse("popups")) match {
+        case MountKind.Inline =>
+          renderChrome("tabPanel", Map("id" -> rootId), inner)
+        case MountKind.Overlay =>
           renderChrome(
             "popup",
             Map(
