@@ -243,7 +243,8 @@ unified, not the ownership.
 
 ## Update — 2026-06-25c: the unified primitive is the *mount point*; tabs are no longer special
 
-> Status of implementation: **approved, in progress.** Plan:
+> Status of implementation: **landed** (50 tests + live `dashboardBuild` green;
+> in-browser tab-switch / popup-stack verification still pending). Plan:
 > [`docs/plan-mount-unification.md`](../plan-mount-unification.md).
 
 Supersedes **decision 7** (tabs as a thin layer with two *runtime* additions) and
