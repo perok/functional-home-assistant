@@ -1,13 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  MountKind,
-  SlotSource,
-  Surface
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
 import io.circe.parser
 import io.circe.syntax.*
 
@@ -17,14 +10,6 @@ class BuildPhaseSuite extends munit.FunSuite {
     node match {
       case c: LayoutNode.Component => c.children.flatMap(dynamics)
       case d: LayoutNode.Dynamic   => List(d)
-      case _: LayoutNode.Mount     => Nil
-    }
-
-  private def mounts(node: LayoutNode): List[LayoutNode.Mount] =
-    node match {
-      case c: LayoutNode.Component => c.children.flatMap(mounts)
-      case _: LayoutNode.Dynamic   => Nil
-      case m: LayoutNode.Mount     => List(m)
     }
 
   test("DataDump.transform keys entities by id, areas/floors by name") {
@@ -238,7 +223,6 @@ class BuildPhaseSuite extends munit.FunSuite {
       clue = d.surfaces
     )
     // The tabs builder emitted a `tabs` card component — no Mount node.
-    assert(mounts(d.card).isEmpty, clue = mounts(d.card))
     assert(
       d.card.asInstanceOf[LayoutNode.Component].children.exists {
         case c: LayoutNode.Component => c.card == "tabs"

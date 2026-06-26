@@ -120,26 +120,6 @@ case class CardDef(
     slots: List[String] = Nil
 ) derives ConfiguredDecoder
 
-/** How a [[Surface]] mount hosts the surfaces that target it. The only
-  * difference between a popup and a tab panel:
-  *
-  *   - `Overlay` — stack surfaces into a floating layer (`append`, `popup`
-  *     `<dialog>` chrome). The page-level `#popups` is the built-in Overlay
-  *     mount.
-  *   - `Inline` — replace a panel area in place (`inner`, bare `tabPanel`
-  *     chrome). A tab group's panel is an Inline mount placed deep in the
-  *     layout; exclusivity (one tab at a time) is implied by the shared mount.
-  */
-enum MountKind:
-  case Overlay, Inline
-
-object MountKind:
-  given Decoder[MountKind] = Decoder[String].emap(s =>
-    values
-      .find(_.toString.equalsIgnoreCase(s))
-      .toRight(s"unknown mount kind: $s")
-  )
-
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -239,24 +219,6 @@ object LayoutNode:
       cases: List[DynamicCase] = Nil
   ) extends LayoutNode
 
-  /** A surface host: an addressable, initially-empty container that surfaces
-    * render into. Popups and tab panels are the SAME lazily-activated surface
-    * (rendered/streamed only while open) — they differ only by this node's
-    * [[MountKind]] (`Overlay` stacks dialogs into the page `#popups`; `Inline`
-    * replaces a panel area in place, the basis for tabs).
-    *
-    * It carries NO id: it renders its own positional [[pathId]] as the element
-    * id, which surfaces address through the build-phase hoist token (so a tabs
-    * builder names the mount it cannot mint via `@@NODE_ID@@_<childIndex>`). On
-    * first paint the renderer bakes any [[Surface.defaultOpen]] surface that
-    * targets this mount as its initial content. `signals` is an optional
-    * `data-signals` seed (a tabs group's active-tab signal).
-    */
-  case class Mount(
-      mode: MountKind,
-      signals: Option[String] = None
-  ) extends LayoutNode
-
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
     * authors never invent ids; underscore-joined so it is also a valid signal
@@ -312,18 +274,27 @@ case class Theme(
   *
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
-  *   - `mount`: the target [[LayoutNode.Mount]]'s element id to render into;
-  *     absent ⇒ the page's overlay mount (`#popups`). Its [[MountKind]] decides
-  *     everything else — an `Overlay` mount stacks (`append`, `<dialog>`), an
-  *     `Inline` mount (a tab panel) replaces in place (`inner`, bare). There is
-  *     no separate exclusivity `group`: surfaces sharing an inline mount are
-  *     mutually exclusive because the `inner` patch overwrites it.
+  *   - `mount`: the element id of the host `<div>` to render into; absent ⇒ the
+  *     page's overlay mount (`#popups`). The host is plain template HTML (a
+  *     `tabs` card's panel div, or the page shell's `#popups`), not a layout
+  *     node — the Surface itself carries how it attaches.
+  *   - `chrome`: the chrome card wrapping the content — `popup` (the floating
+  *     `<dialog>` with a close control) or `tabPanel` (the bare inline
+  *     wrapper).
+  *   - `stack`: `true` ⇒ `append` (overlays stack into `#popups`); `false` ⇒
+  *     `inner`-replace, evicting any open surface sharing the mount (so tab
+  *     panels are mutually exclusive by construction — no separate `group`).
+  *   - `bakeInto`/`bakeAs`: first-paint baking — when `defaultOpen`, the
+  *     Component whose id equals `bakeInto` receives this surface's rendered
+  *     chrome under the template var named `bakeAs` (e.g. a `tabs` card's
+  *     `{{{panel}}}`), keeping the default panel in the initial HTML (no
+  *     round-trip). The `_panel` suffix + `panel` name live only in the
+  *     jsonnet.
   *   - `defaultOpen`: shown from the first paint without a user action — a tabs
   *     default panel (or a popup open on load). The connection seeds its open
   *     set with every default-open surface (so it receives live patches
-  *     immediately), and the [[LayoutNode.Mount]] it targets bakes it as its
-  *     initial content. This is the ONLY surface-level "shown by default"
-  *     signal the backend reads.
+  *     immediately), and it is baked via `bakeInto`/`bakeAs` above. This is the
+  *     ONLY surface-level "shown by default" signal the backend reads.
   */
 case class Surface(
     content: LayoutNode,
@@ -428,8 +399,6 @@ case class Dashboard(
               c.slots.keySet
             ) ++ slotErrors(nodeId, c.slots)
           }
-        // A mount has no card/slots; its surfaces are validated via the registry.
-        case _: LayoutNode.Mount => Nil
 
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are

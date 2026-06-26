@@ -33,7 +33,6 @@ object Transforms {
       case c: LayoutNode.Component =>
         c.slots.values.toList ++ c.children.flatMap(slotsOf)
       case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
-      case _: LayoutNode.Mount   => Nil // a mount has no slots/transforms
     }
     // Surfaces (popups) carry their own slots — compile those too, else opening a
     // popup would hit an uncompiled transform.
