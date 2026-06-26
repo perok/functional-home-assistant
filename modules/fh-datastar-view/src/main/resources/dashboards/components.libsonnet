@@ -495,16 +495,6 @@
   button:: $._components.button.build,
   slider:: $._components.slider.build,
 
-  // A MOUNT: an addressable host a surface renders into — the inline analogue of
-  // the page `#popups`. `mode` is 'inline' (a tab panel: inner/replace, one at a
-  // time) or 'overlay' (stack dialogs). NOT a card — a structural `LayoutNode.Mount`
-  // the backend renders directly (it bakes any default-open surface targeting it).
-  // `signals` is an optional data-signals seed (a tab group's active-tab signal).
-  mount(mode, signals=null):: {
-    kind: 'mount',
-    mode: mode,
-  } + (if signals != null then { signals: signals } else {}),
-
   // TABS: a `tabs` card whose template owns the `.tabbar` row hole (children)
   // and the panel host `<div id="{{id}}_panel" ...>{{{panel}}}</div>`. The inline
   // surfaces target `NODE_ID + '_panel'` as their `mount` (equals `{{id}}_panel`

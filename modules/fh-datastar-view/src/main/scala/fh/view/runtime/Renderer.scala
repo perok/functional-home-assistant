@@ -4,7 +4,6 @@ import fh.view.model.{
   Dashboard,
   DynamicCase,
   LayoutNode,
-  MountKind,
   Op,
   Predicate,
   SlotSource,
@@ -52,19 +51,10 @@ class Renderer(
               walk(ch, path :+ i)
             }
           case _: LayoutNode.Dynamic => List(self)
-          case _: LayoutNode.Mount   => List(self)
         }
       }
       walk(root, Nil).toMap
     }
-
-    /** Mount nodes in this tree, keyed by their element id (= prefixed pathId,
-      * what a surface's `mount` field names). The renderer's `mountKind` reads
-      * this so the open path picks insertion mode + chrome from the host, not a
-      * card name.
-      */
-    val mounts: Map[String, MountKind] =
-      indexed.collect { case (id, (m: LayoutNode.Mount, _)) => id -> m.mode }
 
     val byEntity: Map[String, Set[String]] =
       indexed.toList
@@ -104,24 +94,6 @@ class Renderer(
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
-
-  /** Every mount host (main + surfaces) keyed by element id, plus the built-in
-    * page-level overlay `#popups`. The default for an unknown id is `Inline` —
-    * a still-registered legacy panel id behaves as a tab panel.
-    */
-  private val mountKinds: Map[String, MountKind] =
-    (mainIndex :: surfaceIndexes.values.toList)
-      .flatMap(_.mounts)
-      .toMap + ("popups" -> MountKind.Overlay)
-
-  /** The [[MountKind]] of the mount a surface targets (default `#popups` when a
-    * surface declares none); drives insertion mode + chrome in `Server`.
-    */
-  def mountKind(id: String): MountKind =
-    mountKinds.getOrElse(
-      id,
-      if (id == "popups") MountKind.Overlay else MountKind.Inline
-    )
 
   /** Dynamic group container ids on the main page. Their membership is
     * data-dependent (can't be reverse-indexed by entity), but a single change
@@ -240,12 +212,7 @@ class Renderer(
   def renderPage(states: Map[String, EntityState]): String =
     s"""<main class="container" id="dashboard">${renderBody(
         states
-      )}</main>${renderMountElement(
-        "popups",
-        MountKind.Overlay,
-        None,
-        states
-      )}"""
+      )}</main><div id="popups"></div>"""
 
   /** Render a surface wrapped in its chrome card — the overlay `popup`
     * (`<dialog open>` + a wrapper-supplied close control) or, for an inline
@@ -340,47 +307,7 @@ class Renderer(
         else html
       case d: LayoutNode.Dynamic =>
         renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
-      case m: LayoutNode.Mount =>
-        renderMountElement(
-          idPrefix + LayoutNode.pathId(path),
-          m.mode,
-          m.signals,
-          states
-        )
     }
-
-  /** Render a mount host: an addressable `<div>` whose initial content is the
-    * baked default-open surface(s) that target it (an Inline mount shows its
-    * one default panel; an Overlay stacks any default-open popups). Its element
-    * id is the id surfaces name, so a later open patches into the same node.
-    * Shared by the layout [[LayoutNode.Mount]] and the page-level `#popups`
-    * (`renderPage`).
-    */
-  private def renderMountElement(
-      id: String,
-      kind: MountKind,
-      signals: Option[String],
-      states: Map[String, EntityState]
-  ): String = {
-    // Inline panels are layout-neutral (`display:contents`); the visible wrapper
-    // comes from the `tabPanel` chrome around the surface content.
-    val cls = kind match {
-      case MountKind.Inline  => """ class="tab-panel""""
-      case MountKind.Overlay => ""
-    }
-    val sig = signals.fold("")(s => s""" data-signals="$s"""")
-    val defaults = dashboard.surfaces.toList.collect {
-      case (sid, s) if s.defaultOpen && s.mount.getOrElse("popups") == id =>
-        sid
-    }.sorted
-    val baked = kind match {
-      case MountKind.Inline =>
-        defaults.headOption.flatMap(renderSurface(_, states)).getOrElse("")
-      case MountKind.Overlay =>
-        defaults.flatMap(renderSurface(_, states)).mkString
-    }
-    s"""<div$cls id="$id"$sig>$baked</div>"""
-  }
 
   private def renderDynamic(
       id: String,

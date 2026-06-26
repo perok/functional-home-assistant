@@ -5,7 +5,6 @@ import fh.view.model.{
   Dashboard,
   DynamicCase,
   LayoutNode,
-  MountKind,
   Op,
   Predicate,
   SlotSource,
