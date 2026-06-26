@@ -328,6 +328,10 @@ case class Theme(
 case class Surface(
     content: LayoutNode,
     mount: Option[String] = None,
+    chrome: String = "popup",
+    stack: Boolean = true,
+    bakeInto: Option[String] = None,
+    bakeAs: Option[String] = None,
     defaultOpen: Boolean = false
 ) derives ConfiguredDecoder
 
