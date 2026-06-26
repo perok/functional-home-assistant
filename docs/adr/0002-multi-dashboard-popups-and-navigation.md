@@ -313,3 +313,45 @@ the mount-node route already fits the **existing single `children` hole**
 decide what to show and how. Tabs cease to be a backend concept; they are a jsonnet
 builder composing a styled button bar (reusing `button`'s `active`→`tab` styling and an
 optional container `class` slot for `.tabbar`/`.tabs`) and an inline mount.
+
+## Update — 2026-06-26: the mount node is deleted; host HTML lives in templates
+
+> Status: **landed** (50 tests + live `dashboardBuild` green; in-browser
+> tab-switch / popup-stack verification still pending). Commits: `14632d7`
+> (Surface fields), `89f134c` (tabs card + bake), `fe40be3` (delete the node).
+
+Supersedes the **2026-06-25c** update. The *insight* of that update **stands** —
+a popup and a tab panel are the same lazily-activated surface, differing only by
+where they attach and how they insert. What changes is the *realization*: the
+2026-06-25c design made that difference a backend-rendered structural node
+(`LayoutNode.Mount` + `renderMountElement`), which quietly pushed presentation
+back **into Scala** — a hardcoded `class="tab-panel"` host string and an
+`Inline⇒tabPanel / Overlay⇒popup` card-name binding. Two findings showed the node
+was ceremony: `#popups` never bakes anything (nothing opens a popup with
+`defaultOpen`), so its mount render was always just `<div id="popups"></div>`; and
+the only real host — the tab panel — belongs in a card template, not a Scala
+string.
+
+So `LayoutNode.Mount`, `MountKind`, and `renderMountElement` are **deleted**:
+
+- **`tabs` is a card again.** Its template owns the panel host
+  `<div id="{{id}}_panel" class="tab-panel" …>{{{panel}}}</div>` after the
+  `.tabbar` button row. `#popups` is a literal in the page shell. The `_panel`
+  suffix and the `panel` var name exist **only in jsonnet**; the backend never
+  reconstructs them.
+- **The Surface is fully data-driven.** It names its own chrome card (`chrome`:
+  `popup`/`tabPanel`), its insertion (`stack`: append-and-stack vs
+  inner-replace-and-evict), and its first-paint bake hole (`bakeInto` = the
+  Component id, `bakeAs` = the template var). The runtime reads only these
+  structural fields — **no card-name literals, no `MountKind`, no presentation
+  HTML in Scala**. `openSurface` branches on `stack`; `renderSurface` wraps via
+  `renderChrome(s.chrome, …)`; `render(Component)` bakes default-open surfaces by
+  `bakeInto`/`bakeAs`.
+- Exclusivity is unchanged in behaviour: `stack=false` evicts mount-siblings, so
+  one tab shows at a time; overlays stack. The mount-unification's earlier removal
+  of `Surface.group` stands.
+
+This re-introduces first-paint baking into `render(Component)` (the irreducible
+cost — lazy surfaces still need a baked default in the GET response) but as a
+**surface-named** hole, so the backend stays literal-free. ADR 0001/0004 (the
+slot model) remain untouched.
