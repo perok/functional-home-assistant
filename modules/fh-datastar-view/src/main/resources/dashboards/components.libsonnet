@@ -513,7 +513,11 @@
         ['t' + i]: {
           content: tabs[i].content,
           mount: panelId,
-          // The first tab is the default panel: baked into the mount + seeded open.
+          chrome: 'tabPanel',
+          stack: false,
+          bakeInto: NODE_ID,
+          bakeAs: 'panel',
+          // The first tab is the default panel: baked into the tabs component + seeded open.
           [if i == 0 then 'defaultOpen']: true,
         }
         for i in std.range(0, std.length(tabs) - 1)

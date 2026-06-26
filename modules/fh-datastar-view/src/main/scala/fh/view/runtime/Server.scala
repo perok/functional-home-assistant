@@ -3,7 +3,6 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.MountKind
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -183,11 +182,11 @@ class Server(
       }
     } yield out
 
-  /** Open a surface for this connection. The mount's [[MountKind]] decides how:
-    *   - `Inline` (a tab panel) — evict open siblings sharing this mount (the
-    *     `inner` patch overwrites the DOM, so no `removeElement` is needed) and
-    *     REPLACE the mount's content, so one tab shows at a time.
-    *   - `Overlay` (`#popups`) — STACK: append, no eviction.
+  /** Open a surface for this connection. [[Surface.stack]] decides how:
+    *   - `stack = false` (a tab panel) — evict open siblings sharing this mount
+    *     (the `inner` patch overwrites the DOM, so no `removeElement` is
+    *     needed) and REPLACE the mount's content, so one tab shows at a time.
+    *   - `stack = true` (default, overlays) — APPEND, no eviction.
     */
   private def openSurface(
       session: Session,
@@ -199,38 +198,40 @@ class Server(
       case Some(surf) =>
         val mountId = surf.mount.getOrElse("popups")
         val target = "#" + mountId
-        renderer.mountKind(mountId) match {
-          case MountKind.Inline =>
-            for {
-              open <- session.open.get
-              _ <- open.toList
-                .filter(sid =>
-                  sid != id &&
-                    renderer.surface(sid).flatMap(_.mount).contains(mountId)
+        if (!surf.stack) {
+          // Non-stacking (inline/tab): evict open siblings sharing this mount,
+          // then inner-replace so one panel shows at a time.
+          for {
+            open <- session.open.get
+            _ <- open.toList
+              .filter(sid =>
+                sid != id &&
+                  renderer.surface(sid).flatMap(_.mount).contains(mountId)
+              )
+              .traverse_(sid => session.open.update(_ - sid))
+            _ <- session.open.update(_ + id)
+            states <- stateStore.snapshot
+            _ <- renderer
+              .renderSurface(id, states)
+              .traverse_(html =>
+                session.control.offer(
+                  Datastar.patch(html, PatchMode.Inner, Some(target))
                 )
-                .traverse_(sid => session.open.update(_ - sid))
-              _ <- session.open.update(_ + id)
-              states <- stateStore.snapshot
-              _ <- renderer
-                .renderSurface(id, states)
-                .traverse_(html =>
-                  session.control.offer(
-                    Datastar.patch(html, PatchMode.Inner, Some(target))
-                  )
+              )
+          } yield ()
+        } else {
+          // Stacking (overlay/popup): append, no eviction.
+          for {
+            _ <- session.open.update(_ + id)
+            states <- stateStore.snapshot
+            _ <- renderer
+              .renderSurface(id, states)
+              .traverse_(html =>
+                session.control.offer(
+                  Datastar.patch(html, PatchMode.Append, Some(target))
                 )
-            } yield ()
-          case MountKind.Overlay =>
-            for {
-              _ <- session.open.update(_ + id)
-              states <- stateStore.snapshot
-              _ <- renderer
-                .renderSurface(id, states)
-                .traverse_(html =>
-                  session.control.offer(
-                    Datastar.patch(html, PatchMode.Append, Some(target))
-                  )
-                )
-            } yield ()
+              )
+          } yield ()
         }
     }
 

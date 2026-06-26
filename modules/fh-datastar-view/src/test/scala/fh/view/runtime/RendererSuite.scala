@@ -81,10 +81,25 @@ class RendererSuite extends munit.FunSuite {
         )
       ),
       surfaces = Map(
-        // c_t0 is the default-open panel: baked into the mount (its `mount` = the
-        // Mount node's pathId "c_1") + seeded open on connect.
-        "c_t0" -> Surface(panel("a"), mount = Some("c_1"), defaultOpen = true),
-        "c_t1" -> Surface(panel("b"), mount = Some("c_1"))
+        // c_t0 is the default-open panel: baked into the tabs component (bakeInto="c",
+        // bakeAs="panel"), sharing the inline mount "c_1" + seeded open on connect.
+        "c_t0" -> Surface(
+          panel("a"),
+          mount = Some("c_1"),
+          chrome = "tabPanel",
+          stack = false,
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          defaultOpen = true
+        ),
+        "c_t1" -> Surface(
+          panel("b"),
+          mount = Some("c_1"),
+          chrome = "tabPanel",
+          stack = false,
+          bakeInto = Some("c"),
+          bakeAs = Some("panel")
+        )
       )
     )
   }

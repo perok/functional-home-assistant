@@ -263,22 +263,17 @@ class Renderer(
       val rootId = Renderer.surfaceRootId(surfaceId)
       val inner =
         render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
-      // Chrome follows the MOUNT KIND, not `mount.isEmpty`: an Inline mount (a
-      // tab panel) gets the bare `tabPanel`, an Overlay mount (`#popups`) the
-      // `<dialog>` `popup` with a close control.
-      mountKind(s.mount.getOrElse("popups")) match {
-        case MountKind.Inline =>
-          renderChrome("tabPanel", Map("id" -> rootId), inner)
-        case MountKind.Overlay =>
-          renderChrome(
-            "popup",
-            Map(
-              "id" -> rootId,
-              "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
-            ),
-            inner
-          )
-      }
+      // Chrome is named by the surface itself (`s.chrome`): "popup" for an overlay
+      // dialog, "tabPanel" for a bare inline wrapper. The backend holds zero
+      // hardcoded card-name literals — the surface data carries the choice.
+      renderChrome(
+        s.chrome,
+        Map(
+          "id" -> rootId,
+          "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
+        ),
+        inner
+      )
     }
 
   /** Wrap already-rendered surface content in a chrome card
