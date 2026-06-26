@@ -231,16 +231,20 @@ class Renderer(
       val inner =
         render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
       // Chrome is named by the surface itself (`s.chrome`): "popup" for an overlay
-      // dialog, "tabPanel" for a bare inline wrapper. The backend holds zero
-      // hardcoded card-name literals — the surface data carries the choice.
-      renderChrome(
-        s.chrome,
-        Map(
-          "id" -> rootId,
-          "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
-        ),
-        inner
-      )
+      // dialog. An EMPTY chrome means none — the content renders straight into its
+      // host (an inline tab panel: its host div is the `tabs` card's panel, and the
+      // per-surface root id a popup needs for close/removeElement is unused there).
+      // The backend holds zero hardcoded card-name literals — the surface carries it.
+      if (s.chrome.isEmpty) inner
+      else
+        renderChrome(
+          s.chrome,
+          Map(
+            "id" -> rootId,
+            "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
+          ),
+          inner
+        )
     }
 
   /** Wrap already-rendered surface content in a chrome card

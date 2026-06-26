@@ -456,20 +456,52 @@
     tabs: {
       template: '<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>',
       slots: [],
-      build(tabs):: error 'use c.tabs([...]) builder, not _components.tabs.build',
+      // TABS builder: the `.tabbar` buttons are the card's children; the panel
+      // host + `{{{panel}}}` hole live in the template above. Inline surfaces
+      // target `NODE_ID + '_panel'` (= `{{id}}_panel`, the hoist invariant
+      // `idBase == {{id}}`) and name `bakeInto`/`bakeAs` so the renderer injects
+      // the default tab on first paint. `chrome: ''` = no wrapper: the content
+      // renders straight into the panel host (an inline panel needs no chrome).
+      //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
+      build(tabs)::
+        local sig = 'tab_' + NODE_ID;       // per-group active-tab signal (an index)
+        local sid(i) = NODE_ID + '_t' + i;  // surface id = idBase + '_' + localKey
+        {
+          kind: 'component',
+          card: 'tabs',
+          inlineSurfaces: {
+            ['t' + i]: {
+              content: tabs[i].content,
+              mount: NODE_ID + '_panel',  // = the rendered `{{id}}_panel` host
+              chrome: '',                 // no chrome wrapper — render into the host
+              stack: false,
+              bakeInto: NODE_ID,
+              bakeAs: 'panel',
+              [if i == 0 then 'defaultOpen']: true,  // first tab = baked default
+            }
+            for i in std.range(0, std.length(tabs) - 1)
+          },
+          children: [
+            $.button(
+              label=tabs[i].label,
+              action={ onclick: constOnclick(
+                '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
+              ) },
+              active='$' + sig + ' == ' + i,
+            )
+            for i in std.range(0, std.length(tabs) - 1)
+          ],
+        },
     },
 
     // Surface chrome (backend-only — no `build`; the renderer wraps a surface's
     // content as `children` and injects `id`/`closeAction`). Keeping these in
     // the card library, not hardcoded in Scala, means a re-skin happens here.
-    //   popup    — the overlay `<dialog>` with a wrapper-supplied close control.
-    //   tabPanel — the inline panel wrapper (no dialog chrome, no close).
+    //   popup — the overlay `<dialog>` with a wrapper-supplied close control.
+    // (Inline tab panels need no chrome: a tab surface sets `chrome: ''` and
+    // renders straight into the `tabs` card's panel host.)
     popup: {
       template: '<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>',
-      slots: [],
-    },
-    tabPanel: {
-      template: '<div id="{{id}}" class="tab-panel-content">{{#children}}{{{html}}}{{/children}}</div>',
       slots: [],
     },
   },
@@ -495,45 +527,10 @@
   button:: $._components.button.build,
   slider:: $._components.slider.build,
 
-  // TABS: a `tabs` card whose template owns the `.tabbar` row hole (children)
-  // and the panel host `<div id="{{id}}_panel" ...>{{{panel}}}</div>`. The inline
-  // surfaces target `NODE_ID + '_panel'` as their `mount` (equals `{{id}}_panel`
-  // in the rendered template — the hoist invariant: `idBase == {{id}}`), and name
-  // `bakeInto: NODE_ID`, `bakeAs: 'panel'` so the renderer injects the default
-  // tab as `{{{panel}}}` on first paint. The backend holds zero `_panel` literals
-  // — they live only in this builder and the `tabs` card template above.
+  // TABS — the `tabs` card owns the template (`.tabbar` children hole + panel
+  // host) and the `build` (above); this is the public alias, like `row`/`column`.
   //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
-  tabs(tabs)::
-    local panelId = NODE_ID + '_panel';  // panel host id = idBase + '_panel' (in template)
-    local sig = 'tab_' + NODE_ID;        // per-group active-tab signal (holds an index)
-    local sid(i) = NODE_ID + '_t' + i;  // surface id = idBase + '_' + localKey ('t'+i)
-    {
-      kind: 'component',
-      card: 'tabs',
-      inlineSurfaces: {
-        ['t' + i]: {
-          content: tabs[i].content,
-          mount: panelId,
-          chrome: 'tabPanel',
-          stack: false,
-          bakeInto: NODE_ID,
-          bakeAs: 'panel',
-          // The first tab is the default panel: baked into the tabs component + seeded open.
-          [if i == 0 then 'defaultOpen']: true,
-        }
-        for i in std.range(0, std.length(tabs) - 1)
-      },
-      children: [
-        $.button(
-          label=tabs[i].label,
-          action={ onclick: constOnclick(
-            '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
-          ) },
-          active='$' + sig + ' == ' + i,
-        )
-        for i in std.range(0, std.length(tabs) - 1)
-      ],
-    },
+  tabs:: $._components.tabs.build,
   // Back-compat alias: the old read-only state card is just an entity card.
   stateCard(eo, label=null):: $._components.entityCard.build(eo, label=label),
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
