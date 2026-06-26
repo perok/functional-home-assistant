@@ -1,6 +1,13 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  MountKind,
+  SlotSource,
+  Surface
+}
 import io.circe.parser
 import io.circe.syntax.*
 
@@ -11,6 +18,13 @@ class BuildPhaseSuite extends munit.FunSuite {
       case c: LayoutNode.Component => c.children.flatMap(dynamics)
       case d: LayoutNode.Dynamic   => List(d)
       case _: LayoutNode.Mount     => Nil
+    }
+
+  private def mounts(node: LayoutNode): List[LayoutNode.Mount] =
+    node match {
+      case c: LayoutNode.Component => c.children.flatMap(mounts)
+      case _: LayoutNode.Dynamic   => Nil
+      case m: LayoutNode.Mount     => List(m)
     }
 
   test("DataDump.transform keys entities by id, areas/floors by name") {
@@ -204,26 +218,33 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assert(dashboard.isRight, clue = dashboard)
     val d = dashboard.toOption.get
-    // The sugar produced two grouped tab surfaces and a consistent dashboard.
+    // The sugar produced two inline tab surfaces and a consistent dashboard.
     assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
     assert(d.surfaces.values.forall(_.mount.isDefined), clue = d.surfaces)
+    // Both panels share ONE inline mount — exclusivity by shared mount, no group.
     assertEquals(
-      d.surfaces.values.flatMap(_.group).toSet.size,
+      d.surfaces.values.flatMap(_.mount).toSet.size,
       1,
       clue = d.surfaces
     )
-    // Surface ids + mount use the unified id scheme (idBase = pathId, not the old
-    // "inline" base): the tabs node's `{{id}}` namespaces both.
+    // Surface ids use the unified id scheme: idBase (= pathId) + the 't<i>' local
+    // key; the shared mount is the Mount node's positional pathId.
     assert(
-      d.surfaces.keySet.forall(_.matches("c(_\\d+)+")),
+      d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
       clue = d.surfaces.keySet
     )
     assert(
-      d.surfaces.values.flatMap(_.mount).forall(_.startsWith("panel_c")),
+      d.surfaces.values.flatMap(_.mount).forall(_.matches("c(_\\d+)+")),
       clue = d.surfaces
     )
+    // The tabs builder emitted exactly one inline Mount node — no `tabs` card.
+    assertEquals(
+      mounts(d.card).map(_.mode),
+      List(MountKind.Inline),
+      clue = mounts(d.card)
+    )
     // Exactly the first tab is the default-open panel (the only backend-read
-    // "shown by default" signal — no `initial` slot is consulted).
+    // "shown by default" signal).
     assertEquals(
       d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
       Set(d.surfaces.keys.toList.sorted.head),

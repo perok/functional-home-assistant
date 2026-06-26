@@ -5,6 +5,7 @@ import fh.view.model.{
   Dashboard,
   DynamicCase,
   LayoutNode,
+  MountKind,
   Op,
   Predicate,
   SlotSource,
@@ -44,10 +45,6 @@ class RendererSuite extends munit.FunSuite {
     "row" -> CardDef(
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
     ),
-    "tabs" -> CardDef(
-      """<div class="tabs"><div class="tabbar">{{#children}}{{{html}}}{{/children}}</div><div class="tab-panel" id="{{mount}}">{{{panel}}}</div></div>""",
-      slots = List("sig", "initial", "mount")
-    ),
     // Backend-only surface chrome (the renderer wraps content + injects id/close).
     "popup" -> CardDef(
       """<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"""
@@ -57,10 +54,11 @@ class RendererSuite extends munit.FunSuite {
     )
   )
 
-  // A tabs container as the hoist produces it: a `tabs` component (the bar
-  // buttons as children, `mount` naming the panel container, `initial` only
-  // seeding the client signal) plus one grouped, inline-mounted surface per tab
-  // — the first flagged `defaultOpen` (baked + seeded open).
+  // A tabs group as `c.tabs` + the hoist produce it: a column [a `.tabbar` row of
+  // buttons, an inline `Mount`] plus one inline-mounted surface per tab — the
+  // first flagged `defaultOpen` (baked into the mount + seeded open). The mount is
+  // the column's child index 1, so its element id is "c_1" — what the surfaces
+  // name as their `mount`.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -70,27 +68,23 @@ class RendererSuite extends munit.FunSuite {
     Dashboard(
       cards,
       LayoutNode.Component(
-        "tabs",
-        slots = Map(
-          "sig" -> lit("tab_c"),
-          "mount" -> lit("c_panel"),
-          "initial" -> lit("c_0")
-        ),
+        "col",
         children = List(
-          LayoutNode.Component("btn", Map("label" -> lit("A"))),
-          LayoutNode.Component("btn", Map("label" -> lit("B")))
+          LayoutNode.Component(
+            "row",
+            children = List(
+              LayoutNode.Component("btn", Map("label" -> lit("A"))),
+              LayoutNode.Component("btn", Map("label" -> lit("B")))
+            )
+          ),
+          LayoutNode.Mount(MountKind.Inline, Some("{ tab_c: 0 }"))
         )
       ),
       surfaces = Map(
-        // c_0 is the default-open panel: baked inline (its mount matches the
-        // tabs container's `mount` slot) + seeded open on connect.
-        "c_0" -> Surface(
-          panel("a"),
-          Some("c_panel"),
-          Some("c_panel"),
-          defaultOpen = true
-        ),
-        "c_1" -> Surface(panel("b"), Some("c_panel"), Some("c_panel"))
+        // c_t0 is the default-open panel: baked into the mount (its `mount` = the
+        // Mount node's pathId "c_1") + seeded open on connect.
+        "c_t0" -> Surface(panel("a"), mount = Some("c_1"), defaultOpen = true),
+        "c_t1" -> Surface(panel("b"), mount = Some("c_1"))
       )
     )
   }
@@ -242,14 +236,18 @@ class RendererSuite extends munit.FunSuite {
       )
 
     val frozen = renderer(node(false))
-    val a = frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
-    val b = frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    val a =
+      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val b =
+      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
     assert(a.contains("""href="one""""), clue = a)
     assertEquals(b, a) // memoized: the changed state is ignored
 
     val live = renderer(node(true))
-    val c1 = live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
-    val c2 = live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    val c1 =
+      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val c2 =
+      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
   }
@@ -265,7 +263,8 @@ class RendererSuite extends munit.FunSuite {
   test(
     "container templates splice children; entity-less nodes are not wrapped"
   ) {
-    val layout = col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
+    val layout =
+      col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
     // no entities anywhere -> no morph wrappers, no ids in the markup; the
@@ -361,22 +360,31 @@ class RendererSuite extends munit.FunSuite {
           )
         )
       )
-    val r = renderer(group(Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)))))
+    val r = renderer(
+      group(Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))))
+    )
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
-    def high(id: String) = st(id, "x", "battery" -> Json.fromInt(50)) // no match
+    def high(id: String) =
+      st(id, "x", "battery" -> Json.fromInt(50)) // no match
 
     // in-place update of a member (prev ∧ cur), an add (¬prev ∧ cur), and a
     // remove (prev ∧ ¬cur) all re-render the group; a newly-seen match too.
     assertEquals(
-      r.affectedDynamicIds(StateChange("sensor.b", Some(low("sensor.b")), low("sensor.b"))),
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(low("sensor.b")), low("sensor.b"))
+      ),
       List("c")
     )
     assertEquals(
-      r.affectedDynamicIds(StateChange("sensor.b", Some(high("sensor.b")), low("sensor.b"))),
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(high("sensor.b")), low("sensor.b"))
+      ),
       List("c")
     )
     assertEquals(
-      r.affectedDynamicIds(StateChange("sensor.b", Some(low("sensor.b")), high("sensor.b"))),
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(low("sensor.b")), high("sensor.b"))
+      ),
       List("c")
     )
     assertEquals(
@@ -386,13 +394,17 @@ class RendererSuite extends munit.FunSuite {
     // An entity that matches neither before nor after leaves the group's HTML
     // unchanged, so it is skipped — the whole point of the filter.
     assertEquals(
-      r.affectedDynamicIds(StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))),
+      r.affectedDynamicIds(
+        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
+      ),
       Nil
     )
     // A query-less group matches everything, so any change affects it.
     val all = renderer(group(None))
     assertEquals(
-      all.affectedDynamicIds(StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))),
+      all.affectedDynamicIds(
+        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
+      ),
       List("c")
     )
   }
@@ -587,33 +599,35 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "tabs: default panel is baked inline, an inline surface renders without dialog chrome"
+    "tabs: default panel is baked into the inline mount; a panel renders without dialog chrome"
   ) {
-    val r = tabsDashboard
-    val rr = Renderer.create(r)
+    val rr = Renderer.create(tabsDashboard)
     val states = Map(
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    // The default (initial) tab is registered as the only default-open surface.
-    assertEquals(rr.defaultOpenSurfaces, Set("c_0"))
+    // The first tab is registered as the only default-open surface.
+    assertEquals(rr.defaultOpenSurfaces, Set("c_t0"))
 
-    // renderBody bakes the first tab's content into the panel mount, with the
-    // surface-namespaced ids it would carry after a later switch-back.
+    // renderBody renders the inline mount (its id "c_1" + the active-tab signal
+    // seed) with the first tab's content baked in, carrying the surface-namespaced
+    // ids it would have after a later switch-back.
     val body = rr.renderBody(states)
     assert(
-      body.contains("""<div class="tab-panel" id="c_panel">"""),
+      body.contains(
+        """<div class="tab-panel" id="c_1" data-signals="{ tab_c: 0 }">"""
+      ),
       clue = body
     )
-    assert(body.contains("""id="s_c_0__c""""), clue = body)
+    assert(body.contains("""id="s_c_t0__c""""), clue = body)
     assert(body.contains("<span>AA</span>"), clue = body)
     // the second tab is NOT baked in
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     // An inline-mounted surface renders as a plain div (no <dialog>, no ✕).
-    val panelB = rr.renderSurface("c_1", states).get
+    val panelB = rr.renderSurface("c_t1", states).get
     assert(
-      panelB.startsWith("""<div id="s_c_1" class="tab-panel-content">"""),
+      panelB.startsWith("""<div id="s_c_t1" class="tab-panel-content">"""),
       clue = panelB
     )
     assert(!panelB.contains("<dialog"), clue = panelB)
@@ -621,8 +635,8 @@ class RendererSuite extends munit.FunSuite {
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
     // each tab's entity drives only its own surface index
-    assertEquals(rr.surfaceComponentsFor("c_0", "sensor.a"), Set("s_c_0__c"))
-    assertEquals(rr.surfaceComponentsFor("c_1", "sensor.b"), Set("s_c_1__c"))
+    assertEquals(rr.surfaceComponentsFor("c_t0", "sensor.a"), Set("s_c_t0__c"))
+    assertEquals(rr.surfaceComponentsFor("c_t1", "sensor.b"), Set("s_c_t1__c"))
   }
 
   test(

@@ -440,10 +440,11 @@ case class Dashboard(
 
 object Dashboard:
   /** Backend-injected template vars available to a *static* component (the
-    * author never supplies them): the stable location-based `id` and a tabs
-    * container's baked `panel`.
+    * author never supplies them): the stable location-based `id`.
+    * (Default-panel baking moved to the `Mount` node, so there is no longer an
+    * injected `panel`.)
     */
-  val injectedStatic: Set[String] = Set("id", "panel")
+  val injectedStatic: Set[String] = Set("id")
 
   /** Backend-injected vars inside a *dynamic* case: the static set plus the
     * matched entity's `entity_id` (the case strips the build-time `entity_id`
