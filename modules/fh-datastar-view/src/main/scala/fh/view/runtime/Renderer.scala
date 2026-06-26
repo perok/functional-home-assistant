@@ -312,14 +312,21 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states)
         }
-        // `id` is a backend-injected template var (the author never supplies it);
-        // it stays available to the template (e.g. the slider derives its signal
-        // name from it) even though it is no longer the morph target. Default-panel
-        // baking now lives on the `Mount` node (see `renderMountElement`), not here.
-        // Everything else fills from a slot.
+        // Collect default-open surfaces whose `bakeInto` matches this component's
+        // id: inject them as `{{{bakeAs}}}` template vars so a `tabs` card's
+        // panel host renders its default tab on first paint. `tabPanel` chrome
+        // wraps the content just as a later open/switch would, so first-paint and
+        // switch-back produce byte-identical HTML. Absent bakeInto/bakeAs → the
+        // card simply never receives the var (Mustache renders absent vars empty).
+        val baked: Map[String, String] = dashboard.surfaces.collect {
+          case (sid, s) if s.defaultOpen && s.bakeInto.contains(id) =>
+            s.bakeAs.getOrElse("") -> renderSurface(sid, states).getOrElse("")
+        }
+        // `id` is a backend-injected template var (the author never supplies it).
+        // Everything else fills from a slot or a baked surface var.
         val html = renderTemplate(
           c.card,
-          Map("id" -> id),
+          Map("id" -> id) ++ baked,
           c.slots,
           childrenHtml,
           states
