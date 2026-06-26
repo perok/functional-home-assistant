@@ -317,32 +317,14 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states)
         }
-        // A tabs container bakes its default panel inline via the SAME
-        // `renderSurface` path a later switch-back uses (chrome + surface-id
-        // prefix), so the baked HTML and a switch match exactly — the first
-        // paint shows it with no open round-trip. The panel is the default-open
-        // surface that mounts into THIS component (its `mount` slot equals the
-        // surface's `mount`), so nothing card-specific is read — `panel` is empty
-        // for every component without a matching default-open surface.
-        val panel = c.slots
-          .get("mount")
-          .flatMap(_.literal)
-          .flatMap { mountId =>
-            dashboard.surfaces
-              .collectFirst {
-                case (sid, s) if s.defaultOpen && s.mount.contains(mountId) =>
-                  sid
-              }
-              .flatMap(renderSurface(_, states))
-          }
-          .getOrElse("")
-        // `id`/`panel` are backend-injected template vars (the author never
-        // supplies them); `id` stays available to the template (e.g. the slider
-        // derives its signal name from it) even though it is no longer the morph
-        // target. Everything else fills from a slot.
+        // `id` is a backend-injected template var (the author never supplies it);
+        // it stays available to the template (e.g. the slider derives its signal
+        // name from it) even though it is no longer the morph target. Default-panel
+        // baking now lives on the `Mount` node (see `renderMountElement`), not here.
+        // Everything else fills from a slot.
         val html = renderTemplate(
           c.card,
-          Map("id" -> id, "panel" -> panel),
+          Map("id" -> id),
           c.slots,
           childrenHtml,
           states

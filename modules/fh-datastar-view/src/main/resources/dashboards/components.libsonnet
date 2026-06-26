@@ -196,6 +196,7 @@
   //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
   toggleTap:: defaultTap,
   serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
+  // TODO should these belong to popup? as the build function?
   openPopup(target, group=null, mount=null)::
     if std.isString(target) then
       { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
@@ -258,15 +259,26 @@
     // Containers: splice the backend-rendered children. Add new container
     // kinds (grids, titled sections, tabs…) by adding an entry here — no Scala
     // change needed.
+    // Optional `class` LITERAL slot: extra CSS classes on the container (e.g.
+    // `.tabbar`/`.tabs`), so a styled container reuses these generic builders
+    // instead of a bespoke card. Absent -> the `{{#class}}` section is empty.
     fhrow: {
-      template: '<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>',
+      template: '<div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>',
       slots: [],
-      build(children):: { kind: 'component', card: 'fhrow', children: children },
+      build(children, class=null):: {
+        kind: 'component',
+        card: 'fhrow',
+        children: children,
+      } + (if class != null then { slots: { class: class } } else {}),
     },
     fhcol: {
-      template: '<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>',
+      template: '<div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>',
       slots: [],
-      build(children):: { kind: 'component', card: 'fhcol', children: children },
+      build(children, class=null):: {
+        kind: 'component',
+        card: 'fhcol',
+        children: children,
+      } + (if class != null then { slots: { class: class } } else {}),
     },
 
     // Static title text (not bound to an entity). `label` is a constant LITERAL
@@ -432,79 +444,6 @@
       },
     },
 
-    // Tabs container: a bar of tab buttons + a single inline panel showing one
-    // tab at a time. The panel's content IS a surface (one per tab, sharing an
-    // exclusivity group + this `mount`), so switching reuses the popup
-    // open/close machinery — it just patches `inner` into the mount instead of
-    // appending an overlay. `panel` is the default tab's HTML, baked in by the
-    // backend (the surface flagged `defaultOpen`, matched to this container by
-    // `mount`) so the first paint shows it with no round-trip; `initial` only
-    // seeds the active-tab signal `{{sig}}` (client-side highlight). The author
-    // never writes any of these — `c.tabs(...)` emits an inline marker the
-    // build-phase hoist expands (see DashboardBuild.hoistInlineSurfaces).
-    //
-    // Builder usage:
-    //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
-    // This is PURE composition: each tab is a normal `button` whose `content`
-    // becomes an inline surface (all sharing one exclusivity group + one inline
-    // mount, so opening one swaps the panel). The bar button opens its panel AND
-    // sets a per-group signal to the active surface id; the same signal drives
-    // the button's `active` highlight and (seeded to the first id) the baked
-    // default panel. Every surface id is written as 'NODE_ID_<i>' — the build-phase
-    // hoist mints the real id namespace and splices it in (and lifts the
-    // surfaces to the top-level registry); no tabs/popup logic lives in the
-    // backend.
-    tabs: {
-      template: |||
-        <div class="tabs" data-signals="{ {{sig}}: '{{initial}}' }">
-          <div class="tabbar">{{#children}}{{{html}}}{{/children}}</div>
-          <div class="tab-panel" id="{{mount}}">{{{panel}}}</div>
-        </div>
-      |||,
-      slots: ['sig', 'initial', 'mount'],
-      build(tabs):: {
-        local mount = 'panel_' + NODE_ID,  // the shared inline panel container id
-        local sig = 'tab_' + NODE_ID,      // per-group active-tab signal (holds an id)
-        local sid(i) = NODE_ID + '_' + i,  // local key i -> future surface id
-
-        kind: 'component',
-        card: 'tabs',
-        // sig/mount/initial are all literal wiring slots the backend never
-        // interprets: `mount` is the panel container id (it also links the
-        // default-open surface to this container for baking), `sig` the
-        // active-tab signal name, `initial` only SEEDS that client signal. The
-        // "shown by default" decision lives on the surface (`defaultOpen` below),
-        // not on a slot.
-        slots: {
-          sig: sig,
-          mount: mount,
-          initial: sid(0),  // seeds the active-tab signal (client highlight only)
-        },
-        inlineSurfaces: {
-          [std.toString(i)]: {
-            content: tabs[i].content,
-            group: mount,
-            mount: mount,
-            // The first tab is the default panel: baked inline by the container
-            // (matched via `mount`) and seeded open on every connection.
-            [if i == 0 then 'defaultOpen']: true,
-          }
-          for i in std.range(0, std.length(tabs) - 1)
-        },
-        children: [
-          // `$` is the library root (where the `button` builder lives).
-          $.button(
-            label=tabs[i].label,
-            action={ onclick: constOnclick(
-              '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = \'' + sid(i) + '\''
-            ) },
-            active='$' + sig + ' == \'' + sid(i) + '\'',
-          )
-          for i in std.range(0, std.length(tabs) - 1)
-        ],
-      },
-    },
-
     // Surface chrome (backend-only — no `build`; the renderer wraps a surface's
     // content as `children` and injects `id`/`closeAction`). Keeping these in
     // the card library, not hardcoded in Scala, means a re-skin happens here.
@@ -540,7 +479,57 @@
   entityCard:: $._components.entityCard.build,
   button:: $._components.button.build,
   slider:: $._components.slider.build,
-  tabs:: $._components.tabs.build,
+
+  // A MOUNT: an addressable host a surface renders into — the inline analogue of
+  // the page `#popups`. `mode` is 'inline' (a tab panel: inner/replace, one at a
+  // time) or 'overlay' (stack dialogs). NOT a card — a structural `LayoutNode.Mount`
+  // the backend renders directly (it bakes any default-open surface targeting it).
+  // `signals` is an optional data-signals seed (a tab group's active-tab signal).
+  mount(mode, signals=null):: {
+    kind: 'mount',
+    mode: mode,
+  } + (if signals != null then { signals: signals } else {}),
+
+  // TABS: pure composition over existing primitives — no `tabs` card, no tabs
+  // logic in the backend. A column [a `.tabbar` row of buttons, an inline `mount`]
+  // whose panels are ordinary inline surfaces (lifted by the hoist) sharing that
+  // mount, so switching reuses the popup open machinery (inner-replace) and only
+  // the open panel is rendered/streamed. The mount is the column's child index 1,
+  // so its pathId is '<NODE_ID>_1' — what the surfaces name as their `mount`. The
+  // active-tab signal `tab_<NODE_ID>` is seeded on the mount, set by each button
+  // (to its index), and read by each button's `active` highlight.
+  //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
+  tabs(tabs)::
+    local panelId = NODE_ID + '_1';   // the mount node = column child index 1
+    local sig = 'tab_' + NODE_ID;     // per-group active-tab signal (holds an index)
+    local sid(i) = NODE_ID + '_t' + i;  // surface id = idBase + '_' + localKey ('t'+i)
+    {
+      kind: 'component',
+      card: 'fhcol',
+      slots: { class: 'tabs' },
+      inlineSurfaces: {
+        ['t' + i]: {
+          content: tabs[i].content,
+          mount: panelId,
+          // The first tab is the default panel: baked into the mount + seeded open.
+          [if i == 0 then 'defaultOpen']: true,
+        }
+        for i in std.range(0, std.length(tabs) - 1)
+      },
+      children: [
+        $.row([
+          $.button(
+            label=tabs[i].label,
+            action={ onclick: constOnclick(
+              '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
+            ) },
+            active='$' + sig + ' == ' + i,
+          )
+          for i in std.range(0, std.length(tabs) - 1)
+        ], class='tabbar'),
+        $.mount(mode='inline', signals='{ ' + sig + ': 0 }'),
+      ],
+    },
 
   // Back-compat alias: the old read-only state card is just an entity card.
   stateCard(eo, label=null):: $._components.entityCard.build(eo, label=label),
