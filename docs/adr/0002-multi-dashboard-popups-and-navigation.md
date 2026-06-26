@@ -355,3 +355,14 @@ This re-introduces first-paint baking into `render(Component)` (the irreducible
 cost — lazy surfaces still need a baked default in the GET response) but as a
 **surface-named** hole, so the backend stays literal-free. ADR 0001/0004 (the
 slot model) remain untouched.
+
+**Refinement (same day): the `tabPanel` chrome card is deleted; `chrome` is
+`popup` or none.** A chrome card gives a surface a stable per-surface root
+(`s_<id>`) — load-bearing for a popup (it *is* the `<dialog>`, and the ✕ does
+`removeElement("#s_<id>")`), but **unused for an inline tab panel** (it evicts by
+inner-overwrite, live updates target inner node ids, and `.tab-panel-content` had
+no CSS). So a tab surface sets `chrome: ""` and renders straight into the `tabs`
+card's `#…_panel` host; `renderSurface` returns the bare content when `chrome` is
+empty. The card library now holds just `popup`. (The `tabs` builder also moved
+into `_components.tabs.build`, exported `tabs:: $._components.tabs.build` like
+`row`/`column`.)
