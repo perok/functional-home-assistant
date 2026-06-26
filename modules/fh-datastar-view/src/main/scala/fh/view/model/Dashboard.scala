@@ -108,8 +108,8 @@ object SlotSource:
   *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
   *     like a `label`/`min` is a literal slot, a live value is a transform
   *     slot. The only non-slot template vars are backend-*injected* ones the
-  *     author never supplies (`id`, `panel`, and the matched `entity_id` inside
-  *     a dynamic case — see
+  *     author never supplies (`id`, and the matched `entity_id` inside a
+  *     dynamic case — see
   *     [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]), so they
   *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
   *     no entry either — [[Dashboard.validate]] only flags missing *required*
@@ -304,32 +304,29 @@ case class Theme(
     styles: String = ""
 ) derives ConfiguredDecoder
 
-/** A lazily-activated render subtree mounted on demand — a popup today, a tab
-  * panel later. Registered in [[Dashboard.surfaces]] keyed by id; a component's
-  * click action (`surface/open/<id>`) opens it. The backend renders + streams
-  * it only while a connection has it open (see `Renderer.renderSurface` and the
+/** A lazily-activated render subtree mounted on demand — a popup or a tab
+  * panel. Registered in [[Dashboard.surfaces]] keyed by id; a component's click
+  * action (`surface/open/<id>`) opens it. The backend renders + streams it only
+  * while a connection has it open (see `Renderer.renderSurface` and the
   * per-connection session in `Server`).
   *
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
-  *   - `group`: optional exclusivity group — opening a surface closes any other
-  *     open surface sharing its group (modal stacks of one; the basis for
-  *     tabs). Absent ⇒ stackable independently.
-  *   - `mount`: optional target container id to render into; absent ⇒ the
-  *     page's overlay popup mount (`#popups`). A tab panel would point at an
-  *     inline mount instead.
-  *   - `defaultOpen`: shown from the first paint without a user action — the
-  *     tabs default panel is this. The connection seeds its open set with every
-  *     default-open surface (so it receives live patches immediately), and the
-  *     container whose `mount` matches bakes it inline (`{{panel}}`). This is
-  *     the ONLY surface-level "shown by default" signal the backend reads —
-  *     there is no separate `initial` concept; a tabs builder just marks its
-  *     first inline surface `defaultOpen`. The client-side active-tab highlight
-  *     is seeded by an ordinary literal slot the backend never interprets.
+  *   - `mount`: the target [[LayoutNode.Mount]]'s element id to render into;
+  *     absent ⇒ the page's overlay mount (`#popups`). Its [[MountKind]] decides
+  *     everything else — an `Overlay` mount stacks (`append`, `<dialog>`), an
+  *     `Inline` mount (a tab panel) replaces in place (`inner`, bare). There is
+  *     no separate exclusivity `group`: surfaces sharing an inline mount are
+  *     mutually exclusive because the `inner` patch overwrites it.
+  *   - `defaultOpen`: shown from the first paint without a user action — a tabs
+  *     default panel (or a popup open on load). The connection seeds its open
+  *     set with every default-open surface (so it receives live patches
+  *     immediately), and the [[LayoutNode.Mount]] it targets bakes it as its
+  *     initial content. This is the ONLY surface-level "shown by default"
+  *     signal the backend reads.
   */
 case class Surface(
     content: LayoutNode,
-    group: Option[String] = None,
     mount: Option[String] = None,
     defaultOpen: Boolean = false
 ) derives ConfiguredDecoder

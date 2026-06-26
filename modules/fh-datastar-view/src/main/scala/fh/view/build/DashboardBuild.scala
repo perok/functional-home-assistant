@@ -60,11 +60,11 @@ object DashboardBuild {
 
   /** The literal token an authored node uses to refer to its own backend-minted
     * id — the SAME id the renderer injects as `{{id}}` for that node
-    * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it from
-    * the node's tree position and splices it in. Authors never type it directly
-    * — the `c.openPopup`/`c.tabs` builders embed it (so jsonnet composes the
-    * trigger fully and only borrows the one value it cannot mint: the node's
-    * position-derived id).
+    * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
+    * from the node's tree position and splices it in. Authors never type it
+    * directly — the `c.openPopup`/`c.tabs` builders embed it (so jsonnet
+    * composes the trigger fully and only borrows the one value it cannot mint:
+    * the node's position-derived id).
     */
   val NodeIdToken: String = "@@NODE_ID@@"
 
@@ -102,13 +102,12 @@ object DashboardBuild {
         obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
       )
 
-    // Keep only the surface's own fields (content + optional
-    // group/mount/defaultOpen).
+    // Keep only the surface's own fields (content + optional mount/defaultOpen).
     def surfaceOf(defObj: JsonObject): Json =
       Json.fromJsonObject(
         JsonObject.fromIterable(
           defObj("content").map("content" -> _).toList ++
-            List("group", "mount", "defaultOpen")
+            List("mount", "defaultOpen")
               .flatMap(k => defObj(k).map(k -> _))
         )
       )
@@ -175,7 +174,7 @@ object DashboardBuild {
       }
 
     json.asObject match {
-      case None => json
+      case None      => json
       case Some(obj) =>
         // The card root's id namespace is the renderer's root `pathId` ("c"), so
         // a node's hoist-time idBase equals its render-time `{{id}}` — one id
