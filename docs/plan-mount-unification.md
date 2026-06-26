@@ -1,8 +1,10 @@
 # Plan: unify popups and tabs on a first-class *mount point* (fh-datastar-view)
 
-> Status: approved direction (option **b**, full unification); **pre-implementation**.
-> Durable record lives in [ADR 0002 Update — 2026-06-25c](adr/0002-multi-dashboard-popups-and-navigation.md).
-> Delete this file once implemented + folded into the ADR.
+> Status: **landed** (option **b**, full unification). 50 tests + live
+> `dashboardBuild` green; in-browser tab-switch / popup-stack verification still
+> pending. Durable record lives in
+> [ADR 0002 Update — 2026-06-25c](adr/0002-multi-dashboard-popups-and-navigation.md).
+> Safe to delete this file once the in-browser pass is done.
 
 ## The insight
 
