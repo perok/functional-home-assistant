@@ -446,6 +446,19 @@
       },
     },
 
+    // Tabs container: a `.tabbar` row of buttons (children) followed by a panel
+    // host div. The panel host holds the baked default surface (injected as
+    // `{{{panel}}}` by the renderer from the first default-open surface whose
+    // `bakeInto` matches this component's id). The `_panel` suffix and the `panel`
+    // var name live ONLY here — the backend never reconstructs them.
+    // `data-signals` seeds the active-tab signal to 0 (the first tab); it re-runs
+    // on DOM patch (`data-init` is on the whole body, so a navigate re-seeds too).
+    tabs: {
+      template: '<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>',
+      slots: [],
+      build(tabs):: error 'use c.tabs([...]) builder, not _components.tabs.build',
+    },
+
     // Surface chrome (backend-only — no `build`; the renderer wraps a surface's
     // content as `children` and injects `id`/`closeAction`). Keeping these in
     // the card library, not hardcoded in Scala, means a re-skin happens here.
@@ -492,23 +505,21 @@
     mode: mode,
   } + (if signals != null then { signals: signals } else {}),
 
-  // TABS: pure composition over existing primitives — no `tabs` card, no tabs
-  // logic in the backend. A column [a `.tabbar` row of buttons, an inline `mount`]
-  // whose panels are ordinary inline surfaces (lifted by the hoist) sharing that
-  // mount, so switching reuses the popup open machinery (inner-replace) and only
-  // the open panel is rendered/streamed. The mount is the column's child index 1,
-  // so its pathId is '<NODE_ID>_1' — what the surfaces name as their `mount`. The
-  // active-tab signal `tab_<NODE_ID>` is seeded on the mount, set by each button
-  // (to its index), and read by each button's `active` highlight.
+  // TABS: a `tabs` card whose template owns the `.tabbar` row hole (children)
+  // and the panel host `<div id="{{id}}_panel" ...>{{{panel}}}</div>`. The inline
+  // surfaces target `NODE_ID + '_panel'` as their `mount` (equals `{{id}}_panel`
+  // in the rendered template — the hoist invariant: `idBase == {{id}}`), and name
+  // `bakeInto: NODE_ID`, `bakeAs: 'panel'` so the renderer injects the default
+  // tab as `{{{panel}}}` on first paint. The backend holds zero `_panel` literals
+  // — they live only in this builder and the `tabs` card template above.
   //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
   tabs(tabs)::
-    local panelId = NODE_ID + '_1';   // the mount node = column child index 1
-    local sig = 'tab_' + NODE_ID;     // per-group active-tab signal (holds an index)
+    local panelId = NODE_ID + '_panel';  // panel host id = idBase + '_panel' (in template)
+    local sig = 'tab_' + NODE_ID;        // per-group active-tab signal (holds an index)
     local sid(i) = NODE_ID + '_t' + i;  // surface id = idBase + '_' + localKey ('t'+i)
     {
       kind: 'component',
-      card: 'fhcol',
-      slots: { class: 'tabs' },
+      card: 'tabs',
       inlineSurfaces: {
         ['t' + i]: {
           content: tabs[i].content,
@@ -523,20 +534,16 @@
         for i in std.range(0, std.length(tabs) - 1)
       },
       children: [
-        $.row([
-          $.button(
-            label=tabs[i].label,
-            action={ onclick: constOnclick(
-              '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
-            ) },
-            active='$' + sig + ' == ' + i,
-          )
-          for i in std.range(0, std.length(tabs) - 1)
-        ], class='tabbar'),
-        $.mount(mode='inline', signals='{ ' + sig + ': 0 }'),
+        $.button(
+          label=tabs[i].label,
+          action={ onclick: constOnclick(
+            '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
+          ) },
+          active='$' + sig + ' == ' + i,
+        )
+        for i in std.range(0, std.length(tabs) - 1)
       ],
     },
-
   // Back-compat alias: the old read-only state card is just an entity card.
   stateCard(eo, label=null):: $._components.entityCard.build(eo, label=label),
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already

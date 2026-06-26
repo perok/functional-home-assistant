@@ -51,6 +51,10 @@ class RendererSuite extends munit.FunSuite {
     ),
     "tabPanel" -> CardDef(
       """<div id="{{id}}" class="tab-panel-content">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
+    "tabs" -> CardDef(
+      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>"""
     )
   )
 
@@ -59,6 +63,11 @@ class RendererSuite extends munit.FunSuite {
   // first flagged `defaultOpen` (baked into the mount + seeded open). The mount is
   // the column's child index 1, so its element id is "c_1" — what the surfaces
   // name as their `mount`.
+  // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
+  // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
+  // filled via `{{{panel}}}` baked from the first default-open surface.
+  // The surfaces target `c_panel` (= idBase + '_panel', the hoist invariant),
+  // carry `chrome:'tabPanel'`, `stack:false`, `bakeInto:"c"`, `bakeAs:"panel"`.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -67,25 +76,21 @@ class RendererSuite extends munit.FunSuite {
       )
     Dashboard(
       cards,
+      // The `tabs` card: children are the tab buttons; the panel host is in the
+      // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
       LayoutNode.Component(
-        "col",
+        "tabs",
         children = List(
-          LayoutNode.Component(
-            "row",
-            children = List(
-              LayoutNode.Component("btn", Map("label" -> lit("A"))),
-              LayoutNode.Component("btn", Map("label" -> lit("B")))
-            )
-          ),
-          LayoutNode.Mount(MountKind.Inline, Some("{ tab_c: 0 }"))
+          LayoutNode.Component("btn", Map("label" -> lit("A"))),
+          LayoutNode.Component("btn", Map("label" -> lit("B")))
         )
       ),
       surfaces = Map(
-        // c_t0 is the default-open panel: baked into the tabs component (bakeInto="c",
-        // bakeAs="panel"), sharing the inline mount "c_1" + seeded open on connect.
+        // c_t0 is the default-open panel: baked into the tabs component (id="c",
+        // bakeInto="c", bakeAs="panel") + seeded open on connect.
         "c_t0" -> Surface(
           panel("a"),
-          mount = Some("c_1"),
+          mount = Some("c_panel"),
           chrome = "tabPanel",
           stack = false,
           bakeInto = Some("c"),
@@ -94,7 +99,7 @@ class RendererSuite extends munit.FunSuite {
         ),
         "c_t1" -> Surface(
           panel("b"),
-          mount = Some("c_1"),
+          mount = Some("c_panel"),
           chrome = "tabPanel",
           stack = false,
           bakeInto = Some("c"),
@@ -614,7 +619,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "tabs: default panel is baked into the inline mount; a panel renders without dialog chrome"
+    "tabs: default panel is baked into the tabs card; a panel renders without dialog chrome"
   ) {
     val rr = Renderer.create(tabsDashboard)
     val states = Map(
@@ -624,13 +629,14 @@ class RendererSuite extends munit.FunSuite {
     // The first tab is registered as the only default-open surface.
     assertEquals(rr.defaultOpenSurfaces, Set("c_t0"))
 
-    // renderBody renders the inline mount (its id "c_1" + the active-tab signal
-    // seed) with the first tab's content baked in, carrying the surface-namespaced
-    // ids it would have after a later switch-back.
+    // renderBody renders the `tabs` component (id "c") whose template contains a
+    // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
+    // The first tab's content is baked in via {{{panel}}} (surface-namespaced ids,
+    // matching a later switch-back — byte-identical HTML).
     val body = rr.renderBody(states)
     assert(
       body.contains(
-        """<div class="tab-panel" id="c_1" data-signals="{ tab_c: 0 }">"""
+        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">"""
       ),
       clue = body
     )

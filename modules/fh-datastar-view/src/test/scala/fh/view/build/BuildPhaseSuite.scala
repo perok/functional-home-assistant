@@ -221,27 +221,38 @@ class BuildPhaseSuite extends munit.FunSuite {
     // The sugar produced two inline tab surfaces and a consistent dashboard.
     assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
     assert(d.surfaces.values.forall(_.mount.isDefined), clue = d.surfaces)
-    // Both panels share ONE inline mount — exclusivity by shared mount, no group.
+    // Both panels share ONE panel host — exclusivity by shared mount, no group.
     assertEquals(
       d.surfaces.values.flatMap(_.mount).toSet.size,
       1,
       clue = d.surfaces
     )
     // Surface ids use the unified id scheme: idBase (= pathId) + the 't<i>' local
-    // key; the shared mount is the Mount node's positional pathId.
+    // key; the shared mount is the tabs component's panel host id (idBase + '_panel').
     assert(
       d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
       clue = d.surfaces.keySet
     )
     assert(
-      d.surfaces.values.flatMap(_.mount).forall(_.matches("c(_\\d+)+")),
+      d.surfaces.values.flatMap(_.mount).forall(_.matches("c(_\\d+)+_panel")),
       clue = d.surfaces
     )
-    // The tabs builder emitted exactly one inline Mount node — no `tabs` card.
-    assertEquals(
-      mounts(d.card).map(_.mode),
-      List(MountKind.Inline),
-      clue = mounts(d.card)
+    // The tabs builder emitted a `tabs` card component — no Mount node.
+    assert(mounts(d.card).isEmpty, clue = mounts(d.card))
+    assert(
+      d.card.asInstanceOf[LayoutNode.Component].children.exists {
+        case c: LayoutNode.Component => c.card == "tabs"
+        case _                       => false
+      },
+      clue = "expected a tabs component in the layout"
+    )
+    // Surfaces carry chrome:'tabPanel', stack:false, and bakeInto/bakeAs.
+    assert(
+      d.surfaces.values.forall(s =>
+        s.chrome == "tabPanel" && !s.stack && s.bakeInto.isDefined && s.bakeAs
+          .contains("panel")
+      ),
+      clue = d.surfaces
     )
     // Exactly the first tab is the default-open panel (the only backend-read
     // "shown by default" signal).
