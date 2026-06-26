@@ -10,6 +10,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     node match {
       case c: LayoutNode.Component => c.children.flatMap(dynamics)
       case d: LayoutNode.Dynamic   => List(d)
+      case _: LayoutNode.Mount     => Nil
     }
 
   test("DataDump.transform keys entities by id, areas/floors by name") {

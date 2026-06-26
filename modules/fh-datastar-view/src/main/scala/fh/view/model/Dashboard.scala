@@ -103,21 +103,42 @@ object SlotSource:
   *
   *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
   *     raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - `slots`: every required template var, each filled from a [[SlotSource]] —
-  *     a live entity transform OR a constant literal. This is the *one*
+  *   - `slots`: every required template var, each filled from a [[SlotSource]]
+  *     — a live entity transform OR a constant literal. This is the *one*
   *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
-  *     like a `label`/`min` is a literal slot, a live value is a transform slot.
-  *     The only non-slot template vars are backend-*injected* ones the author
-  *     never supplies (`id`, `panel`, and the matched `entity_id` inside a
-  *     dynamic case — see [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]),
-  *     so they need no entry. Optional pieces (a tap `action`, a `secondary`
-  *     line) need no entry either — [[Dashboard.validate]] only flags missing
-  *     *required* slots and ignores extra ones.
+  *     like a `label`/`min` is a literal slot, a live value is a transform
+  *     slot. The only non-slot template vars are backend-*injected* ones the
+  *     author never supplies (`id`, `panel`, and the matched `entity_id` inside
+  *     a dynamic case — see
+  *     [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]), so they
+  *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
+  *     no entry either — [[Dashboard.validate]] only flags missing *required*
+  *     slots and ignores extra ones.
   */
 case class CardDef(
     template: String,
     slots: List[String] = Nil
 ) derives ConfiguredDecoder
+
+/** How a [[Surface]] mount hosts the surfaces that target it. The only
+  * difference between a popup and a tab panel:
+  *
+  *   - `Overlay` — stack surfaces into a floating layer (`append`, `popup`
+  *     `<dialog>` chrome). The page-level `#popups` is the built-in Overlay
+  *     mount.
+  *   - `Inline` — replace a panel area in place (`inner`, bare `tabPanel`
+  *     chrome). A tab group's panel is an Inline mount placed deep in the
+  *     layout; exclusivity (one tab at a time) is implied by the shared mount.
+  */
+enum MountKind:
+  case Overlay, Inline
+
+object MountKind:
+  given Decoder[MountKind] = Decoder[String].emap(s =>
+    values
+      .find(_.toString.equalsIgnoreCase(s))
+      .toRight(s"unknown mount kind: $s")
+  )
 
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
@@ -208,13 +229,32 @@ object LayoutNode:
     *   - `cases`: each matched entity renders with the first case whose `when`
     *     matches (skipped if none). The renderer injects `id` and sets the
     *     matched entity as the `entity_id` slot per match, so every inheriting
-    *     slot (the `label`'s `$attr.friendly_name`, value/action slots) resolves
-    *     against the match; a slot that names its own entity, or a constant
-    *     literal, is left untouched. The group's own id is location-derived.
+    *     slot (the `label`'s `$attr.friendly_name`, value/action slots)
+    *     resolves against the match; a slot that names its own entity, or a
+    *     constant literal, is left untouched. The group's own id is
+    *     location-derived.
     */
   case class Dynamic(
       query: Option[Predicate] = None,
       cases: List[DynamicCase] = Nil
+  ) extends LayoutNode
+
+  /** A surface host: an addressable, initially-empty container that surfaces
+    * render into. Popups and tab panels are the SAME lazily-activated surface
+    * (rendered/streamed only while open) — they differ only by this node's
+    * [[MountKind]] (`Overlay` stacks dialogs into the page `#popups`; `Inline`
+    * replaces a panel area in place, the basis for tabs).
+    *
+    * It carries NO id: it renders its own positional [[pathId]] as the element
+    * id, which surfaces address through the build-phase hoist token (so a tabs
+    * builder names the mount it cannot mint via `@@NODE_ID@@_<childIndex>`). On
+    * first paint the renderer bakes any [[Surface.defaultOpen]] surface that
+    * targets this mount as its initial content. `signals` is an optional
+    * `data-signals` seed (a tabs group's active-tab signal).
+    */
+  case class Mount(
+      mode: MountKind,
+      signals: Option[String] = None
   ) extends LayoutNode
 
   /** Stable, location-based id for an addressable node, derived from its index
@@ -236,11 +276,12 @@ object LayoutNode:
   def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
 
   /** Id prefix for a surface's inner nodes, so they never collide with the main
-    * page (`s_<id>__` + [[pathId]] ⇒ `s_<id>__c_0`). This is the SAME scheme the
-    * build-phase hoist uses to name a surface's content, so a node's build-time
-    * id namespace and its render-time `{{id}}` are one story.
+    * page (`s_<id>__` + [[pathId]] ⇒ `s_<id>__c_0`). This is the SAME scheme
+    * the build-phase hoist uses to name a surface's content, so a node's
+    * build-time id namespace and its render-time `{{id}}` are one story.
     */
-  def surfacePrefix(surfaceId: String): String = s"${surfaceRootId(surfaceId)}__"
+  def surfacePrefix(surfaceId: String): String =
+    s"${surfaceRootId(surfaceId)}__"
 
 /** The dashboard's presentation, owned entirely by the theme (so the app isn't
   * tied to any particular CSS framework — e.g. Pico is just a `stylesheets`
@@ -280,11 +321,11 @@ case class Theme(
   *   - `defaultOpen`: shown from the first paint without a user action — the
   *     tabs default panel is this. The connection seeds its open set with every
   *     default-open surface (so it receives live patches immediately), and the
-  *     container whose `mount` matches bakes it inline (`{{panel}}`). This is the
-  *     ONLY surface-level "shown by default" signal the backend reads — there is
-  *     no separate `initial` concept; a tabs builder just marks its first inline
-  *     surface `defaultOpen`. The client-side active-tab highlight is seeded by
-  *     an ordinary literal slot the backend never interprets.
+  *     container whose `mount` matches bakes it inline (`{{panel}}`). This is
+  *     the ONLY surface-level "shown by default" signal the backend reads —
+  *     there is no separate `initial` concept; a tabs builder just marks its
+  *     first inline surface `defaultOpen`. The client-side active-tab highlight
+  *     is seeded by an ordinary literal slot the backend never interprets.
   */
 case class Surface(
     content: LayoutNode,
@@ -386,6 +427,8 @@ case class Dashboard(
               c.slots.keySet
             ) ++ slotErrors(nodeId, c.slots)
           }
+        // A mount has no card/slots; its surfaces are validated via the registry.
+        case _: LayoutNode.Mount => Nil
 
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
