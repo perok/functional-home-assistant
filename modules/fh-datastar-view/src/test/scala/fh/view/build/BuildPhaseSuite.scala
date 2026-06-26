@@ -372,8 +372,8 @@ class BuildPhaseSuite extends munit.FunSuite {
                   "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ],
             "inlineSurfaces": {
-              "0": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE_ID@@", "mount":"panel_@@NODE_ID@@" },
-              "1": { "content": { "kind":"component","card":"card" }, "group":"panel_@@NODE_ID@@", "mount":"panel_@@NODE_ID@@" }
+              "0": { "content": { "kind":"component","card":"card" }, "mount":"panel_@@NODE_ID@@" },
+              "1": { "content": { "kind":"component","card":"card" }, "mount":"panel_@@NODE_ID@@" }
             }
           }
         }
@@ -382,7 +382,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // both surfaces lifted under "<idBase>_<localKey>", sharing one group+mount
+    // both surfaces lifted under "<idBase>_<localKey>", sharing one mount
     val surfaces = h.downField("surfaces")
     assertEquals(
       surfaces.keys.map(_.toSet).getOrElse(Set.empty),
@@ -390,10 +390,6 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     val mount = "panel_c"
     for (k <- Set("c_0", "c_1")) {
-      assertEquals(
-        surfaces.downField(k).get[String]("group").toOption,
-        Some(mount)
-      )
       assertEquals(
         surfaces.downField(k).get[String]("mount").toOption,
         Some(mount)

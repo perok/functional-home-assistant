@@ -197,7 +197,10 @@
   toggleTap:: defaultTap,
   serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
   // TODO should these belong to popup? as the build function?
-  openPopup(target, group=null, mount=null)::
+  // `mount` optionally targets a specific Mount node id (an inline panel);
+  // absent ⇒ the overlay `#popups`. There is no exclusivity `group` any more —
+  // an inline mount is exclusive by construction, an overlay stacks.
+  openPopup(target, mount=null)::
     if std.isString(target) then
       { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
     else
@@ -208,7 +211,6 @@
         // 'self' is a jsonnet keyword, so quote the local key.
         inlineSurfaces: { 'self': {
           content: target,
-          [if group != null then 'group']: group,
           [if mount != null then 'mount']: mount,
         } },
       },
