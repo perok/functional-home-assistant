@@ -218,9 +218,10 @@ class Renderer(
     * (`<dialog open>` + a wrapper-supplied close control) or, for an inline
     * mount (a tab panel), the chromeless `tabPanel`. Both carry the surface
     * root id (`s_<id>`) so live patches / group-eviction / close-by-selector
-    * can target it. The chrome lives in the card library (`popup`/`tabPanel`),
-    * not here — the renderer only renders the content as `children` and injects
-    * the id + close action. `None` if the surface id is unknown.
+    * can target it. The chrome lives in the card library (`popup`), not here —
+    * the renderer only renders the content as `children` and injects the id +
+    * raw surfaceId (the card builds its own close URL). `None` if the surface
+    * id is unknown.
     */
   def renderSurface(
       surfaceId: String,
@@ -235,21 +236,23 @@ class Renderer(
       // host (an inline tab panel: its host div is the `tabs` card's panel, and the
       // per-surface root id a popup needs for close/removeElement is unused there).
       // The backend holds zero hardcoded card-name literals — the surface carries it.
+      // The chrome gets the surface root `id` and the raw `surfaceId`; it composes
+      // any close `@post(...)` itself, so no close-URL literal lives here either.
       if (s.chrome.isEmpty) inner
       else
         renderChrome(
           s.chrome,
           Map(
             "id" -> rootId,
-            "closeAction" -> s"@post('/sse/surface/close/$surfaceId')"
+            "surfaceId" -> surfaceId
           ),
           inner
         )
     }
 
-  /** Wrap already-rendered surface content in a chrome card
-    * (`popup`/`tabPanel`) from the library, splicing `inner` as the card's
-    * single child and injecting the backend-known vars (`id`, `closeAction`).
+  /** Wrap already-rendered surface content in a chrome card (`popup`) from the
+    * library, splicing `inner` as the card's single child and injecting the
+    * backend-known vars (`id`, `surfaceId`; the card builds its own close URL).
     * Falls back to the bare inner HTML if the chrome card is absent.
     */
   private def renderChrome(
@@ -320,10 +323,10 @@ class Renderer(
   ): String = {
     val children =
       states.toList
-        .sortBy(_._1)
         .filter { case (_, st) =>
           d.query.forall(Renderer.matches(_, st))
         }
+        .sortBy(_._1)
         .flatMap { case (entityId, st) =>
           d.cases
             .find(c => Renderer.matches(c.when, st))
