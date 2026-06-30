@@ -196,24 +196,8 @@
   //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
   toggleTap:: defaultTap,
   serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
-  // TODO should these belong to popup? as the build function?
-  // `mount` optionally targets a specific Mount node id (an inline panel);
-  // absent ⇒ the overlay `#popups`. There is no exclusivity `group` any more —
-  // an inline mount is exclusive by construction, an overlay stacks.
-  openPopup(target, mount=null)::
-    if std.isString(target) then
-      { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
-    else
-      {
-        // Reference the future surface id (NODE_ID_self) the hoist will mint, and
-        // pair it with the inline content under the same local key.
-        onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
-        // 'self' is a jsonnet keyword, so quote the local key.
-        inlineSurfaces: { 'self': {
-          content: target,
-          [if mount != null then 'mount']: mount,
-        } },
-      },
+  // openPopup lives with the popup chrome card (`_components.popup.build`,
+  // exposed as `c.openPopup` below) — its opener and chrome belong together.
   closePopup(id):: { onclick: constOnclick('@post(\'/sse/surface/close/' + id + '\')') },
   navigate(slug):: { onclick: constOnclick(
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
@@ -454,8 +438,19 @@
     // `data-signals` seeds the active-tab signal to 0 (the first tab); it re-runs
     // on DOM patch (`data-init` is on the whole body, so a navigate re-seeds too).
     tabs: {
-      template: '<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>',
+      template: |||
+        <div class="fh-col tabs">
+          <div class="fh-row tabbar">
+            {{#children}}{{{html}}}{{/children}}
+          </div>
+          <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">
+            {{{panel}}}
+          </div>
+        </div>',
+      |||,
       slots: [],
+      // TODO an alternative to slots which has backend state that can be interacted with. can that reduce complexity here?
+
       // TABS builder: the `.tabbar` buttons are the card's children; the panel
       // host + `{{{panel}}}` hole live in the template above. Inline surfaces
       // target `NODE_ID + '_panel'` (= `{{id}}_panel`, the hoist invariant
@@ -494,15 +489,42 @@
         },
     },
 
-    // Surface chrome (backend-only — no `build`; the renderer wraps a surface's
-    // content as `children` and injects `id`/`closeAction`). Keeping these in
-    // the card library, not hardcoded in Scala, means a re-skin happens here.
-    //   popup — the overlay `<dialog>` with a wrapper-supplied close control.
-    // (Inline tab panels need no chrome: a tab surface sets `chrome: ''` and
-    // renders straight into the `tabs` card's panel host.)
+    // Popup — the overlay `<dialog>` chrome AND its opener builder, together.
+    // The renderer wraps a surface's content as `children` and injects the
+    // surface root `id` (for `<dialog id>` + close-by-removeElement) and the raw
+    // `surfaceId`; the template itself composes the close `@post(...)` from that
+    // surfaceId, so the backend holds no close-URL literal (a re-skin happens
+    // here). (Inline tab panels need no chrome: a tab surface sets `chrome: ''`
+    // and renders straight into the `tabs` card's panel host.)
     popup: {
-      template: '<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="{{{closeAction}}}">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>',
+      template: |||
+        <dialog id="{{id}}" open class="popup">
+          <button class="popup-close"
+          data-on:click="@post('/sse/surface/close/{{{surfaceId}}}')">✕</button>
+          {{#children}}{{{html}}}{{/children}}
+        </dialog>
+      |||,
       slots: [],
+      // openPopup builder (public alias `c.openPopup` below): give a card a tap
+      // that opens a surface. `target` is either a registered surface id (string)
+      // or inline content (a layout node) the backend hoists to a surface under
+      // this node's id. `mount` optionally targets a specific panel host id;
+      // absent ⇒ the overlay `#popups`. The surface relies on `Surface` defaults
+      // (chrome: popup, stack: true) — popups overlay/stack and never bake.
+      build(target, mount=null)::
+        if std.isString(target) then
+          { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
+        else
+          {
+            // Reference the future surface id (NODE_ID_self) the hoist will mint,
+            // and pair it with the inline content under the same local key.
+            onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
+            // 'self' is a jsonnet keyword, so quote the local key.
+            inlineSurfaces: { 'self': {
+              content: target,
+              [if mount != null then 'mount']: mount,
+            } },
+          },
     },
   },
 
@@ -531,8 +553,13 @@
   // host) and the `build` (above); this is the public alias, like `row`/`column`.
   //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
   tabs:: $._components.tabs.build,
-  // Back-compat alias: the old read-only state card is just an entity card.
-  stateCard(eo, label=null):: $._components.entityCard.build(eo, label=label),
+
+  // POPUP open — the `popup` card owns the chrome template AND its opener
+  // `build` (above); this is the public alias, like `row`/`column`/`tabs`.
+  //   c.button(action=c.openPopup(c.column([...])))   // inline content
+  //   c.button(action=c.openPopup('myDialog'))         // a registered surface id
+  openPopup:: $._components.popup.build,
+
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
   // resolves its service from $domain at RUNTIME (so it toggles a light/switch/
   // fan), and `c.slider(eo)` resolves its whole config from $domain too (so it
