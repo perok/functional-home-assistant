@@ -366,3 +366,80 @@ card's `#…_panel` host; `renderSurface` returns the bare content when `chrome`
 empty. The card library now holds just `popup`. (The `tabs` builder also moved
 into `_components.tabs.build`, exported `tabs:: $._components.tabs.build` like
 `row`/`column`.)
+
+## Update — 2026-07-01: two open questions on collapsing the `Surface` field set (not adopted)
+
+Two "why does this field exist" questions surfaced. Both point at the **same**
+underlying fact — the `Surface` fields (`mount`/`chrome`/`stack`/`bakeInto`/
+`bakeAs`) currently co-vary across the only two surface kinds — and both are viable
+simplifications gated on a **model-tightening decision**, not a rendering cleanup.
+Recorded here as options; **nothing is changed yet.**
+
+### A. Could the chrome wrapper live in the template around the mount (all surfaces chrome-less)?
+
+Yes for tabs — a tab already does exactly this: the wrapper (`<div id="{{id}}_panel">`)
+lives in the `tabs` card template surrounding the mount, and the surface renders
+chrome-less (`chrome: ""`) into it. The blocker for popups is **`stack`**:
+
+- A tab panel (`stack=false`, inner-replace) hosts **exactly one** thing at a time,
+  so a single static wrapper in the template can surround "whatever currently fills
+  the host."
+- A popup (`stack=true`, append) hosts a **growing pile of N** dialogs, each with
+  its own root id `s_<id>` because close does `removeElement("#s_<id>")`. A wrapper
+  baked into the template around `#popups` can wrap only zero-or-one child; the 2nd
+  appended surface lands unwrapped. So the wrapper must be generated **per surface,
+  at open time** — which is exactly what `chrome: "popup"` does. (Appending an empty
+  per-popup host then inner-rendering just relocates the same per-surface
+  generation; no win.)
+
+**The fork:** the *only* way to make popups chrome-less with a template-owned host
+is to **drop stacked popups** (make popups `stack=false`, inner-replace like tabs).
+Then `#popups` becomes a single templated `<dialog>` host, every surface is
+chrome-less, and popup and tab collapse into literally one thing differing only by
+their host's CSS (floating dialog vs inline). Cost: lose "two popups open at once"
+— which the 2026-06-25c mount-unification already noted is rarely used (it dropped
+*exclusive* overlays but kept stacking). This is a **product decision about whether
+popups stack**, not a cleanup.
+
+### B. Is `mount` needed given `bakeInto` + `bakeAs`?
+
+`mount` and `bakeInto`/`bakeAs` are two views of the **same host element**:
+`mount` = its live-patch DOM id (`openSurface` inner/append-patches `#<mount>`);
+`bakeInto` (a Component id) + `bakeAs` (a mustache var) = the first-paint template
+hole that fills it in the GET response. They **must** name the same element — the
+byte-identical-first-paint invariant (the baked default and a later live switch must
+land in the same place) — which is exactly why `mount == {bakeInto}_{bakeAs}` holds
+for tabs (host `<div id="{{id}}_panel">{{{panel}}}</div>`, `mount = <id>_panel`,
+`bakeInto = <id>`, `bakeAs = panel`). `mount` also carries a third job: the
+**eviction group** for non-stacking surfaces (`openSurface` evicts open siblings
+sharing a `mount`) — but for tabs that group is exactly "same `bakeInto`," so it too
+is expressible without `mount`.
+
+So `mount` is **derivable for baked surfaces** as `bakeInto + "_" + bakeAs`
+(composition of two explicit fields — *not* the id-suffix *parsing* the ADRs forbid,
+which is reconstructing a name by splitting an id), *if* the host-div-id convention
+`id="{{id}}_{{bakeAs}}"` is enforced. It is **not** derivable for:
+
+- **popups** — no bake (`bakeInto`/`bakeAs` absent); but `mount` is also absent
+  there and already defaults to `#popups`, so nothing is needed either way; and
+- **non-baked inline surfaces** — a panel group with *nothing* open by default
+  (an all-collapsed accordion): `bakeInto`/`bakeAs` are absent, so `mount` is the
+  only thing naming the inline target and its eviction group.
+
+**The fork:** `mount` collapses into a derived value **iff** we assert every inline
+(non-`#popups`) surface **always bakes a default member** (true for tabs today, and
+with the [cookie tier](../plan-tab-state-persistence.md) always exactly one member
+is active) **and** enforce the `id="{{id}}_{{bakeAs}}"` host-naming convention. Then
+inline surfaces need only `bakeInto`/`bakeAs`, popups need only the `#popups`
+default, and `mount` is deleted (with eviction re-keyed on `bakeInto`). The cost is
+forbidding a lazily-mounted inline surface that has *no* first-paint default — a
+capability nothing uses today.
+
+**Why not adopted now.** Both A and B trade an explicit, inference-free field for a
+tighter model + a naming convention. That is the *opposite* direction from the
+2026-06-25c→2026-06-26 arc, which deliberately made presentation **data, not
+inferred** (deleting the `MountKind` heuristic). Collapsing these fields re-introduces
+"the backend composes/derives the target from other fields," which is only safe once
+the constraining assumptions (popups don't stack / inline surfaces always bake) are
+things we're willing to *guarantee*. Revisit A when the stacking question is
+settled, and B together with A (they share the "one host per mount" premise).
