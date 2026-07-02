@@ -304,6 +304,11 @@ case class Surface(
     stack: Boolean = true,
     bakeInto: Option[String] = None,
     bakeAs: Option[String] = None,
+    // A surface's position within its `bakeInto` group, so a cookie value
+    // (parsed to an int at the point of use) selects a member without parsing
+    // surface-id suffixes. `defaultOpen` stays for the fallback when no cookie /
+    // no match; it is effectively `bakeIndex == 0`.
+    bakeIndex: Option[Int] = None,
     defaultOpen: Boolean = false
 ) derives ConfiguredDecoder
 

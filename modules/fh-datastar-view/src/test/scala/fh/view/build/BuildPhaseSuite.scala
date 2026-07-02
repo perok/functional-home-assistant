@@ -238,6 +238,13 @@ class BuildPhaseSuite extends munit.FunSuite {
       ),
       clue = d.surfaces
     )
+    // Each hoisted tab surface carries its position within the bake group
+    // (0..n-1), so a cookie index can select it on first paint.
+    assertEquals(
+      d.surfaces.values.flatMap(_.bakeIndex).toList.sorted,
+      (0 until d.surfaces.size).toList,
+      clue = d.surfaces
+    )
     // Exactly the first tab is the default-open panel (the only backend-read
     // "shown by default" signal).
     assertEquals(

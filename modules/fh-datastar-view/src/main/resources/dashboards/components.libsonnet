@@ -435,21 +435,22 @@
     // `{{{panel}}}` by the renderer from the first default-open surface whose
     // `bakeInto` matches this component's id). The `_panel` suffix and the `panel`
     // var name live ONLY here — the backend never reconstructs them.
-    // `data-signals` seeds the active-tab signal to 0 (the first tab); it re-runs
-    // on DOM patch (`data-init` is on the whole body, so a navigate re-seeds too).
+    // `data-signals` seeds the active-tab signal to the baked tab's index
+    // (`{{bakeIndex}}`, injected by the renderer — the selected member of this
+    // component's bake group, default 0). It re-runs on DOM patch (`data-init`
+    // is on the whole body, so a navigate re-seeds too).
     tabs: {
       template: |||
         <div class="fh-col tabs">
           <div class="fh-row tabbar">
             {{#children}}{{{html}}}{{/children}}
           </div>
-          <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">
+          <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
             {{{panel}}}
           </div>
         </div>',
       |||,
       slots: [],
-      // TODO an alternative to slots which has backend state that can be interacted with. can that reduce complexity here?
 
       // TABS builder: the `.tabbar` buttons are the card's children; the panel
       // host + `{{{panel}}}` hole live in the template above. Inline surfaces
@@ -472,6 +473,7 @@
               stack: false,
               bakeInto: NODE_ID,
               bakeAs: 'panel',
+              bakeIndex: i,               // position within the bake group (cookie-selectable)
               [if i == 0 then 'defaultOpen']: true,  // first tab = baked default
             }
             for i in std.range(0, std.length(tabs) - 1)
