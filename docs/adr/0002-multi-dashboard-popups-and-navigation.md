@@ -443,3 +443,66 @@ inferred** (deleting the `MountKind` heuristic). Collapsing these fields re-intr
 the constraining assumptions (popups don't stack / inline surfaces always bake) are
 things we're willing to *guarantee*. Revisit A when the stacking question is
 settled, and B together with A (they share the "one host per mount" premise).
+
+## Update — 2026-07-02: options A + B adopted; the theme owns the dashboard chrome
+
+> Status: **landed** (59 tests + live `dashboardBuild` green; in-browser
+> popup-open/switch/close + tab reload/navigate verification still pending).
+> Commits: `acc013c` (theme-owned chrome + chrome-less non-stacking popups),
+> `0913881` (derive host, delete `mount`), `c63a02d` (delete `chrome`/`stack`).
+> Plan: [`docs/plan-collapse-surface-fields.md`](../plan-collapse-surface-fields.md).
+
+Supersedes the **2026-07-01** note (both options are now adopted, and the stacking
+product-decision it flagged is settled: **popups no longer stack**). The 2026-06-26
+insight stands; this collapses the field set the way that note weighed.
+
+**`Surface` collapses from 8 fields to 5** — `(content, bakeInto, bakeAs,
+bakeIndex, defaultOpen)`. Gone: `mount` (derived), `chrome` (all surfaces
+chrome-less), `stack` (popups no longer stack).
+
+- **B — the host is derived.** `Surface.hostId` = `{bakeInto}_{bakeAs}` for a baked
+  tab panel (enforcing the `id="{{bakeInto}}_{{bakeAs}}"` host convention the
+  `tabs` card already honours) and `Dashboard.PopupHostId` (`"popups-body"`) for a
+  popup. It is the live-patch target **and** the eviction group. The `mount` field,
+  its jsonnet keys, and its `surfaceOf` lift are deleted.
+- **A — every surface is chrome-less.** `renderSurface` returns bare content; the
+  per-surface chrome path (`renderChrome` + the `popup` chrome card) is deleted.
+  The `chrome`/`stack` fields are gone.
+- **Open, switch, and close are one operation — `swapHost`.** Evict whatever
+  occupies a host, set the new occupant, inner-patch it in. A tab switch and a
+  popup open are `swapHost(host, Some(id))`; a popup **close is the degenerate
+  swap-to-empty** `swapHost(PopupHostId, None)` behind the new
+  `POST /sse/popup/close` (the old `surface/close/:id` + `removeElement` path is
+  gone; popups being one-at-a-time, no per-surface id is needed).
+- **The theme owns the dashboard chrome.** The `#dashboard` swap target and the
+  popup host move from a `renderPage` Scala literal into `Theme.chrome` — a
+  Mustache frame template with a single `{{{body}}}` hole. `renderPage` executes
+  it with `body = renderBody(...)` (unchanged — still the navigate/reload swap
+  payload); an empty `theme.chrome` falls back to a minimal
+  `<main id="dashboard">{{{body}}}</main>`. The backend now holds **zero** frame
+  HTML — the last presentation literals are gone. This *finishes* the
+  presentation-as-data arc (it moves literals **out** of Scala — the opposite of
+  the derivation the 2026-07-01 note worried about, and safe because the theme is
+  template-owned, not backend-composed).
+- **Placement vs mechanism split.** The theme owns *where* the popup host sits and
+  its CSS, but never the ✕/close-URL: that mechanism lives with the popup feature
+  as `c.popupHost()` (in `components.libsonnet`, beside `openPopup`), which the
+  theme *composes by placement* — `chrome: '…<main id="dashboard">{{{body}}}</main>' + c.popupHost()`.
+  So no theme author retypes the close endpoint.
+- **The document shell stays in `Server.page()`** (`<head>`, the Datastar
+  `<script>`, `<body data-init>` slug wiring, `popstate`, stylesheet `<link>`s) —
+  Datastar bootstrap + per-request wiring, not dashboard frame (the chosen
+  visible-frame boundary).
+- **Popup visibility is CSS-only** (no signal, no server state): the always-`open`
+  `<dialog>` hides when its body is empty —
+  `dialog.popup:has(#popups-body:empty){display:none}`. Open patches content in
+  (shown); close patches it empty (hidden); no flash on first paint.
+- **`Dashboard.validate` guardrail:** a non-empty `theme.chrome` lacking
+  `id="dashboard"` is a hard error (fail loudly, never silently break navigation).
+
+The only capability given up is **stacked popups** (two open at once) — unused, and
+the 2026-06-25c mount-unification already leaned this way; recoverable via a second
+overlay host if ever needed. `LayoutNode.surfaceRootId`/`surfacePrefix` stay (they
+still namespace a surface's inner node ids). `testFull` = **59** green;
+`dashboardBuild` confirms surfaces hoist with the 5-field set and no `popup` card.
+**In-browser confirmation is still pending.**
