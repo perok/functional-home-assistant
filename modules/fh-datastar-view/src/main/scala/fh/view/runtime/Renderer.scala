@@ -134,15 +134,94 @@ class Renderer(
   def affectedDynamicIds(change: StateChange): List[String] =
     mainIndex.dynamicIds.filter(dynamicAffected(_, change))
 
-  /** Surfaces shown from the first paint with no user action — every surface
-    * flagged [[Surface.defaultOpen]] (a tabs container's default panel today).
-    * A connection seeds its open set with these so the baked default panel
-    * receives live updates from the first paint (and on a navigate swap). Read
-    * straight off the surface registry, so the backend stays fully
-    * card-agnostic — no `initial` slot, no card name.
+  /** The surfaces baked into component `gid`'s host, ordered by their
+    * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
+    * carries none). This is the ordered member list a cookie index selects
+    * among.
     */
-  val defaultOpenSurfaces: Set[String] =
-    dashboard.surfaces.collect { case (sid, s) if s.defaultOpen => sid }.toSet
+  private def bakeGroup(gid: String): List[String] =
+    dashboard.surfaces.toList
+      .collect {
+        case (sid, s) if s.bakeInto.contains(gid) => (sid, s.bakeIndex)
+      }
+      .sortBy { case (sid, bi) => (bi.getOrElse(Int.MaxValue), sid) }
+      .map(_._1)
+
+  /** Resolve which member of `gid`'s bake group is active, given the client's
+    * (untrusted) `uiState`. Parses `uiState.get(gid)` with `.toIntOption` and
+    * keeps it only when it indexes a real member; otherwise falls back to the
+    * group's `defaultOpen` member (or index 0). The second element is
+    * `Some(warning)` ONLY when a value was present but off (unparseable, or an
+    * int out of range) — `None` when the cookie is absent or valid. Pure: the
+    * single source of truth for both the chosen index and the malformed check.
+    */
+  private[runtime] def resolveActive(
+      gid: String,
+      uiState: Map[String, String]
+  ): (Int, Option[String]) = {
+    val members = bakeGroup(gid)
+    val n = members.size
+    val fallback =
+      members.indexWhere(sid =>
+        dashboard.surfaces.get(sid).exists(_.defaultOpen)
+      ) match {
+        case -1 => 0
+        case i  => i
+      }
+    uiState.get(gid) match {
+      case None => (fallback, None)
+      case Some(raw) =>
+        raw.toIntOption.filter(i => i >= 0 && i < n) match {
+          case Some(i) => (i, None)
+          case None =>
+            (
+              fallback,
+              Some(
+                s"ui-state cookie fhui_$gid='$raw' is not a valid tab index " +
+                  s"(0..${n - 1}); using $fallback"
+              )
+            )
+        }
+    }
+  }
+
+  /** Surfaces shown from the first paint with no user action, given the
+    * client's `uiState` (default empty ⇒ today's behaviour). For each
+    * `bakeInto` group the [[resolveActive]]-selected member is chosen;
+    * ungrouped surfaces (`bakeInto = None`) contribute their `defaultOpen` ones
+    * as before. A connection seeds its open set with these so the baked panels
+    * receive live updates from the first paint (and on a navigate swap).
+    */
+  def selectedSurfaces(
+      uiState: Map[String, String] = Map.empty
+  ): Set[String] = {
+    val (baked, unbaked) =
+      dashboard.surfaces.toList.partition(_._2.bakeInto.isDefined)
+    val fromGroups =
+      baked
+        .flatMap(_._2.bakeInto)
+        .distinct
+        .map(gid => bakeGroup(gid)(resolveActive(gid, uiState)._1))
+        .toSet
+    val fromUnbaked =
+      unbaked.collect { case (sid, s) if s.defaultOpen => sid }.toSet
+    fromGroups ++ fromUnbaked
+  }
+
+  /** Warnings for any bake group whose `uiState` value was present but off
+    * (unparseable / out of range). Pure — returns data (the Server logs it), so
+    * the renderer stays side-effect-free. Absent/valid cookies produce nothing.
+    */
+  def uiStateAnomalies(uiState: Map[String, String]): List[String] =
+    dashboard.surfaces.toList
+      .flatMap(_._2.bakeInto)
+      .distinct
+      .flatMap(gid => resolveActive(gid, uiState)._2)
+
+  /** Surfaces shown from the first paint with no user action for a cookie-less
+    * client — the default selection ([[selectedSurfaces]] with empty state).
+    */
+  val defaultOpenSurfaces: Set[String] = selectedSurfaces()
 
   def componentsFor(entityId: String): Set[String] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
@@ -203,15 +282,22 @@ class Renderer(
     * shell. This is what a navigate swap `inner`-patches into the stable
     * `#dashboard` container (so navigation also swaps the theme).
     */
-  def renderBody(states: Map[String, EntityState]): String =
-    s"$themeStyle${render(dashboard.card, Nil, "", states)}"
+  def renderBody(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): String =
+    s"$themeStyle${render(dashboard.card, Nil, "", states, uiState)}"
 
   /** The full page: a stable shell (`#dashboard` body + `#popups` overlay
     * mount) so in-place navigation and popups have fixed patch targets.
     */
-  def renderPage(states: Map[String, EntityState]): String =
+  def renderPage(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): String =
     s"""<main class="container" id="dashboard">${renderBody(
-        states
+        states,
+        uiState
       )}</main><div id="popups"></div>"""
 
   /** Render a surface wrapped in its chrome card — the overlay `popup`
@@ -278,29 +364,46 @@ class Renderer(
       node: LayoutNode,
       path: List[Int],
       idPrefix: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): String =
     node match {
       case c: LayoutNode.Component =>
         val id = idPrefix + LayoutNode.pathId(path)
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
-          render(child, path :+ i, idPrefix, states)
+          render(child, path :+ i, idPrefix, states, uiState)
         }
-        // Collect default-open surfaces whose `bakeInto` matches this component's
-        // id: inject them as `{{{bakeAs}}}` template vars so a `tabs` card's
-        // panel host renders its default tab on first paint. `tabPanel` chrome
-        // wraps the content just as a later open/switch would, so first-paint and
-        // switch-back produce byte-identical HTML. Absent bakeInto/bakeAs → the
-        // card simply never receives the var (Mustache renders absent vars empty).
-        val baked: Map[String, String] = dashboard.surfaces.collect {
-          case (sid, s) if s.defaultOpen && s.bakeInto.contains(id) =>
-            s.bakeAs.getOrElse("") -> renderSurface(sid, states).getOrElse("")
-        }
+        // When this component's id owns a bake group (surfaces baked into it),
+        // bake the `uiState`-selected member as its `{{{bakeAs}}}` var so a
+        // `tabs` card's panel host renders the active tab on first paint, and
+        // inject `bakeIndex` (a backend-known structural var, like `id`) so the
+        // template can seed its signal to the selected index. The chrome wraps
+        // the content just as a later open/switch would, so first-paint and
+        // switch-back produce byte-identical HTML. With no cookie the selection
+        // is the group's `defaultOpen` member (index 0) — behaviour identical to
+        // before. No bake group → neither var is injected (absent Mustache vars
+        // render empty).
+        val group = bakeGroup(id)
+        val (baked, structural): (Map[String, String], Map[String, String]) =
+          if (group.isEmpty) (Map.empty, Map.empty)
+          else {
+            val idx = resolveActive(id, uiState)._1
+            val sid = group(idx)
+            val s = dashboard.surfaces(sid)
+            (
+              Map(
+                s.bakeAs.getOrElse("") -> renderSurface(sid, states)
+                  .getOrElse("")
+              ),
+              Map("bakeIndex" -> idx.toString)
+            )
+          }
         // `id` is a backend-injected template var (the author never supplies it).
-        // Everything else fills from a slot or a baked surface var.
+        // Everything else fills from a slot, a baked surface var, or the injected
+        // `bakeIndex`.
         val html = renderTemplate(
           c.card,
-          Map("id" -> id) ++ baked,
+          Map("id" -> id) ++ structural ++ baked,
           c.slots,
           childrenHtml,
           states

@@ -50,8 +50,9 @@ class RendererSuite extends munit.FunSuite {
       """<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="@post('/sse/surface/close/{{{surfaceId}}}')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"""
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
+    // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
     "tabs" -> CardDef(
-      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: 0 }">{{{panel}}}</div></div>"""
+      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
     )
   )
 
@@ -87,6 +88,7 @@ class RendererSuite extends munit.FunSuite {
           stack = false,
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
+          bakeIndex = Some(0),
           defaultOpen = true
         ),
         "c_t1" -> Surface(
@@ -95,7 +97,8 @@ class RendererSuite extends munit.FunSuite {
           chrome = "",
           stack = false,
           bakeInto = Some("c"),
-          bakeAs = Some("panel")
+          bakeAs = Some("panel"),
+          bakeIndex = Some(1)
         )
       )
     )
@@ -650,6 +653,58 @@ class RendererSuite extends munit.FunSuite {
     // each tab's entity drives only its own surface index
     assertEquals(rr.surfaceComponentsFor("c_t0", "sensor.a"), Set("s_c_t0__c"))
     assertEquals(rr.surfaceComponentsFor("c_t1", "sensor.b"), Set("s_c_t1__c"))
+  }
+
+  test(
+    "selectedSurfaces picks the uiState-indexed member; empty map == the old default"
+  ) {
+    val rr = Renderer.create(tabsDashboard)
+    // A cookie index selects that member of the bake group...
+    assertEquals(rr.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
+    // ...and no cookie picks index 0 (parity with the old defaultOpenSurfaces).
+    assertEquals(rr.selectedSurfaces(Map.empty), Set("c_t0"))
+    assertEquals(rr.selectedSurfaces(), rr.defaultOpenSurfaces)
+  }
+
+  test(
+    "render of a tabs component with a uiState index bakes that tab + seeds its signal"
+  ) {
+    val rr = Renderer.create(tabsDashboard)
+    val states = Map(
+      "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
+      "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
+    )
+    // uiState maps the tabs component id ("c") to the active index "1".
+    val body = rr.renderBody(states, Map("c" -> "1"))
+    // the panel host seeds `tab_c: 1` (from the injected bakeIndex)...
+    assert(
+      body.contains(
+        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 1 }">"""
+      ),
+      clue = body
+    )
+    // ...and the SECOND tab's content is baked (surface c_t1), not the first.
+    assert(body.contains("""id="s_c_t1__c""""), clue = body)
+    assert(body.contains("<span>BB</span>"), clue = body)
+    assert(!body.contains("<span>AA</span>"), clue = body)
+  }
+
+  test("resolveActive parses, clamps, and warns on an off cookie value") {
+    val rr = Renderer.create(tabsDashboard)
+    // out of range and unparseable both fall back to index 0 AND yield a warning
+    val outOfRange = rr.resolveActive("c", Map("c" -> "99"))
+    assertEquals(outOfRange._1, 0)
+    assert(outOfRange._2.isDefined, clue = outOfRange)
+    val unparseable = rr.resolveActive("c", Map("c" -> "abc"))
+    assertEquals(unparseable._1, 0)
+    assert(unparseable._2.isDefined, clue = unparseable)
+    // a valid index and an absent key both select without a warning
+    assertEquals(rr.resolveActive("c", Map("c" -> "1")), (1, None))
+    assertEquals(rr.resolveActive("c", Map.empty), (0, None))
+    // uiStateAnomalies surfaces exactly the malformed entries
+    assertEquals(rr.uiStateAnomalies(Map("c" -> "1")), Nil)
+    assertEquals(rr.uiStateAnomalies(Map.empty), Nil)
+    assertEquals(rr.uiStateAnomalies(Map("c" -> "99")).size, 1)
   }
 
   test(

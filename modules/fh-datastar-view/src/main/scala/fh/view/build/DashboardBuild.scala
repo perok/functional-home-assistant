@@ -102,7 +102,7 @@ object DashboardBuild {
         obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
       )
 
-    // Keep only the surface's own fields (content + optional mount/chrome/stack/bakeInto/bakeAs/defaultOpen).
+    // Keep only the surface's own fields (content + optional mount/chrome/stack/bakeInto/bakeAs/bakeIndex/defaultOpen).
     def surfaceOf(defObj: JsonObject): Json =
       Json.fromJsonObject(
         JsonObject.fromIterable(
@@ -113,6 +113,7 @@ object DashboardBuild {
               "stack",
               "bakeInto",
               "bakeAs",
+              "bakeIndex",
               "defaultOpen"
             )
               .flatMap(k => defObj(k).map(k -> _))
