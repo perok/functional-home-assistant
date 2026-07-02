@@ -50,6 +50,10 @@ local tokens = import 'tokens.libsonnet';
     }
     .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
     .fh-col{display:flex;flex-direction:column;gap:1rem}
+    /* A column placed directly in a row becomes one equal-width column, sharing
+       the row evenly; min-width:0 lets the equal shares hold with wide content,
+       align-self keeps it top-aligned rather than stretching to the row height. */
+    .fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}
     .fh-cell{display:contents}
     /* Components consume the design tokens; fallbacks keep them usable unthemed. */
     body{background:var(--primary-background-color,#fafafa);color:var(--primary-text-color,#212121)}
