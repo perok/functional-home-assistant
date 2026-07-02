@@ -313,55 +313,21 @@ class Renderer(
       )
     )
 
-  /** Render a surface wrapped in its chrome card — the overlay `popup`
-    * (`<dialog open>` + a wrapper-supplied close control) or, for an inline
-    * mount (a tab panel), the chromeless `tabPanel`. Both carry the surface
-    * root id (`s_<id>`) so live patches / group-eviction / close-by-selector
-    * can target it. The chrome lives in the card library (`popup`), not here —
-    * the renderer only renders the content as `children` and injects the id +
-    * raw surfaceId (the card builds its own close URL). `None` if the surface
-    * id is unknown.
+  /** Render a surface's bare content, namespaced under its surface-scoped id
+    * prefix (`s_<id>__…`, [[Renderer.surfacePrefix]]) so its inner nodes never
+    * collide with the main page. Every surface is chrome-less — the host it
+    * swaps into (the popup overlay or a `tabs` card's panel host) and any
+    * frame/dialog around it lives in `theme.chrome`, not per-surface — so this
+    * returns `render(...)` directly with no wrapper. `None` if the surface id
+    * is unknown.
     */
   def renderSurface(
       surfaceId: String,
       states: Map[String, EntityState]
   ): Option[String] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      val rootId = Renderer.surfaceRootId(surfaceId)
-      val inner =
-        render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
-      // Chrome is named by the surface itself (`s.chrome`): "popup" for an overlay
-      // dialog. An EMPTY chrome means none — the content renders straight into its
-      // host (an inline tab panel: its host div is the `tabs` card's panel, and the
-      // per-surface root id a popup needs for close/removeElement is unused there).
-      // The backend holds zero hardcoded card-name literals — the surface carries it.
-      // The chrome gets the surface root `id` and the raw `surfaceId`; it composes
-      // any close `@post(...)` itself, so no close-URL literal lives here either.
-      if (s.chrome.isEmpty) inner
-      else
-        renderChrome(
-          s.chrome,
-          Map(
-            "id" -> rootId,
-            "surfaceId" -> surfaceId
-          ),
-          inner
-        )
+      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
     }
-
-  /** Wrap already-rendered surface content in a chrome card (`popup`) from the
-    * library, splicing `inner` as the card's single child and injecting the
-    * backend-known vars (`id`, `surfaceId`; the card builds its own close URL).
-    * Falls back to the bare inner HTML if the chrome card is absent.
-    */
-  private def renderChrome(
-      card: String,
-      injected: Map[String, String],
-      inner: String
-  ): String =
-    templates.components
-      .get(card)
-      .fold(inner)(_.execute(Renderer.javaContext(injected, List(inner))))
 
   /** Render a single addressable node (for live SSE patches), main or surface.
     */
@@ -561,8 +527,6 @@ object Renderer {
   // and the renderer share one story; these delegate.
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
-  def surfaceRootId(surfaceId: String): String =
-    LayoutNode.surfaceRootId(surfaceId)
   def sanitize(s: String): String = LayoutNode.sanitize(s)
 
   /** Build the jmustache context at the Java boundary: the string slot/param

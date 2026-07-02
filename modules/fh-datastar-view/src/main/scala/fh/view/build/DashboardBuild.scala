@@ -102,15 +102,14 @@ object DashboardBuild {
         obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
       )
 
-    // Keep only the surface's own fields (content + optional chrome/stack/bakeInto/bakeAs/bakeIndex/defaultOpen).
-    // The host is derived (Surface.hostId), not authored, so "mount" is not lifted.
+    // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/defaultOpen).
+    // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
+    // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
     def surfaceOf(defObj: JsonObject): Json =
       Json.fromJsonObject(
         JsonObject.fromIterable(
           defObj("content").map("content" -> _).toList ++
             List(
-              "chrome",
-              "stack",
               "bakeInto",
               "bakeAs",
               "bakeIndex",

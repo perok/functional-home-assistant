@@ -44,11 +44,6 @@ class RendererSuite extends munit.FunSuite {
     "row" -> CardDef(
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
     ),
-    // Surface chrome (the renderer wraps content + injects id/surfaceId; the
-    // card composes its own close @post from surfaceId).
-    "popup" -> CardDef(
-      """<dialog id="{{id}}" open class="popup"><button class="popup-close" data-on:click="@post('/sse/surface/close/{{{surfaceId}}}')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"""
-    ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
     "tabs" -> CardDef(
@@ -60,8 +55,8 @@ class RendererSuite extends munit.FunSuite {
   // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
   // filled via `{{{panel}}}` baked from the first default-open surface. The
   // surfaces carry `bakeInto:"c"`, `bakeAs:"panel"` (so `hostId` derives to
-  // `c_panel` = idBase + '_panel', the hoist invariant), `chrome:""` (no
-  // wrapper), `stack:false`.
+  // `c_panel` = idBase + '_panel', the hoist invariant) — every surface is
+  // chrome-less.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -84,8 +79,6 @@ class RendererSuite extends munit.FunSuite {
         // bakeInto="c", bakeAs="panel") + seeded open on connect.
         "c_t0" -> Surface(
           panel("a"),
-          chrome = "",
-          stack = false,
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
@@ -93,8 +86,6 @@ class RendererSuite extends munit.FunSuite {
         ),
         "c_t1" -> Surface(
           panel("b"),
-          chrome = "",
-          stack = false,
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(1)
@@ -589,11 +580,12 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "a surface with an explicit chrome still renders wrapped (the chrome path itself is unchanged)"
+    "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
   ) {
-    // Surface's `chrome` default flipped to "" (chrome-less) this phase, but the
-    // wrap-in-chrome path (renderChrome) is untouched — an explicit chrome still
-    // wraps the content, off the main update set.
+    // Every surface is chrome-less: the frame/host a surface swaps into lives
+    // in theme.chrome (popupHost() for a popup, the tabs card's panel host for
+    // a tab), not a per-surface wrapper. renderSurface just renders content,
+    // namespaced under the surface-scoped id prefix.
     val d = Dashboard(
       cards,
       col(),
@@ -602,20 +594,16 @@ class RendererSuite extends munit.FunSuite {
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.t")))
-          ),
-          chrome = "popup"
+          )
         )
       )
     )
     val r = Renderer.create(d)
     val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
     val html = r.renderSurface("detail", states).get
-    assert(
-      html.startsWith("""<dialog id="s_detail" open class="popup">"""),
-      clue = html
-    )
-    // wrapper-provided close, wired to the (backend-known) surface id
-    assert(html.contains("/sse/surface/close/detail"), clue = html)
+    assert(!html.contains("<dialog"), clue = html)
+    assert(!html.contains("surface/close"), clue = html)
+    assert(html.contains("<span>42</span>"), clue = html)
     // inner node ids are surface-namespaced and individually re-renderable
     assert(html.contains("""id="s_detail__c""""), clue = html)
     assert(
@@ -632,35 +620,6 @@ class RendererSuite extends munit.FunSuite {
     )
     // unknown surface -> None
     assertEquals(r.renderSurface("nope", states), None)
-  }
-
-  test(
-    "a popup surface with no explicit chrome/stack (the new Surface defaults) renders bare content"
-  ) {
-    // Surface's `chrome`/`stack` defaults flipped to "" / false this phase, so a
-    // popup declared with NO per-surface override (the common case, e.g.
-    // `c.openPopup(...)`) is chrome-less by construction — no per-surface edit
-    // needed.
-    val d = Dashboard(
-      cards,
-      col(),
-      surfaces = Map(
-        "detail" -> Surface(
-          LayoutNode.Component(
-            "card",
-            slots = Map("state" -> SlotSource(Some("sensor.t")))
-          )
-        )
-      )
-    )
-    val r = Renderer.create(d)
-    assertEquals(d.surfaces("detail").chrome, "")
-    assertEquals(d.surfaces("detail").stack, false)
-    val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
-    val html = r.renderSurface("detail", states).get
-    assert(!html.contains("<dialog"), clue = html)
-    assert(!html.contains("surface/close"), clue = html)
-    assert(html.contains("<span>42</span>"), clue = html)
   }
 
   test(

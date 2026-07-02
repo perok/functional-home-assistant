@@ -280,26 +280,18 @@ case class Theme(
   * panel. Registered in [[Dashboard.surfaces]] keyed by id; a component's click
   * action (`surface/open/<id>`) opens it. The backend renders + streams it only
   * while a connection has it open (see `Renderer.renderSurface` and the
-  * per-connection session in `Server`).
+  * per-connection session in `Server`). Every surface is chrome-less — its
+  * content renders straight into whatever host it swaps into; the frame around
+  * that host (the popup overlay's `<dialog>`, via `c.popupHost()`, or a `tabs`
+  * card's panel) lives in `theme.chrome`, not per-surface.
   *
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
   *   - The host — the live-patch target and eviction group — is DERIVED, not
   *     authored; see [[hostId]].
-  *   - `chrome`: the chrome card wrapping the content — `popup` (the floating
-  *     `<dialog>` with a close control). Defaults to `""` (no chrome,
-  *     chrome-less): the content renders straight into its host — the popup
-  *     host now lives in the theme (`Theme.chrome`, via `c.popupHost()`), not a
-  *     per-surface card. A value may still be set (the field is not yet
-  *     deleted).
-  *   - `stack`: defaults to `false` (non-stacking). As of the `swapHost`
-  *     open/switch/close unification in `Server`, every surface opens the same
-  *     way — evict whatever occupies its host, inner-replace the new content —
-  *     so this field is no longer read (stacked popups are given up; a value
-  *     may still be set, but it is vestigial pending the field's removal).
   *   - `bakeInto`/`bakeAs`: first-paint baking — when `defaultOpen`, the
   *     Component whose id equals `bakeInto` receives this surface's rendered
-  *     chrome under the template var named `bakeAs` (e.g. a `tabs` card's
+  *     content under the template var named `bakeAs` (e.g. a `tabs` card's
   *     `{{{panel}}}`), keeping the default panel in the initial HTML (no
   *     round-trip). The `_panel` suffix + `panel` name live only in the
   *     jsonnet.
@@ -311,8 +303,6 @@ case class Theme(
   */
 case class Surface(
     content: LayoutNode,
-    chrome: String = "",
-    stack: Boolean = false,
     bakeInto: Option[String] = None,
     bakeAs: Option[String] = None,
     // A surface's position within its `bakeInto` group, so a cookie value
