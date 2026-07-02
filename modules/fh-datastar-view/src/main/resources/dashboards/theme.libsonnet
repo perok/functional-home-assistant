@@ -10,6 +10,7 @@
 //   containers -> `.fh-row` / `.fh-col`, entity wrapper -> `.fh-cell`,
 //   cards -> `.card`, section titles -> `.section`, state text -> `.state`.
 local tokens = import 'tokens.libsonnet';
+local c = import 'components.libsonnet';
 
 {
   tokens: tokens.light,
@@ -18,6 +19,13 @@ local tokens = import 'tokens.libsonnet';
   stylesheets: [
     'https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css',
   ],
+
+  // The dashboard frame: the `#dashboard` swap target (what navigate/reload
+  // inner-patch) plus the popup overlay host, PLACED here but owned (✕ +
+  // close-URL) by the popup component itself (`c.popupHost()`) — this theme
+  // decides only where the host sits, never hand-writes the popup mechanism.
+  // A theme with no popups would omit `+ c.popupHost()`.
+  chrome: '<main class="container" id="dashboard">{{{body}}}</main>' + c.popupHost(),
 
   styles: |||
     /* Drive Pico's palette from the design tokens so its chrome matches; the
@@ -54,5 +62,18 @@ local tokens = import 'tokens.libsonnet';
       border:1px solid var(--divider-color,rgba(0,0,0,.12))}
     .tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
     .tab-panel{display:contents}
+
+    /* Popup overlay: the theme-owned host (`c.popupHost()`), a fixed-position
+       card floated over the page. It ships `open` in the markup (a static
+       attribute, never toggled server-side) and hides via CSS alone whenever
+       its inner region (`#popups-body`) is empty — no signal, no server
+       state; open patches content in (shown), close patches it empty (hidden). */
+    dialog.popup{position:fixed;inset:10vh 1rem auto;margin:0 auto;z-index:10;
+      border:none;border-radius:var(--ha-card-border-radius,12px);
+      background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);
+      padding:1.5rem;max-width:min(90vw,32rem);box-shadow:0 4px 24px rgba(0,0,0,.2)}
+    dialog.popup:has(#popups-body:empty){display:none}
+    .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
+      border:none;color:var(--secondary-text-color,#727272);cursor:pointer;font-size:1rem}
   |||,
 }

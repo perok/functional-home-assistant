@@ -568,6 +568,20 @@
   //   c.button(action=c.openPopup('myDialog'))         // a registered surface id
   openPopup:: $._components.popup.build,
 
+  // The popup MECHANISM, exported as a static host fragment for the theme to
+  // PLACE (see theme.libsonnet's `chrome`). Owns the `<dialog>` + the ✕ + its
+  // close URL (`POST /sse/popup/close`, `Server.swapHost` with no new
+  // surface) — the one place these are defined, so a theme composing its
+  // `chrome` never hand-writes them. `#popups-body` is the inner region a
+  // popup's content `Inner`-patches into (`Dashboard.PopupHostId`); the CSS
+  // rule `dialog.popup:has(#popups-body:empty){display:none}` hides the dialog
+  // whenever that region is empty — no signal, no server state. `open` is a
+  // static markup attribute (never toggled server-side): a `<dialog>` with no
+  // `open` is `display:none` per the UA stylesheet regardless of content, so it
+  // must be present up front for the CSS `:has(:empty)` rule to be the ONLY
+  // thing controlling visibility.
+  popupHost():: '<dialog id="popups" open class="popup"><button class="popup-close" data-on:click="@post(\'/sse/popup/close\')">✕</button><div id="popups-body"></div></dialog>',
+
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
   // resolves its service from $domain at RUNTIME (so it toggles a light/switch/
   // fan), and `c.slider(eo)` resolves its whole config from $domain too (so it
