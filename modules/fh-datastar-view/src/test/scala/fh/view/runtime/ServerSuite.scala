@@ -38,8 +38,6 @@ class ServerSuite extends munit.FunSuite {
         surfaces = Map(
           "c_t0" -> Surface(
             panel("a"),
-            chrome = "",
-            stack = false,
             bakeInto = Some("c"),
             bakeAs = Some("panel"),
             bakeIndex = Some(0),
@@ -47,8 +45,6 @@ class ServerSuite extends munit.FunSuite {
           ),
           "c_t1" -> Surface(
             panel("b"),
-            chrome = "",
-            stack = false,
             bakeInto = Some("c"),
             bakeAs = Some("panel"),
             bakeIndex = Some(1)

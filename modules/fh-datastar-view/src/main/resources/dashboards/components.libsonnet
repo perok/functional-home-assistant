@@ -196,8 +196,9 @@
   //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
   toggleTap:: defaultTap,
   serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
-  // openPopup lives with the popup chrome card (`_components.popup.build`,
-  // exposed as `c.openPopup` below) — its opener and chrome belong together.
+  // openPopup:: is defined as a standalone builder further down (near
+  // `popupHost()`) — a surface is chrome-less, so there is no chrome card for
+  // it to live alongside.
   closePopup(id):: { onclick: constOnclick('@post(\'/sse/surface/close/' + id + '\')') },
   navigate(slug):: { onclick: constOnclick(
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
@@ -457,8 +458,8 @@
       // name `bakeInto`/`bakeAs` so the renderer injects the default tab on
       // first paint AND so `Surface.hostId` derives to `NODE_ID + '_panel'`
       // (= `{{id}}_panel`, the hoist invariant `idBase == {{id}}`) — the host
-      // is no longer authored here. `chrome: ''` = no wrapper: the content
-      // renders straight into the panel host (an inline panel needs no chrome).
+      // is no longer authored here. Every surface is chrome-less: the content
+      // renders straight into the panel host.
       //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
       build(tabs)::
         local sig = 'tab_' + NODE_ID;       // per-group active-tab signal (an index)
@@ -469,8 +470,6 @@
           inlineSurfaces: {
             ['t' + i]: {
               content: tabs[i].content,
-              chrome: '',                 // no chrome wrapper — render into the host
-              stack: false,
               bakeInto: NODE_ID,
               bakeAs: 'panel',
               bakeIndex: i,               // position within the bake group (cookie-selectable)
@@ -497,43 +496,6 @@
         },
     },
 
-    // Popup — the overlay `<dialog>` chrome AND its opener builder, together.
-    // The renderer wraps a surface's content as `children` and injects the
-    // surface root `id` (for `<dialog id>` + close-by-removeElement) and the raw
-    // `surfaceId`; the template itself composes the close `@post(...)` from that
-    // surfaceId, so the backend holds no close-URL literal (a re-skin happens
-    // here). (Inline tab panels need no chrome: a tab surface sets `chrome: ''`
-    // and renders straight into the `tabs` card's panel host.)
-    popup: {
-      template: |||
-        <dialog id="{{id}}" open class="popup">
-          <button class="popup-close"
-          data-on:click="@post('/sse/surface/close/{{{surfaceId}}}')">✕</button>
-          {{#children}}{{{html}}}{{/children}}
-        </dialog>
-      |||,
-      slots: [],
-      // openPopup builder (public alias `c.openPopup` below): give a card a tap
-      // that opens a surface. `target` is either a registered surface id (string)
-      // or inline content (a layout node) the backend hoists to a surface under
-      // this node's id. The surface carries no `bakeInto`/`bakeAs`, so
-      // `Surface.hostId` derives to the popup overlay (`Dashboard.PopupHostId`).
-      // The surface relies on `Surface` defaults (chrome: popup, stack: true) —
-      // popups overlay/stack and never bake.
-      build(target)::
-        if std.isString(target) then
-          { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
-        else
-          {
-            // Reference the future surface id (NODE_ID_self) the hoist will mint,
-            // and pair it with the inline content under the same local key.
-            onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
-            // 'self' is a jsonnet keyword, so quote the local key.
-            inlineSurfaces: { 'self': {
-              content: target,
-            } },
-          },
-    },
   },
 
   // ---- shared card library: name -> { template, slots } ----
@@ -562,11 +524,29 @@
   //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
   tabs:: $._components.tabs.build,
 
-  // POPUP open — the `popup` card owns the chrome template AND its opener
-  // `build` (above); this is the public alias, like `row`/`column`/`tabs`.
+  // POPUP open — give a card a tap that opens a surface. Every surface is
+  // chrome-less (its content renders straight into the popup host owned by
+  // the theme, see `popupHost()` below), so this builder is opener-only — no
+  // chrome card, unlike `tabs` (which still owns its panel-host template).
+  // `target` is either a registered surface id (string) or inline content (a
+  // layout node) the backend hoists to a surface under this node's id. The
+  // surface carries no `bakeInto`/`bakeAs`, so `Surface.hostId` derives to the
+  // popup overlay (`Dashboard.PopupHostId`).
   //   c.button(action=c.openPopup(c.column([...])))   // inline content
   //   c.button(action=c.openPopup('myDialog'))         // a registered surface id
-  openPopup:: $._components.popup.build,
+  openPopup(target)::
+    if std.isString(target) then
+      { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
+    else
+      {
+        // Reference the future surface id (NODE_ID_self) the hoist will mint,
+        // and pair it with the inline content under the same local key.
+        onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
+        // 'self' is a jsonnet keyword, so quote the local key.
+        inlineSurfaces: { 'self': {
+          content: target,
+        } },
+      },
 
   // The popup MECHANISM, exported as a static host fragment for the theme to
   // PLACE (see theme.libsonnet's `chrome`). Owns the `<dialog>` + the ✕ + its
