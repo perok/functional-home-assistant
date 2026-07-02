@@ -441,14 +441,17 @@ case class Dashboard(
       }
 
 object Dashboard:
-  /** The theme's popup overlay host — the *inner* region a popup's content
-    * inner-replaces into (the `<div id="popups-body">` inside the theme's
-    * inlined `<dialog>`; a theme with no popups omits it). `Surface.hostId`
-    * derives to this for an unbaked surface (a popup); `Server.swapHost` uses
-    * it both as the eviction group and the patch target for
-    * `POST /sse/surface/open/:id` and `POST /sse/popup/close`.
+  /** The theme's popup overlay mount — the `<div id="popups">` a popup's
+    * (dialog-wrapped) content is patched into (and cleared from on close). The
+    * dialog itself is NOT here and NOT backend chrome: it is a plain `popup`
+    * container card composed into the surface's content by
+    * `openPopup`/`c.popup` (see components.libsonnet), so the backend renders
+    * every surface bare. `Surface.hostId` derives to this for an unbaked
+    * surface (a popup); `Server.swapHost` uses it as both the eviction group
+    * and the patch target for `POST /sse/surface/open/:id` and
+    * `POST /sse/popup/close`.
     */
-  val PopupHostId: String = "popups-body"
+  val PopupHostId: String = "popups"
 
   /** Backend-injected template vars available to a *static* component (the
     * author never supplies them): the stable location-based `id`.

@@ -208,10 +208,10 @@ class Server(
   /** Evict whatever surface(s) currently occupy `host`, set `newSurface` as the
     * sole occupant (or none, for a close), and patch the DOM to match. Open a
     * popup / switch a tab both call this with `newSurface = Some(id)`; closing
-    * a popup calls it with `None`, which patches the host to empty (the dialog
-    * hides itself via the theme's `:has(#popups-body:empty)` rule — no server
-    * state tracks "is a popup open"). One host-swap primitive replaces the old
-    * separate open/close/stack-append paths.
+    * a popup calls it with `None`, which patches the host to an empty `<div>` —
+    * removing the transient popup dialog (a `popup` container card in the
+    * surface content, not backend chrome). No server state tracks "is a popup
+    * open". One host-swap primitive replaces the old open/close/stack paths.
     */
   private def swapHost(
       session: Session,

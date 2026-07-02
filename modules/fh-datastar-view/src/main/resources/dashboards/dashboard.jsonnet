@@ -40,12 +40,14 @@ local entities = std.objectValues(dump.entities);
   // members mutually exclusive (the basis for tabs); absent = stackable.
   surfaces: {
     detail: {
-      content: c.column([
+      // A registered popup surface wraps its content in the `popup` dialog
+      // card (symmetric with how `c.tabs` builds its surfaces); the inline
+      // `openPopup(node)` form wraps automatically.
+      content: c.popup(c.column([
         c.sectionTitle('Power detail'),
         c.entityCard(dump.entities.sensor_ams_1a4e_p),
         c.button(action=c.closePopup('detail'), label='Close'),
-      ]),
-      group: 'modal',
+      ])),
     },
   },
 

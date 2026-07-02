@@ -499,6 +499,20 @@
         },
     },
 
+    // POPUP dialog container — a NORMAL container card (like fhrow/fhcol) that
+    // wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
+    // the id-less close. It is composed INTO the surface content by
+    // `openPopup`/`c.popup`, NOT applied as backend chrome: the backend renders
+    // every surface bare, and a popup's content just happens to be a dialog.
+    // The theme owns only the `<div id="popups">` mount this is patched into.
+    // `open` is static markup (a `<dialog>` without it is display:none); the
+    // dialog is transient — present only while the popup is open.
+    popup: {
+      template: '<dialog open class="popup"><button class="popup-close" data-on:click="@post(\'/sse/popup/close\')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>',
+      slots: [],
+      build(content):: { kind: 'component', card: 'popup', children: [content] },
+    },
+
   },
 
   // ---- shared card library: name -> { template, slots } ----
@@ -527,15 +541,20 @@
   //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
   tabs:: $._components.tabs.build,
 
-  // POPUP open — give a card a tap that opens a surface. Every surface is
-  // chrome-less (its content renders straight into the popup host, the
-  // `<dialog>` inlined in the theme's `chrome`), so this builder is opener-only
-  // — no chrome card, unlike `tabs` (which still owns its panel-host template).
-  // `target` is either a registered surface id (string) or inline content (a
-  // layout node) the backend hoists to a surface under this node's id. The
-  // surface carries no `bakeInto`/`bakeAs`, so `Surface.hostId` derives to the
-  // popup overlay (`Dashboard.PopupHostId`).
-  //   c.button(action=c.openPopup(c.column([...])))   // inline content
+  // POPUP dialog wrapper — `c.popup(content)` wraps a layout node in the overlay
+  // `<dialog>` container card (above). Use it when REGISTERING a popup surface:
+  //   surfaces: { detail: { content: c.popup(c.column([...])) } }
+  // (symmetric with how `c.tabs` builds its surfaces). The inline `openPopup`
+  // form wraps for you.
+  popup:: $._components.popup.build,
+
+  // POPUP open — give a card a tap that opens a popup surface. A popup surface's
+  // content is `c.popup`-wrapped (the `<dialog>`); the backend renders it bare
+  // into the `#popups` mount (`Surface.hostId` derives to `Dashboard.PopupHostId`
+  // since a popup carries no `bakeInto`/`bakeAs`). `target` is either a
+  // registered surface id (string) or INLINE content (a layout node), which this
+  // builder wraps in `c.popup` and the backend hoists to a surface.
+  //   c.button(action=c.openPopup(c.column([...])))   // inline content (auto-wrapped)
   //   c.button(action=c.openPopup('myDialog'))         // a registered surface id
   openPopup(target)::
     if std.isString(target) then
@@ -543,19 +562,13 @@
     else
       {
         // Reference the future surface id (NODE_ID_self) the hoist will mint,
-        // and pair it with the inline content under the same local key.
+        // and pair it with the dialog-wrapped inline content under that key.
         onclick: constOnclick('@post(\'/sse/surface/open/' + NODE_ID + '_self\')'),
         // 'self' is a jsonnet keyword, so quote the local key.
         inlineSurfaces: { 'self': {
-          content: target,
+          content: $.popup(target),
         } },
       },
-
-  // The popup overlay host (the `<dialog>` + ✕ + `POST /sse/popup/close` +
-  // `#popups-body`) is NOT here — it is inlined in the theme's `chrome`
-  // (`theme.libsonnet`), so the theme stays self-contained and imports no
-  // component library. A surface's content `Inner`-patches into `#popups-body`
-  // (`Dashboard.PopupHostId`); `openPopup` below only wires the OPEN trigger.
 
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
   // resolves its service from $domain at RUNTIME (so it toggles a light/switch/
