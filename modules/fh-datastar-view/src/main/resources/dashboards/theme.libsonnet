@@ -10,7 +10,6 @@
 //   containers -> `.fh-row` / `.fh-col`, entity wrapper -> `.fh-cell`,
 //   cards -> `.card`, section titles -> `.section`, state text -> `.state`.
 local tokens = import 'tokens.libsonnet';
-local c = import 'components.libsonnet';
 
 {
   tokens: tokens.light,
@@ -21,11 +20,20 @@ local c = import 'components.libsonnet';
   ],
 
   // The dashboard frame: the `#dashboard` swap target (what navigate/reload
-  // inner-patch) plus the popup overlay host, PLACED here but owned (✕ +
-  // close-URL) by the popup component itself (`c.popupHost()`) — this theme
-  // decides only where the host sits, never hand-writes the popup mechanism.
-  // A theme with no popups would omit `+ c.popupHost()`.
-  chrome: '<main class="container" id="dashboard">{{{body}}}</main>' + c.popupHost(),
+  // inner-patch) plus the popup overlay host. The theme owns the WHOLE chrome —
+  // including the popup `<dialog>` + its ✕/close-`@post`, inlined here (the theme
+  // is self-contained: it imports no component library). The backend only fills
+  // `{{{body}}}` and reads no card name. A theme with no popups drops the
+  // `<dialog>`. Contract: keep an element with `id="dashboard"` around
+  // `{{{body}}}` (the swap target) and `#popups-body` as the popup content host
+  // (a surface inner-replaces into it; `swapHost`/`POST /sse/popup/close`).
+  chrome: |||
+    <main class="container" id="dashboard">{{{body}}}</main>
+    <dialog id="popups" open class="popup">
+      <button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>
+      <div id="popups-body"></div>
+    </dialog>
+  |||,
 
   styles: |||
     /* Drive Pico's palette from the design tokens so its chrome matches; the
@@ -63,7 +71,7 @@ local c = import 'components.libsonnet';
     .tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
     .tab-panel{display:contents}
 
-    /* Popup overlay: the theme-owned host (`c.popupHost()`), a fixed-position
+    /* Popup overlay: the theme-owned host (the `chrome` `<dialog>` above), a fixed-position
        card floated over the page. It ships `open` in the markup (a static
        attribute, never toggled server-side) and hides via CSS alone whenever
        its inner region (`#popups-body`) is empty — no signal, no server

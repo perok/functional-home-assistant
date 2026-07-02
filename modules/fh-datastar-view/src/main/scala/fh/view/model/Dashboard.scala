@@ -261,11 +261,12 @@ object LayoutNode:
   *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
   *     hole. Owns the `#dashboard` swap target (the `renderBody` container that
   *     navigate/reload inner-patch into) and, for a dashboard that uses popups,
-  *     where the popup host sits (composed from the popup component's own
-  *     export, e.g. `c.popupHost()`, by placement). EMPTY (`""`) falls back to
-  *     the minimal `<main class="container" id="dashboard">{{{body}}}</main>`
-  *     (no popup host) — see [[Renderer.renderPage]]. A non-empty `chrome` MUST
-  *     contain an element `id="dashboard"` wrapping `{{{body}}}` — checked by
+  *     the popup overlay host (the `<dialog>` + ✕ + close-`@post`), inlined in
+  *     the theme (which imports no component library). EMPTY (`""`) falls back
+  *     to the minimal
+  *     `<main class="container" id="dashboard">{{{body}}}</main>` (no popup
+  *     host) — see [[Renderer.renderPage]]. A non-empty `chrome` MUST contain
+  *     an element `id="dashboard"` wrapping `{{{body}}}` — checked by
   *     [[Dashboard.validate]].
   */
 case class Theme(
@@ -282,8 +283,8 @@ case class Theme(
   * while a connection has it open (see `Renderer.renderSurface` and the
   * per-connection session in `Server`). Every surface is chrome-less — its
   * content renders straight into whatever host it swaps into; the frame around
-  * that host (the popup overlay's `<dialog>`, via `c.popupHost()`, or a `tabs`
-  * card's panel) lives in `theme.chrome`, not per-surface.
+  * that host (the popup overlay's `<dialog>`, inlined in `theme.chrome`, or a
+  * `tabs` card's panel) lives in the theme/card, not per-surface.
   *
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
@@ -441,11 +442,11 @@ case class Dashboard(
 
 object Dashboard:
   /** The theme's popup overlay host — the *inner* region a popup's content
-    * inner-replaces into (`c.popupHost()`'s `<div id="popups-body">`; a theme
-    * with no popups never places it). `Surface.hostId` derives to this for an
-    * unbaked surface (a popup); `Server.swapHost` uses it both as the eviction
-    * group and the patch target for `POST /sse/surface/open/:id` and
-    * `POST /sse/popup/close`.
+    * inner-replaces into (the `<div id="popups-body">` inside the theme's
+    * inlined `<dialog>`; a theme with no popups omits it). `Surface.hostId`
+    * derives to this for an unbaked surface (a popup); `Server.swapHost` uses
+    * it both as the eviction group and the patch target for
+    * `POST /sse/surface/open/:id` and `POST /sse/popup/close`.
     */
   val PopupHostId: String = "popups-body"
 

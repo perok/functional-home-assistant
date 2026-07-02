@@ -583,8 +583,8 @@ class RendererSuite extends munit.FunSuite {
     "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
   ) {
     // Every surface is chrome-less: the frame/host a surface swaps into lives
-    // in theme.chrome (popupHost() for a popup, the tabs card's panel host for
-    // a tab), not a per-surface wrapper. renderSurface just renders content,
+    // in theme.chrome (the inlined <dialog> for a popup, the tabs card's panel
+    // host for a tab), not a per-surface wrapper. renderSurface just renders content,
     // namespaced under the surface-scoped id prefix.
     val d = Dashboard(
       cards,
