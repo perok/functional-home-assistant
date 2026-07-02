@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import com.samskivert.mustache.Template
 import fh.view.model.{
   Dashboard,
   DynamicCase,
@@ -273,6 +274,19 @@ class Renderer(
     if (parts.isEmpty) "" else parts.mkString("<style>", "", "</style>")
   }
 
+  /** The dashboard frame, compiled once (like [[themeStyle]]) — a Mustache
+    * template with a single `{{{body}}}` hole, owning the `#dashboard` swap
+    * target and (for a theme that uses popups) the popup host's placement. An
+    * empty `theme.chrome` falls back to the minimal frame with no popup host —
+    * see [[Theme.chrome]]/[[Dashboard.validate]] for the contract.
+    */
+  private val chromeTemplate: Template = {
+    val chrome =
+      if (dashboard.theme.chrome.nonEmpty) dashboard.theme.chrome
+      else """<main class="container" id="dashboard">{{{body}}}</main>"""
+    Templates.compiler.compile(chrome)
+  }
+
   /** The dashboard body: theme + the walked layout tree, without the page
     * shell. This is what a navigate swap `inner`-patches into the stable
     * `#dashboard` container (so navigation also swaps the theme).
@@ -283,17 +297,21 @@ class Renderer(
   ): String =
     s"$themeStyle${render(dashboard.card, Nil, "", states, uiState)}"
 
-  /** The full page: a stable shell (`#dashboard` body + `#popups` overlay
-    * mount) so in-place navigation and popups have fixed patch targets.
+  /** The full page: the theme's compiled `chrome` executed with `body =
+    * renderBody(...)` — a stable `#dashboard` swap target (and, when the theme
+    * provides one, the popup host) so in-place navigation and popups have fixed
+    * patch targets.
     */
   def renderPage(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): String =
-    s"""<main class="container" id="dashboard">${renderBody(
-        states,
-        uiState
-      )}</main><div id="popups"></div>"""
+    chromeTemplate.execute(
+      Renderer.javaContext(
+        Map("body" -> renderBody(states, uiState)),
+        Nil
+      )
+    )
 
   /** Render a surface wrapped in its chrome card — the overlay `popup`
     * (`<dialog open>` + a wrapper-supplied close control) or, for an inline

@@ -21,7 +21,10 @@ object Templates {
 
   // `emptyStringIsFalse` makes `{{#x}}…{{/x}}` sections vanish when `x` resolves
   // to "" — so optional pieces (secondary, tap) render only when present.
-  private val compiler: Mustache.Compiler =
+  // Not private: `Renderer` reuses this exact config to compile `theme.chrome`
+  // (the one other Mustache template the module compiles), so there is a
+  // single jmustache configuration story.
+  val compiler: Mustache.Compiler =
     Mustache
       .compiler()
       .escapeHTML(true)

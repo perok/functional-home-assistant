@@ -3,6 +3,7 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -20,10 +21,13 @@ import scala.concurrent.duration.*
   *     `datastar-patch-elements` fragments. On connect it mints a `conn` id and
   *     pushes it as a signal, so action POSTs can correlate to this stream.
   *   - `POST /sse/action/:domain/:service/:id[/:k/:v]` call a HA service.
-  *   - `POST /sse/surface/open|close/:id` open/close a popup surface (per
-  *     connection); `POST /sse/navigate/:slug` swap the viewed dashboard in
-  *     place. The state lives in the connection's [[Session]]; the resulting
-  *     patches ride the same SSE stream.
+  *   - `POST /sse/surface/open/:id` open a surface (popup or tab panel);
+  *     `POST /sse/popup/close` close the (at most one) open popup;
+  *     `POST /sse/navigate/:slug` swap the viewed dashboard in place. Open,
+  *     switch, and close are all the same host-swap ([[swapHost]]) — evict
+  *     whatever occupies the surface's host, patch the new occupant in (or
+  *     patch it empty, for a close). The state lives in the connection's
+  *     [[Session]]; the resulting patches ride the same SSE stream.
   */
 class Server(
     api: HomeAssistantApi[IO],
@@ -62,12 +66,9 @@ class Server(
         openSurface(session, renderer, id)
       )
 
-    case req @ POST -> Root / "sse" / "surface" / "close" / id =>
-      withSession(req)((session, _) =>
-        session.open.update(_ - id) *>
-          session.control.offer(
-            Datastar.removeElement("#" + Renderer.surfaceRootId(id))
-          )
+    case req @ POST -> Root / "sse" / "popup" / "close" =>
+      withSession(req)((session, renderer) =>
+        swapHost(session, renderer, Dashboard.PopupHostId, None)
       )
 
     case req @ POST -> Root / "sse" / "navigate" / slug =>
@@ -190,11 +191,9 @@ class Server(
       }
     } yield out
 
-  /** Open a surface for this connection. [[Surface.stack]] decides how:
-    *   - `stack = false` (a tab panel) — evict open siblings sharing this mount
-    *     (the `inner` patch overwrites the DOM, so no `removeElement` is
-    *     needed) and REPLACE the mount's content, so one tab shows at a time.
-    *   - `stack = true` (default, overlays) — APPEND, no eviction.
+  /** Open (or switch to) a surface for this connection: resolve its host —
+    * `surf.mount`, or the popup overlay ([[Dashboard.PopupHostId]]) when unset
+    * — and hand off to [[swapHost]], the single open/switch/close primitive.
     */
   private def openSurface(
       session: Session,
@@ -204,44 +203,60 @@ class Server(
     renderer.surface(id) match {
       case None => IO.unit
       case Some(surf) =>
-        val mountId = surf.mount.getOrElse("popups")
-        val target = "#" + mountId
-        if (!surf.stack) {
-          // Non-stacking (inline/tab): evict open siblings sharing this mount,
-          // then inner-replace so one panel shows at a time.
-          for {
-            open <- session.open.get
-            _ <- open.toList
-              .filter(sid =>
-                sid != id &&
-                  renderer.surface(sid).flatMap(_.mount).contains(mountId)
-              )
-              .traverse_(sid => session.open.update(_ - sid))
-            _ <- session.open.update(_ + id)
-            states <- stateStore.snapshot
-            _ <- renderer
-              .renderSurface(id, states)
-              .traverse_(html =>
-                session.control.offer(
-                  Datastar.patch(html, PatchMode.Inner, Some(target))
-                )
-              )
-          } yield ()
-        } else {
-          // Stacking (overlay/popup): append, no eviction.
-          for {
-            _ <- session.open.update(_ + id)
-            states <- stateStore.snapshot
-            _ <- renderer
-              .renderSurface(id, states)
-              .traverse_(html =>
-                session.control.offer(
-                  Datastar.patch(html, PatchMode.Append, Some(target))
-                )
-              )
-          } yield ()
-        }
+        swapHost(
+          session,
+          renderer,
+          surf.mount.getOrElse(Dashboard.PopupHostId),
+          Some(id)
+        )
     }
+
+  /** Evict whatever surface(s) currently occupy `host`, set `newSurface` as the
+    * sole occupant (or none, for a close), and patch the DOM to match. Open a
+    * popup / switch a tab both call this with `newSurface = Some(id)`; closing
+    * a popup calls it with `None`, which patches the host to empty (the dialog
+    * hides itself via the theme's `:has(#popups-body:empty)` rule — no server
+    * state tracks "is a popup open"). One host-swap primitive replaces the old
+    * separate open/close/stack-append paths.
+    */
+  private def swapHost(
+      session: Session,
+      renderer: Renderer,
+      host: String,
+      newSurface: Option[String]
+  ): IO[Unit] =
+    for {
+      open <- session.open.get
+      evict = open.filter(sid =>
+        !newSurface.contains(sid) &&
+          renderer
+            .surface(sid)
+            .flatMap(_.mount)
+            .getOrElse(
+              Dashboard.PopupHostId
+            ) == host
+      )
+      _ <- session.open.set((open -- evict) ++ newSurface.toSet)
+      states <- stateStore.snapshot
+      _ <- newSurface match {
+        case Some(sid) =>
+          renderer
+            .renderSurface(sid, states)
+            .traverse_(html =>
+              session.control.offer(
+                Datastar.patch(html, PatchMode.Inner, Some("#" + host))
+              )
+            )
+        case None =>
+          session.control.offer(
+            Datastar.patch(
+              s"""<div id="$host"></div>""",
+              PatchMode.Outer,
+              None
+            )
+          )
+      }
+    } yield ()
 
   /** In-place navigate: re-point the session at `slug`, reset its popups + diff
     * cache, clear the popup mount, and inner-patch the body. The URL is updated
@@ -268,7 +283,11 @@ class Server(
           _ <- session.open.set(renderer.selectedSurfaces(uiState))
           _ <- session.lastRendered.set(Map.empty)
           _ <- session.control.offer(
-            Datastar.patch("""<div id="popups"></div>""", PatchMode.Outer, None)
+            Datastar.patch(
+              s"""<div id="${Dashboard.PopupHostId}"></div>""",
+              PatchMode.Outer,
+              None
+            )
           )
           _ <- session.control.offer(
             Datastar.patch(

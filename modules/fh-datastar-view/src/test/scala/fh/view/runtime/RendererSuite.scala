@@ -282,16 +282,34 @@ class RendererSuite extends munit.FunSuite {
       col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> no morph wrappers, no ids in the markup; the
-    // stable shell carries the `#popups` overlay mount after the body.
+    // no entities anywhere -> no morph wrappers, no ids in the markup; with no
+    // theme.chrome, renderPage falls back to the minimal `#dashboard` frame
+    // (no popup host — a popup-less dashboard ships no theme).
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main><div id="popups"></div>"""
+      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
     )
     // containers are still addressable and re-render their children by id
     assertEquals(
       r.renderNodeById("c_0", Map.empty).get,
       """<div class="fh-row"><button>Go</button></div>"""
+    )
+  }
+
+  test(
+    "renderPage executes the theme's chrome around renderBody, popup host included"
+  ) {
+    val d = Dashboard(
+      cards,
+      col(LayoutNode.Component("btn", Map("label" -> lit("Go")))),
+      theme = Theme(chrome =
+        """<main id="dashboard">{{{body}}}</main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      )
+    )
+    val page = Renderer.create(d).renderPage(Map.empty)
+    assertEquals(
+      page,
+      """<main id="dashboard"><div class="fh-col"><button>Go</button></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
     )
   }
 
@@ -572,8 +590,11 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "a surface renders in a dialog with namespaced ids + a close control, off the main update set"
+    "a surface with an explicit chrome still renders wrapped (the chrome path itself is unchanged)"
   ) {
+    // Surface's `chrome` default flipped to "" (chrome-less) this phase, but the
+    // wrap-in-chrome path (renderChrome) is untouched — an explicit chrome still
+    // wraps the content, off the main update set.
     val d = Dashboard(
       cards,
       col(),
@@ -582,7 +603,8 @@ class RendererSuite extends munit.FunSuite {
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.t")))
-          )
+          ),
+          chrome = "popup"
         )
       )
     )
@@ -611,6 +633,35 @@ class RendererSuite extends munit.FunSuite {
     )
     // unknown surface -> None
     assertEquals(r.renderSurface("nope", states), None)
+  }
+
+  test(
+    "a popup surface with no explicit chrome/stack (the new Surface defaults) renders bare content"
+  ) {
+    // Surface's `chrome`/`stack` defaults flipped to "" / false this phase, so a
+    // popup declared with NO per-surface override (the common case, e.g.
+    // `c.openPopup(...)`) is chrome-less by construction — no per-surface edit
+    // needed.
+    val d = Dashboard(
+      cards,
+      col(),
+      surfaces = Map(
+        "detail" -> Surface(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.t")))
+          )
+        )
+      )
+    )
+    val r = Renderer.create(d)
+    assertEquals(d.surfaces("detail").chrome, "")
+    assertEquals(d.surfaces("detail").stack, false)
+    val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
+    val html = r.renderSurface("detail", states).get
+    assert(!html.contains("<dialog"), clue = html)
+    assert(!html.contains("surface/close"), clue = html)
+    assert(html.contains("<span>42</span>"), clue = html)
   }
 
   test(
@@ -719,5 +770,30 @@ class RendererSuite extends munit.FunSuite {
       body,
       """<div class="fh-col"><div class="fh-row"><button>Go</button></div></div>"""
     )
+  }
+
+  test(
+    "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
+  ) {
+    val bad = Dashboard(
+      cards,
+      col(),
+      theme = Theme(chrome = """<main>{{{body}}}</main>""")
+    )
+    assert(
+      bad.validate().exists(_.contains("theme.chrome must contain")),
+      clue = bad.validate()
+    )
+
+    // The contract-satisfying chrome (carries id="dashboard") produces no error.
+    val ok = Dashboard(
+      cards,
+      col(),
+      theme = Theme(chrome = """<main id="dashboard">{{{body}}}</main>""")
+    )
+    assertEquals(ok.validate(), Nil)
+
+    // Empty chrome (the fallback) is never checked.
+    assertEquals(Dashboard(cards, col()).validate(), Nil)
   }
 }

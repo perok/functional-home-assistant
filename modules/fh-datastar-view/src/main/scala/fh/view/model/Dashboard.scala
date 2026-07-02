@@ -258,12 +258,22 @@ object LayoutNode:
   *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the Pico CDN).
   *   - `styles`: inline CSS — framework→token mapping plus the rules that style
   *     the component classes (`.card`, `.fh-row`, …) from the tokens.
+  *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
+  *     hole. Owns the `#dashboard` swap target (the `renderBody` container that
+  *     navigate/reload inner-patch into) and, for a dashboard that uses popups,
+  *     where the popup host sits (composed from the popup component's own
+  *     export, e.g. `c.popupHost()`, by placement). EMPTY (`""`) falls back to
+  *     the minimal `<main class="container" id="dashboard">{{{body}}}</main>`
+  *     (no popup host) — see [[Renderer.renderPage]]. A non-empty `chrome` MUST
+  *     contain an element `id="dashboard"` wrapping `{{{body}}}` — checked by
+  *     [[Dashboard.validate]].
   */
 case class Theme(
     tokens: Map[String, String] = Map.empty,
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
-    styles: String = ""
+    styles: String = "",
+    chrome: String = ""
 ) derives ConfiguredDecoder
 
 /** A lazily-activated render subtree mounted on demand — a popup or a tab
@@ -275,16 +285,21 @@ case class Theme(
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
   *   - `mount`: the element id of the host `<div>` to render into; absent ⇒ the
-  *     page's overlay mount (`#popups`). The host is plain template HTML (a
-  *     `tabs` card's panel div, or the page shell's `#popups`), not a layout
-  *     node — the Surface itself carries how it attaches.
+  *     page's overlay mount (`#popups-body`, the inner region of the theme's
+  *     popup host). The host is plain template HTML (a `tabs` card's panel div,
+  *     or the theme's popup host), not a layout node — the Surface itself
+  *     carries how it attaches.
   *   - `chrome`: the chrome card wrapping the content — `popup` (the floating
-  *     `<dialog>` with a close control). EMPTY (`""`) means no chrome: the
-  *     content renders straight into its host (an inline tab panel, whose host
-  *     is the `tabs` card's panel div — no per-surface wrapper needed).
-  *   - `stack`: `true` ⇒ `append` (overlays stack into `#popups`); `false` ⇒
-  *     `inner`-replace, evicting any open surface sharing the mount (so tab
-  *     panels are mutually exclusive by construction — no separate `group`).
+  *     `<dialog>` with a close control). Defaults to `""` (no chrome,
+  *     chrome-less): the content renders straight into its host — the popup
+  *     host now lives in the theme (`Theme.chrome`, via `c.popupHost()`), not a
+  *     per-surface card. A value may still be set (the field is not yet
+  *     deleted).
+  *   - `stack`: defaults to `false` (non-stacking). As of the `swapHost`
+  *     open/switch/close unification in `Server`, every surface opens the same
+  *     way — evict whatever occupies its mount, inner-replace the new content —
+  *     so this field is no longer read (stacked popups are given up; a value
+  *     may still be set, but it is vestigial pending the field's removal).
   *   - `bakeInto`/`bakeAs`: first-paint baking — when `defaultOpen`, the
   *     Component whose id equals `bakeInto` receives this surface's rendered
   *     chrome under the template var named `bakeAs` (e.g. a `tabs` card's
@@ -300,8 +315,8 @@ case class Theme(
 case class Surface(
     content: LayoutNode,
     mount: Option[String] = None,
-    chrome: String = "popup",
-    stack: Boolean = true,
+    chrome: String = "",
+    stack: Boolean = false,
     bakeInto: Option[String] = None,
     bakeAs: Option[String] = None,
     // A surface's position within its `bakeInto` group, so a cookie value
@@ -406,15 +421,37 @@ case class Dashboard(
             ) ++ slotErrors(nodeId, c.slots)
           }
 
+    // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
+    // id="dashboard" — that's the navigate/reload swap target. An empty chrome
+    // is fine (Renderer falls back to the minimal default). Fail loudly here
+    // rather than silently breaking navigation at render time.
+    val chromeErrors: List[String] =
+      Option
+        .when(
+          theme.chrome.nonEmpty && !theme.chrome.contains("id=\"dashboard\"")
+        )(
+          "theme.chrome must contain an element with id=\"dashboard\" wrapping {{{body}}}"
+        )
+        .toList
+
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
-    walk(card, Nil) ++
+    chromeErrors ++
+      walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")
       }
 
 object Dashboard:
+  /** The theme's popup overlay host — the *inner* region a popup's content
+    * inner-replaces into (`c.popupHost()`'s `<div id="popups-body">`; a theme
+    * with no popups never places it). `Server.swapHost` uses this id both as
+    * the eviction group and the patch target for `POST /sse/surface/open/:id`
+    * (when a surface carries no `mount`) and `POST /sse/popup/close`.
+    */
+  val PopupHostId: String = "popups-body"
+
   /** Backend-injected template vars available to a *static* component (the
     * author never supplies them): the stable location-based `id`.
     * (Default-panel baking moved to the `Mount` node, so there is no longer an
