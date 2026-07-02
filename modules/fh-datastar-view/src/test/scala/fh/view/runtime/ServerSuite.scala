@@ -1,8 +1,98 @@
 package fh.view.runtime
 
+import cats.effect.IO
+import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
 import io.circe.Json
+import org.http4s.*
+import org.http4s.implicits.*
 
 class ServerSuite extends munit.FunSuite {
+
+  // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
+  // into it (c_t0 default, c_t1) — the cookie index selects among them.
+  private def tabsRenderer: Renderer = {
+    val cards = Map(
+      "btn" ->
+        CardDef("<button>{{label}}</button>", slots = List("label")),
+      "card" ->
+        CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        """<div class="tabs">{{#children}}{{{html}}}{{/children}}<div id="{{id}}_panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
+      )
+    )
+    def panel(name: String): LayoutNode.Component =
+      LayoutNode.Component(
+        "card",
+        slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
+      )
+    Renderer.create(
+      Dashboard(
+        cards,
+        LayoutNode.Component(
+          "tabs",
+          children = List(
+            LayoutNode.Component("btn", Map("label" -> SlotSource(literal = Some("A")))),
+            LayoutNode.Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
+          )
+        ),
+        surfaces = Map(
+          "c_t0" -> Surface(
+            panel("a"),
+            mount = Some("c_panel"),
+            chrome = "",
+            stack = false,
+            bakeInto = Some("c"),
+            bakeAs = Some("panel"),
+            bakeIndex = Some(0),
+            defaultOpen = true
+          ),
+          "c_t1" -> Surface(
+            panel("b"),
+            mount = Some("c_panel"),
+            chrome = "",
+            stack = false,
+            bakeInto = Some("c"),
+            bakeAs = Some("panel"),
+            bakeIndex = Some(1)
+          )
+        )
+      )
+    )
+  }
+
+  private def get(cookies: (String, String)*): Request[IO] =
+    cookies.foldLeft(Request[IO](Method.GET, uri"/")) { case (r, (n, v)) =>
+      r.addCookie(n, v)
+    }
+
+  test("uiStateOf keeps fhui_ cookies, drops the prefix, ignores the rest") {
+    assertEquals(
+      Server.uiStateOf(get("fhui_c" -> "1", "other" -> "x")),
+      Map("c" -> "1")
+    )
+    // raw value, no parsing here
+    assertEquals(Server.uiStateOf(get("fhui_c" -> "abc")), Map("c" -> "abc"))
+    // no fhui_ cookies -> empty
+    assertEquals(Server.uiStateOf(get("other" -> "x")), Map.empty)
+    assertEquals(Server.uiStateOf(get()), Map.empty)
+  }
+
+  test("cookie round-trip: fhui_<tabsId>=1 opens the index-1 surface") {
+    val r = tabsRenderer
+    val uiState = Server.uiStateOf(get("fhui_c" -> "1"))
+    // The server seeds the open set (and bakes) from this selection.
+    assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
+    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
+    assert(r.uiStateAnomalies(uiState).isEmpty, clue = r.uiStateAnomalies(uiState))
+  }
+
+  test("cookie round-trip: a malformed fhui_ value falls back to index 0 + warns") {
+    val r = tabsRenderer
+    val uiState = Server.uiStateOf(get("fhui_c" -> "abc"))
+    assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))
+    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
+    assertEquals(r.uiStateAnomalies(uiState).size, 1)
+  }
 
   test("parseValue picks the most specific JSON type") {
     assertEquals(Server.parseValue("128"), Json.fromInt(128))
