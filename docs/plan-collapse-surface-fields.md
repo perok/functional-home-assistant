@@ -70,17 +70,24 @@ finishes the presentation-as-data arc: the backend holds **zero** frame HTML.
   *where* the popup host sits, and any header/nav a theme wants. Authored in
   `theme.libsonnet` (so all frame HTML stays in jsonnet, per the module's
   no-literals-in-Scala discipline).
-- **The theme owns placement, the popup component owns mechanism.** The theme
-  does *not* hand-write the ✕/close-URL — it composes the popup component's
-  exported host fragment (`c.popupHost()`, which owns
-  `<dialog id="popups">` + the ✕ `@post('/sse/popup/close')` + `<div id="popups-body">`)
-  by placement:
+- **The theme is self-contained — the popup host is inlined in `chrome`.** The
+  `<dialog>` + ✕ + close-`@post` + `#popups-body` are written directly in the
+  theme's `chrome` string; the theme imports **no** component library (a theme is
+  presentation and must not depend on the widget library):
   ```jsonnet
-  chrome: '<main class="container" id="dashboard">{{{body}}}</main>' + c.popupHost()
+  chrome: |||
+    <main class="container" id="dashboard">{{{body}}}</main>
+    <dialog id="popups" open class="popup">
+      <button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>
+      <div id="popups-body"></div>
+    </dialog>
+  |||
   ```
-  So popup mechanism lives with the popup feature (`components.libsonnet`), not in
-  each theme; the theme decides only *where* the host sits and how the dialog is
-  styled. A theme with no popups omits the `+ c.popupHost()`.
+  (An earlier iteration exported the host as a `c.popupHost()` component builder
+  the theme composed, but that inverted the dependency theme → components;
+  inlining keeps the theme a leaf. Trade: the close-URL lives in the theme — fine
+  with a single theme; the one-place definition just moved to the theme.) A theme
+  with no popups drops the `<dialog>`.
 - `renderPage(states, uiState)` = execute `theme.chrome` with `body =
   renderBody(states, uiState)` (compiled once, like `themeStyle`). **`renderBody`
   is unchanged** — it is still `themeStyle + rendered card`, the payload navigate
@@ -209,23 +216,22 @@ ids). The `popup` chrome card is deleted from the library.
 - `tabs` builder: inline surfaces drop `mount`/`chrome`/`stack`; keep
   `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`. The tab click's `surface/open`
   and cookie write are unchanged.
-- Add `c.popupHost()` — a **popup-component export** returning the popup host
-  fragment, owning the *mechanism*: `<dialog id="popups" class="popup">` + the ✕
-  `data-on:click="@post('/sse/popup/close')"` + `<div id="popups-body">`. This is
-  the single place the ✕ and close-URL are defined (they belong to the popup
-  feature, not the theme).
 - Delete the old `popup` `_components` chrome card (per-surface `<dialog id=s_…>`)
   and its `cards` exposure; `c.openPopup` keeps delegating to the (opener-only)
-  builder.
+  builder. The `<dialog>` host is **not** a component export — it is inlined in
+  the theme's `chrome` (below), so `components.libsonnet` holds no popup-host
+  fragment.
+- `closePopup` builder: repoint from the deleted `/sse/surface/close/:id` to the
+  id-less `POST /sse/popup/close` (keep an accepted-but-ignored `id` arg so
+  existing call sites compile).
 - `openPopup` builder: drop the `mount` param (already noted above).
 
 ### `theme.libsonnet`
-- `chrome:` **composes** the frame + the popup component's host by *placement*
-  (importing `components.libsonnet` as `c`):
-  `'<main class="container" id="dashboard">{{{body}}}</main>' + c.popupHost()`.
-  The theme decides *where* the host sits and styles it; it never hand-writes the
-  ✕/close-URL (that lives in `c.popupHost()`). A theme with no popups omits the
-  `+ c.popupHost()`.
+- `chrome:` **inlines** the frame + the popup `<dialog>` host directly (the theme
+  imports no component library):
+  `'<main class="container" id="dashboard">{{{body}}}</main>' + '<dialog id="popups" open class="popup">…✕…<div id="popups-body"></div></dialog>'`.
+  The ✕/close-`@post('/sse/popup/close')` live here, once. A theme with no popups
+  drops the `<dialog>`.
 - CSS: migrate the popup rules onto `dialog.popup`; add
   `dialog.popup:has(#popups-body:empty){display:none}`. Remove any
   `.tab-panel-content` / per-surface-root rules that referenced the deleted
@@ -242,9 +248,9 @@ HA). `sbt dashboardBuild` (live HA) + the in-browser walk-through are
 
 1. **Adopt A — popups chrome-less, non-stacking, theme-owned chrome.** The
    behavioural core. `Theme.chrome` field + `renderPage` executes it (with the
-   `#dashboard` fallback) + the `validate` guardrail; `c.popupHost()` export
-   (dialog + ✕ + close-URL) + `theme.libsonnet` `chrome:` composing it
-   (`frame + c.popupHost()`) + popup CSS. **Flip the `Surface` defaults**
+   `#dashboard` fallback) + the `validate` guardrail; `theme.libsonnet` `chrome:`
+   inlining the frame + the popup `<dialog>` host (✕ + close-URL) + popup CSS.
+   **Flip the `Surface` defaults**
    `chrome: "" `, `stack: false` (was `"popup"`/`true`) so *all* popups —
    registered (in `dashboard.jsonnet`) and inline — become chrome-less /
    non-stacking with **no per-surface edit and no dashboard-file change**; the

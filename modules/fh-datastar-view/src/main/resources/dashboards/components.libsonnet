@@ -192,14 +192,17 @@
   //   serviceTap(a)    -> explicit "<domain>/<service>" override, e.g. "lock/lock".
   //   openPopup(id)    -> open the surface registered under `id`.
   //   openPopup(node)  -> inline popup content; the backend hoists it to a surface.
-  //   closePopup(id)   -> close that surface (drop a close button inside it).
+  //   closePopup()     -> dismiss the open popup (drop a close button inside it).
   //   navigate(slug)   -> in-place swap to dashboard `slug` (+ URL via pushState).
   toggleTap:: defaultTap,
   serviceTap(action):: { onclick: $.expr(serviceOnclick('"' + action + '"')) },
-  // openPopup:: is defined as a standalone builder further down (near
-  // `popupHost()`) — a surface is chrome-less, so there is no chrome card for
-  // it to live alongside.
-  closePopup(id):: { onclick: constOnclick('@post(\'/sse/surface/close/' + id + '\')') },
+  // openPopup:: is defined as a standalone builder further down. A surface is
+  // chrome-less, so there is no chrome card for the opener to live alongside.
+  // closePopup dismisses the (single, at-a-time) open popup — the id-less
+  // `POST /sse/popup/close` (`Server.swapHost(PopupHostId, None)`). The `id`
+  // arg is accepted-but-ignored so existing `closePopup('x')` call sites still
+  // compile; there is no per-surface close route any more.
+  closePopup(id=null):: { onclick: constOnclick('@post(\'/sse/popup/close\')') },
   navigate(slug):: { onclick: constOnclick(
     '@post(\'/sse/navigate/' + slug + '\'); history.pushState(null,\'\',\'/d/' + slug + '\')'
   ) },
@@ -525,9 +528,9 @@
   tabs:: $._components.tabs.build,
 
   // POPUP open — give a card a tap that opens a surface. Every surface is
-  // chrome-less (its content renders straight into the popup host owned by
-  // the theme, see `popupHost()` below), so this builder is opener-only — no
-  // chrome card, unlike `tabs` (which still owns its panel-host template).
+  // chrome-less (its content renders straight into the popup host, the
+  // `<dialog>` inlined in the theme's `chrome`), so this builder is opener-only
+  // — no chrome card, unlike `tabs` (which still owns its panel-host template).
   // `target` is either a registered surface id (string) or inline content (a
   // layout node) the backend hoists to a surface under this node's id. The
   // surface carries no `bakeInto`/`bakeAs`, so `Surface.hostId` derives to the
@@ -548,19 +551,11 @@
         } },
       },
 
-  // The popup MECHANISM, exported as a static host fragment for the theme to
-  // PLACE (see theme.libsonnet's `chrome`). Owns the `<dialog>` + the ✕ + its
-  // close URL (`POST /sse/popup/close`, `Server.swapHost` with no new
-  // surface) — the one place these are defined, so a theme composing its
-  // `chrome` never hand-writes them. `#popups-body` is the inner region a
-  // popup's content `Inner`-patches into (`Dashboard.PopupHostId`); the CSS
-  // rule `dialog.popup:has(#popups-body:empty){display:none}` hides the dialog
-  // whenever that region is empty — no signal, no server state. `open` is a
-  // static markup attribute (never toggled server-side): a `<dialog>` with no
-  // `open` is `display:none` per the UA stylesheet regardless of content, so it
-  // must be present up front for the CSS `:has(:empty)` rule to be the ONLY
-  // thing controlling visibility.
-  popupHost():: '<dialog id="popups" open class="popup"><button class="popup-close" data-on:click="@post(\'/sse/popup/close\')">✕</button><div id="popups-body"></div></dialog>',
+  // The popup overlay host (the `<dialog>` + ✕ + `POST /sse/popup/close` +
+  // `#popups-body`) is NOT here — it is inlined in the theme's `chrome`
+  // (`theme.libsonnet`), so the theme stays self-contained and imports no
+  // component library. A surface's content `Inner`-patches into `#popups-body`
+  // (`Dashboard.PopupHostId`); `openPopup` below only wires the OPEN trigger.
 
   // NOTE: no `toggle`/`brightnessSlider` presets — `c.button(eo)` already
   // resolves its service from $domain at RUNTIME (so it toggles a light/switch/

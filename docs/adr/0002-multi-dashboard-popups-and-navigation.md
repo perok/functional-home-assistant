@@ -484,11 +484,16 @@ chrome-less), `stack` (popups no longer stack).
   presentation-as-data arc (it moves literals **out** of Scala — the opposite of
   the derivation the 2026-07-01 note worried about, and safe because the theme is
   template-owned, not backend-composed).
-- **Placement vs mechanism split.** The theme owns *where* the popup host sits and
-  its CSS, but never the ✕/close-URL: that mechanism lives with the popup feature
-  as `c.popupHost()` (in `components.libsonnet`, beside `openPopup`), which the
-  theme *composes by placement* — `chrome: '…<main id="dashboard">{{{body}}}</main>' + c.popupHost()`.
-  So no theme author retypes the close endpoint.
+- **The theme is self-contained — the popup host is inlined in `theme.chrome`.**
+  The `<dialog>` + ✕ + close-`@post('/sse/popup/close')` + `#popups-body` are
+  written directly in the theme's `chrome` string; the theme imports **no**
+  component library (correct layering — a theme is presentation, it must not
+  depend on the widget library). An earlier iteration exported the host as a
+  `c.popupHost()` component builder the theme *composed*, but that inverted the
+  dependency (theme → components); inlining keeps the theme a leaf. Trade: the
+  close-URL now lives in the theme, a documented contract (a theme that wants
+  popups includes the `<dialog>` host) — acceptable with a single theme, and the
+  one-place definition simply moved from the component library to the theme.
 - **The document shell stays in `Server.page()`** (`<head>`, the Datastar
   `<script>`, `<body data-init>` slug wiring, `popstate`, stylesheet `<link>`s) —
   Datastar bootstrap + per-request wiring, not dashboard frame (the chosen
