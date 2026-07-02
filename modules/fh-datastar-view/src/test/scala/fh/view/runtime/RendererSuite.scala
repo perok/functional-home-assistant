@@ -622,7 +622,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
     // The first tab is registered as the only default-open surface.
-    assertEquals(rr.defaultOpenSurfaces, Set("c_t0"))
+    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
 
     // renderBody renders the `tabs` component (id "c") whose template contains a
     // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
@@ -663,7 +663,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(rr.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
     // ...and no cookie picks index 0 (parity with the old defaultOpenSurfaces).
     assertEquals(rr.selectedSurfaces(Map.empty), Set("c_t0"))
-    assertEquals(rr.selectedSurfaces(), rr.defaultOpenSurfaces)
+    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
   }
 
   test(

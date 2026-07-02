@@ -36,11 +36,11 @@ class Server(
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
-    case GET -> Root              => pageResponse(defaultSlug)
-    case GET -> Root / "d" / slug => pageResponse(slug)
+    case req @ GET -> Root              => pageResponse(defaultSlug, req)
+    case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
 
-    case GET -> Root / "sse" / "dashboard" / slug / "patch" =>
-      if (renderers.contains(slug)) sseStream(slug) else NotFound()
+    case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
+      if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -71,23 +71,30 @@ class Server(
       )
 
     case req @ POST -> Root / "sse" / "navigate" / slug =>
-      withSession(req)((session, _) => navigate(session, slug))
+      val uiState = Server.uiStateOf(req)
+      withSession(req)((session, _) => navigate(session, slug, uiState))
   }
 
   /** The per-connection SSE stream: a `conn` signal, then entity-change patches
     * (main page + open surfaces), the session control channel (popup/navigate
     * patches), live-reload body repaints, and a heartbeat.
     */
-  private def sseStream(slug: String): IO[Response[IO]] =
+  private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
+    val uiState = Server.uiStateOf(req)
     for {
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
-      // Seed the open set with this dashboard's default tab panels, so the
-      // baked-inline default tabs receive live updates from the first paint.
+      // Seed the open set with this client's selected tab panels (from its
+      // cookies), so the baked-inline tabs receive live updates from the first
+      // paint. Warn on any off cookie value.
       _ <- renderers
         .get(slug)
-        .traverse_(_.get.flatMap(r => session.open.set(r.defaultOpenSurfaces)))
+        .traverse_(_.get.flatMap { r =>
+          r.uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w")) *>
+            session.open.set(r.selectedSurfaces(uiState))
+        })
 
       // Each state change is re-rendered as it arrives. `changedPatches` already
       // narrows the work (reverse index for static components, query-affected
@@ -111,16 +118,17 @@ class Server(
             session.slug.get.flatMap { cur =>
               if (cur != s) IO.pure(Option.empty[ServerSentEvent])
               else
-                // The repaint re-bakes the body (default tabs included), so
-                // reset the diff cache AND re-seed the open set to match.
+                // The repaint re-bakes the body (selected tabs included), so
+                // reset the diff cache AND re-seed the open set to match. Reuses
+                // this client's cookie-derived selection (closed over).
                 (session.lastRendered.set(Map.empty) *>
-                  session.open.set(r.defaultOpenSurfaces) *>
+                  session.open.set(r.selectedSurfaces(uiState)) *>
                   stateStore.snapshot)
                   .map(st =>
                     Some(
                       Datastar
                         .patch(
-                          r.renderBody(st),
+                          r.renderBody(st, uiState),
                           PatchMode.Inner,
                           Some("#dashboard")
                         )
@@ -240,7 +248,11 @@ class Server(
     * client-side in the trigger expression, so this is identical for a forward
     * navigate and a Back/Forward `popstate` re-sync.
     */
-  private def navigate(session: Session, slug: String): IO[Unit] =
+  private def navigate(
+      session: Session,
+      slug: String,
+      uiState: Map[String, String]
+  ): IO[Unit] =
     renderers.get(slug) match {
       case None => IO.unit
       case Some(ref) =>
@@ -248,16 +260,19 @@ class Server(
           renderer <- ref.get
           states <- stateStore.snapshot
           _ <- session.slug.set(slug)
-          // Reset popups, but seed the target dashboard's default tab panels
+          _ <- renderer
+            .uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w"))
+          // Reset popups, but seed the target dashboard's selected tab panels
           // (its body is rendered with them baked in below).
-          _ <- session.open.set(renderer.defaultOpenSurfaces)
+          _ <- session.open.set(renderer.selectedSurfaces(uiState))
           _ <- session.lastRendered.set(Map.empty)
           _ <- session.control.offer(
             Datastar.patch("""<div id="popups"></div>""", PatchMode.Outer, None)
           )
           _ <- session.control.offer(
             Datastar.patch(
-              renderer.renderBody(states),
+              renderer.renderBody(states, uiState),
               PatchMode.Inner,
               Some("#dashboard")
             )
@@ -305,13 +320,22 @@ class Server(
         BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
     }
 
-  private def pageResponse(slug: String): IO[Response[IO]] =
+  private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     renderers.get(slug) match {
       case None => NotFound()
       case Some(ref) =>
+        val uiState = Server.uiStateOf(req)
         (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
-          Ok(page(slug, renderer.renderPage(states), renderer.stylesheets))
-            .map(_.withContentType(`Content-Type`(MediaType.text.html)))
+          renderer
+            .uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w")) *>
+            Ok(
+              page(
+                slug,
+                renderer.renderPage(states, uiState),
+                renderer.stylesheets
+              )
+            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
     }
 
@@ -351,6 +375,17 @@ class Server(
 }
 
 object Server {
+
+  /** The client's UI state read off request cookies: every `fhui_<id>` cookie
+    * mapped to `id -> rawValue` (the `fhui_` prefix dropped). The value is left
+    * opaque here — interpretation and the untrusted-value clamp live in
+    * [[Renderer.resolveActive]], so a stale/hand-edited cookie can never bake a
+    * non-existent surface. Empty when no `fhui_` cookies are present.
+    */
+  def uiStateOf(req: Request[IO]): Map[String, String] =
+    req.cookies.collect {
+      case c if c.name.startsWith("fhui_") => c.name.drop(5) -> c.content
+    }.toMap
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across

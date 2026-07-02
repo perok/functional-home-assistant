@@ -481,8 +481,14 @@
           children: [
             $.button(
               label=tabs[i].label,
+              // The click opens the tab's surface, sets the active-tab signal, and
+              // persists the active index to the cookie the server reads on the
+              // GET (fhui_<idBase>, matching uiStateOf / {{id}}) so reload/navigate
+              // restore this tab flash-free.
               action={ onclick: constOnclick(
                 '@post(\'/sse/surface/open/' + sid(i) + '\'); $' + sig + ' = ' + i
+                + "; document.cookie = 'fhui_" + NODE_ID + "=" + i
+                + ";path=/;max-age=31536000;samesite=lax'"
               ) },
               active='$' + sig + ' == ' + i,
             )

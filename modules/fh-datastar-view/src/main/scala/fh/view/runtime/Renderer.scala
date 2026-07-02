@@ -218,11 +218,6 @@ class Renderer(
       .distinct
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
-  /** Surfaces shown from the first paint with no user action for a cookie-less
-    * client — the default selection ([[selectedSurfaces]] with empty state).
-    */
-  val defaultOpenSurfaces: Set[String] = selectedSurfaces()
-
   def componentsFor(entityId: String): Set[String] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
