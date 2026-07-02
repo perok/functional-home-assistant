@@ -284,11 +284,8 @@ case class Theme(
   *
   *   - `content`: the surface's own layout tree (same node vocabulary as
   *     [[Dashboard.card]]).
-  *   - `mount`: the element id of the host `<div>` to render into; absent ⇒ the
-  *     page's overlay mount (`#popups-body`, the inner region of the theme's
-  *     popup host). The host is plain template HTML (a `tabs` card's panel div,
-  *     or the theme's popup host), not a layout node — the Surface itself
-  *     carries how it attaches.
+  *   - The host — the live-patch target and eviction group — is DERIVED, not
+  *     authored; see [[hostId]].
   *   - `chrome`: the chrome card wrapping the content — `popup` (the floating
   *     `<dialog>` with a close control). Defaults to `""` (no chrome,
   *     chrome-less): the content renders straight into its host — the popup
@@ -297,7 +294,7 @@ case class Theme(
   *     deleted).
   *   - `stack`: defaults to `false` (non-stacking). As of the `swapHost`
   *     open/switch/close unification in `Server`, every surface opens the same
-  *     way — evict whatever occupies its mount, inner-replace the new content —
+  *     way — evict whatever occupies its host, inner-replace the new content —
   *     so this field is no longer read (stacked popups are given up; a value
   *     may still be set, but it is vestigial pending the field's removal).
   *   - `bakeInto`/`bakeAs`: first-paint baking — when `defaultOpen`, the
@@ -314,7 +311,6 @@ case class Theme(
   */
 case class Surface(
     content: LayoutNode,
-    mount: Option[String] = None,
     chrome: String = "",
     stack: Boolean = false,
     bakeInto: Option[String] = None,
@@ -325,7 +321,17 @@ case class Surface(
     // no match; it is effectively `bakeIndex == 0`.
     bakeIndex: Option[Int] = None,
     defaultOpen: Boolean = false
-) derives ConfiguredDecoder
+) derives ConfiguredDecoder:
+
+  /** The surface's host element id: the live-patch target AND the eviction
+    * group. Derived — a baked surface (tab panel) hosts at
+    * `<bakeInto>_<bakeAs>` (enforcing the `id="{{bakeInto}}_{{bakeAs}}"` host
+    * convention); an unbaked surface (a popup) hosts at the overlay
+    * [[Dashboard.PopupHostId]].
+    */
+  def hostId: String = (bakeInto, bakeAs) match
+    case (Some(into), Some(as)) => s"${into}_${as}"
+    case _                      => Dashboard.PopupHostId
 
 /** The `dashboard.json` build artifact produced by the jsonnet build phase.
   *
@@ -446,9 +452,10 @@ case class Dashboard(
 object Dashboard:
   /** The theme's popup overlay host — the *inner* region a popup's content
     * inner-replaces into (`c.popupHost()`'s `<div id="popups-body">`; a theme
-    * with no popups never places it). `Server.swapHost` uses this id both as
-    * the eviction group and the patch target for `POST /sse/surface/open/:id`
-    * (when a surface carries no `mount`) and `POST /sse/popup/close`.
+    * with no popups never places it). `Surface.hostId` derives to this for an
+    * unbaked surface (a popup); `Server.swapHost` uses it both as the eviction
+    * group and the patch target for `POST /sse/surface/open/:id` and
+    * `POST /sse/popup/close`.
     */
   val PopupHostId: String = "popups-body"
 

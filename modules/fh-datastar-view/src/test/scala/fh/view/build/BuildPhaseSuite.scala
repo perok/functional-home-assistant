@@ -205,21 +205,20 @@ class BuildPhaseSuite extends munit.FunSuite {
     val d = dashboard.toOption.get
     // The sugar produced two inline tab surfaces and a consistent dashboard.
     assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
-    assert(d.surfaces.values.forall(_.mount.isDefined), clue = d.surfaces)
-    // Both panels share ONE panel host — exclusivity by shared mount, no group.
+    // Both panels share ONE derived host — exclusivity by shared hostId, no group.
     assertEquals(
-      d.surfaces.values.flatMap(_.mount).toSet.size,
+      d.surfaces.values.map(_.hostId).toSet.size,
       1,
       clue = d.surfaces
     )
     // Surface ids use the unified id scheme: idBase (= pathId) + the 't<i>' local
-    // key; the shared mount is the tabs component's panel host id (idBase + '_panel').
+    // key; the shared hostId is the tabs component's panel host id (idBase + '_panel').
     assert(
       d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
       clue = d.surfaces.keySet
     )
     assert(
-      d.surfaces.values.flatMap(_.mount).forall(_.matches("c(_\\d+)+_panel")),
+      d.surfaces.values.map(_.hostId).forall(_.matches("c(_\\d+)+_panel")),
       clue = d.surfaces
     )
     // The tabs builder emitted a `tabs` card component — no Mount node.
@@ -359,14 +358,18 @@ class BuildPhaseSuite extends munit.FunSuite {
   ) {
     // Shaped like what c.tabs emits: a container with N inline surfaces + child
     // triggers referencing the future ids via the NODE token (here the top-level
-    // card is the marker-bearing node, so idBase = "c" = pathId(Nil)).
+    // card is the marker-bearing node, so idBase = "c" = pathId(Nil)). The
+    // "panelHost" node param is an arbitrary string value (unrelated to the
+    // Surface model) used to demonstrate splicing reaches every string leaf in
+    // the subtree, not just Surface fields; `bakeInto`/`bakeAs` are the real
+    // Surface fields that share a host (`Surface.hostId` derives from them).
     val json = parser
       .parse("""
         {
           "cards": {},
           "card": {
             "kind": "component", "card": "tabs", "entities": [], "slots": {},
-            "params": { "initial": "@@NODE_ID@@_0", "mount": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
+            "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "children": [
               { "kind": "component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
@@ -374,8 +377,8 @@ class BuildPhaseSuite extends munit.FunSuite {
                   "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ],
             "inlineSurfaces": {
-              "0": { "content": { "kind":"component","card":"card" }, "mount":"panel_@@NODE_ID@@" },
-              "1": { "content": { "kind":"component","card":"card" }, "mount":"panel_@@NODE_ID@@" }
+              "0": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
+              "1": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
             }
           }
         }
@@ -384,17 +387,21 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // both surfaces lifted under "<idBase>_<localKey>", sharing one mount
+    // both surfaces lifted under "<idBase>_<localKey>", sharing one bakeInto
+    // (so they derive the SAME hostId — the panel host, one per tabs group)
     val surfaces = h.downField("surfaces")
     assertEquals(
       surfaces.keys.map(_.toSet).getOrElse(Set.empty),
       Set("c_0", "c_1")
     )
-    val mount = "panel_c"
     for (k <- Set("c_0", "c_1")) {
       assertEquals(
-        surfaces.downField(k).get[String]("mount").toOption,
-        Some(mount)
+        surfaces.downField(k).get[String]("bakeInto").toOption,
+        Some("c")
+      )
+      assertEquals(
+        surfaces.downField(k).get[String]("bakeAs").toOption,
+        Some("panel")
       )
     }
 
@@ -406,8 +413,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       Some("c_0")
     )
     assertEquals(
-      node.downField("params").get[String]("mount").toOption,
-      Some(mount)
+      node.downField("params").get[String]("panelHost").toOption,
+      Some("panel_c")
     )
 
     val first = node.downField("children").downN(0)
