@@ -192,8 +192,8 @@ class Server(
     } yield out
 
   /** Open (or switch to) a surface for this connection: resolve its host —
-    * `surf.mount`, or the popup overlay ([[Dashboard.PopupHostId]]) when unset
-    * — and hand off to [[swapHost]], the single open/switch/close primitive.
+    * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
+    * single open/switch/close primitive.
     */
   private def openSurface(
       session: Session,
@@ -201,14 +201,8 @@ class Server(
       id: String
   ): IO[Unit] =
     renderer.surface(id) match {
-      case None => IO.unit
-      case Some(surf) =>
-        swapHost(
-          session,
-          renderer,
-          surf.mount.getOrElse(Dashboard.PopupHostId),
-          Some(id)
-        )
+      case None       => IO.unit
+      case Some(surf) => swapHost(session, renderer, surf.hostId, Some(id))
     }
 
   /** Evict whatever surface(s) currently occupy `host`, set `newSurface` as the
@@ -229,12 +223,7 @@ class Server(
       open <- session.open.get
       evict = open.filter(sid =>
         !newSurface.contains(sid) &&
-          renderer
-            .surface(sid)
-            .flatMap(_.mount)
-            .getOrElse(
-              Dashboard.PopupHostId
-            ) == host
+          renderer.surface(sid).exists(_.hostId == host)
       )
       _ <- session.open.set((open -- evict) ++ newSurface.toSet)
       states <- stateStore.snapshot

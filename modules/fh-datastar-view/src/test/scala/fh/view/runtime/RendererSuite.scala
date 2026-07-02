@@ -59,8 +59,9 @@ class RendererSuite extends munit.FunSuite {
   // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
   // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
   // filled via `{{{panel}}}` baked from the first default-open surface. The
-  // surfaces target `c_panel` (= idBase + '_panel', the hoist invariant), carry
-  // `chrome:""` (no wrapper), `stack:false`, `bakeInto:"c"`, `bakeAs:"panel"`.
+  // surfaces carry `bakeInto:"c"`, `bakeAs:"panel"` (so `hostId` derives to
+  // `c_panel` = idBase + '_panel', the hoist invariant), `chrome:""` (no
+  // wrapper), `stack:false`.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -83,7 +84,6 @@ class RendererSuite extends munit.FunSuite {
         // bakeInto="c", bakeAs="panel") + seeded open on connect.
         "c_t0" -> Surface(
           panel("a"),
-          mount = Some("c_panel"),
           chrome = "",
           stack = false,
           bakeInto = Some("c"),
@@ -93,7 +93,6 @@ class RendererSuite extends munit.FunSuite {
         ),
         "c_t1" -> Surface(
           panel("b"),
-          mount = Some("c_panel"),
           chrome = "",
           stack = false,
           bakeInto = Some("c"),
@@ -795,5 +794,19 @@ class RendererSuite extends munit.FunSuite {
 
     // Empty chrome (the fallback) is never checked.
     assertEquals(Dashboard(cards, col()).validate(), Nil)
+  }
+
+  test(
+    "Surface.hostId derives <bakeInto>_<bakeAs> for a baked surface, the popup overlay otherwise"
+  ) {
+    val baked = Surface(
+      col(),
+      bakeInto = Some("c_1"),
+      bakeAs = Some("panel")
+    )
+    assertEquals(baked.hostId, "c_1_panel")
+
+    val unbaked = Surface(col())
+    assertEquals(unbaked.hostId, Dashboard.PopupHostId)
   }
 }

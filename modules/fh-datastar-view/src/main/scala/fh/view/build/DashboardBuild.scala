@@ -70,8 +70,8 @@ object DashboardBuild {
 
   /** Hoist inline surface definitions into the `surfaces` registry.
     *
-    * A node may carry an `inlineSurfaces: { <localKey>: { content, group?,
-    * mount? }, … }` marker (jsonnet can't mint a stable id or mutate the
+    * A node may carry an `inlineSurfaces: { <localKey>: { content, bakeInto?,
+    * bakeAs?, … } }` marker (jsonnet can't mint a stable id or mutate the
     * top-level registry, so it inlines the content and refers to the future id
     * via [[NodeIdToken]]). This pass is deliberately generic — it knows nothing
     * about popups, tabs, buttons, signals, or onclick wiring. For each
@@ -81,7 +81,7 @@ object DashboardBuild {
     *   2. recurses each surface's `content` (nested inline surfaces resolve
     *      first, bottom-up);
     *   3. splices `idBase` into every [[NodeIdToken]] in the node's subtree, so
-    *      the author-composed onclick / active-binding / `initial` / mount that
+    *      the author-composed onclick / active-binding / `initial` that
     *      reference `<token>_<localKey>` now point at the real ids;
     *   4. lifts each surface to `surfaces["<idBase>_<localKey>"]` and drops the
     *      marker.
@@ -102,13 +102,13 @@ object DashboardBuild {
         obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
       )
 
-    // Keep only the surface's own fields (content + optional mount/chrome/stack/bakeInto/bakeAs/bakeIndex/defaultOpen).
+    // Keep only the surface's own fields (content + optional chrome/stack/bakeInto/bakeAs/bakeIndex/defaultOpen).
+    // The host is derived (Surface.hostId), not authored, so "mount" is not lifted.
     def surfaceOf(defObj: JsonObject): Json =
       Json.fromJsonObject(
         JsonObject.fromIterable(
           defObj("content").map("content" -> _).toList ++
             List(
-              "mount",
               "chrome",
               "stack",
               "bakeInto",

@@ -454,9 +454,10 @@
 
       // TABS builder: the `.tabbar` buttons are the card's children; the panel
       // host + `{{{panel}}}` hole live in the template above. Inline surfaces
-      // target `NODE_ID + '_panel'` (= `{{id}}_panel`, the hoist invariant
-      // `idBase == {{id}}`) and name `bakeInto`/`bakeAs` so the renderer injects
-      // the default tab on first paint. `chrome: ''` = no wrapper: the content
+      // name `bakeInto`/`bakeAs` so the renderer injects the default tab on
+      // first paint AND so `Surface.hostId` derives to `NODE_ID + '_panel'`
+      // (= `{{id}}_panel`, the hoist invariant `idBase == {{id}}`) — the host
+      // is no longer authored here. `chrome: ''` = no wrapper: the content
       // renders straight into the panel host (an inline panel needs no chrome).
       //   c.tabs([{ label: 'Lights', content: c.column([...]) }, ...])
       build(tabs)::
@@ -468,7 +469,6 @@
           inlineSurfaces: {
             ['t' + i]: {
               content: tabs[i].content,
-              mount: NODE_ID + '_panel',  // = the rendered `{{id}}_panel` host
               chrome: '',                 // no chrome wrapper — render into the host
               stack: false,
               bakeInto: NODE_ID,
@@ -516,10 +516,11 @@
       // openPopup builder (public alias `c.openPopup` below): give a card a tap
       // that opens a surface. `target` is either a registered surface id (string)
       // or inline content (a layout node) the backend hoists to a surface under
-      // this node's id. `mount` optionally targets a specific panel host id;
-      // absent ⇒ the overlay `#popups`. The surface relies on `Surface` defaults
-      // (chrome: popup, stack: true) — popups overlay/stack and never bake.
-      build(target, mount=null)::
+      // this node's id. The surface carries no `bakeInto`/`bakeAs`, so
+      // `Surface.hostId` derives to the popup overlay (`Dashboard.PopupHostId`).
+      // The surface relies on `Surface` defaults (chrome: popup, stack: true) —
+      // popups overlay/stack and never bake.
+      build(target)::
         if std.isString(target) then
           { onclick: constOnclick('@post(\'/sse/surface/open/' + target + '\')') }
         else
@@ -530,7 +531,6 @@
             // 'self' is a jsonnet keyword, so quote the local key.
             inlineSurfaces: { 'self': {
               content: target,
-              [if mount != null then 'mount']: mount,
             } },
           },
     },
