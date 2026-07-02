@@ -55,25 +55,32 @@ local entities = std.objectValues(dump.entities);
     // TODO config parameters for card, vs properties of valuest to show
     c.sectionTitle('Dashboard'),
 
+    c.row([
     // Cross-dashboard navigation: in-place swap to /d/energy (URL updates too).
-    c.row([
-      c.button(action=c.navigate('energy'), label='Energy »'),
-      c.button(action=c.navigate('tabs'), label='Tabs test »'),
-    ]),
+      c.column([
+        c.button(action=c.navigate('energy'), label='Energy »'),
+        c.button(action=c.navigate('tabs'), label='Tabs test »'),
+      ]),
 
-    // Tapping the first card opens the registered 'detail' popup; the second
-    // opens an INLINE popup (the backend hoists its content into a surface and
-    // its close control is supplied by the popup wrapper).
+      // Tapping the first card opens the registered 'detail' popup; the second
+      // opens an INLINE popup (the backend hoists its content into a surface and
+      // its close control is supplied by the popup wrapper).
+      c.column([
+        c.entityCard(dump.entities.sensor_ams_1a4e_p, tap=c.openPopup('detail')),
+        c.entityCard(
+          dump.entities.sensor_ams_1a4e_p,
+          label='Inline popup',
+          tap=c.openPopup(c.column([
+            c.sectionTitle('Inline detail'),
+            c.entityCard(dump.entities.sensor_ams_1a4e_p),
+          ])),
+        ),
+      ]),
+    ]),
     c.row([
-      c.entityCard(dump.entities.sensor_ams_1a4e_p, tap=c.openPopup('detail')),
-      c.entityCard(
-        dump.entities.sensor_ams_1a4e_p,
-        label='Inline popup',
-        tap=c.openPopup(c.column([
-          c.sectionTitle('Inline detail'),
-          c.entityCard(dump.entities.sensor_ams_1a4e_p),
-        ])),
-      ),
+      c.button(action=c.navigate('underetasje'), label='Underetasje »'),
+      c.button(action=c.navigate('inngangsetasje'), label='Inngangsetasje »'),
+      c.button(action=c.navigate('overetasje'), label='Overetasje »'),
     ]),
 
     c.sectionTitle('Kitchen'),
