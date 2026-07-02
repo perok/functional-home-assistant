@@ -44,13 +44,21 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 
 ### `fh-datastar-view` — the Datastar dashboard
 
+> **Before changing this module, read its ADRs in [`docs/adr/`](docs/adr/README.md).**
+> They record the design decisions (entity card + JSONata transforms, surfaces/tabs,
+> dynamic groups, the params/slots + label-as-slot model) with their rationale.
+> Check a change against them; when a change supersedes a decision, keep the record
+> current by appending a dated `## Update —` section to the relevant ADR (the
+> established pattern while the design is pre-v1) that names what it supersedes.
+
 A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
 HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
 
 - **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
   `../ha-frontend/script.sh`), writes it next to the jsonnet, then evaluates `dashboard.jsonnet`
-  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ templates, layout }` model — a shared
-  library of named Mustache templates plus a **recursive layout tree** of templated component nodes.
+  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ cards, card }` model — a shared
+  library of named cards (Mustache templates) plus a **recursive layout tree** (`card` = its root)
+  of component nodes that reference cards by name.
   Jsonnet does **composition only** and emits Mustache template strings + static node params; it
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).

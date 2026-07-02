@@ -134,9 +134,11 @@ lazy val `fh-datastar-view` = project
       "io.circe" %% "circe-core" % "0.14.15",
       "io.circe" %% "circe-parser" % "0.14.15",
       // jsonnet evaluation for the build phase (pure-JVM)
-      "com.databricks" %% "sjsonnet" % "0.5.0",
+      "com.databricks" %% "sjsonnet" % "0.6.3",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
+      // JSONata for per-slot value transforms (pure-JVM port of the spec)
+      "com.dashjoin" % "jsonata" % "0.9.8",
       "org.scalameta" %% "munit" % "1.3.3" % Test
     )
   )

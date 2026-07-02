@@ -1,0 +1,26 @@
+// A second dashboard, served at /d/energy (slug = filename). Demonstrates
+// multi-dashboard serving and in-place cross-dashboard navigation back to the
+// default. Shares the same component library + theme.
+local c = import 'components.libsonnet';
+local dump = import 'dump.libsonnet';
+local theme = import 'theme.libsonnet';
+local entities = std.objectValues(dump.entities);
+
+{
+  cards: c.cards,
+  theme: theme,
+  card: c.column([
+    c.row([
+      c.button(action=c.navigate('dashboard'), label='« Home'),
+      c.sectionTitle('Inngangsetasje'),
+    ]),
+    // Every power/energy sensor, rounded with its own unit appended.
+    c.column([
+      c.slider(eo
+      //, value=c.expr('$round($number($state), 1)')
+      )
+      for eo in entities
+      if eo.domain == 'light' && eo.floor_id == dump.floors.inngangsetasje.floor_id
+    ]),
+  ]),
+}

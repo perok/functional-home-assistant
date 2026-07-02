@@ -14,20 +14,27 @@ import fh.view.model.Dashboard
   * Missing slots render as empty strings rather than throwing.
   */
 class Templates private (
-    val components: Map[String, Template],
-    val inputs: Map[String, List[String]]
+    val components: Map[String, Template]
 )
 
 object Templates {
 
-  private val compiler: Mustache.Compiler =
-    Mustache.compiler().escapeHTML(true).defaultValue("")
+  // `emptyStringIsFalse` makes `{{#x}}…{{/x}}` sections vanish when `x` resolves
+  // to "" — so optional pieces (secondary, tap) render only when present.
+  // Not private: `Renderer` reuses this exact config to compile `theme.chrome`
+  // (the one other Mustache template the module compiles), so there is a
+  // single jmustache configuration story.
+  val compiler: Mustache.Compiler =
+    Mustache
+      .compiler()
+      .escapeHTML(true)
+      .defaultValue("")
+      .emptyStringIsFalse(true)
 
   def from(dashboard: Dashboard): Templates =
     new Templates(
-      components = dashboard.templates.view
-        .mapValues(td => compiler.compile(td.template))
-        .toMap,
-      inputs = dashboard.templates.view.mapValues(_.inputs).toMap
+      components = dashboard.cards.view
+        .mapValues(cd => compiler.compile(cd.template))
+        .toMap
     )
 }

@@ -2,8 +2,10 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.kernel.Ref
+import cats.syntax.all.*
+import fh.view.model.Dashboard
 import fs2.Stream
+import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -12,73 +14,45 @@ import org.http4s.ServerSentEvent
 
 import scala.concurrent.duration.*
 
-/** HTTP surface for the dashboard.
+/** HTTP surface for the dashboards.
   *
-  *   - `GET /` full server-rendered page; opens the SSE on load.
-  *   - `GET /sse/datastar-patch` live stream of `datastar-patch-elements`
-  *     fragments.
-  *   - `POST /sse/action/:domain/:service/:id` call a HA service; the resulting
-  *     state change flows back over the persistent SSE stream.
+  *   - `GET /` the default dashboard; `GET /d/:slug` a specific one.
+  *   - `GET /sse/dashboard/:slug/patch` the per-connection live stream of
+  *     `datastar-patch-elements` fragments. On connect it mints a `conn` id and
+  *     pushes it as a signal, so action POSTs can correlate to this stream.
+  *   - `POST /sse/action/:domain/:service/:id[/:k/:v]` call a HA service.
+  *   - `POST /sse/surface/open/:id` open a surface (popup or tab panel);
+  *     `POST /sse/popup/close` close the (at most one) open popup;
+  *     `POST /sse/navigate/:slug` swap the viewed dashboard in place. Open,
+  *     switch, and close are all the same host-swap ([[swapHost]]) — evict
+  *     whatever occupies the surface's host, patch the new occupant in (or
+  *     patch it empty, for a close). The state lives in the connection's
+  *     [[Session]]; the resulting patches ride the same SSE stream.
   */
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    renderer: Renderer,
-    // Last HTML pushed per node id; lets us skip pushes that wouldn't change the
-    // client ("re-render and diff before sending"). Shared across SSE clients.
-    lastRendered: Ref[IO, Map[String, String]]
+    // One hot-swappable renderer per dashboard slug (live reload swaps in place;
+    // `.discrete` drives a body repaint over SSE).
+    renderers: Map[String, SignallingRef[IO, Renderer]],
+    defaultSlug: String,
+    sessions: Sessions
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
-    case GET -> Root =>
-      stateStore.snapshot.flatMap { states =>
-        Ok(page(renderer.renderPage(states)))
-          .map(_.withContentType(`Content-Type`(MediaType.text.html)))
-      }
+    case req @ GET -> Root              => pageResponse(defaultSlug, req)
+    case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
 
-    case GET -> Root / "sse" / "datastar-patch" =>
-      val patches: Stream[IO, ServerSentEvent] =
-        stateStore.changes
-          .evalMap { entityId =>
-            stateStore.snapshot.flatMap { states =>
-              // Static components depending on this entity + all dynamic groups
-              // (their membership can change with any entity).
-              val ids =
-                renderer.componentsFor(entityId).toList ++
-                  renderer.dynamicContainerIds
-              val rendered =
-                ids.flatMap(id =>
-                  renderer.renderNodeById(id, states).map(id -> _)
-                )
-              // Only push fragments whose HTML actually changed.
-              lastRendered.modify { cache =>
-                val changed =
-                  rendered.filterNot { case (id, html) =>
-                    cache.get(id).contains(html)
-                  }
-                (cache ++ changed, changed.map(_._2))
-              }
-            }
-          }
-          .flatMap(fragments =>
-            Stream.emits(fragments.map(Datastar.patchElements))
-          )
-
-      // Comment heartbeat keeps proxies/clients from dropping an idle stream.
-      val heartbeat: Stream[IO, ServerSentEvent] =
-        Stream
-          .awakeEvery[IO](15.seconds)
-          .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
-
-      Ok(patches.merge(heartbeat))
+    case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
+      if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
+    // `domain` is the SERVICE's domain, which is not always the entity's domain
+    // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
     case POST -> Root / "sse" / "action" / domain / service / entityId =>
       callService(domain, service, entityId, Json.obj())
 
-    // TODO domain can be looked up by entityId
     // Single-value action (brightness, cover position, target temperature...).
-    // The value rides in the URL path (Datastar builds it via `'.../key/' + $sig`).
     case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
       callService(
         domain,
@@ -86,7 +60,258 @@ class Server(
         entityId,
         Json.obj(dataKey -> Server.parseValue(dataValue))
       )
+
+    case req @ POST -> Root / "sse" / "surface" / "open" / id =>
+      withSession(req)((session, renderer) =>
+        openSurface(session, renderer, id)
+      )
+
+    case req @ POST -> Root / "sse" / "popup" / "close" =>
+      withSession(req)((session, renderer) =>
+        swapHost(session, renderer, Dashboard.PopupHostId, None)
+      )
+
+    case req @ POST -> Root / "sse" / "navigate" / slug =>
+      val uiState = Server.uiStateOf(req)
+      withSession(req)((session, _) => navigate(session, slug, uiState))
   }
+
+  /** The per-connection SSE stream: a `conn` signal, then entity-change patches
+    * (main page + open surfaces), the session control channel (popup/navigate
+    * patches), live-reload body repaints, and a heartbeat.
+    */
+  private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
+    val uiState = Server.uiStateOf(req)
+    for {
+      conn <- IO.randomUUID.map(_.toString)
+      session <- Session.create(slug)
+      _ <- sessions.register(conn, session)
+      // Seed the open set with this client's selected tab panels (from its
+      // cookies), so the baked-inline tabs receive live updates from the first
+      // paint. Warn on any off cookie value.
+      _ <- renderers
+        .get(slug)
+        .traverse_(_.get.flatMap { r =>
+          r.uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w")) *>
+            session.open.set(r.selectedSurfaces(uiState))
+        })
+
+      // Each state change is re-rendered as it arrives. `changedPatches` already
+      // narrows the work (reverse index for static components, query-affected
+      // filter for dynamic groups) and the diff cache drops no-op pushes.
+      // FUTURE (ADR): under a burst of state_changed events (HA fires them
+      // constantly), coalesce — debounce/batch the stream per connection and
+      // re-render at most every X ms, collapsing repeated touches of the same
+      // node into one render+push. The narrowing here bounds *what* re-renders;
+      // batching would bound *how often*. (Fold this into the dynamic-groups ADR
+      // when the perf model is settled.)
+      patches = stateStore.changes
+        .evalMap(changedPatches(session, _))
+        .flatMap(Stream.emits)
+      control = Stream.fromQueueUnterminated(session.control)
+      // Live-reload repaint follows the session's CURRENT dashboard: watch every
+      // renderer, but only repaint when the one that reloaded is the one this
+      // connection is viewing now (it may have navigated since connecting).
+      reloads = renderers.toList
+        .map { case (s, ref) =>
+          ref.discrete.drop(1).evalMapFilter { r =>
+            session.slug.get.flatMap { cur =>
+              if (cur != s) IO.pure(Option.empty[ServerSentEvent])
+              else
+                // The repaint re-bakes the body (selected tabs included), so
+                // reset the diff cache AND re-seed the open set to match. Reuses
+                // this client's cookie-derived selection (closed over).
+                (session.lastRendered.set(Map.empty) *>
+                  session.open.set(r.selectedSurfaces(uiState)) *>
+                  stateStore.snapshot)
+                  .map(st =>
+                    Some(
+                      Datastar
+                        .patch(
+                          r.renderBody(st, uiState),
+                          PatchMode.Inner,
+                          Some("#dashboard")
+                        )
+                    )
+                  )
+            }
+          }
+        }
+        .reduceOption(_.merge(_))
+        .getOrElse(Stream.empty)
+      heartbeat = Stream
+        .awakeEvery[IO](15.seconds)
+        .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
+
+      stream = (Stream.emit(Datastar.patchSignals(s"""{"conn":"$conn"}""")) ++
+        patches.merge(control).merge(reloads).merge(heartbeat))
+        .onFinalize(sessions.deregister(conn))
+      resp <- Ok(stream)
+    } yield resp
+
+  /** Re-render the nodes a changed entity drives — main-page
+    * components/dynamics plus, for each open surface, that surface's
+    * components/dynamics — and emit only the fragments whose HTML actually
+    * changed (per-connection diff).
+    */
+  private def changedPatches(
+      session: Session,
+      change: StateChange
+  ): IO[List[ServerSentEvent]] =
+    for {
+      slug <- session.slug.get
+      renderer <- renderers.get(slug).traverse(_.get)
+      states <- stateStore.snapshot
+      open <- session.open.get
+      out <- renderer match {
+        case None    => IO.pure(List.empty[ServerSentEvent])
+        case Some(r) =>
+          // Reverse-indexed components that bind this entity, plus only the
+          // dynamic groups this change can move the entity in/out of (not every
+          // group on every event).
+          val mainIds =
+            r.componentsFor(change.entityId).toList ++
+              r.affectedDynamicIds(change)
+          val surfaceIds = open.toList.flatMap(sid =>
+            r.surfaceComponentsFor(sid, change.entityId).toList ++
+              r.affectedSurfaceDynamicIds(sid, change)
+          )
+          val ids = (mainIds ++ surfaceIds).distinct
+          val rendered =
+            ids.flatMap(id => r.renderNodeById(id, states).map(id -> _))
+          session.lastRendered
+            .modify { cache =>
+              val changed = rendered.filterNot { case (id, html) =>
+                cache.get(id).contains(html)
+              }
+              (cache ++ changed, changed.map(_._2))
+            }
+            .map(_.map(Datastar.patchElements))
+      }
+    } yield out
+
+  /** Open (or switch to) a surface for this connection: resolve its host —
+    * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
+    * single open/switch/close primitive.
+    */
+  private def openSurface(
+      session: Session,
+      renderer: Renderer,
+      id: String
+  ): IO[Unit] =
+    renderer.surface(id) match {
+      case None       => IO.unit
+      case Some(surf) => swapHost(session, renderer, surf.hostId, Some(id))
+    }
+
+  /** Evict whatever surface(s) currently occupy `host`, set `newSurface` as the
+    * sole occupant (or none, for a close), and patch the DOM to match. Open a
+    * popup / switch a tab both call this with `newSurface = Some(id)`; closing
+    * a popup calls it with `None`, which patches the host to an empty `<div>` —
+    * removing the transient popup dialog (a `popup` container card in the
+    * surface content, not backend chrome). No server state tracks "is a popup
+    * open". One host-swap primitive replaces the old open/close/stack paths.
+    */
+  private def swapHost(
+      session: Session,
+      renderer: Renderer,
+      host: String,
+      newSurface: Option[String]
+  ): IO[Unit] =
+    for {
+      open <- session.open.get
+      evict = open.filter(sid =>
+        !newSurface.contains(sid) &&
+          renderer.surface(sid).exists(_.hostId == host)
+      )
+      _ <- session.open.set((open -- evict) ++ newSurface.toSet)
+      states <- stateStore.snapshot
+      _ <- newSurface match {
+        case Some(sid) =>
+          renderer
+            .renderSurface(sid, states)
+            .traverse_(html =>
+              session.control.offer(
+                Datastar.patch(html, PatchMode.Inner, Some("#" + host))
+              )
+            )
+        case None =>
+          session.control.offer(
+            Datastar.patch(
+              s"""<div id="$host"></div>""",
+              PatchMode.Outer,
+              None
+            )
+          )
+      }
+    } yield ()
+
+  /** In-place navigate: re-point the session at `slug`, reset its popups + diff
+    * cache, clear the popup mount, and inner-patch the body. The URL is updated
+    * client-side in the trigger expression, so this is identical for a forward
+    * navigate and a Back/Forward `popstate` re-sync.
+    */
+  private def navigate(
+      session: Session,
+      slug: String,
+      uiState: Map[String, String]
+  ): IO[Unit] =
+    renderers.get(slug) match {
+      case None => IO.unit
+      case Some(ref) =>
+        for {
+          renderer <- ref.get
+          states <- stateStore.snapshot
+          _ <- session.slug.set(slug)
+          _ <- renderer
+            .uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w"))
+          // Reset popups, but seed the target dashboard's selected tab panels
+          // (its body is rendered with them baked in below).
+          _ <- session.open.set(renderer.selectedSurfaces(uiState))
+          _ <- session.lastRendered.set(Map.empty)
+          _ <- session.control.offer(
+            Datastar.patch(
+              s"""<div id="${Dashboard.PopupHostId}"></div>""",
+              PatchMode.Outer,
+              None
+            )
+          )
+          _ <- session.control.offer(
+            Datastar.patch(
+              renderer.renderBody(states, uiState),
+              PatchMode.Inner,
+              Some("#dashboard")
+            )
+          )
+        } yield ()
+    }
+
+  /** Resolve the connection (`conn` rides in the POST body among Datastar
+    * signals) to its session + current renderer, run `f`, and return NoContent.
+    */
+  private def withSession(
+      req: Request[IO]
+  )(f: (Session, Renderer) => IO[Unit]): IO[Response[IO]] =
+    // Datastar sends the signals (including `conn`) as a JSON body; parse it
+    // directly (no http4s-circe entity decoder dependency).
+    req.bodyText.compile.string
+      .map(io.circe.parser.parse(_).toOption.flatMap(connOf))
+      .flatMap {
+        case None => BadRequest("""{"success":false,"error":"missing conn"}""")
+        case Some(conn) =>
+          sessions.get(conn).flatMap {
+            case None => NoContent() // stale/unknown connection
+            case Some(session) =>
+              session.slug.get
+                .flatMap(slug => renderers.get(slug).traverse(_.get))
+                .flatMap(_.traverse_(f(session, _))) *> NoContent()
+          }
+      }
+
+  private def connOf(body: Json): Option[String] =
+    body.hcursor.get[String]("conn").toOption
 
   /** Datastar reads live updates from the persistent SSE stream, so an action
     * POST just triggers the service and returns no content.
@@ -103,30 +328,72 @@ class Server(
         BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
     }
 
-  /** Full HTML document wrapping the rendered dashboard. */
-  private def page(body: String): String =
+  private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
+    renderers.get(slug) match {
+      case None => NotFound()
+      case Some(ref) =>
+        val uiState = Server.uiStateOf(req)
+        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+          renderer
+            .uiStateAnomalies(uiState)
+            .traverse_(w => IO.println(s"[warn] $w")) *>
+            Ok(
+              page(
+                slug,
+                renderer.renderPage(states, uiState),
+                renderer.stylesheets
+              )
+            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+        }
+    }
+
+  /** Full HTML document wrapping the rendered dashboard. The theme owns all
+    * presentation (its tokens + inline CSS travel inside the body;
+    * `stylesheets` are `<link>`-ed here). `data-init` opens this dashboard's
+    * SSE stream; the `popstate` handler re-syncs the in-place view to the URL
+    * on Back/Forward.
+    */
+  private def page(
+      slug: String,
+      body: String,
+      stylesheets: List[String]
+  ): String = {
+    val links = stylesheets
+      .map(href => s"""  <link rel="stylesheet" href="$href">""")
+      .mkString("\n")
+    // On Back/Forward, derive the slug from the URL and re-post the swap (no
+    // pushState — the browser already moved). `/d/<slug>` or `/` -> default.
+    val popstate =
+      s"@post('/sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
     s"""<!doctype html>
        |<html lang="en">
        |<head>
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <title>Home Assistant</title>
-       |  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-       |  <style>
-       |    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
-       |    .fh-col{display:flex;flex-direction:column;gap:1rem}
-       |    .fh-cell{display:contents}
-       |  </style>
+       |$links
        |  <script type="module" src="${Server.DatastarCdn}"></script>
        |</head>
-       |<body data-init="@get('/sse/datastar-patch')">
+       |<body data-init="@get('/sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$body
        |</body>
        |</html>
        |""".stripMargin
+  }
 }
 
 object Server {
+
+  /** The client's UI state read off request cookies: every `fhui_<id>` cookie
+    * mapped to `id -> rawValue` (the `fhui_` prefix dropped). The value is left
+    * opaque here — interpretation and the untrusted-value clamp live in
+    * [[Renderer.resolveActive]], so a stale/hand-edited cookie can never bake a
+    * non-existent surface. Empty when no `fhui_` cookies are present.
+    */
+  def uiStateOf(req: Request[IO]): Map[String, String] =
+    req.cookies.collect {
+      case c if c.name.startsWith("fhui_") => c.name.drop(5) -> c.content
+    }.toMap
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across

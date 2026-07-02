@@ -1,39 +1,98 @@
 package fh.view.runtime
 
 import fh.view.model.{
+  CardDef,
   Dashboard,
   DynamicCase,
   LayoutNode,
   Op,
   Predicate,
   SlotSource,
-  TemplateDef
+  Surface,
+  Theme
 }
 import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  private def st(state: String, attrs: (String, Json)*): EntityState =
-    EntityState(state, attrs.toMap)
+  private def st(
+      entityId: String,
+      state: String,
+      attrs: (String, Json)*
+  ): EntityState =
+    EntityState(entityId, state, attrs.toMap)
 
-  // Templates are pure content; the backend wraps entity-bound components in the
-  // id'd morph target.
-  private val templates = Map(
-    "card" -> TemplateDef(
+  // A constant literal slot (a bare value, no entity/transform).
+  private def lit(s: String): SlotSource = SlotSource(literal = Some(s))
+
+  // Card templates are pure content; the backend wraps entity-bound components
+  // in the id'd morph target.
+  private val cards = Map(
+    "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
-      List("state")
+      slots = List("state")
     ),
-    "btn" -> TemplateDef("""<button>{{label}}</button>""", List("label")),
-    "gauge" -> TemplateDef("""<i>{{bri}}</i>""", List("bri")),
-    "col" -> TemplateDef(
-      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
-      Nil
+    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
+    "gauge" -> CardDef("""<i>{{bri}}</i>""", slots = List("bri")),
+    "act" -> CardDef(
+      """<a href="{{{action}}}">go</a>""",
+      slots = List("action")
     ),
-    "row" -> TemplateDef(
-      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
-      Nil
+    "col" -> CardDef(
+      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    "row" -> CardDef(
+      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
+    // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
+    "tabs" -> CardDef(
+      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
     )
   )
+
+  // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
+  // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
+  // filled via `{{{panel}}}` baked from the first default-open surface. The
+  // surfaces carry `bakeInto:"c"`, `bakeAs:"panel"` (so `hostId` derives to
+  // `c_panel` = idBase + '_panel', the hoist invariant) — every surface is
+  // chrome-less.
+  private def tabsDashboard: Dashboard = {
+    def panel(name: String): LayoutNode.Component =
+      LayoutNode.Component(
+        "card",
+        slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
+      )
+    Dashboard(
+      cards,
+      // The `tabs` card: children are the tab buttons; the panel host is in the
+      // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
+      LayoutNode.Component(
+        "tabs",
+        children = List(
+          LayoutNode.Component("btn", Map("label" -> lit("A"))),
+          LayoutNode.Component("btn", Map("label" -> lit("B")))
+        )
+      ),
+      surfaces = Map(
+        // c_t0 is the default-open panel: baked into the tabs component (id="c",
+        // bakeInto="c", bakeAs="panel") + seeded open on connect.
+        "c_t0" -> Surface(
+          panel("a"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          defaultOpen = true
+        ),
+        "c_t1" -> Surface(
+          panel("b"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(1)
+        )
+      )
+    )
+  }
 
   private def col(kids: LayoutNode*): LayoutNode =
     LayoutNode.Component("col", children = kids.toList)
@@ -41,22 +100,22 @@ class RendererSuite extends munit.FunSuite {
     LayoutNode.Component("row", children = kids.toList)
 
   private def renderer(layout: LayoutNode): Renderer = {
-    val d = Dashboard(templates, layout)
-    new Renderer(d, Templates.from(d))
+    val d = Dashboard(cards, layout)
+    Renderer.create(d)
   }
 
   // A single component as the layout root gets the path id "c".
   private val card = LayoutNode.Component(
-    template = "card",
-    entities = List("sensor.t"),
+    card = "card",
     slots = Map(
-      "state" -> SlotSource("sensor.t", None),
-      "unit" -> SlotSource("sensor.t", Some("unit_of_measurement"))
+      "state" -> SlotSource(Some("sensor.t")),
+      "unit" -> SlotSource(Some("sensor.t"), "$attr.unit_of_measurement")
     )
   )
 
   private val states = Map(
     "sensor.t" -> st(
+      "sensor.t",
       """2 < 3 & "x"""",
       "unit_of_measurement" -> Json.fromString("°C")
     )
@@ -69,14 +128,133 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
   }
 
-  test("entity-bound component is wrapped in the id'd morph target; slots escaped") {
+  test(
+    "entity-bound component is wrapped in the id'd morph target; slots escaped"
+  ) {
     val html = renderer(card).renderNodeById("c", states).get
     // backend-owned morph target wraps the pure-content template
-    assert(html.startsWith("""<div class="fh-cell" id="c"><div>"""), clue = html)
+    assert(
+      html.startsWith("""<div class="fh-cell" id="c"><div>"""),
+      clue = html
+    )
     assert(html.contains("&lt;"), clue = html)
     assert(html.contains("&amp;"), clue = html)
     assert(html.contains("°C"), clue = html)
     assert(!html.contains("2 < 3"), clue = html)
+  }
+
+  test("unavailable entity bypasses the transform and shows its raw state") {
+    // No explicit bypassUnavailable — bypassing is the DEFAULT (true).
+    val node = LayoutNode.Component(
+      card = "card",
+      slots = Map(
+        "state" -> SlotSource(
+          Some("sensor.t"),
+          transform = "$round($number($state), 1)"
+        )
+      )
+    )
+    val r = renderer(node)
+    // A real value is transformed...
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21.46")))
+        .get
+        .contains("<span>21.5</span>")
+    )
+    // ...but "unavailable" never enters JSONata (which would error) — shown raw.
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
+        .get
+        .contains("<span>unavailable</span>")
+    )
+  }
+
+  test("bypassUnavailable=false runs the transform even when unavailable") {
+    // A label/action/slider-position opts out so its transform still runs (a
+    // label keeps the name, an action stays resolvable) instead of collapsing to
+    // the literal "unavailable".
+    val node = LayoutNode.Component(
+      card = "card",
+      slots = Map(
+        "state" -> SlotSource(
+          Some("sensor.t"),
+          transform = "$state & \"!\"",
+          bypassUnavailable = false
+        )
+      )
+    )
+    val r = renderer(node)
+    assert(
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
+        .get
+        .contains("<span>unavailable!</span>"),
+      clue = "transform should run, not be bypassed"
+    )
+  }
+
+  test("an identity (action) slot resolves from the entity id with no state") {
+    val expr =
+      """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
+        """$a ? $a : "homeassistant/toggle")"""
+    def actionNode(entity: String): LayoutNode =
+      LayoutNode.Component(
+        card = "act",
+        slots = Map("action" -> SlotSource(Some(entity), transform = expr))
+      )
+    // No state at all: the action still resolves from the entity's domain.
+    assert(
+      renderer(actionNode("scene.movie"))
+        .renderNodeById("c", Map.empty)
+        .get
+        .contains("""href="scene/turn_on""""),
+      clue = "scene domain -> scene/turn_on"
+    )
+    assert(
+      renderer(actionNode("light.x"))
+        .renderNodeById("c", Map.empty)
+        .get
+        .contains("""href="homeassistant/toggle""""),
+      clue = "other domain -> homeassistant/toggle"
+    )
+  }
+
+  test(
+    "a reactive:false slot is resolved once and memoized; a reactive:true slot re-resolves"
+  ) {
+    // `reactive = false` promises the value is identity-only, so the renderer
+    // resolves it ONCE per (entity, transform) and reuses it — this is what
+    // keeps the dynamic render path cheap (action/domain-config slots become a
+    // cache lookup, not a JSONata eval, on every re-render). We expose the memo
+    // with a state-reading transform (a deliberate misuse): its value freezes
+    // at the first render and ignores a later state change. A `reactive = true`
+    // slot, by contrast, re-resolves every render.
+    def node(reactive: Boolean): LayoutNode =
+      LayoutNode.Component(
+        card = "act",
+        slots = Map(
+          "action" -> SlotSource(
+            Some("sensor.t"),
+            transform = "$state",
+            reactive = reactive
+          )
+        )
+      )
+
+    val frozen = renderer(node(false))
+    val a =
+      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val b =
+      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(a.contains("""href="one""""), clue = a)
+    assertEquals(b, a) // memoized: the changed state is ignored
+
+    val live = renderer(node(true))
+    val c1 =
+      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val c2 =
+      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(c1.contains("""href="one""""), clue = c1)
+    assert(c2.contains("""href="two""""), clue = c2) // re-resolved
   }
 
   test("missing entity renders empty slots rather than throwing") {
@@ -87,14 +265,19 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("container templates splice children; entity-less nodes are not wrapped") {
-    val layout = col(row(LayoutNode.Component("btn", Map("label" -> "Go"))))
+  test(
+    "container templates splice children; entity-less nodes are not wrapped"
+  ) {
+    val layout =
+      col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> no morph wrappers, no ids in the markup
+    // no entities anywhere -> no morph wrappers, no ids in the markup; with no
+    // theme.chrome, renderPage falls back to the minimal `#dashboard` frame
+    // (no popup host — a popup-less dashboard ships no theme).
     assertEquals(
       page,
-      """<main class="container"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
     )
     // containers are still addressable and re-render their children by id
     assertEquals(
@@ -103,20 +286,42 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test(
+    "renderPage executes the theme's chrome around renderBody, popup host included"
+  ) {
+    val d = Dashboard(
+      cards,
+      col(LayoutNode.Component("btn", Map("label" -> lit("Go")))),
+      theme = Theme(chrome =
+        """<main id="dashboard">{{{body}}}</main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      )
+    )
+    val page = Renderer.create(d).renderPage(Map.empty)
+    assertEquals(
+      page,
+      """<main id="dashboard"><div class="fh-col"><button>Go</button></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+    )
+  }
+
   test("slot default applies when value is missing, empty, or JSON null") {
     val g = LayoutNode.Component(
       "gauge",
-      entities = List("light.x"),
       slots = Map(
-        "bri" -> SlotSource("light.x", Some("brightness"), default = Some("0"))
+        "bri" -> SlotSource(
+          Some("light.x"),
+          transform = "$attr.brightness",
+          default = Some("0")
+        )
       )
     )
     val r = renderer(g)
-    val wrap = (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
+    val wrap =
+      (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
     assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
-    val off = Map("light.x" -> st("off", "brightness" -> Json.Null))
+    val off = Map("light.x" -> st("light.x", "off", "brightness" -> Json.Null))
     assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
-    val on = Map("light.x" -> st("on", "brightness" -> Json.fromInt(200)))
+    val on =
+      Map("light.x" -> st("light.x", "on", "brightness" -> Json.fromInt(200)))
     assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
   }
 
@@ -126,19 +331,30 @@ class RendererSuite extends munit.FunSuite {
       cases = List(
         DynamicCase(
           Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-          "btn"
+          "btn",
+          // label is a slot now (no entityId → inherits the matched entity, which
+          // the renderer injects as the entity_id param), so it resolves to the
+          // matched entity's live friendly_name.
+          slots = Map(
+            "label" -> SlotSource(transform = "$attr.friendly_name")
+          )
         ),
         DynamicCase(
           Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
           "card",
-          slots = Map("state" -> SlotSource("$self"))
+          slots = Map("state" -> SlotSource())
         )
       )
     )
     val states = Map(
-      "light.a" -> st("on", "battery" -> Json.fromInt(10), "friendly_name" -> Json.fromString("Lamp")),
-      "sensor.b" -> st("hot", "battery" -> Json.fromInt(5)),
-      "sensor.c" -> st("cold", "battery" -> Json.fromInt(50))
+      "light.a" -> st(
+        "light.a",
+        "on",
+        "battery" -> Json.fromInt(10),
+        "friendly_name" -> Json.fromString("Lamp")
+      ),
+      "sensor.b" -> st("sensor.b", "hot", "battery" -> Json.fromInt(5)),
+      "sensor.c" -> st("sensor.c", "cold", "battery" -> Json.fromInt(50))
     )
     val r = renderer(dyn)
     // dynamic as layout root -> the group's own id'd container "c" is the morph
@@ -153,13 +369,195 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.dynamicContainerIds, List("c"))
   }
 
+  test(
+    "affectedDynamicIds includes a group only when the change touches its query"
+  ) {
+    def group(query: Option[Predicate]): LayoutNode =
+      LayoutNode.Dynamic(
+        query = query,
+        cases = List(
+          DynamicCase(
+            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+            "card",
+            slots = Map("state" -> SlotSource())
+          )
+        )
+      )
+    val r = renderer(
+      group(Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))))
+    )
+    def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
+    def high(id: String) =
+      st(id, "x", "battery" -> Json.fromInt(50)) // no match
+
+    // in-place update of a member (prev ∧ cur), an add (¬prev ∧ cur), and a
+    // remove (prev ∧ ¬cur) all re-render the group; a newly-seen match too.
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(low("sensor.b")), low("sensor.b"))
+      ),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(high("sensor.b")), low("sensor.b"))
+      ),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("sensor.b", Some(low("sensor.b")), high("sensor.b"))
+      ),
+      List("c")
+    )
+    assertEquals(
+      r.affectedDynamicIds(StateChange("sensor.b", None, low("sensor.b"))),
+      List("c")
+    )
+    // An entity that matches neither before nor after leaves the group's HTML
+    // unchanged, so it is skipped — the whole point of the filter.
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
+      ),
+      Nil
+    )
+    // A query-less group matches everything, so any change affects it.
+    val all = renderer(group(None))
+    assertEquals(
+      all.affectedDynamicIds(
+        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
+      ),
+      List("c")
+    )
+  }
+
+  test(
+    "a constant slot (no entityId) resolves its literal against empty state"
+  ) {
+    val node = LayoutNode.Component(
+      card = "btn",
+      slots = Map("label" -> SlotSource(transform = "\"Hi\""))
+    )
+    val html = renderer(node).renderNodeById("c", Map.empty).get
+    assert(html.contains("<button>Hi</button>"), clue = html)
+  }
+
+  test("a dynamic case's constant label slot is NOT rebound to the match") {
+    // A per-case literal label (entityId = None) must survive: the matched
+    // entity's friendly_name does not override an author-fixed label.
+    val dyn = LayoutNode.Dynamic(
+      query = None,
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+          "btn",
+          slots = Map("label" -> SlotSource(transform = "\"Fixed\""))
+        )
+      )
+    )
+    val states =
+      Map(
+        "light.a" -> st(
+          "light.a",
+          "on",
+          "friendly_name" -> Json.fromString("Lamp")
+        )
+      )
+    val html = renderer(dyn).renderNodeById("c", states).get
+    assert(html.contains("<button>Fixed</button>"), clue = html)
+    assert(!html.contains("Lamp"), clue = html)
+  }
+
+  test("EntityState.javaAttributes is converted once and reused") {
+    val es =
+      EntityState("light.x", "on", Map("brightness" -> Json.fromInt(200)))
+    // Same instance on every access (cached per state version), and numbers stay
+    // numeric for `$attr.brightness` arithmetic.
+    assert(
+      es.javaAttributes eq es.javaAttributes,
+      clue = "identity-stable cache"
+    )
+    assertEquals(es.javaAttributes.get("brightness"), 200L)
+  }
+
+  test("theme tokens + styles are injected as a <style> block") {
+    val d = Dashboard(
+      cards,
+      col(),
+      theme = Theme(
+        tokens = Map("primary-color" -> "#bada55", "accent-color" -> "#000"),
+        styles = ".card{color:red}"
+      )
+    )
+    val page = Renderer.create(d).renderPage(Map.empty)
+    // sorted token vars, then the theme's inline styles; no dark overrides
+    assert(
+      page.startsWith(
+        """<main class="container" id="dashboard"><style>:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style>"""
+      ),
+      clue = page
+    )
+    assert(!page.contains("prefers-color-scheme"), clue = page)
+  }
+
+  test("dark token overrides go under prefers-color-scheme: dark") {
+    val d = Dashboard(
+      cards,
+      col(),
+      theme = Theme(
+        tokens = Map("primary-text-color" -> "#212121"),
+        tokensDark = Map("primary-text-color" -> "#e1e1e1")
+      )
+    )
+    val page = Renderer.create(d).renderPage(Map.empty)
+    assert(
+      page.contains(
+        "@media (prefers-color-scheme:dark){:root{--primary-text-color:#e1e1e1;}}"
+      ),
+      clue = page
+    )
+  }
+
+  test("no theme -> no :root style block") {
+    val d = Dashboard(cards, col())
+    val page = Renderer.create(d).renderPage(Map.empty)
+    assert(!page.contains("<style>"), clue = page)
+    assertEquals(Renderer.create(d).stylesheets, Nil)
+  }
+
   test("Predicate evaluation: comparisons and boolean combinators") {
-    val s = st("18", "battery" -> Json.fromInt(15))
-    assert(Renderer.matches(Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")), "sensor.x", s))
-    assert(!Renderer.matches(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), "sensor.x", s))
-    assert(Renderer.matches(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)), "sensor.x", s))
-    assert(!Renderer.matches(Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)), "sensor.x", s))
-    assert(Renderer.matches(Predicate.Cmp("state", Op.Lte, Json.fromInt(18)), "sensor.x", s))
+    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
+        s
+      )
+    )
+    assert(
+      !Renderer.matches(
+        Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+        s
+      )
+    )
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)),
+        s
+      )
+    )
+    assert(
+      !Renderer.matches(
+        Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)),
+        s
+      )
+    )
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("state", Op.Lte, Json.fromInt(18)),
+        s
+      )
+    )
 
     val both = Predicate.And(
       List(
@@ -167,14 +565,207 @@ class RendererSuite extends munit.FunSuite {
         Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
       )
     )
-    assert(Renderer.matches(both, "sensor.x", s))
-    assert(Renderer.matches(Predicate.Not(both), "light.x", s))
+    assert(Renderer.matches(both, s))
+    // A light-domain entity fails the `domain == sensor` arm, so `Not(both)`.
+    val sLight = st("light.x", "18", "battery" -> Json.fromInt(15))
+    assert(Renderer.matches(Predicate.Not(both), sLight))
     assert(
       Renderer.matches(
-        Predicate.Or(List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)),
-        "sensor.x",
+        Predicate.Or(
+          List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)
+        ),
         s
       )
     )
+  }
+
+  test(
+    "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
+  ) {
+    // Every surface is chrome-less: the frame/host a surface swaps into lives
+    // in theme.chrome (the inlined <dialog> for a popup, the tabs card's panel
+    // host for a tab), not a per-surface wrapper. renderSurface just renders content,
+    // namespaced under the surface-scoped id prefix.
+    val d = Dashboard(
+      cards,
+      col(),
+      surfaces = Map(
+        "detail" -> Surface(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.t")))
+          )
+        )
+      )
+    )
+    val r = Renderer.create(d)
+    val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
+    val html = r.renderSurface("detail", states).get
+    assert(!html.contains("<dialog"), clue = html)
+    assert(!html.contains("surface/close"), clue = html)
+    assert(html.contains("<span>42</span>"), clue = html)
+    // inner node ids are surface-namespaced and individually re-renderable
+    assert(html.contains("""id="s_detail__c""""), clue = html)
+    assert(
+      r.renderNodeById("s_detail__c", states).get.contains("<span>42</span>")
+    )
+    // the surface's entity drives ONLY the surface index, not the main page
+    assert(
+      r.componentsFor("sensor.t").isEmpty,
+      clue = r.componentsFor("sensor.t")
+    )
+    assertEquals(
+      r.surfaceComponentsFor("detail", "sensor.t"),
+      Set("s_detail__c")
+    )
+    // unknown surface -> None
+    assertEquals(r.renderSurface("nope", states), None)
+  }
+
+  test(
+    "tabs: default panel is baked into the tabs card; a panel renders without dialog chrome"
+  ) {
+    val rr = Renderer.create(tabsDashboard)
+    val states = Map(
+      "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
+      "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
+    )
+    // The first tab is registered as the only default-open surface.
+    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
+
+    // renderBody renders the `tabs` component (id "c") whose template contains a
+    // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
+    // The first tab's content is baked in via {{{panel}}} (surface-namespaced ids,
+    // matching a later switch-back — byte-identical HTML).
+    val body = rr.renderBody(states)
+    assert(
+      body.contains(
+        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">"""
+      ),
+      clue = body
+    )
+    assert(body.contains("""id="s_c_t0__c""""), clue = body)
+    assert(body.contains("<span>AA</span>"), clue = body)
+    // the second tab is NOT baked in
+    assert(!body.contains("<span>BB</span>"), clue = body)
+
+    // An inline-mounted surface renders bare — no chrome wrapper, no <dialog>, no ✕.
+    val panelB = rr.renderSurface("c_t1", states).get
+    assert(
+      panelB.startsWith("""<div class="fh-cell" id="s_c_t1__c">"""),
+      clue = panelB
+    )
+    assert(!panelB.contains("<dialog"), clue = panelB)
+    assert(!panelB.contains("surface/close"), clue = panelB)
+    assert(panelB.contains("<span>BB</span>"), clue = panelB)
+
+    // each tab's entity drives only its own surface index
+    assertEquals(rr.surfaceComponentsFor("c_t0", "sensor.a"), Set("s_c_t0__c"))
+    assertEquals(rr.surfaceComponentsFor("c_t1", "sensor.b"), Set("s_c_t1__c"))
+  }
+
+  test(
+    "selectedSurfaces picks the uiState-indexed member; empty map == the old default"
+  ) {
+    val rr = Renderer.create(tabsDashboard)
+    // A cookie index selects that member of the bake group...
+    assertEquals(rr.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
+    // ...and no cookie picks index 0 (parity with the old defaultOpenSurfaces).
+    assertEquals(rr.selectedSurfaces(Map.empty), Set("c_t0"))
+    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
+  }
+
+  test(
+    "render of a tabs component with a uiState index bakes that tab + seeds its signal"
+  ) {
+    val rr = Renderer.create(tabsDashboard)
+    val states = Map(
+      "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
+      "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
+    )
+    // uiState maps the tabs component id ("c") to the active index "1".
+    val body = rr.renderBody(states, Map("c" -> "1"))
+    // the panel host seeds `tab_c: 1` (from the injected bakeIndex)...
+    assert(
+      body.contains(
+        """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 1 }">"""
+      ),
+      clue = body
+    )
+    // ...and the SECOND tab's content is baked (surface c_t1), not the first.
+    assert(body.contains("""id="s_c_t1__c""""), clue = body)
+    assert(body.contains("<span>BB</span>"), clue = body)
+    assert(!body.contains("<span>AA</span>"), clue = body)
+  }
+
+  test("resolveActive parses, clamps, and warns on an off cookie value") {
+    val rr = Renderer.create(tabsDashboard)
+    // out of range and unparseable both fall back to index 0 AND yield a warning
+    val outOfRange = rr.resolveActive("c", Map("c" -> "99"))
+    assertEquals(outOfRange._1, 0)
+    assert(outOfRange._2.isDefined, clue = outOfRange)
+    val unparseable = rr.resolveActive("c", Map("c" -> "abc"))
+    assertEquals(unparseable._1, 0)
+    assert(unparseable._2.isDefined, clue = unparseable)
+    // a valid index and an absent key both select without a warning
+    assertEquals(rr.resolveActive("c", Map("c" -> "1")), (1, None))
+    assertEquals(rr.resolveActive("c", Map.empty), (0, None))
+    // uiStateAnomalies surfaces exactly the malformed entries
+    assertEquals(rr.uiStateAnomalies(Map("c" -> "1")), Nil)
+    assertEquals(rr.uiStateAnomalies(Map.empty), Nil)
+    assertEquals(rr.uiStateAnomalies(Map("c" -> "99")).size, 1)
+  }
+
+  test(
+    "renderBody is the shell-less body (what a navigate swap inner-patches)"
+  ) {
+    val r =
+      renderer(col(row(LayoutNode.Component("btn", Map("label" -> lit("Go"))))))
+    val body = r.renderBody(Map.empty)
+    assert(!body.contains("""id="dashboard""""), clue = body)
+    assert(!body.contains("""id="popups""""), clue = body)
+    assertEquals(
+      body,
+      """<div class="fh-col"><div class="fh-row"><button>Go</button></div></div>"""
+    )
+  }
+
+  test(
+    "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
+  ) {
+    val bad = Dashboard(
+      cards,
+      col(),
+      theme = Theme(chrome = """<main>{{{body}}}</main>""")
+    )
+    assert(
+      bad.validate().exists(_.contains("theme.chrome must contain")),
+      clue = bad.validate()
+    )
+
+    // The contract-satisfying chrome (carries id="dashboard") produces no error.
+    val ok = Dashboard(
+      cards,
+      col(),
+      theme = Theme(chrome = """<main id="dashboard">{{{body}}}</main>""")
+    )
+    assertEquals(ok.validate(), Nil)
+
+    // Empty chrome (the fallback) is never checked.
+    assertEquals(Dashboard(cards, col()).validate(), Nil)
+  }
+
+  test(
+    "Surface.hostId derives <bakeInto>_<bakeAs> for a baked surface, the popup overlay otherwise"
+  ) {
+    val baked = Surface(
+      col(),
+      bakeInto = Some("c_1"),
+      bakeAs = Some("panel")
+    )
+    assertEquals(baked.hostId, "c_1_panel")
+
+    val unbaked = Surface(col())
+    assertEquals(unbaked.hostId, Dashboard.PopupHostId)
   }
 }

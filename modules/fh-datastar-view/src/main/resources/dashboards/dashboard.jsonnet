@@ -1,55 +1,174 @@
 // Example dashboard definition.
 //
 // Composes components against the live entity dump (generated as `dump.libsonnet`
-// by the build phase) into the `dashboard.json` artifact `{ templates, layout }`.
+// by the build phase) into the `dashboard.json` artifact `{ cards, layout }`.
 // The layout is a RECURSIVE tree of rows/columns and component leaves; leaves
-// reference shared templates by name (see components.libsonnet).
+// reference shared cards by name (see components.libsonnet).
+//
+// The "design system" is exactly that shared card library (`c.cards`):
+// re-skin the whole dashboard by editing/replacing those Mustache templates (or
+// importing a different library) — the layout and the backend are unaffected.
 local c = import 'components.libsonnet';
+local d = c.dynamic;  // the dynamic-group DSL (query predicates + group/when/case)
 local dump = import 'dump.libsonnet';
+local theme = import 'theme.libsonnet';
+local entities = std.objectValues(dump.entities);
 
-// Named, non-hidden entities in a given domain, capped for the demo.
-local pick(domain, limit) =
-  local all = [
-    dump.entities[k]
-    for k in std.objectFields(dump.entities)
-    if k != '*'
-       && dump.entities[k].domain == domain
-       && dump.entities[k].friendly_name != null
-  ];
-  all[0:std.min(limit, std.length(all))];
 
-local lights = pick('light', 4);
-local sensors = pick('sensor', 6);
+// "static dynamic" for room entities and things like that. Things that are not going to live changing when viewing the dashboard.
+// Every now and so often the system could recreate the dump and combine the setup to have a dashboard.json with the latest changes.
+// "dynamic" for live chaning things while viewing the dashboard. For.ex all with battery below X
 
+
+// Live reload: ServerApp watches these source files and hot-swaps the renderer
+// on change (the browser repaints over SSE) — see ServerApp.watchSources.
+
+// Decision: multiple top-level views are separate dashboard files, not in-page
+// tabs. The runtime already evaluates a chosen jsonnet entry (ServerApp's
+// `dashboard.jsonnet`, overridable), so a "view" = its own entry file; this
+// keeps each view independently addressable and avoids loading/streaming every
+// view at once. (An in-page `tabs` container is possible later, but it needs
+// per-child labels — richer child metadata than today's `{html}` children.)
 {
-  templates: c.templates,
-  layout: c.column([
+  cards: c.cards,
+  // All presentation (design tokens + stylesheets + CSS) lives in the theme,
+  // so the app isn't tied to a CSS framework. See theme.libsonnet.
+  theme: theme,
+  // The root of the view is itself a card (here a column container).
+  // Surfaces (popups): lazily mounted subtrees, opened by a component's
+  // openPopup(<id>) action and rendered/streamed only while open. `group` makes
+  // members mutually exclusive (the basis for tabs); absent = stackable.
+  surfaces: {
+    detail: {
+      // A registered popup surface wraps its content in the `popup` dialog
+      // card (symmetric with how `c.tabs` builds its surfaces); the inline
+      // `openPopup(node)` form wraps automatically.
+      content: c.popup(c.column([
+        c.sectionTitle('Power detail'),
+        c.entityCard(dump.entities.sensor_ams_1a4e_p),
+        c.button(action=c.closePopup('detail'), label='Close'),
+      ])),
+    },
+  },
+
+  card: c.column([
+    // TODO config parameters for card, vs properties of valuest to show
     c.sectionTitle('Dashboard'),
 
-    // A row of light toggles, then a row of brightness sliders.
     c.row([
-      c.button(eo.friendly_name, 'homeassistant', 'toggle', eo.entity_id)
-      for eo in lights
+    // Cross-dashboard navigation: in-place swap to /d/energy (URL updates too).
+      c.column([
+        c.button(action=c.navigate('energy'), label='Energy »'),
+        c.button(action=c.navigate('tabs'), label='Tabs test »'),
+      ]),
+
+      // Tapping the first card opens the registered 'detail' popup; the second
+      // opens an INLINE popup (the backend hoists its content into a surface and
+      // its close control is supplied by the popup wrapper).
+      c.column([
+        c.entityCard(dump.entities.sensor_ams_1a4e_p, tap=c.openPopup('detail')),
+        c.entityCard(
+          dump.entities.sensor_ams_1a4e_p,
+          label='Inline popup',
+          tap=c.openPopup(c.column([
+            c.sectionTitle('Inline detail'),
+            c.entityCard(dump.entities.sensor_ams_1a4e_p),
+          ])),
+        ),
+      ]),
     ]),
     c.row([
-      c.brightnessSlider(eo.friendly_name, eo.entity_id)
-      for eo in lights
+      c.button(action=c.navigate('underetasje'), label='Underetasje »'),
+      c.button(action=c.navigate('inngangsetasje'), label='Inngangsetasje »'),
+      c.button(action=c.navigate('overetasje'), label='Overetasje »'),
     ]),
 
-    // A grid of sensor readings.
+    c.sectionTitle('Kitchen'),
+    // A row of light toggles, then a row of brightness sliders. `c.button` /
+    // `c.slider` configure themselves from each entity's domain (light here).
+    c.row([
+      c.button(eo)
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
+    ]),
+    c.row([
+      c.slider(eo)
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.kjokken.area_id
+    ]),
+    c.sectionTitle('Living room'),
+    // Living-room lights as tap-to-toggle entity cards, with a secondary line
+    // showing the brightness attribute.
+    c.row([
+      c.entityCard(eo, secondary='brightness', tap=c.toggleTap)
+      for eo in entities if eo.domain == 'light' && eo.area_id == dump.areas.living_room.area_id
+    ]),
+
+    // A grid of sensor readings, rounded to one decimal with the unit appended.
+    // (A custom transform replaces the default, so it appends the unit itself.)
     c.sectionTitle('Sensors'),
     c.row([
-      c.stateCard(eo.friendly_name, eo.entity_id)
-      for eo in sensors
+      c.entityCard(
+        eo,
+        // Custom sample: a live value expression (same wrapper as a live label)
+        value=c.expr('$round($number($state), 1) & " " & $attr.unit_of_measurement'),
+      )
+      for eo in entities if eo.domain == 'sensor'
     ]),
 
-    // DYNAMIC group: every `device_class: battery` sensor whose state (the
-    // battery %) is under 20, evaluated live. Membership tracks the threshold
-    // as batteries drain.
+    // MULTI-ENTITY card: the card is ABOUT the active-power sensor (its value),
+    // but the secondary line is sourced from a DIFFERENT entity (the L1 line
+    // voltage) via `c.exprOf`. The card joins both sensors' live-dependency sets,
+    // so it repaints when EITHER changes — only possible now that a slot can name
+    // its own entity instead of inheriting the card's.
+    c.sectionTitle('Multi-entity'),
+    c.row([
+      c.entityCard(
+        dump.entities.sensor_ams_1a4e_p,
+        secondary=c.exprOf(dump.entities.sensor_ams_1a4e_u1, '"L1 " & $state & " V"'),
+      ),
+    ]),
+
+    // DYNAMIC group with PER-DOMAIN dispatch. `d.group(query, card)` renders one
+    // card per live entity matching `query`; here the card is a `d.when`
+    // selector, so the FIRST matching branch picks it. Membership AND the chosen
+    // card track live state. Branches reuse the SAME leaf builders as static
+    // cards, with `d.matched` as the entity (no separate dyn* builders). The
+    // whole DSL is namespaced under `c.dynamic` (aliased `d` above).
+    //
+    // Each branch also shows a LIVE label via `c.expr(...)` (a JSONata expr over
+    // the matched entity, in the SAME `label` arg that takes a plain string): a
+    // light's brightness slider is labelled with its live brightness %, and the
+    // catch-all card appends each entity's live state — labels are slots now, so
+    // they repaint with the entity (ADR 0004).
+    c.sectionTitle('Active now'),
+    d.group(d.whenState('on'), d.when([
+      d.case(
+        d.whenDomain('light'),
+        c.slider(
+          d.matched,
+          // name · 45%  (guarded: an "on" light may briefly have no brightness)
+          label=c.expr('$attr.friendly_name & ($attr.brightness ? " · " & $round($number($attr.brightness) / 2.55) & "%" : "")'),
+        ),
+      ),
+      d.case(d.whenDomain('switch'), c.button(d.matched)),
+    ], fallback=c.entityCard(
+      d.matched,
+      tap=c.toggleTap,
+      label=c.expr('$attr.friendly_name & " (" & $state & ")"'),
+    ))),
+
+    // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
+    // `device_class: battery` sensor under 20%, tracked live as batteries drain.
+    // No dispatch needed (one card for every match), but the card is richer than
+    // a bare default: a live label carrying the percentage and a secondary line
+    // naming the device class.
     c.sectionTitle('Low battery'),
-    c.dynamic(
-      c.lowBattery(20),
-      [c.dynStateCard(c.always)]
+    d.group(
+      d.lowBattery(20),
+      c.entityCard(
+        d.matched,
+        label=c.expr('$attr.friendly_name & " — " & $state & "%"'),
+        secondary='device_class',
+      ),
     ),
   ]),
 }
