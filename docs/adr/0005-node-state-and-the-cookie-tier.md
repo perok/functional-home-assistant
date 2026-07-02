@@ -179,3 +179,26 @@ reload).
   member. The tao also *sanctions* the rest of the design — "Restrained Signal
   Usage" lists local UI state (a tab index) as an appropriate signal, so
   `tab_<id>` is not an anti-pattern; persistence is the orthogonal layer.
+
+## Update — 2026-07-02: the active-tab cookie restore landed
+
+The first use ([`plan-tab-state-persistence`](../plan-tab-state-persistence.md))
+is implemented and green, in two phases on `datastar-todos`:
+
+- **Phase 1 (`cd845e6`)** — model + renderer plumbing, behaviour-identical:
+  `Surface.bakeIndex`; the pure `resolveActive` (parse + clamp an untrusted index,
+  returning the chosen index and an optional warning) + `selectedSurfaces(uiState)`
+  + `uiStateAnomalies`; `uiState` threaded (default empty) through
+  `renderPage`/`renderBody`/`render`; the `tabs` panel seed became
+  `tab_{{id}}: {{bakeIndex}}`.
+- **Phase 2 (`e787aad`)** — cookie wiring: `Server.uiStateOf(req)` keeps `fhui_`
+  cookies as opaque `id -> value`, read on the GET, SSE connect, and navigate;
+  `defaultOpenSurfaces` deleted in favour of `selectedSurfaces(uiState)`; anomalies
+  logged via `IO.println`; each `tabs` click writes `fhui_<id>=<i>`.
+
+So an active tab now survives reload and in-place navigate, restored flash-free
+because the server bakes the cookie-selected surface on the first-paint GET. A
+malformed cookie falls back to index 0 and prints a warning. `testFull` = **56**
+green. The declared-`state` sugar and single-JSON-cookie consolidation remain
+deferred per Decision 3. **In-browser confirmation of the reload/navigate restore
+is still pending** (renderer + server tests cover the logic).
