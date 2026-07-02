@@ -20,19 +20,16 @@ local tokens = import 'tokens.libsonnet';
   ],
 
   // The dashboard frame: the `#dashboard` swap target (what navigate/reload
-  // inner-patch) plus the popup overlay host. The theme owns the WHOLE chrome —
-  // including the popup `<dialog>` + its ✕/close-`@post`, inlined here (the theme
-  // is self-contained: it imports no component library). The backend only fills
-  // `{{{body}}}` and reads no card name. A theme with no popups drops the
-  // `<dialog>`. Contract: keep an element with `id="dashboard"` around
-  // `{{{body}}}` (the swap target) and `#popups-body` as the popup content host
-  // (a surface inner-replaces into it; `swapHost`/`POST /sse/popup/close`).
+  // inner-patch) plus the `#popups` overlay MOUNT. The theme owns only these two
+  // structural anchors — NOT the popup dialog: that is a `popup` container card
+  // (components.libsonnet) composed into a popup's content and patched into
+  // `#popups` on open (removed on close). So the theme imports no component
+  // library and hand-writes no dialog/✕/close-URL. Contract: keep an element
+  // with `id="dashboard"` around `{{{body}}}` (the swap target) and a
+  // `<div id="popups">` mount (`swapHost`/`POST /sse/popup/close` target).
   chrome: |||
     <main class="container" id="dashboard">{{{body}}}</main>
-    <dialog id="popups" open class="popup">
-      <button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>
-      <div id="popups-body"></div>
-    </dialog>
+    <div id="popups"></div>
   |||,
 
   styles: |||
@@ -75,16 +72,15 @@ local tokens = import 'tokens.libsonnet';
     .tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
     .tab-panel{display:contents}
 
-    /* Popup overlay: the theme-owned host (the `chrome` `<dialog>` above), a fixed-position
-       card floated over the page. It ships `open` in the markup (a static
-       attribute, never toggled server-side) and hides via CSS alone whenever
-       its inner region (`#popups-body`) is empty — no signal, no server
-       state; open patches content in (shown), close patches it empty (hidden). */
+    /* Popup overlay: styling for the `popup` container card
+       (components.libsonnet), a fixed-position card floated over the page. The
+       dialog is transient — patched into `#popups` on open, removed on close —
+       so no visibility trick is needed; it exists only while open. The theme
+       styles `.popup` (a class contract, like `.card`); the component emits it. */
     dialog.popup{position:fixed;inset:10vh 1rem auto;margin:0 auto;z-index:10;
       border:none;border-radius:var(--ha-card-border-radius,12px);
       background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);
       padding:1.5rem;max-width:min(90vw,32rem);box-shadow:0 4px 24px rgba(0,0,0,.2)}
-    dialog.popup:has(#popups-body:empty){display:none}
     .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
       border:none;color:var(--secondary-text-color,#727272);cursor:pointer;font-size:1rem}
   |||,
