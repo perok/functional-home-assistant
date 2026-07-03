@@ -1,8 +1,18 @@
 package fh.view.build
 
-import fh.view.model.{Dashboard, LayoutNode}
+import fh.view.model.{Dashboard, LayoutNode, Op, Predicate}
+import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
+
+  /** Collect every [[LayoutNode.Dynamic]] reachable from a node (mirrors
+    * BuildPhaseSuite's `dynamics` collector).
+    */
+  private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
+    node match {
+      case c: LayoutNode.Component => c.children.flatMap(dynamics)
+      case d: LayoutNode.Dynamic   => List(d)
+    }
 
   test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
     val tmp = os.temp.dir()
@@ -356,11 +366,61 @@ class PklBuildSuite extends munit.FunSuite {
 
     val root = d.card.asInstanceOf[LayoutNode.Component]
     assertEquals(root.card, "fhcol")
-    val children = root.children.map(_.asInstanceOf[LayoutNode.Component])
+    // The layout now interleaves component cards with two dynamic groups.
+    val children =
+      root.children.collect { case c: LayoutNode.Component => c }
     assertEquals(
       children.map(_.card),
-      List("sectionTitle", "entityCard", "entityCard", "slider", "button")
+      List(
+        "sectionTitle",
+        "entityCard",
+        "entityCard",
+        "slider",
+        "sectionTitle",
+        "sectionTitle",
+        "button"
+      )
     )
+
+    // Two dynamic groups: a per-domain dispatch group and the low-battery one.
+    val dyns = dynamics(d.card)
+    assertEquals(dyns.size, 2)
+
+    // Dispatch group: query = whenState("on"); a light branch + an always
+    // fallback, both entityCards; no `entity_id` slot survives in the cases.
+    val dispatch = dyns(0)
+    assertEquals(
+      dispatch.query,
+      Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    )
+    assertEquals(dispatch.cases.map(_.card), List("entityCard", "entityCard"))
+    assertEquals(
+      dispatch.cases(0).when,
+      Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
+    )
+    assertEquals(
+      dispatch.cases(1).when,
+      Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+    )
+    dispatch.cases.foreach(cse =>
+      assert(!cse.slots.contains("entity_id"), clue = cse.slots.keySet)
+    )
+
+    // Low-battery group: query = pAnd([whenDeviceClass battery, stateLessThan 20]).
+    val battery = dyns(1)
+    assertEquals(battery.cases.map(_.card), List("entityCard"))
+    battery.query match {
+      case Some(Predicate.And(items)) =>
+        assertEquals(
+          items,
+          List(
+            Predicate
+              .Cmp("attr:device_class", Op.Eq, Json.fromString("battery")),
+            Predicate.Cmp("state", Op.Lt, Json.fromInt(20))
+          )
+        )
+      case other => fail(s"expected And query, got $other")
+    }
 
     // Slider config resolved at build time, as STRING literals (the slot
     // decoder rejects numbers — the highest-risk contract rule).
@@ -413,6 +473,54 @@ class PklBuildSuite extends munit.FunSuite {
       .toOption
       .get
       .asInstanceOf[LayoutNode.Component]
+  }
+
+  /** Evaluate a probe module that imports the real lib and decode its `node`
+    * property as a Dynamic group.
+    */
+  private def probeDynamic(body: String): LayoutNode.Dynamic = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |
+         |import "lib/hass.pkl"
+         |import "lib/components.pkl" as c
+         |
+         |$body
+         |
+         |output { renderer = new JsonRenderer { omitNullProperties = true } }
+         |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Dynamic]
+  }
+
+  test("dynCase drops the entity_id slot via the Mapping for-generator") {
+    // Exercised EARLY (plan risk item 2): the `when (k != "entity_id")`
+    // for-generator that filters a card's slots into a dynamic case.
+    val dyn = probeDynamic(
+      """node = c.group(c.whenState("on"), new c.EntityCard { entity = hass.SELF })"""
+    )
+    assertEquals(dyn.cases.size, 1)
+    val slots = dyn.cases.head.slots
+    assert(!slots.contains("entity_id"), clue = slots.keySet)
+    // The other slots ride along: label (the $self live default) and value.
+    assert(slots.contains("label"), clue = slots.keySet)
+    assert(slots.contains("value"), clue = slots.keySet)
+    // The $self label is the LIVE friendly_name default, not a baked literal.
+    assertEquals(slots("label").literal, None)
+    assertEquals(
+      slots("label").transform,
+      "$attr.friendly_name ? $attr.friendly_name : $entity_id"
+    )
   }
 
   test("exprOf threads an explicit entityId into the emitted slot") {
