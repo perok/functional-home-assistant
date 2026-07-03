@@ -35,15 +35,12 @@ card: c.Node = new c.Column {
 
     // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity,
     // the card chosen by the first matching branch. Cards are built against
-    // hass.SELF (the match placeholder). NOTE: a $self Slider needs the runtime
-    // $lookup($domain) config tier (plan step 3), so the light branch uses an
-    // EntityCard for now — no dynamic Slider case yet.
+    // hass.SELF (the match placeholder). The light branch is a $self Slider: its
+    // action/key/min/max/position resolve per matched light via the runtime
+    // $lookup($domain) config tier (plan step 3).
     new c.SectionTitle { text = "Active now" }
     c.groupCases(c.whenState("on"), c.dynWhen(new Listing {
-      c.dynCase(c.whenDomain("light"), new c.EntityCard {
-        entity = hass.SELF
-        label = c.expr(#"$attr.friendly_name & ($attr.brightness ? " · " & $round($number($attr.brightness) / 2.55) & "%" : "")"#)
-      })
+      c.dynCase(c.whenDomain("light"), new c.Slider { entity = hass.SELF })
     }, new c.EntityCard {
       // fallback: every other "on" entity, toggled on tap.
       entity = hass.SELF

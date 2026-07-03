@@ -386,14 +386,14 @@ class PklBuildSuite extends munit.FunSuite {
     val dyns = dynamics(d.card)
     assertEquals(dyns.size, 2)
 
-    // Dispatch group: query = whenState("on"); a light branch + an always
-    // fallback, both entityCards; no `entity_id` slot survives in the cases.
+    // Dispatch group: query = whenState("on"); a light branch (a $self Slider)
+    // + an always entityCard fallback; no `entity_id` slot survives the cases.
     val dispatch = dyns(0)
     assertEquals(
       dispatch.query,
       Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
     )
-    assertEquals(dispatch.cases.map(_.card), List("entityCard", "entityCard"))
+    assertEquals(dispatch.cases.map(_.card), List("slider", "entityCard"))
     assertEquals(
       dispatch.cases(0).when,
       Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
@@ -572,5 +572,69 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slider.slots("min").literal, Some("0"))
     assertEquals(slider.slots("max").literal, Some("100"))
     assertEquals(slider.slots("value").transform, "$attr.current_position")
+  }
+
+  test("dynamic Slider ($self) resolves config via runtime $lookup($domain)") {
+    // A $self slider can't know its domain until a match, so action/key/min/max
+    // and the live position fall back to jsonnet's runtime $lookup over the
+    // sliderSpec table (all three domains present, in insertion order).
+    val dyn = probeDynamic(
+      """node = c.group(c.whenState("on"), new c.Slider { entity = hass.SELF })"""
+    )
+    assertEquals(dyn.cases.size, 1)
+    val slots = dyn.cases.head.slots
+    // entity_id is dropped (the renderer injects the matched entity per match).
+    assert(!slots.contains("entity_id"), clue = slots.keySet)
+
+    // action: the exact JSONata object literal over the whole sliderSpec table.
+    val action = slots("action")
+    assertEquals(action.literal, None)
+    assertEquals(action.reactive, false)
+    assertEquals(action.bypassUnavailable, false)
+    assertEquals(
+      action.transform,
+      "$lookup({\"light\":\"light/turn_on\"," +
+        "\"cover\":\"cover/set_cover_position\"," +
+        "\"fan\":\"fan/set_percentage\"}, $domain)"
+    )
+    // key/min/max likewise resolve via $lookup($domain); min/max maps carry the
+    // bare Int values (unquoted).
+    assertEquals(
+      slots("key").transform,
+      "$lookup({\"light\":\"brightness\",\"cover\":\"position\"," +
+        "\"fan\":\"percentage\"}, $domain)"
+    )
+    assertEquals(
+      slots("min").transform,
+      "$lookup({\"light\":1,\"cover\":0,\"fan\":0}, $domain)"
+    )
+    assertEquals(
+      slots("max").transform,
+      "$lookup({\"light\":255,\"cover\":100,\"fan\":100}, $domain)"
+    )
+    // The live position: read the domain's position attr off $attr.
+    assertEquals(
+      slots("value").transform,
+      "$lookup($attr, $lookup({\"light\":\"brightness\"," +
+        "\"cover\":\"current_position\",\"fan\":\"percentage\"}, $domain))"
+    )
+    assertEquals(slots("value").default, Some("0"))
+    assertEquals(slots("value").bypassUnavailable, false)
+  }
+
+  test("a Slider on a non-slider domain (static sensor) fails the constraint") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |sensor: hass.GenericEntity = new { entity_id = "sensor.temp"; domain = "sensor" }
+        |node = new c.Slider { entity = sensor }
+        |output { renderer = new JsonRenderer {} }
+        |""".stripMargin
+    )
+    assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 }
