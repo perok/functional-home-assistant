@@ -268,9 +268,19 @@ class PklBuildSuite extends munit.FunSuite {
   test(
     "theme.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {
-    // Evaluated in place (read-only) — theme.pkl imports tokens.pkl by
-    // relative path, so the real lib dir works directly as an entry dir.
-    val result = SourceEval.eval(resourcesLib, "theme.pkl")
+    // Lib modules carry no output block (only entries are evaluated in
+    // production), so a probe entry re-exposes the theme for evaluation.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "theme.pkl", "tokens.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/theme.pkl" as themeMod
+        |theme = themeMod.theme
+        |output { renderer = new JsonRenderer { omitNullProperties = true } }
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val theme = result.toOption.get.value.hcursor.downField("theme")
     assert(
@@ -302,7 +312,17 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("components.pkl carries the six MVP card templates with their slots") {
-    val result = SourceEval.eval(resourcesLib, "components.pkl")
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/components.pkl" as c
+        |cards = c.cards
+        |output { renderer = new JsonRenderer { omitNullProperties = true } }
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cards = result.toOption.get.value.hcursor.downField("cards")
 
