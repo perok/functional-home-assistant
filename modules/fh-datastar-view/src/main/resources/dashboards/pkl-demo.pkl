@@ -92,7 +92,3 @@ card: c.Node = new c.Column {
     new c.Button { label = "« Back to jsonnet"; action = c.navigate("dashboard") }
   }
 }
-
-output {
-  renderer = new JsonRenderer { omitNullProperties = true }
-}

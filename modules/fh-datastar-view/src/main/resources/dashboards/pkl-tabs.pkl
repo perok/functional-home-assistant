@@ -61,7 +61,3 @@ card: c.Node = new c.Column {
     }
   }
 }
-
-output {
-  renderer = new JsonRenderer { omitNullProperties = true }
-}

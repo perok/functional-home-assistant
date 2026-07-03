@@ -9,8 +9,11 @@ import org.pkl.core.{
   Evaluator,
   ModuleSource,
   SecurityManagers,
-  StackFrameTransformers
+  StackFrameTransformers,
+  ValueRenderers
 }
+
+import java.io.StringWriter
 
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
@@ -19,13 +22,11 @@ import scala.util.control.NonFatal
 /** In-process Pkl evaluation for the build phase (the `.pkl` counterpart of
   * [[JsonnetBuild]]).
   *
-  * The entry module must render itself as JSON:
-  * {{{
-  * output { renderer = new JsonRenderer { omitNullProperties = true } }
-  * }}}
-  * (`omitNullProperties` makes absent optional fields decode as `None` rather
-  * than JSON nulls.) Like jsonnet, this runs once at build/startup/reload —
-  * never on the live hot path.
+  * The evaluated module is rendered to JSON here (Java-side
+  * `ValueRenderers.json` with `omitNullProperties = true`, so absent optional
+  * fields decode as `None` rather than JSON nulls) — entry modules need no
+  * `output { renderer = ... }` block; like jsonnet, an entry just IS its data.
+  * This runs once at build/startup/reload — never on the live hot path.
   */
 object PklBuild {
 
@@ -45,10 +46,12 @@ object PklBuild {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val evaluator = Evaluator.preconfigured()
-      val text =
-        try evaluator.evaluateOutputText(ModuleSource.path(entry.toNIO))
+      val module =
+        try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
-      parser.parse(text).left.map(_.message).map { json =>
+      val writer = new StringWriter
+      ValueRenderers.json(writer, "  ", true).renderDocument(module)
+      parser.parse(writer.toString).left.map(_.message).map { json =>
         SourceEval.Result(json, importSet(dashboardsDir, entry))
       }
     } catch {
