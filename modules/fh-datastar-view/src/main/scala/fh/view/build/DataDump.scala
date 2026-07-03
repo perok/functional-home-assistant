@@ -135,13 +135,13 @@ object DataDump {
   /** Entity key: just dots -> underscores (entity_ids are already
     * `[a-z0-9_]`-plus-one-dot, and `at(id)` in jsonnet mirrors this exactly).
     */
-  private def entityKey(id: String): String = id.replace(".", "_")
+  private[build] def entityKey(id: String): String = id.replace(".", "_")
 
   /** A friendly, valid jsonnet field name from a free-form name: lower-cased,
     * Nordic letters and diacritics folded to ASCII, runs of anything else
     * collapsed to a single underscore (`Kjøkken` -> `kjokken`).
     */
-  private def slug(name: String): String =
+  private[build] def slug(name: String): String =
     java.text.Normalizer
       .normalize(
         name.toLowerCase.replace("ø", "o").replace("æ", "ae").replace("å", "a"),

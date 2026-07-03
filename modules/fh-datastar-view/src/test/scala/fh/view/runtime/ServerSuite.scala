@@ -31,8 +31,12 @@ class ServerSuite extends munit.FunSuite {
         LayoutNode.Component(
           "tabs",
           children = List(
-            LayoutNode.Component("btn", Map("label" -> SlotSource(literal = Some("A")))),
-            LayoutNode.Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
+            LayoutNode.Component(
+              "btn",
+              Map("label" -> SlotSource(literal = Some("A")))
+            ),
+            LayoutNode
+              .Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
           )
         ),
         surfaces = Map(
@@ -77,10 +81,15 @@ class ServerSuite extends munit.FunSuite {
     // The server seeds the open set (and bakes) from this selection.
     assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
-    assert(r.uiStateAnomalies(uiState).isEmpty, clue = r.uiStateAnomalies(uiState))
+    assert(
+      r.uiStateAnomalies(uiState).isEmpty,
+      clue = r.uiStateAnomalies(uiState)
+    )
   }
 
-  test("cookie round-trip: a malformed fhui_ value falls back to index 0 + warns") {
+  test(
+    "cookie round-trip: a malformed fhui_ value falls back to index 0 + warns"
+  ) {
     val r = tabsRenderer
     val uiState = Server.uiStateOf(get("fhui_c" -> "abc"))
     assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))

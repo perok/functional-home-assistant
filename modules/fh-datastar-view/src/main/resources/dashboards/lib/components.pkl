@@ -1,0 +1,286 @@
+/// Dashboard components for the Pkl authoring track — the typed counterpart
+/// of `components.libsonnet` (MVP subset: containers, sectionTitle,
+/// entityCard, button, slider; see ADR 0006 for what is deferred).
+///
+/// Cards are CLASSES ("class-as-builder"): the `hidden` properties are the
+/// typed authoring surface, and each class derives the backend contract from
+/// them — `{kind: "component", card, slots, children}` nodes, where a slot is
+/// either a bare string (a constant literal) or a [[Slot]] object (a live
+/// JSONata transform). Hidden properties never render, so the emitted JSON is
+/// exactly what `Dashboard` decodes.
+///
+/// CONTRACT: literal slots must be JSON strings, never numbers — the backend
+/// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
+module components
+
+import "hass.pkl"
+
+// ---- backend output shapes (mirror fh.view.model) ----
+
+/// The object form of a slot (fh.view.model.SlotSource). A live JSONata
+/// expression over the card's entity; `reactive = false` marks an
+/// identity-derived slot (resolved once, never re-rendered on state change).
+class Slot {
+  entityId: String? = null
+  transform: String = "$state"
+  default: String? = null
+  bypassUnavailable: Boolean = true
+  reactive: Boolean = true
+}
+
+abstract class Node {
+  kind: "component" = "component"
+  card: String
+  slots: Mapping<String, Slot|String> = new {}
+  children: Listing<Node> = new {}
+}
+
+class CardDef {
+  template: String
+  slots: Listing<String> = new {}
+}
+
+// ---- author-facing descriptors ----
+
+/// A live value expression for a display field that also accepts a plain
+/// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the
+/// literal `label = "Kitchen"`.
+class Expr {
+  transform: String
+}
+
+function expr(s: String): Expr = new { transform = s }
+
+/// A tap descriptor: the whole Datastar click expression, either live (a Slot
+/// reading $entity_id/$domain) or a constant string (navigate).
+class Tap {
+  onclick: Slot|String
+}
+
+// The default service route (domain/service) for a tap, resolved per entity
+// at runtime ($domain). Scenes/scripts turn_on, buttons press, everything
+// else homeassistant/toggle — same JSONata as components.libsonnet.
+const local defaultRoute =
+  #"($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", "button": "button/press", "input_button": "input_button/press"}, $domain); $a ? $a : "homeassistant/toggle")"#
+
+// Wrap a JSONata route expression into the full Datastar click expression
+//   @post('/sse/action/<domain>/<service>/<entity_id>')
+const local function serviceOnclick(route: String): String =
+  #""@post('/sse/action/" & ("# + route + #") & "/" & $entity_id & "')""#
+
+// A click expression is identity-derived: it inherits the card's entity to
+// resolve $entity_id/$domain, but never varies with state (reactive = false)
+// and must resolve even when the entity is unavailable.
+const local function clickSlot(transformExpr: String): Slot = new {
+  transform = transformExpr
+  reactive = false
+  bypassUnavailable = false
+}
+
+/// Service call resolved from the entity's domain (the default tap).
+const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
+
+/// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
+function serviceTap(action: String): Tap =
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
+
+/// In-place swap to dashboard `slug` (+ URL via pushState) — a constant click.
+function navigate(slug: String): Tap =
+  new { onclick = "@post('/sse/navigate/\(slug)'); history.pushState(null,'','/d/\(slug)')" }
+
+// ---- shared slot builders (port of labelSlot/valueSlot/secondarySlot) ----
+
+// Auto-appended unit for a value display: the entity's unit_of_measurement,
+// space-separated, when it has one.
+const local UNIT =
+  #" & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"#
+
+// label: Expr -> live (still resolving when unavailable, so a label shows the
+// name, not "unavailable"); String -> literal; null -> the entity's
+// friendly_name (falling back to its id) baked as a literal.
+const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
+  if (label is Expr) new Slot { transform = label.transform; bypassUnavailable = false }
+  else if (label != null) label
+  else if (entity != null) entity.friendly_name ?? entity.entity_id
+  else ""
+
+// value: null -> $state (+ unit); String -> that attribute (+ unit);
+// Expr -> your expression verbatim (you own the unit).
+const local function valueSlot(value: (String|Expr)?): Slot =
+  if (value is Expr) new Slot { transform = value.transform }
+  else new Slot {
+    transform = (if (value == null) "$state" else "$attr." + value) + UNIT
+  }
+
+// secondary (only built when authored): String -> an attribute (no unit);
+// Expr -> live. Empty default keeps the mustache section collapsed when blank.
+const local function secondarySlot(secondary: String|Expr): Slot =
+  new Slot {
+    transform = if (secondary is Expr) secondary.transform else "$attr." + secondary
+    default = ""
+  }
+
+// ---- the components ----
+
+class Row extends Node {
+  card = "fhrow"
+}
+
+class Column extends Node {
+  card = "fhcol"
+}
+
+/// Static title text (not bound to an entity).
+class SectionTitle extends Node {
+  card = "sectionTitle"
+  hidden text: String
+  slots {
+    ["label"] = text
+  }
+}
+
+/// HA-like entity card: label + value (state or attribute, unit
+/// auto-appended) + optional secondary line + optional tap.
+class EntityCard extends Node {
+  card = "entityCard"
+  hidden entity: hass.Entity
+  hidden label: (String|Expr)? = null
+  hidden value: (String|Expr)? = null
+  hidden secondary: (String|Expr)? = null
+  hidden tap: Tap? = null
+  slots {
+    // entity_id is the card's subject — the magical slot the others inherit.
+    ["entity_id"] = entity.entity_id
+    ["label"] = labelSlot(entity, label)
+    ["value"] = valueSlot(value)
+    when (secondary != null) {
+      ["secondary"] = secondarySlot(secondary!!)
+    }
+    when (tap != null) {
+      ["tappable"] = "1"
+      ["onclick"] = tap!!.onclick
+    }
+  }
+}
+
+/// Generic click button (service call or navigate). `action = null` defaults
+/// to the domain-resolved service call, which needs an entity.
+class Button extends Node {
+  card = "button"
+  hidden entity: hass.Entity? = null
+  hidden label: (String|Expr)? = null
+  hidden action: Tap? = null
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = labelSlot(entity, label)
+    ["onclick"] = (action ?? toggleTap).onclick
+  }
+}
+
+// The slider's controllable config per domain: the service to call, the
+// service_data key the value rides on, the range bounds, and which attribute
+// is the live position. Add a domain (cover/fan/climate…) by adding a row —
+// TYPED: a missing/misspelled field is a build error. Unlike jsonnet's
+// runtime $lookup($domain), the Pkl slider resolves its spec AT BUILD TIME
+// from the entity's domain (the runtime lookup is only needed for dynamic
+// groups, which the Pkl track does not have yet — ADR 0006).
+class SliderSpec {
+  action: String
+  key: String
+  min: Int
+  max: Int
+  value: String
+}
+
+const sliderSpec: Mapping<String, SliderSpec> = new {
+  ["light"] = new { action = "light/turn_on"; key = "brightness"; min = 1; max = 255; value = "brightness" }
+}
+
+/// Value slider. Only accepts an entity whose domain has a sliderSpec row —
+/// a slider on e.g. a sensor is a BUILD error naming the dashboard line.
+class Slider extends Node {
+  card = "slider"
+  hidden entity: hass.Entity(sliderSpec.containsKey(domain))
+  hidden label: (String|Expr)? = null
+  hidden min: Int? = null // per-instance overrides of the domain default
+  hidden max: Int? = null
+  hidden spec: SliderSpec = sliderSpec[entity.domain]
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = labelSlot(entity, label)
+    // The display header (inherits entity_id, bypassUnavailable default).
+    ["state"] = new Slot {}
+    // The range input's numeric position: opt OUT of bypass so an unavailable
+    // entity falls back to `default` ("0") rather than "unavailable".
+    ["value"] = new Slot {
+      transform = "$attr." + spec.value
+      default = "0"
+      bypassUnavailable = false
+    }
+    ["action"] = spec.action
+    ["key"] = spec.key
+    // Literal slots must be strings — the backend decoder rejects numbers.
+    ["min"] = "\(min ?? spec.min)"
+    ["max"] = "\(max ?? spec.max)"
+  }
+}
+
+// ---- the backend-facing card library (templates ported verbatim) ----
+// NOTE (multiline templates): each HTML *attribute value* must stay on one
+// physical line — line breaks between tags/attributes are harmless
+// whitespace, but a newline inside an attribute would break it.
+
+cards: Mapping<String, CardDef> = new {
+  ["fhrow"] = new {
+    template = """
+      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  ["fhcol"] = new {
+    template = """
+      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  ["sectionTitle"] = new {
+    template = """
+      <h2 class="section">{{label}}</h2>
+      """
+    slots { "label" }
+  }
+  ["entityCard"] = new {
+    template = """
+      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
+        data-on:click="{{{onclick}}}"{{/tappable}}>
+        <header>{{label}}</header>
+        <span class="state">{{value}}</span>{{#secondary}}
+        <span class="secondary">{{secondary}}</span>{{/secondary}}
+      </article>
+      """
+    slots { "label"; "value"; "entity_id" }
+  }
+  ["button"] = new {
+    template = """
+      <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
+        data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
+      """
+    slots { "label"; "onclick" }
+  }
+  ["slider"] = new {
+    template = """
+      <article class="card">
+        <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
+        <input type="range" min="{{min}}" max="{{max}}"
+          data-signals="{ val_{{id}}: {{value}} }"
+          data-bind="val_{{id}}"
+          data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+      </article>
+      """
+    slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+  }
+}
+
+output {
+  renderer = new JsonRenderer { omitNullProperties = true }
+}
