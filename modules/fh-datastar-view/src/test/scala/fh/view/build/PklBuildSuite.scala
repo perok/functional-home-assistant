@@ -56,6 +56,49 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(os.temp.dir(), "x.yaml").isLeft)
   }
 
+  test("PklBuild.eval reports the entry's precise transitive imports only") {
+    // Entry imports components.pkl (which transitively imports hass.pkl); an
+    // unrelated sibling .pkl in the same dir is NOT imported, so the static
+    // import analysis must exclude it (unlike the all-*.pkl superset).
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "unrelated.pkl",
+      """module unrelated
+        |orphan = 1
+        |output { renderer = new JsonRenderer { omitNullProperties = true } }
+        |""".stripMargin
+    )
+    os.write(
+      tmp / "entry.pkl",
+      """module entry
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x = 1
+        |
+        |output { renderer = new JsonRenderer { omitNullProperties = true } }
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "entry.pkl")
+    assert(result.isRight, clue = result)
+    val imports = result.toOption.get.imports
+
+    // The entry + its transitive imports, and nothing else.
+    assertEquals(
+      imports,
+      Set(
+        tmp / "entry.pkl",
+        tmp / "lib" / "components.pkl",
+        tmp / "lib" / "hass.pkl"
+      ),
+      clue = imports
+    )
+    assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)
+  }
+
   /** The real Pkl library modules, as shipped in the resources dir. */
   private val resourcesLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
@@ -331,7 +374,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
-    // The conservative import superset covers every .pkl in the dir.
+    // The precise import set is the demo's full transitive closure.
     val importNames = r.imports.map(_.last)
     assert(
       Set(
@@ -376,9 +419,11 @@ class PklBuildSuite extends munit.FunSuite {
     // (keyed `<node-id>_self`, node-id in the `c`-rooted pathId scheme).
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
     val inlineId =
-      d.surfaces.keys.find(_.endsWith("_self")).getOrElse(
-        fail(s"no hoisted _self surface: ${d.surfaces.keySet}")
-      )
+      d.surfaces.keys
+        .find(_.endsWith("_self"))
+        .getOrElse(
+          fail(s"no hoisted _self surface: ${d.surfaces.keySet}")
+        )
     assert(inlineId.startsWith("c"), clue = inlineId)
     assert(d.theme.tokens.nonEmpty)
     assert(d.theme.chrome.contains("id=\"dashboard\""))
@@ -408,7 +453,9 @@ class PklBuildSuite extends munit.FunSuite {
     // The inline-popup trigger (the "Quick info…" button) carries a literal
     // onclick that references the SPLICED real surface id, not the raw token.
     val inlineTrigger = children
-      .find(_.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self")))
+      .find(
+        _.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self"))
+      )
       .getOrElse(fail("no inline-popup trigger button found"))
     assertEquals(
       inlineTrigger.slots("onclick").literal,
@@ -600,7 +647,10 @@ class PklBuildSuite extends munit.FunSuite {
         |node = new c.Slider { entity = cover }""".stripMargin
     )
     assertEquals(slider.card, "slider")
-    assertEquals(slider.slots("action").literal, Some("cover/set_cover_position"))
+    assertEquals(
+      slider.slots("action").literal,
+      Some("cover/set_cover_position")
+    )
     assertEquals(slider.slots("key").literal, Some("position"))
     assertEquals(slider.slots("min").literal, Some("0"))
     assertEquals(slider.slots("max").literal, Some("100"))
@@ -671,7 +721,9 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 
-  test("pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)") {
+  test(
+    "pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)"
+  ) {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
@@ -763,18 +815,23 @@ class PklBuildSuite extends munit.FunSuite {
     // button's onclick references the SPLICED real surface id (not the raw
     // token) AND writes the fhui_ restore cookie.
     val root = d.card.asInstanceOf[LayoutNode.Component]
-    val tabsNode = root.children.collectFirst {
-      case c: LayoutNode.Component if c.card == "tabs" => c
-    }.getOrElse(fail("no tabs component in the layout"))
+    val tabsNode = root.children
+      .collectFirst {
+        case c: LayoutNode.Component if c.card == "tabs" => c
+      }
+      .getOrElse(fail("no tabs component in the layout"))
     val tabButtons =
       tabsNode.children.collect { case c: LayoutNode.Component => c }
     assertEquals(tabButtons.map(_.card), List("button", "button"))
     tabButtons.foreach { b =>
-      val onclick = b.slots("onclick").literal
+      val onclick = b
+        .slots("onclick")
+        .literal
         .getOrElse(fail(s"tab button onclick not a literal: ${b.slots}"))
       assert(onclick.contains("fhui_"), clue = onclick)
       // The spliced surface id it opens is a real registered surface.
-      val opened = d.surfaces.keys.find(id => onclick.contains(id))
+      val opened = d.surfaces.keys
+        .find(id => onclick.contains(id))
         .getOrElse(fail(s"onclick references no known surface: $onclick"))
       assert(!opened.contains(DashboardBuild.NodeIdToken), clue = opened)
     }
