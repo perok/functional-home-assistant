@@ -16,21 +16,29 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump, write it next to the jsonnet sources (so the
-    * `import 'dump.libsonnet'` resolves), and evaluate `entry` into JSON + the
-    * set of files read (entry + transitive imports).
+  /** Fetch the live entity dump, write it next to the dashboard sources in both
+    * authoring languages (so `import 'dump.libsonnet'` and
+    * `import "lib/dump.pkl"` resolve), and evaluate `entry` into JSON + the set
+    * of files read (entry + transitive imports).
     */
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entry: String
-  ): IO[JsonnetBuild.Result] =
+  ): IO[SourceEval.Result] =
     for {
       dump <- DataDump.fetch(api)
-      _ <- IO(os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2))
-      result <- JsonnetBuild
+      _ <- IO {
+        os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
+        os.write.over(
+          dashboardsDir / "lib" / "dump.pkl",
+          PklDump.render(dump),
+          createFolders = true
+        )
+      }
+      result <- SourceEval
         .eval(dashboardsDir, entry)
-        .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
+        .leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
         .liftTo[IO]
     } yield result
 
@@ -233,7 +241,7 @@ object DashboardBuild {
           new RuntimeException(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
-      _ <- dashboard.validate(JsonnetBuild.literalLocator(sources)) match {
+      _ <- dashboard.validate(SourceEval.literalLocator(sources)) match {
         case Nil => IO.unit
         case errs =>
           new RuntimeException(
@@ -255,17 +263,17 @@ object DashboardBuild {
       decode(r.value, r.imports).map(_ -> r.imports)
     }
 
-  /** Re-evaluate the jsonnet against the dump ALREADY on disk (no HA fetch, no
-    * rewrite of `dump.libsonnet`) — used by live reload when only the dashboard
-    * sources changed. Returns the dashboard + its current import set.
+  /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
+    * dump rewrite) — used by live reload when only the dashboard sources
+    * changed. Returns the dashboard + its current import set.
     */
   def reevaluate(
       dashboardsDir: os.Path,
       entry: String
   ): IO[(Dashboard, Set[os.Path])] =
-    JsonnetBuild
+    SourceEval
       .eval(dashboardsDir, entry)
-      .leftMap(err => new RuntimeException(s"jsonnet eval failed:\n$err"))
+      .leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
       .liftTo[IO]
       .flatMap(r => decode(r.value, r.imports).map(_ -> r.imports))
 }

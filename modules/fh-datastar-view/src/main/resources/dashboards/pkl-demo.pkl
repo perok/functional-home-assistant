@@ -1,0 +1,41 @@
+// The Pkl-authored demo dashboard, served at /d/pkl-demo (slug = filename)
+// next to the jsonnet dashboards. Exercises the MVP component set: entity
+// cards (default value, live expr override, tap), a domain-checked slider,
+// and cross-dashboard navigation back to the jsonnet default.
+//
+// `lib/dump.pkl` is GENERATED (by PklDump, from the live HA registry) when
+// the server or build runs — like `dump.libsonnet` on the jsonnet track.
+// (Plain `//` comments here: a doc comment would attach to the first import,
+// which Pkl rejects — entries have no `module` clause to absorb it.)
+
+import "lib/components.pkl" as c
+import "lib/theme.pkl" as themeMod
+import "lib/dump.pkl" as dump
+
+cards = c.cards
+theme = themeMod.theme
+
+card: c.Node = new c.Column {
+  children {
+    new c.SectionTitle { text = "Pkl demo" }
+
+    // Default display: friendly_name label, $state + auto-appended unit.
+    new c.EntityCard { entity = dump.entities.`sensor_ams_1a4e_q` }
+
+    // Live value expression + explicit tap service.
+    new c.EntityCard {
+      entity = dump.entities.sensor_ams_1a4e_u1
+      value = c.expr(#"$round($number($state), 1) & " V""#)
+      tap = c.serviceTap("homeassistant/toggle")
+    }
+
+    // Domain-checked: only entities with a sliderSpec row (lights) compile.
+    new c.Slider { entity = dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang` }
+
+    new c.Button { label = "« Back to jsonnet"; action = c.navigate("dashboard") }
+  }
+}
+
+output {
+  renderer = new JsonRenderer { omitNullProperties = true }
+}

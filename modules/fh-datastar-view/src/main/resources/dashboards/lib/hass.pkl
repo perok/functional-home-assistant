@@ -1,0 +1,64 @@
+/// Hand-written Home Assistant domain schema for the Pkl authoring track.
+///
+/// Types exactly what the build-phase dump carries (see `DataDump.scala`):
+/// registry identity + the per-domain attributes the dump template extracts.
+/// Live values (state, brightness, ...) stay runtime-side as JSONata over the
+/// SSE stream — never in the build-time dump (phase discipline).
+///
+/// Pkl gotchas honored throughout the Pkl track:
+///   - `override` is a reserved keyword — never use it as an identifier;
+///   - module-level properties referenced from class bodies must be `const`;
+///   - local functions used from class bodies need `const local`.
+module hass
+
+typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
+
+abstract class Entity {
+  entity_id: EntityId
+  domain: String
+  friendly_name: String? = null
+  area_id: String? = null
+  floor_id: String? = null
+  id_hidden: Boolean = false
+}
+
+/// developers.home-assistant.io/docs/core/entity/light — only the attributes
+/// the dump template extracts today.
+class LightEntity extends Entity {
+  domain: "light" = "light"
+  color_mode: String? = null
+  effect_list: Listing<String>? = null
+}
+
+class SensorEntity extends Entity {
+  domain: "sensor" = "sensor"
+}
+
+class SwitchEntity extends Entity {
+  domain: "switch" = "switch"
+}
+
+/// Fallback for every domain without a dedicated class yet — add a typed
+/// class (and a PklDump dispatch row) to specialize a domain.
+class GenericEntity extends Entity {}
+
+// ---- registry structure (generated dump.pkl subclasses these) ----
+
+abstract class Area {
+  area_id: String
+  area_name: String
+  floor_id: String? = null
+  // Per-domain member lists for iteration; the generated subclass fills them.
+  // Hidden: authoring convenience only, never rendered into dashboard JSON.
+  hidden lights: List<LightEntity> = List()
+  hidden sensors: List<SensorEntity> = List()
+  hidden switches: List<SwitchEntity> = List()
+  hidden generic: List<Entity> = List()
+  hidden all: List<Entity> = lights + sensors + switches + generic
+}
+
+abstract class Floor {
+  floor_id: String
+  floor_name: String
+  hidden areas: List<Area> = List()
+}
