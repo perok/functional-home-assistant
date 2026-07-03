@@ -11,7 +11,7 @@
 ///   - local functions used from class bodies need `const local`.
 module hass
 
-typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
+typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)) || this == "$self")
 
 abstract class Entity {
   entity_id: EntityId
@@ -20,6 +20,10 @@ abstract class Entity {
   area_id: String? = null
   floor_id: String? = null
   id_hidden: Boolean = false
+  // The dynamic-group match sentinel: `entity_id == "$self"` marks the
+  // build-time placeholder entity (see [[SELF]]) that a dynamic case renders
+  // against. Authoring convenience only — never rendered into dashboard JSON.
+  hidden isDynamic: Boolean = entity_id == "$self"
 }
 
 /// developers.home-assistant.io/docs/core/entity/light — only the attributes
@@ -41,6 +45,20 @@ class SwitchEntity extends Entity {
 /// Fallback for every domain without a dedicated class yet — add a typed
 /// class (and a PklDump dispatch row) to specialize a domain.
 class GenericEntity extends Entity {}
+
+/// The build-time placeholder "current entity" for a dynamic-group case — the
+/// typed counterpart of jsonnet's `d.matched`. Any leaf card accepts it like a
+/// real dump entity; its slots leave `entityId` unset and so inherit the
+/// matched entity, which the renderer injects as the `entity_id` param per
+/// match. The `$self` sentinel is build-time only: it tells `labelSlot` to emit
+/// a LIVE friendly_name default rather than a baked literal.
+class DynamicEntity extends Entity {
+  entity_id = "$self"
+  domain = "dynamic"
+}
+
+/// The single shared [[DynamicEntity]] instance authors pass to dynamic cases.
+SELF: DynamicEntity = new {}
 
 // ---- registry structure (generated dump.pkl subclasses these) ----
 

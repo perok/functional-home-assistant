@@ -11,6 +11,7 @@
 import "lib/components.pkl" as c
 import "lib/theme.pkl" as themeMod
 import "lib/dump.pkl" as dump
+import "lib/hass.pkl"
 
 cards = c.cards
 theme = themeMod.theme
@@ -31,6 +32,33 @@ card: c.Node = new c.Column {
 
     // Domain-checked: only entities with a sliderSpec row (lights) compile.
     new c.Slider { entity = dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang` }
+
+    // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity,
+    // the card chosen by the first matching branch. Cards are built against
+    // hass.SELF (the match placeholder). NOTE: a $self Slider needs the runtime
+    // $lookup($domain) config tier (plan step 3), so the light branch uses an
+    // EntityCard for now — no dynamic Slider case yet.
+    new c.SectionTitle { text = "Active now" }
+    c.groupCases(c.whenState("on"), c.dynWhen(new Listing {
+      c.dynCase(c.whenDomain("light"), new c.EntityCard {
+        entity = hass.SELF
+        label = c.expr(#"$attr.friendly_name & ($attr.brightness ? " · " & $round($number($attr.brightness) / 2.55) & "%" : "")"#)
+      })
+    }, new c.EntityCard {
+      // fallback: every other "on" entity, toggled on tap.
+      entity = hass.SELF
+      tap = c.toggleTap
+      label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
+    }))
+
+    // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
+    // device_class:battery sensor under 20%, tracked live as batteries drain.
+    new c.SectionTitle { text = "Low battery" }
+    c.group(c.lowBattery(20), new c.EntityCard {
+      entity = hass.SELF
+      label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
+      secondary = "device_class"
+    })
 
     new c.Button { label = "« Back to jsonnet"; action = c.navigate("dashboard") }
   }

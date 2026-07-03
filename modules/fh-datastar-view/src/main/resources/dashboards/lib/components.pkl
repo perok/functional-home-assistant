@@ -28,11 +28,20 @@ class Slot {
   reactive: Boolean = true
 }
 
-abstract class Node {
+/// The common supertype of every layout-tree node. `kind` is the circe
+/// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
+/// [[DynamicGroup]].
+abstract class LayoutNode {
+  kind: String
+}
+
+abstract class Node extends LayoutNode {
   kind: "component" = "component"
   card: String
   slots: Mapping<String, Slot|String> = new {}
-  children: Listing<Node> = new {}
+  // Widened to LayoutNode so a container can nest either a component or a
+  // dynamic group.
+  children: Listing<LayoutNode> = new {}
 }
 
 class CardDef {
@@ -107,6 +116,9 @@ const local UNIT =
 const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
   else if (label != null) label
+  // Dynamic default: a LIVE friendly_name (falling back to entity_id),
+  // inheriting the matched entity — mirrors components.libsonnet:78-80.
+  else if (entity != null && entity.isDynamic) new Slot { transform = "$attr.friendly_name ? $attr.friendly_name : $entity_id"; bypassUnavailable = false }
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
@@ -249,6 +261,132 @@ class Slider extends Node {
     ["max"] = "\(max ?? spec.max)"
   }
 }
+
+// ---- dynamic groups (the Predicate AST + case/when/group DSL) ----
+// A dynamic group renders one card PER live entity matching a `query`,
+// optionally dispatching the card per entity. The matched entity's
+// id/entity_id/label are auto-injected and every inheriting slot is rebound to
+// it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
+// static card, just passing `hass.SELF` as the entity. Port of
+// components.libsonnet:579-661.
+
+/// A property-query comparison operator. TYPED — a misspelled op is now a build
+/// error (the backend `Op` decoder is case-insensitive over exactly these).
+typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
+
+/// The runtime property-query AST. `kind` is the circe discriminator.
+abstract class Predicate {
+  kind: String
+}
+
+/// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
+/// `"attr:<name>"`; `value` is Any so a numeric threshold rides as a JSON
+/// number (unlike a slot literal, a query value is not stringified).
+class Cmp extends Predicate {
+  kind: "cmp" = "cmp"
+  property: String
+  op: PredicateOp
+  value: Any
+}
+
+class PAnd extends Predicate {
+  kind: "and" = "and"
+  items: Listing<Predicate>
+}
+
+class POr extends Predicate {
+  kind: "or" = "or"
+  items: Listing<Predicate>
+}
+
+class PNot extends Predicate {
+  kind: "not" = "not"
+  item: Predicate
+}
+
+// `and`/`or`/`not` collide with Pkl operators, so the helpers are p-prefixed
+// (the jsonnet track already renamed `not`→`pnot`). Parameters are NOT named
+// after the properties they set: inside a `new { property = property }` amend
+// the RHS binds to the object's own member (infinite recursion), so each
+// argument gets a distinct name.
+function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
+  new { property = prop; op = cmpOp; value = cmpVal }
+function pAnd(preds: Listing<Predicate>): PAnd = new { items = preds }
+function pOr(preds: Listing<Predicate>): POr = new { items = preds }
+function pNot(pred: Predicate): PNot = new { item = pred }
+
+/// Matches every entity (a domain is never literally this sentinel).
+always: Cmp = cmp("domain", "ne", "__never__")
+
+function whenDomain(d: String): Cmp = cmp("domain", "eq", d)
+function whenState(s: String): Cmp = cmp("state", "eq", s)
+function whenDeviceClass(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
+// e.g. attrLessThan("battery_level", 20)
+function attrLessThan(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
+function stateLessThan(threshold: Any): Cmp = cmp("state", "lt", threshold)
+// Battery sensors expose the % as their STATE with device_class "battery"
+// (non-numeric states like "unavailable" simply don't match `state < x`).
+function lowBattery(threshold: Any): PAnd =
+  pAnd(new Listing { whenDeviceClass("battery"); stateLessThan(threshold) })
+
+/// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
+/// render when it matches. Keeps the card + its slots but drops the build-time
+/// `entity_id` slot (the renderer sets the matched entity as the subject per
+/// match) and the unused children.
+class Case {
+  `when`: Predicate
+  card: String
+  slots: Mapping<String, Slot|String> = new {}
+}
+
+/// Build a [[Case]] from a predicate and a node, filtering the `entity_id` key
+/// out of the node's slots via a Mapping for-generator.
+function dynCase(whenP: Predicate, node: Node): Case = new Case {
+  `when` = whenP
+  card = node.card
+  slots = new Mapping {
+    for (k, v in node.slots) {
+      when (k != "entity_id") {
+        [k] = v
+      }
+    }
+  }
+}
+
+/// Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
+/// the card; `fallback` (when non-null) is the card for entities matching no
+/// branch. Pass the result as the `cases` of [[groupCases]].
+function dynWhen(branches: Listing<Case>, fallback: Node?): Listing<Case> =
+  new Listing {
+    for (b in branches) {
+      b
+    }
+    when (fallback != null) {
+      dynCase(always, fallback!!)
+    }
+  }
+
+/// A runtime-resolved group: render one card PER live entity matching `query`.
+class DynamicGroup extends LayoutNode {
+  kind: "dynamic" = "dynamic"
+  query: Predicate
+  cases: Listing<Case>
+}
+
+/// A single-card dynamic group: render `node` for every entity matching
+/// `q` (no per-entity dispatch). (Param not named `query`: see [[cmp]].)
+function group(q: Predicate, node: Node): DynamicGroup = new DynamicGroup {
+  query = q
+  cases = new Listing { dynCase(always, node) }
+}
+
+/// A dispatching dynamic group: `branches` (from [[dynWhen]]) select the card
+/// per matched entity.
+function groupCases(q: Predicate, branches: Listing<Case>): DynamicGroup =
+  new DynamicGroup {
+    query = q
+    cases = branches
+  }
 
 // ---- the backend-facing card library (templates ported verbatim) ----
 // NOTE (multiline templates): each HTML *attribute value* must stay on one
