@@ -1,0 +1,67 @@
+// A Pkl-authored tabs dashboard, served at /d/pkl-tabs (slug = filename) — the
+// typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
+// a single inline panel, one tab visible at a time.
+//
+// `new c.Tabs { tabs { ... } }` is pure composition — the build-phase hoist
+// lifts each tab's `content` into the surfaces registry (sharing one exclusivity
+// group + one inline mount), the bar buttons open them, the first tab bakes
+// inline for an instant first paint, and the active tab is tracked in a signal
+// (+ cookie) for the highlight and reload-restore. Switching reuses the same
+// surface open/close machinery as popups.
+//
+// (Plain `//` comments: a doc comment would attach to the first import, which
+// Pkl rejects — entries have no `module` clause to absorb it.)
+
+import "lib/components.pkl" as c
+import "lib/theme.pkl" as themeMod
+import "lib/dump.pkl" as dump
+
+cards = c.cards
+theme = themeMod.theme
+
+card: c.Node = new c.Column {
+  children {
+    new c.SectionTitle { text = "Tabs" }
+    new c.Row {
+      children {
+        new c.Button { label = "« Home"; action = c.navigate("dashboard") }
+      }
+    }
+    new c.Tabs {
+      tabs {
+        new c.Tab {
+          label = "Lights"
+          // Entity cards toggled on tap.
+          content = new c.Row {
+            children {
+              new c.EntityCard {
+                entity = dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`
+                tap = c.toggleTap
+              }
+            }
+          }
+        }
+        new c.Tab {
+          label = "Sensors"
+          // Live value expressions (own unit).
+          content = new c.Row {
+            children {
+              new c.EntityCard {
+                entity = dump.entities.`sensor_ams_1a4e_q`
+                value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+              }
+              new c.EntityCard {
+                entity = dump.entities.sensor_ams_1a4e_u1
+                value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+output {
+  renderer = new JsonRenderer { omitNullProperties = true }
+}

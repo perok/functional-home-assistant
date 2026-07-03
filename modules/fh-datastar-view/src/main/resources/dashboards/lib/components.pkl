@@ -265,11 +265,18 @@ class Button extends Node {
   hidden entity: hass.Entity? = null
   hidden label: (String|Expr)? = null
   hidden action: Tap? = null
+  // An OPTIONAL Datastar boolean expression: when present the button becomes a
+  // TAB (the template's `{{#active}}` sections add the `tab` class + the
+  // `data-class` highlight). Emitted as a constant literal slot. Set by [[Tabs]].
+  hidden active: String? = null
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
+    }
+    when (active != null) {
+      ["active"] = active!!
     }
     ["label"] = labelSlot(entity, label)
     ["onclick"] = (action ?? toggleTap).onclick
@@ -283,6 +290,56 @@ class Button extends Node {
 /// registering a popup surface: `content = new Popup { children { ... } }`.
 class Popup extends Node {
   card = "popup"
+}
+
+/// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
+/// tab is active. (`content` is a full node — a [[Row]]/[[Column]] subtree.)
+class Tab {
+  label: String
+  content: LayoutNode
+}
+
+/// A tab bar over ONE inline panel — one tab visible at a time. Pure
+/// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
+/// `content` becomes an inline surface baked into this component's panel host
+/// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
+/// the bar buttons open them, seed the active-tab signal, and persist the active
+/// index to the `fhui_<id>` cookie the server reads on the GET so reload /
+/// navigate restore the tab flash-free. The first tab is `defaultOpen` (baked on
+/// first paint) — emitted `null` for the rest so omitNullProperties drops it and
+/// the decoder defaults `false`, matching jsonnet byte-for-byte.
+class Tabs extends Node {
+  card = "tabs"
+  hidden tabs: Listing<Tab>
+  // Each tab's content hoisted into a panel surface. `t.content` is a QUALIFIED
+  // read of the loop element (a bare `content` would bind to SurfaceDef's own
+  // member — the amend-scoping gotcha).
+  inlineSurfaces = new Mapping {
+    for (i, t in tabs) {
+      ["t\(i)"] = new SurfaceDef {
+        content = t.content
+        bakeInto = NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        defaultOpen = if (i == 0) true else null
+      }
+    }
+  }
+  // The `.tabbar` buttons: each opens its tab's surface (`<id>_t<i>`), sets the
+  // active-tab signal, and writes the restore cookie. `$` is a literal Datastar
+  // signal sigil (Pkl only interpolates `\(...)`); the exact onclick text is
+  // asserted in the tests.
+  children = new Listing {
+    for (i, t in tabs) {
+      new Button {
+        label = t.label
+        active = "$tab_\(NODE_ID) == \(i)"
+        action = new Tap {
+          onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
+        }
+      }
+    }
+  }
 }
 
 // The slider's controllable config per domain: the service to call, the
@@ -558,6 +615,22 @@ cards: Mapping<String, CardDef> = new {
   // posts the id-less close. Ported verbatim from components.libsonnet:511.
   ["popup"] = new {
     template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+  }
+  // TABS container. The `.tabbar` buttons are the card's children; the panel host
+  // + `{{{panel}}}` hole live here. `data-signals` seeds the active-tab signal to
+  // the baked tab's index (`{{bakeIndex}}`, injected by the renderer). Ported
+  // from components.libsonnet:447-456 (minus that file's stray `',` artifact).
+  ["tabs"] = new {
+    template = """
+      <div class="fh-col tabs">
+        <div class="fh-row tabbar">
+          {{#children}}{{{html}}}{{/children}}
+        </div>
+        <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
+          {{{panel}}}
+        </div>
+      </div>
+      """
   }
 }
 
