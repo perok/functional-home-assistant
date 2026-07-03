@@ -46,10 +46,16 @@ class CardDef {
 /// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the
 /// literal `label = "Kitchen"`.
 class Expr {
+  entityId: String? = null
   transform: String
 }
 
 function expr(s: String): Expr = new { transform = s }
+
+/// A live value expression bound to an EXPLICIT entity (a cross-entity read):
+/// the emitted slot names its own `entityId` instead of inheriting the card's.
+/// Mirrors jsonnet `entityOf` (components.libsonnet:102-105).
+function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 /// A tap descriptor: the whole Datastar click expression, either live (a Slot
 /// reading $entity_id/$domain) or a constant string (navigate).
@@ -99,7 +105,7 @@ const local UNIT =
 // name, not "unavailable"); String -> literal; null -> the entity's
 // friendly_name (falling back to its id) baked as a literal.
 const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
-  if (label is Expr) new Slot { transform = label.transform; bypassUnavailable = false }
+  if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
   else if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
@@ -107,7 +113,7 @@ const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slo
 // value: null -> $state (+ unit); String -> that attribute (+ unit);
 // Expr -> your expression verbatim (you own the unit).
 const local function valueSlot(value: (String|Expr)?): Slot =
-  if (value is Expr) new Slot { transform = value.transform }
+  if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
   else new Slot {
     transform = (if (value == null) "$state" else "$attr." + value) + UNIT
   }
@@ -116,18 +122,33 @@ const local function valueSlot(value: (String|Expr)?): Slot =
 // Expr -> live. Empty default keeps the mustache section collapsed when blank.
 const local function secondarySlot(secondary: String|Expr): Slot =
   new Slot {
+    entityId = if (secondary is Expr) secondary.entityId else null
     transform = if (secondary is Expr) secondary.transform else "$attr." + secondary
     default = ""
   }
 
 // ---- the components ----
 
+// `cssClass` is the authoring name (`class` is a Pkl reserved word); it emits
+// the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends Node {
   card = "fhrow"
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
 }
 
 class Column extends Node {
   card = "fhcol"
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
 }
 
 /// Static title text (not bound to an entity).
@@ -196,6 +217,8 @@ class SliderSpec {
 
 const sliderSpec: Mapping<String, SliderSpec> = new {
   ["light"] = new { action = "light/turn_on"; key = "brightness"; min = 1; max = 255; value = "brightness" }
+  ["cover"] = new { action = "cover/set_cover_position"; key = "position"; min = 0; max = 100; value = "current_position" }
+  ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
 /// Value slider. Only accepts an entity whose domain has a sliderSpec row —
