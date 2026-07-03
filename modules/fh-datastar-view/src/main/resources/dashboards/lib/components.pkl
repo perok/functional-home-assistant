@@ -633,7 +633,3 @@ cards: Mapping<String, CardDef> = new {
       """
   }
 }
-
-output {
-  renderer = new JsonRenderer { omitNullProperties = true }
-}
