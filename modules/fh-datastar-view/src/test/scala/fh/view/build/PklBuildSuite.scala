@@ -21,10 +21,6 @@ class PklBuildSuite extends munit.FunSuite {
       """module test
         |
         |a = 1
-        |
-        |output {
-        |  renderer = new JsonRenderer { omitNullProperties = true }
-        |}
         |""".stripMargin
     )
 
@@ -42,8 +38,6 @@ class PklBuildSuite extends munit.FunSuite {
       """module bad
         |
         |a: Int = "not an int"
-        |
-        |output { renderer = new JsonRenderer {} }
         |""".stripMargin
     )
 
@@ -66,7 +60,6 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "unrelated.pkl",
       """module unrelated
         |orphan = 1
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
     os.write(
@@ -77,8 +70,6 @@ class PklBuildSuite extends munit.FunSuite {
         |import "lib/components.pkl" as c
         |
         |x = 1
-        |
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
 
@@ -134,8 +125,6 @@ class PklBuildSuite extends munit.FunSuite {
         |  entity_id = "media_player.tv"
         |  domain = "media_player"
         |}
-        |
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
 
@@ -160,7 +149,6 @@ class PklBuildSuite extends munit.FunSuite {
       """module probe
         |import "lib/hass.pkl"
         |bad: hass.SensorEntity = new { entity_id = "NotAnId" }
-        |output { renderer = new JsonRenderer {} }
         |""".stripMargin
     )
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
@@ -251,8 +239,6 @@ class PklBuildSuite extends munit.FunSuite {
         |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
         |areaLightCount = dump.areas.kjokken.lights.length
         |noArea = dump.entities.switch_garage.entity_id
-        |
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
 
@@ -268,8 +254,8 @@ class PklBuildSuite extends munit.FunSuite {
   test(
     "theme.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {
-    // Lib modules carry no output block (only entries are evaluated in
-    // production), so a probe entry re-exposes the theme for evaluation.
+    // A probe entry re-exposes the theme so the assertions read a pinned
+    // shape, independent of whatever else the lib module happens to export.
     val tmp = os.temp.dir()
     copyLib(tmp, "theme.pkl", "tokens.pkl")
     os.write(
@@ -277,7 +263,6 @@ class PklBuildSuite extends munit.FunSuite {
       """module probe
         |import "lib/theme.pkl" as themeMod
         |theme = themeMod.theme
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -319,7 +304,6 @@ class PklBuildSuite extends munit.FunSuite {
       """module probe
         |import "lib/components.pkl" as c
         |cards = c.cards
-        |output { renderer = new JsonRenderer { omitNullProperties = true } }
         |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -562,7 +546,6 @@ class PklBuildSuite extends munit.FunSuite {
          |
          |$body
          |
-         |output { renderer = new JsonRenderer { omitNullProperties = true } }
          |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -590,7 +573,6 @@ class PklBuildSuite extends munit.FunSuite {
          |
          |$body
          |
-         |output { renderer = new JsonRenderer { omitNullProperties = true } }
          |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -735,7 +717,6 @@ class PklBuildSuite extends munit.FunSuite {
         |import "lib/components.pkl" as c
         |sensor: hass.GenericEntity = new { entity_id = "sensor.temp"; domain = "sensor" }
         |node = new c.Slider { entity = sensor }
-        |output { renderer = new JsonRenderer {} }
         |""".stripMargin
     )
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
