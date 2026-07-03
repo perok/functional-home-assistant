@@ -297,16 +297,17 @@ class PklBuildSuite extends munit.FunSuite {
           "areas": {},
           "floors": {},
           "entities": {
-            "sensor_ams_1a4e_p": {
-              "entity_id": "sensor.ams_1a4e_p", "friendly_name": "Power",
+            "sensor_ams_1a4e_q": {
+              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
               "domain": "sensor", "attributes": {}
             },
             "sensor_ams_1a4e_u1": {
               "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
               "domain": "sensor", "attributes": {}
             },
-            "light_philips_lct001_light": {
-              "entity_id": "light.philips_lct001_light", "friendly_name": "Demo light",
+            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "friendly_name": "Demo light",
               "domain": "light", "attributes": { "color_mode": "brightness" }
             }
           }
@@ -370,7 +371,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slider.slots("key").literal, Some("brightness"))
     assertEquals(
       slider.slots("entity_id").literal,
-      Some("light.philips_lct001_light")
+      Some("light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang")
     )
 
     // The tapped entity card: constant `tappable` marker + an identity-derived
@@ -384,5 +385,84 @@ class PklBuildSuite extends munit.FunSuite {
 
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
+
+  /** Evaluate a probe module that imports the real lib and decode its `node`
+    * property as a Component.
+    */
+  private def probeComponent(body: String): LayoutNode.Component = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |
+         |import "lib/hass.pkl"
+         |import "lib/components.pkl" as c
+         |
+         |$body
+         |
+         |output { renderer = new JsonRenderer { omitNullProperties = true } }
+         |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+  }
+
+  test("exprOf threads an explicit entityId into the emitted slot") {
+    val node = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |power: hass.SensorEntity = new { entity_id = "sensor.power" }
+        |
+        |node = new c.EntityCard {
+        |  entity = light
+        |  value = c.exprOf(power, "$state")
+        |}""".stripMargin
+    )
+    val value = node.slots("value")
+    assertEquals(value.entityId, Some("sensor.power"))
+    assertEquals(value.literal, None)
+    assertEquals(value.transform, "$state")
+    // A plain expr (no exprOf) still inherits the card's entity (no entityId).
+    val plain = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = new c.EntityCard { entity = light; value = c.expr("$state") }""".stripMargin
+    )
+    assertEquals(plain.slots("value").entityId, None)
+  }
+
+  test("Row cssClass emits a literal `class` slot") {
+    val row = probeComponent(
+      """node = new c.Row {
+        |  cssClass = "tabbar"
+        |  children { new c.SectionTitle { text = "x" } }
+        |}""".stripMargin
+    )
+    assertEquals(row.card, "fhrow")
+    assertEquals(row.slots("class").literal, Some("tabbar"))
+    // Absent cssClass emits no `class` slot at all.
+    val plain = probeComponent(
+      """node = new c.Row { children { new c.SectionTitle { text = "x" } } }"""
+    )
+    assert(!plain.slots.contains("class"), clue = plain.slots)
+  }
+
+  test("Slider on a cover resolves the cover spec as string literals") {
+    val slider = probeComponent(
+      """cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+        |node = new c.Slider { entity = cover }""".stripMargin
+    )
+    assertEquals(slider.card, "slider")
+    assertEquals(slider.slots("action").literal, Some("cover/set_cover_position"))
+    assertEquals(slider.slots("key").literal, Some("position"))
+    assertEquals(slider.slots("min").literal, Some("0"))
+    assertEquals(slider.slots("max").literal, Some("100"))
+    assertEquals(slider.slots("value").transform, "$attr.current_position")
   }
 }
