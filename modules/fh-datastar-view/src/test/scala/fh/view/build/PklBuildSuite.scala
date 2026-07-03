@@ -670,4 +670,116 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
+
+  test("pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)") {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    os.copy.into(resources / "pkl-tabs.pkl", tmp)
+
+    // Fake transformed dump defining exactly the entities the tabs demo names:
+    // a light (Lights tab) + two sensors (Sensors tab).
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {},
+          "floors": {},
+          "entities": {
+            "sensor_ams_1a4e_q": {
+              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
+              "domain": "sensor", "attributes": {}
+            },
+            "sensor_ams_1a4e_u1": {
+              "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
+              "domain": "sensor", "attributes": {}
+            },
+            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "friendly_name": "Demo light",
+              "domain": "light", "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+
+    val result = SourceEval.eval(tmp, "pkl-tabs.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+
+    // FULL build pipeline: normalize children, hoist the inline tab surfaces
+    // (splicing each trigger's NODE_ID), then decode — shared with jsonnet.
+    val hoisted = DashboardBuild
+      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // No @@NODE_ID@@ token survives the hoist anywhere in the JSON.
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val decoded = hoisted.as[Dashboard]
+    assert(decoded.isRight, clue = decoded)
+    val d = decoded.toOption.get
+
+    // The sugar produced two inline tab surfaces.
+    assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
+    // Both panels share ONE derived host (exclusivity by shared hostId).
+    assertEquals(
+      d.surfaces.values.map(_.hostId).toSet.size,
+      1,
+      clue = d.surfaces
+    )
+    // Ids use the unified scheme: idBase (`c`-rooted pathId) + the `t<i>` key.
+    assert(
+      d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
+      clue = d.surfaces.keySet
+    )
+    assert(
+      d.surfaces.keySet.exists(_.endsWith("_t0")) &&
+        d.surfaces.keySet.exists(_.endsWith("_t1")),
+      clue = d.surfaces.keySet
+    )
+    // Every surface is a chrome-less panel with a bake position.
+    assert(
+      d.surfaces.values.forall(s =>
+        s.bakeInto.isDefined && s.bakeAs.contains("panel")
+      ),
+      clue = d.surfaces
+    )
+    assertEquals(
+      d.surfaces.values.flatMap(_.bakeIndex).toList.sorted,
+      List(0, 1),
+      clue = d.surfaces
+    )
+    // Exactly one surface (the first tab) is default-open.
+    assertEquals(
+      d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
+      Set(d.surfaces.keys.toList.sorted.head),
+      clue = d.surfaces
+    )
+
+    // The tabs component sits in the layout with two tab-bar buttons; each
+    // button's onclick references the SPLICED real surface id (not the raw
+    // token) AND writes the fhui_ restore cookie.
+    val root = d.card.asInstanceOf[LayoutNode.Component]
+    val tabsNode = root.children.collectFirst {
+      case c: LayoutNode.Component if c.card == "tabs" => c
+    }.getOrElse(fail("no tabs component in the layout"))
+    val tabButtons =
+      tabsNode.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(tabButtons.map(_.card), List("button", "button"))
+    tabButtons.foreach { b =>
+      val onclick = b.slots("onclick").literal
+        .getOrElse(fail(s"tab button onclick not a literal: ${b.slots}"))
+      assert(onclick.contains("fhui_"), clue = onclick)
+      // The spliced surface id it opens is a real registered surface.
+      val opened = d.surfaces.keys.find(id => onclick.contains(id))
+        .getOrElse(fail(s"onclick references no known surface: $onclick"))
+      assert(!opened.contains(DashboardBuild.NodeIdToken), clue = opened)
+    }
+
+    // Validation (card refs, required slots, JSONata compile) passes.
+    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
 }
