@@ -215,10 +215,11 @@ class Button extends Node {
 // The slider's controllable config per domain: the service to call, the
 // service_data key the value rides on, the range bounds, and which attribute
 // is the live position. Add a domain (cover/fan/climate…) by adding a row —
-// TYPED: a missing/misspelled field is a build error. Unlike jsonnet's
-// runtime $lookup($domain), the Pkl slider resolves its spec AT BUILD TIME
-// from the entity's domain (the runtime lookup is only needed for dynamic
-// groups, which the Pkl track does not have yet — ADR 0006).
+// TYPED: a missing/misspelled field is a build error. A STATIC slider resolves
+// its config AT BUILD TIME from the entity's domain (baked literals); a slider
+// bound to [[hass.SELF]] (a dynamic-group case) can't know the domain until a
+// match, so it falls back to jsonnet's runtime `$lookup($domain)` over this
+// same table (see [[sliderLookup]]).
 class SliderSpec {
   action: String
   key: String
@@ -233,32 +234,71 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
   ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
-/// Value slider. Only accepts an entity whose domain has a sliderSpec row —
-/// a slider on e.g. a sensor is a BUILD error naming the dashboard line.
+// A JSONata object literal `{"<domain>": <spec.field>}` over the sliderSpec
+// table — `{"light":"light/turn_on","cover":...}` (JSONata object syntax IS
+// JSON). Pkl has no reflect-by-string, so the field is a lambda accessor;
+// String values are quoted, Int (min/max) values emitted bare. Mirrors jsonnet
+// sliderDomainMap (components.libsonnet:225-229) but over all three domains.
+const local function sliderDomainMap(get: (SliderSpec) -> Any): String =
+  "{" + (new Listing {
+    for (d, s in sliderSpec) {
+      let (v = get.apply(s))
+        "\"\(d)\":" + (if (v is String) "\"\(v)\"" else "\(v)")
+    }
+  }).toList().join(",") + "}"
+
+// `$lookup(<map>, $domain)` — resolve a config field from the entity's domain
+// at runtime (components.libsonnet:231).
+const local function sliderLookup(get: (SliderSpec) -> Any): String =
+  "$lookup(" + sliderDomainMap(get) + ", $domain)"
+
+// The live position: read the domain's position attribute off $attr
+// (components.libsonnet:233).
+const local sliderValueLookup: String = "$lookup($attr, " + sliderLookup((s) -> s.value) + ")"
+
+// A slider config slot (action/key/min/max): author override → build-time spec
+// literal (stringified — the backend slot decoder rejects numbers) → the
+// runtime `$lookup($domain)` fallback for a spec-less ($self) slider. The
+// lookup form is identity-derived (reactive = false, never a live dependency)
+// and resolves even when the entity is unavailable (components.libsonnet:237).
+// `override` is a Pkl reserved word — the param is `ovr`.
+const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderSpec) -> Any): Slot|String =
+  if (ovr != null) ovr
+  else if (spec != null) "\(get.apply(spec!!))"
+  else new Slot { transform = sliderLookup(get); reactive = false; bypassUnavailable = false }
+
+/// Value slider. Accepts either a static entity whose domain has a sliderSpec
+/// row (config baked at build time) or [[hass.SELF]] inside a dynamic case
+/// (config resolved per matched entity via runtime `$lookup($domain)`). A
+/// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
 class Slider extends Node {
   card = "slider"
-  hidden entity: hass.Entity(sliderSpec.containsKey(domain))
+  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain))
   hidden label: (String|Expr)? = null
-  hidden min: Int? = null // per-instance overrides of the domain default
+  hidden action: String? = null // per-instance overrides of the domain default
+  hidden key: String? = null
+  hidden min: Int? = null
   hidden max: Int? = null
-  hidden spec: SliderSpec = sliderSpec[entity.domain]
+  // Null for a dynamic ($self) slider — the domain is unknown until a match, so
+  // config falls through sliderConfig to the runtime lookup tier.
+  hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
     // The display header (inherits entity_id, bypassUnavailable default).
     ["state"] = new Slot {}
     // The range input's numeric position: opt OUT of bypass so an unavailable
-    // entity falls back to `default` ("0") rather than "unavailable".
+    // entity falls back to `default` ("0") rather than "unavailable". Static:
+    // read the domain's position attr; dynamic: $lookup it per match.
     ["value"] = new Slot {
-      transform = "$attr." + spec.value
+      transform = if (spec != null) "$attr." + spec!!.value else sliderValueLookup
       default = "0"
       bypassUnavailable = false
     }
-    ["action"] = spec.action
-    ["key"] = spec.key
-    // Literal slots must be strings — the backend decoder rejects numbers.
-    ["min"] = "\(min ?? spec.min)"
-    ["max"] = "\(max ?? spec.max)"
+    ["action"] = sliderConfig(action, spec, (s) -> s.action)
+    ["key"] = sliderConfig(key, spec, (s) -> s.key)
+    ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
+    ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }
 }
 
