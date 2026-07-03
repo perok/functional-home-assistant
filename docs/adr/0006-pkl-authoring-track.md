@@ -105,3 +105,60 @@ absent. Each row names the ADR that owns the feature's design.
   escaped (backslash first also neutralizes `\(` interpolation), null
   `friendly_name` omitted, floor slugs guarded against the module's own
   `entities`/`areas`/`output` names.
+
+## Update — 2026-07-03: parity reached (skip-list implemented)
+
+`docs/plan-pkl-parity.md` executed on branch `pkl` (steps 1–6, one commit
+each). **Every row of the skip-list above is now implemented**, and two of the
+"Recorded tradeoffs / follow-ups" are resolved:
+
+- `exprOf` (`Expr.entityId` threaded through label/value/secondary slots),
+  `class` slot on row/col (authored as `cssClass` — `class` is a Pkl reserved
+  word), cover/fan `sliderSpec` rows.
+- Dynamic groups: `LayoutNode`/`Node`/`DynamicGroup` hierarchy, typed
+  `Predicate` AST (`Cmp`/`And`/`Or`/`Not`, `PredicateOp` union type — a
+  misspelled op is a build error, an improvement over jsonnet), predicate
+  helpers (`cmp`/`pAnd`/`pOr`/`pNot`/`always`/`whenDomain`/`whenState`/
+  `whenDeviceClass`/`attrLessThan`/`stateLessThan`/`lowBattery`),
+  `dynCase`/`dynWhen`/`group`/`groupCases`, `hass.SELF` (`DynamicEntity`,
+  `$self`) accepted by any leaf card, live `friendly_name ? : entity_id` label
+  default.
+- Slider three-tier config: author override → build-time spec (static entity)
+  → runtime `$lookup($domain)` over the manifested domain map (dynamic
+  `$self` entity) — the Pkl `sliderSpec` table is the single source for both
+  tiers (`sliderDomainMap` manifests it as a JSONata object literal).
+- Popups/surfaces: `SurfaceDef`, `inlineSurfaces` on `Node`+`Tap`,
+  `const NODE_ID = "@@NODE_ID@@"` hoist token, `popup` card + `Popup` class,
+  `closePopup`/`openPopup(surfaceId)`/`openPopupInline(body)`, popup CSS in
+  `theme.pkl`.
+- Tabs: `Tabs`/`Tab` classes (per-tab inline surfaces with
+  `bakeInto`/`bakeAs`/`bakeIndex`, `defaultOpen` emitted null-not-false so
+  omit-null keeps JSON parity), `Button.active`, cookie-writing onclick, tabs
+  CSS, `pkl-tabs.pkl` entry. The ported `tabs` card template drops the stray
+  `',` artifact present in components.libsonnet (a latent jsonnet bug, not
+  reproduced).
+- **Follow-ups resolved**: import watching now uses the precise transitive
+  import graph via `org.pkl.core.Analyzer.importGraph` (the guessed
+  `evaluateImportGraph` method does not exist), file-scheme-filtered under the
+  dashboards dir, with the all-`*.pkl` superset kept as fallback; `BuildApp`
+  reads `DASHBOARD_ENTRY` (default `dashboard.jsonnet`).
+
+**Deliberate API deviations from jsonnet** (Pkl has no untyped
+union-dispatch): `openPopup(id: String)` and `openPopupInline(body: Node)` are
+two named functions where jsonnet's `openPopup` dispatches on string-vs-node;
+the row/col class slot is authored `cssClass` (reserved word) though the
+emitted slot key remains `"class"`.
+
+New Pkl gotchas learned (beyond the list above): a bare identifier inside a
+`new {}` amend binds to the object's OWN member, not the enclosing function
+parameter — a same-named parameter self-recurses to a `StackOverflowError`
+(rename the parameter); lambdas are invoked via `.apply(x)`; `Listing` →
+`List` via `.toList()`; `for (i, t in listing)` generators yield
+index+element.
+
+Verified by `fh-datastar-view/testFull` = 76 green (PklBuildSuite 17 —
+full-pipeline decode/hoist/validate mirrors of the jsonnet BuildPhaseSuite
+tests). **Live browser verification of `/d/pkl-demo` (popups, dynamic groups,
+dynamic slider) and `/d/pkl-tabs` (switching, highlight, cookie restore) is
+still pending** — the HA instance was unreachable at implementation time; run
+the plan's step-7 `dashboardServe` checklist when it is back.
