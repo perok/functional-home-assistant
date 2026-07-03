@@ -16,6 +16,22 @@ import "lib/hass.pkl"
 cards = c.cards
 theme = themeMod.theme
 
+// Registered popup surfaces: opened by an `openPopup("detail")` tap and
+// rendered/streamed only while open. A registered popup wraps its content in the
+// `popup` dialog card (symmetric with how the inline `openPopupInline` form
+// wraps automatically). Mirrors dashboard.jsonnet:42-52.
+surfaces: Mapping<String, c.SurfaceDef> = new {
+  ["detail"] = new c.SurfaceDef {
+    content = new c.Popup {
+      children {
+        new c.SectionTitle { text = "Power detail" }
+        new c.EntityCard { entity = dump.entities.`sensor_ams_1a4e_q` }
+        new c.Button { label = "Close"; action = c.closePopup() }
+      }
+    }
+  }
+}
+
 card: c.Node = new c.Column {
   children {
     new c.SectionTitle { text = "Pkl demo" }
@@ -56,6 +72,22 @@ card: c.Node = new c.Column {
       label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
       secondary = "device_class"
     })
+
+    // POPUPS. The first button opens the REGISTERED `detail` surface; the second
+    // opens an INLINE popup whose content the build-phase hoist lifts into a
+    // surface (keyed by this button's derived id + "_self").
+    new c.SectionTitle { text = "Popups" }
+    new c.Button { label = "Power detail…"; action = c.openPopup("detail") }
+    new c.Button {
+      label = "Quick info…"
+      action = c.openPopupInline(new c.Column {
+        children {
+          new c.SectionTitle { text = "Quick info" }
+          new c.EntityCard { entity = dump.entities.sensor_ams_1a4e_u1 }
+          new c.Button { label = "Close"; action = c.closePopup() }
+        }
+      })
+    }
 
     new c.Button { label = "« Back to jsonnet"; action = c.navigate("dashboard") }
   }

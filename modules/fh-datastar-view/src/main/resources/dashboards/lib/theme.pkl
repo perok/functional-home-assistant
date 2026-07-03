@@ -31,10 +31,9 @@ theme: Theme = new {
   }
 
   // The dashboard frame: the `#dashboard` swap target (what navigate/reload
-  // inner-patch) plus the `#popups` overlay mount. MUST keep an element with
-  // id="dashboard" around {{{body}}} — Dashboard.validate enforces it. The
-  // popups mount is kept for parity with the jsonnet theme (harmless while the
-  // Pkl track has no popups yet).
+  // inner-patch) plus the `#popups` overlay mount (where a popup surface's
+  // dialog-wrapped content is patched in on open). MUST keep an element with
+  // id="dashboard" around {{{body}}} — Dashboard.validate enforces it.
   chrome = """
     <main class="container" id="dashboard">{{{body}}}</main>
     <div id="popups"></div>
@@ -71,6 +70,19 @@ theme: Theme = new {
     .card.tappable{cursor:pointer}
     button.card{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border:none;cursor:pointer}
     input[type=range]{accent-color:var(--accent-color,#ff9800)}
+
+    /* Popup overlay: styling for the `popup` container card (components.pkl), a
+       fixed-position card floated over the page. The dialog is transient —
+       patched into `#popups` on open, removed on close — so no visibility trick
+       is needed; it exists only while open. The theme styles `.popup` (a class
+       contract, like `.card`); the component emits it. Ported from
+       theme.libsonnet:75-85. */
+    dialog.popup{position:fixed;inset:10vh 1rem auto;margin:0 auto;z-index:10;
+      border:none;border-radius:var(--ha-card-border-radius,12px);
+      background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);
+      padding:1.5rem;max-width:min(90vw,32rem);box-shadow:0 4px 24px rgba(0,0,0,.2)}
+    .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
+      border:none;color:var(--secondary-text-color,#727272);cursor:pointer;font-size:1rem}
     """
 }
 

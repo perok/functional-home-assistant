@@ -42,11 +42,31 @@ abstract class Node extends LayoutNode {
   // Widened to LayoutNode so a container can nest either a component or a
   // dynamic group.
   children: Listing<LayoutNode> = new {}
+  // A node-level map of inline surfaces the build-phase hoist lifts into the
+  // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
+  // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
+  // from JSON by omitNullProperties) unless a tap composes an inline popup.
+  inlineSurfaces: Mapping<String, SurfaceDef>? = null
 }
 
 class CardDef {
   template: String
   slots: Listing<String> = new {}
+}
+
+/// An on-demand render subtree the build-phase hoist lifts into the top-level
+/// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
+/// authored directly (a top-level `surfaces` mapping); inline surfaces ride on a
+/// node's [[Node.inlineSurfaces]] and are hoisted, keyed `<node-id>_<localKey>`.
+/// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
+/// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
+/// Boolean so omitNullProperties drops it and the decoder defaults it to false.
+class SurfaceDef {
+  content: LayoutNode
+  bakeInto: String? = null
+  bakeAs: String? = null
+  bakeIndex: Int? = null
+  defaultOpen: Boolean? = null
 }
 
 // ---- author-facing descriptors ----
@@ -67,10 +87,21 @@ function expr(s: String): Expr = new { transform = s }
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 /// A tap descriptor: the whole Datastar click expression, either live (a Slot
-/// reading $entity_id/$domain) or a constant string (navigate).
+/// reading $entity_id/$domain) or a constant string (navigate). A tap that opens
+/// an INLINE popup also carries `inlineSurfaces` (the dialog content); the card
+/// copies it onto the node so the hoist can lift it.
 class Tap {
   onclick: Slot|String
+  inlineSurfaces: Mapping<String, SurfaceDef>? = null
 }
+
+// The placeholder a node uses to refer to its own backend-minted id — the SAME
+// id the renderer injects as `{{id}}`. The build-phase hoist
+// (DashboardBuild.hoistInlineSurfaces / NodeIdToken) splices the real id in.
+// MUST equal DashboardBuild.NodeIdToken. Authors never type it — the
+// `openPopupInline` tap embeds it (paired with an `inlineSurfaces` marker under
+// the matching local key).
+const NODE_ID: String = "@@NODE_ID@@"
 
 // The default service route (domain/service) for a tap, resolved per entity
 // at runtime ($domain). Scenes/scripts turn_on, buttons press, everything
@@ -102,6 +133,33 @@ function serviceTap(action: String): Tap =
 /// In-place swap to dashboard `slug` (+ URL via pushState) — a constant click.
 function navigate(slug: String): Tap =
   new { onclick = "@post('/sse/navigate/\(slug)'); history.pushState(null,'','/d/\(slug)')" }
+
+/// Dismiss the (single, at-a-time) open popup — the id-less `POST
+/// /sse/popup/close`. Drop a button carrying this inside a popup's content.
+function closePopup(): Tap = new { onclick = "@post('/sse/popup/close')" }
+
+/// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
+/// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
+/// renders it bare into the `#popups` mount.
+function openPopup(surfaceId: String): Tap =
+  new { onclick = "@post('/sse/surface/open/\(surfaceId)')" }
+
+/// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
+/// under this node's `inlineSurfaces["self"]`; the onclick references the future
+/// surface id (`<NODE_ID>_self`) the hoist mints and splices. (Pkl can't
+/// union-dispatch string|node in one function like jsonnet's `openPopup`, so the
+/// registered and inline forms are two named functions — a deliberate API
+/// deviation, see ADR 0006.)
+// The parameter is `body`, NOT `content`: a bare `content` inside the nested
+// `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
+// bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
+// per the Pkl amend-scoping gotcha.
+function openPopupInline(body: Node): Tap = new {
+  onclick = "@post('/sse/surface/open/\(NODE_ID)_self')"
+  inlineSurfaces = new Mapping {
+    ["self"] = new SurfaceDef { content = new Popup { children { body } } }
+  }
+}
 
 // ---- shared slot builders (port of labelSlot/valueSlot/secondarySlot) ----
 
@@ -181,6 +239,10 @@ class EntityCard extends Node {
   hidden value: (String|Expr)? = null
   hidden secondary: (String|Expr)? = null
   hidden tap: Tap? = null
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them
+  // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
+  // is null or carries no inline popup → dropped by omitNullProperties.
+  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
   slots {
     // entity_id is the card's subject — the magical slot the others inherit.
     ["entity_id"] = entity.entity_id
@@ -203,6 +265,8 @@ class Button extends Node {
   hidden entity: hass.Entity? = null
   hidden label: (String|Expr)? = null
   hidden action: Tap? = null
+  // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
@@ -210,6 +274,15 @@ class Button extends Node {
     ["label"] = labelSlot(entity, label)
     ["onclick"] = (action ?? toggleTap).onclick
   }
+}
+
+/// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
+/// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
+/// the id-less close. Composed INTO a surface's content (by [[openPopupInline]]
+/// or when registering a surface), NOT applied as backend chrome. Use it when
+/// registering a popup surface: `content = new Popup { children { ... } }`.
+class Popup extends Node {
+  card = "popup"
 }
 
 // The slider's controllable config per domain: the service to call, the
@@ -479,6 +552,12 @@ cards: Mapping<String, CardDef> = new {
       </article>
       """
     slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+  }
+  // POPUP dialog container. `open` is static markup (a `<dialog>` without it is
+  // display:none); the dialog is transient — present only while open. The ✕
+  // posts the id-less close. Ported verbatim from components.libsonnet:511.
+  ["popup"] = new {
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
 

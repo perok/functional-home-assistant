@@ -346,27 +346,47 @@ class PklBuildSuite extends munit.FunSuite {
       clue = importNames
     )
 
-    // The FULL build pipeline: normalize + hoist are no-ops on Pkl output
-    // (real children arrays, no inlineSurfaces markers) — running them proves
-    // the decode path is shared with jsonnet unchanged.
-    val decoded = DashboardBuild
+    // The FULL build pipeline: normalize children, then hoist the inline popup
+    // surface into the registry (splicing the trigger's NODE_ID), then decode —
+    // proving the decode path is shared with jsonnet unchanged.
+    val hoisted = DashboardBuild
       .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
-      .as[Dashboard]
+    // Every @@NODE_ID@@ token was spliced with a real id — none survives.
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val decoded = hoisted.as[Dashboard]
     assert(decoded.isRight, clue = decoded)
     val d = decoded.toOption.get
 
     assert(
-      Set("fhrow", "fhcol", "sectionTitle", "entityCard", "button", "slider")
-        .subsetOf(d.cards.keySet),
+      Set(
+        "fhrow",
+        "fhcol",
+        "sectionTitle",
+        "entityCard",
+        "button",
+        "slider",
+        "popup"
+      ).subsetOf(d.cards.keySet),
       clue = d.cards.keySet
     )
-    assert(d.surfaces.isEmpty)
+    // Two surfaces: the REGISTERED `detail` popup and the hoisted INLINE one
+    // (keyed `<node-id>_self`, node-id in the `c`-rooted pathId scheme).
+    assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
+    val inlineId =
+      d.surfaces.keys.find(_.endsWith("_self")).getOrElse(
+        fail(s"no hoisted _self surface: ${d.surfaces.keySet}")
+      )
+    assert(inlineId.startsWith("c"), clue = inlineId)
     assert(d.theme.tokens.nonEmpty)
     assert(d.theme.chrome.contains("id=\"dashboard\""))
 
     val root = d.card.asInstanceOf[LayoutNode.Component]
     assertEquals(root.card, "fhcol")
-    // The layout now interleaves component cards with two dynamic groups.
+    // The layout now interleaves component cards with two dynamic groups and
+    // ends with the popup-opening buttons.
     val children =
       root.children.collect { case c: LayoutNode.Component => c }
     assertEquals(
@@ -378,8 +398,21 @@ class PklBuildSuite extends munit.FunSuite {
         "slider",
         "sectionTitle",
         "sectionTitle",
+        "sectionTitle",
+        "button",
+        "button",
         "button"
       )
+    )
+
+    // The inline-popup trigger (the "Quick info…" button) carries a literal
+    // onclick that references the SPLICED real surface id, not the raw token.
+    val inlineTrigger = children
+      .find(_.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self")))
+      .getOrElse(fail("no inline-popup trigger button found"))
+    assertEquals(
+      inlineTrigger.slots("onclick").literal,
+      Some(s"@post('/sse/surface/open/$inlineId')")
     )
 
     // Two dynamic groups: a per-domain dispatch group and the low-battery one.
