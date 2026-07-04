@@ -143,5 +143,6 @@ bakes the default panel, and a `fhui_<id>` cookie on the first-paint GET bakes
 the selected tab flash-free (ADR 0005); in-place navigate inner-patches
 `#dashboard` and resets `#popups`; hot reload of an edited `.pkl` entry
 repaints in ~0.5s (precise `Analyzer.importGraph` watch set) with jsonnet
-dashboards unaffected. Visual-only details (active-tab highlight styling,
-dialog appearance) remain browser-eyeball items.
+dashboards unaffected. The visual-only details (active-tab highlight styling,
+dialog appearance) were confirmed by eye in the browser the same day — nothing
+remains unverified.
