@@ -1,10 +1,18 @@
 package fh.view.runtime
 
-import cats.effect.IO
+import api.homeassistant.HomeAssistantApi
+import api.homeassistant.ws.protocol.client.TriggerData
+import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global
 import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
+import fs2.concurrent.{SignallingRef, Topic}
+import ha.runtime.definitions.{DeviceId, EntityId}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
+
+import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.duration.*
 
 class ServerSuite extends munit.FunSuite {
 
@@ -147,5 +155,126 @@ class ServerSuite extends munit.FunSuite {
         .renderString
     assert(inner.contains("data: selector #dashboard"), clue = inner)
     assert(inner.contains("data: mode inner"), clue = inner)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared per-slug patch fan-out
+  // ---------------------------------------------------------------------------
+
+  /** The Server never touches the HA api on the SSE/patch path; every method
+    * fails loudly so an unexpected call surfaces as a test failure.
+    */
+  private object StubApi extends HomeAssistantApi[IO] {
+    private def na: IO[Nothing] =
+      IO.raiseError(new NotImplementedError("test stub"))
+    private def naR: Resource[IO, Nothing] = Resource.eval(na)
+    def configDeviceRegistryList = na
+    def configEntityRegistryList = na
+    def configEntityRegistryGet(entityId: EntityId) = na
+    def manifestList() = na
+    def configEntriesGet(type_filter: List[String], domain: Option[String]) =
+      na
+    def deviceAutomationTriggerList(deviceId: DeviceId) = na
+    def deviceAutomationActionList(deviceId: DeviceId) = na
+    def deviceAutomationActionCapabilities(action: Json) = na
+    def getConfigWS = na
+    def getServicesWS = na
+    def event(event: Option[String]) = naR
+    def trigger(data: TriggerData*) = naR
+    def callService(
+        domain: String,
+        service: String,
+        entityId: String,
+        serviceData: Json
+    ) = na
+    def getStates = na
+    def getServices = na
+    def templateFunc[Body: io.circe.Decoder](template: String) = na
+  }
+
+  /** Counts every live-patch render, so the test can assert a fragment was
+    * produced ONCE for N viewers.
+    */
+  private class CountingRenderer(dash: Dashboard, count: AtomicInteger)
+      extends Renderer(dash, Templates.from(dash), Transforms.from(dash)) {
+    override def renderNodeById(
+        id: String,
+        states: Map[String, EntityState],
+        uiState: Map[String, String]
+    ): Option[String] = {
+      count.incrementAndGet()
+      super.renderNodeById(id, states, uiState)
+    }
+  }
+
+  // One live leaf bound to sensor.a inside a static container — no bake
+  // groups, so its live patches belong entirely to the shared per-slug pass.
+  private def liveLeafDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.a")))
+        )
+      )
+    )
+  )
+
+  test(
+    "shared per-slug pass: two connections both receive a changed fragment rendered ONCE"
+  ) {
+    val marker = "shared_once_value_xq"
+    val count = new AtomicInteger(0)
+    val io = for {
+      store <- StateStore.inMemory(
+        Map("sensor.a" -> EntityState("sensor.a", "initial", Map.empty))
+      )
+      topic <- Topic[IO, ServerSentEvent]
+      renderer = new CountingRenderer(liveLeafDash, count)
+      ref <- SignallingRef[IO].of(renderer: Renderer)
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("dashboard" -> ref),
+        "dashboard",
+        sessions,
+        Map("dashboard" -> topic)
+      )
+      // The lifecycle owner (ServerApp via Server.resource) runs the shared
+      // publishers; here the test does.
+      publisher <- server.sharedPatchPublishers.compile.drain.start
+      connect = server.routes.orNotFound
+        .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+      resp1 <- connect
+      resp2 <- connect
+      awaitMarker = (resp: Response[IO]) =>
+        resp.body
+          .through(fs2.text.utf8.decode)
+          .scan("")(_ + _)
+          .exists(_.contains(marker))
+          .compile
+          .drain
+      seen1 <- awaitMarker(resp1).start
+      seen2 <- awaitMarker(resp2).start
+      // Deterministic readiness (topics deliver only to already-subscribed
+      // consumers): both connections on the slug's shared topic, and the
+      // publisher + both per-session change loops on the store's change topic.
+      _ <- topic.subscribers.filter(_ >= 2).head.compile.drain
+      _ <- store.changeSubscribers.filter(_ >= 3).head.compile.drain
+      _ <- store.update(EntityState("sensor.a", marker, Map.empty))
+      // (a) both SSE streams receive the changed fragment...
+      _ <- seen1.joinWithNever
+      _ <- seen2.joinWithNever
+      _ <- publisher.cancel
+    } yield count.get()
+    // ...and (b) it was rendered once, by the shared pass (the per-session
+    // loops render only bake owners / open surfaces — none here).
+    assertEquals(io.timeout(30.seconds).unsafeRunSync(), 1)
   }
 }

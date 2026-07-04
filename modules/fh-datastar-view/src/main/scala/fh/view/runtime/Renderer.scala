@@ -126,6 +126,15 @@ class Renderer(
   def affectedDynamicIds(change: StateChange): List[String] =
     mainIndex.dynamicIds.filter(dynamicAffected(_, change))
 
+  /** Component ids that own a bake group (some surface's `bakeInto` names
+    * them). Their HTML depends on the client's `uiState` (the baked member is
+    * cookie-selected), so their live patches must stay per-session; every other
+    * main-page node's HTML is a pure function of entity state and can be
+    * rendered once per slug and shared across connections (see `Server`).
+    */
+  val bakeOwnerIds: Set[String] =
+    dashboard.surfaces.values.flatMap(_.bakeInto).toSet
+
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
     * carries none). This is the ordered member list a cookie index selects

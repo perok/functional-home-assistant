@@ -16,9 +16,11 @@ import org.http4s.ServerSentEvent
   *   - `control`: server-pushed patches destined for *this* connection's stream
   *     — popup mount/remove and the navigate body swap (the entity-change loop
   *     can't carry them, as they're triggered by action POSTs on other fibers).
-  *   - `lastRendered`: this connection's private last-pushed-HTML diff cache.
-  *     Per-connection because popup content differs per client (and it
-  *     sidesteps the multi-client miss a shared cache would have).
+  *   - `lastRendered`: this connection's private last-pushed-HTML diff cache
+  *     for the fragments that are rendered per session (open surfaces,
+  *     bake-group owners) — content that differs per client. Shared main-page
+  *     fragments are diffed once per slug instead (`Server`'s shared patch
+  *     pass), never here.
   */
 final case class Session(
     slug: Ref[IO, String],
