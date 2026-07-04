@@ -16,19 +16,20 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump, write it next to the dashboard sources in both
-    * authoring languages (so `import 'dump.libsonnet'` and
-    * `import "lib/dump.pkl"` resolve), and evaluate `entry` into JSON + the set
-    * of files read (entry + transitive imports).
+  /** Fetch the live entity dump ONCE and write it next to the dashboard sources
+    * in both authoring languages (so `import 'dump.libsonnet'` and
+    * `import "lib/dump.pkl"` resolve). This is the build phase's job: it owns
+    * fetching + writing the dumps, and the runtime
+    * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
+    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dumps once
+    * for all entries, then [[reevaluate]]s each against the on-disk copy.
     */
-  def evaluate(
+  def prepareDumps(
       api: HomeAssistantApi[IO],
-      dashboardsDir: os.Path,
-      entry: String
-  ): IO[SourceEval.Result] =
-    for {
-      dump <- DataDump.fetch(api)
-      _ <- IO.blocking {
+      dashboardsDir: os.Path
+  ): IO[Unit] =
+    DataDump.fetch(api).flatMap { dump =>
+      IO.blocking {
         os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
         os.write.over(
           dashboardsDir / "lib" / "dump.pkl",
@@ -36,17 +37,33 @@ object DashboardBuild {
           createFolders = true
         )
       }
-      // `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
-      // suspend it in `IO.blocking` (evaluation happens when the IO runs, on the
-      // blocking pool) before lifting its Either result.
-      result <- IO
-        .blocking(SourceEval.eval(dashboardsDir, entry))
-        .flatMap(
-          _.leftMap(err =>
-            new RuntimeException(s"dashboard eval failed:\n$err")
-          ).liftTo[IO]
-        )
-    } yield result
+    }
+
+  /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
+    * JSON + the set of files read (entry + transitive imports).
+    */
+  def evaluate(
+      api: HomeAssistantApi[IO],
+      dashboardsDir: os.Path,
+      entry: String
+  ): IO[SourceEval.Result] =
+    prepareDumps(api, dashboardsDir) *> evalSource(dashboardsDir, entry)
+
+  /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
+    *
+    * `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
+    * suspend it in `IO.blocking` (evaluation happens when the IO runs, on the
+    * blocking pool) before lifting its Either result.
+    */
+  private def evalSource(
+      dashboardsDir: os.Path,
+      entry: String
+  ): IO[SourceEval.Result] =
+    IO.blocking(SourceEval.eval(dashboardsDir, entry))
+      .flatMap(
+        _.leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
+          .liftTo[IO]
+      )
 
   /** Accept a node's `children` written as a single node (not an array): wrap
     * any object-valued `children` into a one-element list so authors can write
@@ -257,17 +274,28 @@ object DashboardBuild {
       }
     } yield dashboard
 
-  /** Evaluate + decode + validate in one step (in-memory; no artifact file).
-    * Returns the dashboard and the files it was built from (for watching).
+  /** Evaluate the on-disk sources and decode + validate into the runtime model,
+    * returning the dashboard and the files it was built from (for watching).
+    * Assumes the dumps are already written ([[prepareDumps]]).
+    */
+  private def evalAndDecode(
+      dashboardsDir: os.Path,
+      entry: String
+  ): IO[(Dashboard, Set[os.Path])] =
+    evalSource(dashboardsDir, entry).flatMap { r =>
+      decode(r.value, r.imports).map(_ -> r.imports)
+    }
+
+  /** Fetch + write the dump, then evaluate + decode + validate in one step
+    * (in-memory; no artifact file). Returns the dashboard and the files it was
+    * built from (for watching).
     */
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entry: String
   ): IO[(Dashboard, Set[os.Path])] =
-    evaluate(api, dashboardsDir, entry).flatMap { r =>
-      decode(r.value, r.imports).map(_ -> r.imports)
-    }
+    prepareDumps(api, dashboardsDir) *> evalAndDecode(dashboardsDir, entry)
 
   /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
     * dump rewrite) — used by live reload when only the dashboard sources
@@ -277,12 +305,5 @@ object DashboardBuild {
       dashboardsDir: os.Path,
       entry: String
   ): IO[(Dashboard, Set[os.Path])] =
-    // `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
-    // suspend it in `IO.blocking` before lifting its Either result.
-    IO.blocking(SourceEval.eval(dashboardsDir, entry))
-      .flatMap(
-        _.leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
-          .liftTo[IO]
-      )
-      .flatMap(r => decode(r.value, r.imports).map(_ -> r.imports))
+    evalAndDecode(dashboardsDir, entry)
 }
