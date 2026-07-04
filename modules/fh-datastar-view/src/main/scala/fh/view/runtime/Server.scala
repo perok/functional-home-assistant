@@ -92,8 +92,7 @@ class Server(
       _ <- renderers
         .get(slug)
         .traverse_(_.get.flatMap { r =>
-          r.uiStateAnomalies(uiState)
-            .traverse_(w => IO.println(s"[warn] $w")) *>
+          warnAnomalies(r, uiState) *>
             session.open.set(r.selectedSurfaces(uiState))
         })
 
@@ -264,9 +263,7 @@ class Server(
           renderer <- ref.get
           states <- stateStore.snapshot
           _ <- session.slug.set(slug)
-          _ <- renderer
-            .uiStateAnomalies(uiState)
-            .traverse_(w => IO.println(s"[warn] $w"))
+          _ <- warnAnomalies(renderer, uiState)
           // Reset popups, but seed the target dashboard's selected tab panels
           // (its body is rendered with them baked in below).
           _ <- session.open.set(renderer.selectedSurfaces(uiState))
@@ -313,6 +310,16 @@ class Server(
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String]("conn").toOption
 
+  /** Log every bake-group anomaly [[Renderer.uiStateAnomalies]] reports for
+    * this client's `uiState` (an off/hand-edited cookie). Renderer stays pure —
+    * it returns the warnings, the Server logs them.
+    */
+  private def warnAnomalies(
+      renderer: Renderer,
+      uiState: Map[String, String]
+  ): IO[Unit] =
+    renderer.uiStateAnomalies(uiState).traverse_(w => IO.println(s"[warn] $w"))
+
   /** Datastar reads live updates from the persistent SSE stream, so an action
     * POST just triggers the service and returns no content.
     */
@@ -325,7 +332,16 @@ class Server(
     api.callService(domain, service, entityId, serviceData).attempt.flatMap {
       case Right(_) => NoContent()
       case Left(err) =>
-        BadRequest(s"""{"success":false,"error":"${err.getMessage}"}""")
+        BadRequest(
+          Json
+            .obj(
+              "success" -> Json.False,
+              "error" -> Json.fromString(
+                Option(err.getMessage).getOrElse(err.toString)
+              )
+            )
+            .noSpaces
+        )
     }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
@@ -334,9 +350,7 @@ class Server(
       case Some(ref) =>
         val uiState = Server.uiStateOf(req)
         (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
-          renderer
-            .uiStateAnomalies(uiState)
-            .traverse_(w => IO.println(s"[warn] $w")) *>
+          warnAnomalies(renderer, uiState) *>
             Ok(
               page(
                 slug,

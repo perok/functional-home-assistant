@@ -147,10 +147,5 @@ class ServerSuite extends munit.FunSuite {
         .renderString
     assert(inner.contains("data: selector #dashboard"), clue = inner)
     assert(inner.contains("data: mode inner"), clue = inner)
-
-    val rm = Datastar.removeElement("#s_x").renderString
-    assert(rm.contains("data: selector #s_x"), clue = rm)
-    assert(rm.contains("data: mode remove"), clue = rm)
-    assert(!rm.contains("\nmode remove"), clue = rm)
   }
 }

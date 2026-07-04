@@ -366,7 +366,14 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""<div><span>hot</span>"""), clue = html)
     // sensor.c excluded by the membership query (battery 50)
     assert(!html.contains("cold"), clue = html)
-    assertEquals(r.dynamicContainerIds, List("c"))
+    // the group is indexed under its own id "c" and re-renders on a change that
+    // touches its query.
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("light.a", None, states("light.a"))
+      ),
+      List("c")
+    )
   }
 
   test(

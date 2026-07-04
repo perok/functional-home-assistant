@@ -20,15 +20,15 @@ import fh.view.model.{
   *
   * Addressable nodes get a stable, location-based id derived from their index
   * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
-  * [[componentsFor]] + [[dynamicContainerIds]] drive the live update loop, and
+  * [[componentsFor]] + [[affectedDynamicIds]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
   *
   * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
   * rendered on demand by [[renderSurface]] and kept live only while a
   * connection has them open. Their node ids are namespaced (`s_<id>__…`) so
   * they never collide with the main page; [[surfaceComponentsFor]] /
-  * [[surfaceDynamicIds]] are the surface-scoped equivalents of the main-page
-  * update indices.
+  * [[affectedSurfaceDynamicIds]] are the surface-scoped equivalents of the
+  * main-page update indices.
   */
 class Renderer(
     dashboard: Dashboard,
@@ -95,15 +95,6 @@ class Renderer(
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
-
-  /** Dynamic group container ids on the main page. Their membership is
-    * data-dependent (can't be reverse-indexed by entity), but a single change
-    * only moves the *changed* entity in or out of a group, so a container needs
-    * re-rendering only when the change touches its query — see
-    * [[affectedDynamicIds]]. (The full list is kept for callers that re-render
-    * every group, e.g. a navigate/reload repaint.)
-    */
-  val dynamicContainerIds: List[String] = mainIndex.dynamicIds
 
   /** Each dynamic container's query, by id (main + surfaces), for the
     * affected-by-change test. A group with no query matches every entity.
@@ -228,9 +219,6 @@ class Renderer(
     surfaceIndexes
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
-
-  def surfaceDynamicIds(surfaceId: String): List[String] =
-    surfaceIndexes.get(surfaceId).fold(List.empty)(_.dynamicIds)
 
   /** Like [[affectedDynamicIds]], scoped to one open surface. */
   def affectedSurfaceDynamicIds(
@@ -441,7 +429,12 @@ class Renderer(
       states: Map[String, EntityState]
   ): String =
     templates.components.get(cardName) match {
-      case None      => "" // TODO should be a hard failure?
+      case None =>
+        // Unreachable by construction: Dashboard.validate resolves every card
+        // reference before a Renderer is built.
+        throw new IllegalStateException(
+          s"unknown card '$cardName' — validate should have rejected this dashboard"
+        )
       case Some(tpl) =>
         // The card's subject entity: the `entity_id` slot resolved against its
         // OWN entity (it DEFINES the subject, so it never inherits it). Normally
@@ -550,7 +543,6 @@ object Renderer {
     m
   }
 
-  // TODO a macro for rawer performance?
   /** Evaluate a query predicate against one entity's live state. The entity's
     * id and domain come off the [[EntityState]] itself.
     */
@@ -571,21 +563,20 @@ object Renderer {
           case _ => ""
         }
         val rhs = StateStore.jsonToString(value)
+        // Ordering ops compare numerically, and are false unless both sides
+        // parse as numbers; equality ops compare the raw strings.
+        def numeric(cmp: (Double, Double) => Boolean): Boolean =
+          (lhs.toDoubleOption, rhs.toDoubleOption) match {
+            case (Some(l), Some(r)) => cmp(l, r)
+            case _                  => false
+          }
         op match {
-          case Op.Eq => lhs == rhs
-          case Op.Ne => lhs != rhs
-          case Op.Lt | Op.Lte | Op.Gt | Op.Gte =>
-            (lhs.toDoubleOption, rhs.toDoubleOption) match {
-              case (Some(l), Some(r)) =>
-                op match {
-                  case Op.Lt  => l < r
-                  case Op.Lte => l <= r
-                  case Op.Gt  => l > r
-                  case Op.Gte => l >= r
-                  case _      => false // TODO remove, no fallbacks necessary
-                }
-              case _ => false
-            }
+          case Op.Eq  => lhs == rhs
+          case Op.Ne  => lhs != rhs
+          case Op.Lt  => numeric(_ < _)
+          case Op.Lte => numeric(_ <= _)
+          case Op.Gt  => numeric(_ > _)
+          case Op.Gte => numeric(_ >= _)
         }
     }
 }
