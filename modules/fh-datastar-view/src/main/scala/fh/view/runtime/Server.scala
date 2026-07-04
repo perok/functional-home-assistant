@@ -144,7 +144,9 @@ class Server(
         .awakeEvery[IO](15.seconds)
         .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
 
-      stream = (Stream.emit(Datastar.patchSignals(s"""{"conn":"$conn"}""")) ++
+      stream = (Stream.emit(
+        Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
+      ) ++
         patches.merge(control).merge(reloads).merge(heartbeat))
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
@@ -326,7 +328,7 @@ class Server(
   }
 
   private def connOf(body: Json): Option[String] =
-    body.hcursor.get[String]("conn").toOption
+    body.hcursor.get[String](Server.ConnSignal).toOption
 
   /** Log every bake-group anomaly [[Renderer.uiStateAnomalies]] reports for
     * this client's `uiState` (an off/hand-edited cookie). Renderer stays pure —
@@ -424,8 +426,21 @@ object Server {
     */
   def uiStateOf(req: Request[IO]): Map[String, String] =
     req.cookies.collect {
-      case c if c.name.startsWith("fhui_") => c.name.drop(5) -> c.content
+      case c if c.name.startsWith(UiCookiePrefix) =>
+        c.name.drop(UiCookiePrefix.length) -> c.content
     }.toMap
+
+  /** Cookie-name prefix for the client's UI state (per-group tab index). Must
+    * match the cookie name the authoring layer's tab click writes — see ADR
+    * 0005. Stripped in [[uiStateOf]] to key [[Renderer.resolveActive]].
+    */
+  val UiCookiePrefix: String = "fhui_"
+
+  /** The Datastar signal name carrying the per-connection `conn` id: minted on
+    * SSE connect (the initial patch-signals event) and echoed back in each
+    * action POST body (`connOf`) so a POST correlates to its stream.
+    */
+  val ConnSignal: String = "conn"
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across
