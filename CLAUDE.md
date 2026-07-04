@@ -101,9 +101,10 @@ HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment
   same fetch as `dump.libsonnet` (both gitignored). The Pkl track has **full jsonnet parity**
   (containers/sectionTitle/entityCard/button/slider, expr/exprOf, serviceTap/navigate, tabs,
   popups/surfaces, dynamic groups with a typed Predicate AST, three-tier slider config) — see
-  ADR 0006 (incl. its parity update) for the deliberate API deviations (`openPopup`/
-  `openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild` watches the
-  precise `Analyzer.importGraph` import set; `BuildApp` honors `DASHBOARD_ENTRY`.
+  ADR 0006 for the deliberate API deviations (`openPopup`/`openPopupInline` split, `cssClass`)
+  and Pkl gotchas before extending. `PklBuild` renders the evaluated module to JSON backend-side
+  (no `output` blocks in entries) and watches the precise `Analyzer.importGraph` import set;
+  `BuildApp` honors `DASHBOARD_ENTRY`.
 
 ### The sbt plugin glue
 
