@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.build.{DashboardBuild, DataDump, PklDump}
+import fh.view.build.DashboardBuild
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
@@ -50,18 +50,12 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        // Fetch the live dump once and write it in both authoring languages
-        // (so `import 'dump.libsonnet'` / `import "lib/dump.pkl"` resolve),
-        // then evaluate every entry against the on-disk dumps.
-        dump <- DataDump.fetch(api).toResource
-        _ <- IO.blocking {
-          os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
-          os.write.over(
-            dashboardsDir / "lib" / "dump.pkl",
-            PklDump.render(dump),
-            createFolders = true
-          )
-        }.toResource
+        // Write the live dump once in both authoring languages (so
+        // `import 'dump.libsonnet'` / `import "lib/dump.pkl"` resolve) via the
+        // build phase, then re-evaluate every entry against the on-disk dumps.
+        // The runtime calls through `DashboardBuild`, never `DataDump`/`PklDump`
+        // directly — build owns fetching + writing the dumps.
+        _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
         built <- entries.traverse { case (slug, entry) =>
           buildEntry(dashboardsDir, slug, entry).map((slug, _))
         }.toResource
