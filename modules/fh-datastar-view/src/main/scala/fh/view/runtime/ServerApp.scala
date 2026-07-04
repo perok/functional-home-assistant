@@ -54,7 +54,7 @@ object ServerApp extends IOApp {
         // (so `import 'dump.libsonnet'` / `import "lib/dump.pkl"` resolve),
         // then evaluate every entry against the on-disk dumps.
         dump <- DataDump.fetch(api).toResource
-        _ <- IO {
+        _ <- IO.blocking {
           os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
           os.write.over(
             dashboardsDir / "lib" / "dump.pkl",
@@ -109,7 +109,7 @@ object ServerApp extends IOApp {
     * routing is by slug, so one of them would silently shadow the other.
     */
   private def discoverEntries(dir: os.Path): IO[List[(String, String)]] =
-    IO {
+    IO.blocking {
       os.list(dir)
         .filter(p =>
           os.isFile(p) && (p.last.endsWith(".jsonnet") || p.last.endsWith(
