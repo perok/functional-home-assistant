@@ -54,16 +54,6 @@ object Datastar {
         List("elements " + collapse(fragment))
     )
 
-  /** A `datastar-patch-elements` event in `remove` mode: deletes the element(s)
-    * matching `selector` from the DOM. Carries only `selector` + `mode` — no
-    * `elements` line (e.g. closing a popup: `removeElement("#s_climate")`).
-    */
-  def removeElement(selector: String): ServerSentEvent =
-    sse(
-      "datastar-patch-elements",
-      List(s"selector $selector", s"mode ${PatchMode.Remove.wire}")
-    )
-
   /** Build an SSE event with one Datastar protocol line per `data:` line.
     *
     * http4s 0.23 (`ServerSentEvent.render`) writes the `data:` prefix ONCE then
