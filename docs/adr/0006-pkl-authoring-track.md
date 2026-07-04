@@ -132,8 +132,16 @@ though the emitted slot key remains `"class"`.
 ## Verification
 
 `fh-datastar-view/testFull` green (PklBuildSuite carries full-pipeline
-decode/hoist/validate mirrors of the jsonnet BuildPhaseSuite tests). **Live
-browser verification of `/d/pkl-demo` (popups, dynamic groups, dynamic slider)
-and `/d/pkl-tabs` (switching, highlight, cookie restore) is still pending** —
-the HA instance was unreachable at implementation time; run the
-`dashboardServe` checklist in `docs/plan-pkl-parity.md` step 7 when it is back.
+decode/hoist/validate mirrors of the jsonnet BuildPhaseSuite tests). Live
+verification against the running HA instance completed 2026-07-04 (headless,
+over the SSE protocol): `/d/pkl-demo` renders real live values (state +
+brightness-seeded slider signals match `/api/states`), the registered `detail`
+popup and the inline popup both open (`#popups` inner-patch with the popup
+chrome) and close (swap-to-empty), action POSTs actuate via WS `call_service`
+and the state change flows back as dynamic-group re-renders; `/d/pkl-tabs`
+bakes the default panel, and a `fhui_<id>` cookie on the first-paint GET bakes
+the selected tab flash-free (ADR 0005); in-place navigate inner-patches
+`#dashboard` and resets `#popups`; hot reload of an edited `.pkl` entry
+repaints in ~0.5s (precise `Analyzer.importGraph` watch set) with jsonnet
+dashboards unaffected. Visual-only details (active-tab highlight styling,
+dialog appearance) remain browser-eyeball items.
