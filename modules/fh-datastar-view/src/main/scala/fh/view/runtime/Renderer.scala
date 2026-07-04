@@ -311,20 +311,25 @@ class Renderer(
     */
   def renderSurface(
       surfaceId: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): Option[String] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
+      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
+    * `uiState` is threaded through so a node that owns a bake group (a `tabs`
+    * host that also binds a live entity) re-bakes the client's cookie-selected
+    * member on a live patch — not the default one.
     */
   def renderNodeById(
       id: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): Option[String] =
     allIndexed.get(id).map { case (node, path, prefix) =>
-      render(node, path, prefix, states)
+      render(node, path, prefix, states, uiState)
     }
 
   private def render(
@@ -332,7 +337,7 @@ class Renderer(
       path: List[Int],
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      uiState: Map[String, String]
   ): String =
     node match {
       case c: LayoutNode.Component =>
@@ -359,7 +364,7 @@ class Renderer(
             val s = dashboard.surfaces(sid)
             (
               Map(
-                s.bakeAs.getOrElse("") -> renderSurface(sid, states)
+                s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
                   .getOrElse("")
               ),
               Map("bakeIndex" -> idx.toString)
