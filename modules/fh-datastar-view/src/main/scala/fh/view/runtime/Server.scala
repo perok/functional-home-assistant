@@ -62,18 +62,19 @@ class Server(
       )
 
     case req @ POST -> Root / "sse" / "surface" / "open" / id =>
-      withSession(req)((session, renderer) =>
-        openSurface(session, renderer, id)
+      withSession(req)((session, renderer, uiState) =>
+        openSurface(session, renderer, id, uiState)
       )
 
     case req @ POST -> Root / "sse" / "popup" / "close" =>
-      withSession(req)((session, renderer) =>
-        swapHost(session, renderer, Dashboard.PopupHostId, None)
+      withSession(req)((session, renderer, uiState) =>
+        swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
       )
 
     case req @ POST -> Root / "sse" / "navigate" / slug =>
-      val uiState = Server.uiStateOf(req)
-      withSession(req)((session, _) => navigate(session, slug, uiState))
+      withSession(req)((session, _, uiState) =>
+        navigate(session, slug, uiState)
+      )
   }
 
   /** The per-connection SSE stream: a `conn` signal, then entity-change patches
@@ -106,7 +107,7 @@ class Server(
       // batching would bound *how often*. (Fold this into the dynamic-groups ADR
       // when the perf model is settled.)
       patches = stateStore.changes
-        .evalMap(changedPatches(session, _))
+        .evalMap(changedPatches(session, _, uiState))
         .flatMap(Stream.emits)
       control = Stream.fromQueueUnterminated(session.control)
       // Live-reload repaint follows the session's CURRENT dashboard: watch every
@@ -156,7 +157,8 @@ class Server(
     */
   private def changedPatches(
       session: Session,
-      change: StateChange
+      change: StateChange,
+      uiState: Map[String, String]
   ): IO[List[ServerSentEvent]] =
     for {
       slug <- session.slug.get
@@ -178,7 +180,9 @@ class Server(
           )
           val ids = (mainIds ++ surfaceIds).distinct
           val rendered =
-            ids.flatMap(id => r.renderNodeById(id, states).map(id -> _))
+            ids.flatMap(id =>
+              r.renderNodeById(id, states, uiState).map(id -> _)
+            )
           session.lastRendered
             .modify { cache =>
               val changed = rendered.filterNot { case (id, html) =>
@@ -197,11 +201,13 @@ class Server(
   private def openSurface(
       session: Session,
       renderer: Renderer,
-      id: String
+      id: String,
+      uiState: Map[String, String]
   ): IO[Unit] =
     renderer.surface(id) match {
-      case None       => IO.unit
-      case Some(surf) => swapHost(session, renderer, surf.hostId, Some(id))
+      case None => IO.unit
+      case Some(surf) =>
+        swapHost(session, renderer, surf.hostId, Some(id), uiState)
     }
 
   /** Evict whatever surface(s) currently occupy `host`, set `newSurface` as the
@@ -216,20 +222,25 @@ class Server(
       session: Session,
       renderer: Renderer,
       host: String,
-      newSurface: Option[String]
+      newSurface: Option[String],
+      uiState: Map[String, String]
   ): IO[Unit] =
     for {
-      open <- session.open.get
-      evict = open.filter(sid =>
-        !newSurface.contains(sid) &&
-          renderer.surface(sid).exists(_.hostId == host)
-      )
-      _ <- session.open.set((open -- evict) ++ newSurface.toSet)
+      // Atomic read-modify-write: two concurrent surface actions on one
+      // connection must not lose each other's update. The evicted set only
+      // feeds the new set, so a single `update` suffices (no `.modify`).
+      _ <- session.open.update { open =>
+        val evict = open.filter(sid =>
+          !newSurface.contains(sid) &&
+            renderer.surface(sid).exists(_.hostId == host)
+        )
+        (open -- evict) ++ newSurface.toSet
+      }
       states <- stateStore.snapshot
       _ <- newSurface match {
         case Some(sid) =>
           renderer
-            .renderSurface(sid, states)
+            .renderSurface(sid, states, uiState)
             .traverse_(html =>
               session.control.offer(
                 Datastar.patch(html, PatchMode.Inner, Some("#" + host))
@@ -290,7 +301,13 @@ class Server(
     */
   private def withSession(
       req: Request[IO]
-  )(f: (Session, Renderer) => IO[Unit]): IO[Response[IO]] =
+  )(
+      f: (Session, Renderer, Map[String, String]) => IO[Unit]
+  ): IO[Response[IO]] = {
+    // The action POST carries this client's cookies, so its ui-state is read
+    // here and handed to the handler — swapHost/openSurface bake the
+    // cookie-selected tab, and navigate seeds the target's selection.
+    val uiState = Server.uiStateOf(req)
     // Datastar sends the signals (including `conn`) as a JSON body; parse it
     // directly (no http4s-circe entity decoder dependency).
     req.bodyText.compile.string
@@ -303,9 +320,10 @@ class Server(
             case Some(session) =>
               session.slug.get
                 .flatMap(slug => renderers.get(slug).traverse(_.get))
-                .flatMap(_.traverse_(f(session, _))) *> NoContent()
+                .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
           }
       }
+  }
 
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String]("conn").toOption
