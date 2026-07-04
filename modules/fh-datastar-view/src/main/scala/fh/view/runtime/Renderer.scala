@@ -332,6 +332,37 @@ class Renderer(
       render(node, path, prefix, states, uiState)
     }
 
+  /** When component `id` owns a bake group (surfaces baked into it), bake the
+    * `uiState`-selected member as its `{{{bakeAs}}}` var so a `tabs` card's
+    * panel host renders the active tab on first paint, and inject `bakeIndex`
+    * (a backend-known structural var, like `id`) so the template can seed its
+    * signal to the selected index. The chrome wraps the content just as a later
+    * open/switch would, so first-paint and switch-back produce byte-identical
+    * HTML. With no cookie the selection is the group's `defaultOpen` member
+    * (index 0) — behaviour identical to before. No bake group → both maps empty
+    * (absent Mustache vars render empty). Returns `(baked, structural)`.
+    */
+  private def resolveBake(
+      id: String,
+      uiState: Map[String, String],
+      states: Map[String, EntityState]
+  ): (Map[String, String], Map[String, String]) = {
+    val group = bakeGroup(id)
+    if (group.isEmpty) (Map.empty, Map.empty)
+    else {
+      val idx = resolveActive(id, uiState)._1
+      val sid = group(idx)
+      val s = dashboard.surfaces(sid)
+      (
+        Map(
+          s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
+            .getOrElse("")
+        ),
+        Map("bakeIndex" -> idx.toString)
+      )
+    }
+  }
+
   private def render(
       node: LayoutNode,
       path: List[Int],
@@ -345,31 +376,7 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states, uiState)
         }
-        // When this component's id owns a bake group (surfaces baked into it),
-        // bake the `uiState`-selected member as its `{{{bakeAs}}}` var so a
-        // `tabs` card's panel host renders the active tab on first paint, and
-        // inject `bakeIndex` (a backend-known structural var, like `id`) so the
-        // template can seed its signal to the selected index. The chrome wraps
-        // the content just as a later open/switch would, so first-paint and
-        // switch-back produce byte-identical HTML. With no cookie the selection
-        // is the group's `defaultOpen` member (index 0) — behaviour identical to
-        // before. No bake group → neither var is injected (absent Mustache vars
-        // render empty).
-        val group = bakeGroup(id)
-        val (baked, structural): (Map[String, String], Map[String, String]) =
-          if (group.isEmpty) (Map.empty, Map.empty)
-          else {
-            val idx = resolveActive(id, uiState)._1
-            val sid = group(idx)
-            val s = dashboard.surfaces(sid)
-            (
-              Map(
-                s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
-                  .getOrElse("")
-              ),
-              Map("bakeIndex" -> idx.toString)
-            )
-          }
+        val (baked, structural) = resolveBake(id, uiState, states)
         // `id` is a backend-injected template var (the author never supplies it).
         // Everything else fills from a slot, a baked surface var, or the injected
         // `bakeIndex`.
