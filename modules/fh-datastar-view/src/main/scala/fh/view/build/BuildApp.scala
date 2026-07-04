@@ -20,14 +20,20 @@ object BuildApp extends IOApp {
   // Paths are relative to the module directory (the forked `run` working dir).
   private val defaultDashboardsDir = "src/main/resources/dashboards"
   private val defaultDashboardJson = "dashboard.json"
+  private val defaultDashboardEntry = "dashboard.jsonnet"
 
   def run(args: List[String]): IO[ExitCode] =
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
+      // The entry file (relative to the dashboards dir); a `.pkl` entry evaluates
+      // through the same source-agnostic pipeline as the default `.jsonnet` one.
+      entry <- Env[IO]
+        .get("DASHBOARD_ENTRY")
+        .map(_.getOrElse(defaultDashboardEntry))
 
       result <- FHApi.fromEnv.use(
-        DashboardBuild.evaluate(_, dashboardsDir, "dashboard.jsonnet")
+        DashboardBuild.evaluate(_, dashboardsDir, entry)
       )
       dashboardJson = result.value
       _ <- IO.println(
@@ -37,7 +43,7 @@ object BuildApp extends IOApp {
       // Validate it decodes into the runtime model before writing it.
       _ <- DashboardBuild.decode(dashboardJson)
 
-      _ <- IO(os.write.over(outputPath, dashboardJson.spaces2))
+      _ <- IO.blocking(os.write.over(outputPath, dashboardJson.spaces2))
       _ <- IO.println(s"Wrote dashboard artifact to $outputPath")
     } yield ExitCode.Success
 

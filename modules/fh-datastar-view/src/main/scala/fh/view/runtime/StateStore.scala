@@ -115,25 +115,37 @@ class StateStore private (
     val ns = event.data.new_state
     // The WS event carries the FULL attribute set, so we replace wholesale —
     // every attribute stays live, matching the seed snapshot.
-    val next =
+    update(
       EntityState(entityId, StateStore.jsonToString(ns.state), ns.attributes)
+    )
+  }
 
-    // Re-render/diff happens downstream; here we only publish when the entity's
-    // state actually changed, so identical events don't churn the SSE stream.
-    // The previous value rides along so a dynamic group can tell whether the
-    // change crossed its membership boundary.
+  /** Apply one entity's next state: store it and publish the change. The WS
+    * ingest tail, and the test seam ([[StateStore.inMemory]]).
+    *
+    * Re-render/diff happens downstream; here we only publish when the entity's
+    * state actually changed, so identical events don't churn the SSE stream.
+    * The previous value rides along so a dynamic group can tell whether the
+    * change crossed its membership boundary.
+    */
+  private[runtime] def update(next: EntityState): IO[Unit] =
     ref
       .modify { current =>
-        val previous = current.get(entityId)
+        val previous = current.get(next.entityId)
         if (previous.contains(next)) (current, None)
         else
           (
-            current.updated(entityId, next),
-            Some(StateChange(entityId, previous, next))
+            current.updated(next.entityId, next),
+            Some(StateChange(next.entityId, previous, next))
           )
       }
       .flatMap(_.fold(IO.unit)(change => topic.publish1(change).void))
-  }
+
+  /** Current number of `changes` subscribers, as a signal stream — a test seam
+    * to await subscriptions deterministically (topic publishes reach only
+    * already-subscribed consumers).
+    */
+  private[runtime] def changeSubscribers: Stream[IO, Int] = topic.subscribers
 }
 
 object StateStore {
@@ -149,9 +161,7 @@ object StateStore {
   def create(api: HomeAssistantApi[IO]): Resource[IO, StateStore] =
     for {
       initial <- seed(api).toResource
-      ref <- Ref[IO].of(initial).toResource
-      topic <- Topic[IO, StateChange].toResource
-      store = new StateStore(ref, topic)
+      store <- inMemory(initial).toResource
       _ <- api
         .event(Some("state_changed"))
         .flatMap { queue =>
@@ -163,6 +173,17 @@ object StateStore {
             .background
         }
     } yield store
+
+  /** A store with no live feed — seeded with `initial` and driven by explicit
+    * [[StateStore.update]] calls. The test seam behind [[create]].
+    */
+  private[runtime] def inMemory(
+      initial: Map[String, EntityState]
+  ): IO[StateStore] =
+    for {
+      ref <- Ref[IO].of(initial)
+      topic <- Topic[IO, StateChange]
+    } yield new StateStore(ref, topic)
 
   /** Full initial snapshot via the native `/api/states` endpoint (robust JSON;
     * the Jinja `tojson` path can 400 on non-serializable attribute values).

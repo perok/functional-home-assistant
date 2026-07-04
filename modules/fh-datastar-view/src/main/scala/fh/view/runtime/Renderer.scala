@@ -20,15 +20,15 @@ import fh.view.model.{
   *
   * Addressable nodes get a stable, location-based id derived from their index
   * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
-  * [[componentsFor]] + [[dynamicContainerIds]] drive the live update loop, and
+  * [[componentsFor]] + [[affectedDynamicIds]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
   *
   * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
   * rendered on demand by [[renderSurface]] and kept live only while a
   * connection has them open. Their node ids are namespaced (`s_<id>__…`) so
   * they never collide with the main page; [[surfaceComponentsFor]] /
-  * [[surfaceDynamicIds]] are the surface-scoped equivalents of the main-page
-  * update indices.
+  * [[affectedSurfaceDynamicIds]] are the surface-scoped equivalents of the
+  * main-page update indices.
   */
 class Renderer(
     dashboard: Dashboard,
@@ -96,15 +96,6 @@ class Renderer(
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
 
-  /** Dynamic group container ids on the main page. Their membership is
-    * data-dependent (can't be reverse-indexed by entity), but a single change
-    * only moves the *changed* entity in or out of a group, so a container needs
-    * re-rendering only when the change touches its query — see
-    * [[affectedDynamicIds]]. (The full list is kept for callers that re-render
-    * every group, e.g. a navigate/reload repaint.)
-    */
-  val dynamicContainerIds: List[String] = mainIndex.dynamicIds
-
   /** Each dynamic container's query, by id (main + surfaces), for the
     * affected-by-change test. A group with no query matches every entity.
     */
@@ -134,6 +125,15 @@ class Renderer(
     */
   def affectedDynamicIds(change: StateChange): List[String] =
     mainIndex.dynamicIds.filter(dynamicAffected(_, change))
+
+  /** Component ids that own a bake group (some surface's `bakeInto` names
+    * them). Their HTML depends on the client's `uiState` (the baked member is
+    * cookie-selected), so their live patches must stay per-session; every other
+    * main-page node's HTML is a pure function of entity state and can be
+    * rendered once per slug and shared across connections (see `Server`).
+    */
+  val bakeOwnerIds: Set[String] =
+    dashboard.surfaces.values.flatMap(_.bakeInto).toSet
 
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
@@ -229,9 +229,6 @@ class Renderer(
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
 
-  def surfaceDynamicIds(surfaceId: String): List[String] =
-    surfaceIndexes.get(surfaceId).fold(List.empty)(_.dynamicIds)
-
   /** Like [[affectedDynamicIds]], scoped to one open surface. */
   def affectedSurfaceDynamicIds(
       surfaceId: String,
@@ -323,28 +320,64 @@ class Renderer(
     */
   def renderSurface(
       surfaceId: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): Option[String] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states)
+      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
+    * `uiState` is threaded through so a node that owns a bake group (a `tabs`
+    * host that also binds a live entity) re-bakes the client's cookie-selected
+    * member on a live patch — not the default one.
     */
   def renderNodeById(
       id: String,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): Option[String] =
     allIndexed.get(id).map { case (node, path, prefix) =>
-      render(node, path, prefix, states)
+      render(node, path, prefix, states, uiState)
     }
+
+  /** When component `id` owns a bake group (surfaces baked into it), bake the
+    * `uiState`-selected member as its `{{{bakeAs}}}` var so a `tabs` card's
+    * panel host renders the active tab on first paint, and inject `bakeIndex`
+    * (a backend-known structural var, like `id`) so the template can seed its
+    * signal to the selected index. The chrome wraps the content just as a later
+    * open/switch would, so first-paint and switch-back produce byte-identical
+    * HTML. With no cookie the selection is the group's `defaultOpen` member
+    * (index 0) — behaviour identical to before. No bake group → both maps empty
+    * (absent Mustache vars render empty). Returns `(baked, structural)`.
+    */
+  private def resolveBake(
+      id: String,
+      uiState: Map[String, String],
+      states: Map[String, EntityState]
+  ): (Map[String, String], Map[String, String]) = {
+    val group = bakeGroup(id)
+    if (group.isEmpty) (Map.empty, Map.empty)
+    else {
+      val idx = resolveActive(id, uiState)._1
+      val sid = group(idx)
+      val s = dashboard.surfaces(sid)
+      (
+        Map(
+          s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
+            .getOrElse("")
+        ),
+        Map("bakeIndex" -> idx.toString)
+      )
+    }
+  }
 
   private def render(
       node: LayoutNode,
       path: List[Int],
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      uiState: Map[String, String]
   ): String =
     node match {
       case c: LayoutNode.Component =>
@@ -352,31 +385,7 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states, uiState)
         }
-        // When this component's id owns a bake group (surfaces baked into it),
-        // bake the `uiState`-selected member as its `{{{bakeAs}}}` var so a
-        // `tabs` card's panel host renders the active tab on first paint, and
-        // inject `bakeIndex` (a backend-known structural var, like `id`) so the
-        // template can seed its signal to the selected index. The chrome wraps
-        // the content just as a later open/switch would, so first-paint and
-        // switch-back produce byte-identical HTML. With no cookie the selection
-        // is the group's `defaultOpen` member (index 0) — behaviour identical to
-        // before. No bake group → neither var is injected (absent Mustache vars
-        // render empty).
-        val group = bakeGroup(id)
-        val (baked, structural): (Map[String, String], Map[String, String]) =
-          if (group.isEmpty) (Map.empty, Map.empty)
-          else {
-            val idx = resolveActive(id, uiState)._1
-            val sid = group(idx)
-            val s = dashboard.surfaces(sid)
-            (
-              Map(
-                s.bakeAs.getOrElse("") -> renderSurface(sid, states)
-                  .getOrElse("")
-              ),
-              Map("bakeIndex" -> idx.toString)
-            )
-          }
+        val (baked, structural) = resolveBake(id, uiState, states)
         // `id` is a backend-injected template var (the author never supplies it).
         // Everything else fills from a slot, a baked surface var, or the injected
         // `bakeIndex`.
@@ -441,7 +450,12 @@ class Renderer(
       states: Map[String, EntityState]
   ): String =
     templates.components.get(cardName) match {
-      case None      => "" // TODO should be a hard failure?
+      case None =>
+        // Unreachable by construction: Dashboard.validate resolves every card
+        // reference before a Renderer is built.
+        throw new IllegalStateException(
+          s"unknown card '$cardName' — validate should have rejected this dashboard"
+        )
       case Some(tpl) =>
         // The card's subject entity: the `entity_id` slot resolved against its
         // OWN entity (it DEFINES the subject, so it never inherits it). Normally
@@ -550,7 +564,6 @@ object Renderer {
     m
   }
 
-  // TODO a macro for rawer performance?
   /** Evaluate a query predicate against one entity's live state. The entity's
     * id and domain come off the [[EntityState]] itself.
     */
@@ -571,21 +584,20 @@ object Renderer {
           case _ => ""
         }
         val rhs = StateStore.jsonToString(value)
+        // Ordering ops compare numerically, and are false unless both sides
+        // parse as numbers; equality ops compare the raw strings.
+        def numeric(cmp: (Double, Double) => Boolean): Boolean =
+          (lhs.toDoubleOption, rhs.toDoubleOption) match {
+            case (Some(l), Some(r)) => cmp(l, r)
+            case _                  => false
+          }
         op match {
-          case Op.Eq => lhs == rhs
-          case Op.Ne => lhs != rhs
-          case Op.Lt | Op.Lte | Op.Gt | Op.Gte =>
-            (lhs.toDoubleOption, rhs.toDoubleOption) match {
-              case (Some(l), Some(r)) =>
-                op match {
-                  case Op.Lt  => l < r
-                  case Op.Lte => l <= r
-                  case Op.Gt  => l > r
-                  case Op.Gte => l >= r
-                  case _      => false // TODO remove, no fallbacks necessary
-                }
-              case _ => false
-            }
+          case Op.Eq  => lhs == rhs
+          case Op.Ne  => lhs != rhs
+          case Op.Lt  => numeric(_ < _)
+          case Op.Lte => numeric(_ <= _)
+          case Op.Gt  => numeric(_ > _)
+          case Op.Gte => numeric(_ >= _)
         }
     }
 }

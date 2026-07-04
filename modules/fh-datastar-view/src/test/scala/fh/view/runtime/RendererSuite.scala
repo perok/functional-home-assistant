@@ -48,6 +48,13 @@ class RendererSuite extends munit.FunSuite {
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
     "tabs" -> CardDef(
       """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
+    ),
+    // Like `tabs`, but the bake-owning component ALSO binds a live entity via a
+    // `{{title}}` slot — so it is morph-wrapped and re-rendered on that entity's
+    // state change. Exercises that a live node patch re-bakes the SELECTED tab.
+    "tabsLive" -> CardDef(
+      """<div class="tabs"><span>{{title}}</span><div id="{{id}}_panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      slots = List("title")
     )
   )
 
@@ -366,7 +373,14 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""<div><span>hot</span>"""), clue = html)
     // sensor.c excluded by the membership query (battery 50)
     assert(!html.contains("cold"), clue = html)
-    assertEquals(r.dynamicContainerIds, List("c"))
+    // the group is indexed under its own id "c" and re-renders on a change that
+    // touches its query.
+    assertEquals(
+      r.affectedDynamicIds(
+        StateChange("light.a", None, states("light.a"))
+      ),
+      List("c")
+    )
   }
 
   test(
@@ -767,5 +781,63 @@ class RendererSuite extends munit.FunSuite {
 
     val unbaked = Surface(col())
     assertEquals(unbaked.hostId, Dashboard.PopupHostId)
+  }
+
+  test(
+    "renderNodeById re-bakes the uiState-selected tab of a live bake-owning node"
+  ) {
+    // A `tabsLive` component (id "c") owns a bake group AND binds a live entity
+    // (`sensor.title`). On a live SSE patch the node is re-rendered by id — it
+    // must bake the SESSION's cookie-selected tab, not the default one.
+    def panel(name: String): LayoutNode.Component =
+      LayoutNode.Component(
+        "card",
+        slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
+      )
+    val d = Dashboard(
+      cards,
+      LayoutNode.Component(
+        "tabsLive",
+        slots = Map("title" -> SlotSource(Some("sensor.title"), "$state"))
+      ),
+      surfaces = Map(
+        "c_t0" -> Surface(
+          panel("a"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          defaultOpen = true
+        ),
+        "c_t1" -> Surface(
+          panel("b"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(1)
+        )
+      )
+    )
+    val rr = Renderer.create(d)
+    val states = Map(
+      "sensor.title" -> st("sensor.title", "Live"),
+      "sensor.a" -> st("sensor.a", "AA"),
+      "sensor.b" -> st("sensor.b", "BB")
+    )
+    // The live entity binds "c" so the node is morph-wrapped and re-renderable.
+    assertEquals(rr.componentsFor("sensor.title"), Set("c"))
+
+    // Default (no cookie) bakes the FIRST tab (index 0 → sensor.a → AA).
+    val dflt = rr.renderNodeById("c", states).get
+    assert(dflt.startsWith("""<div class="fh-cell" id="c">"""), clue = dflt)
+    assert(dflt.contains("tab_c: 0"), clue = dflt)
+    assert(dflt.contains("<span>AA</span>"), clue = dflt)
+    assert(!dflt.contains("<span>BB</span>"), clue = dflt)
+
+    // The cookie selects tab 1 → the SECOND tab is baked (sensor.b → BB), and
+    // the panel signal is seeded to 1. This is the bug the change fixes: without
+    // threading uiState the live patch would re-bake the default tab.
+    val sel = rr.renderNodeById("c", states, uiState = Map("c" -> "1")).get
+    assert(sel.contains("tab_c: 1"), clue = sel)
+    assert(sel.contains("<span>BB</span>"), clue = sel)
+    assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
 }

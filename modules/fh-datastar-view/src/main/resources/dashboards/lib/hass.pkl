@@ -1,0 +1,82 @@
+/// Hand-written Home Assistant domain schema for the Pkl authoring track.
+///
+/// Types exactly what the build-phase dump carries (see `DataDump.scala`):
+/// registry identity + the per-domain attributes the dump template extracts.
+/// Live values (state, brightness, ...) stay runtime-side as JSONata over the
+/// SSE stream — never in the build-time dump (phase discipline).
+///
+/// Pkl gotchas honored throughout the Pkl track:
+///   - `override` is a reserved keyword — never use it as an identifier;
+///   - module-level properties referenced from class bodies must be `const`;
+///   - local functions used from class bodies need `const local`.
+module hass
+
+typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)) || this == "$self")
+
+abstract class Entity {
+  entity_id: EntityId
+  domain: String
+  friendly_name: String? = null
+  area_id: String? = null
+  floor_id: String? = null
+  id_hidden: Boolean = false
+  // The dynamic-group match sentinel: `entity_id == "$self"` marks the
+  // build-time placeholder entity (see [[SELF]]) that a dynamic case renders
+  // against. Authoring convenience only — never rendered into dashboard JSON.
+  hidden isDynamic: Boolean = entity_id == "$self"
+}
+
+/// developers.home-assistant.io/docs/core/entity/light — only the attributes
+/// the dump template extracts today.
+class LightEntity extends Entity {
+  domain: "light" = "light"
+  color_mode: String? = null
+  effect_list: Listing<String>? = null
+}
+
+class SensorEntity extends Entity {
+  domain: "sensor" = "sensor"
+}
+
+class SwitchEntity extends Entity {
+  domain: "switch" = "switch"
+}
+
+/// Fallback for every domain without a dedicated class yet — add a typed
+/// class (and a PklDump dispatch row) to specialize a domain.
+class GenericEntity extends Entity {}
+
+/// The build-time placeholder "current entity" for a dynamic-group case — the
+/// typed counterpart of jsonnet's `d.matched`. Any leaf card accepts it like a
+/// real dump entity; its slots leave `entityId` unset and so inherit the
+/// matched entity, which the renderer injects as the `entity_id` param per
+/// match. The `$self` sentinel is build-time only: it tells `labelSlot` to emit
+/// a LIVE friendly_name default rather than a baked literal.
+class DynamicEntity extends Entity {
+  entity_id = "$self"
+  domain = "dynamic"
+}
+
+/// The single shared [[DynamicEntity]] instance authors pass to dynamic cases.
+SELF: DynamicEntity = new {}
+
+// ---- registry structure (generated dump.pkl subclasses these) ----
+
+abstract class Area {
+  area_id: String
+  area_name: String
+  floor_id: String? = null
+  // Per-domain member lists for iteration; the generated subclass fills them.
+  // Hidden: authoring convenience only, never rendered into dashboard JSON.
+  hidden lights: List<LightEntity> = List()
+  hidden sensors: List<SensorEntity> = List()
+  hidden switches: List<SwitchEntity> = List()
+  hidden generic: List<Entity> = List()
+  hidden all: List<Entity> = lights + sensors + switches + generic
+}
+
+abstract class Floor {
+  floor_id: String
+  floor_name: String
+  hidden areas: List<Area> = List()
+}

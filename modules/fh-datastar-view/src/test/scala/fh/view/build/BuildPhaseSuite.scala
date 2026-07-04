@@ -484,7 +484,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // The generated dump is skipped even if it contains the literal.
     os.write(dir / "dump.libsonnet", "{ x: '$round($number($state), 1)' }\n")
 
-    val locate = JsonnetBuild.literalLocator(
+    val locate = SourceEval.literalLocator(
       Set(dir / "dashboard.jsonnet", dir / "dump.libsonnet")
     )
     assertEquals(

@@ -2,6 +2,7 @@ modules/home-codegen/src/main/scala/ha/generated
 
 # fh-datastar-view generated build artifacts
 modules/fh-datastar-view/src/main/resources/dashboards/dump.libsonnet
+modules/fh-datastar-view/src/main/resources/dashboards/lib/dump.pkl
 modules/fh-datastar-view/dashboard.json
 
 .semanticdb

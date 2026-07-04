@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.build.{DashboardBuild, DataDump}
+import fh.view.build.DashboardBuild
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
@@ -14,10 +14,10 @@ import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
   *
-  * Connects to Home Assistant, discovers every `*.jsonnet` dashboard entry in
-  * the dashboards dir (slug = filename), evaluates each **in memory** into the
-  * runtime model, seeds live state, and serves them with live Datastar updates.
-  * Run via `fh-datastar-view/runMain fh.view.runtime.ServerApp` with
+  * Connects to Home Assistant, discovers every `*.jsonnet`/`*.pkl` dashboard
+  * entry in the dashboards dir (slug = filename), evaluates each **in memory**
+  * into the runtime model, seeds live state, and serves them with live Datastar
+  * updates. Run via `fh-datastar-view/runMain fh.view.runtime.ServerApp` with
   * `SERVER`/`SECRET` set.
   */
 object ServerApp extends IOApp {
@@ -39,20 +39,23 @@ object ServerApp extends IOApp {
 
       _ <- (for {
         api <- FHApi.fromEnv
-        // Every `*.jsonnet` in the dir is a dashboard; slug = filename sans ext.
+        // Every top-level `*.jsonnet`/`*.pkl` in the dir is a dashboard;
+        // slug = filename sans ext (Pkl library modules live in `lib/`).
         entries <- discoverEntries(dashboardsDir).toResource
         _ <- IO
           .raiseWhen(entries.isEmpty)(
-            new RuntimeException(s"no *.jsonnet dashboards in $dashboardsDir")
+            new RuntimeException(
+              s"no *.jsonnet or *.pkl dashboards in $dashboardsDir"
+            )
           )
           .toResource
 
-        // Fetch the live dump once and write it (so `import 'dump.libsonnet'`
-        // resolves), then evaluate every entry against the on-disk dump.
-        dump <- DataDump.fetch(api).toResource
-        _ <- IO(
-          os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
-        ).toResource
+        // Write the live dump once in both authoring languages (so
+        // `import 'dump.libsonnet'` / `import "lib/dump.pkl"` resolve) via the
+        // build phase, then re-evaluate every entry against the on-disk dumps.
+        // The runtime calls through `DashboardBuild`, never `DataDump`/`PklDump`
+        // directly — build owns fetching + writing the dumps.
+        _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
         built <- entries.traverse { case (slug, entry) =>
           buildEntry(dashboardsDir, slug, entry).map((slug, _))
         }.toResource
@@ -70,7 +73,15 @@ object ServerApp extends IOApp {
         sessions <- Sessions.create.toResource
 
         defaultSlug <- defaultSlugFrom(entries.map(_._1)).toResource
-        server = new Server(api, store, rendererRefs, defaultSlug, sessions)
+        // Also runs the per-slug shared patch publishers in the background —
+        // the render-once fan-out every SSE connection subscribes to.
+        server <- Server.resource(
+          api,
+          store,
+          rendererRefs,
+          defaultSlug,
+          sessions
+        )
 
         _ <- watchSources(
           dashboardsDir,
@@ -94,14 +105,33 @@ object ServerApp extends IOApp {
       } yield ()).useForever
     } yield ExitCode.Success
 
-  /** `(slug, entryFilename)` for every `*.jsonnet` in the dir, slug-sorted. */
+  /** `(slug, entryFilename)` for every top-level `*.jsonnet`/`*.pkl` in the
+    * dir, slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library
+    * modules — is never scanned.) A slug claimed by both languages is an error:
+    * routing is by slug, so one of them would silently shadow the other.
+    */
   private def discoverEntries(dir: os.Path): IO[List[(String, String)]] =
-    IO {
+    IO.blocking {
       os.list(dir)
-        .filter(p => os.isFile(p) && p.last.endsWith(".jsonnet"))
-        .map(p => p.last.stripSuffix(".jsonnet") -> p.last)
+        .filter(p =>
+          os.isFile(p) && (p.last.endsWith(".jsonnet") || p.last.endsWith(
+            ".pkl"
+          ))
+        )
+        .map(p => p.last.stripSuffix(".jsonnet").stripSuffix(".pkl") -> p.last)
         .sortBy(_._1)
         .toList
+    }.flatTap { entries =>
+      val collisions = entries.groupBy(_._1).filter(_._2.sizeIs > 1)
+      IO.raiseWhen(collisions.nonEmpty)(
+        new RuntimeException(
+          collisions
+            .map { case (slug, files) =>
+              s"dashboard slug collision: '$slug' claimed by ${files.map(_._2).mkString(" and ")} — rename one"
+            }
+            .mkString("\n")
+        )
+      )
     }
 
   /** Default dashboard: `DEFAULT_DASHBOARD` if present, else `dashboard`, else

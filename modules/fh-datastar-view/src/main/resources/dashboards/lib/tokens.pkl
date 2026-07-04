@@ -1,0 +1,40 @@
+/// Design tokens — Home Assistant frontend theme variables (the Pkl port of
+/// `tokens.libsonnet`; see that file for the full rationale).
+///
+/// A theme is a map of `variable-name -> value`. The runtime injects each as a
+/// CSS custom property `--<variable-name>` on the dashboard root, and the
+/// component styles read them via `var(--<variable-name>)`. The names match
+/// HA's so an existing HA theme can be dropped in. `light` is the base
+/// palette; `dark` holds the overrides applied under
+/// `@media (prefers-color-scheme: dark)`.
+module tokens
+
+light: Mapping<String, String> = new {
+  ["primary-color"] = "#03a9f4"
+  ["accent-color"] = "#ff9800"
+  ["primary-background-color"] = "#fafafa"
+  ["secondary-background-color"] = "#e5e5e5"
+  ["card-background-color"] = "#ffffff"
+  ["primary-text-color"] = "#212121"
+  ["secondary-text-color"] = "#727272"
+  // Text drawn on top of `primary-color` (e.g. button labels).
+  ["text-primary-color"] = "#ffffff"
+  ["disabled-text-color"] = "#bdbdbd"
+  ["divider-color"] = "rgba(0, 0, 0, 0.12)"
+  ["error-color"] = "#db4437"
+  ["warning-color"] = "#ffa600"
+  ["success-color"] = "#43a047"
+  ["info-color"] = "#039be5"
+  ["ha-card-border-radius"] = "12px"
+}
+
+// Only the tokens that differ in dark mode; the rest inherit from `light`.
+dark: Mapping<String, String> = new {
+  ["primary-background-color"] = "#111111"
+  ["secondary-background-color"] = "#1c1c1c"
+  ["card-background-color"] = "#1e1e1e"
+  ["primary-text-color"] = "#e1e1e1"
+  ["secondary-text-color"] = "#9e9e9e"
+  ["disabled-text-color"] = "#6f6f6f"
+  ["divider-color"] = "rgba(255, 255, 255, 0.12)"
+}

@@ -1,0 +1,843 @@
+package fh.view.build
+
+import fh.view.model.{Dashboard, LayoutNode, Op, Predicate}
+import io.circe.Json
+
+class PklBuildSuite extends munit.FunSuite {
+
+  /** Collect every [[LayoutNode.Dynamic]] reachable from a node (mirrors
+    * BuildPhaseSuite's `dynamics` collector).
+    */
+  private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
+    node match {
+      case c: LayoutNode.Component => c.children.flatMap(dynamics)
+      case d: LayoutNode.Dynamic   => List(d)
+    }
+
+  test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
+    val tmp = os.temp.dir()
+    os.write(
+      tmp / "test.pkl",
+      """module test
+        |
+        |a = 1
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "test.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+    assertEquals(r.value.hcursor.get[Int]("a").toOption, Some(1))
+    assert(r.imports.contains(tmp / "test.pkl"))
+  }
+
+  test("PklBuild surfaces pkl errors as Left with file/line context") {
+    val tmp = os.temp.dir()
+    os.write(
+      tmp / "bad.pkl",
+      """module bad
+        |
+        |a: Int = "not an int"
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "bad.pkl")
+    assert(result.isLeft, clue = result)
+    assert(result.left.exists(_.contains("bad.pkl")), clue = result)
+  }
+
+  test("SourceEval rejects unknown extensions") {
+    assert(SourceEval.eval(os.temp.dir(), "x.yaml").isLeft)
+  }
+
+  test("PklBuild.eval reports the entry's precise transitive imports only") {
+    // Entry imports components.pkl (which transitively imports hass.pkl); an
+    // unrelated sibling .pkl in the same dir is NOT imported, so the static
+    // import analysis must exclude it (unlike the all-*.pkl superset).
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "unrelated.pkl",
+      """module unrelated
+        |orphan = 1
+        |""".stripMargin
+    )
+    os.write(
+      tmp / "entry.pkl",
+      """module entry
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x = 1
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "entry.pkl")
+    assert(result.isRight, clue = result)
+    val imports = result.toOption.get.imports
+
+    // The entry + its transitive imports, and nothing else.
+    assertEquals(
+      imports,
+      Set(
+        tmp / "entry.pkl",
+        tmp / "lib" / "components.pkl",
+        tmp / "lib" / "hass.pkl"
+      ),
+      clue = imports
+    )
+    assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)
+  }
+
+  /** The real Pkl library modules, as shipped in the resources dir. */
+  private val resourcesLib =
+    os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
+
+  /** Copy the given lib modules into `tmp/lib/` (entries import them by the
+    * relative path `lib/<name>`, so tests must preserve the layout).
+    */
+  private def copyLib(tmp: os.Path, names: String*): Unit = {
+    os.makeDir.all(tmp / "lib")
+    names.foreach(n => os.copy.into(resourcesLib / n, tmp / "lib"))
+  }
+
+  test("hass.pkl types the dump's entity shapes with a generic fallback") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |
+        |light: hass.LightEntity = new {
+        |  entity_id = "light.kitchen"
+        |  friendly_name = "Kitchen"
+        |  area_id = "kitchen"
+        |  color_mode = "color_temp"
+        |  // Assignment, not amend: the default is null, and amending null is
+        |  // a type error when the value is forced.
+        |  effect_list = new Listing { "colorloop" }
+        |}
+        |
+        |tv: hass.GenericEntity = new {
+        |  entity_id = "media_player.tv"
+        |  domain = "media_player"
+        |}
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.downField("light").get[String]("domain").toOption,
+      Some("light")
+    )
+    assertEquals(
+      c.downField("light").get[List[String]]("effect_list").toOption,
+      Some(List("colorloop"))
+    )
+    assertEquals(
+      c.downField("tv").get[String]("domain").toOption,
+      Some("media_player")
+    )
+    // Constraint violations (a bad entity_id) fail the eval with a Pkl error.
+    os.write.over(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/hass.pkl"
+        |bad: hass.SensorEntity = new { entity_id = "NotAnId" }
+        |""".stripMargin
+    )
+    assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
+  }
+
+  /** A small transformed dump (the OUTPUT shape of DataDump.transform): one
+    * floor, one area, a light (with attributes), a sensor in the same area, an
+    * area-less switch, and a friendly_name that exercises string escaping.
+    */
+  private val fakeTransformedDump = io.circe.parser
+    .parse("""
+      {
+        "areas": {
+          "kjokken": { "area_id": "kitchen_1", "floor_id": "g", "area_name": "Kjøkken" }
+        },
+        "floors": {
+          "ground_floor": {
+            "floor_id": "g",
+            "floor_name": "Ground floor",
+            "areas": {
+              "kjokken": { "area_id": "kitchen_1", "floor_id": "g", "area_name": "Kjøkken" }
+            }
+          }
+        },
+        "entities": {
+          "light_kitchen": {
+            "entity_id": "light.kitchen",
+            "friendly_name": "Kitchen \"main\" light",
+            "domain": "light",
+            "area_id": "kitchen_1",
+            "floor_id": "g",
+            "attributes": { "color_mode": "color_temp", "effect_list": ["colorloop"] }
+          },
+          "sensor_temp": {
+            "entity_id": "sensor.temp",
+            "friendly_name": null,
+            "domain": "sensor",
+            "area_id": "kitchen_1",
+            "attributes": {}
+          },
+          "switch_garage": {
+            "entity_id": "switch.garage",
+            "friendly_name": "Garage",
+            "domain": "switch",
+            "attributes": {}
+          }
+        }
+      }
+    """)
+    .toOption
+    .get
+
+  test("PklDump.render emits typed, backticked declarations") {
+    val src = PklDump.render(fakeTransformedDump)
+    assert(src.contains("import \"hass.pkl\""), clue = src)
+    assert(
+      src.contains("const hidden `e_light_kitchen`: hass.LightEntity"),
+      clue = src
+    )
+    assert(src.contains("class `Area_kjokken` extends hass.Area"), clue = src)
+    assert(
+      src.contains("class `Floor_ground_floor` extends hass.Floor"),
+      clue = src
+    )
+    // Escaped quotes survive; null friendly_name emits no assignment.
+    assert(
+      src.contains("friendly_name = \"Kitchen \\\"main\\\" light\""),
+      clue = src
+    )
+    assert(
+      src.contains("effect_list = new Listing { \"colorloop\" }"),
+      clue = src
+    )
+    assert(src.contains("lights = List(`light_kitchen`)"), clue = src)
+  }
+
+  test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl")
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeTransformedDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/dump.pkl" as dump
+        |
+        |flat = dump.entities.light_kitchen.entity_id
+        |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
+        |areaLightCount = dump.areas.kjokken.lights.length
+        |noArea = dump.entities.switch_garage.entity_id
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[String]("flat").toOption, Some("light.kitchen"))
+    assertEquals(c.get[String]("viaFloor").toOption, Some("light.kitchen"))
+    assertEquals(c.get[Int]("areaLightCount").toOption, Some(1))
+    assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
+  }
+
+  test(
+    "theme.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+  ) {
+    // A probe entry re-exposes the theme so the assertions read a pinned
+    // shape, independent of whatever else the lib module happens to export.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "theme.pkl", "tokens.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/theme.pkl" as themeMod
+        |theme = themeMod.theme
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val theme = result.toOption.get.value.hcursor.downField("theme")
+    assert(
+      theme
+        .get[String]("chrome")
+        .toOption
+        .exists(_.contains("id=\"dashboard\"")),
+      clue = result
+    )
+    assertEquals(
+      theme.downField("tokens").get[String]("primary-color").toOption,
+      Some("#03a9f4")
+    )
+    assert(
+      theme.downField("tokensDark").keys.exists(_.nonEmpty),
+      clue = result
+    )
+    assert(
+      theme
+        .get[List[String]]("stylesheets")
+        .toOption
+        .exists(_.exists(_.contains("pico"))),
+      clue = result
+    )
+    assert(
+      theme.get[String]("styles").toOption.exists(_.contains(".fh-row")),
+      clue = result
+    )
+  }
+
+  test("components.pkl carries the six MVP card templates with their slots") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/components.pkl" as c
+        |cards = c.cards
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cards = result.toOption.get.value.hcursor.downField("cards")
+
+    val expectedSlots = Map(
+      "fhrow" -> Nil,
+      "fhcol" -> Nil,
+      "sectionTitle" -> List("label"),
+      "entityCard" -> List("label", "value", "entity_id"),
+      "button" -> List("label", "onclick"),
+      "slider" -> List(
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      )
+    )
+    expectedSlots.foreach { case (name, slots) =>
+      val card = cards.downField(name)
+      assert(
+        card.get[String]("template").toOption.exists(_.nonEmpty),
+        clue = name
+      )
+      assertEquals(
+        card.get[List[String]]("slots").toOption,
+        Some(slots),
+        clue = name
+      )
+    }
+  }
+
+  test("pkl-demo evaluates through the full pipeline into a valid Dashboard") {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    os.copy.into(resources / "pkl-demo.pkl", tmp)
+
+    // Fake transformed dump defining exactly the entities the demo references.
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {},
+          "floors": {},
+          "entities": {
+            "sensor_ams_1a4e_q": {
+              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
+              "domain": "sensor", "attributes": {}
+            },
+            "sensor_ams_1a4e_u1": {
+              "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
+              "domain": "sensor", "attributes": {}
+            },
+            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "friendly_name": "Demo light",
+              "domain": "light", "attributes": { "color_mode": "brightness" }
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+
+    val result = SourceEval.eval(tmp, "pkl-demo.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+
+    // The precise import set is the demo's full transitive closure.
+    val importNames = r.imports.map(_.last)
+    assert(
+      Set(
+        "pkl-demo.pkl",
+        "components.pkl",
+        "theme.pkl",
+        "tokens.pkl",
+        "hass.pkl",
+        "dump.pkl"
+      )
+        .subsetOf(importNames),
+      clue = importNames
+    )
+
+    // The FULL build pipeline: normalize children, then hoist the inline popup
+    // surface into the registry (splicing the trigger's NODE_ID), then decode —
+    // proving the decode path is shared with jsonnet unchanged.
+    val hoisted = DashboardBuild
+      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // Every @@NODE_ID@@ token was spliced with a real id — none survives.
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val decoded = hoisted.as[Dashboard]
+    assert(decoded.isRight, clue = decoded)
+    val d = decoded.toOption.get
+
+    assert(
+      Set(
+        "fhrow",
+        "fhcol",
+        "sectionTitle",
+        "entityCard",
+        "button",
+        "slider",
+        "popup"
+      ).subsetOf(d.cards.keySet),
+      clue = d.cards.keySet
+    )
+    // Two surfaces: the REGISTERED `detail` popup and the hoisted INLINE one
+    // (keyed `<node-id>_self`, node-id in the `c`-rooted pathId scheme).
+    assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
+    val inlineId =
+      d.surfaces.keys
+        .find(_.endsWith("_self"))
+        .getOrElse(
+          fail(s"no hoisted _self surface: ${d.surfaces.keySet}")
+        )
+    assert(inlineId.startsWith("c"), clue = inlineId)
+    assert(d.theme.tokens.nonEmpty)
+    assert(d.theme.chrome.contains("id=\"dashboard\""))
+
+    val root = d.card.asInstanceOf[LayoutNode.Component]
+    assertEquals(root.card, "fhcol")
+    // The layout now interleaves component cards with two dynamic groups and
+    // ends with the popup-opening buttons.
+    val children =
+      root.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(
+      children.map(_.card),
+      List(
+        "sectionTitle",
+        "entityCard",
+        "entityCard",
+        "slider",
+        "sectionTitle",
+        "sectionTitle",
+        "sectionTitle",
+        "button",
+        "button",
+        "button"
+      )
+    )
+
+    // The inline-popup trigger (the "Quick info…" button) carries a literal
+    // onclick that references the SPLICED real surface id, not the raw token.
+    val inlineTrigger = children
+      .find(
+        _.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self"))
+      )
+      .getOrElse(fail("no inline-popup trigger button found"))
+    assertEquals(
+      inlineTrigger.slots("onclick").literal,
+      Some(s"@post('/sse/surface/open/$inlineId')")
+    )
+
+    // Two dynamic groups: a per-domain dispatch group and the low-battery one.
+    val dyns = dynamics(d.card)
+    assertEquals(dyns.size, 2)
+
+    // Dispatch group: query = whenState("on"); a light branch (a $self Slider)
+    // + an always entityCard fallback; no `entity_id` slot survives the cases.
+    val dispatch = dyns(0)
+    assertEquals(
+      dispatch.query,
+      Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    )
+    assertEquals(dispatch.cases.map(_.card), List("slider", "entityCard"))
+    assertEquals(
+      dispatch.cases(0).when,
+      Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
+    )
+    assertEquals(
+      dispatch.cases(1).when,
+      Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+    )
+    dispatch.cases.foreach(cse =>
+      assert(!cse.slots.contains("entity_id"), clue = cse.slots.keySet)
+    )
+
+    // Low-battery group: query = pAnd([whenDeviceClass battery, stateLessThan 20]).
+    val battery = dyns(1)
+    assertEquals(battery.cases.map(_.card), List("entityCard"))
+    battery.query match {
+      case Some(Predicate.And(items)) =>
+        assertEquals(
+          items,
+          List(
+            Predicate
+              .Cmp("attr:device_class", Op.Eq, Json.fromString("battery")),
+            Predicate.Cmp("state", Op.Lt, Json.fromInt(20))
+          )
+        )
+      case other => fail(s"expected And query, got $other")
+    }
+
+    // Slider config resolved at build time, as STRING literals (the slot
+    // decoder rejects numbers — the highest-risk contract rule).
+    val slider = children(3)
+    assertEquals(slider.slots("min").literal, Some("1"))
+    assertEquals(slider.slots("max").literal, Some("255"))
+    assertEquals(slider.slots("action").literal, Some("light/turn_on"))
+    assertEquals(slider.slots("key").literal, Some("brightness"))
+    assertEquals(
+      slider.slots("entity_id").literal,
+      Some("light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang")
+    )
+
+    // The tapped entity card: constant `tappable` marker + an identity-derived
+    // (non-reactive) onclick expression.
+    val tapped = children(2)
+    assertEquals(tapped.slots("tappable").literal, Some("1"))
+    val onclick = tapped.slots("onclick")
+    assertEquals(onclick.literal, None)
+    assertEquals(onclick.reactive, false)
+    assert(onclick.transform.contains("/sse/action/"), clue = onclick)
+
+    // Validation (card refs, required slots, JSONata compile) passes.
+    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
+
+  /** Evaluate a probe module that imports the real lib and decode its `node`
+    * property as a Component.
+    */
+  private def probeComponent(body: String): LayoutNode.Component = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |
+         |import "lib/hass.pkl"
+         |import "lib/components.pkl" as c
+         |
+         |$body
+         |
+         |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+  }
+
+  /** Evaluate a probe module that imports the real lib and decode its `node`
+    * property as a Dynamic group.
+    */
+  private def probeDynamic(body: String): LayoutNode.Dynamic = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |
+         |import "lib/hass.pkl"
+         |import "lib/components.pkl" as c
+         |
+         |$body
+         |
+         |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Dynamic]
+  }
+
+  test("dynCase drops the entity_id slot via the Mapping for-generator") {
+    // Exercised EARLY (plan risk item 2): the `when (k != "entity_id")`
+    // for-generator that filters a card's slots into a dynamic case.
+    val dyn = probeDynamic(
+      """node = c.group(c.whenState("on"), new c.EntityCard { entity = hass.SELF })"""
+    )
+    assertEquals(dyn.cases.size, 1)
+    val slots = dyn.cases.head.slots
+    assert(!slots.contains("entity_id"), clue = slots.keySet)
+    // The other slots ride along: label (the $self live default) and value.
+    assert(slots.contains("label"), clue = slots.keySet)
+    assert(slots.contains("value"), clue = slots.keySet)
+    // The $self label is the LIVE friendly_name default, not a baked literal.
+    assertEquals(slots("label").literal, None)
+    assertEquals(
+      slots("label").transform,
+      "$attr.friendly_name ? $attr.friendly_name : $entity_id"
+    )
+  }
+
+  test("exprOf threads an explicit entityId into the emitted slot") {
+    val node = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |power: hass.SensorEntity = new { entity_id = "sensor.power" }
+        |
+        |node = new c.EntityCard {
+        |  entity = light
+        |  value = c.exprOf(power, "$state")
+        |}""".stripMargin
+    )
+    val value = node.slots("value")
+    assertEquals(value.entityId, Some("sensor.power"))
+    assertEquals(value.literal, None)
+    assertEquals(value.transform, "$state")
+    // A plain expr (no exprOf) still inherits the card's entity (no entityId).
+    val plain = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = new c.EntityCard { entity = light; value = c.expr("$state") }""".stripMargin
+    )
+    assertEquals(plain.slots("value").entityId, None)
+  }
+
+  test("Row cssClass emits a literal `class` slot") {
+    val row = probeComponent(
+      """node = new c.Row {
+        |  cssClass = "tabbar"
+        |  children { new c.SectionTitle { text = "x" } }
+        |}""".stripMargin
+    )
+    assertEquals(row.card, "fhrow")
+    assertEquals(row.slots("class").literal, Some("tabbar"))
+    // Absent cssClass emits no `class` slot at all.
+    val plain = probeComponent(
+      """node = new c.Row { children { new c.SectionTitle { text = "x" } } }"""
+    )
+    assert(!plain.slots.contains("class"), clue = plain.slots)
+  }
+
+  test("Slider on a cover resolves the cover spec as string literals") {
+    val slider = probeComponent(
+      """cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+        |node = new c.Slider { entity = cover }""".stripMargin
+    )
+    assertEquals(slider.card, "slider")
+    assertEquals(
+      slider.slots("action").literal,
+      Some("cover/set_cover_position")
+    )
+    assertEquals(slider.slots("key").literal, Some("position"))
+    assertEquals(slider.slots("min").literal, Some("0"))
+    assertEquals(slider.slots("max").literal, Some("100"))
+    assertEquals(slider.slots("value").transform, "$attr.current_position")
+  }
+
+  test("dynamic Slider ($self) resolves config via runtime $lookup($domain)") {
+    // A $self slider can't know its domain until a match, so action/key/min/max
+    // and the live position fall back to jsonnet's runtime $lookup over the
+    // sliderSpec table (all three domains present, in insertion order).
+    val dyn = probeDynamic(
+      """node = c.group(c.whenState("on"), new c.Slider { entity = hass.SELF })"""
+    )
+    assertEquals(dyn.cases.size, 1)
+    val slots = dyn.cases.head.slots
+    // entity_id is dropped (the renderer injects the matched entity per match).
+    assert(!slots.contains("entity_id"), clue = slots.keySet)
+
+    // action: the exact JSONata object literal over the whole sliderSpec table.
+    val action = slots("action")
+    assertEquals(action.literal, None)
+    assertEquals(action.reactive, false)
+    assertEquals(action.bypassUnavailable, false)
+    assertEquals(
+      action.transform,
+      "$lookup({\"light\":\"light/turn_on\"," +
+        "\"cover\":\"cover/set_cover_position\"," +
+        "\"fan\":\"fan/set_percentage\"}, $domain)"
+    )
+    // key/min/max likewise resolve via $lookup($domain); min/max maps carry the
+    // bare Int values (unquoted).
+    assertEquals(
+      slots("key").transform,
+      "$lookup({\"light\":\"brightness\",\"cover\":\"position\"," +
+        "\"fan\":\"percentage\"}, $domain)"
+    )
+    assertEquals(
+      slots("min").transform,
+      "$lookup({\"light\":1,\"cover\":0,\"fan\":0}, $domain)"
+    )
+    assertEquals(
+      slots("max").transform,
+      "$lookup({\"light\":255,\"cover\":100,\"fan\":100}, $domain)"
+    )
+    // The live position: read the domain's position attr off $attr.
+    assertEquals(
+      slots("value").transform,
+      "$lookup($attr, $lookup({\"light\":\"brightness\"," +
+        "\"cover\":\"current_position\",\"fan\":\"percentage\"}, $domain))"
+    )
+    assertEquals(slots("value").default, Some("0"))
+    assertEquals(slots("value").bypassUnavailable, false)
+  }
+
+  test("a Slider on a non-slider domain (static sensor) fails the constraint") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |sensor: hass.GenericEntity = new { entity_id = "sensor.temp"; domain = "sensor" }
+        |node = new c.Slider { entity = sensor }
+        |""".stripMargin
+    )
+    assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
+  }
+
+  test(
+    "pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)"
+  ) {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    os.copy.into(resources / "pkl-tabs.pkl", tmp)
+
+    // Fake transformed dump defining exactly the entities the tabs demo names:
+    // a light (Lights tab) + two sensors (Sensors tab).
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {},
+          "floors": {},
+          "entities": {
+            "sensor_ams_1a4e_q": {
+              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
+              "domain": "sensor", "attributes": {}
+            },
+            "sensor_ams_1a4e_u1": {
+              "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
+              "domain": "sensor", "attributes": {}
+            },
+            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "friendly_name": "Demo light",
+              "domain": "light", "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+
+    val result = SourceEval.eval(tmp, "pkl-tabs.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+
+    // FULL build pipeline: normalize children, hoist the inline tab surfaces
+    // (splicing each trigger's NODE_ID), then decode — shared with jsonnet.
+    val hoisted = DashboardBuild
+      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // No @@NODE_ID@@ token survives the hoist anywhere in the JSON.
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val decoded = hoisted.as[Dashboard]
+    assert(decoded.isRight, clue = decoded)
+    val d = decoded.toOption.get
+
+    // The sugar produced two inline tab surfaces.
+    assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
+    // Both panels share ONE derived host (exclusivity by shared hostId).
+    assertEquals(
+      d.surfaces.values.map(_.hostId).toSet.size,
+      1,
+      clue = d.surfaces
+    )
+    // Ids use the unified scheme: idBase (`c`-rooted pathId) + the `t<i>` key.
+    assert(
+      d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
+      clue = d.surfaces.keySet
+    )
+    assert(
+      d.surfaces.keySet.exists(_.endsWith("_t0")) &&
+        d.surfaces.keySet.exists(_.endsWith("_t1")),
+      clue = d.surfaces.keySet
+    )
+    // Every surface is a chrome-less panel with a bake position.
+    assert(
+      d.surfaces.values.forall(s =>
+        s.bakeInto.isDefined && s.bakeAs.contains("panel")
+      ),
+      clue = d.surfaces
+    )
+    assertEquals(
+      d.surfaces.values.flatMap(_.bakeIndex).toList.sorted,
+      List(0, 1),
+      clue = d.surfaces
+    )
+    // Exactly one surface (the first tab) is default-open.
+    assertEquals(
+      d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
+      Set(d.surfaces.keys.toList.sorted.head),
+      clue = d.surfaces
+    )
+
+    // The tabs component sits in the layout with two tab-bar buttons; each
+    // button's onclick references the SPLICED real surface id (not the raw
+    // token) AND writes the fhui_ restore cookie.
+    val root = d.card.asInstanceOf[LayoutNode.Component]
+    val tabsNode = root.children
+      .collectFirst {
+        case c: LayoutNode.Component if c.card == "tabs" => c
+      }
+      .getOrElse(fail("no tabs component in the layout"))
+    val tabButtons =
+      tabsNode.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(tabButtons.map(_.card), List("button", "button"))
+    tabButtons.foreach { b =>
+      val onclick = b
+        .slots("onclick")
+        .literal
+        .getOrElse(fail(s"tab button onclick not a literal: ${b.slots}"))
+      assert(onclick.contains("fhui_"), clue = onclick)
+      // The spliced surface id it opens is a real registered surface.
+      val opened = d.surfaces.keys
+        .find(id => onclick.contains(id))
+        .getOrElse(fail(s"onclick references no known surface: $onclick"))
+      assert(!opened.contains(DashboardBuild.NodeIdToken), clue = opened)
+    }
+
+    // Validation (card refs, required slots, JSONata compile) passes.
+    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
+}

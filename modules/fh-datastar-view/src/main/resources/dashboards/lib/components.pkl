@@ -1,0 +1,635 @@
+/// Dashboard components for the Pkl authoring track — the typed counterpart
+/// of `components.libsonnet` (MVP subset: containers, sectionTitle,
+/// entityCard, button, slider; see ADR 0006 for what is deferred).
+///
+/// Cards are CLASSES ("class-as-builder"): the `hidden` properties are the
+/// typed authoring surface, and each class derives the backend contract from
+/// them — `{kind: "component", card, slots, children}` nodes, where a slot is
+/// either a bare string (a constant literal) or a [[Slot]] object (a live
+/// JSONata transform). Hidden properties never render, so the emitted JSON is
+/// exactly what `Dashboard` decodes.
+///
+/// CONTRACT: literal slots must be JSON strings, never numbers — the backend
+/// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
+module components
+
+import "hass.pkl"
+
+// ---- backend output shapes (mirror fh.view.model) ----
+
+/// The object form of a slot (fh.view.model.SlotSource). A live JSONata
+/// expression over the card's entity; `reactive = false` marks an
+/// identity-derived slot (resolved once, never re-rendered on state change).
+class Slot {
+  entityId: String? = null
+  transform: String = "$state"
+  default: String? = null
+  bypassUnavailable: Boolean = true
+  reactive: Boolean = true
+}
+
+/// The common supertype of every layout-tree node. `kind` is the circe
+/// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
+/// [[DynamicGroup]].
+abstract class LayoutNode {
+  kind: String
+}
+
+abstract class Node extends LayoutNode {
+  kind: "component" = "component"
+  card: String
+  slots: Mapping<String, Slot|String> = new {}
+  // Widened to LayoutNode so a container can nest either a component or a
+  // dynamic group.
+  children: Listing<LayoutNode> = new {}
+  // A node-level map of inline surfaces the build-phase hoist lifts into the
+  // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
+  // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
+  // from JSON by omitNullProperties) unless a tap composes an inline popup.
+  inlineSurfaces: Mapping<String, SurfaceDef>? = null
+}
+
+class CardDef {
+  template: String
+  slots: Listing<String> = new {}
+}
+
+/// An on-demand render subtree the build-phase hoist lifts into the top-level
+/// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
+/// authored directly (a top-level `surfaces` mapping); inline surfaces ride on a
+/// node's [[Node.inlineSurfaces]] and are hoisted, keyed `<node-id>_<localKey>`.
+/// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
+/// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
+/// Boolean so omitNullProperties drops it and the decoder defaults it to false.
+class SurfaceDef {
+  content: LayoutNode
+  bakeInto: String? = null
+  bakeAs: String? = null
+  bakeIndex: Int? = null
+  defaultOpen: Boolean? = null
+}
+
+// ---- author-facing descriptors ----
+
+/// A live value expression for a display field that also accepts a plain
+/// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the
+/// literal `label = "Kitchen"`.
+class Expr {
+  entityId: String? = null
+  transform: String
+}
+
+function expr(s: String): Expr = new { transform = s }
+
+/// A live value expression bound to an EXPLICIT entity (a cross-entity read):
+/// the emitted slot names its own `entityId` instead of inheriting the card's.
+/// Mirrors jsonnet `entityOf` (components.libsonnet:102-105).
+function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
+
+/// A tap descriptor: the whole Datastar click expression, either live (a Slot
+/// reading $entity_id/$domain) or a constant string (navigate). A tap that opens
+/// an INLINE popup also carries `inlineSurfaces` (the dialog content); the card
+/// copies it onto the node so the hoist can lift it.
+class Tap {
+  onclick: Slot|String
+  inlineSurfaces: Mapping<String, SurfaceDef>? = null
+}
+
+// The placeholder a node uses to refer to its own backend-minted id — the SAME
+// id the renderer injects as `{{id}}`. The build-phase hoist
+// (DashboardBuild.hoistInlineSurfaces / NodeIdToken) splices the real id in.
+// MUST equal DashboardBuild.NodeIdToken. Authors never type it — the
+// `openPopupInline` tap embeds it (paired with an `inlineSurfaces` marker under
+// the matching local key).
+const NODE_ID: String = "@@NODE_ID@@"
+
+// The default service route (domain/service) for a tap, resolved per entity
+// at runtime ($domain). Scenes/scripts turn_on, buttons press, everything
+// else homeassistant/toggle — same JSONata as components.libsonnet.
+const local defaultRoute =
+  #"($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", "button": "button/press", "input_button": "input_button/press"}, $domain); $a ? $a : "homeassistant/toggle")"#
+
+// Wrap a JSONata route expression into the full Datastar click expression
+//   @post('/sse/action/<domain>/<service>/<entity_id>')
+const local function serviceOnclick(route: String): String =
+  #""@post('/sse/action/" & ("# + route + #") & "/" & $entity_id & "')""#
+
+// A click expression is identity-derived: it inherits the card's entity to
+// resolve $entity_id/$domain, but never varies with state (reactive = false)
+// and must resolve even when the entity is unavailable.
+const local function clickSlot(transformExpr: String): Slot = new {
+  transform = transformExpr
+  reactive = false
+  bypassUnavailable = false
+}
+
+/// Service call resolved from the entity's domain (the default tap).
+const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
+
+/// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
+function serviceTap(action: String): Tap =
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
+
+/// In-place swap to dashboard `slug` (+ URL via pushState) — a constant click.
+function navigate(slug: String): Tap =
+  new { onclick = "@post('/sse/navigate/\(slug)'); history.pushState(null,'','/d/\(slug)')" }
+
+/// Dismiss the (single, at-a-time) open popup — the id-less `POST
+/// /sse/popup/close`. Drop a button carrying this inside a popup's content.
+function closePopup(): Tap = new { onclick = "@post('/sse/popup/close')" }
+
+/// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
+/// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
+/// renders it bare into the `#popups` mount.
+function openPopup(surfaceId: String): Tap =
+  new { onclick = "@post('/sse/surface/open/\(surfaceId)')" }
+
+/// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
+/// under this node's `inlineSurfaces["self"]`; the onclick references the future
+/// surface id (`<NODE_ID>_self`) the hoist mints and splices. (Pkl can't
+/// union-dispatch string|node in one function like jsonnet's `openPopup`, so the
+/// registered and inline forms are two named functions — a deliberate API
+/// deviation, see ADR 0006.)
+// The parameter is `body`, NOT `content`: a bare `content` inside the nested
+// `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
+// bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
+// per the Pkl amend-scoping gotcha.
+function openPopupInline(body: Node): Tap = new {
+  onclick = "@post('/sse/surface/open/\(NODE_ID)_self')"
+  inlineSurfaces = new Mapping {
+    ["self"] = new SurfaceDef { content = new Popup { children { body } } }
+  }
+}
+
+// ---- shared slot builders (port of labelSlot/valueSlot/secondarySlot) ----
+
+// Auto-appended unit for a value display: the entity's unit_of_measurement,
+// space-separated, when it has one.
+const local UNIT =
+  #" & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"#
+
+// label: Expr -> live (still resolving when unavailable, so a label shows the
+// name, not "unavailable"); String -> literal; null -> the entity's
+// friendly_name (falling back to its id) baked as a literal.
+const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
+  if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
+  else if (label != null) label
+  // Dynamic default: a LIVE friendly_name (falling back to entity_id),
+  // inheriting the matched entity — mirrors components.libsonnet:78-80.
+  else if (entity != null && entity.isDynamic) new Slot { transform = "$attr.friendly_name ? $attr.friendly_name : $entity_id"; bypassUnavailable = false }
+  else if (entity != null) entity.friendly_name ?? entity.entity_id
+  else ""
+
+// value: null -> $state (+ unit); String -> that attribute (+ unit);
+// Expr -> your expression verbatim (you own the unit).
+const local function valueSlot(value: (String|Expr)?): Slot =
+  if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
+  else new Slot {
+    transform = (if (value == null) "$state" else "$attr." + value) + UNIT
+  }
+
+// secondary (only built when authored): String -> an attribute (no unit);
+// Expr -> live. Empty default keeps the mustache section collapsed when blank.
+const local function secondarySlot(secondary: String|Expr): Slot =
+  new Slot {
+    entityId = if (secondary is Expr) secondary.entityId else null
+    transform = if (secondary is Expr) secondary.transform else "$attr." + secondary
+    default = ""
+  }
+
+// ---- the components ----
+
+// `cssClass` is the authoring name (`class` is a Pkl reserved word); it emits
+// the literal slot key `"class"` that the `{{#class}}` template sections read.
+class Row extends Node {
+  card = "fhrow"
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
+}
+
+class Column extends Node {
+  card = "fhcol"
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
+}
+
+/// Static title text (not bound to an entity).
+class SectionTitle extends Node {
+  card = "sectionTitle"
+  hidden text: String
+  slots {
+    ["label"] = text
+  }
+}
+
+/// HA-like entity card: label + value (state or attribute, unit
+/// auto-appended) + optional secondary line + optional tap.
+class EntityCard extends Node {
+  card = "entityCard"
+  hidden entity: hass.Entity
+  hidden label: (String|Expr)? = null
+  hidden value: (String|Expr)? = null
+  hidden secondary: (String|Expr)? = null
+  hidden tap: Tap? = null
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them
+  // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
+  // is null or carries no inline popup → dropped by omitNullProperties.
+  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
+  slots {
+    // entity_id is the card's subject — the magical slot the others inherit.
+    ["entity_id"] = entity.entity_id
+    ["label"] = labelSlot(entity, label)
+    ["value"] = valueSlot(value)
+    when (secondary != null) {
+      ["secondary"] = secondarySlot(secondary!!)
+    }
+    when (tap != null) {
+      ["tappable"] = "1"
+      ["onclick"] = tap!!.onclick
+    }
+  }
+}
+
+/// Generic click button (service call or navigate). `action = null` defaults
+/// to the domain-resolved service call, which needs an entity.
+class Button extends Node {
+  card = "button"
+  hidden entity: hass.Entity? = null
+  hidden label: (String|Expr)? = null
+  hidden action: Tap? = null
+  // An OPTIONAL Datastar boolean expression: when present the button becomes a
+  // TAB (the template's `{{#active}}` sections add the `tab` class + the
+  // `data-class` highlight). Emitted as a constant literal slot. Set by [[Tabs]].
+  hidden active: String? = null
+  // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    when (active != null) {
+      ["active"] = active!!
+    }
+    ["label"] = labelSlot(entity, label)
+    ["onclick"] = (action ?? toggleTap).onclick
+  }
+}
+
+/// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
+/// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
+/// the id-less close. Composed INTO a surface's content (by [[openPopupInline]]
+/// or when registering a surface), NOT applied as backend chrome. Use it when
+/// registering a popup surface: `content = new Popup { children { ... } }`.
+class Popup extends Node {
+  card = "popup"
+}
+
+/// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
+/// tab is active. (`content` is a full node — a [[Row]]/[[Column]] subtree.)
+class Tab {
+  label: String
+  content: LayoutNode
+}
+
+/// A tab bar over ONE inline panel — one tab visible at a time. Pure
+/// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
+/// `content` becomes an inline surface baked into this component's panel host
+/// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
+/// the bar buttons open them, seed the active-tab signal, and persist the active
+/// index to the `fhui_<id>` cookie the server reads on the GET so reload /
+/// navigate restore the tab flash-free. The first tab is `defaultOpen` (baked on
+/// first paint) — emitted `null` for the rest so omitNullProperties drops it and
+/// the decoder defaults `false`, matching jsonnet byte-for-byte.
+class Tabs extends Node {
+  card = "tabs"
+  hidden tabs: Listing<Tab>
+  // Each tab's content hoisted into a panel surface. `t.content` is a QUALIFIED
+  // read of the loop element (a bare `content` would bind to SurfaceDef's own
+  // member — the amend-scoping gotcha).
+  inlineSurfaces = new Mapping {
+    for (i, t in tabs) {
+      ["t\(i)"] = new SurfaceDef {
+        content = t.content
+        bakeInto = NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        defaultOpen = if (i == 0) true else null
+      }
+    }
+  }
+  // The `.tabbar` buttons: each opens its tab's surface (`<id>_t<i>`), sets the
+  // active-tab signal, and writes the restore cookie. `$` is a literal Datastar
+  // signal sigil (Pkl only interpolates `\(...)`); the exact onclick text is
+  // asserted in the tests.
+  children = new Listing {
+    for (i, t in tabs) {
+      new Button {
+        label = t.label
+        active = "$tab_\(NODE_ID) == \(i)"
+        action = new Tap {
+          onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
+        }
+      }
+    }
+  }
+}
+
+// The slider's controllable config per domain: the service to call, the
+// service_data key the value rides on, the range bounds, and which attribute
+// is the live position. Add a domain (cover/fan/climate…) by adding a row —
+// TYPED: a missing/misspelled field is a build error. A STATIC slider resolves
+// its config AT BUILD TIME from the entity's domain (baked literals); a slider
+// bound to [[hass.SELF]] (a dynamic-group case) can't know the domain until a
+// match, so it falls back to jsonnet's runtime `$lookup($domain)` over this
+// same table (see [[sliderLookup]]).
+class SliderSpec {
+  action: String
+  key: String
+  min: Int
+  max: Int
+  value: String
+}
+
+const sliderSpec: Mapping<String, SliderSpec> = new {
+  ["light"] = new { action = "light/turn_on"; key = "brightness"; min = 1; max = 255; value = "brightness" }
+  ["cover"] = new { action = "cover/set_cover_position"; key = "position"; min = 0; max = 100; value = "current_position" }
+  ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
+}
+
+// A JSONata object literal `{"<domain>": <spec.field>}` over the sliderSpec
+// table — `{"light":"light/turn_on","cover":...}` (JSONata object syntax IS
+// JSON). Pkl has no reflect-by-string, so the field is a lambda accessor;
+// String values are quoted, Int (min/max) values emitted bare. Mirrors jsonnet
+// sliderDomainMap (components.libsonnet:225-229) but over all three domains.
+const local function sliderDomainMap(get: (SliderSpec) -> Any): String =
+  "{" + (new Listing {
+    for (d, s in sliderSpec) {
+      let (v = get.apply(s))
+        "\"\(d)\":" + (if (v is String) "\"\(v)\"" else "\(v)")
+    }
+  }).toList().join(",") + "}"
+
+// `$lookup(<map>, $domain)` — resolve a config field from the entity's domain
+// at runtime (components.libsonnet:231).
+const local function sliderLookup(get: (SliderSpec) -> Any): String =
+  "$lookup(" + sliderDomainMap(get) + ", $domain)"
+
+// The live position: read the domain's position attribute off $attr
+// (components.libsonnet:233).
+const local sliderValueLookup: String = "$lookup($attr, " + sliderLookup((s) -> s.value) + ")"
+
+// A slider config slot (action/key/min/max): author override → build-time spec
+// literal (stringified — the backend slot decoder rejects numbers) → the
+// runtime `$lookup($domain)` fallback for a spec-less ($self) slider. The
+// lookup form is identity-derived (reactive = false, never a live dependency)
+// and resolves even when the entity is unavailable (components.libsonnet:237).
+// `override` is a Pkl reserved word — the param is `ovr`.
+const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderSpec) -> Any): Slot|String =
+  if (ovr != null) ovr
+  else if (spec != null) "\(get.apply(spec!!))"
+  else new Slot { transform = sliderLookup(get); reactive = false; bypassUnavailable = false }
+
+/// Value slider. Accepts either a static entity whose domain has a sliderSpec
+/// row (config baked at build time) or [[hass.SELF]] inside a dynamic case
+/// (config resolved per matched entity via runtime `$lookup($domain)`). A
+/// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
+class Slider extends Node {
+  card = "slider"
+  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain))
+  hidden label: (String|Expr)? = null
+  hidden action: String? = null // per-instance overrides of the domain default
+  hidden key: String? = null
+  hidden min: Int? = null
+  hidden max: Int? = null
+  // Null for a dynamic ($self) slider — the domain is unknown until a match, so
+  // config falls through sliderConfig to the runtime lookup tier.
+  hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = labelSlot(entity, label)
+    // The display header (inherits entity_id, bypassUnavailable default).
+    ["state"] = new Slot {}
+    // The range input's numeric position: opt OUT of bypass so an unavailable
+    // entity falls back to `default` ("0") rather than "unavailable". Static:
+    // read the domain's position attr; dynamic: $lookup it per match.
+    ["value"] = new Slot {
+      transform = if (spec != null) "$attr." + spec!!.value else sliderValueLookup
+      default = "0"
+      bypassUnavailable = false
+    }
+    ["action"] = sliderConfig(action, spec, (s) -> s.action)
+    ["key"] = sliderConfig(key, spec, (s) -> s.key)
+    ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
+    ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
+  }
+}
+
+// ---- dynamic groups (the Predicate AST + case/when/group DSL) ----
+// A dynamic group renders one card PER live entity matching a `query`,
+// optionally dispatching the card per entity. The matched entity's
+// id/entity_id/label are auto-injected and every inheriting slot is rebound to
+// it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
+// static card, just passing `hass.SELF` as the entity. Port of
+// components.libsonnet:579-661.
+
+/// A property-query comparison operator. TYPED — a misspelled op is now a build
+/// error (the backend `Op` decoder is case-insensitive over exactly these).
+typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
+
+/// The runtime property-query AST. `kind` is the circe discriminator.
+abstract class Predicate {
+  kind: String
+}
+
+/// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
+/// `"attr:<name>"`; `value` is Any so a numeric threshold rides as a JSON
+/// number (unlike a slot literal, a query value is not stringified).
+class Cmp extends Predicate {
+  kind: "cmp" = "cmp"
+  property: String
+  op: PredicateOp
+  value: Any
+}
+
+class PAnd extends Predicate {
+  kind: "and" = "and"
+  items: Listing<Predicate>
+}
+
+class POr extends Predicate {
+  kind: "or" = "or"
+  items: Listing<Predicate>
+}
+
+class PNot extends Predicate {
+  kind: "not" = "not"
+  item: Predicate
+}
+
+// `and`/`or`/`not` collide with Pkl operators, so the helpers are p-prefixed
+// (the jsonnet track already renamed `not`→`pnot`). Parameters are NOT named
+// after the properties they set: inside a `new { property = property }` amend
+// the RHS binds to the object's own member (infinite recursion), so each
+// argument gets a distinct name.
+function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
+  new { property = prop; op = cmpOp; value = cmpVal }
+function pAnd(preds: Listing<Predicate>): PAnd = new { items = preds }
+function pOr(preds: Listing<Predicate>): POr = new { items = preds }
+function pNot(pred: Predicate): PNot = new { item = pred }
+
+/// Matches every entity (a domain is never literally this sentinel).
+always: Cmp = cmp("domain", "ne", "__never__")
+
+function whenDomain(d: String): Cmp = cmp("domain", "eq", d)
+function whenState(s: String): Cmp = cmp("state", "eq", s)
+function whenDeviceClass(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
+// e.g. attrLessThan("battery_level", 20)
+function attrLessThan(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
+function stateLessThan(threshold: Any): Cmp = cmp("state", "lt", threshold)
+// Battery sensors expose the % as their STATE with device_class "battery"
+// (non-numeric states like "unavailable" simply don't match `state < x`).
+function lowBattery(threshold: Any): PAnd =
+  pAnd(new Listing { whenDeviceClass("battery"); stateLessThan(threshold) })
+
+/// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
+/// render when it matches. Keeps the card + its slots but drops the build-time
+/// `entity_id` slot (the renderer sets the matched entity as the subject per
+/// match) and the unused children.
+class Case {
+  `when`: Predicate
+  card: String
+  slots: Mapping<String, Slot|String> = new {}
+}
+
+/// Build a [[Case]] from a predicate and a node, filtering the `entity_id` key
+/// out of the node's slots via a Mapping for-generator.
+function dynCase(whenP: Predicate, node: Node): Case = new Case {
+  `when` = whenP
+  card = node.card
+  slots = new Mapping {
+    for (k, v in node.slots) {
+      when (k != "entity_id") {
+        [k] = v
+      }
+    }
+  }
+}
+
+/// Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
+/// the card; `fallback` (when non-null) is the card for entities matching no
+/// branch. Pass the result as the `cases` of [[groupCases]].
+function dynWhen(branches: Listing<Case>, fallback: Node?): Listing<Case> =
+  new Listing {
+    for (b in branches) {
+      b
+    }
+    when (fallback != null) {
+      dynCase(always, fallback!!)
+    }
+  }
+
+/// A runtime-resolved group: render one card PER live entity matching `query`.
+class DynamicGroup extends LayoutNode {
+  kind: "dynamic" = "dynamic"
+  query: Predicate
+  cases: Listing<Case>
+}
+
+/// A single-card dynamic group: render `node` for every entity matching
+/// `q` (no per-entity dispatch). (Param not named `query`: see [[cmp]].)
+function group(q: Predicate, node: Node): DynamicGroup = new DynamicGroup {
+  query = q
+  cases = new Listing { dynCase(always, node) }
+}
+
+/// A dispatching dynamic group: `branches` (from [[dynWhen]]) select the card
+/// per matched entity.
+function groupCases(q: Predicate, branches: Listing<Case>): DynamicGroup =
+  new DynamicGroup {
+    query = q
+    cases = branches
+  }
+
+// ---- the backend-facing card library (templates ported verbatim) ----
+// NOTE (multiline templates): each HTML *attribute value* must stay on one
+// physical line — line breaks between tags/attributes are harmless
+// whitespace, but a newline inside an attribute would break it.
+
+cards: Mapping<String, CardDef> = new {
+  ["fhrow"] = new {
+    template = """
+      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  ["fhcol"] = new {
+    template = """
+      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  ["sectionTitle"] = new {
+    template = """
+      <h2 class="section">{{label}}</h2>
+      """
+    slots { "label" }
+  }
+  ["entityCard"] = new {
+    template = """
+      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
+        data-on:click="{{{onclick}}}"{{/tappable}}>
+        <header>{{label}}</header>
+        <span class="state">{{value}}</span>{{#secondary}}
+        <span class="secondary">{{secondary}}</span>{{/secondary}}
+      </article>
+      """
+    slots { "label"; "value"; "entity_id" }
+  }
+  ["button"] = new {
+    template = """
+      <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
+        data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
+      """
+    slots { "label"; "onclick" }
+  }
+  ["slider"] = new {
+    template = """
+      <article class="card">
+        <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
+        <input type="range" min="{{min}}" max="{{max}}"
+          data-signals="{ val_{{id}}: {{value}} }"
+          data-bind="val_{{id}}"
+          data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+      </article>
+      """
+    slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+  }
+  // POPUP dialog container. `open` is static markup (a `<dialog>` without it is
+  // display:none); the dialog is transient — present only while open. The ✕
+  // posts the id-less close. Ported verbatim from components.libsonnet:511.
+  ["popup"] = new {
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+  }
+  // TABS container. The `.tabbar` buttons are the card's children; the panel host
+  // + `{{{panel}}}` hole live here. `data-signals` seeds the active-tab signal to
+  // the baked tab's index (`{{bakeIndex}}`, injected by the renderer). Ported
+  // from components.libsonnet:447-456 (minus that file's stray `',` artifact).
+  ["tabs"] = new {
+    template = """
+      <div class="fh-col tabs">
+        <div class="fh-row tabbar">
+          {{#children}}{{{html}}}{{/children}}
+        </div>
+        <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
+          {{{panel}}}
+        </div>
+      </div>
+      """
+  }
+}
