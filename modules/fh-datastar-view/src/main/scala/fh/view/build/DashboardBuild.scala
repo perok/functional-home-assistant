@@ -28,7 +28,7 @@ object DashboardBuild {
   ): IO[SourceEval.Result] =
     for {
       dump <- DataDump.fetch(api)
-      _ <- IO {
+      _ <- IO.blocking {
         os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
         os.write.over(
           dashboardsDir / "lib" / "dump.pkl",
@@ -36,10 +36,16 @@ object DashboardBuild {
           createFolders = true
         )
       }
-      result <- SourceEval
-        .eval(dashboardsDir, entry)
-        .leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
-        .liftTo[IO]
+      // `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
+      // suspend it in `IO.blocking` (evaluation happens when the IO runs, on the
+      // blocking pool) before lifting its Either result.
+      result <- IO
+        .blocking(SourceEval.eval(dashboardsDir, entry))
+        .flatMap(
+          _.leftMap(err =>
+            new RuntimeException(s"dashboard eval failed:\n$err")
+          ).liftTo[IO]
+        )
     } yield result
 
   /** Accept a node's `children` written as a single node (not an array): wrap
@@ -271,9 +277,12 @@ object DashboardBuild {
       dashboardsDir: os.Path,
       entry: String
   ): IO[(Dashboard, Set[os.Path])] =
-    SourceEval
-      .eval(dashboardsDir, entry)
-      .leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
-      .liftTo[IO]
+    // `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
+    // suspend it in `IO.blocking` before lifting its Either result.
+    IO.blocking(SourceEval.eval(dashboardsDir, entry))
+      .flatMap(
+        _.leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
+          .liftTo[IO]
+      )
       .flatMap(r => decode(r.value, r.imports).map(_ -> r.imports))
 }

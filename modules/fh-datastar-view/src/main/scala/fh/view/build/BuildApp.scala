@@ -43,7 +43,7 @@ object BuildApp extends IOApp {
       // Validate it decodes into the runtime model before writing it.
       _ <- DashboardBuild.decode(dashboardJson)
 
-      _ <- IO(os.write.over(outputPath, dashboardJson.spaces2))
+      _ <- IO.blocking(os.write.over(outputPath, dashboardJson.spaces2))
       _ <- IO.println(s"Wrote dashboard artifact to $outputPath")
     } yield ExitCode.Success
 

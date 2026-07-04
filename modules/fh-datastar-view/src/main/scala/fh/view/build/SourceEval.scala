@@ -17,6 +17,11 @@ object SourceEval {
   /** Evaluate `entryFile` (relative to `dashboardsDir`) with the evaluator its
     * extension selects. Returns the evaluated JSON + import set, or an error
     * string.
+    *
+    * The pure-`Either` signature belies real work: this reads files and runs
+    * sjsonnet/pkl-core eagerly when called. Callers must therefore suspend it —
+    * `DashboardBuild` invokes it inside `IO.blocking` so the evaluation happens
+    * when the IO runs, on the blocking pool.
     */
   def eval(
       dashboardsDir: os.Path,
