@@ -73,17 +73,20 @@ cur), remove (prev ∧ ¬cur), and in-place update (prev ∧ cur), while an
 unrelated entity's change is skipped (the group's HTML would be identical).
 
 This test is **stateless** — no per-group membership cache. A shared member-set
-cache would couple to the rendered-HTML diff caching (a connection that hasn't
-rendered a removal yet must not skip it); testing old-or-new match needs no
-shared state and is correct regardless of where the diff cache lives. The
-assumption it rests on: a dynamic card binds to its matched entity (no
-cross-entity slots inside a case) — the current invariant.
+cache would have to mirror the rendered-HTML diff caches, which live at two
+levels (per-slug for the shared main-page pass, per-session for open-surface
+nodes — ADR 0002), and a cache that hasn't rendered a removal yet must not skip
+it; testing old-or-new match needs no shared state and is correct wherever the
+diff cache lives. The assumption it rests on: a dynamic card binds to its
+matched entity (no cross-entity slots inside a case) — the current invariant.
 
 A re-render of a group re-renders every matched card, but the cards'
 action/config slots are memoized identity slots (ADR 0004), so it costs ~2 live
-JSONata evals per card. **Future work** (flagged at the change loop in
-`Server`): coalesce/debounce event bursts — the query filter bounds *what*
-re-renders; batching would bound *how often*.
+JSONata evals per card. Main-page groups render once per slug in the shared
+pass regardless of viewer count; only groups inside an open surface render per
+session. **Future work** (flagged at the shared patch publisher in `Server`):
+coalesce/debounce event bursts — the query filter bounds *what* re-renders;
+batching would bound *how often*.
 
 ## Consequences
 

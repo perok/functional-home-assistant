@@ -73,7 +73,15 @@ object ServerApp extends IOApp {
         sessions <- Sessions.create.toResource
 
         defaultSlug <- defaultSlugFrom(entries.map(_._1)).toResource
-        server = new Server(api, store, rendererRefs, defaultSlug, sessions)
+        // Also runs the per-slug shared patch publishers in the background —
+        // the render-once fan-out every SSE connection subscribes to.
+        server <- Server.resource(
+          api,
+          store,
+          rendererRefs,
+          defaultSlug,
+          sessions
+        )
 
         _ <- watchSources(
           dashboardsDir,

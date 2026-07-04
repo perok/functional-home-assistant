@@ -77,15 +77,25 @@ every action `@post`, correlating the POST to its stream. A `Session` (keyed by
 `conn` in `Sessions`) holds a mutable `slug` (navigate re-points it), the set
 of **open** surface ids, a **control** queue the action handlers push patches
 into, and a last-rendered diff cache so only fragments whose HTML actually
-changed are pushed. The change loop renders the main page's affected nodes
-plus, per open surface, that surface's nodes — a closed surface is never
-rendered.
+changed are pushed.
 
-*(The diff cache and main-page render currently run per connection — an
-implementation choice, not doctrine; N viewers of one slug re-render identical
-main-page fragments N times. A shared per-slug render/diff pass for main-page
-nodes is planned; only surface/uiState-dependent fragments truly differ per
-session.)*
+Live entity patches are split by what they depend on. Main-page nodes that do
+**not** own a bake group are a pure function of entity state, so they are
+rendered **once per slug**: one background subscription to the state stream
+per dashboard (`Server.sharedPatchPublishers`, run by `Server.resource`)
+re-renders the affected nodes (reverse index + query-affected dynamic groups),
+diffs against a **per-slug** cache, and publishes the changed fragments on a
+per-slug topic — N viewers of one slug cost one render, not N. A connection
+subscribes to every slug's topic and keeps only its *current* slug's events,
+so navigate just re-points the filter (a dropped-or-duplicate fragment around
+the navigate moment is harmless: navigate does a full body repaint, and
+Datastar morphs are idempotent). Only what truly differs per client stays in
+the per-session change loop with the session's own diff cache: each open
+surface's nodes (a closed surface is never rendered) and bake-group-owner
+nodes (their HTML bakes the client's cookie-selected member). On a live-reload
+hot-swap the shared pass re-arms with the new renderer and a fresh per-slug
+cache; a change dropped in the brief swap window is repaired by the full body
+repaint every connection does on reload.
 
 ### One click slot, whole Datastar expressions
 
