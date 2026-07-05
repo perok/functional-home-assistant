@@ -66,6 +66,18 @@ two coexist in the same dashboards dir and are dispatched by file extension.
 6. **Cards are classes** ("class-as-builder"): hidden typed properties are the
    authoring surface (`new c.EntityCard { entity = dump.entities.x }`), and the
    class derives the slots.
+7. **A card class also owns its template**: each concrete `Node` subclass
+   carries a `hidden cardDef: CardDef` (Mustache template + declared slots),
+   co-located with the logic that fills them, and the module's `cards` mapping
+   is **derived by reflection** (`pkl:reflect` over the module's concrete
+   `Node` subclasses, reading the class-level `card`/`cardDef` defaults via
+   `reflect.Property.defaultValue`). Because `cardDef` is hidden it never
+   emits into node JSON — the emitted top-level `cards` is identical to the
+   old hand-maintained mapping, so the backend contract is untouched.
+   Registration is automatic: a new card is one class, and forgetting the
+   `cardDef` is an eval-time error naming the class. Entries keep the
+   one-line `cards = c.cards` (symmetric with the jsonnet track, which keeps
+   its hand-written `cards` object — jsonnet has no reflection).
 
 ## Feature coverage (full jsonnet parity)
 
@@ -128,6 +140,12 @@ though the emitted slot key remains `"class"`.
   to a `StackOverflowError` (rename the parameter).
 - Lambdas are invoked via `.apply(x)`; `Listing` → `List` via `.toList()`;
   `for (i, t in listing)` yields index+element.
+- `reflect.Property.defaultValue` returns the **evaluated** class-level
+  default (spike-verified on pkl-core 0.31.1, incl. hidden properties and
+  amended-object defaults) — so a reflected default like `cardDef` must be
+  self-contained (an instance-property reference has no instance to resolve
+  against). The reflect stdlib needs Paguro at runtime; it is a declared
+  pkl-core dependency, so nothing extra to ship.
 
 ## Verification
 
@@ -143,5 +161,6 @@ bakes the default panel, and a `fhui_<id>` cookie on the first-paint GET bakes
 the selected tab flash-free (ADR 0005); in-place navigate inner-patches
 `#dashboard` and resets `#popups`; hot reload of an edited `.pkl` entry
 repaints in ~0.5s (precise `Analyzer.importGraph` watch set) with jsonnet
-dashboards unaffected. Visual-only details (active-tab highlight styling,
-dialog appearance) remain browser-eyeball items.
+dashboards unaffected. The visual-only details (active-tab highlight styling,
+dialog appearance) were confirmed by eye in the browser the same day — nothing
+remains unverified.

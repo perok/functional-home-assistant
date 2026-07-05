@@ -14,6 +14,7 @@
 module components
 
 import "hass.pkl"
+import "pkl:reflect"
 
 // ---- backend output shapes (mirror fh.view.model) ----
 
@@ -38,6 +39,15 @@ abstract class LayoutNode {
 abstract class Node extends LayoutNode {
   kind: "component" = "component"
   card: String
+  // The card's template + declared slots, CO-LOCATED with the class that
+  // populates them. `hidden`, so it never emits into a node's JSON — the
+  // [[cards]] registry at the bottom collects each concrete subclass's
+  // class-level default by reflection. Must be a self-contained default (no
+  // instance-property references). NOTE (multiline templates): each HTML
+  // *attribute value* must stay on one physical line — line breaks between
+  // tags/attributes are harmless whitespace, but a newline inside an
+  // attribute would break it.
+  hidden cardDef: CardDef
   slots: Mapping<String, Slot|String> = new {}
   // Widened to LayoutNode so a container can nest either a component or a
   // dynamic group.
@@ -203,6 +213,11 @@ const local function secondarySlot(secondary: String|Expr): Slot =
 // the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends Node {
   card = "fhrow"
+  cardDef = new CardDef {
+    template = """
+      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
   hidden cssClass: String? = null
   slots {
     when (cssClass != null) {
@@ -213,6 +228,11 @@ class Row extends Node {
 
 class Column extends Node {
   card = "fhcol"
+  cardDef = new CardDef {
+    template = """
+      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
   hidden cssClass: String? = null
   slots {
     when (cssClass != null) {
@@ -224,6 +244,12 @@ class Column extends Node {
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
   card = "sectionTitle"
+  cardDef = new CardDef {
+    template = """
+      <h2 class="section">{{label}}</h2>
+      """
+    slots { "label" }
+  }
   hidden text: String
   slots {
     ["label"] = text
@@ -234,6 +260,17 @@ class SectionTitle extends Node {
 /// auto-appended) + optional secondary line + optional tap.
 class EntityCard extends Node {
   card = "entityCard"
+  cardDef = new CardDef {
+    template = """
+      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
+        data-on:click="{{{onclick}}}"{{/tappable}}>
+        <header>{{label}}</header>
+        <span class="state">{{value}}</span>{{#secondary}}
+        <span class="secondary">{{secondary}}</span>{{/secondary}}
+      </article>
+      """
+    slots { "label"; "value"; "entity_id" }
+  }
   hidden entity: hass.Entity
   hidden label: (String|Expr)? = null
   hidden value: (String|Expr)? = null
@@ -262,6 +299,13 @@ class EntityCard extends Node {
 /// to the domain-resolved service call, which needs an entity.
 class Button extends Node {
   card = "button"
+  cardDef = new CardDef {
+    template = """
+      <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
+        data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
+      """
+    slots { "label"; "onclick" }
+  }
   hidden entity: hass.Entity? = null
   hidden label: (String|Expr)? = null
   hidden action: Tap? = null
@@ -290,6 +334,12 @@ class Button extends Node {
 /// registering a popup surface: `content = new Popup { children { ... } }`.
 class Popup extends Node {
   card = "popup"
+  // `open` is static markup (a `<dialog>` without it is display:none); the
+  // dialog is transient — present only while open. The ✕ posts the id-less
+  // close. Ported verbatim from components.libsonnet:511.
+  cardDef = new CardDef {
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+  }
 }
 
 /// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
@@ -310,6 +360,22 @@ class Tab {
 /// the decoder defaults `false`, matching jsonnet byte-for-byte.
 class Tabs extends Node {
   card = "tabs"
+  // The `.tabbar` buttons are the card's children; the panel host + `{{{panel}}}`
+  // hole live here. `data-signals` seeds the active-tab signal to the baked
+  // tab's index (`{{bakeIndex}}`, injected by the renderer). Ported from
+  // components.libsonnet:447-456 (minus that file's stray `',` artifact).
+  cardDef = new CardDef {
+    template = """
+      <div class="fh-col tabs">
+        <div class="fh-row tabbar">
+          {{#children}}{{{html}}}{{/children}}
+        </div>
+        <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
+          {{{panel}}}
+        </div>
+      </div>
+      """
+  }
   hidden tabs: Listing<Tab>
   // Each tab's content hoisted into a panel surface. `t.content` is a QUALIFIED
   // read of the loop element (a bare `content` would bind to SurfaceDef's own
@@ -403,6 +469,18 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
 /// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
 class Slider extends Node {
   card = "slider"
+  cardDef = new CardDef {
+    template = """
+      <article class="card">
+        <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
+        <input type="range" min="{{min}}" max="{{max}}"
+          data-signals="{ val_{{id}}: {{value}} }"
+          data-bind="val_{{id}}"
+          data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+      </article>
+      """
+    slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+  }
   hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain))
   hidden label: (String|Expr)? = null
   hidden action: String? = null // per-instance overrides of the domain default
@@ -558,78 +636,30 @@ function groupCases(q: Predicate, branches: Listing<Case>): DynamicGroup =
     cases = branches
   }
 
-// ---- the backend-facing card library (templates ported verbatim) ----
-// NOTE (multiline templates): each HTML *attribute value* must stay on one
-// physical line — line breaks between tags/attributes are harmless
-// whitespace, but a newline inside an attribute would break it.
+// ---- the backend-facing card library (DERIVED from the card classes) ----
+// Each card class carries its own template + declared slots (`cardDef`,
+// co-located with the logic; hidden, so it never emits into a node's JSON).
+// The registry below assembles `cardName -> CardDef` by reflecting over this
+// module's concrete [[Node]] subclasses — registration is automatic: a new
+// card is just a class. `reflect.Property.defaultValue` reads the evaluated
+// CLASS-LEVEL default, which is why a `cardDef` must be self-contained.
+
+const local nodeClass = reflect.Class(Node)
+
+const local function cardNameOf(clsName: String, cls: reflect.Class): String =
+  let (v = cls.properties["card"].defaultValue)
+    if (v is String) v
+    else throw("card class \(clsName) must default `card` to a literal card name")
+
+const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
+  let (v = cls.properties["cardDef"].defaultValue)
+    if (v is CardDef) v
+    else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
 
 cards: Mapping<String, CardDef> = new {
-  ["fhrow"] = new {
-    template = """
-      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
-  ["fhcol"] = new {
-    template = """
-      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
-      """
-  }
-  ["sectionTitle"] = new {
-    template = """
-      <h2 class="section">{{label}}</h2>
-      """
-    slots { "label" }
-  }
-  ["entityCard"] = new {
-    template = """
-      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-        data-on:click="{{{onclick}}}"{{/tappable}}>
-        <header>{{label}}</header>
-        <span class="state">{{value}}</span>{{#secondary}}
-        <span class="secondary">{{secondary}}</span>{{/secondary}}
-      </article>
-      """
-    slots { "label"; "value"; "entity_id" }
-  }
-  ["button"] = new {
-    template = """
-      <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
-        data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
-      """
-    slots { "label"; "onclick" }
-  }
-  ["slider"] = new {
-    template = """
-      <article class="card">
-        <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
-        <input type="range" min="{{min}}" max="{{max}}"
-          data-signals="{ val_{{id}}: {{value}} }"
-          data-bind="val_{{id}}"
-          data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
-      </article>
-      """
-    slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
-  }
-  // POPUP dialog container. `open` is static markup (a `<dialog>` without it is
-  // display:none); the dialog is transient — present only while open. The ✕
-  // posts the id-less close. Ported verbatim from components.libsonnet:511.
-  ["popup"] = new {
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
-  }
-  // TABS container. The `.tabbar` buttons are the card's children; the panel host
-  // + `{{{panel}}}` hole live here. `data-signals` seeds the active-tab signal to
-  // the baked tab's index (`{{bakeIndex}}`, injected by the renderer). Ported
-  // from components.libsonnet:447-456 (minus that file's stray `',` artifact).
-  ["tabs"] = new {
-    template = """
-      <div class="fh-col tabs">
-        <div class="fh-row tabbar">
-          {{#children}}{{{html}}}{{/children}}
-        </div>
-        <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
-          {{{panel}}}
-        </div>
-      </div>
-      """
+  for (clsName, cls in reflect.Module(module).classes) {
+    when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+      [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+    }
   }
 }

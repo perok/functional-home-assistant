@@ -296,7 +296,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
   }
 
-  test("components.pkl carries the six MVP card templates with their slots") {
+  test("components.pkl derives the card registry from the card classes") {
+    // `cards` is assembled via pkl:reflect over the module's concrete Node
+    // subclasses (each class carries its template + declared slots as a hidden
+    // `cardDef`). The key set must be EXACTLY the card classes — no strays
+    // from non-card classes (Tab, Case, SliderSpec, ...), and nothing missing.
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl", "components.pkl")
     os.write(
@@ -325,7 +329,14 @@ class PklBuildSuite extends munit.FunSuite {
         "max",
         "key",
         "entity_id"
-      )
+      ),
+      "popup" -> Nil,
+      "tabs" -> Nil
+    )
+    assertEquals(
+      cards.keys.map(_.toSet),
+      Some(expectedSlots.keySet),
+      clue = cards.keys
     )
     expectedSlots.foreach { case (name, slots) =>
       val card = cards.downField(name)
@@ -339,6 +350,22 @@ class PklBuildSuite extends munit.FunSuite {
         clue = name
       )
     }
+    // Hidden cardDef never leaks into an emitted node.
+    os.write.over(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/components.pkl" as c
+        |node = new c.SectionTitle { text = "x" }
+        |""".stripMargin
+    )
+    val nodeResult = SourceEval.eval(tmp, "probe.pkl")
+    assert(nodeResult.isRight, clue = nodeResult)
+    val nodeKeys =
+      nodeResult.toOption.get.value.hcursor.downField("node").keys
+    assert(
+      nodeKeys.exists(ks => !ks.exists(_ == "cardDef")),
+      clue = nodeKeys
+    )
   }
 
   test("pkl-demo evaluates through the full pipeline into a valid Dashboard") {
