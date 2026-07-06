@@ -1,5 +1,7 @@
 # Plan: Pkl track → full jsonnet parity
 
+**Status: implemented** — the Pkl track shipped full parity (see ADR 0006 for the as-built design and deliberate deviations).
+
 Implements the ADR 0006 skip-list. Each step is sized for Opus 4.8 (medium
 thinking): small scope, exact files, its own verification. Steps 1–5 are
 **Pkl-only** (new authoring in `dashboards/lib/*.pkl` + demos + tests — the
