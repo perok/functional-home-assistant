@@ -1,5 +1,7 @@
 # Plan: collapse the `Surface` field set — adopt ADR 0002 options A + B (fh-datastar-view)
 
+**Status: implemented** — `Surface` is 5 fields with a derived host id, all surfaces chrome-less (see ADR 0002).
+
 Adopts the two un-adopted options recorded in
 [ADR 0002, Update 2026-07-01](adr/0002-multi-dashboard-popups-and-navigation.md#update--2026-07-01-two-open-questions-on-collapsing-the-surface-field-set-not-adopted):
 

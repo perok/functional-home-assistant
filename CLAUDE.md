@@ -51,6 +51,40 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 > **rewrite the relevant ADR in place** (git history keeps the archaeology — no dated
 > update sections while the design is pre-v1); a genuinely new decision gets a new ADR.
 
+#### Workflow for changes here
+
+1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006 and the "Spike results"
+   section of `docs/plan-pkl-authoring-ergonomics.md` before writing any Pkl.
+2. Verify with `sbt 'fh-datastar-view/testFull'` — the suites build **fake dumps** in temp
+   dirs and run the real library modules through the full pipeline, so **no live HA is
+   needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
+   entity dump.)
+3. For refactors that must not change behavior (parity work, authoring-API changes): the
+   evaluated `{cards, card}` JSON is the contract. Assert **byte-identical JSON** before/after
+   (evaluate both in a test, or diff `dashboard.json`). Both authoring languages must keep
+   emitting the same wire format; the backend model (`Dashboard.scala`) should not need to
+   change for authoring-layer work.
+4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
+   browser (`sbt dashboardServe`), per ADR 0006.
+5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
+   `docs/reference/datastar/` before searching the web. Attributes use colon syntax
+   (`data-on:click`, not `data-on-click`).
+6. Format with `sbt scalafmt` (Scala only; there is no formatter for jsonnet/Pkl sources).
+
+#### Key files
+
+| File | Role |
+|---|---|
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
+| `fh/view/build/SourceEval.scala` | Extension dispatch: `.jsonnet` → `JsonnetBuild`, `.pkl` → `PklBuild` |
+| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed `lib/dump.pkl` generation |
+| `fh/view/build/DataDump.scala` | Live entity dump fetch/transform (shared by both language tracks) |
+| `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
+| `resources/dashboards/components.libsonnet` | Jsonnet card templates + builders |
+| `resources/dashboards/lib/{hass,components,theme,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) |
+| `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the parity examples) |
+| `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
+
 A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
 HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
 
@@ -105,6 +139,52 @@ HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment
   and Pkl gotchas before extending. `PklBuild` renders the evaluated module to JSON backend-side
   (no `output` blocks in entries) and watches the precise `Analyzer.importGraph` import set;
   `BuildApp` honors `DASHBOARD_ENTRY`.
+
+#### Pkl: verify semantics empirically, never from intuition
+
+Pkl (pinned: pkl-core **0.31.1**) has unusual semantics; wrong guesses compile into confusing
+errors. When unsure, **run a 2-minute spike** instead of reasoning from analogy: a scratch dir
+with a `lib.pkl` + `entry.pkl` and a scala-cli runner —
+
+```scala
+//> using dep org.pkl-lang:pkl-core:0.31.1
+import org.pkl.core.*
+@main def run(): Unit =
+  val ev = EvaluatorBuilder.preconfigured().build()
+  try ev.evaluate(ModuleSource.path(java.nio.file.Path.of("entry.pkl")))
+       .getProperties.forEach((k, v) => println(s"$k = $v"))
+  finally ev.close()
+```
+
+Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-authoring-ergonomics.md`,
+"Spike results"):
+
+- Amending a method-call result **requires outer parens**: `(c.entityCard(e)) { ... }`.
+  Parens-free is a parse error.
+- **Late binding is the core mechanism**: amending a `hidden` prop re-derives everything
+  computed from it (that's how card `slots` recompute). Amending a function *parameter*
+  (`(n) { entity = ... }`) also works.
+- Methods and properties live in **separate namespaces** — `function slider(e)` and a
+  function-valued property `slider` can coexist; call syntax picks the method.
+- Inside a `new {}` body, `this` rebinds to the new object — capture the outer receiver
+  with `let (l = this)` when writing fluent methods on classes.
+- Required (no-default) class properties are **lazy**: a missing value errors only when
+  forced, and the trace points at the class definition, not the author's dashboard line.
+- `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).
+- Function-valued properties on a *rendered* module cannot be exported — mark them `hidden`.
+- `Mapping` preserves insertion order; structurally-equal duplicate keys are a build error.
+- `|>` binds looser than call/amend; `Mixin<T>` values and Mixin-returning methods chain
+  as pipe stages.
+
+#### Design docs and plans
+
+- `docs/plan-*.md` are **deferred design plans, not implemented code** unless they say
+  otherwise. Notably `plan-pkl-authoring-ergonomics.md` (call-style factories, Mapping-branch
+  dynamic groups, fluent predicates) is fully designed and spike-verified but **not yet
+  applied** to `components.pkl` — do not assume its API exists in the sources.
+- When the user questions a decision in a plan/ADR, **discuss alternatives in chat first**
+  (with spikes as evidence, inline code examples) — do not rewrite the document until a
+  direction is picked.
 
 ### The sbt plugin glue
 
