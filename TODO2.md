@@ -6,6 +6,16 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Quick wins
 
+- [ ] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
+      entries in PklBuildSuite so authoring-layer refactors are byte-identity-checked by
+      `sbt test`, not manual diffing. Land this BEFORE implementing
+      docs/plan-pkl-authoring-ergonomics.md — it is that plan's safety net.
+- [ ] `pkl-spike` skill (`.claude/skills/pkl-spike/`): package the scala-cli + pkl-core
+      spike harness (lib.pkl + entry.pkl + runner, see the template in CLAUDE.md) so
+      "verify Pkl semantics empirically" is a one-command habit.
+- [ ] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
+      env var / untracked `.env` — security hygiene, and stops the credential being copied
+      into new files during refactors.
 - [ ] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
       back to the slug.
