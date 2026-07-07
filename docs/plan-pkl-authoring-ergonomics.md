@@ -1,6 +1,6 @@
 # Pkl authoring ergonomics: call-style card factories + render-lambda dynamic groups (no author-facing `hass.SELF`)
 
-**Status: designed + spike-verified, not implemented** — the API described here does not exist in `components.pkl` yet.
+**Status: implemented** — landed on this branch; ADR 0006 records the decisions.
 
 ## Context
 
