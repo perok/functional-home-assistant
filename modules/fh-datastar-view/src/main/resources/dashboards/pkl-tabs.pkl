@@ -2,12 +2,14 @@
 // typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
 // a single inline panel, one tab visible at a time.
 //
-// `new c.Tabs { tabs { ... } }` is pure composition — the build-phase hoist
-// lifts each tab's `content` into the surfaces registry (sharing one exclusivity
-// group + one inline mount), the bar buttons open them, the first tab bakes
-// inline for an instant first paint, and the active tab is tracked in a signal
-// (+ cookie) for the highlight and reload-restore. Switching reuses the same
-// surface open/close machinery as popups.
+// `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each
+// tab amends into existence off the mapping default (its body lists the panel's
+// cards directly; the Row wrap is automatic), the build-phase hoist lifts each
+// panel into the surfaces registry (sharing one exclusivity group + one inline
+// mount), the bar buttons open them, the first tab bakes inline for an instant
+// first paint, and the active tab is tracked in a signal (+ cookie) for the
+// highlight and reload-restore. Switching reuses the same surface open/close
+// machinery as popups.
 //
 // `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; this entry
 // sets only `card` (its tab panels become hoisted surfaces at build time).
@@ -19,39 +21,30 @@ amends "lib/entry.pkl"
 import "lib/components.pkl" as c
 import "lib/dump.pkl" as dump
 
-card = new c.Column {
+card = (c.column) {
   children {
     c.title("Tabs")
-    new c.Row {
+
+    (c.row) {
       children {
         c.button("« Home", c.navigate("dashboard"))
       }
     }
-    new c.Tabs {
+    (c.tabs) {
       tabs {
-        new c.Tab {
-          label = "Lights"
-          // Entity cards toggled on tap (options amended onto the call).
-          content = new c.Row {
-            children {
-              (c.entityCard(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)) {
-                tap = c.toggleTap
-              }
-            }
+        // Entity cards toggled on tap (options amended onto the call).
+        ["Lights"] {
+          (c.entityCard(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)) {
+            tap = c.toggleTap
           }
         }
-        new c.Tab {
-          label = "Sensors"
-          // Live value expressions (own unit).
-          content = new c.Row {
-            children {
-              (c.entityCard(dump.entities.`sensor_ams_1a4e_q`)) {
-                value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
-              }
-              (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
-                value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
-              }
-            }
+        // Live value expressions (own unit).
+        ["Sensors"] {
+          (c.entityCard(dump.entities.`sensor_ams_1a4e_q`)) {
+            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+          }
+          (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
+            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
           }
         }
       }

@@ -71,12 +71,24 @@ class CardDef {
 /// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
 /// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
 /// Boolean so omitNullProperties drops it and the decoder defaults it to false.
-class SurfaceDef {
+open class SurfaceDef {
   content: LayoutNode
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
   defaultOpen: Boolean? = null
+}
+
+/// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
+/// dialog automatically (registered popup surfaces must carry their own wrap —
+/// ADR 0002). `lib/entry.pkl` makes this the `surfaces` mapping default, so an
+/// entry amends a popup surface into existence with no `new` and no wrap:
+///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
+/// A non-popup surface is still an explicit assignment:
+///   ["x"] = new c.SurfaceDef { content = ... }
+class PopupSurface extends SurfaceDef {
+  hidden body: Listing<LayoutNode> = new {}
+  content = new Popup { children = body }
 }
 
 // ---- author-facing descriptors ----
@@ -226,7 +238,13 @@ class Row extends Node {
   }
 }
 
-function row(c: Listing<LayoutNode> ): Row = new Row { children = c }
+/// Amendable base instance — `(c.row) { children { ... } }`. The parens are
+/// MANDATORY: Pkl requires them around ANY amend parent that isn't a `new`
+/// expression (qualified reads, method calls, even bare in-scope names).
+/// There is no comma-free call form: function arguments are always
+/// comma-separated, and a typed-object amend body accepts only PROPERTIES
+/// (bare elements/entries need a Listing/Mapping parent — hence `children`).
+hidden row: Row = new Row {}
 
 class Column extends Node {
   card = "fhcol"
@@ -242,7 +260,8 @@ class Column extends Node {
     }
   }
 }
-function column(c: Listing<LayoutNode> ): Column = new Column { children = c }
+/// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
+hidden column: Column = new Column {}
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
@@ -342,9 +361,9 @@ class Button extends Node {
 
 /// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
 /// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
-/// the id-less close. Composed INTO a surface's content (by [[openPopupInline]]
-/// or when registering a surface), NOT applied as backend chrome. Use it when
-/// registering a popup surface: `content = new Popup { children { ... } }`.
+/// the id-less close. Composed INTO a surface's content, NOT applied as backend
+/// chrome. Authors rarely touch it directly: [[openPopupInline]] wraps its body
+/// in one, and a registered surface gets it via the [[PopupSurface]] default.
 class Popup extends Node {
   card = "popup"
   // `open` is static markup (a `<dialog>` without it is display:none); the
@@ -354,18 +373,12 @@ class Popup extends Node {
     template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
-function popup(c: List<LayoutNode> ): Popup = new Popup { children = c.toListing() }
-
-/// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
-/// tab is active. (`content` is a full node — a [[Row]]/[[Column]] subtree.)
-class Tab {
-  label: String
-  content: LayoutNode
-}
+/// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
+hidden popup: Popup = new Popup {}
 
 /// A tab bar over ONE inline panel — one tab visible at a time. Pure
 /// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
-/// `content` becomes an inline surface baked into this component's panel host
+/// cards become an inline surface baked into this component's panel host
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
 /// the bar buttons open them, seed the active-tab signal, and persist the active
 /// index to the `fhui_<id>` cookie the server reads on the GET so reload /
@@ -390,14 +403,22 @@ class Tabs extends Node {
       </div>
       """
   }
-  hidden tabs: Listing<Tab>
-  // Each tab's content hoisted into a panel surface. `t.content` is a QUALIFIED
-  // read of the loop element (a bare `content` would bind to SurfaceDef's own
-  // member — the amend-scoping gotcha).
+  /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
+  /// it). The Listing DEFAULT lets a tab amend into existence and add cards
+  /// directly — no `new`, no `children`:
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.slider(l) } } }
+  /// Each tab's cards are wrapped in a [[Row]] panel; a tab wanting a different
+  /// container nests it as the single card: `["X"] { new Column { ... } }`.
+  hidden tabs: Mapping<String, Listing<LayoutNode>> = new { default = (_) -> new Listing {} }
+  // Insertion-ordered labels; the derivations below need the tab INDEX (surface
+  // keys, bakeIndex, the signal seed), which a Mapping generator lacks — a List
+  // generator yields (index, element).
+  hidden labels: List<String> = tabs.keys.toList()
+  // Each tab's cards hoisted into a Row-wrapped panel surface.
   inlineSurfaces = new Mapping {
-    for (i, t in tabs) {
+    for (i, l in labels) {
       ["t\(i)"] = new SurfaceDef {
-        content = t.content
+        content = new Row { children = tabs[l] }
         bakeInto = NODE_ID
         bakeAs = "panel"
         bakeIndex = i
@@ -410,9 +431,9 @@ class Tabs extends Node {
   // signal sigil (Pkl only interpolates `\(...)`); the exact onclick text is
   // asserted in the tests.
   children = new Listing {
-    for (i, t in tabs) {
+    for (i, l in labels) {
       new Button {
-        label = t.label
+        label = l
         active = "$tab_\(NODE_ID) == \(i)"
         action = new Tap {
           onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
@@ -421,6 +442,9 @@ class Tabs extends Node {
     }
   }
 }
+
+/// Amendable base instance — `(c.tabs) { tabs { ["Lights"] { ... } } }`.
+hidden tabs: Tabs = new Tabs {}
 
 // The slider's controllable config per domain: the service to call, the
 // service_data key the value rides on, the range bounds, and which attribute

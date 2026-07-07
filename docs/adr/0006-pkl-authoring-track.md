@@ -143,10 +143,18 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
-  `openPopupInline(body)`, popup CSS in `theme.pkl` (0002).
-- Tabs: `Tabs`/`Tab` classes (per-tab inline surfaces with
-  `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`), `Button.active`,
+  `openPopupInline(body)`, popup CSS in `theme.pkl` (0002). A registered
+  popup surface amends into existence via `entry.pkl`'s `surfaces` mapping
+  default (`PopupSurface`: hidden `body` Listing, auto-`Popup`-wrapped
+  content) — no `new`, and the wrap rule is enforced by construction.
+- Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
+  (label → that tab's cards, Row-wrapped into per-tab inline surfaces with
+  `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`; the Listing-valued mapping
+  default lets a tab body list cards with no `new`/`children`), `Button.active`,
   cookie-writing onclick, tabs CSS (0002/0005).
+- Comma-free container authoring: hidden amendable base instances `(c.row)`,
+  `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
+  around any amend parent that isn't a `new` expression).
 - Dynamic groups: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`; the
   `PredicateOp` union type makes a misspelled op a build error), fluent
   predicate methods + leaf helpers, and the

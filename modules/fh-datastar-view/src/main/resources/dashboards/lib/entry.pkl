@@ -33,7 +33,12 @@ title: String? = null
 /// Registered popup surfaces (opened by an `openPopup(id)` tap). Inline popups
 /// and tab panels ride on their node's `inlineSurfaces` and are hoisted into
 /// this registry at build time, so most entries leave this empty.
-surfaces: Mapping<String, c.SurfaceDef> = new {}
+///
+/// The mapping DEFAULT is a [[c.PopupSurface]], so a popup surface amends into
+/// existence — no `new`, and the [[c.Popup]] dialog wrap is automatic:
+///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
+/// A non-popup surface is an explicit `["x"] = new c.SurfaceDef { ... }`.
+surfaces: Mapping<String, c.SurfaceDef> = new { default = (_) -> new c.PopupSurface {} }
 
 /// The root of the layout tree — the ONE property every entry must set (see the
 /// authoring note above about the error location when it is forgotten).

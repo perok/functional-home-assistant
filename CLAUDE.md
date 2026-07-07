@@ -173,8 +173,16 @@ import org.pkl.core.*
 Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-authoring-ergonomics.md`,
 "Spike results"):
 
-- Amending a method-call result **requires outer parens**: `(c.entityCard(e)) { ... }`.
-  Parens-free is a parse error.
+- Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
+  results (`(c.entityCard(e)) { ... }`), qualified reads (`(c.row) { ... }`), even bare
+  in-scope names. Parens-free is a parse error.
+- A typed-object amend body accepts only **properties**: bare elements ("Object of type
+  `Row` cannot have an element") and `["key"]` entries (Mapping/Dynamic only) are errors.
+  So there is no trailing-block call form (`row { a b }` is unreachable); comma-free
+  children go through a Listing-typed property (`children { ... }`).
+- A Mapping `default` enables **amend-into-existence**: `["detail"] { ... }` on an absent
+  key instantiates the default and amends it (how `surfaces`/`tabs` avoid `new`); a
+  `Listing`-valued default lets that body add elements directly (no `children` key).
 - **Late binding is the core mechanism**: amending a `hidden` prop re-derives everything
   computed from it (that's how card `slots` recompute). Amending a function *parameter*
   (`(n) { entity = ... }`) also works.
