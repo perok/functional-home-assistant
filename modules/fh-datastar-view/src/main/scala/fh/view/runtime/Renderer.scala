@@ -11,6 +11,21 @@ import fh.view.model.{
   Surface
 }
 
+/** How one state change moves the changed entity across a dynamic group's
+  * membership boundary — the two query-match booleans (before ∧ after) kept
+  * apart instead of collapsed to a single "touched" flag, so the live-patch
+  * path can narrow a whole-group re-render down to a per-entity patch.
+  *
+  *   - [[InPlace]] (`prev ∧ cur`): the entity was and still is a member — its
+  *     card is re-rendered and outer-morphed in place (the hot path). Covers a
+  *     case-branch switch for free (the child id doesn't encode the branch).
+  *   - [[Added]] (`¬prev ∧ cur`): the entity newly matches — a member joins.
+  *   - [[Removed]] (`prev ∧ ¬cur`): the entity no longer matches — a member
+  *     leaves.
+  */
+enum DynamicDelta:
+  case InPlace, Added, Removed
+
 /** Renders the recursive dashboard layout tree from current entity state.
   *
   * Every node is a `Component` referencing a shared template by name; a
@@ -104,27 +119,58 @@ class Renderer(
       id -> d.query
     }
 
-  private def dynamicAffected(
+  /** How a state change moves the changed entity across one dynamic group's
+    * membership boundary, or `None` when it leaves the group untouched. Derived
+    * from the group's *query* match before vs after the change: `prev ∧ cur` is
+    * an in-place update of a member ([[DynamicDelta.InPlace]]), `¬prev ∧ cur` a
+    * join ([[DynamicDelta.Added]]), `prev ∧ ¬cur` a leave
+    * ([[DynamicDelta.Removed]]); matching neither side changes nothing
+    * (`None`). The two booleans are kept apart (rather than collapsed to
+    * "touched") so the Server can patch a member in place vs. add/remove it
+    * per-entity.
+    */
+  private def dynamicDelta(
       id: String,
       change: StateChange
-  ): Boolean = {
+  ): Option[DynamicDelta] = {
     val query = dynamicQueries.getOrElse(id, None)
     def matchesQuery(st: EntityState): Boolean =
       query.forall(Renderer.matches(_, st))
-    // The change touches the group iff the entity matched its query BEFORE or
-    // AFTER the change — covering an add (¬prev ∧ cur), a remove (prev ∧ ¬cur),
-    // and an in-place update of a member (prev ∧ cur). An entity that matches
-    // neither leaves the group's HTML identical, so the group is skipped.
-    change.previous.exists(matchesQuery) || matchesQuery(change.current)
+    val prev = change.previous.exists(matchesQuery)
+    val cur = matchesQuery(change.current)
+    (prev, cur) match {
+      case (true, true)   => Some(DynamicDelta.InPlace)
+      case (false, true)  => Some(DynamicDelta.Added)
+      case (true, false)  => Some(DynamicDelta.Removed)
+      case (false, false) => None
+    }
   }
 
-  /** Main-page dynamic container ids whose membership/contents this change can
-    * affect — the changed entity matched the group's query before or after the
-    * change. Unrelated entities are filtered out, sparing the whole-group
-    * re-scan + re-render on every event.
+  /** Main-page dynamic containers this change affects, each with the membership
+    * delta ([[dynamicDelta]]) so the caller can pick a per-entity patch vs. a
+    * whole-group repaint. Unrelated entities are filtered out, sparing the
+    * whole-group re-scan + re-render on every event.
+    */
+  def affectedDynamics(change: StateChange): List[(String, DynamicDelta)] =
+    mainIndex.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
+
+  /** Just the affected main-page dynamic ids (delta dropped) — the pre-Tier-1
+    * shape, kept for callers/tests that only need the membership test.
     */
   def affectedDynamicIds(change: StateChange): List[String] =
-    mainIndex.dynamicIds.filter(dynamicAffected(_, change))
+    affectedDynamics(change).map(_._1)
+
+  /** Like [[affectedDynamics]], scoped to one open surface. */
+  def affectedSurfaceDynamics(
+      surfaceId: String,
+      change: StateChange
+  ): List[(String, DynamicDelta)] =
+    surfaceIndexes
+      .get(surfaceId)
+      .toList
+      .flatMap(
+        _.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
+      )
 
   /** Component ids that own a bake group (some surface's `bakeInto` names
     * them). Their HTML depends on the client's `uiState` (the baked member is
@@ -234,9 +280,7 @@ class Renderer(
       surfaceId: String,
       change: StateChange
   ): List[String] =
-    surfaceIndexes
-      .get(surfaceId)
-      .fold(List.empty[String])(_.dynamicIds.filter(dynamicAffected(_, change)))
+    affectedSurfaceDynamics(surfaceId, change).map(_._1)
 
   /** The surface's declaration (content/group/mount), if it exists. */
   def surface(surfaceId: String): Option[Surface] =
@@ -431,6 +475,60 @@ class Renderer(
     s"""<div id="$id">${children.mkString}</div>"""
   }
 
+  /** The stable, per-entity id of one dynamic-group child (`<groupId>_<slug>`),
+    * the outer-morph / insert / remove target for a single group member. Shared
+    * by [[renderCase]] and the Server's per-entity patch path.
+    */
+  def dynamicChildId(groupId: String, entityId: String): String =
+    s"${groupId}_${Renderer.sanitize(entityId)}"
+
+  /** The entity ids a dynamic group currently renders as children, in DOM order
+    * (sorted by entity id, matching [[renderDynamic]]). A member is an entity
+    * that passes the group's `query` AND matches one of its `cases` — an entity
+    * matching the query but no case renders nothing, so it is not a member.
+    * Pure over the given `states` snapshot, so the Server can compute
+    * membership before AND after a change (feeding the child-insert successor +
+    * the add/remove churn heuristic). Unknown / non-dynamic id ⇒ empty.
+    */
+  def dynamicMembers(
+      groupId: String,
+      states: Map[String, EntityState]
+  ): List[String] =
+    allIndexed.get(groupId) match {
+      case Some((d: LayoutNode.Dynamic, _, _)) =>
+        states.toList
+          .filter { case (_, st) => d.query.forall(Renderer.matches(_, st)) }
+          .sortBy(_._1)
+          .collect {
+            case (entityId, st)
+                if d.cases.exists(c => Renderer.matches(c.when, st)) =>
+              entityId
+          }
+      case _ => Nil
+    }
+
+  /** Render ONE dynamic-group child (the hot in-place path): confirm the entity
+    * still passes the group's `query`, dispatch its `case`, and render it in
+    * the same `fh-cell` wrapper [[renderCase]] uses — so the result
+    * outer-morphs the child's id in place, no whole-group re-render. `None`
+    * when the group id is unknown/non-dynamic, the entity no longer matches the
+    * query, or no case matches (i.e. the entity is not a current member).
+    */
+  def renderDynamicChild(
+      groupId: String,
+      entityId: String,
+      states: Map[String, EntityState]
+  ): Option[String] =
+    allIndexed.get(groupId) match {
+      case Some((d: LayoutNode.Dynamic, _, _)) =>
+        states
+          .get(entityId)
+          .filter(st => d.query.forall(Renderer.matches(_, st)))
+          .flatMap(st => d.cases.find(c => Renderer.matches(c.when, st)))
+          .map(renderCase(groupId, entityId, _, states))
+      case _ => None
+    }
+
   private def renderCase(
       groupId: String,
       entityId: String,
@@ -443,8 +541,14 @@ class Renderer(
     // own entity keeps it; a constant literal reads no entity at all.
     val slots =
       c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
-    val id = s"${groupId}_${Renderer.sanitize(entityId)}"
-    renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
+    val id = dynamicChildId(groupId, entityId)
+    val html = renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
+    // Each child gets the SAME id'd morph wrapper as a static live component, so
+    // it is an addressable per-entity patch target (in-place morph / insert /
+    // remove) rather than only ever re-rendered as part of the whole group. The
+    // wrapper is layout-neutral (`.fh-cell { display: contents }`). The child id
+    // does not encode the matched case, so a case-branch switch is just a morph.
+    s"""<div class="fh-cell" id="$id">$html</div>"""
   }
 
   private def renderTemplate(

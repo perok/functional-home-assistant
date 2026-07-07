@@ -54,6 +54,21 @@ object Datastar {
         List("elements " + collapse(fragment))
     )
 
+  /** A `datastar-patch-elements` event in `remove` mode: delete the element(s)
+    * matching `selector`. This is the one patch shape that carries NO
+    * `elements` payload (there is no HTML to send) — see the reference's remove
+    * example (`data: mode remove` + `data: selector #id`, no `elements`).
+    * Datastar resolves the selector with `querySelectorAll`, so removing an id
+    * that is already absent matches nothing and is a no-op — the per-entity
+    * dynamic group path relies on that idempotency (a duplicate/late remove is
+    * harmless).
+    */
+  def remove(selector: String): ServerSentEvent =
+    sse(
+      "datastar-patch-elements",
+      List("mode remove", s"selector $selector")
+    )
+
   /** Build an SSE event with one Datastar protocol line per `data:` line.
     *
     * http4s 0.23 (`ServerSentEvent.render`) writes the `data:` prefix ONCE then

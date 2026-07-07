@@ -3,8 +3,18 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.protocol.client.TriggerData
 import cats.effect.{IO, Resource}
+import cats.effect.kernel.Ref
 import cats.effect.unsafe.implicits.global
-import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  DynamicCase,
+  LayoutNode,
+  Op,
+  Predicate,
+  SlotSource,
+  Surface
+}
 import fs2.concurrent.{SignallingRef, Topic}
 import ha.runtime.definitions.{DeviceId, EntityId}
 import io.circe.Json
@@ -335,5 +345,239 @@ class ServerSuite extends munit.FunSuite {
     // ...and (b) it was rendered once, by the shared pass (the per-session
     // loops render only bake owners / open surfaces — none here).
     assertEquals(io.timeout(30.seconds).unsafeRunSync(), 1)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-entity dynamic-group patches (Tier 1 in-place + Tier 2 add/remove)
+  // ---------------------------------------------------------------------------
+
+  private def on(id: String): EntityState = EntityState(id, "on", Map.empty)
+  private def off(id: String): EntityState = EntityState(id, "off", Map.empty)
+
+  // A dynamic group of on-state entities as the layout root (group id "c"); each
+  // member renders `<span>on</span>` in an `fh-cell` wrapper `c_<slug>`.
+  private def dynDash = Dashboard(
+    cards =
+      Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "dot",
+          slots = Map("state" -> SlotSource())
+        )
+      )
+    )
+  )
+
+  /** Drive the shared per-slug diff for one change against `after` (the current
+    * snapshot) with an optional pre-seeded cache; return the emitted SSE
+    * patches (rendered to strings) and the resulting cache.
+    */
+  private def runShared(
+      dash: Dashboard,
+      after: Map[String, EntityState],
+      change: StateChange,
+      seedCache: Map[String, String] = Map.empty
+  ): (List[String], Map[String, String]) =
+    (for {
+      store <- StateStore.inMemory(after)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("dashboard" -> ref),
+        "dashboard",
+        sessions,
+        Map.empty
+      )
+      renderer <- ref.get
+      cache <- Ref[IO].of(seedCache)
+      patches <- server.sharedPatches(renderer, cache, change)
+      finalCache <- cache.get
+    } yield (patches.map(_.renderString), finalCache))
+      .timeout(30.seconds)
+      .unsafeRunSync()
+
+  test("dynamic in-place tick patches ONE child, not the whole group") {
+    val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
+    // light.b ticks (a fresh EntityState, same "on" state) -> InPlace member.
+    val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
+    val (patches, _) = runShared(dynDash, after, change)
+    assertEquals(patches.size, 1, clue = patches)
+    val p = patches.head
+    // outer-morphs the child id (default mode, no mode line), not the group.
+    assert(
+      p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
+      clue = p
+    )
+    assert(!p.contains("id=\"c\""), clue = p)
+    assert(!p.contains("mode "), clue = p)
+  }
+
+  test("dynamic add: per-entity insert BEFORE the DOM successor") {
+    // a,c,d already on; b turns on -> Added, churn 1 of shown 3 -> per-entity.
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "light.b" -> on("light.b"),
+      "light.c" -> on("light.c"),
+      "light.d" -> on("light.d")
+    )
+    val change = StateChange("light.b", Some(off("light.b")), on("light.b"))
+    // Group already established in the cache so the per-entity path engages.
+    val (patches, cache) =
+      runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>"))
+    assertEquals(patches.size, 1, clue = patches)
+    val p = patches.head
+    assert(p.contains("mode before"), clue = p)
+    assert(p.contains("selector #c_light_c"), clue = p) // first member after b
+    assert(
+      p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
+      clue = p
+    )
+    // the new child is cached; the group-level entry is invalidated.
+    assert(cache.contains("c_light_b"), clue = cache)
+    assert(!cache.contains("c"), clue = cache)
+  }
+
+  test("dynamic add of the last-sorting entity APPENDS into the group") {
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "light.b" -> on("light.b"),
+      "light.c" -> on("light.c"),
+      "light.z" -> on("light.z")
+    )
+    val change = StateChange("light.z", Some(off("light.z")), on("light.z"))
+    val (patches, _) =
+      runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>"))
+    assertEquals(patches.size, 1, clue = patches)
+    val p = patches.head
+    assert(p.contains("mode append"), clue = p)
+    assert(p.contains("selector #c"), clue = p)
+    assert(
+      p.contains("""elements <div class="fh-cell" id="c_light_z">"""),
+      clue = p
+    )
+  }
+
+  test("dynamic remove: per-entity remove patch (no elements), child pruned") {
+    // 4 on; b turns off -> Removed, churn 1 of shown 4 -> per-entity remove.
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "light.b" -> off("light.b"),
+      "light.c" -> on("light.c"),
+      "light.d" -> on("light.d")
+    )
+    val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
+    val (patches, cache) = runShared(
+      dynDash,
+      after,
+      change,
+      seedCache = Map("c" -> "<stale>", "c_light_b" -> "<old>")
+    )
+    assertEquals(patches.size, 1, clue = patches)
+    val p = patches.head
+    assert(p.contains("mode remove"), clue = p)
+    assert(p.contains("selector #c_light_b"), clue = p)
+    // remove carries no HTML payload (the event name still says "…elements").
+    assert(!p.contains("data: elements"), clue = p)
+    assert(!cache.contains("c_light_b"), clue = cache)
+  }
+
+  test("heuristic: removing 1 of 2 members repaints the whole group + prunes") {
+    // shown 2, churn 1 -> 1 < 0.5*2 is false -> whole-group repaint fallback.
+    val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
+    val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
+    val (patches, cache) = runShared(
+      dynDash,
+      after,
+      change,
+      seedCache =
+        Map("c" -> "<stale>", "c_light_a" -> "<a>", "c_light_b" -> "<b>")
+    )
+    assertEquals(patches.size, 1, clue = patches)
+    val p = patches.head
+    // one outer morph of the GROUP (not a remove/insert), only light.a remains.
+    assert(p.contains("""elements <div id="c">"""), clue = p)
+    assert(p.contains("""id="c_light_a""""), clue = p)
+    assert(!p.contains("mode remove"), clue = p)
+    // child cache entries are pruned; the group entry is refreshed.
+    assert(!cache.contains("c_light_a"), clue = cache)
+    assert(!cache.contains("c_light_b"), clue = cache)
+    assert(cache.get("c").exists(_.contains("id=\"c\"")), clue = cache)
+  }
+
+  test("membership change on a not-yet-cached group falls back to repaint") {
+    // Same 1-of-4 remove that would be per-entity — but with an EMPTY cache the
+    // group isn't established, so we repaint to establish a known base.
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "light.b" -> off("light.b"),
+      "light.c" -> on("light.c"),
+      "light.d" -> on("light.d")
+    )
+    val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
+    val (patches, cache) = runShared(dynDash, after, change)
+    assertEquals(patches.size, 1, clue = patches)
+    assert(patches.head.contains("""elements <div id="c">"""), clue = patches)
+    assert(cache.contains("c"), clue = cache)
+  }
+
+  // A dynamic group inside an open SURFACE (id "det"); its group id is
+  // surface-namespaced `s_det__c`, children `s_det__c_<slug>`.
+  private def surfaceDynDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+    ),
+    card = LayoutNode.Component("col"),
+    surfaces = Map(
+      "det" -> Surface(
+        LayoutNode.Dynamic(
+          query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+          cases = List(
+            DynamicCase(
+              Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+              "dot",
+              slots = Map("state" -> SlotSource())
+            )
+          )
+        )
+      )
+    )
+  )
+
+  test("open surface's dynamic group gets the same per-entity treatment") {
+    val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
+    val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
+    val (patches, _) = (for {
+      store <- StateStore.inMemory(after)
+      ref <- SignallingRef[IO].of(Renderer.create(surfaceDynDash))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("dashboard" -> ref),
+        "dashboard",
+        sessions,
+        Map.empty
+      )
+      session <- Session.create("dashboard")
+      _ <- session.open.set(Set("det"))
+      patches <- server.changedPatches(session, change, Map.empty)
+      cache <- session.lastRendered.get
+    } yield (patches.map(_.renderString), cache))
+      .timeout(30.seconds)
+      .unsafeRunSync()
+    assertEquals(patches.size, 1, clue = patches)
+    // one child morph, surface-namespaced id — not the whole surface group.
+    assert(
+      patches.head.contains(
+        """elements <div class="fh-cell" id="s_det__c_light_b">"""
+      ),
+      clue = patches
+    )
   }
 }
