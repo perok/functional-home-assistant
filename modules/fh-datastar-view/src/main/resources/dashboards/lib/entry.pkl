@@ -1,0 +1,41 @@
+/// The base module every dashboard entry `amends`. It carries the scaffold that
+/// used to be copy-pasted into each entry — the reflected card registry and the
+/// shared theme — so an entry opens with `amends "lib/entry.pkl"` and sets only
+/// `card` (plus an optional `title`/`surfaces`, or a `theme` override).
+///
+/// Slug = the amending entry's filename (ServerApp forces it at decode time).
+/// `title` feeds the page `<title>` (Server falls back to the slug when null);
+/// `omitNullProperties` drops it from the wire JSON when left unset, so a
+/// title-less entry is byte-identical to the pre-base-module scaffold.
+///
+/// AUTHORING NOTE — the required `card`: because `card` has no default here, an
+/// amending entry that forgets to set it fails with
+///   "Tried to read property `card` but its value is undefined"
+/// whose caret points at THIS module's `card` line (below), NOT at the offending
+/// entry (Pkl reports a missing required property at the class/base definition —
+/// see the CLAUDE.md Pkl gotchas). If you hit that error, the fix is in YOUR
+/// entry: assign `card = new c.Column { ... }` (or another `c.Node`).
+module entry
+
+import "components.pkl" as c
+import "theme.pkl" as themeMod
+
+/// The reflected card registry (each card class's template + slots). Symmetric
+/// with the jsonnet track's hand-written `cards` object.
+cards = c.cards
+
+/// The shared theme. Override in an entry that wants a different look.
+theme = themeMod.theme
+
+/// The page `<title>`; null (the default, dropped from the wire JSON) means the
+/// Server falls back to the dashboard's slug.
+title: String? = null
+
+/// Registered popup surfaces (opened by an `openPopup(id)` tap). Inline popups
+/// and tab panels ride on their node's `inlineSurfaces` and are hoisted into
+/// this registry at build time, so most entries leave this empty.
+surfaces: Mapping<String, c.SurfaceDef> = new {}
+
+/// The root of the layout tree — the ONE property every entry must set (see the
+/// authoring note above about the error location when it is forgotten).
+card: c.Node
