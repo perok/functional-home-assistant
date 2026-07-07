@@ -497,7 +497,7 @@ class PklBuildSuite extends munit.FunSuite {
     val dyns = dynamics(d.card)
     assertEquals(dyns.size, 2)
 
-    // Dispatch group: query = whenState("on"); a light branch (a $self Slider)
+    // Dispatch group: query = stateIs("on"); a light branch (a $self Slider)
     // + an always entityCard fallback; no `entity_id` slot survives the cases.
     val dispatch = dyns(0)
     assertEquals(
@@ -517,7 +517,8 @@ class PklBuildSuite extends munit.FunSuite {
       assert(!cse.slots.contains("entity_id"), clue = cse.slots.keySet)
     )
 
-    // Low-battery group: query = pAnd([whenDeviceClass battery, stateLessThan 20]).
+    // Low-battery group: query = lowBattery(20) =
+    // deviceClassIs("battery").and(stateBelow(20)).
     val battery = dyns(1)
     assertEquals(battery.cases.map(_.card), List("entityCard"))
     battery.query match {
@@ -612,11 +613,15 @@ class PklBuildSuite extends munit.FunSuite {
       .asInstanceOf[LayoutNode.Dynamic]
   }
 
-  test("dynCase drops the entity_id slot via the Mapping for-generator") {
+  test("caseOf drops the entity_id slot via the Mapping for-generator") {
     // Exercised EARLY (plan risk item 2): the `when (k != "entity_id")`
-    // for-generator that filters a card's slots into a dynamic case.
+    // for-generator in `caseOf` that filters a card's slots into a dynamic case.
+    // A `render` fallback lambda is applied to the internal SELF sentinel.
     val dyn = probeDynamic(
-      """node = c.group(c.whenState("on"), new c.EntityCard { entity = hass.SELF })"""
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e)
+        |}""".stripMargin
     )
     assertEquals(dyn.cases.size, 1)
     val slots = dyn.cases.head.slots
@@ -630,6 +635,35 @@ class PklBuildSuite extends munit.FunSuite {
       slots("label").transform,
       "$attr.friendly_name ? $attr.friendly_name : $entity_id"
     )
+  }
+
+  test("call-style entityCard emits the same node JSON as the `new` form") {
+    // The call-style factory `(c.entityCard(x)) { ... }` is pure sugar for
+    // `new c.EntityCard { entity = x; ... }`: same class, so the emitted node
+    // JSON must be byte-identical. Evaluate both through the fake-dump pipeline
+    // and compare the raw `card`/`ctor` node JSON (not just the decoded model).
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |call = (c.entityCard(x)) { tap = c.toggleTap }
+        |ctor = new c.EntityCard { entity = x; tap = c.toggleTap }
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    val call = cur.downField("call").focus
+    val ctor = cur.downField("ctor").focus
+    assert(call.isDefined && ctor.isDefined, clue = cur.keys)
+    assertEquals(call, ctor, clue = (call, ctor))
   }
 
   test("exprOf threads an explicit entityId into the emitted slot") {
@@ -691,7 +725,10 @@ class PklBuildSuite extends munit.FunSuite {
     // and the live position fall back to jsonnet's runtime $lookup over the
     // sliderSpec table (all three domains present, in insertion order).
     val dyn = probeDynamic(
-      """node = c.group(c.whenState("on"), new c.Slider { entity = hass.SELF })"""
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.slider(e)
+        |}""".stripMargin
     )
     assertEquals(dyn.cases.size, 1)
     val slots = dyn.cases.head.slots
