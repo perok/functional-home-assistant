@@ -904,4 +904,111 @@ class PklBuildSuite extends munit.FunSuite {
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
   }
+
+  // ---------------------------------------------------------------------------
+  // Wire-format snapshot tests (plan-jsonnet-removal.md Phase 0).
+  //
+  // These byte-identity-check the evaluated `{cards, card, theme, surfaces}`
+  // wire JSON of the two REAL Pkl entries against checked-in resource files, so
+  // authoring-layer / backend refactors are guarded by `sbt test` instead of
+  // manual diffing. The snapshot is exactly what production renders:
+  // `PklBuild.eval` → `SourceEval.Result.value` (the raw evaluated JSON, BEFORE
+  // normalize/hoist/decode), printed with the fixed `spaces2SortKeys` printer so
+  // Pkl map-ordering can never make the output nondeterministic. No live HA is
+  // needed — a minimal fake `lib/dump.pkl` (below) supplies the entities.
+  //
+  // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
+  // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
+  // ---------------------------------------------------------------------------
+
+  /** Checked-in expected snapshots (repo-relative, mirroring `resourcesLib`).
+    */
+  private val snapshotDir =
+    os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "snapshots"
+
+  /** One fake transformed dump covering exactly the entities BOTH entries name:
+    * two sensors (`_q` power, `_u1` voltage) and the demo light (with a
+    * `color_mode` so the demo slider resolves). No areas/floors are referenced.
+    */
+  private val snapshotDump = io.circe.parser
+    .parse("""
+      {
+        "areas": {},
+        "floors": {},
+        "entities": {
+          "sensor_ams_1a4e_q": {
+            "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
+            "domain": "sensor", "attributes": {}
+          },
+          "sensor_ams_1a4e_u1": {
+            "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
+            "domain": "sensor", "attributes": {}
+          },
+          "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+            "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+            "friendly_name": "Demo light",
+            "domain": "light", "attributes": { "color_mode": "brightness" }
+          }
+        }
+      }
+    """)
+    .toOption
+    .get
+
+  /** Evaluate a real entry through the fake-dump pipeline and return the raw
+    * evaluated wire JSON, printed with the fixed deterministic printer.
+    */
+  private def evalEntryWire(entry: String): String = {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    os.copy.into(resources / entry, tmp)
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
+    val result = SourceEval.eval(tmp, entry)
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.spaces2SortKeys
+  }
+
+  /** Compare `actual` against the checked-in snapshot `name.json`. With
+    * `FH_UPDATE_SNAPSHOTS=1` it (re)writes the resource file and passes; else
+    * it asserts byte identity, writing the actual output to a temp file and
+    * pointing at the regenerate command on mismatch.
+    */
+  private def checkSnapshot(name: String, actual: String): Unit = {
+    val file = snapshotDir / s"$name.json"
+    val updating =
+      sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
+        sys.props.get("FH_UPDATE_SNAPSHOTS").contains("1")
+    if (updating) {
+      os.makeDir.all(snapshotDir)
+      os.write.over(file, actual)
+    } else {
+      val expected =
+        if (os.exists(file)) os.read(file)
+        else
+          fail(
+            s"missing snapshot $file — regenerate with " +
+              "FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull'"
+          )
+      if (expected != actual) {
+        val actualFile = os.temp.dir() / s"$name.actual.json"
+        os.write(actualFile, actual)
+      }
+      assertEquals(
+        actual,
+        expected,
+        clue = s"wire-format snapshot for $name.json changed. If intended, " +
+          "regenerate with FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull' " +
+          "(actual output also written to a temp *.actual.json next to the diff)."
+      )
+    }
+  }
+
+  test("pkl-demo wire JSON matches the checked-in snapshot") {
+    checkSnapshot("pkl-demo", evalEntryWire("pkl-demo.pkl"))
+  }
+
+  test("pkl-tabs wire JSON matches the checked-in snapshot") {
+    checkSnapshot("pkl-tabs", evalEntryWire("pkl-tabs.pkl"))
+  }
 }

@@ -6,7 +6,7 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Quick wins
 
-- [ ] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
+- [x] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
       entries in PklBuildSuite so authoring-layer refactors are byte-identity-checked by
       `sbt test`, not manual diffing. Land this BEFORE implementing
       docs/plan-pkl-authoring-ergonomics.md — it is that plan's safety net.
