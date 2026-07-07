@@ -20,15 +20,14 @@ import "lib/dump.pkl" as dump
 // wraps automatically). Mirrors dashboard.jsonnet:42-52.
 surfaces {
   ["detail"] = new c.SurfaceDef {
-    content = new c.Popup {
-      children {
-        c.title("Power detail")
-        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
-        c.button("Close", c.closePopup())
-      }
-    }
+    content = c.popup(List(
+      c.title("Power detail"),
+      c.entityCard(dump.entities.`sensor_ams_1a4e_q`),
+      c.button("Close", c.closePopup())
+    ))
   }
 }
+
 
 card = new c.Column {
   children {

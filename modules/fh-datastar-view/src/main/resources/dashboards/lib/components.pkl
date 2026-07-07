@@ -226,6 +226,8 @@ class Row extends Node {
   }
 }
 
+function row(c: Listing<LayoutNode> ): Row = new Row { children = c }
+
 class Column extends Node {
   card = "fhcol"
   cardDef = new CardDef {
@@ -240,6 +242,7 @@ class Column extends Node {
     }
   }
 }
+function column(c: Listing<LayoutNode> ): Column = new Column { children = c }
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
@@ -295,6 +298,16 @@ class EntityCard extends Node {
   }
 }
 
+/// Static entity card as a call (amend options in parens).
+function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
+/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
+/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
+/// properties are separate namespaces, so this delegate co-exists with the method
+/// above — the parens in `entityCard(e)` pick the method (no recursion). The
+/// factory param is `e`, NOT `entity`: a param named after the property it sets
+/// self-references inside the amend (the amend-scoping gotcha).
+hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
+
 /// Generic click button (service call or navigate). `action = null` defaults
 /// to the domain-resolved service call, which needs an entity.
 class Button extends Node {
@@ -341,6 +354,7 @@ class Popup extends Node {
     template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
+function popup(c: List<LayoutNode> ): Popup = new Popup { children = c.toListing() }
 
 /// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
 /// tab is active. (`content` is a full node — a [[Row]]/[[Column]] subtree.)
@@ -510,6 +524,11 @@ class Slider extends Node {
   }
 }
 
+/// Value slider as a call (see [[Slider]] for the domain contract).
+function slider(e: hass.Entity): Slider = new Slider { entity = e }
+/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
+hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
+
 // ---- call-style card factories (methods construct; `|>` adds) ----
 // Entity-first construction as a CALL, options via a PARENTHESIZED amend:
 //   (c.entityCard(dump.entities.x)) { tap = c.toggleTap; label = "Office" }
@@ -517,21 +536,6 @@ class Slider extends Node {
 // The trivial card collapses to a bare call `c.entityCard(x)`; `new c.X { ... }`
 // stays fully supported (same classes). `|>` is reserved for ADDITIONS (mixins),
 // never construction — methods aren't first-class, so there is no `x |> entityCard`.
-
-/// Static entity card as a call (amend options in parens).
-function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
-/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
-/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
-/// properties are separate namespaces, so this delegate co-exists with the method
-/// above — the parens in `entityCard(e)` pick the method (no recursion). The
-/// factory param is `e`, NOT `entity`: a param named after the property it sets
-/// self-references inside the amend (the amend-scoping gotcha).
-hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
-
-/// Value slider as a call (see [[Slider]] for the domain contract).
-function slider(e: hass.Entity): Slider = new Slider { entity = e }
-/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
-hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
 /// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
 tappable: Mixin<EntityCard> = new { tap = toggleTap }
@@ -690,6 +694,7 @@ class DynamicGroup extends LayoutNode {
   query: Predicate
   hidden branches: Mapping<Predicate, (hass.Entity) -> Node> = new {}
   /// The card for entities no branch matched; null when a branch covers them all.
+  // TODO rename as else, or no, also just add else and we translate either or to fallback
   hidden render: ((hass.Entity) -> Node)? = null
   cases: Listing<Case>(!isEmpty) = new Listing {
     for (p, r in branches) { caseOf(p, r) }
