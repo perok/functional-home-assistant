@@ -476,7 +476,8 @@ class Server(
               page(
                 slug,
                 renderer.renderPage(states, uiState),
-                renderer.stylesheets
+                renderer.stylesheets,
+                renderer.title
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
@@ -491,11 +492,15 @@ class Server(
   private def page(
       slug: String,
       body: String,
-      stylesheets: List[String]
+      stylesheets: List[String],
+      title: Option[String]
   ): String = {
     val links = stylesheets
       .map(href => s"""  <link rel="stylesheet" href="$href">""")
       .mkString("\n")
+    // The authored per-dashboard title, or the slug when unset. Escaped for the
+    // HTML `<title>` element (an authored title is untrusted text).
+    val pageTitle = Server.escapeHtml(title.getOrElse(slug))
     // On Back/Forward, derive the slug from the URL and re-post the swap (no
     // pushState — the browser already moved). `/d/<slug>` or `/` -> default.
     val popstate =
@@ -505,7 +510,7 @@ class Server(
        |<head>
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
-       |  <title>Home Assistant</title>
+       |  <title>$pageTitle</title>
        |$links
        |  <script type="module" src="${Server.DatastarCdn}"></script>
        |</head>
@@ -577,6 +582,17 @@ object Server {
     */
   val DatastarCdn: String =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
+
+  /** Escape a string for interpolation into HTML text/attribute content (the
+    * page `<title>`). Ampersand first so the entity replacements aren't
+    * double-escaped.
+    */
+  def escapeHtml(s: String): String =
+    s.replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace("\"", "&quot;")
+      .replace("'", "&#39;")
 
   /** Parse a URL-path action value into the most specific JSON type (int, then
     * double, else string) so HA receives `brightness: 128` rather than `"128"`.

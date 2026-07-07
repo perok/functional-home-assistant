@@ -9,17 +9,17 @@
 // (+ cookie) for the highlight and reload-restore. Switching reuses the same
 // surface open/close machinery as popups.
 //
+// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; this entry
+// sets only `card` (its tab panels become hoisted surfaces at build time).
 // (Plain `//` comments: a doc comment would attach to the first import, which
 // Pkl rejects — entries have no `module` clause to absorb it.)
 
+amends "lib/entry.pkl"
+
 import "lib/components.pkl" as c
-import "lib/theme.pkl" as themeMod
 import "lib/dump.pkl" as dump
 
-cards = c.cards
-theme = themeMod.theme
-
-card: c.Node = new c.Column {
+card = new c.Column {
   children {
     c.title("Tabs")
     new c.Row {

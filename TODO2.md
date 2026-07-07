@@ -16,9 +16,10 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
       env var / untracked `.env` — security hygiene, and stops the credential being copied
       into new files during refactors.
-- [ ] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
+- [x] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
-      back to the slug.
+      back to the slug. (Backend half of plan-jsonnet-removal Phase 2; `lib/entry.pkl`'s
+      `title` field is the authoring half.)
 - [ ] Area/floor membership in queries: today authors write
       `eo.area_id == dump.floors.overetasje.areas.kjokken.area_id` by hand. Add `inArea(...)` /
       `onFloor(...)` helpers to components.libsonnet/components.pkl (build-time — the dump

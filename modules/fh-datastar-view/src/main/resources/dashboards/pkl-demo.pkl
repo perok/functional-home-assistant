@@ -3,23 +3,22 @@
 // cards (default value, live expr override, tap), a domain-checked slider,
 // and cross-dashboard navigation back to the jsonnet default.
 //
-// `lib/dump.pkl` is GENERATED (by PklDump, from the live HA registry) when
-// the server or build runs — like `dump.libsonnet` on the jsonnet track.
-// (Plain `//` comments here: a doc comment would attach to the first import,
-// which Pkl rejects — entries have no `module` clause to absorb it.)
+// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; the entry
+// sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
+// the live HA registry) when the server or build runs — like `dump.libsonnet`
+// on the jsonnet track. (Plain `//` comments here: a doc comment would attach
+// to the first import, which Pkl rejects — entries have no `module` clause.)
+
+amends "lib/entry.pkl"
 
 import "lib/components.pkl" as c
-import "lib/theme.pkl" as themeMod
 import "lib/dump.pkl" as dump
-
-cards = c.cards
-theme = themeMod.theme
 
 // Registered popup surfaces: opened by an `openPopup("detail")` tap and
 // rendered/streamed only while open. A registered popup wraps its content in the
 // `popup` dialog card (symmetric with how the inline `openPopupInline` form
 // wraps automatically). Mirrors dashboard.jsonnet:42-52.
-surfaces: Mapping<String, c.SurfaceDef> = new {
+surfaces {
   ["detail"] = new c.SurfaceDef {
     content = new c.Popup {
       children {
@@ -31,7 +30,7 @@ surfaces: Mapping<String, c.SurfaceDef> = new {
   }
 }
 
-card: c.Node = new c.Column {
+card = new c.Column {
   children {
     c.title("Pkl demo")
 

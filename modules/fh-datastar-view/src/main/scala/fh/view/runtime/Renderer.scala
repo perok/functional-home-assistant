@@ -245,6 +245,11 @@ class Renderer(
   /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
+  /** The dashboard's authored page title, if any (the Server falls back to the
+    * slug when `None`). See [[fh.view.model.Dashboard.title]].
+    */
+  def title: Option[String] = dashboard.title
+
   /** The theme as one `<style>` block: design tokens as `:root` custom
     * properties (dark overrides under `@media (prefers-color-scheme: dark)`, so
     * the page follows the browser) followed by the theme's inline `styles`.

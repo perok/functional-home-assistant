@@ -371,7 +371,14 @@ class PklBuildSuite extends munit.FunSuite {
   test("pkl-demo evaluates through the full pipeline into a valid Dashboard") {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
     os.copy.into(resources / "pkl-demo.pkl", tmp)
 
     // Fake transformed dump defining exactly the entities the demo references.
@@ -786,12 +793,101 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 
+  test("floorView emits one section per area-with-lights (title + sliders)") {
+    // A fake transformed dump: floor `over` with two areas — `stue` (two
+    // lights) and `bad` (one sensor, no lights). floorView must emit ONE area
+    // column (stue), skipping the light-less `bad`, each area column holding a
+    // sectionTitle(area_name) + a slider per light.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "stue": { "area_id": "stue_area", "floor_id": "over", "area_name": "Stue" },
+            "bad": { "area_id": "bad_area", "floor_id": "over", "area_name": "Bad" }
+          },
+          "floors": {
+            "over": {
+              "floor_id": "over",
+              "floor_name": "Overetasje",
+              "areas": {
+                "stue": { "area_id": "stue_area", "floor_id": "over", "area_name": "Stue" },
+                "bad": { "area_id": "bad_area", "floor_id": "over", "area_name": "Bad" }
+              }
+            }
+          },
+          "entities": {
+            "light_stue_1": {
+              "entity_id": "light.stue_1", "friendly_name": "Stue 1",
+              "domain": "light", "area_id": "stue_area", "attributes": {}
+            },
+            "light_stue_2": {
+              "entity_id": "light.stue_2", "friendly_name": "Stue 2",
+              "domain": "light", "area_id": "stue_area", "attributes": {}
+            },
+            "sensor_bad_1": {
+              "entity_id": "sensor.bad_1", "friendly_name": "Bad temp",
+              "domain": "sensor", "area_id": "bad_area", "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |import "lib/dump.pkl" as dump
+        |
+        |node = c.floorView(dump.over)
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val node = result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+
+    // Outer container is a column; exactly one area column (bad is skipped).
+    assertEquals(node.card, "fhcol")
+    val areaCols = node.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(areaCols.map(_.card), List("fhcol"))
+
+    // The area column: the area name, then a slider per light (key-sorted).
+    val inner = areaCols.head.children.collect { case c: LayoutNode.Component =>
+      c
+    }
+    assertEquals(inner.map(_.card), List("sectionTitle", "slider", "slider"))
+    assertEquals(inner(0).slots("label").literal, Some("Stue"))
+    assertEquals(inner(1).slots("entity_id").literal, Some("light.stue_1"))
+    assertEquals(inner(2).slots("entity_id").literal, Some("light.stue_2"))
+    // The sliders resolved the light spec at build time (string literals).
+    assertEquals(inner(1).slots("action").literal, Some("light/turn_on"))
+    assertEquals(inner(1).slots("min").literal, Some("1"))
+    assertEquals(inner(1).slots("max").literal, Some("255"))
+  }
+
   test(
     "pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)"
   ) {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
     os.copy.into(resources / "pkl-tabs.pkl", tmp)
 
     // Fake transformed dump defining exactly the entities the tabs demo names:
@@ -961,7 +1057,14 @@ class PklBuildSuite extends munit.FunSuite {
   private def evalEntryWire(entry: String): String = {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
     os.copy.into(resources / entry, tmp)
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
     val result = SourceEval.eval(tmp, entry)

@@ -111,6 +111,65 @@ class ServerSuite extends munit.FunSuite {
     assertEquals(Server.parseValue("heat"), Json.fromString("heat"))
   }
 
+  test("escapeHtml neutralizes HTML metacharacters") {
+    assertEquals(
+      Server.escapeHtml("""A & B <x> "q" 'z'"""),
+      "A &amp; B &lt;x&gt; &quot;q&quot; &#39;z&#39;"
+    )
+  }
+
+  // A minimal static dashboard (no live entities) for exercising the page shell.
+  private def titleDash(slug: String, title: Option[String]): Dashboard =
+    Dashboard(
+      cards = Map(
+        "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>")
+      ),
+      card = LayoutNode.Component("col"),
+      slug = slug,
+      title = title
+    )
+
+  /** GET the page shell for `dash` (served at its own slug) and return the
+    * HTML.
+    */
+  private def pageHtml(dash: Dashboard): String =
+    (for {
+      store <- StateStore.inMemory(Map.empty)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map(dash.slug -> ref),
+        dash.slug,
+        sessions,
+        Map.empty
+      )
+      resp <- server.routes.orNotFound
+        .run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/${dash.slug}")))
+      body <- resp.body.through(fs2.text.utf8.decode).compile.string
+    } yield body).timeout(30.seconds).unsafeRunSync()
+
+  test("page <title> uses the dashboard's authored title when present") {
+    assert(
+      pageHtml(titleDash("home", Some("My Home")))
+        .contains("<title>My Home</title>")
+    )
+  }
+
+  test("page <title> falls back to the slug when no title is authored") {
+    assert(
+      pageHtml(titleDash("energy", None)).contains("<title>energy</title>")
+    )
+  }
+
+  test("page <title> escapes an authored title") {
+    assert(
+      pageHtml(titleDash("x", Some("A & <B>")))
+        .contains("<title>A &amp; &lt;B&gt;</title>")
+    )
+  }
+
   test("patchElements collapses multi-line fragments to a single data line") {
     val sse = Datastar.patchElements("<div>\n  <span>x</span>\n</div>")
     assertEquals(sse.eventType, Some("datastar-patch-elements"))

@@ -541,6 +541,32 @@ function title(t: String): SectionTitle = new SectionTitle { text = t }
 /// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
 function button(l: String, a: Tap): Button = new Button { label = l; action = a }
 
+// ---- floor/area composition (typed-dump driven) ----
+
+/// One section per area of `floor` that HAS lights: the area name as a
+/// [[SectionTitle]] followed by a [[Slider]] per light, each area wrapped in its
+/// own column. The typed counterpart of `overetasje.jsonnet`'s `areaView`,
+/// driven by the generated dump's `Floor.areas` / `Area.lights` member lists
+/// (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never rendered).
+/// Areas with no lights are skipped, so the result is exactly the light-bearing
+/// sections. Returns a [[Column]] so it drops straight into an entry's tree.
+function floorView(floor: hass.Floor): Column = new Column {
+  children {
+    for (area in floor.areas) {
+      when (!area.lights.isEmpty) {
+        new Column {
+          children {
+            title(area.area_name)
+            for (light in area.lights) {
+              slider(light)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 // ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
 // A dynamic group renders one card PER live entity matching a `query`,
 // optionally dispatching the card per entity. The matched entity's

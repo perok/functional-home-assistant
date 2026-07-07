@@ -334,13 +334,17 @@ case class Surface(
   *     container). Component HTML is composed in Scala (see `Renderer`), not
   *     via mustache layout placeholders.
   *   - `surfaces`: the popup/tab subtrees, keyed by id (see [[Surface]]).
+  *   - `title`: the page `<title>` — an optional top-level authoring field
+  *     (`None` when the key is absent, e.g. every jsonnet entry); the Server
+  *     falls back to the [[slug]] when it is `None`.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
     card: LayoutNode,
     theme: Theme = Theme(),
     surfaces: Map[String, Surface] = Map.empty,
-    slug: String = "dashboard"
+    slug: String = "dashboard",
+    title: Option[String] = None
 ) derives ConfiguredDecoder:
 
   /** Validate that every card reference resolves, supplies the params/slots the
