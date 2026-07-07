@@ -28,9 +28,11 @@ object ServerApp extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
+      // Loopback by default: /sse/action/* drives HA with the server's token
+      // and no auth, so LAN exposure is opt-in (HOST=0.0.0.0).
       bindHost <- Env[IO]
         .get("HOST")
-        .map(_.flatMap(Host.fromString).getOrElse(host"0.0.0.0"))
+        .map(_.flatMap(Host.fromString).getOrElse(host"127.0.0.1"))
       bindPort <- Env[IO]
         .get("PORT")
         .map(
