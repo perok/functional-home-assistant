@@ -18,8 +18,8 @@ drove this design:
    `on`→`Open`. Crucially a **per-instance** choice (this sensor rounds to 1
    decimal; that one converts °C→°F), not a property of the shared card.
 
-The governing constraint is the module's **phase discipline**: jsonnet/Pkl
-evaluate at build time and do pure composition — they never see a live value.
+The governing constraint is the module's **phase discipline**: the Pkl entry
+evaluates at build time and does pure composition — it never sees a live value.
 The live value only exists at runtime, in the Scala renderer. So a transform
 must be authored as **data** the backend interprets per live value.
 
@@ -96,9 +96,9 @@ renderer never knows HA domains.
 
 **The slider resolves its whole config the same way.** One `sliderSpec` table
 (domain → action/key/min/max/position attribute) drives `action`/`key`/`min`/
-`max`/position. In jsonnet the slots are `$lookup(<map>, $domain)` transforms;
-on the Pkl track a *static* entity resolves its spec at build time and only a
-dynamic `$self` entity uses the runtime `$lookup` tier (ADR 0006). Adding a
+`max`/position. A *static* entity resolves its spec at build time and only a
+dynamic `$self` entity falls back to the runtime `$lookup(<map>, $domain)` tier
+(ADR 0006). Adding a
 domain (cover/fan/…) is a `sliderSpec` row — no builder or backend change.
 These identity-derived config slots are `reactive: false`, so they are resolved
 once per entity and memoized (ADR 0004), keeping the dynamic render path cheap.

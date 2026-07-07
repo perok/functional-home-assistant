@@ -25,9 +25,9 @@ laziness: a closed popup costs no render and no push.
 
 ### Dashboards: slug = filename
 
-Every top-level entry file in the dashboards dir is a dashboard whose slug is
-its filename (`dashboard.jsonnet` → `dashboard`, the default `/`; `.pkl`
-entries work identically — ADR 0006). A `Renderer` is built per slug and served
+Every top-level `*.pkl` entry file in the dashboards dir is a dashboard whose
+slug is its filename (`dashboard.pkl` → `dashboard`, the default `/` — ADR
+0006). A `Renderer` is built per slug and served
 at `/d/:slug`. A connection shows one dashboard's DOM at a time, so node ids
 are unique within a dashboard and **not slug-prefixed**.
 
