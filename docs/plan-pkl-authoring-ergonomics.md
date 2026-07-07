@@ -32,6 +32,14 @@ Scratchpad mini-modules mirroring the card classes (hidden props, derived `slots
 - `and`/`or`/`not` are legal **method** names (the old comment claiming they collide with Pkl operators is wrong — the operators are `&&`/`||`/`!`); the `let (l = this)` binding trick works.
 - Function-valued *module properties* cannot be **exported** — irrelevant for `components.pkl` (a library, imported not rendered), but mark them `hidden` for hygiene.
 
+Second round (2026-07-07, the popup/tabs ergonomics pass):
+
+- The parens-around-amend-parents rule is **fully general**: EVERY amend parent that is not a `new` expression needs parens — method-call results, qualified reads (`c.row { ... }` is a parse error; `(c.row) { ... }` works), even a bare in-scope property name. Pkl's error message suggests the fix.
+- A **typed-object amend body accepts only properties** — bare elements are an error ("Object of type `Row` cannot have an element") and `["key"]` entries likewise ("Only objects of type Mapping and Dynamic can have entries"). Consequence: there is no trailing-block call form (`row { a b }` is unreachable); comma-free children always go through a Listing-typed property (`children { ... }`).
+- **Mapping `default` enables amend-into-existence**: with `default = (_) -> new PopupSurface {}`, an entry's `surfaces { ["detail"] { body { ... } } }` instantiates the default and amends it — no `new`. Works across an `amends` boundary (entry.pkl declares the default, entries use it).
+- A `Mapping<String, Listing<X>>` default of `(_) -> new Listing {}` goes one step further: the amended-into-existence value is a Listing, so the body **adds elements directly** (that's how a tab lists its cards with no `children` key).
+- `Mapping.keys.toList()` preserves insertion order, and a List generator `for (i, x in list)` yields (index, element) — the index-deriving bridge for Mapping-keyed classes (Tabs' `t\(i)` surface keys / `bakeIndex`).
+
 ## Design
 
 ### A. Call-style card factories (methods; `|>` only for additions)
@@ -78,7 +86,7 @@ c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
 c.entityCard(dump.entities.switch_office) |> c.tappable
 ```
 
-Methods are not first-class values, so there is deliberately no `x |> c.entityCard` construction form — construction is a call, `|>` is for additions. `new c.X { ... }` remains fully supported (same classes underneath — the reflect-derived `cards` registry is untouched). Containers (`Column`/`Row`/`Tabs`/`Popup`) keep the `new` + `children {}` style.
+Methods are not first-class values, so there is deliberately no `x |> c.entityCard` construction form — construction is a call, `|>` is for additions. `new c.X { ... }` remains fully supported (same classes underneath — the reflect-derived `cards` registry is untouched). Containers (`Column`/`Row`/`Tabs`/`Popup`) originally kept the `new` + `children {}` style; **superseded 2026-07-07**: each container now also exposes a hidden amendable base instance (`(c.row) { children { ... } }`, `(c.column)`, `(c.popup)`, `(c.tabs)`), `Tabs` is keyed `Mapping<String, Listing<LayoutNode>>` (label → cards, Row-wrapped; the `Tab` class is gone), and registered popup surfaces amend into existence via the `PopupSurface` mapping default in `entry.pkl` (see the second-round spike results above).
 
 ### B. Dynamic groups: Mapping branches + render lambdas (`SELF` internal-only)
 

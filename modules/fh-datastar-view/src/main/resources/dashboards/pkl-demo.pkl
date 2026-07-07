@@ -15,21 +15,22 @@ import "lib/components.pkl" as c
 import "lib/dump.pkl" as dump
 
 // Registered popup surfaces: opened by an `openPopup("detail")` tap and
-// rendered/streamed only while open. A registered popup wraps its content in the
-// `popup` dialog card (symmetric with how the inline `openPopupInline` form
-// wraps automatically). Mirrors dashboard.jsonnet:42-52.
+// rendered/streamed only while open. Amending the key into existence builds a
+// `PopupSurface` (the mapping default from lib/entry.pkl), so the `popup`
+// dialog wrap is automatic — the body lists the dialog's cards directly.
+// Mirrors dashboard.jsonnet:42-52.
 surfaces {
-  ["detail"] = new c.SurfaceDef {
-    content = c.popup(List(
-      c.title("Power detail"),
-      c.entityCard(dump.entities.`sensor_ams_1a4e_q`),
+  ["detail"] {
+    body {
+      c.title("Power detail")
+      c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
       c.button("Close", c.closePopup())
-    ))
+    }
   }
 }
 
 
-card = new c.Column {
+card = (c.column) {
   children {
     c.title("Pkl demo")
 

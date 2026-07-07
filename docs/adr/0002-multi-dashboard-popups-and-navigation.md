@@ -40,8 +40,9 @@ defaultOpen)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
-  surface's content by the authoring layer (`c.popup` / the `openPopup`
-  builders), not backend chrome; the theme styles `.popup` as a class contract.
+  surface's content by the authoring layer (the `PopupSurface` mapping default
+  wraps registered surfaces; `openPopupInline` wraps inline ones), not backend
+  chrome; the theme styles `.popup` as a class contract.
 - **The host is derived, not authored** — `Surface.hostId` is
   `{bakeInto}_{bakeAs}` for a baked tab panel (enforcing the
   `id="{{bakeInto}}_{{bakeAs}}"` host convention the `tabs` card template
