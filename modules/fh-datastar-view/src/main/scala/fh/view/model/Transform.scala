@@ -6,7 +6,7 @@ import fh.view.runtime.EntityState
 
 /** Per-slot value transforms, expressed as [JSONata](https://jsonata.org).
   *
-  * Authored inline in the dashboard jsonnet as a string (see
+  * Authored inline in the dashboard source as a string (see
   * [[SlotSource.transform]]) and evaluated by the renderer per live value.
   *
   * A transform reads the entity through bound variables — `$state` (its raw

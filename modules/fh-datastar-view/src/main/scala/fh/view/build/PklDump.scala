@@ -2,9 +2,8 @@ package fh.view.build
 
 import io.circe.{Json, JsonObject}
 
-/** Renders the transformed [[DataDump]] JSON as a typed Pkl module — the
-  * `lib/dump.pkl` counterpart of `dump.libsonnet`, typed against the
-  * hand-written `lib/hass.pkl` schema.
+/** Renders the transformed [[DataDump]] JSON as the typed `lib/dump.pkl`
+  * module, typed against the hand-written `lib/hass.pkl` schema.
   *
   * Every floor/area/entity becomes a NAMED, TYPED property, so
   * `dump.entities.light_kitchen` and `dump.<floor>.<area>.<entityKey>`
@@ -23,8 +22,7 @@ import io.circe.{Json, JsonObject}
 object PklDump {
 
   /** Render the module source. `transformed` is the OUTPUT of
-    * [[DataDump.transform]] (objects keyed by sanitized names), i.e. the same
-    * JSON that is written to `dump.libsonnet`.
+    * [[DataDump.transform]] (objects keyed by sanitized names).
     */
   def render(transformed: Json): String = {
     val root = transformed.asObject.getOrElse(JsonObject.empty)
@@ -125,7 +123,7 @@ object PklDump {
     }
 
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
-       |/// The Pkl counterpart of `dump.libsonnet`, typed against `hass.pkl`.
+       |/// The entity/area/floor dump, typed against `hass.pkl`.
        |module dump
        |
        |import "hass.pkl"

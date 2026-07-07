@@ -6,28 +6,27 @@ import fh.api.FHApi
 
 /** Build phase entry point.
   *
-  * Connects to Home Assistant, evaluates the dashboard jsonnet into a
+  * Connects to Home Assistant, evaluates the dashboard Pkl entry into a
   * `dashboard.json` artifact (validating it decodes into the runtime model
   * along the way), and writes it. Run via `fh-datastar-view/run` (or the
   * `dashboardBuild` alias) with `SERVER`/`SECRET` set.
   *
   * The artifact is for inspection/CI; the runtime
-  * ([[fh.view.runtime.ServerApp]]) evaluates the same jsonnet in memory and
-  * does not need it.
+  * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
+  * not need it.
   */
 object BuildApp extends IOApp {
 
   // Paths are relative to the module directory (the forked `run` working dir).
   private val defaultDashboardsDir = "src/main/resources/dashboards"
   private val defaultDashboardJson = "dashboard.json"
-  private val defaultDashboardEntry = "dashboard.jsonnet"
+  private val defaultDashboardEntry = "dashboard.pkl"
 
   def run(args: List[String]): IO[ExitCode] =
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
-      // The entry file (relative to the dashboards dir); a `.pkl` entry evaluates
-      // through the same source-agnostic pipeline as the default `.jsonnet` one.
+      // The `.pkl` entry file (relative to the dashboards dir).
       entry <- Env[IO]
         .get("DASHBOARD_ENTRY")
         .map(_.getOrElse(defaultDashboardEntry))
@@ -37,7 +36,7 @@ object BuildApp extends IOApp {
       )
       dashboardJson = result.value
       _ <- IO.println(
-        s"Wrote entity dump to ${dashboardsDir / "dump.libsonnet"}"
+        s"Wrote entity dump to ${dashboardsDir / "lib" / "dump.pkl"}"
       )
 
       // Validate it decodes into the runtime model before writing it.

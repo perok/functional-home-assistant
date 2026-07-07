@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
 
-/** Turns the jsonnet dashboard sources into a validated [[Dashboard]].
+/** Turns the Pkl dashboard sources into a validated [[Dashboard]].
   *
   * Shared by both phases:
   *   - the build phase ([[BuildApp]]) persists the evaluated JSON as
@@ -17,11 +17,10 @@ import io.circe.{Json, JsonObject}
 object DashboardBuild {
 
   /** Fetch the live entity dump ONCE and write it next to the dashboard sources
-    * in both authoring languages (so `import 'dump.libsonnet'` and
-    * `import "lib/dump.pkl"` resolve). This is the build phase's job: it owns
-    * fetching + writing the dumps, and the runtime
+    * (so `import "lib/dump.pkl"` resolves). This is the build phase's job: it
+    * owns fetching + writing the dump, and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dumps once
+    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dump once
     * for all entries, then [[reevaluate]]s each against the on-disk copy.
     */
   def prepareDumps(
@@ -30,7 +29,6 @@ object DashboardBuild {
   ): IO[Unit] =
     DataDump.fetch(api).flatMap { dump =>
       IO.blocking {
-        os.write.over(dashboardsDir / "dump.libsonnet", dump.spaces2)
         os.write.over(
           dashboardsDir / "lib" / "dump.pkl",
           PklDump.render(dump),
@@ -51,9 +49,9 @@ object DashboardBuild {
 
   /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
     *
-    * `SourceEval.eval` reads files and runs sjsonnet/pkl-core eagerly, so
-    * suspend it in `IO.blocking` (evaluation happens when the IO runs, on the
-    * blocking pool) before lifting its Either result.
+    * `SourceEval.eval` reads files and runs pkl-core eagerly, so suspend it in
+    * `IO.blocking` (evaluation happens when the IO runs, on the blocking pool)
+    * before lifting its Either result.
     */
   private def evalSource(
       dashboardsDir: os.Path,
@@ -72,8 +70,7 @@ object DashboardBuild {
   val InlineSurfacesKey: String = "inlineSurfaces"
 
   /** The layout-node field naming a container's child nodes — the recursive
-    * layout-tree edge that [[normalizeChildren]] and [[hoistInlineSurfaces]]
-    * walk.
+    * layout-tree edge that [[hoistInlineSurfaces]] walks.
     */
   val ChildrenKey: String = "children"
 
@@ -82,48 +79,24 @@ object DashboardBuild {
     */
   val ContentKey: String = "content"
 
-  /** Accept a node's `children` written as a single node (not an array): wrap
-    * any object-valued `children` into a one-element list so authors can write
-    * `c.row(child)` as well as `c.row([child])`. Recurses the whole tree.
-    */
-  def normalizeChildren(json: Json): Json =
-    json.fold(
-      json,
-      _ => json,
-      _ => json,
-      _ => json,
-      arr => Json.fromValues(arr.map(normalizeChildren)),
-      obj =>
-        Json.fromJsonObject(
-          obj.toIterable.foldLeft(JsonObject.empty) { case (acc, (k, v)) =>
-            val nv = normalizeChildren(v)
-            val fixed =
-              if (k == ChildrenKey && nv.asArray.isEmpty && !nv.isNull)
-                Json.arr(nv)
-              else nv
-            acc.add(k, fixed)
-          }
-        )
-    )
-
   /** The literal token an authored node uses to refer to its own backend-minted
     * id — the SAME id the renderer injects as `{{id}}` for that node
     * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
     * from the node's tree position and splices it in. Authors never type it
-    * directly — the `c.openPopup`/`c.tabs` builders embed it (so jsonnet
-    * composes the trigger fully and only borrows the one value it cannot mint:
-    * the node's position-derived id).
+    * directly — the `c.openPopup`/`c.tabs` builders embed it (so the authoring
+    * layer composes the trigger fully and only borrows the one value it cannot
+    * mint: the node's position-derived id).
     */
   val NodeIdToken: String = "@@NODE_ID@@"
 
   /** Hoist inline surface definitions into the `surfaces` registry.
     *
     * A node may carry an `inlineSurfaces: { <localKey>: { content, bakeInto?,
-    * bakeAs?, … } }` marker (jsonnet can't mint a stable id or mutate the
-    * top-level registry, so it inlines the content and refers to the future id
-    * via [[NodeIdToken]]). This pass is deliberately generic — it knows nothing
-    * about popups, tabs, buttons, signals, or onclick wiring. For each
-    * marker-bearing node it:
+    * bakeAs?, … } }` marker (the authoring layer can't mint a stable id or
+    * mutate the top-level registry, so it inlines the content and refers to the
+    * future id via [[NodeIdToken]]). This pass is deliberately generic — it
+    * knows nothing about popups, tabs, buttons, signals, or onclick wiring. For
+    * each marker-bearing node it:
     *
     *   1. mints a stable `idBase` from the node's position;
     *   2. recurses each surface's `content` (nested inline surfaces resolve
@@ -135,8 +108,8 @@ object DashboardBuild {
     *      marker.
     *
     * All trigger structure (which template, the click expression, any
-    * highlight) is composed in jsonnet; the runtime model is always the
-    * registry form. Idempotent on marker-free input.
+    * highlight) is composed in the authoring layer; the runtime model is always
+    * the registry form. Idempotent on marker-free input.
     */
   def hoistInlineSurfaces(json: Json): Json =
     json.asObject match {
@@ -270,11 +243,11 @@ object DashboardBuild {
     * whose values silently blank out.
     *
     * `sources` (the entry + transitive imports) is used only to point invalid
-    * transforms back at their jsonnet line; pass `Set.empty` when unavailable.
+    * transforms back at their source line; pass `Set.empty` when unavailable.
     */
   def decode(json: Json, sources: Set[os.Path] = Set.empty): IO[Dashboard] =
     for {
-      dashboard <- hoistInlineSurfaces(normalizeChildren(json))
+      dashboard <- hoistInlineSurfaces(json)
         .as[Dashboard]
         .leftMap(err =>
           new RuntimeException(s"dashboard is not a valid Dashboard: $err")
@@ -292,7 +265,7 @@ object DashboardBuild {
 
   /** Evaluate the on-disk sources and decode + validate into the runtime model,
     * returning the dashboard and the files it was built from (for watching).
-    * Assumes the dumps are already written ([[prepareDumps]]).
+    * Assumes the dump is already written ([[prepareDumps]]).
     */
   private def evalAndDecode(
       dashboardsDir: os.Path,

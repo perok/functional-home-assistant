@@ -133,8 +133,8 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.15",
       "io.circe" %% "circe-parser" % "0.14.15",
-      // jsonnet evaluation for the build phase (pure-JVM)
-      "com.databricks" %% "sjsonnet" % "0.6.3",
+      // filesystem paths/IO for the build phase (was transitive via sjsonnet)
+      "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.31.1",
       // mustache templating for runtime value injection (pure Java)

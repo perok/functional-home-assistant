@@ -427,11 +427,9 @@ class PklBuildSuite extends munit.FunSuite {
       clue = importNames
     )
 
-    // The FULL build pipeline: normalize children, then hoist the inline popup
-    // surface into the registry (splicing the trigger's NODE_ID), then decode —
-    // proving the decode path is shared with jsonnet unchanged.
-    val hoisted = DashboardBuild
-      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // The FULL build pipeline: hoist the inline popup surface into the
+    // registry (splicing the trigger's NODE_ID), then decode.
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
     // Every @@NODE_ID@@ token was spliced with a real id — none survives.
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
@@ -729,7 +727,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("dynamic Slider ($self) resolves config via runtime $lookup($domain)") {
     // A $self slider can't know its domain until a match, so action/key/min/max
-    // and the live position fall back to jsonnet's runtime $lookup over the
+    // and the live position fall back to the runtime $lookup over the
     // sliderSpec table (all three domains present, in insertion order).
     val dyn = probeDynamic(
       """node = new c.DynamicGroup {
@@ -922,10 +920,9 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
-    // FULL build pipeline: normalize children, hoist the inline tab surfaces
-    // (splicing each trigger's NODE_ID), then decode — shared with jsonnet.
-    val hoisted = DashboardBuild
-      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // FULL build pipeline: hoist the inline tab surfaces (splicing each
+    // trigger's NODE_ID), then decode.
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
     // No @@NODE_ID@@ token survives the hoist anywhere in the JSON.
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
