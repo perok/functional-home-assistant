@@ -11,7 +11,6 @@
 import "lib/components.pkl" as c
 import "lib/theme.pkl" as themeMod
 import "lib/dump.pkl" as dump
-import "lib/hass.pkl"
 
 cards = c.cards
 theme = themeMod.theme
@@ -24,9 +23,9 @@ surfaces: Mapping<String, c.SurfaceDef> = new {
   ["detail"] = new c.SurfaceDef {
     content = new c.Popup {
       children {
-        new c.SectionTitle { text = "Power detail" }
-        new c.EntityCard { entity = dump.entities.`sensor_ams_1a4e_q` }
-        new c.Button { label = "Close"; action = c.closePopup() }
+        c.title("Power detail")
+        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+        c.button("Close", c.closePopup())
       }
     }
   }
@@ -34,61 +33,63 @@ surfaces: Mapping<String, c.SurfaceDef> = new {
 
 card: c.Node = new c.Column {
   children {
-    new c.SectionTitle { text = "Pkl demo" }
+    c.title("Pkl demo")
 
     // Default display: friendly_name label, $state + auto-appended unit.
-    new c.EntityCard { entity = dump.entities.`sensor_ams_1a4e_q` }
+    c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
 
-    // Live value expression + explicit tap service.
-    new c.EntityCard {
-      entity = dump.entities.sensor_ams_1a4e_u1
+    // Live value expression + explicit tap service: entity-first call, options
+    // amended onto the result (the outer parens are mandatory).
+    (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
       value = c.expr(#"$round($number($state), 1) & " V""#)
       tap = c.serviceTap("homeassistant/toggle")
     }
 
     // Domain-checked: only entities with a sliderSpec row (lights) compile.
-    new c.Slider { entity = dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang` }
+    c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)
 
-    // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity,
-    // the card chosen by the first matching branch. Cards are built against
-    // hass.SELF (the match placeholder). The light branch is a $self Slider: its
-    // action/key/min/max/position resolve per matched light via the runtime
-    // $lookup($domain) config tier (plan step 3).
-    new c.SectionTitle { text = "Active now" }
-    c.groupCases(c.whenState("on"), c.dynWhen(new Listing {
-      c.dynCase(c.whenDomain("light"), new c.Slider { entity = hass.SELF })
-    }, new c.EntityCard {
-      // fallback: every other "on" entity, toggled on tap.
-      entity = hass.SELF
-      tap = c.toggleTap
-      label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
-    }))
+    // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity, the
+    // card chosen by the first matching branch (author order = dispatch order).
+    // Each branch is a render lambda of the matched entity; the light branch is a
+    // bare `c.slider` value (its action/key/min/max/position resolve per matched
+    // light via the runtime $lookup($domain) config tier). `render` is the
+    // fallback: every other "on" entity, toggled on tap.
+    c.title("Active now")
+    new c.DynamicGroup {
+      query = c.stateIs("on")
+      branches {
+        [c.domainIs("light")] = c.slider
+      }
+      render = (e) -> (c.entityCard(e)) {
+        tap = c.toggleTap
+        label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
+      }
+    }
 
     // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
     // device_class:battery sensor under 20%, tracked live as batteries drain.
-    new c.SectionTitle { text = "Low battery" }
-    c.group(c.lowBattery(20), new c.EntityCard {
-      entity = hass.SELF
-      label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
-      secondary = "device_class"
-    })
+    c.title("Low battery")
+    new c.DynamicGroup {
+      query = c.lowBattery(20)
+      render = (e) -> (c.entityCard(e)) {
+        label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
+        secondary = "device_class"
+      }
+    }
 
     // POPUPS. The first button opens the REGISTERED `detail` surface; the second
     // opens an INLINE popup whose content the build-phase hoist lifts into a
     // surface (keyed by this button's derived id + "_self").
-    new c.SectionTitle { text = "Popups" }
-    new c.Button { label = "Power detail…"; action = c.openPopup("detail") }
-    new c.Button {
-      label = "Quick info…"
-      action = c.openPopupInline(new c.Column {
-        children {
-          new c.SectionTitle { text = "Quick info" }
-          new c.EntityCard { entity = dump.entities.sensor_ams_1a4e_u1 }
-          new c.Button { label = "Close"; action = c.closePopup() }
-        }
-      })
-    }
+    c.title("Popups")
+    c.button("Power detail…", c.openPopup("detail"))
+    c.button("Quick info…", c.openPopupInline(new c.Column {
+      children {
+        c.title("Quick info")
+        c.entityCard(dump.entities.sensor_ams_1a4e_u1)
+        c.button("Close", c.closePopup())
+      }
+    }))
 
-    new c.Button { label = "« Back to jsonnet"; action = c.navigate("dashboard") }
+    c.button("« Back to jsonnet", c.navigate("dashboard"))
   }
 }

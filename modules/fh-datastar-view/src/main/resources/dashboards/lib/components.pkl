@@ -510,21 +510,63 @@ class Slider extends Node {
   }
 }
 
-// ---- dynamic groups (the Predicate AST + case/when/group DSL) ----
+// ---- call-style card factories (methods construct; `|>` adds) ----
+// Entity-first construction as a CALL, options via a PARENTHESIZED amend:
+//   (c.entityCard(dump.entities.x)) { tap = c.toggleTap; label = "Office" }
+// (the outer parens are mandatory — `c.entityCard(x) { ... }` is a parse error).
+// The trivial card collapses to a bare call `c.entityCard(x)`; `new c.X { ... }`
+// stays fully supported (same classes). `|>` is reserved for ADDITIONS (mixins),
+// never construction — methods aren't first-class, so there is no `x |> entityCard`.
+
+/// Static entity card as a call (amend options in parens).
+function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
+/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
+/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
+/// properties are separate namespaces, so this delegate co-exists with the method
+/// above — the parens in `entityCard(e)` pick the method (no recursion). The
+/// factory param is `e`, NOT `entity`: a param named after the property it sets
+/// self-references inside the amend (the amend-scoping gotcha).
+hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
+
+/// Value slider as a call (see [[Slider]] for the domain contract).
+function slider(e: hass.Entity): Slider = new Slider { entity = e }
+/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
+hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
+
+/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
+tappable: Mixin<EntityCard> = new { tap = toggleTap }
+
+/// Static title text as a call: `c.title("Active now")`.
+function title(t: String): SectionTitle = new SectionTitle { text = t }
+/// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
+function button(l: String, a: Tap): Button = new Button { label = l; action = a }
+
+// ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
 // A dynamic group renders one card PER live entity matching a `query`,
 // optionally dispatching the card per entity. The matched entity's
 // id/entity_id/label are auto-injected and every inheriting slot is rebound to
 // it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
-// static card, just passing `hass.SELF` as the entity. Port of
-// components.libsonnet:579-661.
+// static card, just passing `hass.SELF` as the entity. `hass.SELF` is an
+// INTERNAL sentinel: authors write render lambdas `(e) -> ...` and never see it
+// (`caseOf` applies the lambda to it below). Port of components.libsonnet:579-661.
 
 /// A property-query comparison operator. TYPED — a misspelled op is now a build
 /// error (the backend `Op` decoder is case-insensitive over exactly these).
 typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
 
 /// The runtime property-query AST. `kind` is the circe discriminator.
+/// Combinators are METHODS (methods never render, so no `hidden` needed):
+/// `domainIs("light").and(stateIs("on"))`, `.or(...)`, `.not()`. `and`/`or`/`not`
+/// are legal method names — the Pkl operators are `&&`/`||`/`!`, so no collision.
 abstract class Predicate {
   kind: String
+  /// Matches when BOTH this and `other` match.
+  function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
+  /// Matches when EITHER this or `other` matches.
+  function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
+  /// Matches when this does NOT. (`let (l = this)`: a bare `this` inside the
+  /// `new {}` body rebinds to the freshly-built object, not the receiver.)
+  function not(): PNot = let (l = this) new PNot { item = l }
 }
 
 /// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
@@ -552,30 +594,31 @@ class PNot extends Predicate {
   item: Predicate
 }
 
-// `and`/`or`/`not` collide with Pkl operators, so the helpers are p-prefixed
-// (the jsonnet track already renamed `not`→`pnot`). Parameters are NOT named
-// after the properties they set: inside a `new { property = property }` amend
-// the RHS binds to the object's own member (infinite recursion), so each
-// argument gets a distinct name.
-function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
+// `const` so [[always]] (referenced from the [[DynamicGroup]] class body) may
+// call it. Parameters are NOT named after the properties they set: inside a
+// `new { property = property }` amend the RHS binds to the object's own member
+// (infinite recursion), so each argument gets a distinct name.
+const function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
   new { property = prop; op = cmpOp; value = cmpVal }
-function pAnd(preds: Listing<Predicate>): PAnd = new { items = preds }
-function pOr(preds: Listing<Predicate>): POr = new { items = preds }
-function pNot(pred: Predicate): PNot = new { item = pred }
 
-/// Matches every entity (a domain is never literally this sentinel).
-always: Cmp = cmp("domain", "ne", "__never__")
+/// Matches every entity (a domain is never literally this sentinel). `const`
+/// because [[DynamicGroup.cases]] references it from the class body.
+const always: Cmp = cmp("domain", "ne", "__never__")
 
-function whenDomain(d: String): Cmp = cmp("domain", "eq", d)
-function whenState(s: String): Cmp = cmp("state", "eq", s)
-function whenDeviceClass(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
-// e.g. attrLessThan("battery_level", 20)
-function attrLessThan(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
-function stateLessThan(threshold: Any): Cmp = cmp("state", "lt", threshold)
+/// `domain == d`, e.g. `domainIs("light")`.
+function domainIs(d: String): Cmp = cmp("domain", "eq", d)
+/// `state == s`, e.g. `stateIs("on")`.
+function stateIs(s: String): Cmp = cmp("state", "eq", s)
+/// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
+function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
+/// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
+function attrBelow(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
+/// `state < threshold`.
+function stateBelow(threshold: Any): Cmp = cmp("state", "lt", threshold)
 // Battery sensors expose the % as their STATE with device_class "battery"
 // (non-numeric states like "unavailable" simply don't match `state < x`).
-function lowBattery(threshold: Any): PAnd =
-  pAnd(new Listing { whenDeviceClass("battery"); stateLessThan(threshold) })
+/// Battery sensors under `threshold` percent.
+function lowBattery(threshold: Any): PAnd = deviceClassIs("battery").and(stateBelow(threshold))
 
 /// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
 /// render when it matches. Keeps the card + its slots but drops the build-time
@@ -587,54 +630,46 @@ class Case {
   slots: Mapping<String, Slot|String> = new {}
 }
 
-/// Build a [[Case]] from a predicate and a node, filtering the `entity_id` key
-/// out of the node's slots via a Mapping for-generator.
-function dynCase(whenP: Predicate, node: Node): Case = new Case {
-  `when` = whenP
-  card = node.card
-  slots = new Mapping {
-    for (k, v in node.slots) {
-      when (k != "entity_id") {
-        [k] = v
+// Build a [[Case]] from a predicate and a render fn: apply the fn to the
+// INTERNAL `hass.SELF` placeholder to obtain the card, then keep its card name +
+// slots but filter the `entity_id` key out (the renderer injects the matched
+// entity per match). `const local` because [[DynamicGroup.cases]] calls it from
+// the class body. Cases stay leaf-only today (children dropped), but the
+// `(e) -> ...` shape already distributes the entity explicitly, so it needs no
+// redesign if the wire format ever grows composite cases.
+const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
+  let (node = r.apply(hass.SELF))
+    new Case {
+      `when` = p
+      card = node.card
+      slots = new Mapping {
+        for (k, v in node.slots) {
+          when (k != "entity_id") {
+            [k] = v
+          }
+        }
       }
     }
-  }
-}
-
-/// Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
-/// the card; `fallback` (when non-null) is the card for entities matching no
-/// branch. Pass the result as the `cases` of [[groupCases]].
-function dynWhen(branches: Listing<Case>, fallback: Node?): Listing<Case> =
-  new Listing {
-    for (b in branches) {
-      b
-    }
-    when (fallback != null) {
-      dynCase(always, fallback!!)
-    }
-  }
 
 /// A runtime-resolved group: render one card PER live entity matching `query`.
+/// Branches are a `Mapping<Predicate, render fn>` — one line per branch, author
+/// order preserved (= first-match dispatch order), a duplicate predicate a build
+/// error, and each branch replaceable BY KEY when amending a base group (a
+/// Listing amend would be append-only). Each render fn is `(hass.Entity) -> Node`:
+/// the author writes exactly where the matched entity flows and never sees the
+/// `$self` sentinel. `render` is the fallback for entities no branch matched (and
+/// the ONLY card when `branches` is empty).
 class DynamicGroup extends LayoutNode {
   kind: "dynamic" = "dynamic"
   query: Predicate
-  cases: Listing<Case>
-}
-
-/// A single-card dynamic group: render `node` for every entity matching
-/// `q` (no per-entity dispatch). (Param not named `query`: see [[cmp]].)
-function group(q: Predicate, node: Node): DynamicGroup = new DynamicGroup {
-  query = q
-  cases = new Listing { dynCase(always, node) }
-}
-
-/// A dispatching dynamic group: `branches` (from [[dynWhen]]) select the card
-/// per matched entity.
-function groupCases(q: Predicate, branches: Listing<Case>): DynamicGroup =
-  new DynamicGroup {
-    query = q
-    cases = branches
+  hidden branches: Mapping<Predicate, (hass.Entity) -> Node> = new {}
+  /// The card for entities no branch matched; null when a branch covers them all.
+  hidden render: ((hass.Entity) -> Node)? = null
+  cases: Listing<Case>(!isEmpty) = new Listing {
+    for (p, r in branches) { caseOf(p, r) }
+    when (render != null) { caseOf(always, render!!) }
   }
+}
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
