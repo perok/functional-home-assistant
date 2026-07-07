@@ -51,60 +51,162 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 > **rewrite the relevant ADR in place** (git history keeps the archaeology — no dated
 > update sections while the design is pre-v1); a genuinely new decision gets a new ADR.
 
-A two-phase dashboard frontend. Authors write a dashboard as **jsonnet**; the server renders
-HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches + action POSTs).
+#### Workflow for changes here
+
+1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006 and the "Spike results"
+   section of `docs/plan-pkl-authoring-ergonomics.md` before writing any Pkl.
+2. Verify with `sbt 'fh-datastar-view/testFull'` — the suites build **fake dumps** in temp
+   dirs and run the real library modules through the full pipeline, so **no live HA is
+   needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
+   entity dump.)
+3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
+   evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
+   snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
+   the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
+   Regenerate them deliberately with `FH_UPDATE_SNAPSHOTS=1 sbt ...` when the wire format is
+   *meant* to change. The backend model (`Dashboard.scala`) should not need to change for
+   authoring-layer work.
+4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
+   browser (`sbt dashboardServe`), per ADR 0006.
+5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
+   `docs/reference/datastar/` before searching the web. Attributes use colon syntax
+   (`data-on:click`, not `data-on-click`).
+6. Format with `sbt scalafmt` (Scala only; there is no formatter for the Pkl sources).
+
+#### Key files
+
+| File | Role |
+|---|---|
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
+| `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
+| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed `lib/dump.pkl` generation |
+| `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
+| `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
+| `resources/dashboards/lib/{hass,components,theme,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) |
+| `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
+| `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
+| `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
+| `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
+
+A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
+renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
++ action POSTs).
 
 - **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
-  `../ha-frontend/script.sh`), writes it next to the jsonnet, then evaluates `dashboard.jsonnet`
-  **in-process via sjsonnet** (`JsonnetBuild`) into the `{ cards, card }` model — a shared
-  library of named cards (Mustache templates) plus a **recursive layout tree** (`card` = its root)
-  of component nodes that reference cards by name.
-  Jsonnet does **composition only** and emits Mustache template strings + static node params; it
+  `../ha-frontend/script.sh`), writes the typed `lib/dump.pkl` next to the entries, then evaluates
+  the entry `.pkl` **in-process via pkl-core** (`PklBuild`, through the `SourceEval` seam) into the
+  `{ cards, card }` model — a shared library of named cards (Mustache templates) plus a
+  **recursive layout tree** (`card` = its root) of component nodes that reference cards by name.
+  Pkl does **composition only** and emits Mustache template strings + static node params; it
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).
 - **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
-  `dashboard.json` artifact for inspection/CI. The runtime does not need it.
+  `dashboard.json` artifact for inspection/CI. The runtime does not need it. `BuildApp` honors
+  `DASHBOARD_ENTRY` (default `dashboard.pkl` — which errors until that entry is ported).
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
-  jsonnet in memory on startup** (so sjsonnet *is* on the startup path — but never on the live hot
-  path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
+  Pkl entries in memory on startup** (so pkl-core *is* on the startup path — but never on the live
+  hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
   `/api/states` and keeps it live from the `state_changed` WS stream (`StateStore`, a `Ref` +
   fs2 `Topic`, full attributes; publishes only on real change). On each change it re-renders the
-  affected components (`Renderer`, reverse index `entityId -> generated id`) plus all dynamic groups,
-  and pushes only the `datastar-patch-elements` fragments whose HTML actually changed (`Server`
+  affected components (`Renderer`, reverse index `entityId -> generated id`) plus the
+  query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
+  `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
+  heavy churn (≥50% of rendered members, `Server.MaxChurnFraction`) or a post-reload group
+  repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
   keeps a per-node last-rendered cache; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
   children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
-  URLs, ids) use `{{{...}}}`. Jsonnet sources live in `src/main/resources/dashboards/`
-  (`components.libsonnet`, `dashboard.jsonnet`); `dump.libsonnet` and `dashboard.json` are
-  generated + gitignored.
+  URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (top-level
+  `*.pkl` entries + `lib/*.pkl`); `lib/dump.pkl` and `dashboard.json` are generated + gitignored.
+  The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
+  (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
+  they must not be extended.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/action/:domain/:service/:entityId` triggers a no-data
   service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
   rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
-- Templates (`components.libsonnet`): `fhrow`/`fhcol` containers, `sectionTitle`, `stateCard`,
-  `button`, `slider` — each declares its `inputs`, checked by `Dashboard.validate`. Builders return
-  layout nodes referencing a template by name; new container/leaf kinds are added as a template +
-  builder with no Scala change. Datastar attributes use **colon** syntax (`data-on:click`,
+- Cards (`lib/components.pkl`): `fhrow`/`fhcol` containers, `sectionTitle`, `stateCard`,
+  `button`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
+  declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
+  by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
+  by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
+  **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
   when a light is off).
 - Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
   And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
   entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
-- **Pkl authoring track (ADR 0006)**: dashboards can ALSO be authored in [Pkl](https://pkl-lang.org)
-  — typed cards + editor completion. `fh.view.build.SourceEval` dispatches on extension
-  (`.jsonnet` → sjsonnet, `.pkl` → pkl-core); everything downstream is shared. Pkl library modules
-  live in `dashboards/lib/` (`hass.pkl` hand-written domain schema, `components.pkl`, `theme.pkl`,
-  `tokens.pkl`); top-level `*.pkl` files are entries (slug = filename; a slug claimed by both
-  languages is a startup error). `lib/dump.pkl` is a TYPED dump generated by `PklDump` from the
-  same fetch as `dump.libsonnet` (both gitignored). The Pkl track has **full jsonnet parity**
-  (containers/sectionTitle/entityCard/button/slider, expr/exprOf, serviceTap/navigate, tabs,
-  popups/surfaces, dynamic groups with a typed Predicate AST, three-tier slider config) — see
-  ADR 0006 for the deliberate API deviations (`openPopup`/`openPopupInline` split, `cssClass`)
-  and Pkl gotchas before extending. `PklBuild` renders the evaluated module to JSON backend-side
-  (no `output` blocks in entries) and watches the precise `Analyzer.importGraph` import set;
-  `BuildApp` honors `DASHBOARD_ENTRY`.
+- **Pkl authoring (ADR 0006)** — the authoring language: dashboards are [Pkl](https://pkl-lang.org),
+  typed cards + editor completion. `fh.view.build.SourceEval` is the (Pkl-only) seam;
+  everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
+  (`hass.pkl` hand-written domain schema, `components.pkl`, `theme.pkl`, `tokens.pkl`, the entry
+  scaffold `entry.pkl`); top-level `*.pkl` files are entries that `amends "lib/entry.pkl"` and set
+  only `card` (+ optional `title`/`surfaces`/`theme`). Slug = filename; `ServerApp.discoverEntries`
+  scans `*.pkl` only. `lib/dump.pkl` is a TYPED dump generated by `PklDump` from the live fetch
+  (gitignored). Feature surface: containers/sectionTitle/entityCard/button/slider, expr/exprOf,
+  serviceTap/navigate, tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
+  typed Predicate AST), three-tier slider config — see ADR 0006 for the deliberate API shape
+  (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
+  renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
+  precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
+  disk as inert porting references only (the five real dashboards are being hand-ported); they are
+  never evaluated and must not be extended.
+
+#### Pkl: verify semantics empirically, never from intuition
+
+Pkl (pinned: pkl-core **0.31.1**) has unusual semantics; wrong guesses compile into confusing
+errors. When unsure, **run a 2-minute spike** instead of reasoning from analogy: a scratch dir
+with a `lib.pkl` + `entry.pkl` and a scala-cli runner —
+
+```scala
+//> using dep org.pkl-lang:pkl-core:0.31.1
+import org.pkl.core.*
+@main def run(): Unit =
+  val ev = EvaluatorBuilder.preconfigured().build()
+  try ev.evaluate(ModuleSource.path(java.nio.file.Path.of("entry.pkl")))
+       .getProperties.forEach((k, v) => println(s"$k = $v"))
+  finally ev.close()
+```
+
+Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-authoring-ergonomics.md`,
+"Spike results"):
+
+- Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
+  results (`(c.entityCard(e)) { ... }`), qualified reads (`(c.row) { ... }`), even bare
+  in-scope names. Parens-free is a parse error.
+- A typed-object amend body accepts only **properties**: bare elements ("Object of type
+  `Row` cannot have an element") and `["key"]` entries (Mapping/Dynamic only) are errors.
+  So there is no trailing-block call form (`row { a b }` is unreachable); comma-free
+  children go through a Listing-typed property (`children { ... }`).
+- A Mapping `default` enables **amend-into-existence**: `["detail"] { ... }` on an absent
+  key instantiates the default and amends it (how `surfaces`/`tabs` avoid `new`); a
+  `Listing`-valued default lets that body add elements directly (no `children` key).
+- **Late binding is the core mechanism**: amending a `hidden` prop re-derives everything
+  computed from it (that's how card `slots` recompute). Amending a function *parameter*
+  (`(n) { entity = ... }`) also works.
+- Methods and properties live in **separate namespaces** — `function slider(e)` and a
+  function-valued property `slider` can coexist; call syntax picks the method.
+- Inside a `new {}` body, `this` rebinds to the new object — capture the outer receiver
+  with `let (l = this)` when writing fluent methods on classes.
+- Required (no-default) class properties are **lazy**: a missing value errors only when
+  forced, and the trace points at the class definition, not the author's dashboard line.
+- `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).
+- Function-valued properties on a *rendered* module cannot be exported — mark them `hidden`.
+- `Mapping` preserves insertion order; structurally-equal duplicate keys are a build error.
+- `|>` binds looser than call/amend; `Mixin<T>` values and Mixin-returning methods chain
+  as pipe stages.
+
+#### Design docs and plans
+
+- `docs/plan-*.md` are **deferred design plans, not implemented code** unless they say
+  otherwise. Notably `plan-pkl-authoring-ergonomics.md` (call-style factories, Mapping-branch
+  dynamic groups, fluent predicates) is fully designed and spike-verified but **not yet
+  applied** to `components.pkl` — do not assume its API exists in the sources.
+- When the user questions a decision in a plan/ADR, **discuss alternatives in chat first**
+  (with spikes as evidence, inline code examples) — do not rewrite the document until a
+  direction is picked.
 
 ### The sbt plugin glue
 

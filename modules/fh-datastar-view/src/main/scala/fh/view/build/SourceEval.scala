@@ -2,10 +2,10 @@ package fh.view.build
 
 import io.circe.Json
 
-/** The authoring-language seam: evaluate a dashboard entry file into JSON,
-  * dispatching on the file extension (`.jsonnet` → sjsonnet, `.pkl` →
-  * pkl-core). Everything downstream (normalize/hoist/decode/validate) is
-  * source-agnostic and consumes the [[Result]].
+/** The authoring-language seam: evaluate a dashboard entry file into JSON. Pkl
+  * is the only authoring language (`.pkl` → pkl-core via [[PklBuild]]);
+  * everything downstream (hoist/decode/validate) is source-agnostic and
+  * consumes the [[Result]].
   */
 object SourceEval {
 
@@ -14,12 +14,11 @@ object SourceEval {
     */
   case class Result(value: Json, imports: Set[os.Path])
 
-  /** Evaluate `entryFile` (relative to `dashboardsDir`) with the evaluator its
-    * extension selects. Returns the evaluated JSON + import set, or an error
-    * string.
+  /** Evaluate `entryFile` (relative to `dashboardsDir`). Returns the evaluated
+    * JSON + import set, or an error string.
     *
     * The pure-`Either` signature belies real work: this reads files and runs
-    * sjsonnet/pkl-core eagerly when called. Callers must therefore suspend it —
+    * pkl-core eagerly when called. Callers must therefore suspend it —
     * `DashboardBuild` invokes it inside `IO.blocking` so the evaluation happens
     * when the IO runs, on the blocking pool.
     */
@@ -27,13 +26,8 @@ object SourceEval {
       dashboardsDir: os.Path,
       entryFile: String
   ): Either[String, Result] =
-    if (entryFile.endsWith(".jsonnet"))
-      JsonnetBuild.eval(dashboardsDir, entryFile)
-    else if (entryFile.endsWith(".pkl")) PklBuild.eval(dashboardsDir, entryFile)
-    else
-      Left(
-        s"unsupported dashboard source (expected .jsonnet or .pkl): $entryFile"
-      )
+    if (entryFile.endsWith(".pkl")) PklBuild.eval(dashboardsDir, entryFile)
+    else Left(s"unsupported dashboard source (expected .pkl): $entryFile")
 
   /** Best-effort locator from a (post-evaluation) string literal back to where
     * it appears in the authoring sources.
@@ -46,14 +40,11 @@ object SourceEval {
     * source once; intended for the cold validation path, not the hot path.
     */
   def literalLocator(sources: Set[os.Path]): String => Option[String] = {
-    // Skip the generated dumps (large, never a transform source) and files in
-    // neither authoring language.
+    // Skip the generated dump (large, never a transform source) and non-Pkl
+    // files.
     val files = sources.toList
-      .filter { p =>
-        p.last.endsWith(".jsonnet") || p.last.endsWith(".libsonnet") ||
-        p.last.endsWith(".pkl")
-      }
-      .filterNot(p => p.last == "dump.libsonnet" || p.last == "dump.pkl")
+      .filter(_.last.endsWith(".pkl"))
+      .filterNot(_.last == "dump.pkl")
       .sortBy(_.last)
       .map(p => p.last -> os.read.lines(p))
 

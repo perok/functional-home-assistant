@@ -25,9 +25,9 @@ laziness: a closed popup costs no render and no push.
 
 ### Dashboards: slug = filename
 
-Every top-level entry file in the dashboards dir is a dashboard whose slug is
-its filename (`dashboard.jsonnet` → `dashboard`, the default `/`; `.pkl`
-entries work identically — ADR 0006). A `Renderer` is built per slug and served
+Every top-level `*.pkl` entry file in the dashboards dir is a dashboard whose
+slug is its filename (`dashboard.pkl` → `dashboard`, the default `/` — ADR
+0006). A `Renderer` is built per slug and served
 at `/d/:slug`. A connection shows one dashboard's DOM at a time, so node ids
 are unique within a dashboard and **not slug-prefixed**.
 
@@ -40,8 +40,9 @@ defaultOpen)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
-  surface's content by the authoring layer (`c.popup` / the `openPopup`
-  builders), not backend chrome; the theme styles `.popup` as a class contract.
+  surface's content by the authoring layer (the `PopupSurface` mapping default
+  wraps registered surfaces; `openPopupInline` wraps inline ones), not backend
+  chrome; the theme styles `.popup` as a class contract.
 - **The host is derived, not authored** — `Surface.hostId` is
   `{bakeInto}_{bakeAs}` for a baked tab panel (enforcing the
   `id="{{bakeInto}}_{{bakeAs}}"` host convention the `tabs` card template

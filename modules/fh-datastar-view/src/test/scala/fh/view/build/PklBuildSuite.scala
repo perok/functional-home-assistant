@@ -371,7 +371,14 @@ class PklBuildSuite extends munit.FunSuite {
   test("pkl-demo evaluates through the full pipeline into a valid Dashboard") {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
     os.copy.into(resources / "pkl-demo.pkl", tmp)
 
     // Fake transformed dump defining exactly the entities the demo references.
@@ -420,11 +427,9 @@ class PklBuildSuite extends munit.FunSuite {
       clue = importNames
     )
 
-    // The FULL build pipeline: normalize children, then hoist the inline popup
-    // surface into the registry (splicing the trigger's NODE_ID), then decode —
-    // proving the decode path is shared with jsonnet unchanged.
-    val hoisted = DashboardBuild
-      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // The FULL build pipeline: hoist the inline popup surface into the
+    // registry (splicing the trigger's NODE_ID), then decode.
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
     // Every @@NODE_ID@@ token was spliced with a real id — none survives.
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
@@ -497,7 +502,7 @@ class PklBuildSuite extends munit.FunSuite {
     val dyns = dynamics(d.card)
     assertEquals(dyns.size, 2)
 
-    // Dispatch group: query = whenState("on"); a light branch (a $self Slider)
+    // Dispatch group: query = stateIs("on"); a light branch (a $self Slider)
     // + an always entityCard fallback; no `entity_id` slot survives the cases.
     val dispatch = dyns(0)
     assertEquals(
@@ -517,7 +522,8 @@ class PklBuildSuite extends munit.FunSuite {
       assert(!cse.slots.contains("entity_id"), clue = cse.slots.keySet)
     )
 
-    // Low-battery group: query = pAnd([whenDeviceClass battery, stateLessThan 20]).
+    // Low-battery group: query = lowBattery(20) =
+    // deviceClassIs("battery").and(stateBelow(20)).
     val battery = dyns(1)
     assertEquals(battery.cases.map(_.card), List("entityCard"))
     battery.query match {
@@ -612,11 +618,15 @@ class PklBuildSuite extends munit.FunSuite {
       .asInstanceOf[LayoutNode.Dynamic]
   }
 
-  test("dynCase drops the entity_id slot via the Mapping for-generator") {
+  test("caseOf drops the entity_id slot via the Mapping for-generator") {
     // Exercised EARLY (plan risk item 2): the `when (k != "entity_id")`
-    // for-generator that filters a card's slots into a dynamic case.
+    // for-generator in `caseOf` that filters a card's slots into a dynamic case.
+    // A `render` fallback lambda is applied to the internal SELF sentinel.
     val dyn = probeDynamic(
-      """node = c.group(c.whenState("on"), new c.EntityCard { entity = hass.SELF })"""
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e)
+        |}""".stripMargin
     )
     assertEquals(dyn.cases.size, 1)
     val slots = dyn.cases.head.slots
@@ -630,6 +640,35 @@ class PklBuildSuite extends munit.FunSuite {
       slots("label").transform,
       "$attr.friendly_name ? $attr.friendly_name : $entity_id"
     )
+  }
+
+  test("call-style entityCard emits the same node JSON as the `new` form") {
+    // The call-style factory `(c.entityCard(x)) { ... }` is pure sugar for
+    // `new c.EntityCard { entity = x; ... }`: same class, so the emitted node
+    // JSON must be byte-identical. Evaluate both through the fake-dump pipeline
+    // and compare the raw `card`/`ctor` node JSON (not just the decoded model).
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |call = (c.entityCard(x)) { tap = c.toggleTap }
+        |ctor = new c.EntityCard { entity = x; tap = c.toggleTap }
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    val call = cur.downField("call").focus
+    val ctor = cur.downField("ctor").focus
+    assert(call.isDefined && ctor.isDefined, clue = cur.keys)
+    assertEquals(call, ctor, clue = (call, ctor))
   }
 
   test("exprOf threads an explicit entityId into the emitted slot") {
@@ -688,10 +727,13 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("dynamic Slider ($self) resolves config via runtime $lookup($domain)") {
     // A $self slider can't know its domain until a match, so action/key/min/max
-    // and the live position fall back to jsonnet's runtime $lookup over the
+    // and the live position fall back to the runtime $lookup over the
     // sliderSpec table (all three domains present, in insertion order).
     val dyn = probeDynamic(
-      """node = c.group(c.whenState("on"), new c.Slider { entity = hass.SELF })"""
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.slider(e)
+        |}""".stripMargin
     )
     assertEquals(dyn.cases.size, 1)
     val slots = dyn.cases.head.slots
@@ -749,12 +791,101 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 
+  test("floorView emits one section per area-with-lights (title + sliders)") {
+    // A fake transformed dump: floor `over` with two areas — `stue` (two
+    // lights) and `bad` (one sensor, no lights). floorView must emit ONE area
+    // column (stue), skipping the light-less `bad`, each area column holding a
+    // sectionTitle(area_name) + a slider per light.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "stue": { "area_id": "stue_area", "floor_id": "over", "area_name": "Stue" },
+            "bad": { "area_id": "bad_area", "floor_id": "over", "area_name": "Bad" }
+          },
+          "floors": {
+            "over": {
+              "floor_id": "over",
+              "floor_name": "Overetasje",
+              "areas": {
+                "stue": { "area_id": "stue_area", "floor_id": "over", "area_name": "Stue" },
+                "bad": { "area_id": "bad_area", "floor_id": "over", "area_name": "Bad" }
+              }
+            }
+          },
+          "entities": {
+            "light_stue_1": {
+              "entity_id": "light.stue_1", "friendly_name": "Stue 1",
+              "domain": "light", "area_id": "stue_area", "attributes": {}
+            },
+            "light_stue_2": {
+              "entity_id": "light.stue_2", "friendly_name": "Stue 2",
+              "domain": "light", "area_id": "stue_area", "attributes": {}
+            },
+            "sensor_bad_1": {
+              "entity_id": "sensor.bad_1", "friendly_name": "Bad temp",
+              "domain": "sensor", "area_id": "bad_area", "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |import "lib/dump.pkl" as dump
+        |
+        |node = c.floorView(dump.over)
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val node = result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+
+    // Outer container is a column; exactly one area column (bad is skipped).
+    assertEquals(node.card, "fhcol")
+    val areaCols = node.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(areaCols.map(_.card), List("fhcol"))
+
+    // The area column: the area name, then a slider per light (key-sorted).
+    val inner = areaCols.head.children.collect { case c: LayoutNode.Component =>
+      c
+    }
+    assertEquals(inner.map(_.card), List("sectionTitle", "slider", "slider"))
+    assertEquals(inner(0).slots("label").literal, Some("Stue"))
+    assertEquals(inner(1).slots("entity_id").literal, Some("light.stue_1"))
+    assertEquals(inner(2).slots("entity_id").literal, Some("light.stue_2"))
+    // The sliders resolved the light spec at build time (string literals).
+    assertEquals(inner(1).slots("action").literal, Some("light/turn_on"))
+    assertEquals(inner(1).slots("min").literal, Some("1"))
+    assertEquals(inner(1).slots("max").literal, Some("255"))
+  }
+
   test(
     "pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)"
   ) {
     val resources = resourcesLib / os.up
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "theme.pkl", "tokens.pkl")
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
     os.copy.into(resources / "pkl-tabs.pkl", tmp)
 
     // Fake transformed dump defining exactly the entities the tabs demo names:
@@ -789,10 +920,9 @@ class PklBuildSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
-    // FULL build pipeline: normalize children, hoist the inline tab surfaces
-    // (splicing each trigger's NODE_ID), then decode — shared with jsonnet.
-    val hoisted = DashboardBuild
-      .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
+    // FULL build pipeline: hoist the inline tab surfaces (splicing each
+    // trigger's NODE_ID), then decode.
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
     // No @@NODE_ID@@ token survives the hoist anywhere in the JSON.
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
@@ -866,5 +996,119 @@ class PklBuildSuite extends munit.FunSuite {
 
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wire-format snapshot tests (plan-jsonnet-removal.md Phase 0).
+  //
+  // These byte-identity-check the evaluated `{cards, card, theme, surfaces}`
+  // wire JSON of the two REAL Pkl entries against checked-in resource files, so
+  // authoring-layer / backend refactors are guarded by `sbt test` instead of
+  // manual diffing. The snapshot is exactly what production renders:
+  // `PklBuild.eval` → `SourceEval.Result.value` (the raw evaluated JSON, BEFORE
+  // normalize/hoist/decode), printed with the fixed `spaces2SortKeys` printer so
+  // Pkl map-ordering can never make the output nondeterministic. No live HA is
+  // needed — a minimal fake `lib/dump.pkl` (below) supplies the entities.
+  //
+  // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
+  // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
+  // ---------------------------------------------------------------------------
+
+  /** Checked-in expected snapshots (repo-relative, mirroring `resourcesLib`).
+    */
+  private val snapshotDir =
+    os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "snapshots"
+
+  /** One fake transformed dump covering exactly the entities BOTH entries name:
+    * two sensors (`_q` power, `_u1` voltage) and the demo light (with a
+    * `color_mode` so the demo slider resolves). No areas/floors are referenced.
+    */
+  private val snapshotDump = io.circe.parser
+    .parse("""
+      {
+        "areas": {},
+        "floors": {},
+        "entities": {
+          "sensor_ams_1a4e_q": {
+            "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
+            "domain": "sensor", "attributes": {}
+          },
+          "sensor_ams_1a4e_u1": {
+            "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
+            "domain": "sensor", "attributes": {}
+          },
+          "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
+            "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+            "friendly_name": "Demo light",
+            "domain": "light", "attributes": { "color_mode": "brightness" }
+          }
+        }
+      }
+    """)
+    .toOption
+    .get
+
+  /** Evaluate a real entry through the fake-dump pipeline and return the raw
+    * evaluated wire JSON, printed with the fixed deterministic printer.
+    */
+  private def evalEntryWire(entry: String): String = {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
+    os.copy.into(resources / entry, tmp)
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
+    val result = SourceEval.eval(tmp, entry)
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.spaces2SortKeys
+  }
+
+  /** Compare `actual` against the checked-in snapshot `name.json`. With
+    * `FH_UPDATE_SNAPSHOTS=1` it (re)writes the resource file and passes; else
+    * it asserts byte identity, writing the actual output to a temp file and
+    * pointing at the regenerate command on mismatch.
+    */
+  private def checkSnapshot(name: String, actual: String): Unit = {
+    val file = snapshotDir / s"$name.json"
+    val updating =
+      sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
+        sys.props.get("FH_UPDATE_SNAPSHOTS").contains("1")
+    if (updating) {
+      os.makeDir.all(snapshotDir)
+      os.write.over(file, actual)
+    } else {
+      val expected =
+        if (os.exists(file)) os.read(file)
+        else
+          fail(
+            s"missing snapshot $file — regenerate with " +
+              "FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull'"
+          )
+      if (expected != actual) {
+        val actualFile = os.temp.dir() / s"$name.actual.json"
+        os.write(actualFile, actual)
+      }
+      assertEquals(
+        actual,
+        expected,
+        clue = s"wire-format snapshot for $name.json changed. If intended, " +
+          "regenerate with FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull' " +
+          "(actual output also written to a temp *.actual.json next to the diff)."
+      )
+    }
+  }
+
+  test("pkl-demo wire JSON matches the checked-in snapshot") {
+    checkSnapshot("pkl-demo", evalEntryWire("pkl-demo.pkl"))
+  }
+
+  test("pkl-tabs wire JSON matches the checked-in snapshot") {
+    checkSnapshot("pkl-tabs", evalEntryWire("pkl-tabs.pkl"))
   }
 }

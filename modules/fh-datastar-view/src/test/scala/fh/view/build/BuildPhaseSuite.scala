@@ -2,15 +2,8 @@ package fh.view.build
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
 import io.circe.parser
-import io.circe.syntax.*
 
 class BuildPhaseSuite extends munit.FunSuite {
-
-  private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
-    node match {
-      case c: LayoutNode.Component => c.children.flatMap(dynamics)
-      case d: LayoutNode.Dynamic   => List(d)
-    }
 
   test("DataDump.transform keys entities by id, areas/floors by name") {
     val raw = parser
@@ -57,227 +50,6 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(
       transformed.downField("floors").keys.map(_.toSet),
       Some(Set("ground_floor"))
-    )
-  }
-
-  test(
-    "JsonnetBuild evaluates the example dashboard into a valid Dashboard model"
-  ) {
-    val resources =
-      os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
-
-    val tmp = os.temp.dir()
-    os.copy.into(resources / "components.libsonnet", tmp)
-    os.copy.into(resources / "dashboard.jsonnet", tmp)
-    os.copy.into(resources / "tokens.libsonnet", tmp)
-    os.copy.into(resources / "theme.libsonnet", tmp)
-
-    // Minimal fake dump standing in for the build-phase HA dump.
-    val fakeDump = io.circe.Json
-      .obj(
-        "areas" -> io.circe.Json.obj(),
-        "floors" -> io.circe.Json.obj(),
-        "entities" -> io.circe.Json.obj(
-          "sensor_temp" -> io.circe.Json.obj(
-            "entity_id" -> "sensor.temp".asJson,
-            "friendly_name" -> "Temperature".asJson,
-            "domain" -> "sensor".asJson
-          ),
-          // The example dashboard statically references these entities by name
-          // (the second is the multi-entity card's cross-entity secondary line).
-          "sensor_ams_1a4e_p" -> io.circe.Json.obj(
-            "entity_id" -> "sensor.ams_1a4e_p".asJson,
-            "friendly_name" -> "Power".asJson,
-            "domain" -> "sensor".asJson
-          ),
-          "sensor_ams_1a4e_u1" -> io.circe.Json.obj(
-            "entity_id" -> "sensor.ams_1a4e_u1".asJson,
-            "friendly_name" -> "L1 voltage".asJson,
-            "domain" -> "sensor".asJson
-          )
-        )
-      )
-    os.write(tmp / "dump.libsonnet", fakeDump.spaces2)
-
-    val result = JsonnetBuild.eval(tmp, "dashboard.jsonnet")
-    assert(result.isRight, clue = result)
-
-    // The import set is the entry + its transitive imports (any depth).
-    val importNames = result.toOption.get.imports.map(_.last)
-    assert(
-      Set(
-        "dashboard.jsonnet",
-        "components.libsonnet",
-        "theme.libsonnet",
-        "tokens.libsonnet",
-        "dump.libsonnet"
-      ).subsetOf(importNames),
-      clue = importNames
-    )
-
-    // `decode`'s pipeline: normalize single children, then hoist inline popups
-    // into the surfaces registry, then decode.
-    val dashboard = result.flatMap(r =>
-      DashboardBuild
-        .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
-        .as[Dashboard]
-        .left
-        .map(_.getMessage)
-    )
-    assert(dashboard.isRight, clue = dashboard)
-
-    val d = dashboard.toOption.get
-    // Shared card library is referenced by name (not baked per entity).
-    assert(d.cards.contains("entityCard"), clue = d.cards.keySet)
-    assert(d.cards.contains("button"), clue = d.cards.keySet)
-    assert(d.cards.contains("slider"), clue = d.cards.keySet)
-    // Recursive layout: top-level container (column) with the two dynamic
-    // groups (per-domain dispatch + low-battery) somewhere inside.
-    assertEquals(
-      d.card.asInstanceOf[LayoutNode.Component].card,
-      "fhcol"
-    )
-    assertEquals(dynamics(d.card).size, 2)
-    // The theme carries tokens (+ dark overrides) AND its stylesheets/CSS, so
-    // the CSS framework (Pico) is a theme property, not baked into the app.
-    assert(
-      d.theme.tokens.contains("primary-color"),
-      clue = d.theme.tokens.keySet
-    )
-    assertEquals(d.theme.tokens.get("ha-card-border-radius"), Some("12px"))
-    assert(
-      d.theme.tokensDark.contains("card-background-color"),
-      clue = d.theme.tokensDark
-    )
-    assert(
-      d.theme.stylesheets.exists(_.contains("pico")),
-      clue = d.theme.stylesheets
-    )
-    assert(d.theme.styles.contains(".card"), clue = d.theme.styles.take(80))
-    // The composed dashboard is internally consistent.
-    assertEquals(d.validate(), Nil)
-  }
-
-  test("the tabs example evaluates, hoists, and validates end-to-end") {
-    val resources =
-      os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
-    val tmp = os.temp.dir()
-    for (
-      f <- Seq(
-        "components.libsonnet",
-        "tabs.jsonnet",
-        "tokens.libsonnet",
-        "theme.libsonnet"
-      )
-    )
-      os.copy.into(resources / f, tmp)
-
-    // A light + a sensor so each tab's comprehension yields a card.
-    val fakeDump = io.circe.Json.obj(
-      "areas" -> io.circe.Json.obj(),
-      "floors" -> io.circe.Json.obj(),
-      "entities" -> io.circe.Json.obj(
-        "light_k" -> io.circe.Json.obj(
-          "entity_id" -> "light.k".asJson,
-          "friendly_name" -> "Kitchen".asJson,
-          "domain" -> "light".asJson
-        ),
-        "sensor_t" -> io.circe.Json.obj(
-          "entity_id" -> "sensor.t".asJson,
-          "friendly_name" -> "Temp".asJson,
-          "domain" -> "sensor".asJson,
-          "attributes" -> io.circe.Json.obj()
-        )
-      )
-    )
-    os.write(tmp / "dump.libsonnet", fakeDump.spaces2)
-
-    val result = JsonnetBuild.eval(tmp, "tabs.jsonnet")
-    assert(result.isRight, clue = result)
-    val dashboard = result.flatMap(r =>
-      DashboardBuild
-        .hoistInlineSurfaces(DashboardBuild.normalizeChildren(r.value))
-        .as[Dashboard]
-        .left
-        .map(_.getMessage)
-    )
-    assert(dashboard.isRight, clue = dashboard)
-    val d = dashboard.toOption.get
-    // The sugar produced two inline tab surfaces and a consistent dashboard.
-    assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
-    // Both panels share ONE derived host — exclusivity by shared hostId, no group.
-    assertEquals(
-      d.surfaces.values.map(_.hostId).toSet.size,
-      1,
-      clue = d.surfaces
-    )
-    // Surface ids use the unified id scheme: idBase (= pathId) + the 't<i>' local
-    // key; the shared hostId is the tabs component's panel host id (idBase + '_panel').
-    assert(
-      d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
-      clue = d.surfaces.keySet
-    )
-    assert(
-      d.surfaces.values.map(_.hostId).forall(_.matches("c(_\\d+)+_panel")),
-      clue = d.surfaces
-    )
-    // The tabs builder emitted a `tabs` card component — no Mount node.
-    assert(
-      d.card.asInstanceOf[LayoutNode.Component].children.exists {
-        case c: LayoutNode.Component => c.card == "tabs"
-        case _                       => false
-      },
-      clue = "expected a tabs component in the layout"
-    )
-    // Surfaces carry bakeInto/bakeAs (every surface is chrome-less by construction —
-    // Surface's final 5 fields carry no chrome/stack to assert on).
-    assert(
-      d.surfaces.values.forall(s =>
-        s.bakeInto.isDefined && s.bakeAs.contains("panel")
-      ),
-      clue = d.surfaces
-    )
-    // Each hoisted tab surface carries its position within the bake group
-    // (0..n-1), so a cookie index can select it on first paint.
-    assertEquals(
-      d.surfaces.values.flatMap(_.bakeIndex).toList.sorted,
-      (0 until d.surfaces.size).toList,
-      clue = d.surfaces
-    )
-    // Exactly the first tab is the default-open panel (the only backend-read
-    // "shown by default" signal).
-    assertEquals(
-      d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
-      Set(d.surfaces.keys.toList.sorted.head),
-      clue = d.surfaces
-    )
-    assertEquals(d.validate(), Nil)
-  }
-
-  test("normalizeChildren wraps a single (non-array) child into a list") {
-    val single = parser
-      .parse("""{ "kind":"component", "card":"fhrow",
-                 "children": { "kind":"component", "card":"x" } }""")
-      .toOption
-      .get
-    val fixed = DashboardBuild.normalizeChildren(single)
-    val kids = fixed.hcursor.downField("children")
-    assert(kids.values.nonEmpty, clue = fixed) // now an array
-    assertEquals(kids.downN(0).get[String]("card").toOption, Some("x"))
-
-    // an existing array is left as-is
-    val arr = parser
-      .parse("""{ "children": [ { "card":"a" }, { "card":"b" } ] }""")
-      .toOption
-      .get
-    assertEquals(
-      DashboardBuild
-        .normalizeChildren(arr)
-        .hcursor
-        .downField("children")
-        .values
-        .map(_.size),
-      Some(2)
     )
   }
 
@@ -474,22 +246,26 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(d.validate().exists(_.contains("unknown card")), clue = d.validate())
   }
 
-  test("literalLocator points a transform back at its jsonnet line") {
+  test("literalLocator points a transform back at its Pkl source line") {
     val dir = os.temp.dir()
     os.write(
-      dir / "dashboard.jsonnet",
-      "local c = import 'x';\n" +
-        "{ value: c.entityCard(p, transform='$round($number($state), 1)') }\n"
+      dir / "dashboard.pkl",
+      "import \"lib/components.pkl\" as c\n" +
+        "card = (c.entityCard(p)) { transform = \"$round($number($state), 1)\" }\n"
     )
     // The generated dump is skipped even if it contains the literal.
-    os.write(dir / "dump.libsonnet", "{ x: '$round($number($state), 1)' }\n")
+    os.write(
+      dir / "lib" / "dump.pkl",
+      "x = \"$round($number($state), 1)\"\n",
+      createFolders = true
+    )
 
     val locate = SourceEval.literalLocator(
-      Set(dir / "dashboard.jsonnet", dir / "dump.libsonnet")
+      Set(dir / "dashboard.pkl", dir / "lib" / "dump.pkl")
     )
     assertEquals(
       locate("$round($number($state), 1)"),
-      Some("dashboard.jsonnet:2")
+      Some("dashboard.pkl:2")
     )
     assertEquals(locate("$nope($)"), None)
   }

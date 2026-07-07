@@ -6,19 +6,30 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Quick wins
 
-- [ ] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
+- [x] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
+      entries in PklBuildSuite so authoring-layer refactors are byte-identity-checked by
+      `sbt test`, not manual diffing. Land this BEFORE implementing
+      docs/plan-pkl-authoring-ergonomics.md — it is that plan's safety net.
+- [ ] `pkl-spike` skill (`.claude/skills/pkl-spike/`): package the scala-cli + pkl-core
+      spike harness (lib.pkl + entry.pkl + runner, see the template in CLAUDE.md) so
+      "verify Pkl semantics empirically" is a one-command habit.
+- [ ] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
+      env var / untracked `.env` — security hygiene, and stops the credential being copied
+      into new files during refactors.
+- [x] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
-      back to the slug.
+      back to the slug. (Backend half of plan-jsonnet-removal Phase 2; `lib/entry.pkl`'s
+      `title` field is the authoring half.)
 - [ ] Area/floor membership in queries: today authors write
       `eo.area_id == dump.floors.overetasje.areas.kjokken.area_id` by hand. Add `inArea(...)` /
-      `onFloor(...)` helpers to components.libsonnet/components.pkl (build-time — the dump
-      knows membership; no Predicate AST change needed for the static case).
+      `onFloor(...)` helpers to `lib/components.pkl` (build-time — the dump knows membership; no
+      Predicate AST change needed for the static case).
 
 ## Worth doing
 
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
-      top-level `.jsonnet`/`.pkl` needs a server restart. Watch the dashboards dir for creates,
-      run the same slug-collision check, add a renderer.
+      top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
+      renderer for each new slug.
 - [ ] Disconnected indicator: a visual cue when the SSE stream drops (Datastar exposes
       connection lifecycle; likely a small chrome/theme addition, keeping presentation in the
       authoring layer).

@@ -71,12 +71,24 @@ class CardDef {
 /// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
 /// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
 /// Boolean so omitNullProperties drops it and the decoder defaults it to false.
-class SurfaceDef {
+open class SurfaceDef {
   content: LayoutNode
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
   defaultOpen: Boolean? = null
+}
+
+/// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
+/// dialog automatically (registered popup surfaces must carry their own wrap —
+/// ADR 0002). `lib/entry.pkl` makes this the `surfaces` mapping default, so an
+/// entry amends a popup surface into existence with no `new` and no wrap:
+///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
+/// A non-popup surface is still an explicit assignment:
+///   ["x"] = new c.SurfaceDef { content = ... }
+class PopupSurface extends SurfaceDef {
+  hidden body: Listing<LayoutNode> = new {}
+  content = new Popup { children = body }
 }
 
 // ---- author-facing descriptors ----
@@ -226,6 +238,14 @@ class Row extends Node {
   }
 }
 
+/// Amendable base instance — `(c.row) { children { ... } }`. The parens are
+/// MANDATORY: Pkl requires them around ANY amend parent that isn't a `new`
+/// expression (qualified reads, method calls, even bare in-scope names).
+/// There is no comma-free call form: function arguments are always
+/// comma-separated, and a typed-object amend body accepts only PROPERTIES
+/// (bare elements/entries need a Listing/Mapping parent — hence `children`).
+hidden row: Row = new Row {}
+
 class Column extends Node {
   card = "fhcol"
   cardDef = new CardDef {
@@ -240,6 +260,8 @@ class Column extends Node {
     }
   }
 }
+/// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
+hidden column: Column = new Column {}
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
@@ -295,6 +317,16 @@ class EntityCard extends Node {
   }
 }
 
+/// Static entity card as a call (amend options in parens).
+function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
+/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
+/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
+/// properties are separate namespaces, so this delegate co-exists with the method
+/// above — the parens in `entityCard(e)` pick the method (no recursion). The
+/// factory param is `e`, NOT `entity`: a param named after the property it sets
+/// self-references inside the amend (the amend-scoping gotcha).
+hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
+
 /// Generic click button (service call or navigate). `action = null` defaults
 /// to the domain-resolved service call, which needs an entity.
 class Button extends Node {
@@ -329,9 +361,9 @@ class Button extends Node {
 
 /// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
 /// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
-/// the id-less close. Composed INTO a surface's content (by [[openPopupInline]]
-/// or when registering a surface), NOT applied as backend chrome. Use it when
-/// registering a popup surface: `content = new Popup { children { ... } }`.
+/// the id-less close. Composed INTO a surface's content, NOT applied as backend
+/// chrome. Authors rarely touch it directly: [[openPopupInline]] wraps its body
+/// in one, and a registered surface gets it via the [[PopupSurface]] default.
 class Popup extends Node {
   card = "popup"
   // `open` is static markup (a `<dialog>` without it is display:none); the
@@ -341,17 +373,12 @@ class Popup extends Node {
     template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
-
-/// One tab: a bar label + the [[LayoutNode]] shown in the shared panel when the
-/// tab is active. (`content` is a full node — a [[Row]]/[[Column]] subtree.)
-class Tab {
-  label: String
-  content: LayoutNode
-}
+/// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
+hidden popup: Popup = new Popup {}
 
 /// A tab bar over ONE inline panel — one tab visible at a time. Pure
 /// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
-/// `content` becomes an inline surface baked into this component's panel host
+/// cards become an inline surface baked into this component's panel host
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
 /// the bar buttons open them, seed the active-tab signal, and persist the active
 /// index to the `fhui_<id>` cookie the server reads on the GET so reload /
@@ -376,14 +403,22 @@ class Tabs extends Node {
       </div>
       """
   }
-  hidden tabs: Listing<Tab>
-  // Each tab's content hoisted into a panel surface. `t.content` is a QUALIFIED
-  // read of the loop element (a bare `content` would bind to SurfaceDef's own
-  // member — the amend-scoping gotcha).
+  /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
+  /// it). The Listing DEFAULT lets a tab amend into existence and add cards
+  /// directly — no `new`, no `children`:
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.slider(l) } } }
+  /// Each tab's cards are wrapped in a [[Row]] panel; a tab wanting a different
+  /// container nests it as the single card: `["X"] { new Column { ... } }`.
+  hidden tabs: Mapping<String, Listing<LayoutNode>> = new { default = (_) -> new Listing {} }
+  // Insertion-ordered labels; the derivations below need the tab INDEX (surface
+  // keys, bakeIndex, the signal seed), which a Mapping generator lacks — a List
+  // generator yields (index, element).
+  hidden labels: List<String> = tabs.keys.toList()
+  // Each tab's cards hoisted into a Row-wrapped panel surface.
   inlineSurfaces = new Mapping {
-    for (i, t in tabs) {
+    for (i, l in labels) {
       ["t\(i)"] = new SurfaceDef {
-        content = t.content
+        content = new Row { children = tabs[l] }
         bakeInto = NODE_ID
         bakeAs = "panel"
         bakeIndex = i
@@ -396,9 +431,9 @@ class Tabs extends Node {
   // signal sigil (Pkl only interpolates `\(...)`); the exact onclick text is
   // asserted in the tests.
   children = new Listing {
-    for (i, t in tabs) {
+    for (i, l in labels) {
       new Button {
-        label = t.label
+        label = l
         active = "$tab_\(NODE_ID) == \(i)"
         action = new Tap {
           onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
@@ -407,6 +442,9 @@ class Tabs extends Node {
     }
   }
 }
+
+/// Amendable base instance — `(c.tabs) { tabs { ["Lights"] { ... } } }`.
+hidden tabs: Tabs = new Tabs {}
 
 // The slider's controllable config per domain: the service to call, the
 // service_data key the value rides on, the range bounds, and which attribute
@@ -510,21 +548,79 @@ class Slider extends Node {
   }
 }
 
-// ---- dynamic groups (the Predicate AST + case/when/group DSL) ----
+/// Value slider as a call (see [[Slider]] for the domain contract).
+function slider(e: hass.Entity): Slider = new Slider { entity = e }
+/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
+hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
+
+// ---- call-style card factories (methods construct; `|>` adds) ----
+// Entity-first construction as a CALL, options via a PARENTHESIZED amend:
+//   (c.entityCard(dump.entities.x)) { tap = c.toggleTap; label = "Office" }
+// (the outer parens are mandatory — `c.entityCard(x) { ... }` is a parse error).
+// The trivial card collapses to a bare call `c.entityCard(x)`; `new c.X { ... }`
+// stays fully supported (same classes). `|>` is reserved for ADDITIONS (mixins),
+// never construction — methods aren't first-class, so there is no `x |> entityCard`.
+
+/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
+tappable: Mixin<EntityCard> = new { tap = toggleTap }
+
+/// Static title text as a call: `c.title("Active now")`.
+function title(t: String): SectionTitle = new SectionTitle { text = t }
+/// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
+function button(l: String, a: Tap): Button = new Button { label = l; action = a }
+
+// ---- floor/area composition (typed-dump driven) ----
+
+/// One section per area of `floor` that HAS lights: the area name as a
+/// [[SectionTitle]] followed by a [[Slider]] per light, each area wrapped in its
+/// own column. The typed counterpart of `overetasje.jsonnet`'s `areaView`,
+/// driven by the generated dump's `Floor.areas` / `Area.lights` member lists
+/// (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never rendered).
+/// Areas with no lights are skipped, so the result is exactly the light-bearing
+/// sections. Returns a [[Column]] so it drops straight into an entry's tree.
+function floorView(floor: hass.Floor): Column = new Column {
+  children {
+    for (area in floor.areas) {
+      when (!area.lights.isEmpty) {
+        new Column {
+          children {
+            title(area.area_name)
+            for (light in area.lights) {
+              slider(light)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
 // A dynamic group renders one card PER live entity matching a `query`,
 // optionally dispatching the card per entity. The matched entity's
 // id/entity_id/label are auto-injected and every inheriting slot is rebound to
 // it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
-// static card, just passing `hass.SELF` as the entity. Port of
-// components.libsonnet:579-661.
+// static card, just passing `hass.SELF` as the entity. `hass.SELF` is an
+// INTERNAL sentinel: authors write render lambdas `(e) -> ...` and never see it
+// (`caseOf` applies the lambda to it below). Port of components.libsonnet:579-661.
 
 /// A property-query comparison operator. TYPED — a misspelled op is now a build
 /// error (the backend `Op` decoder is case-insensitive over exactly these).
 typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
 
 /// The runtime property-query AST. `kind` is the circe discriminator.
+/// Combinators are METHODS (methods never render, so no `hidden` needed):
+/// `domainIs("light").and(stateIs("on"))`, `.or(...)`, `.not()`. `and`/`or`/`not`
+/// are legal method names — the Pkl operators are `&&`/`||`/`!`, so no collision.
 abstract class Predicate {
   kind: String
+  /// Matches when BOTH this and `other` match.
+  function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
+  /// Matches when EITHER this or `other` matches.
+  function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
+  /// Matches when this does NOT. (`let (l = this)`: a bare `this` inside the
+  /// `new {}` body rebinds to the freshly-built object, not the receiver.)
+  function not(): PNot = let (l = this) new PNot { item = l }
 }
 
 /// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
@@ -552,30 +648,31 @@ class PNot extends Predicate {
   item: Predicate
 }
 
-// `and`/`or`/`not` collide with Pkl operators, so the helpers are p-prefixed
-// (the jsonnet track already renamed `not`→`pnot`). Parameters are NOT named
-// after the properties they set: inside a `new { property = property }` amend
-// the RHS binds to the object's own member (infinite recursion), so each
-// argument gets a distinct name.
-function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
+// `const` so [[always]] (referenced from the [[DynamicGroup]] class body) may
+// call it. Parameters are NOT named after the properties they set: inside a
+// `new { property = property }` amend the RHS binds to the object's own member
+// (infinite recursion), so each argument gets a distinct name.
+const function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
   new { property = prop; op = cmpOp; value = cmpVal }
-function pAnd(preds: Listing<Predicate>): PAnd = new { items = preds }
-function pOr(preds: Listing<Predicate>): POr = new { items = preds }
-function pNot(pred: Predicate): PNot = new { item = pred }
 
-/// Matches every entity (a domain is never literally this sentinel).
-always: Cmp = cmp("domain", "ne", "__never__")
+/// Matches every entity (a domain is never literally this sentinel). `const`
+/// because [[DynamicGroup.cases]] references it from the class body.
+const always: Cmp = cmp("domain", "ne", "__never__")
 
-function whenDomain(d: String): Cmp = cmp("domain", "eq", d)
-function whenState(s: String): Cmp = cmp("state", "eq", s)
-function whenDeviceClass(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
-// e.g. attrLessThan("battery_level", 20)
-function attrLessThan(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
-function stateLessThan(threshold: Any): Cmp = cmp("state", "lt", threshold)
+/// `domain == d`, e.g. `domainIs("light")`.
+function domainIs(d: String): Cmp = cmp("domain", "eq", d)
+/// `state == s`, e.g. `stateIs("on")`.
+function stateIs(s: String): Cmp = cmp("state", "eq", s)
+/// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
+function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
+/// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
+function attrBelow(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
+/// `state < threshold`.
+function stateBelow(threshold: Any): Cmp = cmp("state", "lt", threshold)
 // Battery sensors expose the % as their STATE with device_class "battery"
 // (non-numeric states like "unavailable" simply don't match `state < x`).
-function lowBattery(threshold: Any): PAnd =
-  pAnd(new Listing { whenDeviceClass("battery"); stateLessThan(threshold) })
+/// Battery sensors under `threshold` percent.
+function lowBattery(threshold: Any): PAnd = deviceClassIs("battery").and(stateBelow(threshold))
 
 /// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
 /// render when it matches. Keeps the card + its slots but drops the build-time
@@ -587,54 +684,47 @@ class Case {
   slots: Mapping<String, Slot|String> = new {}
 }
 
-/// Build a [[Case]] from a predicate and a node, filtering the `entity_id` key
-/// out of the node's slots via a Mapping for-generator.
-function dynCase(whenP: Predicate, node: Node): Case = new Case {
-  `when` = whenP
-  card = node.card
-  slots = new Mapping {
-    for (k, v in node.slots) {
-      when (k != "entity_id") {
-        [k] = v
+// Build a [[Case]] from a predicate and a render fn: apply the fn to the
+// INTERNAL `hass.SELF` placeholder to obtain the card, then keep its card name +
+// slots but filter the `entity_id` key out (the renderer injects the matched
+// entity per match). `const local` because [[DynamicGroup.cases]] calls it from
+// the class body. Cases stay leaf-only today (children dropped), but the
+// `(e) -> ...` shape already distributes the entity explicitly, so it needs no
+// redesign if the wire format ever grows composite cases.
+const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
+  let (node = r.apply(hass.SELF))
+    new Case {
+      `when` = p
+      card = node.card
+      slots = new Mapping {
+        for (k, v in node.slots) {
+          when (k != "entity_id") {
+            [k] = v
+          }
+        }
       }
     }
-  }
-}
-
-/// Per-entity card DISPATCH: the FIRST branch whose predicate matches selects
-/// the card; `fallback` (when non-null) is the card for entities matching no
-/// branch. Pass the result as the `cases` of [[groupCases]].
-function dynWhen(branches: Listing<Case>, fallback: Node?): Listing<Case> =
-  new Listing {
-    for (b in branches) {
-      b
-    }
-    when (fallback != null) {
-      dynCase(always, fallback!!)
-    }
-  }
 
 /// A runtime-resolved group: render one card PER live entity matching `query`.
+/// Branches are a `Mapping<Predicate, render fn>` — one line per branch, author
+/// order preserved (= first-match dispatch order), a duplicate predicate a build
+/// error, and each branch replaceable BY KEY when amending a base group (a
+/// Listing amend would be append-only). Each render fn is `(hass.Entity) -> Node`:
+/// the author writes exactly where the matched entity flows and never sees the
+/// `$self` sentinel. `render` is the fallback for entities no branch matched (and
+/// the ONLY card when `branches` is empty).
 class DynamicGroup extends LayoutNode {
   kind: "dynamic" = "dynamic"
   query: Predicate
-  cases: Listing<Case>
-}
-
-/// A single-card dynamic group: render `node` for every entity matching
-/// `q` (no per-entity dispatch). (Param not named `query`: see [[cmp]].)
-function group(q: Predicate, node: Node): DynamicGroup = new DynamicGroup {
-  query = q
-  cases = new Listing { dynCase(always, node) }
-}
-
-/// A dispatching dynamic group: `branches` (from [[dynWhen]]) select the card
-/// per matched entity.
-function groupCases(q: Predicate, branches: Listing<Case>): DynamicGroup =
-  new DynamicGroup {
-    query = q
-    cases = branches
+  hidden branches: Mapping<Predicate, (hass.Entity) -> Node> = new {}
+  /// The card for entities no branch matched; null when a branch covers them all.
+  // TODO rename as else, or no, also just add else and we translate either or to fallback
+  hidden render: ((hass.Entity) -> Node)? = null
+  cases: Listing<Case>(!isEmpty) = new Listing {
+    for (p, r in branches) { caseOf(p, r) }
+    when (render != null) { caseOf(always, render!!) }
   }
+}
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,

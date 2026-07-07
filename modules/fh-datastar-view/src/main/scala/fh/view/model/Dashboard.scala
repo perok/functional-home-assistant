@@ -295,7 +295,7 @@ case class Theme(
   *     content under the template var named `bakeAs` (e.g. a `tabs` card's
   *     `{{{panel}}}`), keeping the default panel in the initial HTML (no
   *     round-trip). The `_panel` suffix + `panel` name live only in the
-  *     jsonnet.
+  *     authoring layer.
   *   - `defaultOpen`: shown from the first paint without a user action — a tabs
   *     default panel (or a popup open on load). The connection seeds its open
   *     set with every default-open surface (so it receives live patches
@@ -324,7 +324,7 @@ case class Surface(
     case (Some(into), Some(as)) => s"${into}_${as}"
     case _                      => Dashboard.PopupHostId
 
-/** The `dashboard.json` build artifact produced by the jsonnet build phase.
+/** The `dashboard.json` build artifact produced by the build phase.
   *
   *   - `slug`: the dashboard's stable id (its route is `/d/<slug>`; navigation
   *     targets it). ServerApp defaults it from the entry filename.
@@ -334,13 +334,17 @@ case class Surface(
   *     container). Component HTML is composed in Scala (see `Renderer`), not
   *     via mustache layout placeholders.
   *   - `surfaces`: the popup/tab subtrees, keyed by id (see [[Surface]]).
+  *   - `title`: the page `<title>` — an optional top-level authoring field
+  *     (`None` when the key is absent); the Server falls back to the [[slug]]
+  *     when it is `None`.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
     card: LayoutNode,
     theme: Theme = Theme(),
     surfaces: Map[String, Surface] = Map.empty,
-    slug: String = "dashboard"
+    slug: String = "dashboard",
+    title: Option[String] = None
 ) derives ConfiguredDecoder:
 
   /** Validate that every card reference resolves, supplies the params/slots the
@@ -351,7 +355,7 @@ case class Dashboard(
     * not load (the build/reload fails with the message, and live-reload keeps
     * the previous working renderer) — better than swapping in a dashboard whose
     * values silently blank out. `locateTransform` maps a transform back to a
-    * source location (e.g. `dashboard.jsonnet:42`) for a friendlier error; the
+    * source location (e.g. `dashboard.pkl:42`) for a friendlier error; the
     * default ignores it (the model stays source-agnostic).
     */
   def validate(
@@ -445,7 +449,7 @@ object Dashboard:
     * (dialog-wrapped) content is patched into (and cleared from on close). The
     * dialog itself is NOT here and NOT backend chrome: it is a plain `popup`
     * container card composed into the surface's content by
-    * `openPopup`/`c.popup` (see components.libsonnet), so the backend renders
+    * `openPopup`/`c.popup` (see lib/components.pkl), so the backend renders
     * every surface bare. `Surface.hostId` derives to this for an unbaked
     * surface (a popup); `Server.swapHost` uses it as both the eviction group
     * and the patch target for `POST /sse/surface/open/:id` and

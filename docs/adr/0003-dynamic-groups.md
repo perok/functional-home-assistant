@@ -43,24 +43,26 @@ in the component library, not in Scala.
 ### One builder set for static and dynamic
 
 A case is built with the **same leaf builders** as a static card, passing the
-sentinel `{ entity_id: '$self' }` (jsonnet `d.matched`; Pkl `hass.SELF`);
-`'$self'` is rebound to each match at render time. `dynamic.case(when, node)`
-keeps the node's `card` + `slots` and strips only the build-time `entity_id`.
+sentinel `{ entity_id: '$self' }` (`hass.SELF`, now internal to the authoring
+library — see the Mapping-branch model in ADR 0006); `'$self'` is rebound to
+each match at render time. The case-building step keeps the node's `card` +
+`slots` and strips only the build-time `entity_id`.
 There is no parallel `dyn*` builder set to keep in sync, and no per-case decoy
 fields to mock (the label rides in `slots` — ADR 0004).
 
 ### Membership and dispatch are separate
 
-- `dynamic.group(query, card)` renders one `card` per matching entity;
-- `card` is a single leaf, or a `dynamic.when([...cases...], fallback=...)`
-  selector when the card must vary per entity.
+- **membership** is a `query` over live state — one card per matching entity;
+- **dispatch** picks which card to render per entity: a single leaf, or a set of
+  per-entity branches (a predicate → render-fn map) with an optional fallback
+  when the card must vary per entity.
 
-Both forms lower to the same `Dynamic(query, cases)` — a plain leaf becomes a
-single `always` case. The whole vocabulary (predicate helpers `whenDomain`/
-`whenState`/`whenDeviceClass`/`attrLessThan`/`lowBattery`/…, `matched`,
-`case`/`when`/`group`) is namespaced under `c.dynamic` (jsonnet) / plain typed
-functions (Pkl, ADR 0006); the leaf builders stay top-level because both static
-and dynamic use share them.
+Both lower to the same `Dynamic(query, cases)` — a plain leaf becomes a single
+`always` case. On the Pkl authoring surface this is a `DynamicGroup` whose
+branches are a `Mapping<Predicate, (Entity) -> Node>` plus an optional `render`
+fallback (the full model + the fluent predicate helpers — `domainIs`/`stateIs`/
+`deviceClassIs`/`stateBelow`/`attrBelow`/`lowBattery`/… — are ADR 0006). The
+leaf builders stay shared because both static and dynamic use call them.
 
 ### Re-render only when a change touches the query
 

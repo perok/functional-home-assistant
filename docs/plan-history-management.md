@@ -1,6 +1,6 @@
 # Plan (later): investigate the in-place-navigation vs. history-management tension
 
-**Status:** not scheduled — investigation only, no code yet.
+**Status: not scheduled** — investigation only, no code yet.
 
 ## Why
 
