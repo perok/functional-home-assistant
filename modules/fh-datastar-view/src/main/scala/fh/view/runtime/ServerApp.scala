@@ -14,10 +14,10 @@ import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
   *
-  * Connects to Home Assistant, discovers every `*.jsonnet`/`*.pkl` dashboard
-  * entry in the dashboards dir (slug = filename), evaluates each **in memory**
-  * into the runtime model, seeds live state, and serves them with live Datastar
-  * updates. Run via `fh-datastar-view/runMain fh.view.runtime.ServerApp` with
+  * Connects to Home Assistant, discovers every `*.pkl` dashboard entry in the
+  * dashboards dir (slug = filename), evaluates each **in memory** into the
+  * runtime model, seeds live state, and serves them with live Datastar updates.
+  * Run via `fh-datastar-view/runMain fh.view.runtime.ServerApp` with
   * `SERVER`/`SECRET` set.
   */
 object ServerApp extends IOApp {
@@ -39,22 +39,20 @@ object ServerApp extends IOApp {
 
       _ <- (for {
         api <- FHApi.fromEnv
-        // Every top-level `*.jsonnet`/`*.pkl` in the dir is a dashboard;
+        // Every top-level `*.pkl` in the dir is a dashboard;
         // slug = filename sans ext (Pkl library modules live in `lib/`).
         entries <- discoverEntries(dashboardsDir).toResource
         _ <- IO
           .raiseWhen(entries.isEmpty)(
-            new RuntimeException(
-              s"no *.jsonnet or *.pkl dashboards in $dashboardsDir"
-            )
+            new RuntimeException(s"no *.pkl dashboards in $dashboardsDir")
           )
           .toResource
 
-        // Write the live dump once in both authoring languages (so
-        // `import 'dump.libsonnet'` / `import "lib/dump.pkl"` resolve) via the
-        // build phase, then re-evaluate every entry against the on-disk dumps.
-        // The runtime calls through `DashboardBuild`, never `DataDump`/`PklDump`
-        // directly — build owns fetching + writing the dumps.
+        // Write the live dump once (so `import "lib/dump.pkl"` resolves) via
+        // the build phase, then re-evaluate every entry against the on-disk
+        // dump. The runtime calls through `DashboardBuild`, never
+        // `DataDump`/`PklDump` directly — build owns fetching + writing the
+        // dump.
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
         built <- entries.traverse { case (slug, entry) =>
           buildEntry(dashboardsDir, slug, entry).map((slug, _))
@@ -105,33 +103,19 @@ object ServerApp extends IOApp {
       } yield ()).useForever
     } yield ExitCode.Success
 
-  /** `(slug, entryFilename)` for every top-level `*.jsonnet`/`*.pkl` in the
-    * dir, slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library
-    * modules — is never scanned.) A slug claimed by both languages is an error:
-    * routing is by slug, so one of them would silently shadow the other.
+  /** `(slug, entryFilename)` for every top-level `*.pkl` in the dir,
+    * slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library
+    * modules — is never scanned.) Slugs are unique by construction: with a
+    * single extension, slug = filename sans `.pkl`, and filenames are unique
+    * within a directory.
     */
   private def discoverEntries(dir: os.Path): IO[List[(String, String)]] =
     IO.blocking {
       os.list(dir)
-        .filter(p =>
-          os.isFile(p) && (p.last.endsWith(".jsonnet") || p.last.endsWith(
-            ".pkl"
-          ))
-        )
-        .map(p => p.last.stripSuffix(".jsonnet").stripSuffix(".pkl") -> p.last)
+        .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
+        .map(p => p.last.stripSuffix(".pkl") -> p.last)
         .sortBy(_._1)
         .toList
-    }.flatTap { entries =>
-      val collisions = entries.groupBy(_._1).filter(_._2.sizeIs > 1)
-      IO.raiseWhen(collisions.nonEmpty)(
-        new RuntimeException(
-          collisions
-            .map { case (slug, files) =>
-              s"dashboard slug collision: '$slug' claimed by ${files.map(_._2).mkString(" and ")} — rename one"
-            }
-            .mkString("\n")
-        )
-      )
     }
 
   /** Default dashboard: `DEFAULT_DASHBOARD` if present, else `dashboard`, else
@@ -176,12 +160,11 @@ object ServerApp extends IOApp {
   )
 
   /** Watch every dashboard's source graph and, on change, re-evaluate ALL
-    * entries (they share `components.libsonnet`/`dump.libsonnet`, so one edit
-    * can touch several) and hot-swap each renderer; the SSE streams repaint
-    * their body. A failed re-eval logs and keeps the previous renderers.
-    * Mirrors the single- dashboard watcher: a concurrent reconcile tracks
-    * `importsRef` so newly- imported files start being watched and removed ones
-    * stop.
+    * entries (they share the `lib/` modules, so one edit can touch several) and
+    * hot-swap each renderer; the SSE streams repaint their body. A failed
+    * re-eval logs and keeps the previous renderers. Mirrors the single-
+    * dashboard watcher: a concurrent reconcile tracks `importsRef` so newly-
+    * imported files start being watched and removed ones stop.
     */
   private def watchSources(
       dashboardsDir: os.Path,

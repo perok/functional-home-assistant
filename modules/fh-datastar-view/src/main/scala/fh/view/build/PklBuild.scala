@@ -19,14 +19,13 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** In-process Pkl evaluation for the build phase (the `.pkl` counterpart of
-  * [[JsonnetBuild]]).
+/** In-process Pkl evaluation for the build phase.
   *
   * The evaluated module is rendered to JSON here (Java-side
   * `ValueRenderers.json` with `omitNullProperties = true`, so absent optional
   * fields decode as `None` rather than JSON nulls) — entry modules need no
-  * `output { renderer = ... }` block; like jsonnet, an entry just IS its data.
-  * This runs once at build/startup/reload — never on the live hot path.
+  * `output { renderer = ... }` block; an entry just IS its data. This runs once
+  * at build/startup/reload — never on the live hot path.
   */
 object PklBuild {
 
