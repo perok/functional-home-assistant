@@ -1,0 +1,241 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "children" : [
+      {
+        "card" : "sectionTitle",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "label" : "Tabs"
+        }
+      },
+      {
+        "card" : "fhrow",
+        "children" : [
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "« Home",
+              "onclick" : "@post('/sse/navigate/dashboard'); history.pushState(null,'','/d/dashboard')"
+            }
+          }
+        ],
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      },
+      {
+        "card" : "tabs",
+        "children" : [
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "active" : "$tab_@@NODE_ID@@ == 0",
+              "label" : "Lights",
+              "onclick" : "@post('/sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "active" : "$tab_@@NODE_ID@@ == 1",
+              "label" : "Sensors",
+              "onclick" : "@post('/sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
+            }
+          }
+        ],
+        "inlineSurfaces" : {
+          "t0" : {
+            "bakeAs" : "panel",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+                    "label" : "Demo light",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('/sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
+                    },
+                    "tappable" : "1",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            },
+            "defaultOpen" : true
+          },
+          "t1" : {
+            "bakeAs" : "panel",
+            "bakeIndex" : 1,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "sensor.ams_1a4e_q",
+                    "label" : "Power",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$round($number($state), 1) & \" \" & $attr.unit_of_measurement"
+                    }
+                  }
+                },
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "sensor.ams_1a4e_u1",
+                    "label" : "L1 voltage",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$round($number($state), 1) & \" \" & $attr.unit_of_measurement"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      }
+    ],
+    "kind" : "component",
+    "slots" : {
+      
+    }
+  },
+  "cards" : {
+    "button" : {
+      "slots" : [
+        "label",
+        "onclick"
+      ],
+      "template" : "<button class=\"card{{#active}} tab{{/active}}\" data-on:click=\"{{{onclick}}}\"{{#active}}\n  data-class=\"{active: {{{active}}}}\"{{/active}}>{{label}}</button>"
+    },
+    "entityCard" : {
+      "slots" : [
+        "label",
+        "value",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
+    },
+    "fhcol" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "fhrow" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "popup" : {
+      "slots" : [
+      ],
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('/sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+    },
+    "sectionTitle" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<h2 class=\"section\">{{label}}</h2>"
+    },
+    "slider" : {
+      "slots" : [
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card\">\n  <header><strong>{{label}}</strong>: <span>{{state}}</span></header>\n  <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n    data-signals=\"{ val_{{id}}: {{value}} }\"\n    data-bind=\"val_{{id}}\"\n    data-on:change=\"@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n</article>"
+    },
+    "tabs" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col tabs\">\n  <div class=\"fh-row tabbar\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ tab_{{id}}: {{bakeIndex}} }\">\n    {{{panel}}}\n  </div>\n</div>"
+    }
+  },
+  "theme" : {
+    "chrome" : "<main class=\"container\" id=\"dashboard\">{{{body}}}</main>\n<div id=\"popups\"></div>",
+    "styles" : "/* Drive Pico's palette from the design tokens so its chrome matches; the\n   tokens flip under prefers-color-scheme (see the :root block), so Pico\n   follows the browser too. */\n:root{\n  --pico-background-color:var(--primary-background-color,#fafafa);\n  --pico-color:var(--primary-text-color,#212121);\n  --pico-card-background-color:var(--card-background-color,#fff);\n  --pico-muted-color:var(--secondary-text-color,#727272);\n  --pico-primary:var(--primary-color,#03a9f4);\n  --pico-primary-background:var(--primary-color,#03a9f4);\n  --pico-primary-inverse:var(--text-primary-color,#fff);\n}\n.fh-row{display:flex;gap:1rem;flex-wrap:wrap}\n.fh-col{display:flex;flex-direction:column;gap:1rem}\n/* A column placed directly in a row becomes one equal-width column, sharing\n   the row evenly; min-width:0 lets the equal shares hold with wide content,\n   align-self keeps it top-aligned rather than stretching to the row height. */\n.fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}\n.fh-cell{display:contents}\n/* Components consume the design tokens; fallbacks keep them usable unthemed. */\nbody{background:var(--primary-background-color,#fafafa);color:var(--primary-text-color,#212121)}\n.card{background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);\n  border:1px solid var(--divider-color,rgba(0,0,0,.12));border-radius:var(--ha-card-border-radius,12px)}\n.section{color:var(--primary-color,#03a9f4)}\n.state{color:var(--secondary-text-color,#727272)}\n/* Entity card: secondary info line + tappable affordance. */\n.entity .secondary{display:block;font-size:.8em;color:var(--secondary-text-color,#727272)}\n.card.tappable{cursor:pointer}\nbutton.card{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border:none;cursor:pointer}\ninput[type=range]{accent-color:var(--accent-color,#ff9800)}\n/* Tabs: a bar of buttons over one inline panel; the active tab is flagged\n   client-side via a signal (see the tab button's data-class). Ported from\n   theme.libsonnet:66-73. */\n.tabs{display:flex;flex-direction:column;gap:1rem}\n.tabbar{display:flex;gap:.5rem;flex-wrap:wrap}\n.tabbar .tab{background:transparent;color:var(--primary-text-color,#212121);\n  border:1px solid var(--divider-color,rgba(0,0,0,.12))}\n.tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}\n.tab-panel{display:contents}\n\n/* Popup overlay: styling for the `popup` container card (components.pkl), a\n   fixed-position card floated over the page. The dialog is transient —\n   patched into `#popups` on open, removed on close — so no visibility trick\n   is needed; it exists only while open. The theme styles `.popup` (a class\n   contract, like `.card`); the component emits it. Ported from\n   theme.libsonnet:75-85. */\ndialog.popup{position:fixed;inset:10vh 1rem auto;margin:0 auto;z-index:10;\n  border:none;border-radius:var(--ha-card-border-radius,12px);\n  background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);\n  padding:1.5rem;max-width:min(90vw,32rem);box-shadow:0 4px 24px rgba(0,0,0,.2)}\n.popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;\n  border:none;color:var(--secondary-text-color,#727272);cursor:pointer;font-size:1rem}",
+    "stylesheets" : [
+      "https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    ],
+    "tokens" : {
+      "accent-color" : "#ff9800",
+      "card-background-color" : "#ffffff",
+      "disabled-text-color" : "#bdbdbd",
+      "divider-color" : "rgba(0, 0, 0, 0.12)",
+      "error-color" : "#db4437",
+      "ha-card-border-radius" : "12px",
+      "info-color" : "#039be5",
+      "primary-background-color" : "#fafafa",
+      "primary-color" : "#03a9f4",
+      "primary-text-color" : "#212121",
+      "secondary-background-color" : "#e5e5e5",
+      "secondary-text-color" : "#727272",
+      "success-color" : "#43a047",
+      "text-primary-color" : "#ffffff",
+      "warning-color" : "#ffa600"
+    },
+    "tokensDark" : {
+      "card-background-color" : "#1e1e1e",
+      "disabled-text-color" : "#6f6f6f",
+      "divider-color" : "rgba(255, 255, 255, 0.12)",
+      "primary-background-color" : "#111111",
+      "primary-text-color" : "#e1e1e1",
+      "secondary-background-color" : "#1c1c1c",
+      "secondary-text-color" : "#9e9e9e"
+    }
+  }
+}
