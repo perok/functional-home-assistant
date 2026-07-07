@@ -63,9 +63,25 @@ two coexist in the same dashboards dir and are dispatched by file extension.
    strings, never numbers** (the slot decoder rejects numbers) — numeric config
    like the slider's `min`/`max` is stringified, exactly as the jsonnet builder
    does.
-6. **Cards are classes** ("class-as-builder"): hidden typed properties are the
-   authoring surface (`new c.EntityCard { entity = dump.entities.x }`), and the
-   class derives the slots.
+6. **Cards are classes with call-style factories.** The class is the
+   ("class-as-builder") core: hidden typed properties are the authoring surface
+   and the class derives the slots; `new c.EntityCard { entity = ... }` stays
+   fully supported. On top of the classes, entity-first **factory methods** make
+   the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
+   options applied by a **parenthesized amend** of the call result:
+   `(c.entityCard(e)) { tap = ...; label = ... }` (the outer parens are
+   mandatory; the parens-free form is a parse error). `|>` is reserved for
+   **additions** — a mixin like `tappable` chains on the end
+   (`c.entityCard(x) |> c.tappable`) — never construction (methods aren't
+   first-class, so there is deliberately no `x |> c.entityCard`). Text leaves get
+   call helpers too: `c.title("…")`, `c.button(label, tap)`. Render positions in
+   dynamic groups need a bare factory *value*, so each entity-first factory
+   exists twice across Pkl's separate method/function namespaces: a
+   `function entityCard(e)` AND a pure delegate
+   `hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)` — call
+   syntax picks the method, a bare `c.entityCard` the value, no logic duplicated.
+   Containers (`Row`/`Column`/`Tabs`/`Popup`) keep the `new` + `children {}`
+   style.
 7. **A card class also owns its template**: each concrete `Node` subclass
    carries a `hidden cardDef: CardDef` (Mustache template + declared slots),
    co-located with the logic that fills them, and the module's `cards` mapping
@@ -78,6 +94,35 @@ two coexist in the same dashboards dir and are dispatched by file extension.
    `cardDef` is an eval-time error naming the class. Entries keep the
    one-line `cards = c.cards` (symmetric with the jsonnet track, which keeps
    its hand-written `cards` object — jsonnet has no reflection).
+8. **Dynamic groups: Mapping branches + render lambdas.** A dynamic group is an
+   amendable `DynamicGroup` (extends `LayoutNode`, `kind = "dynamic"`) whose
+   branches are a **`Mapping<Predicate, (hass.Entity) -> Node>`** — one line per
+   branch, `[predicate] = renderFn`. Author order is preserved (= first-match
+   dispatch order), a structurally-equal duplicate predicate key is a build error
+   naming the line, and a branch is replaceable by key when amending a base group
+   (a Listing amend is append-only). An optional `render` fallback covers
+   entities no branch matched (and is the only card when `branches` is empty).
+   Each render fn is a **function of the matched entity** —
+   `(e) -> (c.entityCard(e)) { … }`, or a bare factory value `c.slider` — so the
+   author writes exactly where the entity flows. `hass.SELF`/`DynamicEntity` are
+   now **internal only**: the derived `cases` listing feeds each branch through
+   `const local caseOf`, which applies the lambda to `hass.SELF` and strips the
+   build-time `entity_id` slot (the renderer injects the matched entity per
+   match); the emitted `Case` (`when`/`card`/`slots`) JSON is byte-identical to
+   before. This **removed the old `group`/`groupCases`/`dynWhen`/`dynCase`
+   function-nesting API** — a deliberate jsonnet divergence (the jsonnet track
+   keeps its own dynamic API). Predicate combinators became **fluent methods** on
+   `Predicate` (`domainIs("light").and(stateIs("on"))`, `.or(…)`, `.not()`), and
+   the leaf helpers read in position — `domainIs`/`stateIs`/`deviceClassIs`/
+   `stateBelow`/`attrBelow` (+ `always`, `lowBattery(n)`); the old
+   `pAnd`/`pOr`/`pNot` Listing forms were deleted in favor of the methods.
+   Rejected while designing this: `entity = SELF` as a class default (a forgotten
+   entity silently emits `$self`, needing a backend guard); `caseOf`
+   amend-injecting the entity (breaks the moment a branch mixes per-entity and
+   static children); `Dyn*` subclasses (collide in the reflect-derived `cards`
+   registry); explicit `dynSlider()` factories (just `SELF` renamed). Render
+   lambdas won because a branch is a function of the matched entity and composes
+   unchanged if cases ever grow from leaves to subtrees.
 
 ## Feature coverage (full jsonnet parity)
 
@@ -95,9 +140,9 @@ parentheses):
   cookie-writing onclick, tabs CSS (0002/0005).
 - Dynamic groups: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`; the
   `PredicateOp` union type makes a misspelled op a build error — an
-  improvement over jsonnet), the predicate helpers, `dynCase`/`dynWhen`/
-  `group`/`groupCases`, `hass.SELF` (`$self`) accepted by any leaf card, live
-  `friendly_name ? : entity_id` label default (0003).
+  improvement over jsonnet), fluent predicate methods + leaf helpers, and the
+  `DynamicGroup` Mapping-branch + render-lambda authoring model (decision 8);
+  live `friendly_name ? : entity_id` label default (0003).
 - Slider three-tier config: author override → build-time spec (static entity)
   → runtime `$lookup($domain)` over the manifested domain map (dynamic `$self`
   entity); one typed `sliderSpec` table (incl. cover/fan rows) is the single
@@ -146,6 +191,27 @@ though the emitted slot key remains `"class"`.
   self-contained (an instance-property reference has no instance to resolve
   against). The reflect stdlib needs Paguro at runtime; it is a declared
   pkl-core dependency, so nothing extra to ship.
+- Amending a **method-call result** requires outer parens —
+  `(c.entityCard(e)) { … }`; the parens-free `c.entityCard(e) { … }` is a parse
+  error (Pkl's own message suggests the parenthesized form). `|>` binds looser
+  than call/amend, so a mixin chains after construction, including after an amend.
+- **Methods aren't first-class values.** To pass a factory *as a value* (a
+  `Mapping` branch's render fn) you need either an explicit `.apply` at the call
+  site or the dual-name **method + function-value delegate** pattern
+  (`function slider(e)` alongside `hidden slider = (e) -> slider(e)` — methods
+  and properties are separate namespaces, so no recursion and no duplicated
+  logic).
+- **Function-valued module properties can't be exported** — a rendered module
+  errors on them; mark them `hidden`. Harmless for `components.pkl`, a library
+  that is imported, never rendered.
+- A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
+  first: a bare `this` inside the `new {}` body rebinds to the freshly-built
+  object, not the receiver.
+- **`const` is transitive**: a `const` property (or any reference from a class
+  body) may only call `const` functions — so helpers reached that way are
+  `const`/`const local` all the way down (why `cmp`, and thus `always`, are
+  `const`). `and`/`or`/`not` are legal method names — the operators are
+  `&&`/`||`/`!`, so there is no collision.
 
 ## Verification
 
