@@ -364,13 +364,25 @@ class RendererSuite extends munit.FunSuite {
       "sensor.c" -> st("sensor.c", "cold", "battery" -> Json.fromInt(50))
     )
     val r = renderer(dyn)
-    // dynamic as layout root -> the group's own id'd container "c" is the morph
-    // target; children are rendered inside it (not individually wrapped).
+    // dynamic as layout root -> the group's own id'd container "c" is the outer
+    // morph target; each child is ALSO wrapped in its own id'd `fh-cell` (the
+    // per-entity patch target) `<groupId>_<sanitized entity>`.
     val html = r.renderNodeById("c", states).get
     assert(html.startsWith("""<div id="c">"""), clue = html)
-    // light.a dispatched to the btn case, sensor.b to the card case
-    assert(html.contains("""<button>Lamp</button>"""), clue = html)
-    assert(html.contains("""<div><span>hot</span>"""), clue = html)
+    // light.a dispatched to the btn case, sensor.b to the card case, each in its
+    // own per-entity wrapper.
+    assert(
+      html.contains(
+        """<div class="fh-cell" id="c_light_a"><button>Lamp</button></div>"""
+      ),
+      clue = html
+    )
+    assert(
+      html.contains(
+        """<div class="fh-cell" id="c_sensor_b"><div><span>hot</span>"""
+      ),
+      clue = html
+    )
     // sensor.c excluded by the membership query (battery 50)
     assert(!html.contains("cold"), clue = html)
     // the group is indexed under its own id "c" and re-renders on a change that
@@ -839,5 +851,100 @@ class RendererSuite extends munit.FunSuite {
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-entity dynamic-group patches (Tier 1 + Tier 2)
+  // ---------------------------------------------------------------------------
+
+  // A dynamic group (as the layout root, so group id "c") of on-state entities.
+  private val onGroup = LayoutNode.Dynamic(
+    query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+    cases = List(
+      DynamicCase(
+        Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+        "card",
+        slots = Map("state" -> SlotSource())
+      )
+    )
+  )
+
+  test("dynamicChildId slugs the entity id under the group id") {
+    val r = renderer(onGroup)
+    assertEquals(r.dynamicChildId("c", "light.a"), "c_light_a")
+    assertEquals(r.dynamicChildId("c", "light-b.x"), "c_light_b_x")
+  }
+
+  test("dynamicMembers: query + case matches, in DOM (entity-id) order") {
+    val r = renderer(onGroup)
+    val states = Map(
+      "light.b" -> st("light.b", "on"),
+      "light.a" -> st("light.a", "on"),
+      "light.c" -> st("light.c", "off") // fails the query
+    )
+    assertEquals(r.dynamicMembers("c", states), List("light.a", "light.b"))
+    // unknown / non-dynamic id -> no members
+    assertEquals(r.dynamicMembers("zzz", states), Nil)
+  }
+
+  test(
+    "renderDynamicChild renders ONE wrapped card, or None for a non-member"
+  ) {
+    val r = renderer(onGroup)
+    val states = Map(
+      "light.a" -> st("light.a", "on"),
+      "light.b" -> st("light.b", "off")
+    )
+    assertEquals(
+      r.renderDynamicChild("c", "light.a", states).get,
+      """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
+    )
+    // fails the query -> not a member
+    assertEquals(r.renderDynamicChild("c", "light.b", states), None)
+    // unknown entity / unknown group -> None
+    assertEquals(r.renderDynamicChild("c", "light.z", states), None)
+    assertEquals(r.renderDynamicChild("zzz", "light.a", states), None)
+  }
+
+  test("affectedDynamics surfaces the membership delta per group") {
+    val r = renderer(
+      LayoutNode.Dynamic(
+        query = Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
+        cases = List(
+          DynamicCase(
+            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+            "card",
+            slots = Map("state" -> SlotSource())
+          )
+        )
+      )
+    )
+    def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
+    def high(id: String) =
+      st(id, "x", "battery" -> Json.fromInt(50)) // no match
+    // prev ∧ cur -> InPlace
+    assertEquals(
+      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), low("s.b"))),
+      List("c" -> DynamicDelta.InPlace)
+    )
+    // ¬prev ∧ cur -> Added (both a high->low flip and a newly-seen match)
+    assertEquals(
+      r.affectedDynamics(StateChange("s.b", Some(high("s.b")), low("s.b"))),
+      List("c" -> DynamicDelta.Added)
+    )
+    assertEquals(
+      r.affectedDynamics(StateChange("s.b", None, low("s.b"))),
+      List("c" -> DynamicDelta.Added)
+    )
+    // prev ∧ ¬cur -> Removed
+    assertEquals(
+      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), high("s.b"))),
+      List("c" -> DynamicDelta.Removed)
+    )
+    // matches neither side -> untouched (no entry)
+    assertEquals(
+      r.affectedDynamics(StateChange("s.z", Some(high("s.z")), high("s.z"))),
+      Nil
+    )
   }
 }
