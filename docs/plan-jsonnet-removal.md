@@ -1,8 +1,10 @@
 # Plan: delete the jsonnet authoring track (fh-datastar-view)
 
-**Status: planned, not started** — decisions locked (ergonomics-first ordering, entry base
-module, localhost bind default); nothing implemented. Prerequisite: the wire-format
-snapshot test (TODO2 top item) lands first.
+**Status: in progress** — Phases 0–2 and 4 landed; Phase 3 (porting the five real dashboards +
+tabs) is under way by hand. Key deviation from the original plan: the `.jsonnet`/`.libsonnet`
+sources are **not deleted in lockstep** — they stay on disk as inert porting references (the
+backend no longer evaluates them) until the hand-port finishes, then they go. See the per-phase
+"landed" notes below.
 
 Pkl becomes the only authoring language. The exit is a **porting project, not a
 deletion**: five real dashboards (`dashboard`, `energy`, `inngangsetasje`,
@@ -38,18 +40,23 @@ sjsonnet off the classpath, no 12k-line `dump.libsonnet` regenerated per startup
 
 ### Phase 0 — safety net (already in TODO2)
 
-Wire-format snapshot test in `PklBuildSuite`: snapshot the evaluated `{cards, card}`
+**LANDED.** Wire-format snapshot test in `PklBuildSuite`: snapshot the evaluated `{cards, card}`
 JSON of the Pkl demo entries so every phase below is byte-identity-checked by
-`sbt 'fh-datastar-view/testFull'`, not manual diffing.
+`sbt 'fh-datastar-view/testFull'`, not manual diffing. Snapshots live in
+`src/test/resources/snapshots/`; regenerate deliberately with `FH_UPDATE_SNAPSHOTS=1`.
 
 ### Phase 1 — ergonomics refactor
 
-Execute `docs/plan-pkl-authoring-ergonomics.md` as designed (call-style factories,
-Mapping-branch dynamic groups, fluent predicates). Its own verification applies
-(byte identity for `pkl-demo`/`pkl-tabs`). jsonnet is still alive here — the
-cross-language parity constraint holds through this phase, as that plan already assumes.
+**LANDED** (recorded in ADR 0006). Executed `docs/plan-pkl-authoring-ergonomics.md` as designed
+(call-style factories, Mapping-branch dynamic groups, fluent predicates). Byte identity for
+`pkl-demo`/`pkl-tabs` held.
 
 ### Phase 2 — pre-port enablers (Pkl lib additions)
+
+**LANDED.** `lib/entry.pkl` base module (entries `amends` it; required `card`, optional
+`title`/`surfaces`/`theme`; the missing-`card` error points at `entry.pkl` and its doc comment
+explains where the real fix is), `c.floorView(floor)`, and the per-dashboard `<title>` backend
+(optional `title` in the wire model, HTML-escaped; Server falls back to the slug).
 
 - **`lib/entry.pkl`** — the entry base module:
 
@@ -79,8 +86,12 @@ cross-language parity constraint holds through this phase, as that plan already 
 
 ### Phase 3 — port the six entries, one commit each
 
-The slug-collision guard means `dashboard.pkl` and `dashboard.jsonnet` cannot coexist:
-**each commit adds the `.pkl` and deletes the `.jsonnet` together.**
+**IN PROGRESS — the user is hand-porting the five real dashboards + tabs to Pkl.** Deviation from
+the original plan: the `.jsonnet` originals are **not** deleted alongside each `.pkl` — the
+backend no longer evaluates them (Phase 4 removed the jsonnet track and, with it, the
+slug-collision guard), so they stay on disk as inert porting references and are deleted once the
+port completes. Discovery scans `*.pkl` only, so a `.pkl` port and its `.jsonnet` original can
+coexist harmlessly.
 
 Per entry:
 
@@ -105,6 +116,16 @@ not in the live entries.
 
 ### Phase 4 — deletion sweep
 
+**LANDED (modified — code deleted, but the jsonnet *sources* stay on disk pending the hand-port).**
+`JsonnetBuild` + the sjsonnet dependency deleted (os-lib, formerly transitive via sjsonnet, is now
+a direct pin). `SourceEval` is a Pkl-only seam (extension dispatch dropped, seam kept).
+`DashboardBuild.prepareDumps` writes only `lib/dump.pkl` — `dump.libsonnet` is no longer generated,
+though its `.gitignore` line deliberately stays until the port finishes. `normalizeChildren`
+deleted (Pkl's `Listing<LayoutNode>` always renders arrays). `discoverEntries` scans `*.pkl` only
+(so cross-language slug collisions are impossible — the guard is gone). `BuildApp` defaults to
+`dashboard.pkl` (which errors until that entry is ported). `BuildPhaseSuite` triaged (11→8 tests).
+The `.libsonnet`/`.jsonnet` files themselves are NOT deleted here (see Phase 3).
+
 - `JsonnetBuild.scala`; the sjsonnet dependency (`build.sbt:137`).
 - `components.libsonnet`, `theme.libsonnet`, `tokens.libsonnet`; the `dump.libsonnet`
   write in `DashboardBuild.prepareDumps` (and `DataDump`'s jsonnet-shaped output if
@@ -122,6 +143,10 @@ not in the live entries.
 
 ### Phase 5 — docs / knowledge sweep
 
+**LANDED.** ADR 0006 + the other ADRs, `docs/adr/README.md`, CLAUDE.md, and TODO2 reworded to
+Pkl-only (jsonnet framed as inert porting references, not a second track). This plan's own status
+notes updated.
+
 - ADR 0006 rewritten in place: "Pkl is the authoring language", not "a second track".
   Check every other ADR for "jsonnet composition" phrasing (entity-card, surfaces,
   slot-model ADRs) and rewrite where the statement is about the authoring layer.
@@ -134,9 +159,19 @@ not in the live entries.
 
 Slot these around the spine freely — none touch the wire JSON.
 
-- **Per-entity patches for dynamic groups (Tier 1)** — recommended right after
-  Phase 0. Today the group is the patch unit: one member's state tick re-sends the
-  whole group's HTML and the client morphs the whole subtree. Narrowing:
+- **Per-entity patches for dynamic groups (Tier 1)** — **DONE (Tier 1 AND Tier 2,
+  2026-07-07).** The group is no longer the patch unit. As specced below, plus
+  Tier 2 un-parked with a churn heuristic: membership add/remove is patched
+  per-entity (`mode remove`; `before #successor`/`append #group`) when
+  `churn < MaxChurnFraction (0.5) × rendered members` and the group is already
+  established in the diff cache; at/above the boundary (e.g. 1-of-2, the last
+  member) or post-reload, the whole group repaints and its child cache entries
+  are pruned. Strict `<` so exactly-half repaints. The reload-race concern that
+  parked Tier 2 is mitigated by the established-group gate (first change after a
+  reload always repaints); the residual connect-gap insert race is documented in
+  `Server.renderMembershipChange` — bounded, self-heals on the next repaint.
+  Original spec (implemented, with `sharedChangedHtml` now `sharedPatches` and a
+  `Patch` ADT at the diff boundary):
   - Wrap each dynamic case render in the static path's wrapper,
     `<div class="fh-cell" id="{groupId}_{sanitize(entityId)}">` — the id already
     exists logically in `Renderer.renderCase`, it just never reaches the DOM.
@@ -150,13 +185,12 @@ Slot these around the spine freely — none touch the wire JSON.
     child-scoped fragments; when a group itself repaints, prune its child entries
     from the cache (staleness only causes a harmless re-send, but pruning keeps the
     caches coherent). `RendererSuite` HTML assertions gain the wrappers.
-  - **Tier 2 parked**: true add/remove deltas (`mode remove`, `before #successor` /
-    `append #group` — the successor is computable, children sort by entityId). Only
-    wins under membership churn in very large groups, and insertion patches aren't
-    naturally idempotent around reload races. Revisit if measured.
-- **Bind default `127.0.0.1`** (Decision 3): `ServerApp`'s `HOST` fallback flips from
-  `0.0.0.0`; LAN exposure is explicit. Update the run instructions where they mention
-  the URL.
+  - **Tier 2** (was parked; implemented as described in the DONE note above):
+    true add/remove deltas (`mode remove`, `before #successor` / `append #group` —
+    the successor is computable, children sort by entityId), gated by the churn
+    heuristic + established-group check instead of "revisit if measured".
+- **Bind default `127.0.0.1`** (Decision 3) — **DONE.** `ServerApp`'s `HOST` fallback flips from
+  `0.0.0.0`; LAN exposure is now opt-in via `HOST`.
 - **Vendor `datastar.js`**: serve the pinned bundle from ember (resources file + one
   route) instead of the jsdelivr CDN, so the dashboard survives an internet outage —
   precisely when local controls matter. `Server.DatastarCdn` becomes a local path;

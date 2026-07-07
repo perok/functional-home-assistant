@@ -20,8 +20,7 @@ module entry
 import "components.pkl" as c
 import "theme.pkl" as themeMod
 
-/// The reflected card registry (each card class's template + slots). Symmetric
-/// with the jsonnet track's hand-written `cards` object.
+/// The reflected card registry (each card class's template + slots).
 cards = c.cards
 
 /// The shared theme. Override in an entry that wants a different look.
