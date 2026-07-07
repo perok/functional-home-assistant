@@ -21,21 +21,20 @@ theme = themeMod.theme
 
 card: c.Node = new c.Column {
   children {
-    new c.SectionTitle { text = "Tabs" }
+    c.title("Tabs")
     new c.Row {
       children {
-        new c.Button { label = "« Home"; action = c.navigate("dashboard") }
+        c.button("« Home", c.navigate("dashboard"))
       }
     }
     new c.Tabs {
       tabs {
         new c.Tab {
           label = "Lights"
-          // Entity cards toggled on tap.
+          // Entity cards toggled on tap (options amended onto the call).
           content = new c.Row {
             children {
-              new c.EntityCard {
-                entity = dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`
+              (c.entityCard(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)) {
                 tap = c.toggleTap
               }
             }
@@ -46,12 +45,10 @@ card: c.Node = new c.Column {
           // Live value expressions (own unit).
           content = new c.Row {
             children {
-              new c.EntityCard {
-                entity = dump.entities.`sensor_ams_1a4e_q`
+              (c.entityCard(dump.entities.`sensor_ams_1a4e_q`)) {
                 value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
               }
-              new c.EntityCard {
-                entity = dump.entities.sensor_ams_1a4e_u1
+              (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
                 value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
               }
             }

@@ -47,9 +47,11 @@ class SwitchEntity extends Entity {
 class GenericEntity extends Entity {}
 
 /// The build-time placeholder "current entity" for a dynamic-group case — the
-/// typed counterpart of jsonnet's `d.matched`. Any leaf card accepts it like a
-/// real dump entity; its slots leave `entityId` unset and so inherit the
-/// matched entity, which the renderer injects as the `entity_id` param per
+/// typed counterpart of jsonnet's `d.matched`. INTERNAL to `components.pkl`'s
+/// `caseOf`, which applies each render lambda to [[SELF]]; authors write render
+/// lambdas `(e) -> ...` and never reference this directly. Any leaf card accepts
+/// it like a real dump entity; its slots leave `entityId` unset and so inherit
+/// the matched entity, which the renderer injects as the `entity_id` param per
 /// match. The `$self` sentinel is build-time only: it tells `labelSlot` to emit
 /// a LIVE friendly_name default rather than a baked literal.
 class DynamicEntity extends Entity {
@@ -57,7 +59,8 @@ class DynamicEntity extends Entity {
   domain = "dynamic"
 }
 
-/// The single shared [[DynamicEntity]] instance authors pass to dynamic cases.
+/// The single shared [[DynamicEntity]] instance — INTERNAL to `components.pkl`'s
+/// `caseOf` (authors write render lambdas, not `SELF`).
 SELF: DynamicEntity = new {}
 
 // ---- registry structure (generated dump.pkl subclasses these) ----
