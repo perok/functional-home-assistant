@@ -1,5 +1,7 @@
 https://medium.com/@patrickharned/no-boilerlate-in-scala3-automatic-case-class-generation-0f5970a112a7 ?
 
+pkl function varags to skip children: https://github.com/apple/pkl/issues/1155
+
 xml literla for dotty?
 
 what data to expose as static?:
