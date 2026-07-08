@@ -4,6 +4,7 @@ modules/home-codegen/src/main/scala/ha/generated
 modules/fh-datastar-view/src/main/resources/dashboards/dump.libsonnet
 modules/fh-datastar-view/src/main/resources/dashboards/lib/dump.pkl
 modules/fh-datastar-view/dashboard.json
+modules/fh-datastar-view/assets-cache/
 
 .semanticdb
 

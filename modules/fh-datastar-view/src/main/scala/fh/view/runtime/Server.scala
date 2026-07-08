@@ -70,12 +70,20 @@ class Server(
     sessions: Sessions,
     // Per-slug fan-out of the shared main-page patches (fed by
     // `sharedPatchPublishers`; every connection viewing the slug subscribes).
-    sharedTopics: Map[String, Topic[IO, ServerSentEvent]]
+    sharedTopics: Map[String, Topic[IO, ServerSentEvent]],
+    // Local cache of the themes' external assets ([[AssetCache]]): page URLs
+    // are rewritten through it and `/assets/:name` serves from it. The empty
+    // default (pass-through, no local assets) keeps tests ceremony-free.
+    assets: AssetCache = AssetCache.empty
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case req @ GET -> Root              => pageResponse(defaultSlug, req)
     case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
+
+    // Locally cached theme assets (stylesheets/scripts/fonts); a name that
+    // isn't cached is a 404 — the page then references the original URL.
+    case GET -> Root / "assets" / name => assets.serve(name)
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
@@ -716,8 +724,8 @@ class Server(
               page(
                 slug,
                 renderer.renderPage(states, uiState),
-                renderer.stylesheets,
-                renderer.scripts,
+                renderer.stylesheets.map(assets.rewrite),
+                renderer.scripts.map(assets.rewrite),
                 renderer.title
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -779,7 +787,8 @@ object Server {
       stateStore: StateStore,
       renderers: Map[String, SignallingRef[IO, Renderer]],
       defaultSlug: String,
-      sessions: Sessions
+      sessions: Sessions,
+      assets: AssetCache = AssetCache.empty
   ): Resource[IO, Server] =
     for {
       topics <- renderers.keySet.toList
@@ -792,7 +801,8 @@ object Server {
         renderers,
         defaultSlug,
         sessions,
-        topics
+        topics,
+        assets
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
