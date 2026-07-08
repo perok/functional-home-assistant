@@ -322,6 +322,7 @@ class PklBuildSuite extends munit.FunSuite {
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
       "button" -> List("label", "onclick"),
+      "tab" -> List("label", "onclick", "active"),
       "slider" -> List(
         "label",
         "state",
@@ -985,7 +986,7 @@ class PklBuildSuite extends munit.FunSuite {
       .getOrElse(fail("no tabs component in the layout"))
     val tabButtons =
       tabsNode.children.collect { case c: LayoutNode.Component => c }
-    assertEquals(tabButtons.map(_.card), List("button", "button"))
+    assertEquals(tabButtons.map(_.card), List("tab", "tab"))
     tabButtons.foreach { b =>
       val onclick = b
         .slots("onclick")

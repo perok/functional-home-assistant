@@ -151,8 +151,10 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
   (label → that tab's cards, Row-wrapped into per-tab inline surfaces with
   `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`; the Listing-valued mapping
-  default lets a tab body list cards with no `new`/`children`), `Button.active`,
-  cookie-writing onclick, tabs CSS (0002/0005).
+  default lets a tab body list cards with no `new`/`children`). The bar is
+  BeerCSS-native markup: a `TabButton` card per tab (`.tabs > a` anchors,
+  `data-class` active + cookie-writing onclick) — internal to `Tabs`, not an
+  authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
   around any amend parent that isn't a `new` expression).
