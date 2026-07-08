@@ -1,22 +1,25 @@
-# Release: on tag vX.Y.Z, build the add-on container (amd64 + aarch64) and
-# push it to GHCR as ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}.
-#
-# The add-on version in home-addon/config.yaml is bumped MANUALLY before
-# tagging; the gate below refuses to publish a mismatch. After the FIRST
-# release, make the GHCR package public (the HA supervisor pulls
-# unauthenticated): github.com/users/perok/packages → fh-dashboard →
-# settings → visibility.
+# Release: config.yaml is the single source of truth. When a push to main
+# changes home-addon/config.yaml to a version whose image is not on GHCR yet,
+# this builds the add-on container (amd64 + aarch64), pushes
+# ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}, and creates the vX.Y.Z tag +
+# GitHub release. Merging a version-bump PR IS the release — no manual
+# tagging. (The supervisor reads config.yaml from main to offer updates, so
+# main's version and the published image tag can never drift.)
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: [home-addon/config.yaml]
+  # Re-run by hand after a partial failure; the already-published check makes
+  # it idempotent.
+  workflow_dispatch:
 
 env:
   IMAGE: ghcr.io/perok/fh-dashboard
 
 permissions:
-  contents: read
+  contents: write # create the release tag
   packages: write
 
 jobs:
@@ -25,52 +28,74 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check config.yaml version matches the tag
+      - name: Read version, skip if already on GHCR
+        id: ver
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          CONFIG_VERSION="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' home-addon/config.yaml)"
-          if [ "$VERSION" != "$CONFIG_VERSION" ]; then
-            echo "Tag v$VERSION does not match home-addon/config.yaml version $CONFIG_VERSION" >&2
-            echo "Bump config.yaml (and commit) before tagging." >&2
+          VERSION="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' home-addon/config.yaml)"
+          if [ -z "$VERSION" ]; then
+            echo "could not read version from home-addon/config.yaml" >&2
             exit 1
           fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "$IMAGE:$VERSION already published — nothing to do"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-java@v4
+        if: steps.ver.outputs.published == 'false'
         with:
           distribution: temurin
           java-version: "21"
           cache: sbt
 
       - uses: sbt/setup-sbt@v1
+        if: steps.ver.outputs.published == 'false'
 
       - name: Test
+        if: steps.ver.outputs.published == 'false'
         run: sbt 'fh-datastar-view/testFull'
 
       - name: Assemble fat jar
         # Produces target/addon/fh-dashboard.jar, which the Dockerfile COPYs.
+        if: steps.ver.outputs.published == 'false'
         run: sbt 'fh-datastar-view/assembly'
 
       # QEMU: the Dockerfile's jlink stage must execute under linux/arm64
       # during the multi-arch build.
       - uses: docker/setup-qemu-action@v3
+        if: steps.ver.outputs.published == 'false'
       - uses: docker/setup-buildx-action@v3
+        if: steps.ver.outputs.published == 'false'
 
       - uses: docker/login-action@v3
+        if: steps.ver.outputs.published == 'false'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        if: steps.ver.outputs.published == 'false'
         with:
           context: .
           file: home-addon/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
             ${{ env.IMAGE }}:latest
           labels: |
-            io.hass.version=${{ env.VERSION }}
+            io.hass.version=${{ steps.ver.outputs.version }}
             org.opencontainers.image.source=https://github.com/perok/functional-home-assistant
+
+      - name: Tag + GitHub release
+        if: steps.ver.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.ver.outputs.version }}" \
+            --target "$GITHUB_SHA" --generate-notes \
+            --title "v${{ steps.ver.outputs.version }}"

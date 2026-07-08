@@ -8,4 +8,6 @@ Datastar dashboard (`fh-datastar-view`): dashboards authored in
 - **User-editable**: dashboards are seeded to the add-on config dir on first
   start and hot-reload on edit. See [DOCS.md](DOCS.md).
 - **Image**: `ghcr.io/perok/fh-dashboard` (amd64 + aarch64), built by GitHub
-  Actions on release tags from [home-addon/Dockerfile](Dockerfile).
+  Actions from [home-addon/Dockerfile](Dockerfile). Releasing = merging a
+  `version:` bump in [config.yaml](config.yaml) to main; the workflow builds,
+  publishes, and creates the matching `vX.Y.Z` tag.
