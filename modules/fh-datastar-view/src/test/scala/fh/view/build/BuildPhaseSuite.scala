@@ -83,7 +83,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                 "params": { "label": "More" },
                 "entities": [],
                 "slots": { "onclick": { "entity": "",
-                  "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_self')\"" } },
+                  "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "component", "card": "card" } } } }
             ]
@@ -111,7 +111,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         .downField("onclick")
         .get[String]("transform")
         .toOption,
-      Some("\"@post('/sse/surface/open/c_0_self')\"")
+      Some("\"@post('sse/surface/open/c_0_self')\"")
     )
     // the moved content lives under the new surface id
     assertEquals(
@@ -146,7 +146,7 @@ class BuildPhaseSuite extends munit.FunSuite {
               { "kind": "component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
                 "slots": { "onclick": { "entity": "",
-                  "transform": "\"@post('/sse/surface/open/@@NODE_ID@@_0')\"" } } }
+                  "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ],
             "inlineSurfaces": {
               "0": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
@@ -200,7 +200,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         .downField("onclick")
         .get[String]("transform")
         .toOption,
-      Some("\"@post('/sse/surface/open/c_0')\"")
+      Some("\"@post('sse/surface/open/c_0')\"")
     )
   }
 

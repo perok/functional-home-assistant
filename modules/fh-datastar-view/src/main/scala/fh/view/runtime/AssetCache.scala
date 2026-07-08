@@ -34,7 +34,8 @@ import scala.util.matching.Regex
   */
 final class AssetCache private (
     dir: os.Path,
-    // original URL -> local route ("/assets/<name>"); misses pass through.
+    // original URL -> local route ("assets/<name>", base-relative); misses
+    // pass through.
     mapping: Map[String, String]
 ) {
 
@@ -91,7 +92,9 @@ object AssetCache {
       urls.distinct
         .traverse { url =>
           cacheOne(dir, url, client).attempt.flatMap {
-            case Right(name) => IO.pure(Some(url -> s"/assets/$name"))
+            // Relative (resolves via the page's <base href>) so the same
+            // rendered HTML works directly and behind the ingress prefix.
+            case Right(name) => IO.pure(Some(url -> s"assets/$name"))
             case Left(err) =>
               IO.println(
                 s"asset cache: keeping original URL for $url (${err.getMessage})"

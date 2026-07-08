@@ -47,7 +47,7 @@
           "onclick" : {
             "bypassUnavailable" : false,
             "reactive" : false,
-            "transform" : "\"@post('/sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
+            "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
           },
           "tappable" : "1",
           "value" : {
@@ -168,7 +168,7 @@
               "onclick" : {
                 "bypassUnavailable" : false,
                 "reactive" : false,
-                "transform" : "\"@post('/sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
+                "transform" : "\"@post('sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
               },
               "tappable" : "1",
               "value" : {
@@ -272,7 +272,7 @@
         "kind" : "component",
         "slots" : {
           "label" : "Power detail…",
-          "onclick" : "@post('/sse/surface/open/detail')"
+          "onclick" : "@post('sse/surface/open/detail')"
         }
       },
       {
@@ -323,7 +323,7 @@
                       "kind" : "component",
                       "slots" : {
                         "label" : "Close",
-                        "onclick" : "@post('/sse/popup/close')"
+                        "onclick" : "@post('sse/popup/close')"
                       }
                     }
                   ],
@@ -343,7 +343,7 @@
         "kind" : "component",
         "slots" : {
           "label" : "Quick info…",
-          "onclick" : "@post('/sse/surface/open/@@NODE_ID@@_self')"
+          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
         }
       },
       {
@@ -353,7 +353,7 @@
         "kind" : "component",
         "slots" : {
           "label" : "« Back to jsonnet",
-          "onclick" : "@post('/sse/navigate/dashboard'); history.pushState(null,'','/d/dashboard')"
+          "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
         }
       }
     ],
@@ -391,7 +391,7 @@
     "popup" : {
       "slots" : [
       ],
-      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('/sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
     },
     "sectionTitle" : {
       "slots" : [
@@ -410,7 +410,7 @@
         "key",
         "entity_id"
       ],
-      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
+      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
     },
     "tab" : {
       "slots" : [
@@ -467,7 +467,7 @@
             "kind" : "component",
             "slots" : {
               "label" : "Close",
-              "onclick" : "@post('/sse/popup/close')"
+              "onclick" : "@post('sse/popup/close')"
             }
           }
         ],

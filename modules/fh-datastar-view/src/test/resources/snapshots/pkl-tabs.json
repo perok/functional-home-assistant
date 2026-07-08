@@ -21,7 +21,7 @@
             "kind" : "component",
             "slots" : {
               "label" : "« Home",
-              "onclick" : "@post('/sse/navigate/dashboard'); history.pushState(null,'','/d/dashboard')"
+              "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
             }
           }
         ],
@@ -41,7 +41,7 @@
             "slots" : {
               "active" : "$tab_@@NODE_ID@@ == 0",
               "label" : "Lights",
-              "onclick" : "@post('/sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
             }
           },
           {
@@ -52,7 +52,7 @@
             "slots" : {
               "active" : "$tab_@@NODE_ID@@ == 1",
               "label" : "Sensors",
-              "onclick" : "@post('/sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
             }
           }
         ],
@@ -80,7 +80,7 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "transform" : "\"@post('/sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
+                      "transform" : "\"@post('sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
                     },
                     "tappable" : "1",
                     "value" : {
@@ -193,7 +193,7 @@
     "popup" : {
       "slots" : [
       ],
-      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('/sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
     },
     "sectionTitle" : {
       "slots" : [
@@ -212,7 +212,7 @@
         "key",
         "entity_id"
       ],
-      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
+      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
     },
     "tab" : {
       "slots" : [

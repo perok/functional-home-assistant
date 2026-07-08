@@ -54,9 +54,9 @@ class AssetCacheSuite extends munit.FunSuite {
 
     assertEquals(
       cache.rewrite(cssUrl),
-      s"/assets/${AssetCache.hashName(cssUrl)}"
+      s"assets/${AssetCache.hashName(cssUrl)}"
     )
-    assertEquals(cache.rewrite(jsUrl), s"/assets/${AssetCache.hashName(jsUrl)}")
+    assertEquals(cache.rewrite(jsUrl), s"assets/${AssetCache.hashName(jsUrl)}")
     assertEquals(cache.rewrite("https://other/x.css"), "https://other/x.css")
   }
 
@@ -96,7 +96,7 @@ class AssetCacheSuite extends munit.FunSuite {
     // And it still rewrites (mapping is rebuilt from the urls, not the fetch).
     assertEquals(
       cache2.rewrite(cssUrl),
-      s"/assets/${AssetCache.hashName(cssUrl)}"
+      s"assets/${AssetCache.hashName(cssUrl)}"
     )
   }
 
@@ -118,7 +118,7 @@ class AssetCacheSuite extends munit.FunSuite {
     val cache = build(dir, List(cssUrl), partial)
     assertEquals(
       cache.rewrite(cssUrl),
-      s"/assets/${AssetCache.hashName(cssUrl)}"
+      s"assets/${AssetCache.hashName(cssUrl)}"
     )
     val cached = os.read(dir / AssetCache.hashName(cssUrl))
     assert(cached.contains("url(font.woff2)"), clue = cached)
