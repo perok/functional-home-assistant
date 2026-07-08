@@ -1,0 +1,33 @@
+name: FH Dashboard
+version: "0.1.0"
+slug: fh_dashboard
+description: Pkl-authored Datastar dashboards for Home Assistant
+url: https://github.com/perok/functional-home-assistant
+arch:
+  - amd64
+  - aarch64
+image: ghcr.io/perok/fh-dashboard
+# The image is built on ghcr.io/hassio-addons/base (s6-overlay), which brings
+# its own init.
+init: false
+# Supervisor proxy to HA core (REST http://supervisor/core/api/ + WS
+# ws://supervisor/core/websocket) with SUPERVISOR_TOKEN; hassio_api not needed.
+homeassistant_api: true
+ingress: true
+ingress_port: 8080
+# Never buffer — the dashboard is one long-lived SSE patch stream.
+ingress_stream: true
+panel_icon: mdi:view-dashboard
+panel_title: FH Dashboard
+ports:
+  8080/tcp: null
+ports_description:
+  8080/tcp: >-
+    Direct dashboard access, UNAUTHENTICATED — the server drives Home
+    Assistant with its own token, so only enable this on a trusted LAN.
+map:
+  - addon_config:rw
+options:
+  default_dashboard: ""
+schema:
+  default_dashboard: str?
