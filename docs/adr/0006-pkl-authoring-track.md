@@ -45,7 +45,8 @@ extended. Once the hand-port completes they are deleted.
    `output { renderer = ... }` block; it just *is* its data, and the omit-null
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
-   `theme.pkl`, `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
+   the `theme.pkl` contract + its `theme-beer.pkl` (default) / `theme-pico.pkl`
+   implementations, `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
    `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
    entries. A directory convention separates the two (Pkl has one file
    extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
@@ -143,7 +144,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
-  `openPopupInline(body)`, popup CSS in `theme.pkl` (0002). A registered
+  `openPopupInline(body)`, popup CSS in the theme modules (0002). A registered
   popup surface amends into existence via `entry.pkl`'s `surfaces` mapping
   default (`PopupSurface`: hidden `body` Listing, auto-`Popup`-wrapped
   content) — no `new`, and the wrap rule is enforced by construction.

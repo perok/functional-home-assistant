@@ -18,12 +18,15 @@
 module entry
 
 import "components.pkl" as c
-import "theme.pkl" as themeMod
+import "theme-beer.pkl" as themeMod
 
 /// The reflected card registry (each card class's template + slots).
 cards = c.cards
 
-/// The shared theme. Override in an entry that wants a different look.
+/// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
+/// `theme.pkl` for the contract + roster). Override in an entry that wants a
+/// different look (`theme = (import "lib/theme-pico.pkl").theme`) or retune
+/// this one by amending (`theme { md3Light { ["primary"] = "#..." } }`).
 theme = themeMod.theme
 
 /// The page `<title>`; null (the default, dropped from the wire JSON) means the

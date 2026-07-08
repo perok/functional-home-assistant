@@ -507,14 +507,22 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
 /// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
 class Slider extends Node {
   card = "slider"
+  // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
+  // trailing `<span>` = the painted MD3 track/thumb, `max` = full card width;
+  // the fill updates need beer.min.js — Theme.scripts). The wrapper is inert
+  // under a theme without BeerCSS: unstyled div/span, the bare input renders
+  // as before.
   cardDef = new CardDef {
     template = """
       <article class="card">
         <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
-        <input type="range" min="{{min}}" max="{{max}}"
-          data-signals="{ val_{{id}}: {{value}} }"
-          data-bind="val_{{id}}"
-          data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+        <div class="slider max">
+          <input type="range" min="{{min}}" max="{{max}}"
+            data-signals="{ val_{{id}}: {{value}} }"
+            data-bind="val_{{id}}"
+            data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+          <span></span>
+        </div>
       </article>
       """
     slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
