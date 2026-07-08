@@ -155,9 +155,11 @@ inlined in the theme (a theme imports no component library — it is
 presentation, a leaf). The backend holds **zero** frame HTML; an empty chrome
 falls back to a minimal `<main id="dashboard">` frame. `Dashboard.validate`
 fails loudly if a non-empty chrome lacks `id="dashboard"`. The document shell
-(`<head>`, Datastar `<script>`, `data-init`, `popstate`, stylesheet links)
-stays in `Server.page()` — Datastar bootstrap and per-request wiring, not
-dashboard frame.
+(`<head>`, Datastar `<script>`, `data-init`, `popstate`, the theme's
+stylesheet `<link>`s and script `<script type="module">`s — `Theme.scripts`
+carries JS a theme's CSS needs, e.g. BeerCSS's slider fill; behavior stays
+Datastar's) stays in `Server.page()` — Datastar bootstrap and per-request
+wiring, not dashboard frame.
 
 ## Rejected along the way (still guarding the design)
 

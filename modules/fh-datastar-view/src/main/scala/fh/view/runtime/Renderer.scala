@@ -289,6 +289,11 @@ class Renderer(
   /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
+  /** External JS URLs the theme wants `<script type="module">`-injected (e.g.
+    * beer.min.js). See [[fh.view.model.Theme.scripts]].
+    */
+  def scripts: List[String] = dashboard.theme.scripts
+
   /** The dashboard's authored page title, if any (the Server falls back to the
     * slug when `None`). See [[fh.view.model.Dashboard.title]].
     */
