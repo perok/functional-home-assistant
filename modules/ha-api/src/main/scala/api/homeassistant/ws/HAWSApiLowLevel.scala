@@ -52,7 +52,7 @@ object HAWSApiLowLevel {
     def receiveStreamDecode[Body: Decoder]: Stream[IO, Body] =
       wsClient.receiveStream.evalMap {
         case WSFrame.Text(data, true) =>
-          println(s"<-- Receiving: ${data.take(100)}")
+          //println(s"<-- Receiving: ${data.take(100)}") TODO only when DEBUG
           decode[Body](data).liftTo[IO].onError { err =>
             IO.println(s"receiveStreamDecode error decoding: $data")
           }
