@@ -726,7 +726,8 @@ class Server(
                 renderer.renderPage(states, uiState),
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
-                renderer.title
+                renderer.title,
+                Server.ingressPrefixOf(req)
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
@@ -737,13 +738,21 @@ class Server(
     * `stylesheets` are `<link>`-ed here). `data-init` opens this dashboard's
     * SSE stream; the `popstate` handler re-syncs the in-place view to the URL
     * on Back/Forward.
+    *
+    * All app URLs (here and in the authored card templates) are RELATIVE and
+    * resolve against the emitted `<base href>`: `/` when served directly,
+    * `{X-Ingress-Path}/` behind the HA ingress proxy (which strips the prefix
+    * before proxying, so routing is unaffected). Fragments arriving later over
+    * the shared SSE stream therefore resolve correctly for both kinds of client
+    * with no per-connection rewriting.
     */
   private def page(
       slug: String,
       body: String,
       stylesheets: List[String],
       scripts: List[String],
-      title: Option[String]
+      title: Option[String],
+      ingressPrefix: Option[String]
   ): String = {
     val links = (
       stylesheets
@@ -751,23 +760,28 @@ class Server(
         scripts
           .map(src => s"""  <script type="module" src="$src"></script>""")
     ).mkString("\n")
+    val baseHref = ingressPrefix.fold("/")(p => s"$p/")
     // The authored per-dashboard title, or the slug when unset. Escaped for the
     // HTML `<title>` element (an authored title is untrusted text).
     val pageTitle = Server.escapeHtml(title.getOrElse(slug))
     // On Back/Forward, derive the slug from the URL and re-post the swap (no
     // pushState — the browser already moved). `/d/<slug>` or `/` -> default.
+    // The split works under any ingress prefix too.
     val popstate =
-      s"@post('/sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
+      s"@post('sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
     s"""<!doctype html>
        |<html lang="en">
        |<head>
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
+       |  <base href="$baseHref">
        |  <title>$pageTitle</title>
        |$links
-       |  <script type="module" src="${Server.DatastarCdn}"></script>
+       |  <script type="module" src="${assets.rewrite(
+        Server.DatastarCdn
+      )}"></script>
        |</head>
-       |<body data-init="@get('/sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
+       |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$body
        |</body>
        |</html>
@@ -834,6 +848,24 @@ object Server {
     * 0005. Stripped in [[uiStateOf]] to key [[Renderer.resolveActive]].
     */
   val UiCookiePrefix: String = "fhui_"
+
+  /** The ingress path prefix the HA supervisor proxy announces via
+    * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's
+    * `<base href>`. The header is attacker-suppliable on the direct port and
+    * the value lands in HTML, so anything but a strict absolute path of safe
+    * characters is ignored (never escaped-and-trusted).
+    */
+  def ingressPrefixOf(req: Request[IO]): Option[String] =
+    req.headers
+      .get(org.typelevel.ci.CIString("X-Ingress-Path"))
+      .map(_.head.value)
+      .filter(IngressPathPattern.matches)
+
+  /** Absolute path, safe chars only, no trailing slash, no `..` (excluded by
+    * the character class rejecting `.`).
+    */
+  private val IngressPathPattern: scala.util.matching.Regex =
+    "^(/[A-Za-z0-9_-]+)+$".r
 
   /** The Datastar signal name carrying the per-connection `conn` id: minted on
     * SSE connect (the initial patch-signals event) and echoed back in each

@@ -56,9 +56,28 @@ object ServerApp extends IOApp {
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
-        built <- entries.traverse { case (slug, entry) =>
-          buildEntry(dashboardsDir, slug, entry).map((slug, _))
-        }.toResource
+        // Per-entry: a broken dashboard (e.g. a bad user edit before a
+        // restart) is logged and skipped, not a crash loop; only zero
+        // buildable dashboards is fatal.
+        built <- entries
+          .traverse { case (slug, entry) =>
+            buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
+              case Right(r) => IO.pure(Some((slug, r)))
+              case Left(err) =>
+                IO.println(
+                  s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
+                ).as(None)
+            }
+          }
+          .map(_.flatten)
+          .toResource
+        _ <- IO
+          .raiseWhen(built.isEmpty)(
+            new RuntimeException(
+              s"all *.pkl dashboards in $dashboardsDir failed to build"
+            )
+          )
+          .toResource
 
         // Cache the themes' external assets (CSS/JS/fonts) locally so the
         // dashboard serves them itself — offline-friendly, CDN fallback on a
@@ -70,7 +89,7 @@ object ServerApp extends IOApp {
         assets <- AssetCache
           .build(
             assetsDir,
-            built.flatMap { case (_, (renderer, _)) =>
+            Server.DatastarCdn :: built.flatMap { case (_, (renderer, _)) =>
               renderer.stylesheets ++ renderer.scripts
             },
             org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
@@ -89,7 +108,9 @@ object ServerApp extends IOApp {
           .toResource
         sessions <- Sessions.create.toResource
 
-        defaultSlug <- defaultSlugFrom(entries.map(_._1)).toResource
+        // Only slugs that actually built (a skipped entry must not become
+        // the default and 404 the root).
+        defaultSlug <- defaultSlugFrom(built.map(_._1)).toResource
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
         server <- Server.resource(
@@ -181,10 +202,12 @@ object ServerApp extends IOApp {
 
   /** Watch every dashboard's source graph and, on change, re-evaluate ALL
     * entries (they share the `lib/` modules, so one edit can touch several) and
-    * hot-swap each renderer; the SSE streams repaint their body. A failed
-    * re-eval logs and keeps the previous renderers. Mirrors the single-
-    * dashboard watcher: a concurrent reconcile tracks `importsRef` so newly-
-    * imported files start being watched and removed ones stop.
+    * hot-swap each renderer; the SSE streams repaint their body. Re-eval is
+    * per-entry: a failing entry logs and keeps its previous renderer while the
+    * others still swap (an entry that failed at STARTUP has no renderer ref —
+    * fixing it needs a restart). Mirrors the single-dashboard watcher: a
+    * concurrent reconcile tracks `importsRef` so newly-imported files start
+    * being watched and removed ones stop.
     */
   private def watchSources(
       dashboardsDir: os.Path,
@@ -219,21 +242,31 @@ object ServerApp extends IOApp {
           .evalMap { _ =>
             entries
               .traverse { case (slug, entry) =>
-                buildEntry(dashboardsDir, slug, entry).map((slug, _))
+                buildEntry(dashboardsDir, slug, entry).attempt
+                  .map((slug, _))
               }
-              .attempt
-              .flatMap {
-                case Right(rebuilt) =>
+              .flatMap { results =>
+                val rebuilt = results.collect { case (slug, Right(r)) =>
+                  (slug, r)
+                }
+                val failed = results.collect { case (slug, Left(err)) =>
+                  (slug, err)
+                }
+                failed.traverse_ { case (slug, err) =>
+                  IO.println(
+                    s"Dashboard '$slug' reload failed (keeping previous): ${err.getMessage}"
+                  )
+                } *>
                   rebuilt.traverse_ { case (slug, (renderer, _)) =>
                     rendererRefs.get(slug).traverse_(_.set(renderer))
                   } *>
+                  IO.whenA(rebuilt.nonEmpty)(
                     importsRef.set(
                       watchedSet(dashboardsDir, entries, rebuilt.map(_._2._2))
                     ) *>
-                    IO.println("Dashboards reloaded")
-                case Left(err) =>
-                  IO.println(
-                    s"Dashboard reload failed (keeping previous): ${err.getMessage}"
+                      IO.println(
+                        s"Dashboards reloaded (${rebuilt.map(_._1).mkString(", ")})"
+                      )
                   )
               }
           }

@@ -500,7 +500,7 @@ class PklBuildSuite extends munit.FunSuite {
       .getOrElse(fail("no inline-popup trigger button found"))
     assertEquals(
       inlineTrigger.slots("onclick").literal,
-      Some(s"@post('/sse/surface/open/$inlineId')")
+      Some(s"@post('sse/surface/open/$inlineId')")
     )
 
     // Two dynamic groups: a per-domain dispatch group and the low-battery one.
@@ -563,7 +563,7 @@ class PklBuildSuite extends munit.FunSuite {
     val onclick = tapped.slots("onclick")
     assertEquals(onclick.literal, None)
     assertEquals(onclick.reactive, false)
-    assert(onclick.transform.contains("/sse/action/"), clue = onclick)
+    assert(onclick.transform.contains("sse/action/"), clue = onclick)
 
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
