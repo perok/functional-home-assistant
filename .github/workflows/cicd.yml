@@ -1,29 +1,66 @@
-# Release: config.yaml is the single source of truth. When a push to main
-# changes home-addon/config.yaml to a version whose image is not on GHCR yet,
-# this builds the add-on container (amd64 + aarch64), pushes
-# ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}, and creates the vX.Y.Z tag +
-# GitHub release. Merging a version-bump PR IS the release — no manual
-# tagging. (The supervisor reads config.yaml from main to offer updates, so
-# main's version and the published image tag can never drift.)
-name: Release
+# CI + CD in one pipeline.
+#
+# ci: every PR and main push — test + assemble the fat jar (scoped to
+#     fh-datastar-view: home/home-codegen need live-HA codegen and cannot
+#     compile in CI; tests run on fake dumps, no HA needed).
+# cd: main only, after ci is green. Publishes ONLY when home-addon/config.yaml
+#     names a version that is not on GHCR yet: builds the add-on container
+#     (amd64 + aarch64) from the ci-built jar, pushes
+#     ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}, and creates the vX.Y.Z tag +
+#     GitHub release. So releasing = merging a version bump; an unchanged
+#     version makes cd a no-op. (The supervisor reads config.yaml from main to
+#     offer updates, so main's version and the published image can never
+#     drift.) workflow_dispatch re-runs are idempotent via the same check.
+name: CICD
 
 on:
+  pull_request:
   push:
     branches: [main]
-    paths: [home-addon/config.yaml]
-  # Re-run by hand after a partial failure; the already-published check makes
-  # it idempotent.
   workflow_dispatch:
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/perok/fh-dashboard
 
 permissions:
-  contents: write # create the release tag
+  contents: write # cd creates the release tag
   packages: write
 
 jobs:
-  publish:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Test
+        run: sbt 'fh-datastar-view/testFull'
+
+      - name: Assemble fat jar
+        run: sbt 'fh-datastar-view/assembly'
+
+      - name: Upload jar for cd
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: addon-jar
+          path: target/addon/fh-dashboard.jar
+          retention-days: 1
+
+  cd:
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,24 +81,12 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-java@v4
+      - name: Fetch ci-built jar
         if: steps.ver.outputs.published == 'false'
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: "21"
-          cache: sbt
-
-      - uses: sbt/setup-sbt@v1
-        if: steps.ver.outputs.published == 'false'
-
-      - name: Test
-        if: steps.ver.outputs.published == 'false'
-        run: sbt 'fh-datastar-view/testFull'
-
-      - name: Assemble fat jar
-        # Produces target/addon/fh-dashboard.jar, which the Dockerfile COPYs.
-        if: steps.ver.outputs.published == 'false'
-        run: sbt 'fh-datastar-view/assembly'
+          name: addon-jar
+          path: target/addon/
 
       # QEMU: the Dockerfile's jlink stage must execute under linux/arm64
       # during the multi-arch build.
