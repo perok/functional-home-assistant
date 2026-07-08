@@ -15,7 +15,9 @@ if [ -d /run/s6/container_environment ]; then
   done
 fi
 
-DASH_DIR=/config/dashboards
+# Under /homeassistant (the homeassistant_config map) so the seeded entries are
+# visible in the File editor / Samba homeassistant/ share for editing.
+DASH_DIR=/homeassistant/fh-dashboards
 mkdir -p "$DASH_DIR"
 if [ -z "$(ls -A "$DASH_DIR")" ]; then
   echo "Seeding starter dashboards into $DASH_DIR"

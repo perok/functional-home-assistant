@@ -8,20 +8,22 @@ server-side and patched over SSE ([Datastar](https://data-star.dev)).
 Install the add-on and start it. Open it from the **FH Dashboard** entry in
 the sidebar (ingress — authenticated by Home Assistant).
 
-On first start the add-on seeds a starter dashboard into its config
-directory:
+On first start the add-on seeds a starter dashboard into a folder in your
+Home Assistant config directory:
 
 ```
-/addon_configs/<repo>_fh_dashboard/dashboards/
+<ha config>/fh-dashboards/
   dashboard.pkl      # the starter entry — edit me
   lib/               # the shared Pkl card/theme library
 ```
 
-Edit these files from the host (Samba, SSH, or the File editor add-on).
+Edit these files from the host (Samba, SSH, or the File editor add-on) — they
+sit under the main `homeassistant/` config share as `fh-dashboards/`, so the
+default File editor / Samba add-ons can reach them without extra config.
 
 ### Editing dashboards
 
-- Every top-level `*.pkl` file in `dashboards/` is a dashboard; the slug is
+- Every top-level `*.pkl` file in `fh-dashboards/` is a dashboard; the slug is
   the filename (`dashboard.pkl` → `/d/dashboard`).
 - **Edits to existing files hot-reload**: connected browsers repaint over the
   live SSE stream, no restart needed. A file that fails to evaluate is logged

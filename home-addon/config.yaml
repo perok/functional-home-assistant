@@ -1,5 +1,5 @@
 name: FH Dashboard
-version: "0.1.2"
+version: "0.1.3"
 slug: fh_dashboard
 description: Pkl-authored Datastar dashboards for Home Assistant
 url: https://github.com/perok/functional-home-assistant
@@ -25,8 +25,12 @@ ports_description:
   8080/tcp: >-
     Direct dashboard access, UNAUTHENTICATED — the server drives Home
     Assistant with its own token, so only enable this on a trusted LAN.
+# Seed dashboards into the main HA config dir (/homeassistant) rather than the
+# add-on's private config (/addon_configs/<slug>, mounted as addon_config):
+# the File editor / Samba add-ons only expose the homeassistant/ share by
+# default, so addon_config files aren't reachable for editing.
 map:
-  - addon_config:rw
+  - homeassistant_config:rw
 options:
   default_dashboard: ""
 schema:
