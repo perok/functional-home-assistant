@@ -132,9 +132,11 @@ const local defaultRoute =
   #"($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", "button": "button/press", "input_button": "input_button/press"}, $domain); $a ? $a : "homeassistant/toggle")"#
 
 // Wrap a JSONata route expression into the full Datastar click expression
-//   @post('/sse/action/<domain>/<service>/<entity_id>')
+//   @post('sse/action/<domain>/<service>/<entity_id>')
+// All app URLs are RELATIVE: they resolve against the page's <base href>
+// (`/` served directly, the ingress prefix behind the HA supervisor proxy).
 const local function serviceOnclick(route: String): String =
-  #""@post('/sse/action/" & ("# + route + #") & "/" & $entity_id & "')""#
+  #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "')""#
 
 // A click expression is identity-derived: it inherits the card's entity to
 // resolve $entity_id/$domain, but never varies with state (reactive = false)
@@ -153,18 +155,20 @@ function serviceTap(action: String): Tap =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
 
 /// In-place swap to dashboard `slug` (+ URL via pushState) — a constant click.
+/// pushState does NOT resolve against <base href>, so the URL is built
+/// explicitly from document.baseURI (works directly and behind ingress).
 function navigate(slug: String): Tap =
-  new { onclick = "@post('/sse/navigate/\(slug)'); history.pushState(null,'','/d/\(slug)')" }
+  new { onclick = "@post('sse/navigate/\(slug)'); history.pushState(null,'',new URL('d/\(slug)',document.baseURI))" }
 
 /// Dismiss the (single, at-a-time) open popup — the id-less `POST
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.
-function closePopup(): Tap = new { onclick = "@post('/sse/popup/close')" }
+function closePopup(): Tap = new { onclick = "@post('sse/popup/close')" }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
 function openPopup(surfaceId: String): Tap =
-  new { onclick = "@post('/sse/surface/open/\(surfaceId)')" }
+  new { onclick = "@post('sse/surface/open/\(surfaceId)')" }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
@@ -177,7 +181,7 @@ function openPopup(surfaceId: String): Tap =
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
 // per the Pkl amend-scoping gotcha.
 function openPopupInline(body: Node): Tap = new {
-  onclick = "@post('/sse/surface/open/\(NODE_ID)_self')"
+  onclick = "@post('sse/surface/open/\(NODE_ID)_self')"
   inlineSurfaces = new Mapping {
     ["self"] = new SurfaceDef { content = new Popup { children { body } } }
   }
@@ -427,7 +431,7 @@ class Popup extends Node {
   // dialog is transient — present only while open. The ✕ posts the id-less
   // close. Ported verbatim from components.libsonnet:511.
   cardDef = new CardDef {
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('/sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
 /// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
@@ -492,7 +496,7 @@ class Tabs extends Node {
       new TabButton {
         label = l
         active = "$tab_\(NODE_ID) == \(i)"
-        onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
+        onclick = "@post('sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
       }
     }
   }
@@ -583,7 +587,7 @@ class Slider extends Node {
           <input type="range" min="{{min}}" max="{{max}}"
             data-signals="{ val_{{id}}: {{value}} }"
             data-bind="val_{{id}}"
-            data-on:change="@post('/sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+            data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
           <span></span>
         </div>
       </article>

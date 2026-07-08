@@ -500,7 +500,7 @@ class PklBuildSuite extends munit.FunSuite {
       .getOrElse(fail("no inline-popup trigger button found"))
     assertEquals(
       inlineTrigger.slots("onclick").literal,
-      Some(s"@post('/sse/surface/open/$inlineId')")
+      Some(s"@post('sse/surface/open/$inlineId')")
     )
 
     // Two dynamic groups: a per-domain dispatch group and the low-battery one.
@@ -563,7 +563,7 @@ class PklBuildSuite extends munit.FunSuite {
     val onclick = tapped.slots("onclick")
     assertEquals(onclick.literal, None)
     assertEquals(onclick.reactive, false)
-    assert(onclick.transform.contains("/sse/action/"), clue = onclick)
+    assert(onclick.transform.contains("sse/action/"), clue = onclick)
 
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
@@ -1118,6 +1118,40 @@ class PklBuildSuite extends munit.FunSuite {
           "(actual output also written to a temp *.actual.json next to the diff)."
       )
     }
+  }
+
+  test("addon seed dashboard builds and validates against an EMPTY dump") {
+    // The seed shipped in the add-on image (home-addon/dashboards-seed/) must
+    // work on ANY Home Assistant instance, so it may reference no concrete
+    // entities. Proven by the strictest case: it never imports lib/dump.pkl
+    // (none is written here), and the decoded dashboard validates.
+    val tmp = os.temp.dir()
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "theme-beer.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
+    os.copy.into(
+      os.pwd / "home-addon" / "dashboards-seed" / "dashboard.pkl",
+      tmp
+    )
+
+    val result = SourceEval.eval(tmp, "dashboard.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+    assert(!r.imports.map(_.last).contains("dump.pkl"), clue = r.imports)
+
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
+    val decoded = hoisted.as[Dashboard]
+    assert(decoded.isRight, clue = decoded)
+    assertEquals(
+      decoded.toOption.get.validate(SourceEval.literalLocator(r.imports)),
+      Nil
+    )
   }
 
   test("pkl-demo wire JSON matches the checked-in snapshot") {

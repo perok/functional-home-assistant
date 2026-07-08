@@ -127,6 +127,29 @@ lazy val `fh-datastar-view` = project
       "SERVER" -> (`home-codegen` / haUrl).value,
       "SECRET" -> secretToken
     ),
+    // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
+    // this fixed, gitignored path).
+    assembly / mainClass := Some("fh.view.runtime.ServerApp"),
+    // pkl-core embeds Truffle, whose versioned classes only load when the
+    // (uber) jar manifest says Multi-Release — without it startup fails with
+    // "Truffle could not be initialized".
+    assembly / packageOptions +=
+      Package.ManifestAttributes("Multi-Release" -> "true"),
+    assembly / assemblyOutputPath := Def.uncached(
+      (ThisBuild / baseDirectory).value / "target" / "addon" / "fh-dashboard.jar"
+    ),
+    assembly / assemblyMergeStrategy := {
+      // JPMS descriptors from multi-release deps (circe/cats/pkl-core) —
+      // meaningless on a flat classpath. Do NOT blanket-discard META-INF:
+      // pkl-core and http4s need their META-INF/services entries (the
+      // default strategy concatenates those).
+      case "module-info.class" => MergeStrategy.discard
+      case PathList("META-INF", "versions", _, "module-info.class") =>
+        MergeStrategy.discard
+      // smithy4s ships duplicate smithy manifests; unused at runtime.
+      case PathList("META-INF", "smithy", _*) => MergeStrategy.first
+      case x => (assembly / assemblyMergeStrategy).value(x)
+    },
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
