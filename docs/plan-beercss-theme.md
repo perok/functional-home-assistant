@@ -113,16 +113,18 @@ BeerCSS's element styling applies underneath the contract classes.
    `theme.pkl` was reduced to the contract class; pilot entry + its snapshot
    deleted; snapshots regenerated (both now carry the beer theme);
    `plan-tw-theme.md` marked superseded.
-3. **Offline theme assets — backend download + cache.** Replace the runtime
-   CDN dependency without bundling assets into the jar: the backend fetches
-   each `stylesheets`/`scripts` URL once (on build or first serve), caches it
-   on disk keyed by URL hash (next to `dashboard.json`/`lib/dump.pkl` —
-   gitignored build products), serves it from a static `/assets/:hash` route,
-   and rewrites the theme's URLs to the local route in `page()`. CSS needs
-   sub-resource handling (the `@font-face` URLs inside `beer.min.css` — fetch
-   the woff2 files the same way and rewrite relative refs). Cache-miss +
-   offline falls back to the original CDN URL. This keeps the LAN dashboard
-   working without internet and off third-party CDNs.
+3. ~~**Offline theme assets — backend download + cache.**~~ Done 2026-07-08:
+   `AssetCache` (`fh/view/runtime/AssetCache.scala`) fetches every theme
+   `stylesheets`/`scripts` URL once at startup, persists under URL-hashed
+   names in `assets-cache/` (module dir, gitignored; `FH_ASSETS_DIR`
+   overrides), serves `GET /assets/:name` (immutable cache headers, dir
+   listing = whitelist), and `Server.page()` rewrites the page URLs through
+   it. Relative `url(...)` refs inside a cached stylesheet (the Material
+   Symbols woff2) are fetched + rewritten too; absolute/`data:` refs are left
+   as CDN fallbacks. Any fetch failure just keeps the original URL — offline
+   with a warm cache works, offline with a cold cache degrades to exactly the
+   pre-cache behavior. URLs first appearing via live-reload pass through
+   until the next restart. Covered by `AssetCacheSuite` (stub client).
 4. **Phase 2 polish** (each behind its own spike + sign-off):
    - MD3-style tabs: restructure the `Tabs` template toward BeerCSS
      `<div class="tabs">` + underline-active markup (template change ⇒

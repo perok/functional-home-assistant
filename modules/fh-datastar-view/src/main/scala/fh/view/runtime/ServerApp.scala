@@ -60,6 +60,23 @@ object ServerApp extends IOApp {
           buildEntry(dashboardsDir, slug, entry).map((slug, _))
         }.toResource
 
+        // Cache the themes' external assets (CSS/JS/fonts) locally so the
+        // dashboard serves them itself — offline-friendly, CDN fallback on a
+        // cold-cache fetch failure. Reuses the JDK http client idiom from
+        // FHApi; URLs are collected from every built renderer's theme (a
+        // live-reload that introduces NEW urls passes through until restart).
+        assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache").toResource
+        httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
+        assets <- AssetCache
+          .build(
+            assetsDir,
+            built.flatMap { case (_, (renderer, _)) =>
+              renderer.stylesheets ++ renderer.scripts
+            },
+            org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+          )
+          .toResource
+
         store <- StateStore.create(api)
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
@@ -80,7 +97,8 @@ object ServerApp extends IOApp {
           store,
           rendererRefs,
           defaultSlug,
-          sessions
+          sessions,
+          assets
         )
 
         _ <- watchSources(
