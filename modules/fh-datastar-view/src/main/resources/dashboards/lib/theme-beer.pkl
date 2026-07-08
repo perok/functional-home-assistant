@@ -1,0 +1,226 @@
+/// The BeerCSS Material Design 3 theme (`docs/plan-beercss-theme.md`) — the
+/// DEFAULT theme (wired in `entry.pkl`; contract + roster in `theme.pkl`).
+/// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
+/// another theme entirely (`theme = (import "lib/theme-pico.pkl").theme`).
+///
+/// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
+/// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
+/// templates emit — so this theme needs no bespoke card CSS: BeerCSS supplies
+/// the MD3 look under the contract classes, and `styles` below carries only
+/// the color bridge + the residual contract CSS BeerCSS doesn't cover.
+///
+/// THEMING — the color variables are BeerCSS's own MD3 roles, documented in
+/// https://github.com/beercss/beercss/blob/main/docs/SETTINGS.md. They live
+/// here (not in the shared `tokens.pkl`) because they are BeerCSS-specific,
+/// as amendable `hidden` class properties: `styles` is derived from them
+/// LATE-BOUND, so an entry can retune the palette and everything recomputes —
+///   theme = (beer.theme) { md3Light { ["primary"] = "#7d5260" } }
+/// The HA-named tokens stay in `tokens.pkl` (shared cross-theme contract, HA
+/// theme drop-in); they too are amendable per instance, as plain Theme
+/// properties: `(beer.theme) { tokens { ["primary-color"] = "#..." } }`.
+///
+/// COLOR BRIDGE (the load-bearing subtlety, spike-verified on 4.0.23):
+/// `beer.min.css` has NO `prefers-color-scheme` media query — light values
+/// live on `:root, body.light`, dark ONLY on `body.dark`, and `beer.min.js`
+/// auto-adds `light`/`dark` to `<body>` at startup from the device scheme.
+/// A `body.dark` rule beats anything we define on `:root`, so the palette
+/// below is emitted at BODY specificity, with all three class states in every
+/// selector (`body, body.light, body.dark`) so ours always ties BeerCSS's
+/// selectors and wins by document order (theme `styles` are injected in the
+/// body, after the `<link>`s). Order within `styles` then does the cascade
+/// work: MD3 light palette -> dark palette (under OUR media query) -> the
+/// HA-token re-pointing (last, so it wins in both schemes; its `var()`
+/// references resolve through `:root` tokens that flip via `tokensDark`).
+/// Consequence: mode is device-driven only — a manual `ui("mode", ...)` flip
+/// would move the body class but not our media query, and is unsupported.
+module themeBeer
+
+import "tokens.pkl" as tokenPalette
+import "theme.pkl" as themeMod
+
+/// Pinned — never `@latest` (visual stability; the dist bundles the Material
+/// Symbols fonts with absolute CDN fallback URLs, so icons need no extra
+/// `<link>`). Bump deliberately and re-verify the spikes in
+/// `docs/plan-beercss-theme.md`.
+const local beerVersion: String = "4.0.23"
+const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
+
+/// A mapping rendered as CSS custom-property declarations
+/// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
+/// class bodies may only reference `const` module members.
+const local function cssVars(m: Mapping<String, String>): String =
+  new Listing { for (k, v in m) { "--\(k):\(v)" } }.toList().join(";")
+
+class BeerTheme extends themeMod.Theme {
+
+  /// The full 36-role MD3 palette (light), generated ONCE (2026-07-07) from
+  /// the HA blue seed `#03a9f4` with Google's
+  /// `@material/material-color-utilities` (`themeFromSourceColor`; the
+  /// `surface-dim/bright/container*` tiers, which the legacy scheme object
+  /// lacks, are the neutral palette at the spec tones — light
+  /// 87/98/100/96/94/92/90, dark 6/24/4/10/12/17/22). Key names = BeerCSS's
+  /// variable names sans `--` (see the SETTINGS.md link in the module doc).
+  /// `hidden` (never on the wire) and read late-bound by [[styles]] — amend
+  /// entries here to retune the theme. Note the spec-toned primary is
+  /// #006493, not HA blue: the brighter HA blue arrives via the HA-token
+  /// re-pointing layer in [[styles]], keeping the HA look.
+  hidden md3Light: Mapping<String, String> = new {
+    ["primary"] = "#006493"
+    ["on-primary"] = "#ffffff"
+    ["primary-container"] = "#cae6ff"
+    ["on-primary-container"] = "#001e30"
+    ["secondary"] = "#50606e"
+    ["on-secondary"] = "#ffffff"
+    ["secondary-container"] = "#d3e5f5"
+    ["on-secondary-container"] = "#0c1d29"
+    ["tertiary"] = "#65587b"
+    ["on-tertiary"] = "#ffffff"
+    ["tertiary-container"] = "#ebddff"
+    ["on-tertiary-container"] = "#201634"
+    ["error"] = "#ba1a1a"
+    ["on-error"] = "#ffffff"
+    ["error-container"] = "#ffdad6"
+    ["on-error-container"] = "#410002"
+    ["background"] = "#fcfcff"
+    ["on-background"] = "#1a1c1e"
+    ["surface"] = "#fcfcff"
+    ["on-surface"] = "#1a1c1e"
+    ["surface-variant"] = "#dde3ea"
+    ["on-surface-variant"] = "#41474d"
+    ["outline"] = "#72787e"
+    ["outline-variant"] = "#c1c7ce"
+    ["shadow"] = "#000000"
+    ["scrim"] = "#000000"
+    ["inverse-surface"] = "#2e3133"
+    ["inverse-on-surface"] = "#f0f0f3"
+    ["inverse-primary"] = "#8dcdff"
+    ["surface-dim"] = "#d9dadd"
+    ["surface-bright"] = "#f9f9fc"
+    ["surface-container-lowest"] = "#ffffff"
+    ["surface-container-low"] = "#f3f3f6"
+    ["surface-container"] = "#edeef1"
+    ["surface-container-high"] = "#e8e8eb"
+    ["surface-container-highest"] = "#e2e2e5"
+  }
+
+  /// The dark counterpart of [[md3Light]] (same generation run).
+  hidden md3Dark: Mapping<String, String> = new {
+    ["primary"] = "#8dcdff"
+    ["on-primary"] = "#00344f"
+    ["primary-container"] = "#004b70"
+    ["on-primary-container"] = "#cae6ff"
+    ["secondary"] = "#b7c9d9"
+    ["on-secondary"] = "#22323f"
+    ["secondary-container"] = "#384956"
+    ["on-secondary-container"] = "#d3e5f5"
+    ["tertiary"] = "#cfc0e8"
+    ["on-tertiary"] = "#362b4b"
+    ["tertiary-container"] = "#4d4162"
+    ["on-tertiary-container"] = "#ebddff"
+    ["error"] = "#ffb4ab"
+    ["on-error"] = "#690005"
+    ["error-container"] = "#93000a"
+    ["on-error-container"] = "#ffb4ab"
+    ["background"] = "#1a1c1e"
+    ["on-background"] = "#e2e2e5"
+    ["surface"] = "#1a1c1e"
+    ["on-surface"] = "#e2e2e5"
+    ["surface-variant"] = "#41474d"
+    ["on-surface-variant"] = "#c1c7ce"
+    ["outline"] = "#8b9198"
+    ["outline-variant"] = "#41474d"
+    ["shadow"] = "#000000"
+    ["scrim"] = "#000000"
+    ["inverse-surface"] = "#e2e2e5"
+    ["inverse-on-surface"] = "#2e3133"
+    ["inverse-primary"] = "#006493"
+    ["surface-dim"] = "#111416"
+    ["surface-bright"] = "#37393c"
+    ["surface-container-lowest"] = "#0c0e11"
+    ["surface-container-low"] = "#1a1c1e"
+    ["surface-container"] = "#1e2022"
+    ["surface-container-high"] = "#282a2d"
+    ["surface-container-highest"] = "#333537"
+  }
+
+  tokens = tokenPalette.light
+  tokensDark = tokenPalette.dark
+
+  stylesheets {
+    "\(beerCdn)/beer.min.css"
+  }
+
+  // Required by this theme's CSS, not for behavior (which stays Datastar's):
+  // the slider track-fill is JS-driven (`--_start`/`--_end` private props),
+  // and the auto light/dark body class comes from here too (the bridge above
+  // works with OR without it). Binds via delegated listeners + a
+  // MutationObserver, so Datastar SSE morphs re-bind.
+  scripts {
+    "\(beerCdn)/beer.min.js"
+  }
+
+  // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
+  // Dashboard.validate) + the `#popups` overlay mount. `responsive` is
+  // BeerCSS's centered max-width container.
+  chrome = """
+    <main class="responsive" id="dashboard">{{{body}}}</main>
+    <div id="popups"></div>
+    """
+
+  styles = """
+    /* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body
+       specificity + all three class states + declaration order: see the
+       module doc for why each is required. */
+    body,body.light,body.dark{\(cssVars(md3Light))}
+    @media (prefers-color-scheme:dark){
+      body,body.light,body.dark{\(cssVars(md3Dark))}
+    }
+    /* HA-token re-pointing — LAST so it wins in both schemes. Keeps the HA
+       look on MD3: HA blue as primary, HA background/text/divider, and the
+       card/dialog surfaces (article reads --surface-container-low, dialog
+       --surface-container-high) on the HA card color. */
+    body,body.light,body.dark{
+      --primary:var(--primary-color);
+      --on-primary:var(--text-primary-color);
+      --background:var(--primary-background-color);
+      --surface:var(--primary-background-color);
+      --on-background:var(--primary-text-color);
+      --on-surface:var(--primary-text-color);
+      --on-surface-variant:var(--secondary-text-color);
+      --outline-variant:var(--divider-color);
+      --error:var(--error-color);
+      --surface-container-low:var(--card-background-color);
+      --surface-container-high:var(--card-background-color);
+    }
+
+    /* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it
+       styles as elements). Layout containers, ported from theme.pkl. */
+    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
+    .fh-col{display:flex;flex-direction:column;gap:1rem}
+    .fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}
+    .fh-cell{display:contents}
+    .section{color:var(--primary)}
+    .state{color:var(--on-surface-variant)}
+    .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}
+    .card.tappable{cursor:pointer}
+    /* Our Tabs container carries class `tabs`, which is ALSO a BeerCSS element
+       class (row flex + bottom border + nowrap) — neutralize what leaks onto
+       the fh-col wrapper. */
+    .fh-col.tabs{white-space:normal;border-block-end:none}
+    .tabbar{display:flex;gap:.5rem;flex-wrap:wrap}
+    .tabbar .tab{background:transparent;color:var(--on-surface);border:1px solid var(--outline-variant)}
+    .tabbar .tab.active{background:var(--primary);color:var(--on-primary);border-color:transparent}
+    .tab-panel{display:contents}
+
+    /* Popup: BeerCSS's <dialog> styling (fixed, centered, elevated,
+       surface-container-high) does the chrome; cap the width and unfill the ✕
+       (a bare <button> is a filled primary pill by default). */
+    dialog.popup{max-inline-size:min(90vw,32rem)}
+    .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
+      color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
+    """
+}
+
+/// The theme instance entries reference (and optionally amend — see the
+/// module doc for the `md3Light`/`tokens` amend forms).
+theme: BeerTheme = new {}

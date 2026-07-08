@@ -252,16 +252,18 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test(
-    "theme.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+    "theme-pico.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {
     // A probe entry re-exposes the theme so the assertions read a pinned
     // shape, independent of whatever else the lib module happens to export.
+    // (Pico probes the Theme contract here; the beer DEFAULT theme is pinned
+    // by the wire snapshots, which carry the full theme JSON.)
     val tmp = os.temp.dir()
-    copyLib(tmp, "theme.pkl", "tokens.pkl")
+    copyLib(tmp, "theme.pkl", "theme-pico.pkl", "tokens.pkl")
     os.write(
       tmp / "probe.pkl",
       """module probe
-        |import "lib/theme.pkl" as themeMod
+        |import "lib/theme-pico.pkl" as themeMod
         |theme = themeMod.theme
         |""".stripMargin
     )
@@ -376,6 +378,7 @@ class PklBuildSuite extends munit.FunSuite {
       "hass.pkl",
       "components.pkl",
       "theme.pkl",
+      "theme-beer.pkl",
       "tokens.pkl",
       "entry.pkl"
     )
@@ -419,6 +422,7 @@ class PklBuildSuite extends munit.FunSuite {
         "pkl-demo.pkl",
         "components.pkl",
         "theme.pkl",
+        "theme-beer.pkl",
         "tokens.pkl",
         "hass.pkl",
         "dump.pkl"
@@ -883,6 +887,7 @@ class PklBuildSuite extends munit.FunSuite {
       "hass.pkl",
       "components.pkl",
       "theme.pkl",
+      "theme-beer.pkl",
       "tokens.pkl",
       "entry.pkl"
     )
@@ -1002,7 +1007,7 @@ class PklBuildSuite extends munit.FunSuite {
   // Wire-format snapshot tests (plan-jsonnet-removal.md Phase 0).
   //
   // These byte-identity-check the evaluated `{cards, card, theme, surfaces}`
-  // wire JSON of the two REAL Pkl entries against checked-in resource files, so
+  // wire JSON of the REAL Pkl entries against checked-in resource files, so
   // authoring-layer / backend refactors are guarded by `sbt test` instead of
   // manual diffing. The snapshot is exactly what production renders:
   // `PklBuild.eval` → `SourceEval.Result.value` (the raw evaluated JSON, BEFORE
@@ -1012,6 +1017,15 @@ class PklBuildSuite extends munit.FunSuite {
   //
   // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
   // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
+  //
+  // GOTCHA: the env var is read from the JVM the tests run IN — the persistent
+  // sbt server. A server started (even once, long ago) from a shell exporting
+  // FH_UPDATE_SNAPSHOTS=1 keeps it forever and silently REGENERATES on every
+  // run instead of checking (the gate is off). Regenerate without poisoning
+  // the server via the sys.props fallback instead:
+  //   sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1")' \
+  //       'fh-datastar-view/testFull' \
+  //       'eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'
   // ---------------------------------------------------------------------------
 
   /** Checked-in expected snapshots (repo-relative, mirroring `resourcesLib`).
@@ -1019,7 +1033,7 @@ class PklBuildSuite extends munit.FunSuite {
   private val snapshotDir =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "snapshots"
 
-  /** One fake transformed dump covering exactly the entities BOTH entries name:
+  /** One fake transformed dump covering exactly the entities the entries name:
     * two sensors (`_q` power, `_u1` voltage) and the demo light (with a
     * `color_mode` so the demo slider resolves). No areas/floors are referenced.
     */
@@ -1059,6 +1073,7 @@ class PklBuildSuite extends munit.FunSuite {
       "hass.pkl",
       "components.pkl",
       "theme.pkl",
+      "theme-beer.pkl",
       "tokens.pkl",
       "entry.pkl"
     )

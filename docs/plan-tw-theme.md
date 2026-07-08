@@ -1,6 +1,12 @@
 # Plan: Tailwind-themed HA dashboard (`themes-tw.libsonnet`)
 
-**Status: deferred** — design only, nothing implemented.
+**Status: SUPERSEDED** (2026-07-08) by `plan-beercss-theme.md` — the BeerCSS
+MD3 theme (`lib/theme-beer.pkl`) is the default and delivers this plan's goal
+without the Tailwind toolchain. This plan's lasting ideas were absorbed there:
+the semantic class contract (as the theme/component class contract) and the
+static `/assets` route (as the offline asset-cache next step). Kept only as a
+reference; also note it predates the jsonnet removal (a new theme would be a
+Pkl module now, not a `.libsonnet`).
 
 ## Goal
 
