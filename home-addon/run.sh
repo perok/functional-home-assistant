@@ -1,7 +1,19 @@
 #!/bin/sh
 # FH Dashboard add-on entrypoint. Seeds the user-editable dashboards dir on
 # first start, wires the supervisor-proxied HA endpoints, and execs the app.
-set -eu
+set -e
+
+# s6-overlay v3 (the hassio base image init) SCRUBS the container environment
+# from services and stashes it in /run/s6/container_environment — without
+# re-importing it here, SUPERVISOR_TOKEN (and any docker -e overrides) are
+# invisible. The dir is absent when the script runs outside /init (standalone
+# docker run --entrypoint /run.sh), where the env arrives normally.
+if [ -d /run/s6/container_environment ]; then
+  for f in /run/s6/container_environment/*; do
+    [ -f "$f" ] || continue
+    export "$(basename "$f")=$(cat "$f")"
+  done
+fi
 
 DASH_DIR=/config/dashboards
 mkdir -p "$DASH_DIR"
@@ -13,7 +25,7 @@ fi
 # HA core via the supervisor proxy. The WS endpoint is NOT the /api/websocket
 # path derived from SERVER, hence the explicit SERVER_WS override. Pre-set
 # env wins, so the container can also run standalone against a plain HA
-# (SERVER=http://ha:8123 SECRET=<token> SERVER_WS= docker run ...).
+# (docker run -e SERVER=http://ha:8123 -e SECRET=<token> ...).
 export SERVER="${SERVER:-http://supervisor/core}"
 if [ -z "${SERVER_WS:-}" ]; then
   if [ "$SERVER" = "http://supervisor/core" ]; then
@@ -23,7 +35,11 @@ if [ -z "${SERVER_WS:-}" ]; then
     unset SERVER_WS
   fi
 fi
-export SECRET="${SECRET:-$SUPERVISOR_TOKEN}"
+export SECRET="${SECRET:-${SUPERVISOR_TOKEN:-}}"
+if [ -z "$SECRET" ]; then
+  echo "FATAL: no SECRET and no SUPERVISOR_TOKEN — cannot reach Home Assistant" >&2
+  exit 1
+fi
 
 # Reachable from ingress AND the (optional) direct port mapping.
 export HOST=0.0.0.0
@@ -34,10 +50,11 @@ export DASHBOARDS_DIR="$DASH_DIR"
 # editing, unlike the dashboards.
 export FH_ASSETS_DIR=/data/assets-cache
 
-DEFAULT_DASHBOARD="$(jq -r '.default_dashboard // empty' /data/options.json)"
-if [ -n "$DEFAULT_DASHBOARD" ]; then
-  export DEFAULT_DASHBOARD
+if [ -f /data/options.json ]; then
+  DEFAULT_DASHBOARD="$(jq -r '.default_dashboard // empty' /data/options.json)"
+  if [ -n "$DEFAULT_DASHBOARD" ]; then
+    export DEFAULT_DASHBOARD
+  fi
 fi
 
-# LAUNCH_CMD — adjust once the sbt packaging output is integrated.
 exec java -XX:MaxRAMPercentage=75 -jar /opt/fh-dashboard.jar
