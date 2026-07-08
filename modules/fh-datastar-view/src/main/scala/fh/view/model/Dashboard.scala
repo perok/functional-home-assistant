@@ -256,6 +256,10 @@ object LayoutNode:
   *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
   *     light/dark setting.
   *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the Pico CDN).
+  *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
+  *     the document head after the stylesheets (ES modules — deferred, run
+  *     after first paint). For framework helpers the theme's CSS needs (e.g.
+  *     BeerCSS's slider fill); dashboard *behavior* stays with Datastar.
   *   - `styles`: inline CSS — framework→token mapping plus the rules that style
   *     the component classes (`.card`, `.fh-row`, …) from the tokens.
   *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
@@ -273,6 +277,7 @@ case class Theme(
     tokens: Map[String, String] = Map.empty,
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
+    scripts: List[String] = Nil,
     styles: String = "",
     chrome: String = ""
 ) derives ConfiguredDecoder

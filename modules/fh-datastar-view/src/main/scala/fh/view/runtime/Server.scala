@@ -717,6 +717,7 @@ class Server(
                 slug,
                 renderer.renderPage(states, uiState),
                 renderer.stylesheets,
+                renderer.scripts,
                 renderer.title
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -733,11 +734,15 @@ class Server(
       slug: String,
       body: String,
       stylesheets: List[String],
+      scripts: List[String],
       title: Option[String]
   ): String = {
-    val links = stylesheets
-      .map(href => s"""  <link rel="stylesheet" href="$href">""")
-      .mkString("\n")
+    val links = (
+      stylesheets
+        .map(href => s"""  <link rel="stylesheet" href="$href">""") ++
+        scripts
+          .map(src => s"""  <script type="module" src="$src"></script>""")
+    ).mkString("\n")
     // The authored per-dashboard title, or the slug when unset. Escaped for the
     // HTML `<title>` element (an authored title is untrusted text).
     val pageTitle = Server.escapeHtml(title.getOrElse(slug))
