@@ -125,4 +125,50 @@ class TransformSuite extends munit.FunSuite {
     assert(Transform.parse("$round($number($state),").isLeft)
     assert(Transform.parse("   ").isLeft)
   }
+
+  test("slider fill: --_end percent from the position attr, null-guarded") {
+    // The STATIC tier the slider card bakes for a light (min 1, max 255):
+    // fill = 100 - value% of the range, from the RIGHT (BeerCSS convention).
+    val expr =
+      "($v := $attr.brightness; " +
+        "$v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
+    assertEquals(
+      run(
+        expr,
+        "on",
+        attributes = Map("brightness" -> Json.fromInt(255)),
+        entity = "light.kitchen"
+      ),
+      "0" // full brightness = zero distance from the right = full fill
+    )
+    assertEquals(
+      run(
+        expr,
+        "on",
+        attributes = Map("brightness" -> Json.fromInt(128)),
+        entity = "light.kitchen"
+      ),
+      "50"
+    )
+    // A light that is OFF has no brightness attribute: empty fill, NOT a
+    // JSONata type error leaking into the style attribute.
+    assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
+  }
+
+  test("slider fill: the dynamic $lookup($domain) tier resolves per match") {
+    val expr =
+      "($v := $lookup($attr, $lookup({\"light\":\"brightness\",\"cover\":\"current_position\"}, $domain)); " +
+        "$v != null ? $round(100 - (($v - $lookup({\"light\":1,\"cover\":0}, $domain)) * 100 / " +
+        "($lookup({\"light\":255,\"cover\":100}, $domain) - $lookup({\"light\":1,\"cover\":0}, $domain)))) : 100)"
+    assertEquals(
+      run(
+        expr,
+        "open",
+        attributes = Map("current_position" -> Json.fromInt(75)),
+        entity = "cover.blinds"
+      ),
+      "25"
+    )
+    assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
+  }
 }

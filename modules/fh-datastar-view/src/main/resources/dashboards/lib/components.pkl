@@ -278,15 +278,49 @@ class SectionTitle extends Node {
   }
 }
 
-/// HA-like entity card: label + value (state or attribute, unit
-/// auto-appended) + optional secondary line + optional tap.
+/// Default entity icon per domain — Material Symbols names (the font ships
+/// with the BeerCSS theme; a theme without an icon font hides `header i`, see
+/// theme-pico.pkl). Resolved at RUNTIME via `$lookup($domain)` (the slider
+/// config's identity-slot mechanism), so dynamic-group ($self) cards get the
+/// matched entity's icon too; an unlisted domain yields "" and the template
+/// section renders nothing.
+const local domainIcons: Mapping<String, String> = new {
+  ["light"] = "lightbulb"
+  ["switch"] = "toggle_on"
+  ["input_boolean"] = "toggle_on"
+  ["sensor"] = "sensors"
+  ["binary_sensor"] = "sensors"
+  ["lock"] = "lock"
+  ["cover"] = "blinds"
+  ["climate"] = "thermostat"
+  ["fan"] = "mode_fan"
+  ["media_player"] = "speaker"
+  ["camera"] = "videocam"
+  ["person"] = "person"
+  ["scene"] = "palette"
+  ["script"] = "description"
+  ["automation"] = "smart_toy"
+  ["vacuum"] = "vacuum"
+  ["weather"] = "partly_cloudy_day"
+  ["button"] = "radio_button_checked"
+}
+const local iconLookup: String =
+  "$lookup({" + (new Listing {
+    for (d, i in domainIcons) {
+      "\"\(d)\":\"\(i)\""
+    }
+  }).toList().join(",") + "}, $domain)"
+
+/// HA-like entity card: domain icon + label + value (state or attribute, unit
+/// auto-appended) + optional secondary line + optional tap. `icon` overrides
+/// the domain default with a literal Material Symbols name.
 class EntityCard extends Node {
   card = "entityCard"
   cardDef = new CardDef {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{{onclick}}}"{{/tappable}}>
-        <header>{{label}}</header>
+        <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>
         <span class="state">{{value}}</span>{{#secondary}}
         <span class="secondary">{{secondary}}</span>{{/secondary}}
       </article>
@@ -297,6 +331,7 @@ class EntityCard extends Node {
   hidden label: (String|Expr)? = null
   hidden value: (String|Expr)? = null
   hidden secondary: (String|Expr)? = null
+  hidden icon: String? = null
   hidden tap: Tap? = null
   // Copy the tap's inline surfaces onto the node so the hoist lifts them
   // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
@@ -307,6 +342,12 @@ class EntityCard extends Node {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
     ["value"] = valueSlot(value)
+    // Author literal, else the runtime domain lookup. Identity-derived
+    // (reactive = false); bypass OFF so an unavailable entity still resolves
+    // its icon from $domain rather than leaking raw state into the slot.
+    ["icon"] =
+      if (icon != null) icon!!
+      else new Slot { transform = iconLookup; reactive = false; bypassUnavailable = false }
     when (secondary != null) {
       ["secondary"] = secondarySlot(secondary!!)
     }
@@ -328,34 +369,50 @@ function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
 hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 
 /// Generic click button (service call or navigate). `action = null` defaults
-/// to the domain-resolved service call, which needs an entity.
+/// to the domain-resolved service call, which needs an entity. (Tab-bar
+/// entries are NOT buttons — see [[TabButton]].)
 class Button extends Node {
   card = "button"
   cardDef = new CardDef {
     template = """
-      <button class="card{{#active}} tab{{/active}}" data-on:click="{{{onclick}}}"{{#active}}
-        data-class="{active: {{{active}}}}"{{/active}}>{{label}}</button>
+      <button class="card" data-on:click="{{{onclick}}}">{{label}}</button>
       """
     slots { "label"; "onclick" }
   }
   hidden entity: hass.Entity? = null
   hidden label: (String|Expr)? = null
   hidden action: Tap? = null
-  // An OPTIONAL Datastar boolean expression: when present the button becomes a
-  // TAB (the template's `{{#active}}` sections add the `tab` class + the
-  // `data-class` highlight). Emitted as a constant literal slot. Set by [[Tabs]].
-  hidden active: String? = null
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
     }
-    when (active != null) {
-      ["active"] = active!!
-    }
     ["label"] = labelSlot(entity, label)
     ["onclick"] = (action ?? toggleTap).onclick
+  }
+}
+
+/// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
+/// anchors), so the MD3 tab look (underline active indicator, hover/press
+/// states, even distribution) comes from the framework, not hand-rolled CSS.
+/// Built by [[Tabs]] internally; not an authoring surface. `active` is the
+/// Datastar boolean expression driving the `.active` class client-side
+/// (`data-class`); `onclick` opens the tab's hoisted surface, seeds the
+/// signal, and writes the restore cookie.
+class TabButton extends Node {
+  card = "tab"
+  cardDef = new CardDef {
+    template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
+    slots { "label"; "onclick"; "active" }
+  }
+  hidden label: String
+  hidden onclick: String
+  hidden active: String
+  slots {
+    ["label"] = label
+    ["onclick"] = onclick
+    ["active"] = active
   }
 }
 
@@ -387,14 +444,14 @@ hidden popup: Popup = new Popup {}
 /// the decoder defaults `false`, matching jsonnet byte-for-byte.
 class Tabs extends Node {
   card = "tabs"
-  // The `.tabbar` buttons are the card's children; the panel host + `{{{panel}}}`
-  // hole live here. `data-signals` seeds the active-tab signal to the baked
-  // tab's index (`{{bakeIndex}}`, injected by the renderer). Ported from
-  // components.libsonnet:447-456 (minus that file's stray `',` artifact).
+  // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
+  // anchors); the panel host + `{{{panel}}}` hole live below it.
+  // `data-signals` seeds the active-tab signal to the baked tab's index
+  // (`{{bakeIndex}}`, injected by the renderer).
   cardDef = new CardDef {
     template = """
-      <div class="fh-col tabs">
-        <div class="fh-row tabbar">
+      <div class="fh-col">
+        <div class="tabs">
           {{#children}}{{{html}}}{{/children}}
         </div>
         <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
@@ -426,18 +483,16 @@ class Tabs extends Node {
       }
     }
   }
-  // The `.tabbar` buttons: each opens its tab's surface (`<id>_t<i>`), sets the
-  // active-tab signal, and writes the restore cookie. `$` is a literal Datastar
-  // signal sigil (Pkl only interpolates `\(...)`); the exact onclick text is
-  // asserted in the tests.
+  // The `.tabs` bar anchors: each opens its tab's surface (`<id>_t<i>`), sets
+  // the active-tab signal, and writes the restore cookie. `$` is a literal
+  // Datastar signal sigil (Pkl only interpolates `\(...)`); the exact onclick
+  // text is asserted in the tests.
   children = new Listing {
     for (i, l in labels) {
-      new Button {
+      new TabButton {
         label = l
         active = "$tab_\(NODE_ID) == \(i)"
-        action = new Tap {
-          onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
-        }
+        onclick = "@post('/sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
       }
     }
   }
@@ -508,15 +563,23 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
 class Slider extends Node {
   card = "slider"
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
-  // trailing `<span>` = the painted MD3 track/thumb, `max` = full card width;
-  // the fill updates need beer.min.js — Theme.scripts). The wrapper is inert
-  // under a theme without BeerCSS: unstyled div/span, the bare input renders
-  // as before.
+  // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
+  // `.tooltip` — its value text bled through behind the track, and the live
+  // value already shows in the head line). The FILL is backend-rendered:
+  // the template bakes `--_start`/`--_end` as an inline style from the `fill`
+  // slot, because BeerCSS's own fill is an inline style its JS writes on
+  // `input` events — a Datastar morph wipes it and (the vars defaulting to
+  // 0%) the track snaps to fully-filled. Baking it makes every morph correct
+  // by construction; beer.min.js still repaints live DURING a drag. The label
+  // line is a `.slider-head` class contract (both themes style it) — NOT a
+  // `<header>` (BeerCSS styles header as a 4rem app-bar grid, which swallowed
+  // the text) and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the
+  // state span into per-character wrapping).
   cardDef = new CardDef {
     template = """
       <article class="card">
-        <header><strong>{{label}}</strong>: <span>{{state}}</span></header>
-        <div class="slider max">
+        <div class="slider-head"><strong>{{label}}</strong><span class="state">{{state}}</span></div>
+        <div class="slider max" style="--_start: 0%;--_end: {{fill}}%">
           <input type="range" min="{{min}}" max="{{max}}"
             data-signals="{ val_{{id}}: {{value}} }"
             data-bind="val_{{id}}"
@@ -536,6 +599,19 @@ class Slider extends Node {
   // Null for a dynamic ($self) slider — the domain is unknown until a match, so
   // config falls through sliderConfig to the runtime lookup tier.
   hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
+  // The JSONata pieces of the `fill` computation, honouring the same three
+  // config tiers as the input's own slots: author override → build-time spec
+  // literal → runtime $lookup($domain).
+  hidden valueExpr: String =
+    if (spec != null) "$attr." + spec!!.value else sliderValueLookup
+  hidden minExpr: String =
+    if (min != null) "\(min!!)"
+    else if (spec != null) "\(spec!!.min)"
+    else sliderLookup((s) -> s.min)
+  hidden maxExpr: String =
+    if (max != null) "\(max!!)"
+    else if (spec != null) "\(spec!!.max)"
+    else sliderLookup((s) -> s.max)
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
@@ -545,8 +621,17 @@ class Slider extends Node {
     // entity falls back to `default` ("0") rather than "unavailable". Static:
     // read the domain's position attr; dynamic: $lookup it per match.
     ["value"] = new Slot {
-      transform = if (spec != null) "$attr." + spec!!.value else sliderValueLookup
+      transform = valueExpr
       default = "0"
+      bypassUnavailable = false
+    }
+    // The track fill, as the `--_end` percentage (distance from the RIGHT
+    // edge, per BeerCSS's span/clip-path convention): 100 - value% of the
+    // min..max range. Null-guarded — an absent position attribute (light off)
+    // means an empty fill (end = 100), not a JSONata type error.
+    ["fill"] = new Slot {
+      transform = "($v := \(valueExpr); $v != null ? $round(100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) : 100)"
+      default = "100"
       bypassUnavailable = false
     }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)

@@ -56,18 +56,24 @@ theme: themeMod.Theme = new {
     .state{color:var(--secondary-text-color,#727272)}
     /* Entity card: secondary info line + tappable affordance. */
     .entity .secondary{display:block;font-size:.8em;color:var(--secondary-text-color,#727272)}
+    /* The entity card's <i> is a Material Symbols NAME (e.g. "lightbulb");
+       this theme ships no icon font, so hide it rather than show raw text. */
+    .entity header i{display:none}
     .card.tappable{cursor:pointer}
     button.card{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border:none;cursor:pointer}
     input[type=range]{accent-color:var(--accent-color,#ff9800)}
-    /* Tabs: a bar of buttons over one inline panel; the active tab is flagged
-       client-side via a signal (see the tab button's data-class). Ported from
-       theme.libsonnet:66-73. */
-    .tabs{display:flex;flex-direction:column;gap:1rem}
-    .tabbar{display:flex;gap:.5rem;flex-wrap:wrap}
-    .tabbar .tab{background:transparent;color:var(--primary-text-color,#212121);
-      border:1px solid var(--divider-color,rgba(0,0,0,.12))}
-    .tabbar .tab.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
+    /* Tabs: the bar is `.tabs > a` anchors (BeerCSS-native markup, see
+       TabButton in components.pkl); this theme styles them as bordered pills,
+       the pre-BeerCSS look. The active tab is flagged client-side via a
+       signal (data-class). */
+    .tabs{display:flex;gap:.5rem;flex-wrap:wrap}
+    .tabs>a{background:transparent;color:var(--primary-text-color,#212121);cursor:pointer;
+      text-decoration:none;padding:.35rem .8rem;border:1px solid var(--divider-color,rgba(0,0,0,.12));
+      border-radius:var(--ha-card-border-radius,12px)}
+    .tabs>a.active{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff);border-color:transparent}
     .tab-panel{display:contents}
+    /* The slider card's label line (class contract, like .card). */
+    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between}
 
     /* Popup overlay: styling for the `popup` container card (components.pkl), a
        fixed-position card floated over the page. The dialog is transient —

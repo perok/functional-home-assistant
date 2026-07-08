@@ -125,13 +125,44 @@ BeerCSS's element styling applies underneath the contract classes.
    with a warm cache works, offline with a cold cache degrades to exactly the
    pre-cache behavior. URLs first appearing via live-reload pass through
    until the next restart. Covered by `AssetCacheSuite` (stub client).
-4. **Phase 2 polish** (each behind its own spike + sign-off):
-   - MD3-style tabs: restructure the `Tabs` template toward BeerCSS
-     `<div class="tabs">` + underline-active markup (template change ⇒
-     snapshot regen). Active toggling stays ours (`data-class`).
-   - Entity-domain icons via bundled Material Symbols (`<i>lightbulb</i>`) —
-     new optional slot on `entityCard`.
-   - ~~BeerCSS `.slider` markup~~ — done 2026-07-08 (see "What shipped").
+4. **Phase 2 polish** — implemented 2026-07-08, **browser sign-off pending**:
+   - Tabs on BeerCSS's NATIVE markup (user-decided after seeing the interim
+     CSS-only underline version): the `Tabs` bar is `.tabs > a` — a new
+     internal `TabButton` card class renders each tab as an anchor with the
+     `data-class` active toggle + cookie onclick, and `Button` lost its tab
+     arm. The MD3 look (underline indicator, hover/press states, even
+     distribution) is framework CSS now; the beer theme keeps only
+     `.tab-panel`. theme-pico styles `.tabs > a` as the old bordered pills.
+   - Entity-domain icons: the `entityCard` header renders
+     `{{#icon}}<i>{{icon}}</i>{{/icon}}`; the `icon` slot is an author
+     literal or (default) a runtime `$lookup($domain)` identity slot over a
+     `domainIcons` table in components.pkl — so dynamic-group ($self) cards
+     get the matched entity's icon too, and unlisted domains render nothing.
+     Material Symbols names; the font ships in the BeerCSS dist; theme-pico
+     hides `header i` (it has no icon font).
+   - Slider label line: the `<header>` was swallowed by BeerCSS (it styles
+     `header` as a 4rem app-bar grid), and BeerCSS's `.row`/`.max` helpers
+     wrapped the state text per-character (`.max` = inline-size:100%) —
+     replaced with a `.slider-head` class contract both themes style
+     (flex, space-between).
+   - **Slider fill is backend-rendered** (the load-bearing fix): BeerCSS's
+     track fill is an inline style (`--_start`/`--_end`) its JS writes on
+     `input` events; a Datastar morph wipes it and, the vars defaulting to
+     0%, the track snapped to fully-filled ("drags itself right"). The
+     template now bakes `style="--_start: 0%;--_end: {{fill}}%"` from a new
+     `fill` slot — `100 - value%` of the min..max range, honouring the same
+     three config tiers as the other slider slots, null-guarded so an OFF
+     light renders an empty fill rather than a JSONata error. Correct on
+     every morph by construction; beer.min.js still repaints live during a
+     drag. Evaluation-tested in `TransformSuite` (both tiers). The `.tooltip`
+     value bubble was tried and REMOVED — its value text bled through behind
+     the track, and the head line already shows the live value.
+   - Tabs keep BeerCSS's default even distribution. A
+     `.tabs>a{inline-size:auto}` label-hugging override was tried and
+     REVERTED: it detached the active underline from the anchor (browser
+     feedback; the anchor stops being the underline's containing block).
+   - ~~BeerCSS `.slider` markup~~ — done earlier the same day (see "What
+     shipped").
 
 ## Relationship to the Tailwind plan
 

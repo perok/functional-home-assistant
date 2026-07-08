@@ -35,7 +35,11 @@ selector). Blog posts are mostly v3; class names changed across majors.
 2. **Elements** — BeerCSS styles **semantic HTML directly**: `<article>` is a
    card, `<button>` a filled MD3 button, `<dialog>` a dialog, `<nav>` a bar,
    `<i>icon_name</i>` a Material Symbols icon. This is why it fits our
-   templates: they already emit `article`/`button`/`dialog`.
+   templates: they already emit `article`/`button`/`dialog`. GOTCHA: `<header>`
+   is styled as a 4rem app-bar grid (`display:grid;min-block-size:4rem`) —
+   inside a card template it can swallow inline label text (bit the slider
+   card); use a `.row` div (`.max` = flex-grow spacer) for label lines
+   instead. Tab bars are `.tabs > a` anchors (the `TabButton` card).
 3. **Helpers** — modifier classes: `round`/`no-round`/`border`/`fill`,
    `padding`/`margin`/`space` (+ `tiny-|small-|medium-|large-` prefixes),
    `elevate`, `left-|center-|right-align`, `primary|secondary|tertiary|error`
