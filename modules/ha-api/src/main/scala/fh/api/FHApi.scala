@@ -21,15 +21,28 @@ object FHApi {
       .toResource
     secretToken <- Env[IO]
       .get("SECRET")
-      .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
+      .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
       .toResource
-    result <- from(server, secretToken)
+    // Optional WS endpoint override. The HA supervisor proxy exposes the
+    // websocket at ws://supervisor/core/websocket, not the /api/websocket
+    // path derived from SERVER.
+    serverWs <- Env[IO]
+      .get("SERVER_WS")
+      .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
+      .toResource
+    result <- from(server, secretToken, serverWs)
   } yield result
 
   // TODO websocket api https://developers.home-assistant.io/docs/api/websocket
-  def from(api: Uri, secretToken: String): Resource[IO, HomeAssistantApi[IO]] =
+  def from(
+      api: Uri,
+      secretToken: String,
+      wsUriOverride: Option[Uri] = None
+  ): Resource[IO, HomeAssistantApi[IO]] =
     for {
-      wsUri <- utils.haUriHttpToWS[IO](api).toResource
+      wsUri <- wsUriOverride
+        .fold(utils.haUriHttpToWS[IO](api))(IO.pure)
+        .toResource
 
       // TODO should be params that are independent of underlying implementation
       httpClient <- IO(HttpClient.newHttpClient()).toResource
