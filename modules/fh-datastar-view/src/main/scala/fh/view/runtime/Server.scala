@@ -85,6 +85,12 @@ class Server(
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
 
+    // Edit-mode node inspection ("debug this node"): the live entity state of
+    // every entity a rendered node binds. Read-only; used by the overlay the
+    // dashboard injects when embedded in the editor preview (`?edit=1`).
+    case GET -> Root / "edit" / "node" / slug / id / "debug" =>
+      nodeDebug(slug, id)
+
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
 
@@ -713,11 +719,45 @@ class Server(
         )
     }
 
+  /** Edit-mode "debug this node": the live state of every entity a rendered
+    * node binds, as a JSON array of `{ entity_id, state, attributes }`. Backs
+    * the overlay the dashboard injects when embedded in the editor preview.
+    * Read-only; an unknown slug is a 404, an unknown/childless node is `[]`.
+    */
+  private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
+    renderers.get(slug) match {
+      case None => NotFound()
+      case Some(ref) =>
+        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+          val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
+            states.get(e) match {
+              case Some(st) =>
+                Json.obj(
+                  "entity_id" -> Json.fromString(e),
+                  "state" -> Json.fromString(st.state),
+                  "attributes" -> Json.fromFields(st.attributes.toList)
+                )
+              case None =>
+                Json.obj(
+                  "entity_id" -> Json.fromString(e),
+                  "state" -> Json.Null,
+                  "attributes" -> Json.obj()
+                )
+            }
+          }*)
+          Ok(arr.noSpaces)
+            .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+        }
+    }
+
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     renderers.get(slug) match {
       case None => NotFound()
       case Some(ref) =>
         val uiState = Server.uiStateOf(req)
+        // The editor embeds the dashboard as `?edit=1`; that turns on the
+        // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+        val editMode = req.uri.query.params.get("edit").contains("1")
         (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
           warnAnomalies(renderer, uiState) *>
             Ok(
@@ -727,7 +767,8 @@ class Server(
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
                 renderer.title,
-                Server.ingressPrefixOf(req)
+                Server.ingressPrefixOf(req),
+                editMode
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
@@ -752,7 +793,8 @@ class Server(
       stylesheets: List[String],
       scripts: List[String],
       title: Option[String],
-      ingressPrefix: Option[String]
+      ingressPrefix: Option[String],
+      editMode: Boolean = false
   ): String = {
     val links = (
       stylesheets
@@ -769,6 +811,15 @@ class Server(
     // The split works under any ingress prefix too.
     val popstate =
       s"@post('sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
+    // Edit-mode overlay (Focus / Debug per node), injected only when the editor
+    // embeds this page with `?edit=1`. The config carries the slug + base so the
+    // overlay can call the node-debug endpoint and message the parent editor.
+    val editAssets =
+      if (!editMode) ""
+      else
+        s"""<style>${Server.EditOverlayCss}</style>
+           |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
+           |<script>${Server.EditOverlayJs}</script>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -783,6 +834,7 @@ class Server(
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$body
+       |$editAssets
        |</body>
        |</html>
        |""".stripMargin
@@ -879,6 +931,56 @@ object Server {
     */
   val DatastarCdn: String =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
+
+  /** Edit-mode overlay styles: a small per-node toolbar + the debug tooltip + a
+    * hover outline. Injected only under `?edit=1` (see [[Server.page]]).
+    */
+  val EditOverlayCss: String =
+    """#fh-edit-bar{position:absolute;z-index:99999;display:none;gap:2px;transform:translateY(-100%)}
+      |#fh-edit-bar button{font:11px system-ui;background:#3b82f6;color:#fff;border:0;border-radius:3px 3px 0 0;padding:1px 6px;cursor:pointer}
+      |#fh-edit-bar button:hover{background:#2563eb}
+      |#fh-edit-tip{position:absolute;z-index:99999;display:none;max-width:min(90vw,480px);max-height:50vh;overflow:auto;margin:0;padding:8px;background:#0b1020;color:#cdd6f4;border:1px solid #3b82f6;border-radius:4px;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap}
+      |.fh-edit-hl{outline:2px solid #3b82f6!important;outline-offset:-2px}""".stripMargin
+
+  /** Edit-mode overlay behaviour: hovering a live node (`.fh-cell[id]`) reveals
+    * a Focus/Debug toolbar. Focus outlines it and messages the parent editor
+    * (`fh-focus`); Debug fetches the node's live entity data and shows it in a
+    * tooltip. Plain concatenation (no template literals) so it splices cleanly.
+    */
+  val EditOverlayJs: String =
+    """(function(){
+      |  var cfg=window.__FH_EDIT__; if(!cfg) return;
+      |  var bar=document.createElement('div'); bar.id='fh-edit-bar';
+      |  bar.innerHTML='<button data-a="focus">focus</button><button data-a="debug">debug</button>';
+      |  var tip=document.createElement('pre'); tip.id='fh-edit-tip';
+      |  document.body.appendChild(bar); document.body.appendChild(tip);
+      |  var cur=null;
+      |  function anchor(el){ var r=el.getBoundingClientRect(); bar.style.left=(r.left+scrollX)+'px'; bar.style.top=(r.top+scrollY)+'px'; bar.style.display='flex'; }
+      |  document.addEventListener('mouseover', function(e){
+      |    var cell=e.target.closest('.fh-cell[id]'); if(!cell||cell===cur) return;
+      |    if(cur) cur.classList.remove('fh-edit-hl');
+      |    cur=cell; cell.classList.add('fh-edit-hl'); anchor(cell);
+      |  });
+      |  bar.addEventListener('mousedown', function(e){ e.preventDefault(); });
+      |  bar.addEventListener('click', function(e){
+      |    var a=e.target.getAttribute&&e.target.getAttribute('data-a'); if(!a||!cur) return;
+      |    var id=cur.id;
+      |    if(a==='focus'){ try{ parent.postMessage({type:'fh-focus', nodeId:id, slug:cfg.slug}, '*'); }catch(_){} }
+      |    else if(a==='debug'){
+      |      fetch(cfg.base+'edit/node/'+cfg.slug+'/'+encodeURIComponent(id)+'/debug')
+      |        .then(function(r){return r.json()})
+      |        .then(function(d){
+      |          tip.textContent=(d&&d.length)?JSON.stringify(d,null,2):'(no entities bound to '+id+')';
+      |          var r=cur.getBoundingClientRect(); tip.style.left=(r.left+scrollX)+'px'; tip.style.top=(r.bottom+scrollY+4)+'px'; tip.style.display='block';
+      |        })
+      |        .catch(function(err){ tip.textContent='debug error: '+err; tip.style.display='block'; });
+      |    }
+      |  });
+      |  document.addEventListener('click', function(e){
+      |    if(e.target.closest('#fh-edit-bar')||e.target.closest('#fh-edit-tip')) return;
+      |    tip.style.display='none';
+      |  });
+      |})();""".stripMargin
 
   /** Escape a string for interpolation into HTML text/attribute content (the
     * page `<title>`). Ampersand first so the entity replacements aren't

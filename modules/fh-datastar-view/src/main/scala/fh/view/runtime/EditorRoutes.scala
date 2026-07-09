@@ -364,9 +364,17 @@ const previewSel = document.getElementById("fh-preview-slug")
 const previewFrame = document.getElementById("fh-preview-frame")
 function reloadPreview() {
   const slug = previewSel.value || cfg.defaultSlug
-  previewFrame.src = cfg.basePath + "d/" + slug + "?t=" + Date.now()
+  // ?edit=1 turns on the in-dashboard Focus/Debug overlay (server-injected).
+  previewFrame.src = cfg.basePath + "d/" + slug + "?edit=1&t=" + Date.now()
 }
 previewSel.addEventListener("change", reloadPreview)
+
+// Focus messages from the preview overlay. For now we surface the node id in
+// the status bar; jumping to the exact source line is the pkl:syntax follow-up.
+window.addEventListener("message", (e) => {
+  const m = e.data
+  if (m && m.type === "fh-focus") setMsg("node " + m.nodeId + " (preview " + m.slug + ")")
+})
 
 // --- file list ---------------------------------------------------------------
 async function loadFiles() {
