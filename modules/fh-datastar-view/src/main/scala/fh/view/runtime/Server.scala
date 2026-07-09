@@ -85,6 +85,12 @@ class Server(
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
 
+    // Edit-mode node inspection ("debug this node"): the live entity state of
+    // every entity a rendered node binds. Read-only; used by the overlay the
+    // dashboard injects when embedded in the editor preview (`?edit=1`).
+    case GET -> Root / "edit" / "node" / slug / id / "debug" =>
+      nodeDebug(slug, id)
+
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
 
@@ -713,11 +719,45 @@ class Server(
         )
     }
 
+  /** Edit-mode "debug this node": the live state of every entity a rendered
+    * node binds, as a JSON array of `{ entity_id, state, attributes }`. Backs
+    * the overlay the dashboard injects when embedded in the editor preview.
+    * Read-only; an unknown slug is a 404, an unknown/childless node is `[]`.
+    */
+  private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
+    renderers.get(slug) match {
+      case None => NotFound()
+      case Some(ref) =>
+        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+          val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
+            states.get(e) match {
+              case Some(st) =>
+                Json.obj(
+                  "entity_id" -> Json.fromString(e),
+                  "state" -> Json.fromString(st.state),
+                  "attributes" -> Json.fromFields(st.attributes.toList)
+                )
+              case None =>
+                Json.obj(
+                  "entity_id" -> Json.fromString(e),
+                  "state" -> Json.Null,
+                  "attributes" -> Json.obj()
+                )
+            }
+          }*)
+          Ok(arr.noSpaces)
+            .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+        }
+    }
+
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     renderers.get(slug) match {
       case None => NotFound()
       case Some(ref) =>
         val uiState = Server.uiStateOf(req)
+        // The editor embeds the dashboard as `?edit=1`; that turns on the
+        // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+        val editMode = req.uri.query.params.get("edit").contains("1")
         (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
           warnAnomalies(renderer, uiState) *>
             Ok(
@@ -727,7 +767,8 @@ class Server(
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
                 renderer.title,
-                Server.ingressPrefixOf(req)
+                Server.ingressPrefixOf(req),
+                editMode
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
@@ -752,7 +793,8 @@ class Server(
       stylesheets: List[String],
       scripts: List[String],
       title: Option[String],
-      ingressPrefix: Option[String]
+      ingressPrefix: Option[String],
+      editMode: Boolean = false
   ): String = {
     val links = (
       stylesheets
@@ -769,6 +811,15 @@ class Server(
     // The split works under any ingress prefix too.
     val popstate =
       s"@post('sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
+    // Edit-mode overlay (Focus / Debug per node), injected only when the editor
+    // embeds this page with `?edit=1`. The config carries the slug + base so the
+    // overlay can call the node-debug endpoint and message the parent editor.
+    val editAssets =
+      if (!editMode) ""
+      else
+        s"""<link rel="stylesheet" href="edit/overlay.css">
+           |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
+           |<script src="edit/overlay.js"></script>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -783,6 +834,7 @@ class Server(
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$body
+       |$editAssets
        |</body>
        |</html>
        |""".stripMargin

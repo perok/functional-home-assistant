@@ -268,6 +268,17 @@ class Renderer(
   def componentsFor(entityId: String): Set[String] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
+  /** The live entities one node (by generated id) binds — the inverse of
+    * [[componentsFor]], for edit-mode inspection ("debug this node"). Empty for
+    * a dynamic group (its members are per-entity children with their own ids) or
+    * an unknown id. Searches main + surface indices.
+    */
+  def entitiesForNode(id: String): List[String] =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
+      case _                                     => Nil
+    }
+
   /** Main-page node ids whose HTML this entity drives, scoped to one surface.
     */
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[String] =

@@ -44,6 +44,20 @@ jobs:
 
       - uses: sbt/setup-sbt@v1
 
+      # The editor's CodeMirror + lsp-client deps are esbuild-bundled into
+      # resources/editor/vendor.js, which sbt then packages into the fat jar.
+      # vendor.js is NOT committed (it's gitignored) — CI is its source of
+      # truth; `npm ci` pins to package-lock.json for a reproducible bundle.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: modules/fh-datastar-view/editor-src/package-lock.json
+
+      - name: Vendor editor front-end (esbuild)
+        working-directory: modules/fh-datastar-view/editor-src
+        run: npm ci && npm run build
+
       - name: Test
         run: sbt 'fh-datastar-view/testFull'
 

@@ -89,8 +89,10 @@ lazy val `home-codegen` =
     .settings(
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
-      haSecret := secretToken,
-      haUrl := "http://192.168.1.174:8123" // jmdns for mdns in java?
+      haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
+      haUrl := "TODO" //envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
+      //haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
+      //haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
 
 lazy val home = project // using the others as if they are libs
@@ -103,10 +105,6 @@ lazy val home = project // using the others as if they are libs
     //  case x                             => MergeStrategy.first
     //},
     run / fork := true,
-    run / envVars := Map(
-      "SERVER" -> (`home-codegen` / haUrl).value,
-      "SECRET" -> secretToken
-    ),
     run / javaOptions ++= Seq(
       "-Dcats.effect.tracing.mode=full"
       // "-Dcats.effect.tracing.buffer.size=1024"
@@ -123,10 +121,10 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    run / envVars := Map(
-      "SERVER" -> (`home-codegen` / haUrl).value,
-      "SECRET" -> secretToken
-    ),
+    //run / envVars := Map(
+    //  "SERVER" -> (`home-codegen` / haUrl).value,
+    //  "SECRET" -> secretToken
+    //),
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
@@ -194,7 +192,3 @@ lazy val root = project
       "org.http4s" %% "http4s-dsl" % http4sVersion
     )
   )
-
-val secretToken =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjN2ExZmZmYjgxMjE0YTQzODM3NTA5YjVmMjgzMGVkZSIsImlhdCI6MTc4MTY5NTc4MCwiZXhwIjoyMDk3MDU1NzgwfQ.qVaj37vsmLVy6PPId2D0d4YxdMdAn2zngS_iGPTi33c"
-  //"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIwMmU0ZTJkNzFkNmU0MDYyODhjOWRkMTc1NTU2ZjgyOSIsImlhdCI6MTczMDkyMjA0MCwiZXhwIjoyMDQ2MjgyMDQwfQ.X59FBGhVGBWOxEmvgRF-A6SHpvsErJFemqLFU0TtMgU"

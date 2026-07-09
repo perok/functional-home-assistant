@@ -1,0 +1,17 @@
+* { box-sizing: border-box }
+html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #1e1e1e; color: #ddd }
+#fh-editor { display: grid; grid-template-columns: 200px 1fr 40%; height: 100vh }
+#fh-files { border-right: 1px solid #333; overflow: auto }
+.fh-hd { padding: 8px 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #888; border-bottom: 1px solid #333 }
+#fh-file-list { list-style: none; margin: 0; padding: 0 }
+#fh-file-list li { padding: 6px 10px; cursor: pointer; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+#fh-file-list li:hover { background: #2a2d2e }
+#fh-file-list li.active { background: #37373d; color: #fff }
+#fh-file-list li.lib { color: #9aa; padding-left: 20px }
+#fh-main { display: flex; flex-direction: column; min-width: 0 }
+#fh-editor-host { flex: 1; min-height: 0; overflow: hidden }
+#fh-editor-host .cm-editor { height: 100% }
+#fh-status { display: flex; justify-content: space-between; padding: 4px 10px; font-size: 12px; background: #007acc; color: #fff }
+#fh-preview { border-left: 1px solid #333; display: flex; flex-direction: column; min-width: 0 }
+#fh-preview-frame { flex: 1; border: 0; background: #fff }
+#fh-preview-slug { background: #333; color: #ddd; border: 1px solid #555; border-radius: 3px }

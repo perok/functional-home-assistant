@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <base href="__BASE__">
+  <title>Dashboard editor</title>
+  <script type="application/json" id="fh-editor-config">__CONFIG__</script>
+  <link rel="stylesheet" href="edit/app.css">
+</head>
+<body>
+  <div id="fh-editor">
+    <aside id="fh-files"><div class="fh-hd">Dashboards</div><ul id="fh-file-list"></ul></aside>
+    <main id="fh-main">
+      <div id="fh-editor-host"></div>
+      <div id="fh-status"><span id="fh-status-file"></span><span id="fh-status-msg"></span></div>
+    </main>
+    <section id="fh-preview">
+      <div class="fh-hd">Preview: <select id="fh-preview-slug"></select></div>
+      <iframe id="fh-preview-frame" title="dashboard preview"></iframe>
+    </section>
+  </div>
+  <script type="module" src="edit/app.js"></script>
+</body>
+</html>
