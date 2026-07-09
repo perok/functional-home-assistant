@@ -12,13 +12,14 @@ import org.http4s.server.websocket.WebSocketBuilder2
   * (highlighting locally, completion/hover/diagnostics from the real pkl-lsp).
   *
   * The front-end (HTML/CSS/JS) lives as real files under `resources/editor/`
-  * (`index.html`, `app.js`, `app.css`, `overlay.js`, `overlay.css`) and is
-  * served straight from disk — NOT embedded in Scala string literals. So it is
-  * lintable, reads like normal web code, and edits go live on a browser refresh
-  * with no sbt rebuild.
+  * (`index.html`, `app.js`, `app.css`, `overlay.js`, `overlay.css`, plus the
+  * esbuild-bundled `vendor.js`) — NOT embedded in Scala strings — and is served
+  * as **static classpath resources** via http4s `StaticFile`. The editor's own
+  * assets are static; only the dashboard `.pkl` files are edited on the
+  * filesystem (via `/edit/file`).
   *
   *   - `GET  /edit` the editor page (index.html with base href + config injected).
-  *   - `GET  /edit/app.js|app.css|overlay.js|overlay.css` the static assets.
+  *   - `GET  /edit/{app,vendor,overlay}.js|{app,overlay}.css` the static assets.
   *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
   *     the `lib` sources), each with its absolute on-disk path (LSP document URI).
   *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
@@ -41,23 +42,12 @@ final class EditorRoutes(
     defaultSlug: String
 ) {
 
-  // The editor front-end assets sit next to the dashboards under resources/.
-  private val editorDir = dashboardsDir / os.up / "editor"
-
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
     HttpRoutes.of[IO] {
       case req @ GET -> Root / "edit" => editorPage(req)
 
-      case GET -> Root / "edit" / "app.js" =>
-        serveAsset("app.js", MediaType.application.javascript)
-      case GET -> Root / "edit" / "vendor.js" =>
-        serveAsset("vendor.js", MediaType.application.javascript)
-      case GET -> Root / "edit" / "app.css" =>
-        serveAsset("app.css", MediaType.text.css)
-      case GET -> Root / "edit" / "overlay.js" =>
-        serveAsset("overlay.js", MediaType.application.javascript)
-      case GET -> Root / "edit" / "overlay.css" =>
-        serveAsset("overlay.css", MediaType.text.css)
+      case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
+        serveAsset(req, asset)
 
       case GET -> Root / "edit" / "files" =>
         Ok(listFiles).map(
@@ -96,8 +86,14 @@ final class EditorRoutes(
         }
     }
 
-  /** Serve `editor/index.html` with the per-request base href + config JSON
-    * injected (the two `__…__` placeholders). Read from disk so edits are live.
+  /** The static editor assets (served verbatim); everything else under `/edit`
+    * is an API route. `index.html` is NOT here — it needs placeholder injection.
+    */
+  private val staticAssets =
+    Set("app.js", "vendor.js", "app.css", "overlay.js", "overlay.css")
+
+  /** Serve `editor/index.html` (a classpath resource) with the per-request base
+    * href + config JSON injected (the two `__…__` placeholders).
     */
   private def editorPage(req: Request[IO]): IO[Response[IO]] = {
     val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
@@ -107,27 +103,33 @@ final class EditorRoutes(
         "basePath" -> Json.fromString(base)
       )
       .noSpaces
-    val indexPath = editorDir / "index.html"
-    IO.blocking(
-      Option.when(os.exists(indexPath) && os.isFile(indexPath))(os.read(indexPath))
-    ).flatMap {
-      case None => NotFound(s"editor assets not found at $editorDir")
+    readResource("index.html").flatMap {
+      case None =>
+        NotFound("editor index.html not found on the classpath (/editor)")
       case Some(html) =>
         val page = html.replace("__BASE__", base).replace("__CONFIG__", config)
         Ok(page).map(_.withContentType(`Content-Type`(MediaType.text.html)))
     }
   }
 
-  /** Serve one static editor asset from `resources/editor/` by exact name. */
-  private def serveAsset(name: String, mt: MediaType): IO[Response[IO]] = {
-    val p = editorDir / name
-    IO.blocking(Option.when(os.exists(p) && os.isFile(p))(os.read.bytes(p)))
-      .flatMap {
-        case None => NotFound()
-        case Some(bytes) =>
-          Ok(bytes).map(_.withContentType(`Content-Type`(mt)))
+  /** Serve one static editor asset through http4s [[StaticFile]] straight from
+    * the classpath (`/editor/…`) — content type from the extension, caching
+    * validators, conditional/range support. The editor's own assets are static;
+    * only the dashboard `.pkl` files are edited on the filesystem.
+    */
+  private def serveAsset(req: Request[IO], name: String): IO[Response[IO]] =
+    StaticFile
+      .fromResource(s"/editor/$name", Some(req))
+      .getOrElseF(NotFound())
+
+  /** Read a text editor asset from the classpath (`/editor/…`). */
+  private def readResource(name: String): IO[Option[String]] =
+    IO.blocking(
+      Option(getClass.getResourceAsStream(s"/editor/$name")).map { is =>
+        try new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+        finally is.close()
       }
-  }
+    )
 
   /** JSON list of editable sources: `{ name, path, slug? }`. `name` is the
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
