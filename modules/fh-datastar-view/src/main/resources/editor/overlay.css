@@ -1,0 +1,7 @@
+/* Edit-mode overlay: a per-node toolbar + debug tooltip + hover outline.
+   Injected into the dashboard page only under ?edit=1 (see Server.page). */
+#fh-edit-bar { position: absolute; z-index: 99999; display: none; gap: 2px; transform: translateY(-100%) }
+#fh-edit-bar button { font: 11px system-ui; background: #3b82f6; color: #fff; border: 0; border-radius: 3px 3px 0 0; padding: 1px 6px; cursor: pointer }
+#fh-edit-bar button:hover { background: #2563eb }
+#fh-edit-tip { position: absolute; z-index: 99999; display: none; max-width: min(90vw, 480px); max-height: 50vh; overflow: auto; margin: 0; padding: 8px; background: #0b1020; color: #cdd6f4; border: 1px solid #3b82f6; border-radius: 4px; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap }
+.fh-edit-hl { outline: 2px solid #3b82f6 !important; outline-offset: -2px }

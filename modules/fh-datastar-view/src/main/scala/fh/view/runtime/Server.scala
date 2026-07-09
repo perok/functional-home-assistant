@@ -817,9 +817,9 @@ class Server(
     val editAssets =
       if (!editMode) ""
       else
-        s"""<style>${Server.EditOverlayCss}</style>
+        s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
-           |<script>${Server.EditOverlayJs}</script>""".stripMargin
+           |<script src="edit/overlay.js"></script>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -931,56 +931,6 @@ object Server {
     */
   val DatastarCdn: String =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
-
-  /** Edit-mode overlay styles: a small per-node toolbar + the debug tooltip + a
-    * hover outline. Injected only under `?edit=1` (see [[Server.page]]).
-    */
-  val EditOverlayCss: String =
-    """#fh-edit-bar{position:absolute;z-index:99999;display:none;gap:2px;transform:translateY(-100%)}
-      |#fh-edit-bar button{font:11px system-ui;background:#3b82f6;color:#fff;border:0;border-radius:3px 3px 0 0;padding:1px 6px;cursor:pointer}
-      |#fh-edit-bar button:hover{background:#2563eb}
-      |#fh-edit-tip{position:absolute;z-index:99999;display:none;max-width:min(90vw,480px);max-height:50vh;overflow:auto;margin:0;padding:8px;background:#0b1020;color:#cdd6f4;border:1px solid #3b82f6;border-radius:4px;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap}
-      |.fh-edit-hl{outline:2px solid #3b82f6!important;outline-offset:-2px}""".stripMargin
-
-  /** Edit-mode overlay behaviour: hovering a live node (`.fh-cell[id]`) reveals
-    * a Focus/Debug toolbar. Focus outlines it and messages the parent editor
-    * (`fh-focus`); Debug fetches the node's live entity data and shows it in a
-    * tooltip. Plain concatenation (no template literals) so it splices cleanly.
-    */
-  val EditOverlayJs: String =
-    """(function(){
-      |  var cfg=window.__FH_EDIT__; if(!cfg) return;
-      |  var bar=document.createElement('div'); bar.id='fh-edit-bar';
-      |  bar.innerHTML='<button data-a="focus">focus</button><button data-a="debug">debug</button>';
-      |  var tip=document.createElement('pre'); tip.id='fh-edit-tip';
-      |  document.body.appendChild(bar); document.body.appendChild(tip);
-      |  var cur=null;
-      |  function anchor(el){ var r=el.getBoundingClientRect(); bar.style.left=(r.left+scrollX)+'px'; bar.style.top=(r.top+scrollY)+'px'; bar.style.display='flex'; }
-      |  document.addEventListener('mouseover', function(e){
-      |    var cell=e.target.closest('.fh-cell[id]'); if(!cell||cell===cur) return;
-      |    if(cur) cur.classList.remove('fh-edit-hl');
-      |    cur=cell; cell.classList.add('fh-edit-hl'); anchor(cell);
-      |  });
-      |  bar.addEventListener('mousedown', function(e){ e.preventDefault(); });
-      |  bar.addEventListener('click', function(e){
-      |    var a=e.target.getAttribute&&e.target.getAttribute('data-a'); if(!a||!cur) return;
-      |    var id=cur.id;
-      |    if(a==='focus'){ try{ parent.postMessage({type:'fh-focus', nodeId:id, slug:cfg.slug}, '*'); }catch(_){} }
-      |    else if(a==='debug'){
-      |      fetch(cfg.base+'edit/node/'+cfg.slug+'/'+encodeURIComponent(id)+'/debug')
-      |        .then(function(r){return r.json()})
-      |        .then(function(d){
-      |          tip.textContent=(d&&d.length)?JSON.stringify(d,null,2):'(no entities bound to '+id+')';
-      |          var r=cur.getBoundingClientRect(); tip.style.left=(r.left+scrollX)+'px'; tip.style.top=(r.bottom+scrollY+4)+'px'; tip.style.display='block';
-      |        })
-      |        .catch(function(err){ tip.textContent='debug error: '+err; tip.style.display='block'; });
-      |    }
-      |  });
-      |  document.addEventListener('click', function(e){
-      |    if(e.target.closest('#fh-edit-bar')||e.target.closest('#fh-edit-tip')) return;
-      |    tip.style.display='none';
-      |  });
-      |})();""".stripMargin
 
   /** Escape a string for interpolation into HTML text/attribute content (the
     * page `<title>`). Ampersand first so the entity replacements aren't
