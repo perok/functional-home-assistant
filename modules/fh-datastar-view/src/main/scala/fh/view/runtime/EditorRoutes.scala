@@ -6,6 +6,7 @@ import org.http4s.*
 import org.http4s.dsl.io.*
 import org.http4s.headers.`Content-Type`
 import org.http4s.server.websocket.WebSocketBuilder2
+import org.http4s.server.staticcontent.*
 
 /** The dashboard **editor** surface: a CodeMirror 6 page that edits the Pkl
   * dashboard sources on disk, with live preview and Pkl language support
@@ -18,18 +19,21 @@ import org.http4s.server.websocket.WebSocketBuilder2
   * assets are static; only the dashboard `.pkl` files are edited on the
   * filesystem (via `/edit/file`).
   *
-  *   - `GET  /edit` the editor page (index.html with base href + config injected).
-  *   - `GET  /edit/{app,vendor,overlay}.js|{app,overlay}.css` the static assets.
+  *   - `GET  /edit` the editor page (index.html with base href + config
+  *     injected).
+  *   - `GET  /edit/{app,vendor,overlay}.js|{app,overlay}.css` the static
+  *     assets.
   *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
-  *     the `lib` sources), each with its absolute on-disk path (LSP document URI).
+  *     the `lib` sources), each with its absolute on-disk path (LSP document
+  *     URI).
   *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
-  *     disk and the existing `ServerApp.watchSources` reload repaints every open
-  *     preview — no coupling here.
+  *     disk and the existing `ServerApp.watchSources` reload repaints every
+  *     open preview — no coupling here.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
   * Editing is **deliberately ungated** for now, safe only because the server
-  * binds loopback by default (see the plan's "Deferred: feature gate + security"
-  * section). The write path is still clamped: only `<name>.pkl` and
+  * binds loopback by default (see the plan's "Deferred: feature gate +
+  * security" section). The write path is still clamped: only `<name>.pkl` and
   * `lib/<name>.pkl` under the dashboards dir, each segment matching
   * [[AssetCache.SafeName]] (which rejects `..` and slashes) — no traversal.
   *
@@ -44,7 +48,8 @@ final class EditorRoutes(
 
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
     HttpRoutes.of[IO] {
-      case req @ GET -> Root / "edit" => editorPage(req)
+      case req @ GET -> Root / "edit" =>
+        serveAsset(req, "index.html")
 
       case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
         serveAsset(req, asset)
@@ -54,18 +59,11 @@ final class EditorRoutes(
           _.withContentType(`Content-Type`(MediaType.application.json))
         )
 
-      case GET -> "edit" /: "file" /: rest =>
+      case req @ GET -> "edit" /: "file" /: rest =>
         resolveEditable(rest) match {
           case None => NotFound()
-          case Some(p) =>
-            IO.blocking(Option.when(os.exists(p) && os.isFile(p))(os.read(p)))
-              .flatMap {
-                case None => NotFound()
-                case Some(text) =>
-                  Ok(text).map(
-                    _.withContentType(`Content-Type`(MediaType.text.plain))
-                  )
-              }
+          case _ =>
+            fileService[IO](FileService.Config(dashboardsDir.toString, "edit/file")).apply(req).getOrElseF(NotFound())
         }
 
       case req @ PUT -> "edit" /: "file" /: rest =>
@@ -87,30 +85,12 @@ final class EditorRoutes(
     }
 
   /** The static editor assets (served verbatim); everything else under `/edit`
-    * is an API route. `index.html` is NOT here — it needs placeholder injection.
+    * is an API route. `index.html` is NOT here — it needs placeholder
+    * injection.
     */
   private val staticAssets =
     Set("app.js", "vendor.js", "app.css", "overlay.js", "overlay.css")
 
-  /** Serve `editor/index.html` (a classpath resource) with the per-request base
-    * href + config JSON injected (the two `__…__` placeholders).
-    */
-  private def editorPage(req: Request[IO]): IO[Response[IO]] = {
-    val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
-    val config = Json
-      .obj(
-        "defaultSlug" -> Json.fromString(defaultSlug),
-        "basePath" -> Json.fromString(base)
-      )
-      .noSpaces
-    readResource("index.html").flatMap {
-      case None =>
-        NotFound("editor index.html not found on the classpath (/editor)")
-      case Some(html) =>
-        val page = html.replace("__BASE__", base).replace("__CONFIG__", config)
-        Ok(page).map(_.withContentType(`Content-Type`(MediaType.text.html)))
-    }
-  }
 
   /** Serve one static editor asset through http4s [[StaticFile]] straight from
     * the classpath (`/editor/…`) — content type from the extension, caching
@@ -120,16 +100,31 @@ final class EditorRoutes(
   private def serveAsset(req: Request[IO], name: String): IO[Response[IO]] =
     StaticFile
       .fromResource(s"/editor/$name", Some(req))
-      .getOrElseF(NotFound())
+      .semiflatMap {
+        /** Serve `editor/index.html` (a classpath resource) with the per-request base
+         * href + config JSON injected (the two `__…__` placeholders).
+         */
+        case resp if name.endsWith(".html") =>
+          val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
+          val config = Json
+            .obj(
+              "defaultSlug" -> Json.fromString(defaultSlug),
+              "basePath" -> Json.fromString(base)
+            )
+            .noSpaces
 
-  /** Read a text editor asset from the classpath (`/editor/…`). */
-  private def readResource(name: String): IO[Option[String]] =
-    IO.blocking(
-      Option(getClass.getResourceAsStream(s"/editor/$name")).map { is =>
-        try new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-        finally is.close()
+          resp.bodyText.compile.string
+            .map(_.replace("__BASE__", base).replace("__CONFIG__", config))
+            .map(s =>
+              resp
+                .withEntity(s)
+                .withContentType(`Content-Type`(MediaType.text.html))
+            )
+        case resp => IO.pure(resp)
       }
-    )
+      .getOrElseF(
+        NotFound("editor index.html not found on the classpath (/editor)")
+      )
 
   /** JSON list of editable sources: `{ name, path, slug? }`. `name` is the
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
