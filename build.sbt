@@ -90,7 +90,7 @@ lazy val `home-codegen` =
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
       haSecret := secretToken,
-      haUrl := "http://192.168.1.174:8123" // jmdns for mdns in java?
+      haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
 
 lazy val home = project // using the others as if they are libs
@@ -195,6 +195,34 @@ lazy val root = project
     )
   )
 
-val secretToken =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjN2ExZmZmYjgxMjE0YTQzODM3NTA5YjVmMjgzMGVkZSIsImlhdCI6MTc4MTY5NTc4MCwiZXhwIjoyMDk3MDU1NzgwfQ.qVaj37vsmLVy6PPId2D0d4YxdMdAn2zngS_iGPTi33c"
-  //"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIwMmU0ZTJkNzFkNmU0MDYyODhjOWRkMTc1NTU2ZjgyOSIsImlhdCI6MTczMDkyMjA0MCwiZXhwIjoyMDQ2MjgyMDQwfQ.X59FBGhVGBWOxEmvgRF-A6SHpvsErJFemqLFU0TtMgU"
+// Credentials/config come from a gitignored `.env` (KEY=VALUE lines) so real
+// tokens never live in the checked-in build. Precedence: `.env`, then the
+// process environment, then a harmless default. Keys: `SECRET` (HA token),
+// `SERVER` (HA base URL).
+def loadDotEnv(f: File): Map[String, String] =
+  if (!f.exists) Map.empty
+  else {
+    val src = scala.io.Source.fromFile(f)
+    try
+      src
+        .getLines()
+        .map(_.trim)
+        .filter(l => l.nonEmpty && !l.startsWith("#"))
+        .flatMap { l =>
+          l.split("=", 2) match {
+            case Array(k, v) =>
+              Some(k.trim -> v.trim.stripPrefix("\"").stripSuffix("\""))
+            case _ => None
+          }
+        }
+        .toMap
+    finally src.close()
+  }
+
+val dotEnv: Map[String, String] = loadDotEnv(file(".env"))
+
+val secretToken: String =
+  dotEnv.getOrElse("SECRET", sys.env.getOrElse("SECRET", ""))
+
+val haServer: String =
+  dotEnv.getOrElse("SERVER", sys.env.getOrElse("SERVER", "http://192.168.1.174:8123"))
