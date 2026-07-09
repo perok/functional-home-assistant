@@ -89,6 +89,8 @@ lazy val `home-codegen` =
     .settings(
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
+      haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
+      haUrl := "TODO" //envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
       //haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
       //haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
@@ -103,10 +105,6 @@ lazy val home = project // using the others as if they are libs
     //  case x                             => MergeStrategy.first
     //},
     run / fork := true,
-    run / envVars := Map(
-      "SERVER" -> (`home-codegen` / haUrl).value,
-      "SECRET" -> secretToken
-    ),
     run / javaOptions ++= Seq(
       "-Dcats.effect.tracing.mode=full"
       // "-Dcats.effect.tracing.buffer.size=1024"
