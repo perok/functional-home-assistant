@@ -46,7 +46,8 @@ jobs:
 
       # The editor's CodeMirror + lsp-client deps are esbuild-bundled into
       # resources/editor/vendor.js, which sbt then packages into the fat jar.
-      # `npm ci` pins to editor-src/package-lock.json for a reproducible bundle.
+      # vendor.js is NOT committed (it's gitignored) — CI is its source of
+      # truth; `npm ci` pins to package-lock.json for a reproducible bundle.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -55,14 +56,7 @@ jobs:
 
       - name: Vendor editor front-end (esbuild)
         working-directory: modules/fh-datastar-view/editor-src
-        run: |
-          npm ci
-          npm run build
-          # The committed vendor.js must match a fresh build (locked deps +
-          # pinned esbuild are deterministic). If not, someone changed the deps
-          # or vendor.entry.js without rebuilding — fail with a clear hint.
-          git diff --exit-code -- ../src/main/resources/editor/vendor.js \
-            || { echo "::error::vendor.js is stale — run 'npm run build' in modules/fh-datastar-view/editor-src and commit it"; exit 1; }
+        run: npm ci && npm run build
 
       - name: Test
         run: sbt 'fh-datastar-view/testFull'
