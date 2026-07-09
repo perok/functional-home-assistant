@@ -50,6 +50,8 @@ final class EditorRoutes(
 
       case GET -> Root / "edit" / "app.js" =>
         serveAsset("app.js", MediaType.application.javascript)
+      case GET -> Root / "edit" / "vendor.js" =>
+        serveAsset("vendor.js", MediaType.application.javascript)
       case GET -> Root / "edit" / "app.css" =>
         serveAsset("app.css", MediaType.text.css)
       case GET -> Root / "edit" / "overlay.js" =>

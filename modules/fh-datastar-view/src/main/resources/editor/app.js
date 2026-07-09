@@ -3,15 +3,17 @@
 // can be linted, read normally, and edited live (refresh the browser; no sbt
 // rebuild). Dependencies resolve via the import map in index.html.
 
-import { EditorState, Compartment } from "@codemirror/state"
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view"
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
+// All CodeMirror + lsp-client symbols come from the pre-bundled vendor.js
+// (built by editor-src/ with esbuild) — one file, no import map, no CDN, one
+// @codemirror/state instance. Rebuild it only when deps change.
 import {
-  StreamLanguage, LanguageSupport, syntaxHighlighting,
-  defaultHighlightStyle, indentOnInput, bracketMatching,
-} from "@codemirror/language"
-import { closeBrackets } from "@codemirror/autocomplete"
-import { LSPClient, languageServerExtensions, languageServerSupport } from "@codemirror/lsp-client"
+  EditorState, Compartment,
+  EditorView, keymap, lineNumbers, highlightActiveLine,
+  defaultKeymap, history, historyKeymap, indentWithTab,
+  StreamLanguage, LanguageSupport, syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching,
+  closeBrackets,
+  LSPClient, languageServerExtensions, languageServerSupport,
+} from "./vendor.js"
 
 const cfg = JSON.parse(document.getElementById("fh-editor-config").textContent)
 

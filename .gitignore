@@ -46,3 +46,6 @@ metals.sbt
 
 # local credentials (HA token etc.) read by build.sbt
 .env
+
+# editor vendor bundle: node deps (the built vendor.js IS committed)
+modules/fh-datastar-view/editor-src/node_modules/
