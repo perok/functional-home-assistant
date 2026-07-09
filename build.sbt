@@ -89,8 +89,8 @@ lazy val `home-codegen` =
     .settings(
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
-      haSecret := secretToken,
-      haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
+      //haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
+      //haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
 
 lazy val home = project // using the others as if they are libs
@@ -123,10 +123,10 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    run / envVars := Map(
-      "SERVER" -> (`home-codegen` / haUrl).value,
-      "SECRET" -> secretToken
-    ),
+    //run / envVars := Map(
+    //  "SERVER" -> (`home-codegen` / haUrl).value,
+    //  "SECRET" -> secretToken
+    //),
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
@@ -194,35 +194,3 @@ lazy val root = project
       "org.http4s" %% "http4s-dsl" % http4sVersion
     )
   )
-
-// Credentials/config come from a gitignored `.env` (KEY=VALUE lines) so real
-// tokens never live in the checked-in build. Precedence: `.env`, then the
-// process environment, then a harmless default. Keys: `SECRET` (HA token),
-// `SERVER` (HA base URL).
-def loadDotEnv(f: File): Map[String, String] =
-  if (!f.exists) Map.empty
-  else {
-    val src = scala.io.Source.fromFile(f)
-    try
-      src
-        .getLines()
-        .map(_.trim)
-        .filter(l => l.nonEmpty && !l.startsWith("#"))
-        .flatMap { l =>
-          l.split("=", 2) match {
-            case Array(k, v) =>
-              Some(k.trim -> v.trim.stripPrefix("\"").stripSuffix("\""))
-            case _ => None
-          }
-        }
-        .toMap
-    finally src.close()
-  }
-
-val dotEnv: Map[String, String] = loadDotEnv(file(".env"))
-
-val secretToken: String =
-  dotEnv.getOrElse("SECRET", sys.env.getOrElse("SECRET", ""))
-
-val haServer: String =
-  dotEnv.getOrElse("SERVER", sys.env.getOrElse("SERVER", "http://192.168.1.174:8123"))
