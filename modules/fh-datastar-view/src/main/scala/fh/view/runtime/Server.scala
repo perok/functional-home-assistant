@@ -85,6 +85,34 @@ class Server(
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
 
+    // PWA plumbing (installability + the local/internet pill). Static classpath
+    // resources under `/pwa` (manifest, service worker, icons, bootstrap JS).
+    // The whitelist lives in the route guard (as EditorRoutes does), so an
+    // unknown name falls through to the catch-all 404.
+    case req @ GET -> Root / "pwa" / name if Server.PwaAssets(name) =>
+      Server.servePwa(req, name)
+
+    // Liveness probe: used by the connection pill and by uptime checks. Cheap,
+    // never touches HA.
+    case GET -> Root / "health" =>
+      Ok("""{"ok":true}""")
+        .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+
+    // How did this request reach us? The reverse proxy stamps `X-FH-Via`
+    // (`local` for LAN/VPN source IPs, `internet` otherwise); no header means a
+    // direct hit (loopback dev, or the proxy hasn't been configured). The
+    // installed app polls this to show the local/internet pill. Values are
+    // whitelisted so a spoofed header can only ever read back one of three
+    // known tokens.
+    case req @ GET -> Root / "whoami" =>
+      val via = req.headers
+        .get(org.typelevel.ci.CIString("X-FH-Via"))
+        .map(_.head.value)
+        .filter(v => v == "local" || v == "internet")
+        .getOrElse("direct")
+      Ok(s"""{"via":"$via"}""")
+        .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
     // dashboard injects when embedded in the editor preview (`?edit=1`).
@@ -820,6 +848,22 @@ class Server(
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
            |<script src="edit/overlay.js"></script>""".stripMargin
+    // PWA plumbing (installable app + local/internet pill). Suppressed in the
+    // editor preview iframe (`editMode`): it isn't a standalone surface and
+    // shouldn't register a service worker. All URLs are relative so they
+    // resolve against `<base href>` under a bare domain and under HA ingress.
+    val pwaHead =
+      if (editMode) ""
+      else
+        """  <link rel="manifest" href="pwa/manifest.webmanifest">
+          |  <meta name="theme-color" content="#0b0f14">
+          |  <link rel="icon" href="pwa/icon.svg">
+          |  <link rel="apple-touch-icon" href="pwa/icon.svg">
+          |  <meta name="apple-mobile-web-app-capable" content="yes">
+          |  <meta name="mobile-web-app-capable" content="yes">
+          |  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">""".stripMargin
+    val pwaScript =
+      if (editMode) "" else """<script defer src="pwa/app.js"></script>"""
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -827,6 +871,7 @@ class Server(
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <base href="$baseHref">
        |  <title>$pageTitle</title>
+       |$pwaHead
        |$links
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
@@ -834,6 +879,7 @@ class Server(
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$body
+       |$pwaScript
        |$editAssets
        |</body>
        |</html>
@@ -918,6 +964,41 @@ object Server {
     */
   private val IngressPathPattern: scala.util.matching.Regex =
     "^(/[A-Za-z0-9_-]+)+$".r
+
+  /** The static PWA assets served from the classpath under `/pwa`. The set IS
+    * the whitelist — anything else 404s.
+    */
+  private val PwaAssets: Set[String] =
+    Set("manifest.webmanifest", "sw.js", "app.js", "icon.svg", "icon-maskable.svg")
+
+  /** Serve one static PWA asset through http4s [[StaticFile]] straight from the
+    * classpath (`/pwa/...`) — same pattern as `EditorRoutes.serveAsset`
+    * (`fromResource(...).semiflatMap { … case resp => IO.pure(resp) }
+    * .getOrElseF(NotFound())`), with the whitelist enforced in the route guard
+    * ([[PwaAssets]]). Two assets need a header the extension table doesn't give
+    * them: `.webmanifest` its `application/manifest+json` type, and `sw.js` a
+    * `Service-Worker-Allowed: /` so a worker physically at `/pwa/sw.js` may
+    * still register for the whole-app scope (`document.baseURI`).
+    */
+  def servePwa(req: Request[IO], name: String): IO[Response[IO]] =
+    StaticFile
+      .fromResource(s"/pwa/$name", Some(req))
+      .semiflatMap {
+        case resp if name.endsWith(".webmanifest") =>
+          IO.pure(
+            resp.withContentType(
+              `Content-Type`(MediaType.unsafeParse("application/manifest+json"))
+            )
+          )
+        case resp if name == "sw.js" =>
+          IO.pure(
+            resp.putHeaders(
+              Header.Raw(org.typelevel.ci.CIString("Service-Worker-Allowed"), "/")
+            )
+          )
+        case resp => IO.pure(resp)
+      }
+      .getOrElseF(NotFound())
 
   /** The Datastar signal name carrying the per-connection `conn` id: minted on
     * SSE connect (the initial patch-signals event) and echoed back in each
