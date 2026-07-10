@@ -863,13 +863,17 @@ class Server(
     // arrived since the last check. If not — the SSE dropped (browser side) or
     // the upstream HA feed froze (no beats) — `_online` goes false and the bar
     // shows. It re-hides itself the moment beats resume (Datastar auto-retries
-    // the `@get` SSE, and `sseStream` re-emits from a fresh connection). Built
-    // from documented primitives only (`data-signals`, `data-on-interval`,
-    // `data-show`); inline-styled so it never depends on the active theme.
+    // the `@get` SSE, and `sseStream` re-emits from a fresh connection).
+    //
+    // Structure/behavior live here so the indicator is always present and
+    // theme-independent (documented primitives only: `data-signals`,
+    // `data-on-interval`, `data-show`); the LOOK is theme-owned via `.fh-offline`
+    // (each theme's `styles` — see lib/theme-*.pkl). If a theme ships no rule the
+    // bar still renders, just unstyled, so the message is never lost.
     val connBanner =
       s"""<div data-signals="{${Server.BeatSignal}: 0, _online: true, _lastBeat: -1}"
          |     data-on-interval="5000; _online = (${Server.BeatSignal} !== _lastBeat); _lastBeat = ${Server.BeatSignal}">
-         |  <div data-show="!_online" role="status" aria-live="polite" style="position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b00020;color:#fff;text-align:center;padding:6px 12px;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)">Disconnected — reconnecting…</div>
+         |  <div class="fh-offline" data-show="!_online" role="status" aria-live="polite">Disconnected — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">

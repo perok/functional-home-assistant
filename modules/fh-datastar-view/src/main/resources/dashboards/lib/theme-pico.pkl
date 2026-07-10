@@ -87,5 +87,12 @@ theme: themeMod.Theme = new {
       padding:1.5rem;max-width:min(90vw,32rem);box-shadow:0 4px 24px rgba(0,0,0,.2)}
     .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
       border:none;color:var(--secondary-text-color,#727272);cursor:pointer;font-size:1rem}
+    /* Connection-lost banner. Structure/behavior are emitted by the server shell
+       (Server.page); this owns the look. A fixed bar so it overlays regardless of
+       scroll; `data-show` keeps it hidden while online. */
+    .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;
+      background:var(--error-color,#db4437);color:var(--text-primary-color,#fff);
+      text-align:center;padding:.5rem 1rem;font-weight:600;
+      box-shadow:0 1px 4px rgba(0,0,0,.3)}
     """
 }

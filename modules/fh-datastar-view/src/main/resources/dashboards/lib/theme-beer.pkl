@@ -222,6 +222,15 @@ class BeerTheme extends themeMod.Theme {
     dialog.popup{max-inline-size:min(90vw,32rem)}
     .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
       color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
+
+    /* Connection-lost banner. Structure/behavior are emitted by the server shell
+       (Server.page); this owns the look via the MD3 error role (flips in dark
+       mode). A fixed bar so it overlays regardless of scroll; `data-show` keeps
+       it hidden while online. */
+    .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;
+      background:var(--error,#ba1a1a);color:var(--on-error,#fff);
+      text-align:center;padding:.5rem 1rem;font-weight:600;
+      box-shadow:0 1px 4px rgba(0,0,0,.3)}
     """
 }
 

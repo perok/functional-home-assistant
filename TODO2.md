@@ -30,9 +30,14 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
       top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
       renderer for each new slug.
-- [ ] Disconnected indicator: a visual cue when the SSE stream drops (Datastar exposes
-      connection lifecycle; likely a small chrome/theme addition, keeping presentation in the
-      authoring layer).
+- [x] Disconnected indicator: a visual cue when the live connection stalls. Shipped as a
+      server `srvBeat` heartbeat (gated on upstream HA-feed health) + a client
+      `data-on-interval` watchdog — so it catches BOTH a browser-side SSE drop and an upstream
+      HA WebSocket freeze, not just the SSE (rather than Datastar's connection-lifecycle events,
+      whose shape isn't confirmed in the pinned bundle). Structure/behavior are in the server
+      shell (`Server.page`, theme-agnostic so it always renders); the look is theme-owned via
+      the `.fh-offline` class in each theme's `styles`. Pairs with the self-healing HA feed
+      (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect) that the banner reflects.
 - [ ] Registry-change refresh: a renamed entity / new area / new entity never reaches the dump
       (fetched once at startup). Subscribe to the HA registry-updated WS events, re-fetch the
       dump, re-evaluate entries — same machinery as source-file live reload, different trigger.
