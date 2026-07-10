@@ -6,7 +6,7 @@ import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import fh.view.model.Dashboard
 import fs2.Stream
-import fs2.concurrent.{SignallingRef, Topic}
+import fs2.concurrent.{Signal, SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -74,7 +74,12 @@ class Server(
     // Local cache of the themes' external assets ([[AssetCache]]): page URLs
     // are rewritten through it and `/assets/:name` serves from it. The empty
     // default (pass-through, no local assets) keeps tests ceremony-free.
-    assets: AssetCache = AssetCache.empty
+    assets: AssetCache = AssetCache.empty,
+    // Whether the upstream Home Assistant feed is live ([[HaFeed.healthy]]). The
+    // SSE heartbeat only beats while this is true, so the client disconnect
+    // banner also lights up on an upstream freeze — not just a browser-side
+    // drop. Constant-`true` default keeps tests/standalone construction simple.
+    healthy: Signal[IO, Boolean] = Signal.constant(true)
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -420,15 +425,36 @@ class Server(
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
+      rendererOpt <- renderers.get(slug).traverse(_.get)
       // Seed the open set with this client's selected tab panels (from its
       // cookies), so the baked-inline tabs receive live updates from the first
       // paint. Warn on any off cookie value.
-      _ <- renderers
-        .get(slug)
-        .traverse_(_.get.flatMap { r =>
-          warnAnomalies(r, uiState) *>
-            session.open.set(r.selectedSurfaces(uiState))
-        })
+      _ <- rendererOpt.traverse_ { r =>
+        warnAnomalies(r, uiState) *>
+          session.open.set(r.selectedSurfaces(uiState))
+      }
+      // On (re)connect, repaint the body from the CURRENT snapshot. On first
+      // load this reconciles the tiny gap between the server-rendered page and
+      // the SSE opening; on a reconnect (Datastar re-runs `data-init`) it heals
+      // a DOM that went stale while the stream was down — the shared/per-session
+      // passes only stream FUTURE changes, so without this a reconnected client
+      // would show pre-drop values until each entity next ticks.
+      initialRepaint <- rendererOpt.traverse { r =>
+        stateStore.snapshot.map(st =>
+          Datastar.patch(
+            r.renderBody(st, uiState),
+            PatchMode.Inner,
+            Some("#dashboard")
+          )
+        )
+      }
+      // Per-connection heartbeat, doubling as the disconnect-detection beat: an
+      // incrementing `srvBeat` signal the client watches (see [[Server.page]]).
+      // It beats ONLY while the upstream feed is healthy, so a stalled beat —
+      // whether from a browser-side SSE drop or a dead HA feed — trips the
+      // client banner. A signal patch is also SSE traffic, so it keeps
+      // intermediaries from idling the connection out.
+      beatCounter <- Ref[IO].of(0L)
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers). The session's slug can change mid-connection
@@ -453,12 +479,22 @@ class Server(
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState)
       heartbeat = Stream
-        .awakeEvery[IO](15.seconds)
-        .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
+        .awakeEvery[IO](Server.BeatInterval)
+        .evalMap(_ => healthy.get)
+        .evalMapFilter {
+          case false => IO.pure(None)
+          case true =>
+            beatCounter
+              .updateAndGet(_ + 1)
+              .map(n =>
+                Some(Datastar.patchSignals(s"""{"${Server.BeatSignal}":$n}"""))
+              )
+        }
 
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++
+        Stream.emits(initialRepaint.toList) ++
         shared.merge(patches).merge(control).merge(reloads).merge(heartbeat))
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
@@ -820,6 +856,21 @@ class Server(
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
            |<script src="edit/overlay.js"></script>""".stripMargin
+    // Connection watchdog + disconnect banner. A `<body>` child OUTSIDE
+    // `#dashboard`, so body morphs never remove it and its signals persist. The
+    // server beats `srvBeat` every couple of seconds while the feed is healthy
+    // (see `sseStream`); this interval checks, every 5s, whether a fresh beat
+    // arrived since the last check. If not — the SSE dropped (browser side) or
+    // the upstream HA feed froze (no beats) — `_online` goes false and the bar
+    // shows. It re-hides itself the moment beats resume (Datastar auto-retries
+    // the `@get` SSE, and `sseStream` re-emits from a fresh connection). Built
+    // from documented primitives only (`data-signals`, `data-on-interval`,
+    // `data-show`); inline-styled so it never depends on the active theme.
+    val connBanner =
+      s"""<div data-signals="{${Server.BeatSignal}: 0, _online: true, _lastBeat: -1}"
+         |     data-on-interval="5000; _online = (${Server.BeatSignal} !== _lastBeat); _lastBeat = ${Server.BeatSignal}">
+         |  <div data-show="!_online" role="status" aria-live="polite" style="position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b00020;color:#fff;text-align:center;padding:6px 12px;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)">Disconnected — reconnecting…</div>
+         |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -833,6 +884,7 @@ class Server(
       )}"></script>
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
+       |$connBanner
        |$body
        |$editAssets
        |</body>
@@ -854,7 +906,8 @@ object Server {
       renderers: Map[String, SignallingRef[IO, Renderer]],
       defaultSlug: String,
       sessions: Sessions,
-      assets: AssetCache = AssetCache.empty
+      assets: AssetCache = AssetCache.empty,
+      healthy: Signal[IO, Boolean] = Signal.constant(true)
   ): Resource[IO, Server] =
     for {
       topics <- renderers.keySet.toList
@@ -868,7 +921,8 @@ object Server {
         defaultSlug,
         sessions,
         topics,
-        assets
+        assets,
+        healthy
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -924,6 +978,19 @@ object Server {
     * action POST body (`connOf`) so a POST correlates to its stream.
     */
   val ConnSignal: String = "conn"
+
+  /** The Datastar signal name carrying the server heartbeat: a counter the SSE
+    * stream increments every [[BeatInterval]] while the upstream feed is
+    * healthy. The client watches it to detect a stalled connection (see
+    * [[Server.page]]); it must beat faster than the client's check window.
+    */
+  val BeatSignal: String = "srvBeat"
+
+  /** How often the SSE stream emits a [[BeatSignal]] tick. Kept well under the
+    * client's disconnect check interval so a healthy connection always shows
+    * fresh beats.
+    */
+  val BeatInterval: FiniteDuration = 2.seconds
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across

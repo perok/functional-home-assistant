@@ -180,6 +180,15 @@ class ServerSuite extends munit.FunSuite {
     )
   }
 
+  test("page includes the disconnect watchdog banner driven by the srvBeat signal") {
+    val html = pageHtml(titleDash("home", None))
+    // The watchdog interval reads the server heartbeat signal and toggles the
+    // banner; both must be present in the served shell.
+    assert(html.contains("data-on-interval"), html)
+    assert(html.contains(Server.BeatSignal), html)
+    assert(html.contains("Disconnected"), html)
+  }
+
   test("patchElements collapses multi-line fragments to a single data line") {
     val sse = Datastar.patchElements("<div>\n  <span>x</span>\n</div>")
     assertEquals(sse.eventType, Some("datastar-patch-elements"))

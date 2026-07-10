@@ -96,7 +96,13 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        store <- StateStore.create(api)
+        // Self-healing live feed: supervises its OWN Home Assistant connection
+        // (re-`.use`s `FHApi.fromEnv` on drop), keeps the store seeded across
+        // reconnects, and reports upstream health. Runtime `call_service` calls
+        // and live state both go through this, so a dropped HA WebSocket no
+        // longer freezes the dashboard until a restart. (The startup `api` above
+        // stays scoped to dump/asset prep.)
+        feed <- HaFeed.resource(FHApi.fromEnv)
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
             SignallingRef[IO].of(renderer).map(slug -> _)
@@ -114,12 +120,13 @@ object ServerApp extends IOApp {
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
         server <- Server.resource(
-          api,
-          store,
+          feed.api,
+          feed.store,
           rendererRefs,
           defaultSlug,
           sessions,
-          assets
+          assets,
+          feed.healthy
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
@@ -306,7 +313,7 @@ object ServerApp extends IOApp {
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
-          case true  => IO.pure(Some(path))
+          case true => IO.pure(Some(path))
           case false =>
             IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
         }
