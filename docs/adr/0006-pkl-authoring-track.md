@@ -71,7 +71,16 @@ extended. Once the hand-port completes they are deleted.
    the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
    options applied by a **parenthesized amend** of the call result:
    `(c.entityCard(e)) { tap = ...; label = ... }` (the outer parens are
-   mandatory; the parens-free form is a parse error). `|>` is reserved for
+   mandatory; the parens-free form is a parse error). Each option is **also a
+   fluent builder method** on the card class, so options can instead chain
+   paren-free — `c.entityCard(e).tap(...).label(...)`: the method amends `this`
+   and returns the same class, and because slots are late-bound off the hidden
+   props the emitted node is **byte-identical** to the amend/`new` forms
+   (spike-verified on pkl-core 0.31.1; guarded by the builder-vs-amend identity
+   test + the wire snapshots). Methods and properties are separate namespaces, so
+   `function tap(t)` coexists with the `hidden tap` prop; the builder covers the
+   parameterized case `|>` mixins cannot (a mixin takes no arguments). `|>` is
+   reserved for
    **additions** — a mixin like `tappable` chains on the end
    (`c.entityCard(x) |> c.tappable`) — never construction (methods aren't
    first-class, so there is deliberately no `x |> c.entityCard`). Text leaves get
@@ -226,7 +235,10 @@ slot key remains `"class"`.
   that is imported, never rendered.
 - A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
   first: a bare `this` inside the `new {}` body rebinds to the freshly-built
-  object, not the receiver.
+  object, not the receiver. The same guard applies to a **self-amending builder
+  method** (`function tap(t) = let (self = this) (self) { tap = t }`): capture the
+  receiver before the amend body, and name the parameter differently from the
+  property it sets (a same-named param self-references in the amend).
 - **`const` is transitive**: a `const` property (or any reference from a class
   body) may only call `const` functions — so helpers reached that way are
   `const`/`const local` all the way down (why `cmp`, and thus `always`, are

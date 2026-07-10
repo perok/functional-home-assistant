@@ -240,6 +240,8 @@ class Row extends Node {
       ["class"] = cssClass!!
     }
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
 }
 
 /// Amendable base instance — `(c.row) { children { ... } }`. The parens are
@@ -263,6 +265,8 @@ class Column extends Node {
       ["class"] = cssClass!!
     }
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
 }
 /// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
 hidden column: Column = new Column {}
@@ -360,6 +364,21 @@ class EntityCard extends Node {
       ["onclick"] = tap!!.onclick
     }
   }
+  // ---- fluent config (builder style) ----
+  // Each option is ALSO a method: it amends `this` and returns the same class,
+  // so options chain paren-free — `c.entityCard(x).tap(c.toggleTap).label("Office")`
+  // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Methods
+  // and properties are separate namespaces, so `function tap` coexists with the
+  // `hidden tap` prop; late binding re-derives `slots` from the amended value, so
+  // the emitted node JSON is byte-identical to the amend form (see the
+  // builder-vs-amend identity test). `let (self = this)` captures the receiver
+  // before the amend body (where a bare `this` would rebind). The param is never
+  // named after the property it sets (that would self-reference in the amend).
+  function label(l: String|Expr): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|Expr): EntityCard = let (self = this) (self) { value = v }
+  function secondary(s: String|Expr): EntityCard = let (self = this) (self) { secondary = s }
+  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
+  function tap(t: Tap): EntityCard = let (self = this) (self) { tap = t }
 }
 
 /// Static entity card as a call (amend options in parens).
@@ -395,6 +414,10 @@ class Button extends Node {
     ["label"] = labelSlot(entity, label)
     ["onclick"] = (action ?? toggleTap).onclick
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
+  function label(l: String|Expr): Button = let (self = this) (self) { label = l }
+  function action(a: Tap): Button = let (self = this) (self) { action = a }
 }
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
@@ -643,6 +666,14 @@ class Slider extends Node {
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }
+  // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
+  // overrides mirror the `hidden` props above; amending re-runs the three-tier
+  // `sliderConfig` resolution with the new value.
+  function label(l: String|Expr): Slider = let (self = this) (self) { label = l }
+  function action(a: String): Slider = let (self = this) (self) { action = a }
+  function key(k: String): Slider = let (self = this) (self) { key = k }
+  function min(m: Int): Slider = let (self = this) (self) { min = m }
+  function max(m: Int): Slider = let (self = this) (self) { max = m }
 }
 
 /// Value slider as a call (see [[Slider]] for the domain contract).

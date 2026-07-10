@@ -88,6 +88,34 @@ c.entityCard(dump.entities.switch_office) |> c.tappable
 
 Methods are not first-class values, so there is deliberately no `x |> c.entityCard` construction form — construction is a call, `|>` is for additions. `new c.X { ... }` remains fully supported (same classes underneath — the reflect-derived `cards` registry is untouched). Containers (`Column`/`Row`/`Tabs`/`Popup`) originally kept the `new` + `children {}` style; **superseded 2026-07-07**: each container now also exposes a hidden amendable base instance (`(c.row) { children { ... } }`, `(c.column)`, `(c.popup)`, `(c.tabs)`), `Tabs` is keyed `Mapping<String, Listing<LayoutNode>>` (label → cards, Row-wrapped; the `Tab` class is gone), and registered popup surfaces amend into existence via the `PopupSurface` mapping default in `entry.pkl` (see the second-round spike results above).
 
+#### A2. Fluent builder config methods (added 2026-07-10)
+
+The parenthesized amend for options is exact but noisy — the outer parens are mandatory, and inside a render lambda `(e) -> (c.entityCard(e)) { … }` they nest awkwardly. So each per-instance option is **also** a fluent builder method on the card class: it amends `this` and returns the same class, chaining paren-free.
+
+```pkl
+class EntityCard extends Node {
+  // …hidden props + slots…
+  function label(l: String|Expr): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|Expr): EntityCard = let (self = this) (self) { value = v }
+  function secondary(s: String|Expr): EntityCard = let (self = this) (self) { secondary = s }
+  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
+  function tap(t: Tap): EntityCard = let (self = this) (self) { tap = t }
+}
+```
+
+Authoring — the three styles are interchangeable and emit byte-identical node JSON:
+
+```pkl
+// amend (mandatory parens)
+(c.entityCard(x)) { value = c.expr("…"); tap = c.serviceTap("homeassistant/toggle") }
+// builder (paren-free chain) — reads top-to-bottom, no wrapping parens
+c.entityCard(x).value(c.expr("…")).tap(c.serviceTap("homeassistant/toggle"))
+// especially cleaner inside a dynamic render lambda:
+render = (e) -> c.entityCard(e).tap(c.toggleTap).label(c.expr("…"))
+```
+
+Added to `EntityCard` (`label`/`value`/`secondary`/`icon`/`tap`), `Button` (`entity`/`label`/`action`), `Slider` (`label`/`action`/`key`/`min`/`max`), and `Row`/`Column` (`cssClass`). Mechanics + gotchas: methods and properties are separate namespaces so `function tap` coexists with the `hidden tap` prop; late binding re-derives `slots` from the amended value; `let (self = this)` captures the receiver before the amend body (a bare `this` would rebind); the parameter must not be named after the property it sets (self-reference in the amend). This fills the gap `|>` mixins cannot — a mixin like `tappable` takes no arguments, so parameterized options had no paren-free form before. Verified on pkl-core 0.31.1 (spike: builder == amend == `new`, byte-identical, for all four card families incl. inside a render lambda) and guarded in `PklBuildSuite` by the builder-vs-amend identity test plus the unchanged wire snapshots.
+
 ### B. Dynamic groups: Mapping branches + render lambdas (`SELF` internal-only)
 
 Replace the `group`/`groupCases`/`dynWhen`/`dynCase` function-nesting API with an amendable `DynamicGroup`. Branches are a **`Mapping<Predicate, render fn>`** — one line per branch, author order preserved (= first-match dispatch order), duplicate predicates a build error, and individual branches replaceable by key when amending a base group (a Listing amend is append-only):
