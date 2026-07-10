@@ -19,6 +19,18 @@
 //
 // Multi-`#` string delimiters, multi-line strings and interpolation are also
 // lexed by pkl.tokens.js (the counterpart of scanner.c).
+//
+// WHY A FULL LEZER GRAMMAR (and not just a beefed-up StreamLanguage tokenizer,
+// which this replaced): most of the *colour* win here is lexical — backtick
+// idents, `#`-delimited/multi-line strings, doc comments — and a stateful
+// StreamLanguage token() could deliver that with far less machinery (no
+// grammar DSL, no codegen step, no GLR markers). The reason to pay for the
+// parser is the parse TREE: structural token roles (property vs variable,
+// method/param names) and, more importantly, the node↔source-line mapping the
+// editor's "pkl:syntax" follow-up needs (see app.js). If that structural work
+// ever comes off the roadmap, a leaner StreamLanguage is the better-
+// proportioned choice — the whole parser is isolated behind `pkl()` in the
+// vendor bundle, so swapping back is a contained change.
 
 // `cont` forces the greedy "keep extending the current expression / decl" side
 // of every shift/reduce that comes from Pkl members having no separator token

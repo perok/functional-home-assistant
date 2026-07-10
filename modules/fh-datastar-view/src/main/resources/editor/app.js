@@ -28,7 +28,11 @@ addEventListener("unhandledrejection", (e) => setMsg("error: " + ((e.reason && e
 
 // Pkl syntax highlighting is the Lezer parser bundled into vendor.js (built
 // from editor-src/pkl.grammar, translated from tree-sitter-pkl); `pkl()`
-// returns its CodeMirror LanguageSupport.
+// returns its CodeMirror LanguageSupport. This replaced a hand-written
+// StreamLanguage tokenizer: a real parse tree was chosen over a leaner lexer
+// so the pkl:syntax follow-up (node <-> source-line mapping, see the focus
+// handler below) has a tree to hang off — see the tradeoff note atop
+// editor-src/pkl.grammar.
 
 // --- editor ----------------------------------------------------------------
 const host = document.getElementById("fh-editor-host")
