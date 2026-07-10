@@ -37,12 +37,13 @@ card = (c.column) {
     // Default display: friendly_name label, $state + auto-appended unit.
     c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
 
-    // Live value expression + explicit tap service: entity-first call, options
-    // amended onto the result (the outer parens are mandatory).
-    (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
-      value = c.expr(#"$round($number($state), 1) & " V""#)
-      tap = c.serviceTap("homeassistant/toggle")
-    }
+    // Live value expression + explicit tap service, BUILDER style: each option
+    // is a method that returns the card, so they chain paren-free (vs the
+    // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
+    // emitted node is byte-identical (the wire snapshot guards this).
+    c.entityCard(dump.entities.sensor_ams_1a4e_u1)
+      .value(c.expr(#"$round($number($state), 1) & " V""#))
+      .tap(c.serviceTap("homeassistant/toggle"))
 
     // Domain-checked: only entities with a sliderSpec row (lights) compile.
     c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)
@@ -59,10 +60,9 @@ card = (c.column) {
       branches {
         [c.domainIs("light")] = c.slider
       }
-      render = (e) -> (c.entityCard(e)) {
-        tap = c.toggleTap
-        label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
-      }
+      render = (e) -> c.entityCard(e)
+        .tap(c.toggleTap)
+        .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#))
     }
 
     // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
@@ -70,10 +70,9 @@ card = (c.column) {
     c.title("Low battery")
     new c.DynamicGroup {
       query = c.lowBattery(20)
-      render = (e) -> (c.entityCard(e)) {
-        label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
-        secondary = "device_class"
-      }
+      render = (e) -> c.entityCard(e)
+        .label(c.expr(#"$attr.friendly_name & " — " & $state & "%""#))
+        .secondary("device_class")
     }
 
     // POPUPS. The first button opens the REGISTERED `detail` surface; the second

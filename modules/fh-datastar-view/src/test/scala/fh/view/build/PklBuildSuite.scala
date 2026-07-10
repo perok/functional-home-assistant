@@ -676,6 +676,46 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(call, ctor, clue = (call, ctor))
   }
 
+  test("builder methods emit the same node JSON as the amend form") {
+    // The fluent config methods (`.tap(...).label(...)`) are pure sugar for the
+    // paren-amend `(c.entityCard(x)) { tap = ...; label = ... }`: each amends
+    // `this` and returns the same class, so late binding re-derives `slots` and
+    // the emitted node JSON must be byte-identical across all three styles
+    // (builder, amend, `new`). Covers EntityCard, Button, and Slider.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |cardBuilder = c.entityCard(x).tap(c.toggleTap).label("Office")
+        |cardAmend = (c.entityCard(x)) { tap = c.toggleTap; label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tap = c.toggleTap; label = "Office" }
+        |
+        |btnBuilder = c.button("Close", c.closePopup()).label("Dismiss")
+        |btnAmend = new c.Button { label = "Dismiss"; action = c.closePopup() }
+        |
+        |sliderBuilder = c.slider(x).label("Lamp").min(10).max(200)
+        |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    def focus(k: String) = cur.downField(k).focus
+    // EntityCard: builder == amend == new.
+    assertEquals(focus("cardBuilder"), focus("cardAmend"))
+    assertEquals(focus("cardBuilder"), focus("cardCtor"))
+    // Button and Slider builder chains match their amend forms.
+    assertEquals(focus("btnBuilder"), focus("btnAmend"))
+    assertEquals(focus("sliderBuilder"), focus("sliderAmend"))
+  }
+
   test("exprOf threads an explicit entityId into the emitted slot") {
     val node = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
