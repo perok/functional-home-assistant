@@ -30,14 +30,19 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
       top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
       renderer for each new slug.
-- [x] Disconnected indicator: a visual cue when the live connection stalls. Shipped as a
-      server `srvBeat` heartbeat (gated on upstream HA-feed health) + a client
-      `data-on-interval` watchdog — so it catches BOTH a browser-side SSE drop and an upstream
-      HA WebSocket freeze, not just the SSE (rather than Datastar's connection-lifecycle events,
-      whose shape isn't confirmed in the pinned bundle). Structure/behavior are in the server
-      shell (`Server.page`, theme-agnostic so it always renders); the look is theme-owned via
-      the `.fh-offline` class in each theme's `styles`. Pairs with the self-healing HA feed
-      (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect) that the banner reflects.
+- [x] Disconnected indicator: TWO distinct failures, presented separately. (1) SSE transport
+      down (browser can't reach the server) — from Datastar's connection-lifecycle events: a
+      bridge script mirrors the `datastar-sse` document event (`error`/`retrying`/
+      `retries-failed` vs live patch messages) into `window.__fhSse`, so the banner shows
+      "Reconnecting…" and escalates to a Reload prompt once Datastar exhausts its 10 auto-retries.
+      (2) Upstream HA feed down (server can't reach HA) — the server's `srvBeat` heartbeat only
+      ticks while the HA feed is healthy, so stalled beats WITH a live transport mean HA. A
+      `data-on-interval` derives both, giving the transport priority. Structure/behavior are in
+      the server shell (`Server.page`, theme-agnostic so it always renders); the look is
+      theme-owned via `.fh-offline*` classes in each theme's `styles`. Pairs with the
+      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). NOTE: the
+      `datastar-sse` event name/shape was verified against datastar beta.11 (npm); the pinned
+      v1.0.2 (GitHub-only, unreachable here) still needs a browser check.
 - [ ] Registry-change refresh: a renamed entity / new area / new entity never reaches the dump
       (fetched once at startup). Subscribe to the HA registry-updated WS events, re-fetch the
       dump, re-evaluate entries — same machinery as source-file live reload, different trigger.

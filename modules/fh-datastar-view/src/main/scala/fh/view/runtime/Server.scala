@@ -856,24 +856,44 @@ class Server(
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
            |<script src="edit/overlay.js"></script>""".stripMargin
-    // Connection watchdog + disconnect banner. A `<body>` child OUTSIDE
-    // `#dashboard`, so body morphs never remove it and its signals persist. The
-    // server beats `srvBeat` every couple of seconds while the feed is healthy
-    // (see `sseStream`); this interval checks, every 5s, whether a fresh beat
-    // arrived since the last check. If not — the SSE dropped (browser side) or
-    // the upstream HA feed froze (no beats) — `_online` goes false and the bar
-    // shows. It re-hides itself the moment beats resume (Datastar auto-retries
-    // the `@get` SSE, and `sseStream` re-emits from a fresh connection).
+    // Connection indicators. TWO distinct failures, presented separately:
     //
-    // Structure/behavior live here so the indicator is always present and
-    // theme-independent (documented primitives only: `data-signals`,
-    // `data-on-interval`, `data-show`); the LOOK is theme-owned via `.fh-offline`
-    // (each theme's `styles` — see lib/theme-*.pkl). If a theme ships no rule the
-    // bar still renders, just unstyled, so the message is never lost.
+    //   1. SSE TRANSPORT down (browser can't reach this server). Detected from
+    //      Datastar's own connection-lifecycle events: the client dispatches a
+    //      `datastar-sse` CustomEvent on `document` with `detail.type` of
+    //      `error`/`retrying`/`retries-failed` (trouble) or a `datastar-*` patch
+    //      type (a live message = transport alive). Datastar auto-retries a
+    //      dropped `@get` up to 10× with backoff, then gives up (`retries-failed`
+    //      — the stream is dead and needs a reload). The tiny bridge script below
+    //      mirrors that lifecycle into `window.__fhSse` (0 ok / 1 retrying /
+    //      2 failed); it's the one place that touches a Datastar internal, so it
+    //      also listens for a `datastar-fetch` alias defensively.
+    //   2. UPSTREAM HA FEED down (this server can't reach Home Assistant). The
+    //      SSE is fine but state is frozen: the server's `srvBeat` heartbeat only
+    //      ticks while the HA feed is healthy (see `sseStream`), so stalled beats
+    //      *with a live transport* mean HA, not the browser.
+    //
+    // The interval derives both, giving the transport its priority (a dead
+    // transport also stalls the beats, so `_haDown` is gated on `!_sseDown`).
+    // Structure/behavior live here so the indicators always render and are
+    // theme-independent (documented primitives: `data-signals`,
+    // `data-on-interval`, `data-show`, `data-on:click`); the LOOK is theme-owned
+    // via `.fh-offline*` classes (each theme's `styles`, see lib/theme-*.pkl).
+    val connBridge =
+      """<script>
+        |window.__fhSse=0;(function(){function h(e){var t=e&&e.detail&&e.detail.type;if(!t)return;
+        |if(t==='retries-failed')window.__fhSse=2;else if(t==='retrying'||t==='error')window.__fhSse=1;
+        |else window.__fhSse=0;}document.addEventListener('datastar-sse',h);
+        |document.addEventListener('datastar-fetch',h);})();
+        |</script>""".stripMargin
     val connBanner =
-      s"""<div data-signals="{${Server.BeatSignal}: 0, _online: true, _lastBeat: -1}"
-         |     data-on-interval="5000; _online = (${Server.BeatSignal} !== _lastBeat); _lastBeat = ${Server.BeatSignal}">
-         |  <div class="fh-offline" data-show="!_online" role="status" aria-live="polite">Disconnected — reconnecting…</div>
+      s"""<div data-signals="{${Server.BeatSignal}: 0, _lastBeat: -1, _stale: 0, _sse: 0, _sseDown: false, _haDown: false}"
+         |     data-on-interval="1000; _moved = (${Server.BeatSignal} !== _lastBeat); _lastBeat = ${Server.BeatSignal}; _sse = (window.__fhSse || 0); _stale = _moved ? 0 : _stale + 1; _sseDown = _sse > 0; _haDown = (_stale >= 6) && !_sseDown">
+         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="_sseDown">
+         |    <span data-show="_sse < 2">Reconnecting to the dashboard…</span>
+         |    <span data-show="_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+         |  </div>
+         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="_haDown">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
@@ -886,6 +906,7 @@ class Server(
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
       )}"></script>
+       |$connBridge
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$connBanner

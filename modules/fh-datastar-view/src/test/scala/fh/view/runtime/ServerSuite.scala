@@ -180,13 +180,20 @@ class ServerSuite extends munit.FunSuite {
     )
   }
 
-  test("page includes the disconnect watchdog banner driven by the srvBeat signal") {
+  test("page serves both connection indicators (SSE transport + HA feed)") {
     val html = pageHtml(titleDash("home", None))
-    // The watchdog interval reads the server heartbeat signal and toggles the
-    // banner; both must be present in the served shell.
+    // The watchdog interval reads the server heartbeat signal.
     assert(html.contains("data-on-interval"), html)
     assert(html.contains(Server.BeatSignal), html)
-    assert(html.contains("Disconnected"), html)
+    // The bridge mirrors Datastar's connection-lifecycle events into a global.
+    assert(html.contains("window.__fhSse"), html)
+    assert(html.contains("datastar-sse"), html)
+    // Two DISTINCT messages, one per failure kind.
+    assert(html.contains("Reconnecting to the dashboard"), html)
+    assert(html.contains("Home Assistant unavailable"), html)
+    // Styled by theme-owned classes, not inline styles.
+    assert(html.contains("fh-offline-sse"), html)
+    assert(html.contains("fh-offline-ha"), html)
   }
 
   test("patchElements collapses multi-line fragments to a single data line") {
