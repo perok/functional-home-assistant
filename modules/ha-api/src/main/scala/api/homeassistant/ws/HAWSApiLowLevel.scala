@@ -41,6 +41,17 @@ trait HAWSApiLowLevel[F[_]] {
   def subscribeStream[Result](
       msg: CommandPhase & CommandResponse.AsStream[Result]
   ): Resource[IO, QueueSource[IO, Result]]
+
+  /** Completes when this connection is no longer usable — the receive stream
+    * ended (socket closed) or a keepalive ping went unanswered — raising with
+    * the cause when the close was abnormal, returning `unit` on a clean end.
+    *
+    * The connection supervises its OWN liveness (idle ping/pong + receive-loop
+    * death) and reports it here; a holder races its work against this to learn
+    * that the resource has effectively closed itself, then tears it down and
+    * reconnects. Never completes while the connection is healthy.
+    */
+  def awaitClosed: IO[Unit]
 }
 
 object HAWSApiLowLevel {
@@ -52,7 +63,7 @@ object HAWSApiLowLevel {
     def receiveStreamDecode[Body: Decoder]: Stream[IO, Body] =
       wsClient.receiveStream.evalMap {
         case WSFrame.Text(data, true) =>
-          //println(s"<-- Receiving: ${data.take(100)}") TODO only when DEBUG
+          // println(s"<-- Receiving: ${data.take(100)}") TODO only when DEBUG
           decode[Body](data).liftTo[IO].onError { err =>
             IO.println(s"receiveStreamDecode error decoding: $data")
           }
@@ -84,7 +95,15 @@ object HAWSApiLowLevel {
   def apply(
       client: WSClient[IO],
       uri: Uri,
-      secretToken: String
+      secretToken: String,
+      // Keepalive cadence. HA closes idle sockets and intermediaries drop quiet
+      // TCP connections, so when no frame has arrived for `pingInterval` we send
+      // a `ping` and expect a `pong` within `pingTimeout`; a missed pong marks
+      // the connection dead (see `awaitClosed`). Idle-based: live traffic
+      // (`state_changed` events) resets the timer, so a busy connection is never
+      // pinged. https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
+      pingInterval: FiniteDuration = 30.seconds,
+      pingTimeout: FiniteDuration = 10.seconds
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
     import fs2.concurrent.Topic
     import cats.effect.std.Queue
@@ -108,8 +127,6 @@ object HAWSApiLowLevel {
       }
       .flatMap { ha =>
         for {
-          // TODO ping pong in the background https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
-
           mutex <- Mutex[IO].toResource
           // Always new unique id
           incrementer <- Ref[IO]
@@ -117,16 +134,29 @@ object HAWSApiLowLevel {
             .map(ref => ref.getAndUpdate(_ + 1))
             .toResource
 
+          // Fired once when the connection dies (receive loop ended, or a ping
+          // went unanswered), carrying the cause; `awaitClosed` surfaces it so a
+          // holder can reconnect. Left = abnormal, Right = clean socket end.
+          terminated <- IO.deferred[Either[Throwable, Unit]].toResource
+          // Monotonic timestamp of the last frame received. Drives the idle
+          // ping: a live stream keeps this fresh so no ping is ever sent.
+          lastActivity <- IO.monotonic.flatMap(Ref[IO].of).toResource
+
           // Receives all messages. All can listen
           // TODO worth skipping this and go right to defered and queue?
           //  Means that we accept loosing messages that are not subscribed in any way
           topic <- Topic[IO, WSCommandPhaseServerPayload].toResource
           _ <- ha
             .receiveStreamDecode[WSCommandPhaseServerPayload]
+            .evalTap(_ => IO.monotonic.flatMap(lastActivity.set))
             .through(topic.publish)
-            // TODO onError restart
             .compile
             .drain
+            // The receive loop only ends when the socket closes (or a frame
+            // fails to decode). Either way the connection is done: report it so
+            // the holder reconnects instead of hanging on a dead socket.
+            .attempt
+            .flatMap(res => terminated.complete(res).void)
             .background
 
           // Overview of listeners for one specific message
@@ -182,6 +212,58 @@ object HAWSApiLowLevel {
             .compile
             .drain
             .background
+
+          // Idle keepalive: when no frame has arrived for `pingInterval`, send a
+          // `ping` (through the shared id/mutex so ids stay monotonic) and wait
+          // for the matching `pong` — which the dispatch above routes back to
+          // this deferred by id. A missed pong means the socket is dead: mark
+          // the connection terminated so `awaitClosed` fires. Live traffic keeps
+          // `lastActivity` fresh, so a busy connection is never pinged.
+          _ <- {
+            val pingId = "ping"
+            def sendPing: IO[Boolean] =
+              IO.deferred[WSCommandPhaseServerPayload].flatMap { pong =>
+                mutex.lock
+                  .surround(
+                    incrementer.flatMap { id =>
+                      idDeferreds.setKeyValue(id, pong) *>
+                        ha
+                          .sendText(
+                            Json
+                              .obj(
+                                "id" -> Json.fromInt(id),
+                                "type" -> Json.fromString(pingId)
+                              )
+                              .noSpaces
+                          )
+                          .as(id)
+                    }
+                  )
+                  .flatMap { id =>
+                    pong.get
+                      .timeout(pingTimeout)
+                      .as(true)
+                      .handleError(_ => false)
+                      .guarantee(idDeferreds.unsetKey(id))
+                  }
+              }
+            def loop: IO[Unit] =
+              (IO.monotonic, lastActivity.get).flatMapN { (now, last) =>
+                val idle = now - last
+                if (idle >= pingInterval)
+                  sendPing.flatMap {
+                    case true => loop
+                    case false =>
+                      terminated
+                        .complete(
+                          Left(new Throwable("Home Assistant ping timed out"))
+                        )
+                        .void
+                  }
+                else IO.sleep(pingInterval - idle) >> loop
+              }
+            loop.background
+          }
         } yield {
 
           def sendCommandPhase(id: Int, in: Json): IO[Unit] = {
@@ -273,6 +355,9 @@ object HAWSApiLowLevel {
               }
 
           new HAWSApiLowLevel[IO] {
+            def awaitClosed: IO[Unit] =
+              terminated.get.flatMap(IO.fromEither)
+
             def receiveStream: Stream[IO, WSCommandPhaseServerPayload] =
               topic.subscribeUnbounded
 

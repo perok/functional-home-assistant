@@ -16,22 +16,21 @@ import scala.concurrent.duration.*
 
 /** A self-healing Home Assistant connection feeding a [[StateStore]].
   *
-  * The upstream HA WebSocket ([[api.homeassistant.ws.HAWSApiLowLevel]]) has no
-  * built-in reconnect and no keepalive (both are `TODO`s in that file), so a
-  * single dropped connection used to silently freeze the whole dashboard:
-  * `state_changed` events stop arriving, `call_service` requests hang forever
-  * on the dead socket, and nothing ever re-establishes the link. The browser
-  * SSE stream stays open the entire time, so from the user's side "the session
-  * just stops working after a while" with no recovery short of a server
-  * restart.
+  * The upstream HA WebSocket used to silently freeze the whole dashboard on a
+  * single dropped connection: `state_changed` events stopped arriving,
+  * `call_service` hung forever on the dead socket, and nothing re-established
+  * the link — while the browser SSE stream stayed open, so from the user's side
+  * "the session just stops working after a while" with no recovery short of a
+  * restart. The connection now keeps itself alive with idle HA ping/pong and
+  * reports its own death via `awaitClosed`
+  * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
   *
-  * This supervises the entire `HomeAssistantApi` resource instead. On every
-  * (re)connect it subscribes to `state_changed`, re-seeds the store from
-  * `/api/states` — which republishes exactly the entities that changed during
-  * the outage, so every connected browser catches up — and runs a periodic
-  * `get_config` probe whose timeout doubles as liveness detection. When the
-  * probe fails (or the connection resource ends), it tears the connection down
-  * and reconnects with capped exponential backoff.
+  * This supervises the whole connection resource. On every (re)connect it
+  * subscribes to `state_changed`, re-seeds the store from `/api/states` — which
+  * republishes exactly the entities that changed during the outage, so every
+  * connected browser catches up — and races the ingest pump against
+  * `awaitClosed`. When the connection dies it tears down and reconnects with
+  * capped exponential backoff.
   *
   *   - [[api]] is a stable facade that routes every call to the CURRENT live
   *     connection, so callers (the Server's `call_service` handler) never see
@@ -49,29 +48,22 @@ final case class HaFeed(
 
 object HaFeed {
 
-  /** How often to probe the live connection with a `get_config` round-trip. The
-    * probe keeps intermediaries (proxies/NAT) from idling the socket out AND
-    * detects a dead connection — a hung probe is what triggers a reconnect.
-    */
-  private val ProbeInterval: FiniteDuration = 15.seconds
-
-  /** How long a probe may hang before the connection is considered dead. On a
-    * live socket `get_config` returns in milliseconds; on a dead one the
-    * request blocks forever (the response never arrives), so the timeout is the
-    * signal.
-    */
-  private val ProbeTimeout: FiniteDuration = 10.seconds
-
   private val MinBackoff: FiniteDuration = 1.second
   private val MaxBackoff: FiniteDuration = 30.seconds
 
+  /** A connection resource paired with its `awaitClosed` signal (an `IO[Unit]`
+    * that completes when the WebSocket has died) — exactly what
+    * `FHApi.fromEnvWithClose` yields. The connection owns keepalive and
+    * liveness detection (idle HA ping/pong); this supervisor just reacts to the
+    * close.
+    */
+  type Connect = Resource[IO, (HomeAssistantApi[IO], IO[Unit])]
+
   /** Build the supervised feed. `connect` is re-`.use`d on every reconnect (a
     * fresh WebSocket + auth each time), so pass the full connection resource
-    * (`FHApi.fromEnv`), not an already-established connection.
+    * (`FHApi.fromEnvWithClose`), not an already-established connection.
     */
-  def resource(
-      connect: Resource[IO, HomeAssistantApi[IO]]
-  ): Resource[IO, HaFeed] =
+  def resource(connect: Connect): Resource[IO, HaFeed] =
     for {
       currentRef <- SignallingRef[IO]
         .of(Option.empty[HomeAssistantApi[IO]])
@@ -87,7 +79,7 @@ object HaFeed {
     * long-lived one that later drops restarts from the minimum.
     */
   private def superviseLoop(
-      connect: Resource[IO, HomeAssistantApi[IO]],
+      connect: Connect,
       currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
       store: StateStore
@@ -117,21 +109,22 @@ object HaFeed {
       }.foreverM
     }
 
-  /** One connection's lifetime: subscribe to `state_changed`, re-seed the
-    * store, publish liveness, then run the ingest pump alongside the heartbeat
-    * probe. `race` means whichever ends first (a hung probe, or the
-    * pump/connection failing) ends the block, releasing the connection resource
-    * — which cancels the low-level's background fibers and closes the socket —
-    * so the supervisor reconnects cleanly.
+  /** One connection's lifetime: subscribe to `state_changed`, re-seed the store
+    * (republishing whatever changed during the outage), publish liveness, then
+    * run the ingest pump raced against the connection's own `awaitClosed`. The
+    * connection reports its death (idle ping unanswered / receive loop ended),
+    * so when `awaitClosed` fires the block ends, the resource is released —
+    * which cancels the low-level fibers and closes the socket — and the
+    * supervisor reconnects.
     */
   private def runConnection(
-      connect: Resource[IO, HomeAssistantApi[IO]],
+      connect: Connect,
       currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
       store: StateStore,
       backoffRef: SignallingRef[IO, FiniteDuration]
   ): IO[Unit] =
-    connect.use { api =>
+    connect.use { case (api, awaitClosed) =>
       // Subscribe BEFORE seeding so no change is missed in the gap between the
       // snapshot and the live stream; events buffer in the queue and the pump
       // drains them after the seed.
@@ -143,26 +136,16 @@ object HaFeed {
           IO.println(
             "[ha-feed] connected; state re-seeded from Home Assistant"
           ) *>
-          pump(queue, store).race(heartbeat(api)).void
+          pump(queue, store).race(awaitClosed).void
       }
     }
 
-  /** Drain the live `state_changed` queue into the store. Blocks forever on a
-    * healthy connection (there is no in-band "closed" signal from the low-level
-    * queue), so death detection is the heartbeat's job, not this one's.
+  /** Drain the live `state_changed` queue into the store. Blocks as long as the
+    * connection lives; `runConnection` races it against `awaitClosed`, which is
+    * what ends the connection scope on death.
     */
   private def pump(queue: QueueSource[IO, Event], store: StateStore): IO[Unit] =
     Stream.repeatEval(queue.take).evalMap(store.applyEvent).compile.drain
-
-  /** Periodic liveness probe: a `get_config` round-trip with a timeout. A
-    * successful round-trip proves the socket is alive (and generates keepalive
-    * traffic); a timeout or error propagates out, ending [[runConnection]] and
-    * triggering a reconnect.
-    */
-  private def heartbeat(api: HomeAssistantApi[IO]): IO[Unit] =
-    (IO.sleep(ProbeInterval) *> api.getConfigWS
-      .timeout(ProbeTimeout)
-      .void).foreverM
 
   /** A stable `HomeAssistantApi` that dispatches each call to whatever
     * connection is live now. Calls issued while disconnected fail fast with a

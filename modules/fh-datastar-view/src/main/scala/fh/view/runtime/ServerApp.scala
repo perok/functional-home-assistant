@@ -97,12 +97,13 @@ object ServerApp extends IOApp {
           .toResource
 
         // Self-healing live feed: supervises its OWN Home Assistant connection
-        // (re-`.use`s `FHApi.fromEnv` on drop), keeps the store seeded across
-        // reconnects, and reports upstream health. Runtime `call_service` calls
-        // and live state both go through this, so a dropped HA WebSocket no
-        // longer freezes the dashboard until a restart. (The startup `api` above
-        // stays scoped to dump/asset prep.)
-        feed <- HaFeed.resource(FHApi.fromEnv)
+        // (re-`.use`s `FHApi.fromEnvWithClose` on drop, reacting to the
+        // connection's `awaitClosed`), keeps the store seeded across reconnects,
+        // and reports upstream health. Runtime `call_service` calls and live
+        // state both go through this, so a dropped HA WebSocket no longer
+        // freezes the dashboard until a restart. (The startup `api` above stays
+        // scoped to dump/asset prep.)
+        feed <- HaFeed.resource(FHApi.fromEnvWithClose)
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
             SignallingRef[IO].of(renderer).map(slug -> _)
