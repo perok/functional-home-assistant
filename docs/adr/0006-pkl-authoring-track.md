@@ -148,8 +148,12 @@ extended. Once the hand-port completes they are deleted.
 
 Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 
-- Containers/sectionTitle/entityCard/button/slider; `expr`, and `exprOf`
-  multi-entity slots (0001/0004); `cssClass` slot on row/col.
+- Containers (grid/row/column)/sectionTitle/entityCard/button/slider; `expr`,
+  and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
+  grid/row/col; the layout-cell builders on the `LayoutNode` base —
+  `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
+  node-level `cell.classes` (the `fh-` layout contract; model + rationale in
+  ADR 0007).
 - `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/

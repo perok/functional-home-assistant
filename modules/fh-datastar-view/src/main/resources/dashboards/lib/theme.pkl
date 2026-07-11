@@ -30,6 +30,27 @@
 /// `styles` (`\(themeMod.layoutCss)`) and only re-implements it to change the
 /// layout system itself. The visual classes (`.card`, `.section`, …) are the
 /// part each theme styles its own way.
+///
+/// WRITING A THEME (the whole API surface):
+///   1. Create a sibling `theme-<name>.pkl` exporting `theme: Theme` (or an
+///      `open class` extending [[Theme]] if you want amendable knobs, like
+///      theme-beer's palettes).
+///   2. `tokens`/`tokensDark`: HA-named design tokens (see tokens.pkl) —
+///      emitted as `:root` custom properties, dark under
+///      prefers-color-scheme.
+///   3. `stylesheets`/`scripts`: your framework's CDN links (pinned versions,
+///      never `@latest`). Scripts are ES modules injected after stylesheets;
+///      dashboard BEHAVIOR stays with Datastar — ship JS only for visuals
+///      your CSS needs (e.g. BeerCSS's slider track fill), and verify its
+///      bindings survive SSE morphs (delegated/document-level listeners do).
+///   4. `styles`: start with `\(themeMod.layoutCss)` (the layout contract),
+///      then style the visual classes from the roster above on top of the
+///      tokens.
+///   5. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
+///      `id="dashboard"` (the navigate/reload swap target; enforced by
+///      Dashboard.validate) and, if the dashboard uses popups, host a
+///      `<div id="popups"></div>` overlay mount.
+///   6. An entry opts in with `theme = (import "lib/theme-<name>.pkl").theme`.
 module theme
 
 /// Framework-agnostic CSS for the `fh-` layout contract — the sane default
