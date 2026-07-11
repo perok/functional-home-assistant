@@ -2,11 +2,11 @@
 /// live in sibling modules, one per look:
 ///
 ///   - `theme-beer.pkl` — BeerCSS Material Design 3, the DEFAULT (wired in
-///     `entry.pkl`).
-///   - `theme-pico.pkl` — the original Pico CSS theme.
+///     `entry.pkl`) and currently the only shipped implementation.
 ///
-/// An entry overrides its look by assigning `theme`, e.g.
-/// `theme = (import "lib/theme-pico.pkl").theme`, and can retune any theme by
+/// A new theme is a sibling module exporting a `theme: Theme` instance; an
+/// entry overrides its look by assigning `theme`, e.g.
+/// `theme = (import "lib/theme-mine.pkl").theme`, and can retune any theme by
 /// amending the instance (`tokens`/`styles` are ordinary properties; see the
 /// implementation modules for their amend forms).
 ///

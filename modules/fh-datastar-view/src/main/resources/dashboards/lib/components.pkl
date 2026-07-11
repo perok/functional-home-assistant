@@ -287,8 +287,8 @@ class SectionTitle extends Node {
 }
 
 /// Default entity icon per domain — Material Symbols names (the font ships
-/// with the BeerCSS theme; a theme without an icon font hides `header i`, see
-/// theme-pico.pkl). Resolved at RUNTIME via `$lookup($domain)` (the slider
+/// with the BeerCSS theme; a theme without an icon font should hide
+/// `.entity header i`). Resolved at RUNTIME via `$lookup($domain)` (the slider
 /// config's identity-slot mechanism), so dynamic-group ($self) cards get the
 /// matched entity's icon too; an unlisted domain yields "" and the template
 /// section renders nothing.

@@ -297,7 +297,7 @@ class Renderer(
   def surface(surfaceId: String): Option[Surface] =
     dashboard.surfaces.get(surfaceId)
 
-  /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
+  /** External stylesheet URLs the theme wants `<link>`-ed (e.g. BeerCSS). */
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
   /** External JS URLs the theme wants `<script type="module">`-injected (e.g.

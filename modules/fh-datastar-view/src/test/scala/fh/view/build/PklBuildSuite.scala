@@ -252,18 +252,18 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test(
-    "theme-pico.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+    "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {
     // A probe entry re-exposes the theme so the assertions read a pinned
-    // shape, independent of whatever else the lib module happens to export.
-    // (Pico probes the Theme contract here; the beer DEFAULT theme is pinned
-    // by the wire snapshots, which carry the full theme JSON.)
+    // shape, independent of whatever else the lib module happens to export —
+    // the Theme contract every implementation module must satisfy (the wire
+    // snapshots additionally pin the beer theme's full JSON).
     val tmp = os.temp.dir()
-    copyLib(tmp, "theme.pkl", "theme-pico.pkl", "tokens.pkl")
+    copyLib(tmp, "theme.pkl", "theme-beer.pkl", "tokens.pkl")
     os.write(
       tmp / "probe.pkl",
       """module probe
-        |import "lib/theme-pico.pkl" as themeMod
+        |import "lib/theme-beer.pkl" as themeMod
         |theme = themeMod.theme
         |""".stripMargin
     )
@@ -289,7 +289,7 @@ class PklBuildSuite extends munit.FunSuite {
       theme
         .get[List[String]]("stylesheets")
         .toOption
-        .exists(_.exists(_.contains("pico"))),
+        .exists(_.exists(_.contains("beercss"))),
       clue = result
     )
     assert(

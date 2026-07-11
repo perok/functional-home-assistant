@@ -45,8 +45,8 @@ extended. Once the hand-port completes they are deleted.
    `output { renderer = ... }` block; it just *is* its data, and the omit-null
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
-   the `theme.pkl` contract + its `theme-beer.pkl` (default) / `theme-pico.pkl`
-   implementations, `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
+   the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
+   default and only shipped theme), `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
    `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
    entries. A directory convention separates the two (Pkl has one file
    extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is

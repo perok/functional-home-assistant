@@ -246,7 +246,7 @@ object LayoutNode:
     s"${surfaceRootId(surfaceId)}__"
 
 /** The dashboard's presentation, owned entirely by the theme (so the app isn't
-  * tied to any particular CSS framework — e.g. Pico is just a `stylesheets`
+  * tied to any particular CSS framework — e.g. BeerCSS is just a `stylesheets`
   * entry here, not baked into the server).
   *
   *   - `tokens`: design tokens — Home Assistant frontend theme variable name ->
@@ -255,7 +255,7 @@ object LayoutNode:
   *   - `tokensDark`: token overrides applied under
   *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
   *     light/dark setting.
-  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the Pico CDN).
+  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the BeerCSS CDN).
   *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
   *     the document head after the stylesheets (ES modules — deferred, run
   *     after first paint). For framework helpers the theme's CSS needs (e.g.

@@ -1,7 +1,7 @@
 /// The BeerCSS Material Design 3 theme (`docs/plan-beercss-theme.md`) — the
 /// DEFAULT theme (wired in `entry.pkl`; contract + roster in `theme.pkl`).
 /// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
-/// another theme entirely (`theme = (import "lib/theme-pico.pkl").theme`).
+/// another theme entirely (any sibling module exporting a `theme.pkl` Theme).
 ///
 /// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
 /// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
