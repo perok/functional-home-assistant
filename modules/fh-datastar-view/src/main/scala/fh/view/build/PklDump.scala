@@ -11,8 +11,9 @@ import io.circe.{Json, JsonObject}
   * templating, per project convention (scalameta does not support Scala 3).
   *
   * Generation safety rules:
-  *   - every generated identifier is backticked (defends against Pkl reserved
-  *     words like `override` with zero case analysis);
+  *   - generated identifiers are backticked only when Pkl's own lexer says the
+  *     plain form is illegal — reserved words like `override` or a
+  *     digit-leading slug like `3rd_floor` (see [[tick]]);
   *   - string values go through [[pklString]] (escaping `\` first also
   *     neutralizes Pkl's `\(...)` interpolation trigger);
   *   - nullable schema fields are omitted when absent (their default is null);
@@ -188,10 +189,13 @@ object PklDump {
       str(ao, "floor_id").map(v => s"  floor_id = ${pklString(v)}")
     ).flatten
 
-  /** Backtick a generated identifier — legal for any name, immune to Pkl
-    * reserved words.
+  /** Render a generated identifier, backticked only when necessary. Delegates
+    * to Pkl's own lexer (pkl-parser, version-locked to pkl-core) so the keyword
+    * set and identifier grammar cannot drift from the evaluator: `kitchen`
+    * stays plain, `new`/`override`/`3rd_floor` come back quoted.
     */
-  private def tick(name: String): String = s"`$name`"
+  private def tick(name: String): String =
+    org.pkl.parser.Lexer.maybeQuoteIdentifier(name)
 
   /** A double-quoted Pkl string literal. Escaping `\` first turns any `\(` in
     * the input into a literal backslash + paren (no interpolation).

@@ -201,16 +201,16 @@ class PklBuildSuite extends munit.FunSuite {
     .toOption
     .get
 
-  test("PklDump.render emits typed, backticked declarations") {
+  test("PklDump.render emits typed declarations, plain when legal") {
     val src = PklDump.render(fakeTransformedDump)
     assert(src.contains("import \"hass.pkl\""), clue = src)
     assert(
-      src.contains("const hidden `e_light_kitchen`: hass.LightEntity"),
+      src.contains("const hidden e_light_kitchen: hass.LightEntity"),
       clue = src
     )
-    assert(src.contains("class `Area_kjokken` extends hass.Area"), clue = src)
+    assert(src.contains("class Area_kjokken extends hass.Area"), clue = src)
     assert(
-      src.contains("class `Floor_ground_floor` extends hass.Floor"),
+      src.contains("class Floor_ground_floor extends hass.Floor"),
       clue = src
     )
     // Escaped quotes survive; null friendly_name emits no assignment.
@@ -222,7 +222,81 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("effect_list = new Listing { \"colorloop\" }"),
       clue = src
     )
-    assert(src.contains("lights = List(`light_kitchen`)"), clue = src)
+    assert(src.contains("lights = List(light_kitchen)"), clue = src)
+    // Every name in this dump is a legal plain identifier — no identifier is
+    // backticked (the `///` doc header's markdown backticks don't count).
+    val code = src.linesIterator.filterNot(_.trim.startsWith("///"))
+    assert(!code.exists(_.contains("`")), clue = src)
+  }
+
+  test("PklDump.render backticks reserved-word and digit-leading names") {
+    // Area "New" slugs to the Pkl keyword `new`; floor "3rd floor" slugs to
+    // the digit-leading `3rd_floor` — both illegal as plain identifiers.
+    val awkwardDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "new": { "area_id": "new_1", "floor_id": "f3", "area_name": "New" }
+          },
+          "floors": {
+            "3rd_floor": {
+              "floor_id": "f3",
+              "floor_name": "3rd floor",
+              "areas": {
+                "new": { "area_id": "new_1", "floor_id": "f3", "area_name": "New" }
+              }
+            }
+          },
+          "entities": {
+            "light_lamp": {
+              "entity_id": "light.lamp",
+              "friendly_name": "Lamp",
+              "domain": "light",
+              "area_id": "new_1",
+              "floor_id": "f3",
+              "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    val src = PklDump.render(awkwardDump)
+    // The prefixed class names are legal plain identifiers (the `Area_`/
+    // `Floor_` prefix guarantees a letter-leading, non-keyword name), so they
+    // stay unquoted; only the bare slug used as a property key must be ticked.
+    assert(src.contains("class Area_new extends hass.Area"), clue = src)
+    assert(src.contains("class Floor_3rd_floor extends hass.Floor"), clue = src)
+    assert(src.contains("`new`: Area_new = new {}"), clue = src)
+    assert(src.contains("`3rd_floor`: Floor_3rd_floor = new {}"), clue = src)
+    assert(src.contains("areas = List(`new`)"), clue = src)
+    // The plain-safe entity name stays unquoted even in this dump.
+    assert(
+      src.contains("const hidden e_light_lamp: hass.LightEntity"),
+      clue = src
+    )
+
+    // And the rendered module must actually evaluate, dot-paths included.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl")
+    os.write(tmp / "lib" / "dump.pkl", src)
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/dump.pkl" as dump
+        |
+        |areaId = dump.areas.`new`.area_id
+        |floorName = dump.`3rd_floor`.floor_name
+        |viaFloor = dump.`3rd_floor`.`new`.light_lamp.entity_id
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[String]("areaId").toOption, Some("new_1"))
+    assertEquals(c.get[String]("floorName").toOption, Some("3rd floor"))
+    assertEquals(c.get[String]("viaFloor").toOption, Some("light.lamp"))
   }
 
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
