@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import com.samskivert.mustache.Template
 import fh.view.model.{
+  Cell,
   Dashboard,
   DynamicCase,
   LayoutNode,
@@ -472,11 +473,15 @@ class Renderer(
         // templates never carry `id="{{id}}"` themselves, every node is a
         // Datastar morph target, and containers lay their children out
         // uniformly (`.fh-cell` is the real flex/grid item — the themes style
-        // it). The only exception is a card that opted out via
+        // it). Authored `cell` classes (fh-cols-*, fh-center, …) ride on the
+        // wrapper. The only exception is a card that opted out via
         // `CardDef.wrapAsCell = false` (its root must stay a direct child of a
         // framework-structural parent, e.g. the tab anchors).
         if (noWrapCards(c.card)) html
-        else s"""<div class="fh-cell" id="$id">$html</div>"""
+        else
+          s"""<div class="fh-cell${Renderer.cellClasses(
+              c.cell
+            )}" id="$id">$html</div>"""
       case d: LayoutNode.Dynamic =>
         renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
     }
@@ -499,8 +504,11 @@ class Renderer(
         }
     // The group root is itself a cell (a first-class layout item in its
     // container) plus `.fh-group`, the themed flow container its per-entity
-    // member cells live in.
-    s"""<div class="fh-cell fh-group" id="$id">${children.mkString}</div>"""
+    // member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to
+    // span a parent grid) ride on it.
+    s"""<div class="fh-cell fh-group${Renderer.cellClasses(
+        d.cell
+      )}" id="$id">${children.mkString}</div>"""
   }
 
   /** The stable, per-entity id of one dynamic-group child (`<groupId>_<slug>`),
@@ -576,9 +584,13 @@ class Renderer(
     // remove) rather than only ever re-rendered as part of the whole group —
     // which is why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card
     // has no per-entity morph target and is not usable as a dynamic case). The
-    // child id does not encode the matched case, so a case-branch switch is
-    // just a morph.
-    s"""<div class="fh-cell" id="$id">$html</div>"""
+    // case's `cell` classes are static wire data shared by every member, so
+    // in-place morphs / inserts / whole-group repaints re-emit them
+    // identically. The child id does not encode the matched case, so a
+    // case-branch switch is just a morph.
+    s"""<div class="fh-cell${Renderer.cellClasses(
+        c.cell
+      )}" id="$id">$html</div>"""
   }
 
   private def renderTemplate(
@@ -681,6 +693,13 @@ object Renderer {
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
   def sanitize(s: String): String = LayoutNode.sanitize(s)
+
+  /** A node's authored layout-cell classes as the wrapper `class` suffix
+    * (leading space included), `""` when absent/empty. Validated by
+    * `Dashboard.validate` to be plain class tokens.
+    */
+  private def cellClasses(cell: Option[Cell]): String =
+    cell.map(_.classes).filter(_.nonEmpty).fold("")(_.mkString(" ", " ", ""))
 
   /** Build the jmustache context at the Java boundary: the string slot/param
     * context plus, when present, a `children` list of `{html}` maps for

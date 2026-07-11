@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{
   CardDef,
+  Cell,
   Dashboard,
   DynamicCase,
   LayoutNode,
@@ -320,6 +321,53 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(
       r.renderNodeById("c", states).get,
       """<a class="tab" data-tab="c"><span>42</span></a>"""
+    )
+  }
+
+  test("authored cell classes ride on every wrapper kind") {
+    // Static component wrapper, dynamic group root, and per-entity case
+    // members: the node-level `cell.classes` (the fh- layout contract) are
+    // appended to the backend-owned wrapper's class attribute.
+    val sized = LayoutNode.Component(
+      "btn",
+      Map("label" -> lit("Go")),
+      cell = Some(Cell(classes = List("fh-cols-3", "fh-center")))
+    )
+    assertEquals(
+      renderer(sized).renderNodeById("c", Map.empty).get,
+      """<div class="fh-cell fh-cols-3 fh-center" id="c"><button>Go</button></div>"""
+    )
+
+    val dyn = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+          "btn",
+          slots = Map("label" -> lit("L")),
+          cell = Some(Cell(classes = List("fh-cols-4")))
+        )
+      ),
+      cell = Some(Cell(classes = List("fh-cols-full")))
+    )
+    val html = renderer(dyn)
+      .renderNodeById("c", Map("light.a" -> st("light.a", "on")))
+      .get
+    assertEquals(
+      html,
+      """<div class="fh-cell fh-group fh-cols-full" id="c">""" +
+        """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div></div>"""
+    )
+    // The per-member in-place path emits the identical wrapper classes.
+    assertEquals(
+      renderer(dyn)
+        .renderDynamicChild(
+          "c",
+          "light.a",
+          Map("light.a" -> st("light.a", "on"))
+        )
+        .get,
+      """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div>"""
     )
   }
 

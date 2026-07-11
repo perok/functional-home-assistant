@@ -130,6 +130,20 @@ case class CardDef(
     wrapAsCell: Boolean = true
 ) derives ConfiguredDecoder
 
+/** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
+  * classes on the node's `.fh-cell` wrapper (`<div class="fh-cell fh-cols-3"
+  * id=…>`). Theme-agnostic: the class names are the `fh-` layout contract
+  * (`fh-cols-<1..12>`, `fh-cols-full`, `fh-center`, …) every theme's CSS
+  * implements — see `lib/theme.pkl`. The authoring layer emits them from the
+  * HA-`grid_options`-flavored builders (`columns(n)`, `fullWidth()`, …).
+  *
+  * An object rather than a bare list so it can grow further
+  * HA-`grid_options`-style fields (rows, dense packing) without a wire break.
+  * [[Dashboard.validate]] rejects a class that is not a plain CSS class token
+  * (the renderer string-interpolates them into a `class` attribute).
+  */
+case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
+
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -161,7 +175,11 @@ object Predicate:
 case class DynamicCase(
     when: Predicate,
     card: String,
-    slots: Map[String, SlotSource] = Map.empty
+    slots: Map[String, SlotSource] = Map.empty,
+    // Layout-cell classes for each per-entity member wrapper this case renders
+    // (every member of the branch shares them — the wrapper class set is
+    // static wire data, so in-place morphs re-emit it unchanged).
+    cell: Option[Cell] = None
 ) derives ConfiguredDecoder
 
 /** A node in the recursive dashboard layout tree. */
@@ -188,7 +206,9 @@ object LayoutNode:
   case class Component(
       card: String,
       slots: Map[String, SlotSource] = Map.empty,
-      children: List[LayoutNode] = Nil
+      children: List[LayoutNode] = Nil,
+      // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
+      cell: Option[Cell] = None
   ) extends LayoutNode:
     /** The card's subject entity — the `entity_id` slot's value when it is a
       * constant `literal` (the common case). A *transform* `entity_id`
@@ -226,7 +246,10 @@ object LayoutNode:
     */
   case class Dynamic(
       query: Option[Predicate] = None,
-      cases: List[DynamicCase] = Nil
+      cases: List[DynamicCase] = Nil,
+      // Layout-cell classes for the group's own root wrapper (`.fh-cell
+      // .fh-group`) — e.g. `fh-cols-full` to span a parent grid.
+      cell: Option[Cell] = None
   ) extends LayoutNode
 
   /** Stable, location-based id for an addressable node, derived from its index
@@ -416,26 +439,38 @@ case class Dashboard(
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
       nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
 
+    // Cell classes are string-interpolated into the wrapper's `class`
+    // attribute, so each must be a plain CSS class token — reject anything
+    // else loudly at build time rather than emitting broken/injectable markup.
+    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
+      cell.toList.flatMap(_.classes).collect {
+        case cls if !cls.matches("[A-Za-z0-9_-]+") =>
+          s"$nodeId: cell class '$cls' is not a plain CSS class token " +
+            "([A-Za-z0-9_-]+)"
+      }
+
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(card, slots, kids) =>
+        case LayoutNode.Component(card, slots, kids, cell) =>
           val nodeId = LayoutNode.pathId(path)
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, slots) ++ children(kids, path)
-        case LayoutNode.Dynamic(_, cases) =>
-          cases.flatMap { c =>
-            val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
-            checkRef(
-              nodeId,
-              c.card,
-              Dashboard.injectedDynamic,
-              c.slots.keySet
-            ) ++ slotErrors(nodeId, c.slots)
-          }
+          ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
+            children(kids, path)
+        case LayoutNode.Dynamic(_, cases, cell) =>
+          cellErrors(LayoutNode.pathId(path), cell) ++
+            cases.flatMap { c =>
+              val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
+              checkRef(
+                nodeId,
+                c.card,
+                Dashboard.injectedDynamic,
+                c.slots.keySet
+              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell)
+            }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome

@@ -16,12 +16,49 @@
 /// `scripts` as ES modules, and inlines `styles`.
 ///
 /// Contract with the components/renderer (the class names they emit):
-///   containers -> `.fh-row` / `.fh-col`, the universal node wrapper (the id'd
-///   flex/grid item the renderer puts around EVERY card) -> `.fh-cell`, a
-///   dynamic group's member-flow container -> `.fh-group`,
+///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
+///   wrapper (the id'd flex/grid item the renderer puts around EVERY card) ->
+///   `.fh-cell`, a dynamic group's member-flow container -> `.fh-group`,
+///   per-cell layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full`/`.fh-center`
+///   (authored via the HA-style builders `columns(n)`/`fullWidth()`/
+///   `centered()` — see components.pkl [[LayoutNode]]),
 ///   cards -> `.card`, section titles -> `.section`, state text -> `.state`,
 ///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`.
+///
+/// The `fh-` LAYOUT classes have ready-made framework-agnostic CSS below
+/// ([[layoutCss]]): a theme normally interpolates it at the top of its
+/// `styles` (`\(themeMod.layoutCss)`) and only re-implements it to change the
+/// layout system itself. The visual classes (`.card`, `.section`, …) are the
+/// part each theme styles its own way.
 module theme
+
+/// Framework-agnostic CSS for the `fh-` layout contract — the sane default
+/// every theme can reuse. The model mirrors HA's "sections" dashboard: a
+/// [[components#Grid]] (`.fh-grid`) is a 12-column grid whose cells default to
+/// half its width (HA's default card size, `grid_options.columns: 6`); a cell
+/// overrides its span with `.fh-cols-<n>`/`.fh-cols-full` (the `columns(n)`/
+/// `fullWidth()` builders). A dynamic group (`.fh-group`) flows its members
+/// the same way. The default-span selectors use `:where()` so any authored
+/// single-class span rule beats them; `--fh-gap` retunes spacing per theme
+/// (or per entry via `tokens`).
+const layoutCss: String = """
+  .fh-grid,.fh-group{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--fh-gap,1rem)}
+  .fh-grid>:where(.fh-cell),.fh-group>:where(.fh-cell){grid-column:span 6;min-width:0}
+  """ + colSpans + """
+
+  .fh-cols-full{grid-column:1/-1}
+  .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap}
+  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
+  .fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}
+  .fh-center{display:flex;flex-direction:column;align-items:center;text-align:center}
+  """
+
+// One span rule per grid column count (`.fh-cols-1` .. `.fh-cols-12`).
+const local colSpans: String = new Listing {
+  for (n in IntSeq(1, 12)) {
+    ".fh-cols-\(n){grid-column:span \(n)}"
+  }
+}.toList().join("\n")
 
 open class Theme {
   tokens: Mapping<String, String>

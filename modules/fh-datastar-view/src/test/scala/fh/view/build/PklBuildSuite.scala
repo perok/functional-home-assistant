@@ -319,6 +319,7 @@ class PklBuildSuite extends munit.FunSuite {
     val expectedSlots = Map(
       "fhrow" -> Nil,
       "fhcol" -> Nil,
+      "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
       "button" -> List("label", "onclick"),
@@ -721,6 +722,70 @@ class PklBuildSuite extends munit.FunSuite {
     // Button and Slider builder chains match their amend forms.
     assertEquals(focus("btnBuilder"), focus("btnAmend"))
     assertEquals(focus("sliderBuilder"), focus("sliderAmend"))
+  }
+
+  test("cell builders emit fh- classes, identical to the property form") {
+    // The HA-grid_options-flavored layout builders (`columns`/`fullWidth`/
+    // `centered`/`cellClass`) append to the node-level `cell.classes`; the
+    // emitted JSON must be byte-identical to assigning the `cell` property.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |builder = c.entityCard(x).columns(3).centered()
+        |amend = (c.entityCard(x)) {
+        |  cell = new c.Cell { classes { "fh-cols-3"; "fh-center" } }
+        |}
+        |full = c.entityCard(x).fullWidth()
+        |custom = c.entityCard(x).cellClass("my-hero")
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
+    def classes(k: String) =
+      cur.downField(k).downField("cell").get[List[String]]("classes").toOption
+    assertEquals(classes("builder"), Some(List("fh-cols-3", "fh-center")))
+    assertEquals(classes("full"), Some(List("fh-cols-full")))
+    assertEquals(classes("custom"), Some(List("my-hero")))
+    // A node with no layout builders decodes with NO cell at all (the null
+    // default is dropped from the wire JSON).
+    val plain = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = new c.EntityCard { entity = light }""".stripMargin
+    )
+    assertEquals(plain.cell, None)
+  }
+
+  test("caseOf copies the render fn's cell onto the emitted Case") {
+    val dyn = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e).fullWidth()
+        |}""".stripMargin
+    )
+    assertEquals(dyn.cases.size, 1)
+    assertEquals(
+      dyn.cases.head.cell.map(_.classes),
+      Some(List("fh-cols-full"))
+    )
+    // The group's own cell (set as a property) rides on the Dynamic node.
+    val sized = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e)
+        |  cell = new c.Cell { classes { "fh-cols-full" } }
+        |}""".stripMargin
+    )
+    assertEquals(sized.cell.map(_.classes), Some(List("fh-cols-full")))
   }
 
   test("exprOf threads an explicit entityId into the emitted slot") {
