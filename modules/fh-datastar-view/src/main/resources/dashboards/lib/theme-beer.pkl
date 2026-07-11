@@ -194,11 +194,14 @@ class BeerTheme extends themeMod.Theme {
     }
 
     /* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it
-       styles as elements). Layout containers, ported from theme.pkl. */
+       styles as elements). Layout containers: EVERY node renders inside an
+       id'd `.fh-cell` wrapper (the real flex item — see Renderer.render), so
+       a row shares its width uniformly across ALL children, not just nested
+       columns. `.fh-group` is a dynamic group's member-flow container. */
     .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
     .fh-col{display:flex;flex-direction:column;gap:1rem}
-    .fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}
-    .fh-cell{display:contents}
+    .fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}
+    .fh-group{display:flex;flex-direction:column;gap:1rem}
     .section{color:var(--primary)}
     .state{color:var(--on-surface-variant)}
     .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}

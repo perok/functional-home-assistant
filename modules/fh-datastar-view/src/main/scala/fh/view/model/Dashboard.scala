@@ -114,10 +114,20 @@ object SlotSource:
   *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
   *     no entry either — [[Dashboard.validate]] only flags missing *required*
   *     slots and ignores extra ones.
+  *   - `wrapAsCell`: whether the renderer wraps this card's HTML in the id'd
+  *     `.fh-cell` layout/morph wrapper (see `Renderer.render`). ON by default —
+  *     every node is a cell, so containers lay their children out uniformly and
+  *     every node is an addressable Datastar morph target. Turn it OFF only for
+  *     a card whose root element must remain a *direct* child of a
+  *     framework-structural parent (e.g. the tab anchors under BeerCSS's
+  *     `.tabs > a`); such a card is never wrapped, never a morph target of its
+  *     own, and must not be used as a dynamic-group case (whose per-entity
+  *     children are always wrapped — they ARE the patch targets).
   */
 case class CardDef(
     template: String,
-    slots: List[String] = Nil
+    slots: List[String] = Nil,
+    wrapAsCell: Boolean = true
 ) derives ConfiguredDecoder
 
 /** Comparison operators for the query AST. Encoded as lowercase strings. */

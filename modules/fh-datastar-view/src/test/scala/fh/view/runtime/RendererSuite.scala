@@ -25,8 +25,9 @@ class RendererSuite extends munit.FunSuite {
   // A constant literal slot (a bare value, no entity/transform).
   private def lit(s: String): SlotSource = SlotSource(literal = Some(s))
 
-  // Card templates are pure content; the backend wraps entity-bound components
-  // in the id'd morph target.
+  // Card templates are pure content; the backend wraps EVERY component in the
+  // id'd `.fh-cell` morph target (unless the card opts out via
+  // `wrapAsCell = false`).
   private val cards = Map(
     "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
@@ -273,23 +274,52 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "container templates splice children; entity-less nodes are not wrapped"
+    "container templates splice children; EVERY node (containers and entity-less leaves included) is wrapped in its id'd fh-cell"
   ) {
     val layout =
       col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> no morph wrappers, no ids in the markup; with no
-    // theme.chrome, renderPage falls back to the minimal `#dashboard` frame
-    // (no popup host — a popup-less dashboard ships no theme).
+    // every node — the root container, the nested container, and the static
+    // leaf — gets the backend-owned `.fh-cell` morph wrapper with its path id;
+    // with no theme.chrome, renderPage falls back to the minimal `#dashboard`
+    // frame (no popup host — a popup-less dashboard ships no theme).
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
     )
-    // containers are still addressable and re-render their children by id
+    // containers are addressable and re-render (wrapped) by id
     assertEquals(
       r.renderNodeById("c_0", Map.empty).get,
-      """<div class="fh-row"><button>Go</button></div>"""
+      """<div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div>"""
+    )
+  }
+
+  test(
+    "a wrapAsCell=false card renders bare: no fh-cell wrapper, no injected id wrapper"
+  ) {
+    // The card opts out of the backend-owned wrapper (its root must stay a
+    // direct child of a framework-structural parent). It may still read
+    // `{{id}}` internally, but the renderer injects no wrapper element.
+    val bareCards = cards + ("naked" -> CardDef(
+      """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
+      slots = List("state"),
+      wrapAsCell = false
+    ))
+    val d = Dashboard(
+      bareCards,
+      LayoutNode.Component(
+        "naked",
+        slots = Map("state" -> SlotSource(Some("sensor.t")))
+      )
+    )
+    val r = Renderer.create(d)
+    val states = Map("sensor.t" -> st("sensor.t", "42"))
+    // still indexed + addressable by its path id, but rendered unwrapped
+    assertEquals(r.componentsFor("sensor.t"), Set("c"))
+    assertEquals(
+      r.renderNodeById("c", states).get,
+      """<a class="tab" data-tab="c"><span>42</span></a>"""
     )
   }
 
@@ -306,7 +336,7 @@ class RendererSuite extends munit.FunSuite {
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<main id="dashboard"><div class="fh-col"><button>Go</button></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      """<main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
     )
   }
 
@@ -365,10 +395,14 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = renderer(dyn)
     // dynamic as layout root -> the group's own id'd container "c" is the outer
-    // morph target; each child is ALSO wrapped in its own id'd `fh-cell` (the
-    // per-entity patch target) `<groupId>_<sanitized entity>`.
+    // morph target (itself a cell, plus `fh-group`); each child is ALSO wrapped
+    // in its own id'd `fh-cell` (the per-entity patch target)
+    // `<groupId>_<sanitized entity>`.
     val html = r.renderNodeById("c", states).get
-    assert(html.startsWith("""<div id="c">"""), clue = html)
+    assert(
+      html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
+      clue = html
+    )
     // light.a dispatched to the btn case, sensor.b to the card case, each in its
     // own per-entity wrapper.
     assert(
@@ -752,7 +786,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("""id="popups""""), clue = body)
     assertEquals(
       body,
-      """<div class="fh-col"><div class="fh-row"><button>Go</button></div></div>"""
+      """<div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div>"""
     )
   }
 

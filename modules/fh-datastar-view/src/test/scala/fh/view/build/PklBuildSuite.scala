@@ -352,6 +352,13 @@ class PklBuildSuite extends munit.FunSuite {
         Some(slots),
         clue = name
       )
+      // `tab` is the single wrapAsCell opt-out (the `.tabs > a` structural
+      // selector); every other card omits the key (backend defaults TRUE).
+      assertEquals(
+        card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
+        Option.when(name == "tab")(false),
+        clue = name
+      )
     }
     // Hidden cardDef never leaks into an emitted node.
     os.write.over(

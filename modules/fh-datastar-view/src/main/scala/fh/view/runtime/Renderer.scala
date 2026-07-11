@@ -87,6 +87,13 @@ class Renderer(
 
   private val mainIndex = new Index(dashboard.card, "")
 
+  /** Cards that opted out of the `.fh-cell` wrapper
+    * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
+    * stay a direct child of a framework-structural parent (the tab anchors).
+    */
+  private val noWrapCards: Set[String] =
+    dashboard.cards.collect { case (name, cd) if !cd.wrapAsCell => name }.toSet
+
   /** Memo for identity-derived (`reactive: false`) slot values, keyed by
     * `(entityId, transform)`. Such a slot reads only the entity's immutable
     * identity (`$domain`/`$entity_id`), so its value is stable for the life of
@@ -270,8 +277,8 @@ class Renderer(
 
   /** The live entities one node (by generated id) binds — the inverse of
     * [[componentsFor]], for edit-mode inspection ("debug this node"). Empty for
-    * a dynamic group (its members are per-entity children with their own ids) or
-    * an unknown id. Searches main + surface indices.
+    * a dynamic group (its members are per-entity children with their own ids)
+    * or an unknown id. Searches main + surface indices.
     */
   def entitiesForNode(id: String): List[String] =
     allIndexed.get(id) match {
@@ -461,13 +468,15 @@ class Renderer(
           childrenHtml,
           states
         )
-        // The backend owns the Datastar morph target: any component that can be
-        // live-patched (it depends on entities) is wrapped in an id'd element so
-        // templates don't have to carry `id="{{id}}"` themselves. The wrapper is
-        // layout-neutral (`.fh-cell { display: contents }`).
-        if (c.liveEntities.nonEmpty)
-          s"""<div class="fh-cell" id="$id">$html</div>"""
-        else html
+        // EVERY node is a cell: the backend owns the id'd `.fh-cell` wrapper, so
+        // templates never carry `id="{{id}}"` themselves, every node is a
+        // Datastar morph target, and containers lay their children out
+        // uniformly (`.fh-cell` is the real flex/grid item — the themes style
+        // it). The only exception is a card that opted out via
+        // `CardDef.wrapAsCell = false` (its root must stay a direct child of a
+        // framework-structural parent, e.g. the tab anchors).
+        if (noWrapCards(c.card)) html
+        else s"""<div class="fh-cell" id="$id">$html</div>"""
       case d: LayoutNode.Dynamic =>
         renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
     }
@@ -488,7 +497,10 @@ class Renderer(
             .find(c => Renderer.matches(c.when, st))
             .map(renderCase(id, entityId, _, states))
         }
-    s"""<div id="$id">${children.mkString}</div>"""
+    // The group root is itself a cell (a first-class layout item in its
+    // container) plus `.fh-group`, the themed flow container its per-entity
+    // member cells live in.
+    s"""<div class="fh-cell fh-group" id="$id">${children.mkString}</div>"""
   }
 
   /** The stable, per-entity id of one dynamic-group child (`<groupId>_<slug>`),
@@ -559,11 +571,13 @@ class Renderer(
       c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
     val id = dynamicChildId(groupId, entityId)
     val html = renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
-    // Each child gets the SAME id'd morph wrapper as a static live component, so
+    // Each child gets the SAME id'd `.fh-cell` wrapper as a static component, so
     // it is an addressable per-entity patch target (in-place morph / insert /
-    // remove) rather than only ever re-rendered as part of the whole group. The
-    // wrapper is layout-neutral (`.fh-cell { display: contents }`). The child id
-    // does not encode the matched case, so a case-branch switch is just a morph.
+    // remove) rather than only ever re-rendered as part of the whole group —
+    // which is why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card
+    // has no per-entity morph target and is not usable as a dynamic case). The
+    // child id does not encode the matched case, so a case-branch switch is
+    // just a morph.
     s"""<div class="fh-cell" id="$id">$html</div>"""
   }
 

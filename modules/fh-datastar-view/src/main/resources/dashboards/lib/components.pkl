@@ -62,6 +62,13 @@ abstract class Node extends LayoutNode {
 class CardDef {
   template: String
   slots: Listing<String> = new {}
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell`
+  // layout/morph wrapper. Null (dropped by omitNullProperties, backend
+  // defaults TRUE) for every normal card; set `false` only for a card whose
+  // root must stay a direct child of a framework-structural parent (the
+  // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
+  // never a morph target and must not be used as a dynamic-group case.
+  wrapAsCell: Boolean? = null
 }
 
 /// An on-demand render subtree the build-phase hoist lifts into the top-level
@@ -432,6 +439,10 @@ class TabButton extends Node {
   cardDef = new CardDef {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
+    // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
+    // styling is the structural selector `.tabs > a` — so this is the one card
+    // that opts out of the universal `.fh-cell` wrapper.
+    wrapAsCell = false
   }
   hidden label: String
   hidden onclick: String
