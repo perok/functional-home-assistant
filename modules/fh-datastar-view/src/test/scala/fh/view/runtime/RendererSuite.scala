@@ -301,7 +301,9 @@ class RendererSuite extends munit.FunSuite {
   ) {
     // The card opts out of the backend-owned wrapper (its root must stay a
     // direct child of a framework-structural parent). It may still read
-    // `{{id}}` internally, but the renderer injects no wrapper element.
+    // `{{id}}` internally, but the renderer injects no wrapper element. Such
+    // a card may only carry literal / identity slots — a live-entity slot on
+    // an unwrapped node is a validate error (see the rejection test below).
     val bareCards = cards + ("naked" -> CardDef(
       """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
       slots = List("state"),
@@ -309,18 +311,69 @@ class RendererSuite extends munit.FunSuite {
     ))
     val d = Dashboard(
       bareCards,
+      LayoutNode.Component("naked", slots = Map("state" -> lit("42")))
+    )
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    assertEquals(
+      r.renderNodeById("c", Map.empty).get,
+      """<a class="tab" data-tab="c"><span>42</span></a>"""
+    )
+  }
+
+  test(
+    "validate rejects the wrapper-dependent shapes on a wrapAsCell=false card"
+  ) {
+    // Everything that rides on the `.fh-cell` wrapper is unusable on a card
+    // that opts out of it — and silently so at render time, which is why each
+    // shape is a loud build error instead.
+    val bareCards = cards + ("naked" -> CardDef(
+      "<a>{{state}}</a>",
+      slots = List("state"),
+      wrapAsCell = false
+    ))
+    // A live-entity slot: the pushed morphs could never match an element.
+    val live = Dashboard(
+      bareCards,
       LayoutNode.Component(
         "naked",
         slots = Map("state" -> SlotSource(Some("sensor.t")))
       )
     )
-    val r = Renderer.create(d)
-    val states = Map("sensor.t" -> st("sensor.t", "42"))
-    // still indexed + addressable by its path id, but rendered unwrapped
-    assertEquals(r.componentsFor("sensor.t"), Set("c"))
-    assertEquals(
-      r.renderNodeById("c", states).get,
-      """<a class="tab" data-tab="c"><span>42</span></a>"""
+    assert(
+      live.validate().exists(_.contains("binds live entities")),
+      clue = live.validate()
+    )
+    // Cell params: there is no wrapper to carry the classes.
+    val sized = Dashboard(
+      bareCards,
+      LayoutNode.Component(
+        "naked",
+        slots = Map("state" -> lit("42")),
+        cell = Some(Cell(classes = List("fh-cols-3")))
+      )
+    )
+    assert(
+      sized.validate().exists(_.contains("carries cell params")),
+      clue = sized.validate()
+    )
+    // A dynamic case: every member is a wrapped per-entity patch target.
+    val dynCase = Dashboard(
+      bareCards,
+      LayoutNode.Dynamic(
+        query = None,
+        cases = List(
+          DynamicCase(
+            Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+            "naked",
+            slots = Map("state" -> lit("x"))
+          )
+        )
+      )
+    )
+    assert(
+      dynCase.validate().exists(_.contains("cannot be a dynamic-group case")),
+      clue = dynCase.validate()
     )
   }
 

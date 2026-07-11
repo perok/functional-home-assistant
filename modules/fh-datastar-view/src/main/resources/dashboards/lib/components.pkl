@@ -103,7 +103,8 @@ class CardDef {
   // defaults TRUE) for every normal card; set `false` only for a card whose
   // root must stay a direct child of a framework-structural parent (the
   // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
-  // never a morph target and must not be used as a dynamic-group case.
+  // never a morph target; live-entity slots, cell params, and dynamic-case
+  // use are all build errors on it (Dashboard.validate).
   wrapAsCell: Boolean? = null
 }
 

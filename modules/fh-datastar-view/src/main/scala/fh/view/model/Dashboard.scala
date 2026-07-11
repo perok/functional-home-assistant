@@ -123,6 +123,8 @@ object SlotSource:
   *     `.tabs > a`); such a card is never wrapped, never a morph target of its
   *     own, and must not be used as a dynamic-group case (whose per-entity
   *     children are always wrapped — they ARE the patch targets).
+  *     [[Dashboard.validate]] rejects the wrapper-dependent shapes on such a
+  *     card: live-entity slots, `cell` params, and dynamic-case use.
   */
 case class CardDef(
     template: String,
@@ -449,17 +451,46 @@ case class Dashboard(
             "([A-Za-z0-9_-]+)"
       }
 
+    // A `wrapAsCell = false` card renders bare — no id'd `.fh-cell` wrapper —
+    // so everything that rides on the wrapper is unusable with it, and
+    // silently so at render time. Reject the combinations loudly instead:
+    // live-entity slots (the pushed morphs would never match an element in the
+    // DOM), cell params (there is no wrapper to carry the classes), and
+    // dynamic cases (every member IS its wrapped per-entity patch target —
+    // Renderer.renderCase wraps unconditionally).
+    def noWrap(cardName: String): Boolean =
+      cards.get(cardName).exists(!_.wrapAsCell)
+
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(card, slots, kids, cell) =>
+        case c @ LayoutNode.Component(card, slots, kids, cell) =>
           val nodeId = LayoutNode.pathId(path)
+          val wrapErrors =
+            if (!noWrap(card)) Nil
+            else
+              Option
+                .when(c.liveEntities.nonEmpty)(
+                  s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
+                    s"entities (${c.liveEntities.mkString(", ")}) — an " +
+                    "unwrapped node has no morph target, so its live updates " +
+                    "would never apply; make those slots literal / " +
+                    "reactive=false or drop the opt-out"
+                )
+                .toList ++
+                Option
+                  .when(cell.isDefined)(
+                    s"$nodeId: card '$card' has wrapAsCell=false but carries " +
+                      "cell params — they ride on the .fh-cell wrapper this " +
+                      "card opts out of"
+                  )
+                  .toList
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
-            children(kids, path)
+            wrapErrors ++ children(kids, path)
         case LayoutNode.Dynamic(_, cases, cell) =>
           cellErrors(LayoutNode.pathId(path), cell) ++
             cases.flatMap { c =>
@@ -469,7 +500,14 @@ case class Dashboard(
                 c.card,
                 Dashboard.injectedDynamic,
                 c.slots.keySet
-              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell)
+              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell) ++
+                Option
+                  .when(noWrap(c.card))(
+                    s"$nodeId: card '${c.card}' has wrapAsCell=false and " +
+                      "cannot be a dynamic-group case — every member is " +
+                      "wrapped as its own per-entity patch target"
+                  )
+                  .toList
             }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying

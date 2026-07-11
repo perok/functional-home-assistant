@@ -38,10 +38,13 @@ know.
 2. **`CardDef.wrapAsCell` is the escape hatch** (default `true`). A card sets
    it `false` only when its template root must remain a *direct* child of a
    framework-structural parent. The one opt-out is the `tab` card: BeerCSS
-   styles tab bars via the structural selector `.tabs > a`. A `wrapAsCell =
-   false` card is never a morph target of its own and must not be used as a
-   dynamic-group case (per-entity children are always wrapped — they ARE the
-   patch targets).
+   styles tab bars via the structural selector `.tabs > a`. Everything that
+   rides on the wrapper is unusable on such a card, and would fail *silently*
+   at render time — so `Dashboard.validate` rejects the three shapes loudly:
+   live-entity slots (an unwrapped node has no morph target, its pushed
+   patches could never match), authored `cell` params (no wrapper to carry
+   the classes), and use as a dynamic-group case (per-entity children are
+   always wrapped — they ARE the patch targets).
 3. **`.fh-cell` is the real layout box.** `display:contents` is gone; the
    themes lay the wrapper itself out (`.fh-row>.fh-cell{flex:1 1 0;…}`, the
    grid rules below). This kills the col-vs-bare-card asymmetry: all row
@@ -111,6 +114,14 @@ framework-agnostic, and a new look is a sibling module exporting a
   (`.fh-cell[id]` selects everything) and future per-node tooling.
 - DOM depth grows by one `div` per node; inert in flow terms everywhere but
   the layout containers, where it is the point.
+- The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,
+  not a template — unlike static containers, a group's member flow has no
+  card seam. A group wanting a non-grid flow says so via `cellClass` (an
+  entry-appended rule ties the `.fh-group` display rule on specificity and
+  wins by order; the span defaults are `:where()`-wrapped and always lose).
+  If that proves too coarse, the same-depth generalization is an optional
+  container-card reference on `Dynamic` — deferred until a real dashboard
+  needs it.
 
 ## Verification
 
