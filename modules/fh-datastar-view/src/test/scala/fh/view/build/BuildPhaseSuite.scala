@@ -1,7 +1,17 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource, Surface}
-import io.circe.parser
+import fh.view.model.{
+  Activation,
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Predicate,
+  Quantifier,
+  SlotSource,
+  Surface
+}
+import io.circe.{parser, Json}
 
 class BuildPhaseSuite extends munit.FunSuite {
 
@@ -201,6 +211,147 @@ class BuildPhaseSuite extends munit.FunSuite {
         .get[String]("transform")
         .toOption,
       Some("\"@post('sse/surface/open/c_0')\"")
+    )
+  }
+
+  test("Surface.activation decodes: absent key -> User(false)") {
+    val decoded = parser
+      .parse("""{ "content": { "kind": "component", "card": "x" } }""")
+      .toOption
+      .get
+      .as[Surface]
+    assertEquals(decoded.toOption.get.activation, Activation.User(false))
+    // The RETIRED flat `defaultOpen` is an unknown key the decoder ignores —
+    // the interim contract while the Pkl authoring layer still emits it (its
+    // effect survives via resolveActive's index-0 fallback).
+    val flat = parser
+      .parse(
+        """{ "content": { "kind": "component", "card": "x" }, "defaultOpen": true }"""
+      )
+      .toOption
+      .get
+      .as[Surface]
+    assertEquals(flat.toOption.get.activation, Activation.User(false))
+  }
+
+  test(
+    "Surface.activation decodes both kinds; quantifier is case-insensitive"
+  ) {
+    def surface(activation: String): io.circe.Decoder.Result[Surface] =
+      parser
+        .parse(
+          s"""{ "content": { "kind": "component", "card": "x" },
+             |  "activation": $activation }""".stripMargin
+        )
+        .toOption
+        .get
+        .as[Surface]
+
+    assertEquals(
+      surface(
+        """{ "kind": "user", "defaultOpen": true }"""
+      ).toOption.get.activation,
+      Activation.User(defaultOpen = true)
+    )
+    val cond =
+      """{ "kind": "cmp", "property": "state", "op": "eq", "value": "on" }"""
+    // Quantifier decodes case-insensitively (wire strings any/none/all)...
+    assertEquals(
+      surface(
+        s"""{ "kind": "state", "condition": $cond, "quantifier": "NONE" }"""
+      ).toOption.get.activation,
+      Activation.State(
+        Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
+        Quantifier.None
+      )
+    )
+    // ...defaults to `any` when absent...
+    assertEquals(
+      surface(
+        s"""{ "kind": "state", "condition": $cond }"""
+      ).toOption.get.activation,
+      Activation.State(
+        Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
+        Quantifier.Any
+      )
+    )
+    // ...and an unknown quantifier fails the decode (no silent fallback).
+    assert(
+      surface(
+        s"""{ "kind": "state", "condition": $cond, "quantifier": "some" }"""
+      ).isLeft
+    )
+  }
+
+  test(
+    "validate rejects a bake group mixing user- and state-activated members"
+  ) {
+    def member(index: Int, activation: Activation): Surface =
+      Surface(
+        LayoutNode.Component("ok"),
+        bakeInto = Some("c"),
+        bakeAs = Some("branch"),
+        bakeIndex = Some(index),
+        activation = activation
+      )
+    val state =
+      Activation.State(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    val mixed = Dashboard(
+      cards = Map("ok" -> CardDef("<i></i>")),
+      card = LayoutNode.Component("ok"),
+      surfaces = Map(
+        "a" -> member(0, Activation.User(defaultOpen = true)),
+        "b" -> member(1, state)
+      )
+    )
+    assert(
+      mixed.validate().exists(_.contains("mixes user- and state-activated")),
+      clue = mixed.validate()
+    )
+    // Homogeneous groups of either mode pass.
+    val allState = mixed.copy(surfaces =
+      Map("a" -> member(0, state), "b" -> member(1, state))
+    )
+    assertEquals(allState.validate(), Nil)
+    val allUser = mixed.copy(surfaces =
+      Map(
+        "a" -> member(0, Activation.User(defaultOpen = true)),
+        "b" -> member(1, Activation.User())
+      )
+    )
+    assertEquals(allUser.validate(), Nil)
+  }
+
+  test("hoistInlineSurfaces lifts the activation object onto the surface") {
+    // The lifted-field list carries `activation` (the flat `defaultOpen` is
+    // retired — DashboardBuild.surfaceOf drops it).
+    val json = parser
+      .parse("""
+        {
+          "cards": {},
+          "card": {
+            "kind": "component", "card": "ifhost",
+            "inlineSurfaces": { "then": {
+              "content": { "kind": "component", "card": "card" },
+              "bakeInto": "@@NODE_ID@@", "bakeAs": "branch", "bakeIndex": 0,
+              "defaultOpen": true,
+              "activation": { "kind": "state", "quantifier": "any",
+                "condition": { "kind": "cmp", "property": "state", "op": "eq", "value": "on" } }
+            } }
+          }
+        }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
+    val lifted = hoisted.downField("surfaces").downField("c_then")
+    assertEquals(
+      lifted.downField("activation").get[String]("kind").toOption,
+      Some("state")
+    )
+    assert(
+      lifted.downField("defaultOpen").failed,
+      clue = "flat key not dropped"
     )
   }
 

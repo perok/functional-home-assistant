@@ -1,6 +1,13 @@
 package fh.view.build
 
-import fh.view.model.{Dashboard, LayoutNode, Op, Predicate}
+import fh.view.model.{
+  Activation,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Predicate,
+  Quantifier
+}
 import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
@@ -334,7 +341,8 @@ class PklBuildSuite extends munit.FunSuite {
         "entity_id"
       ),
       "popup" -> Nil,
-      "tabs" -> Nil
+      "tabs" -> Nil,
+      "ifhost" -> Nil
     )
     assertEquals(
       cards.keys.map(_.toSet),
@@ -716,6 +724,65 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(focus("sliderBuilder"), focus("sliderAmend"))
   }
 
+  test("If builder and amend forms produce identical wire output") {
+    // `.then(..)/.`else`(..)` builder calls amend the same hidden Listings the
+    // amend form fills directly, and the derived inlineSurfaces re-derive
+    // across chained calls (late binding) — so the two authoring forms must
+    // emit byte-identical node JSON.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |
+        |builder = c.iff(c.stateIs("on"))
+        |  .then(c.title("a"))
+        |  .then(c.title("b"))
+        |  .`else`(c.title("q"))
+        |
+        |amend = (c.iff(c.stateIs("on"))) {
+        |  `then` {
+        |    c.title("a")
+        |    c.title("b")
+        |  }
+        |  `else` {
+        |    c.title("q")
+        |  }
+        |}
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    val builder = cur.downField("builder").focus
+    val amend = cur.downField("amend").focus
+    assert(builder.isDefined && amend.isDefined, clue = cur.keys)
+    assertEquals(builder, amend, clue = (builder, amend))
+  }
+
+  test("entityIs emits an entity_id property comparison") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/components.pkl" as c
+        |p = c.entityIs("light.kitchen")
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val p = result.toOption.get.value.hcursor.downField("p").as[Predicate]
+    assertEquals(
+      p,
+      Right(
+        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.kitchen"))
+      )
+    )
+  }
+
   test("exprOf threads an explicit entityId into the emitted slot") {
     val node = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
@@ -1008,10 +1075,13 @@ class PklBuildSuite extends munit.FunSuite {
       List(0, 1),
       clue = d.surfaces
     )
-    // Exactly one surface (the first tab) is default-open.
+    // Exactly ONE default-open member — the FIRST tab — expressed through the
+    // activation sum ({kind:"user", defaultOpen:true}); the other panel emits
+    // no `activation` at all (dropped null) and decodes to the closed user
+    // default.
     assertEquals(
-      d.surfaces.collect { case (id, s) if s.defaultOpen => id }.toSet,
-      Set(d.surfaces.keys.toList.sorted.head),
+      d.surfaces.toList.sortBy(_._1).map(_._2.activation),
+      List(Activation.User(true), Activation.User(false)),
       clue = d.surfaces
     )
 
@@ -1041,6 +1111,111 @@ class PklBuildSuite extends munit.FunSuite {
     }
 
     // Validation (card refs, required slots, JSONata compile) passes.
+    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+  }
+
+  test("pkl-if evaluates, hoists, and validates end-to-end (If/else)") {
+    val resources = resourcesLib / os.up
+    val tmp = os.temp.dir()
+    copyLib(
+      tmp,
+      "hass.pkl",
+      "components.pkl",
+      "theme.pkl",
+      "theme-beer.pkl",
+      "tokens.pkl",
+      "entry.pkl"
+    )
+    os.copy.into(resources / "pkl-if.pkl", tmp)
+    // The entry names exactly the snapshot dump's entities (the demo light +
+    // the two AMS sensors).
+    os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
+
+    val result = SourceEval.eval(tmp, "pkl-if.pkl")
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+
+    // FULL build pipeline: hoist the inline branch surfaces (splicing each
+    // host's NODE_ID), then decode.
+    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val decoded = hoisted.as[Dashboard]
+    assert(decoded.isRight, clue = decoded)
+    val d = decoded.toOption.get
+
+    // Three If hosts in the layout, all referencing the reflect-registered
+    // `ifhost` card; hosts carry no static children — branches live in
+    // surfaces only (that structural split IS the hidden-branch silence).
+    assert(d.cards.contains("ifhost"), clue = d.cards.keySet)
+    val root = d.card.asInstanceOf[LayoutNode.Component]
+    val hosts = root.children.collect {
+      case c: LayoutNode.Component if c.card == "ifhost" => c
+    }
+    assertEquals(hosts.size, 3)
+    assert(hosts.forall(_.children.isEmpty), clue = hosts)
+
+    // Hoisted surface ids are `<host-id>_<then|else>`; the iffNone If has no
+    // else member (no match ⇒ the host bakes empty).
+    assertEquals(
+      d.surfaces.keySet,
+      Set("c_1_then", "c_1_else", "c_2_then", "c_2_else", "c_3_then")
+    )
+    // Every member of a group carries the SAME bake var ("branch" — the
+    // backend reads it off the group's first member), its host, and its
+    // first-match position.
+    assert(
+      d.surfaces.values.forall(_.bakeAs.contains("branch")),
+      clue = d.surfaces
+    )
+    assertEquals(d.surfaces("c_1_then").bakeInto, Some("c_1"))
+    assertEquals(d.surfaces("c_1_then").bakeIndex, Some(0))
+    assertEquals(d.surfaces("c_1_else").bakeIndex, Some(1))
+
+    // The builder-form If: a StateActivation carrying the authored
+    // entityIs(..).and(stateIs("on")) condition, default quantifier "any".
+    d.surfaces("c_1_then").activation match {
+      case Activation.State(Predicate.And(items), q) =>
+        assertEquals(q, Quantifier.Any)
+        assertEquals(
+          items,
+          List(
+            Predicate.Cmp(
+              "entity_id",
+              Op.Eq,
+              Json.fromString(
+                "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang"
+              )
+            ),
+            Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+          )
+        )
+      case other => fail(s"expected a State(And(..)) activation: $other")
+    }
+    // The else member is State(condition = the always-true predicate) — no
+    // nullable condition on the wire.
+    assertEquals(
+      d.surfaces("c_1_else").activation,
+      Activation.State(
+        Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+        Quantifier.Any
+      )
+    )
+    // The iffNone variant rides its quantifier onto the wire.
+    d.surfaces("c_3_then").activation match {
+      case Activation.State(_, q) => assertEquals(q, Quantifier.None)
+      case other => fail(s"expected a State activation: $other")
+    }
+    // Branch bodies are Row-wrapped, like tab panels.
+    assertEquals(
+      d.surfaces("c_2_then").content.asInstanceOf[LayoutNode.Component].card,
+      "fhrow"
+    )
+
+    // Validation (card refs incl. ifhost, required slots, JSONata compile,
+    // bake-group activation homogeneity) passes.
     assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
   }
 
@@ -1200,5 +1375,9 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("pkl-tabs wire JSON matches the checked-in snapshot") {
     checkSnapshot("pkl-tabs", evalEntryWire("pkl-tabs.pkl"))
+  }
+
+  test("pkl-if wire JSON matches the checked-in snapshot") {
+    checkSnapshot("pkl-if", evalEntryWire("pkl-if.pkl"))
   }
 }

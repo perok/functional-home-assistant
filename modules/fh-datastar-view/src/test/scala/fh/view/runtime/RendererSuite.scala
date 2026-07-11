@@ -1,12 +1,14 @@
 package fh.view.runtime
 
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   DynamicCase,
   LayoutNode,
   Op,
   Predicate,
+  Quantifier,
   SlotSource,
   Surface,
   Theme
@@ -89,7 +91,7 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          defaultOpen = true
+          activation = Activation.User(defaultOpen = true)
         ),
         "c_t1" -> Surface(
           panel("b"),
@@ -273,23 +275,24 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "container templates splice children; entity-less nodes are not wrapped"
+    "container templates splice children; entity-less nodes get id-less fh-cell wrappers"
   ) {
     val layout =
       col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> no morph wrappers, no ids in the markup; with no
-    // theme.chrome, renderPage falls back to the minimal `#dashboard` frame
-    // (no popup host — a popup-less dashboard ships no theme).
+    // no entities anywhere -> fh-cell wrappers carry no ids (nothing is a
+    // morph target); with no theme.chrome, renderPage falls back to the
+    // minimal `#dashboard` frame (no popup host — a popup-less dashboard
+    // ships no theme).
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-col"><div class="fh-row"><button>Go</button></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-cell"><div class="fh-col"><div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div></div></div></main>"""
     )
     // containers are still addressable and re-render their children by id
     assertEquals(
       r.renderNodeById("c_0", Map.empty).get,
-      """<div class="fh-row"><button>Go</button></div>"""
+      """<div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div>"""
     )
   }
 
@@ -306,7 +309,7 @@ class RendererSuite extends munit.FunSuite {
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<main id="dashboard"><div class="fh-col"><button>Go</button></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      """<main id="dashboard"><div class="fh-cell"><div class="fh-col"><div class="fh-cell"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
     )
   }
 
@@ -752,7 +755,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("""id="popups""""), clue = body)
     assertEquals(
       body,
-      """<div class="fh-col"><div class="fh-row"><button>Go</button></div></div>"""
+      """<div class="fh-cell"><div class="fh-col"><div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div></div></div>"""
     )
   }
 
@@ -818,7 +821,7 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("panel"),
           bakeIndex = Some(0),
-          defaultOpen = true
+          activation = Activation.User(defaultOpen = true)
         ),
         "c_t1" -> Surface(
           panel("b"),
@@ -904,6 +907,189 @@ class RendererSuite extends munit.FunSuite {
     // unknown entity / unknown group -> None
     assertEquals(r.renderDynamicChild("c", "light.z", states), None)
     assertEquals(r.renderDynamicChild("zzz", "light.a", states), None)
+  }
+
+  // ---------------------------------------------------------------------------
+  // State-activated surfaces (If/else as bake groups — Activation.State)
+  // ---------------------------------------------------------------------------
+
+  // The always-true predicate an authoring layer uses for an `else` member —
+  // deliberately an ordinary condition, so the else needs no special casing.
+  private val always: Predicate =
+    Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+
+  // "Entity X is in state Y" — the entity_id pin + Any quantifier idiom.
+  private def entityIs(id: String, state: String): Predicate =
+    Predicate.And(
+      List(
+        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
+        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
+      )
+    )
+
+  // The If host: a plain component card with one {{{branch}}} bake hole — no
+  // tab bar, no signal, no cookie; the backend never required them.
+  private val ifCards =
+    cards + ("ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""))
+
+  /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
+    * sensor.a card) is active while alarm.h == armed, with an always-true
+    * `else` member (a sensor.b card) — or none, for the no-match case.
+    */
+  private def ifDashboard(withElse: Boolean = true): Dashboard = {
+    def branch(name: String) = LayoutNode.Component(
+      "card",
+      slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
+    )
+    val members = Map(
+      "c_then" -> Surface(
+        branch("a"),
+        bakeInto = Some("c"),
+        bakeAs = Some("branch"),
+        bakeIndex = Some(0),
+        activation = Activation.State(entityIs("alarm.h", "armed"))
+      )
+    ) ++ (if (withElse)
+            Map(
+              "c_else" -> Surface(
+                branch("b"),
+                bakeInto = Some("c"),
+                bakeAs = Some("branch"),
+                bakeIndex = Some(1),
+                activation = Activation.State(always)
+              )
+            )
+          else Map.empty)
+    Dashboard(ifCards, LayoutNode.Component("ifhost"), surfaces = members)
+  }
+
+  private def armedStates(alarm: String) = Map(
+    "alarm.h" -> st("alarm.h", alarm),
+    "sensor.a" -> st("sensor.a", "A"),
+    "sensor.b" -> st("sensor.b", "B")
+  )
+
+  test("matches: the entity_id property compares the entity's own id") {
+    val s = st("light.a", "on")
+    assert(
+      Renderer.matches(
+        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.a")),
+        s
+      )
+    )
+    assert(
+      !Renderer.matches(
+        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.b")),
+        s
+      )
+    )
+  }
+
+  test(
+    "resolveActiveByState picks the FIRST holding member in bakeIndex order"
+  ) {
+    val r = Renderer.create(ifDashboard())
+    // then holds -> index 0 even though the always-true else would too.
+    assertEquals(r.resolveActiveByState("c", armedStates("armed")), Some(0))
+    // then fails -> the condition-less-equivalent else (always predicate).
+    assertEquals(r.resolveActiveByState("c", armedStates("disarmed")), Some(1))
+  }
+
+  test("resolveActiveByState: no member holds -> None; the host bakes empty") {
+    val r = Renderer.create(ifDashboard(withElse = false))
+    val states = armedStates("disarmed")
+    assertEquals(r.resolveActiveByState("c", states), None)
+    // The host still renders its wrapper — with empty branch content, so a
+    // matching branch appearing later has its patch target in the DOM.
+    assertEquals(r.renderNodeById("c", states).get, """<div id="c"></div>""")
+  }
+
+  test("resolveActiveByState quantifiers: any = ∃, none = ∄, all = ∀") {
+    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+    def dash(q: Quantifier) = Dashboard(
+      ifCards,
+      LayoutNode.Component("ifhost"),
+      surfaces = Map(
+        "c_t" -> Surface(
+          LayoutNode.Component("btn", Map("label" -> lit("x"))),
+          bakeInto = Some("c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(on, q)
+        )
+      )
+    )
+    val mixed = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "off"))
+    val allOn = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "on"))
+    val allOff = Map("l.a" -> st("l.a", "off"), "l.b" -> st("l.b", "off"))
+
+    val anyR = Renderer.create(dash(Quantifier.Any))
+    assertEquals(anyR.resolveActiveByState("c", mixed), Some(0))
+    assertEquals(anyR.resolveActiveByState("c", allOff), None)
+
+    // none is ∄ — NOT a Not inside the condition (that would still be ∃).
+    val noneR = Renderer.create(dash(Quantifier.None))
+    assertEquals(noneR.resolveActiveByState("c", allOff), Some(0))
+    assertEquals(noneR.resolveActiveByState("c", mixed), None)
+
+    val allR = Renderer.create(dash(Quantifier.All))
+    assertEquals(allR.resolveActiveByState("c", allOn), Some(0))
+    assertEquals(allR.resolveActiveByState("c", mixed), None)
+  }
+
+  test("state members bake by condition and never enter selectedSurfaces") {
+    val r = Renderer.create(ifDashboard())
+    // The baked branch follows the condition, surface-namespaced like a tab.
+    val bodyArmed = r.renderBody(armedStates("armed"))
+    assert(bodyArmed.contains("""id="s_c_then__c""""), clue = bodyArmed)
+    assert(bodyArmed.contains("<span>A</span>"), clue = bodyArmed)
+    assert(!bodyArmed.contains("<span>B</span>"), clue = bodyArmed)
+    val bodyElse = r.renderBody(armedStates("disarmed"))
+    assert(bodyElse.contains("<span>B</span>"), clue = bodyElse)
+    assert(!bodyElse.contains("<span>A</span>"), clue = bodyElse)
+    // State members never seed a session's open set (their liveness is the
+    // shared pass's job), and the owner splits to the state side.
+    assertEquals(r.selectedSurfaces(), Set.empty[String])
+    assertEquals(r.stateBakeOwnerIds, Set("c"))
+    assertEquals(r.userBakeOwnerIds, Set.empty[String])
+    // Tabs keep the exact opposite split (regression guard on the mode split).
+    val tabs = Renderer.create(tabsDashboard)
+    assertEquals(tabs.userBakeOwnerIds, Set("c"))
+    assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
+  }
+
+  test(
+    "sessionOnlyStateGroups: a user-selected owner inside a branch flags the group"
+  ) {
+    // The then-branch content is a `tabs` owner (a user-selected bake group
+    // baked into the branch's content root `s_c_then__c`) — so the If's host
+    // HTML embeds a cookie-selected member and cannot render shared.
+    val d = Dashboard(
+      ifCards,
+      LayoutNode.Component("ifhost"),
+      surfaces = Map(
+        "c_then" -> Surface(
+          LayoutNode.Component("tabs"),
+          bakeInto = Some("c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(always)
+        ),
+        "t0" -> Surface(
+          LayoutNode.Component("btn", Map("label" -> lit("t"))),
+          bakeInto = Some("s_c_then__c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    assertEquals(Renderer.create(d).sessionOnlyStateGroups, Set("c"))
+    // A branch with no user owner anywhere stays shared.
+    assertEquals(
+      Renderer.create(ifDashboard()).sessionOnlyStateGroups,
+      Set.empty[String]
+    )
   }
 
   test("affectedDynamics surfaces the membership delta per group") {

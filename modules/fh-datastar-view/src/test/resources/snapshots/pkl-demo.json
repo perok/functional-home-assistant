@@ -388,6 +388,11 @@
       ],
       "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
+    "ifhost" : {
+      "slots" : [
+      ],
+      "template" : "<div id=\"{{id}}\">{{{branch}}}</div>"
+    },
     "popup" : {
       "slots" : [
       ],
