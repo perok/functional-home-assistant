@@ -50,15 +50,17 @@ private enum Patch:
   *     patch it empty, for a close). The state lives in the connection's
   *     [[Session]]; the resulting patches ride the same SSE stream.
   *
-  * Live entity patches are split by what they depend on. Main-page nodes that
-  * don't own a bake group are a pure function of entity state, so they are
-  * rendered ONCE per slug by [[sharedPatchPublishers]] (one subscription to the
-  * state stream per dashboard, per-slug diff cache) and fanned out to every
-  * connection viewing that slug over `sharedTopics`. Only what truly differs
-  * per client stays per-session in [[changedPatches]]: open-surface nodes and
-  * bake-group-owner nodes (their HTML depends on the client's `uiState`).
-  * Construct via [[Server.resource]], which creates the topics and runs the
-  * publishers.
+  * Live entity patches are split by what they depend on. Main-page nodes whose
+  * HTML is a pure function of entity state — including STATE-selected bake
+  * groups (If/else hosts and their active branches, whose selection is server
+  * truth) — are rendered ONCE per slug by [[sharedPatchPublishers]] (one
+  * subscription to the state stream per dashboard, per-slug diff cache) and
+  * fanned out to every connection viewing that slug over `sharedTopics`. Only
+  * what truly differs per client stays per-session in [[changedPatches]]:
+  * open-surface nodes and USER bake-group-owner nodes (their HTML depends on
+  * the client's `uiState`), plus the state groups those pull in (nested in an
+  * open popup, or with a user owner in a branch). Construct via
+  * [[Server.resource]], which creates the topics and runs the publishers.
   */
 class Server(
     api: HomeAssistantApi[IO],
@@ -128,9 +130,11 @@ class Server(
   /** One background stream per slug feeding its shared topic: render each
     * affected main-page fragment ONCE per state change and fan it out to every
     * connection viewing the slug — instead of N viewers doing N identical
-    * renders. Only nodes whose HTML is a pure function of entity state qualify,
-    * so bake-group owners (uiState-dependent) are excluded and stay per-session
-    * ([[changedPatches]]).
+    * renders. Only nodes whose HTML is a pure function of entity state qualify:
+    * USER bake-group owners (uiState-dependent) are excluded and stay
+    * per-session ([[changedPatches]]); STATE-selected groups qualify and are
+    * handled here — selection flips and active-branch liveness included (see
+    * [[sharedPatches]]).
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
     * renderer and a FRESH per-slug diff cache. A change landing in the brief
@@ -166,13 +170,30 @@ class Server(
       .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
 
   /** The shared per-slug render/diff for one state change: the affected
-    * main-page static components (reverse index, minus the bake-group owners)
-    * plus the query-affected dynamic groups, rendered against the current
-    * snapshot and diffed against the slug's shared cache. Returns the SSE
-    * patches — child-scoped for a dynamic member update, per-entity
-    * insert/remove for a small membership delta, a whole-group morph otherwise
-    * (see [[diffPatches]]). No `uiState`: by construction these nodes don't
-    * read it.
+    * main-page static components (reverse index, minus the USER bake-group
+    * owners), the query-affected dynamic groups, plus everything state-selected
+    * surfaces contribute — all rendered against the current snapshot and diffed
+    * against the slug's shared cache. Returns the SSE patches — child-scoped
+    * for a dynamic member update, per-entity insert/remove for a small
+    * membership delta, a whole-group morph otherwise (see [[diffPatches]]). No
+    * `uiState`: by construction these nodes don't read it.
+    *
+    * The state-selected extension (ADR 0002's shared/per-session split, cut by
+    * activation mode):
+    *
+    *   - '''Flips''': each state group whose selection this change moves
+    *     ([[Renderer.affectedStateGroups]], main-rooted; minus the session-only
+    *     ones, whose branch HTML bakes a cookie-selected member and therefore
+    *     rides [[changedPatches]]) gets its HOST re-rendered — [[Renderer]]'s
+    *     bake picks the newly-selected member against CURRENT state — morphed,
+    *     and its members' cache entries pruned ([[flipStateGroup]]).
+    *   - '''Active-member liveness''': for each surface in the main-rooted
+    *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
+    *     just-flipped subtrees — their host morph re-rendered them wholesale —
+    *     and session-only subtrees) patch its components binding the changed
+    *     entity plus its query-affected dynamics. Inactive members are never
+    *     consulted — that IS the hidden-branch no-updates guarantee, and it is
+    *     structural: their ids simply never enter the patch set.
     */
   private[runtime] def sharedPatches(
       renderer: Renderer,
@@ -180,21 +201,48 @@ class Server(
       change: StateChange
   ): IO[List[ServerSentEvent]] =
     stateStore.snapshot.flatMap { states =>
+      val before = beforeSnapshot(states, change)
+      val flips = renderer
+        .affectedStateGroups(change, before, states)
+        .filterNot(renderer.sessionOnlyStateGroups)
+      val flipped = flips.toSet
+      val activeSids = renderer.activeStateSurfaces(
+        states,
+        excluding = flipped ++ renderer.sessionOnlyStateGroups
+      )
       val staticIds =
-        renderer
+        (renderer
           .componentsFor(change.entityId)
           .toList
-          .filterNot(renderer.bakeOwnerIds)
-      val dynamics = renderer.affectedDynamics(change)
+          // User owners bake a cookie-selected member (per-session); a
+          // session-only state owner bakes one transitively (its branch holds
+          // tabs). State owners otherwise stay in the shared pass — selection
+          // included, their HTML is a pure function of entity state.
+          .filterNot(id =>
+            renderer.userBakeOwnerIds(id) ||
+              renderer.sessionOnlyStateGroups(id)
+          ) ++
+          activeSids.toList.flatMap(sid =>
+            renderer.surfaceComponentsFor(sid, change.entityId).toList
+          )).distinct
+          // A flipped host is patched (with prune) by the flip path; don't
+          // also morph it as a plain static.
+          .filterNot(flipped)
+      val dynamics =
+        renderer.affectedDynamics(change) ++
+          activeSids.toList.flatMap(sid =>
+            renderer.affectedSurfaceDynamics(sid, change)
+          )
       cache.modify(
         diffPatches(
           renderer,
           _,
           staticIds,
           dynamics,
+          flips,
           change,
           states,
-          beforeSnapshot(states, change),
+          before,
           Map.empty
         )
       )
@@ -213,11 +261,15 @@ class Server(
       states.updated(change.entityId, p)
     )
 
-  /** Diff a set of static component ids + a set of affected dynamic groups
-    * against `cache`, returning the updated cache and the SSE patches to emit.
-    * The single diff contract shared by the per-slug ([[sharedPatches]]) and
-    * per-session ([[changedPatches]]) passes.
+  /** Diff a set of static component ids + a set of affected dynamic groups + a
+    * set of flipped state groups against `cache`, returning the updated cache
+    * and the SSE patches to emit. The single diff contract shared by the
+    * per-slug ([[sharedPatches]]) and per-session ([[changedPatches]]) passes.
     *
+    *   - A flipped state group morphs its HOST (the newly-selected member baked
+    *     against current state) and prunes its members' cache entries
+    *     ([[flipStateGroup]]). Flips run FIRST: the prune must precede any diff
+    *     that could suppress a member fragment against a pre-flip entry.
     *   - Static components outer-morph when their HTML actually changed.
     *   - A dynamic group with an [[DynamicDelta.InPlace]] member re-renders and
     *     outer-morphs that ONE child; an add/remove is patched per-entity when
@@ -234,17 +286,23 @@ class Server(
       cache: Map[String, String],
       staticIds: List[String],
       dynamics: List[(String, DynamicDelta)],
+      flips: List[String],
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       uiState: Map[String, String]
   ): (Map[String, String], List[ServerSentEvent]) = {
+    val (cacheAfterFlips, flipPatches) =
+      flips.foldLeft((cache, List.empty[Patch])) { case ((c, acc), gid) =>
+        val (c2, ps) = flipStateGroup(renderer, c, gid, states, uiState)
+        (c2, acc ++ ps)
+      }
     val rendered =
       staticIds.flatMap(id =>
         renderer.renderNodeById(id, states, uiState).map(id -> _)
       )
     val (cacheAfterStatic, staticPatches) =
-      rendered.foldLeft((cache, List.empty[Patch])) {
+      rendered.foldLeft((cacheAfterFlips, List.empty[Patch])) {
         case ((c, acc), (id, html)) =>
           if (c.get(id).contains(html)) (c, acc)
           else (c.updated(id, html), acc :+ Patch.Morph(html))
@@ -256,8 +314,40 @@ class Server(
             renderDynamicGroup(renderer, c, gid, delta, change, states, before)
           (c2, acc ++ ps)
       }
-    (finalCache, (staticPatches ++ dynPatches).map(_.toSse))
+    (finalCache, (flipPatches ++ staticPatches ++ dynPatches).map(_.toSse))
   }
+
+  /** Patch one FLIPPED state-selected bake group: re-render its host node — the
+    * bake owner, whose render bakes the newly-selected member against CURRENT
+    * state ([[Renderer]]'s `resolveBake`) — morph it, and prune the group's
+    * cache entries: the host id plus every member's `s_<sid>__` node prefix.
+    * The same prune contract as [[repaintGroup]], and for the same reason:
+    * hidden-branch churn deliberately leaves member entries stale (the silence
+    * guarantee), so a flip must drop them — otherwise a re-revealed node whose
+    * HTML happens to equal its pre-flip entry would be suppressed while the
+    * client's DOM (repainted by this very morph) has moved on. Emits nothing
+    * when the host HTML is unchanged (defensive; the caller only passes groups
+    * whose selection actually moved).
+    */
+  private def flipStateGroup(
+      renderer: Renderer,
+      cache: Map[String, String],
+      gid: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): (Map[String, String], List[Patch]) =
+    renderer.renderNodeById(gid, states, uiState) match {
+      case None => (cache, Nil)
+      case Some(html) =>
+        if (cache.get(gid).contains(html)) (cache, Nil)
+        else {
+          val prefixes = renderer.bakeMemberPrefixes(gid)
+          val pruned = cache.filterNot { case (k, _) =>
+            k == gid || prefixes.exists(k.startsWith)
+          }
+          (pruned.updated(gid, html), List(Patch.Morph(html)))
+        }
+    }
 
   /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
     * changed entity's single child and morphs it (unless a case change actually
@@ -444,9 +534,10 @@ class Server(
         }
         .reduceOption(_.merge(_))
         .getOrElse(Stream.empty)
-      // What truly differs per client: open-surface nodes and bake-group-owner
-      // nodes, re-rendered per state change with this session's uiState/open
-      // set and diffed against its own cache.
+      // What truly differs per client: open-surface nodes and user
+      // bake-group-owner nodes (plus the state groups those pull in),
+      // re-rendered per state change with this session's uiState/open set and
+      // diffed against its own cache.
       patches = stateStore.changes
         .evalMap(changedPatches(session, _, uiState))
         .flatMap(Stream.emits)
@@ -503,10 +594,23 @@ class Server(
 
   /** Re-render the nodes a changed entity drives that are truly per-connection
     * — for each open surface, that surface's components/dynamics, plus any
-    * main-page bake-group owner (its HTML bakes the client's cookie-selected
-    * member, so it can't be shared) — and emit only the fragments whose HTML
-    * actually changed (per-session diff). All other main-page nodes ride the
-    * shared per-slug pass ([[sharedPatchPublishers]]).
+    * main-page USER bake-group owner (its HTML bakes the client's
+    * cookie-selected member, so it can't be shared) — and emit only the
+    * fragments whose HTML actually changed (per-session diff). All other
+    * main-page nodes ride the shared per-slug pass ([[sharedPatchPublishers]]).
+    *
+    * State-selected surfaces are shared by default, but two shapes are
+    * per-session by nature and mirrored here (the counterpart of
+    * [[sharedPatches]]'s exclusions):
+    *
+    *   - a state group nested INSIDE an open surface (a popup only this session
+    *     has open) — per-session by containment: its flips and its active
+    *     member's liveness ride this session's diff cache;
+    *   - a [[Renderer.sessionOnlyStateGroups]] group (a user-selected owner
+    *     somewhere in a branch): its host morph bakes THIS session's
+    *     cookie-selected member, so its flips — and its active subtree's
+    *     liveness, which the shared pass skipped — render here with the
+    *     session's `uiState`.
     */
   private[runtime] def changedPatches(
       session: Session,
@@ -519,32 +623,68 @@ class Server(
       states <- stateStore.snapshot
       open <- session.open.get
       out <- renderer match {
-        case None    => IO.pure(List.empty[ServerSentEvent])
+        case None => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
-          // Static components: main-page bake-group owners binding this entity
-          // (a dynamic group is never a bake owner, so main dynamics all belong
-          // to the shared pass), plus each open surface's components binding it.
+          val before = beforeSnapshot(states, change)
+          // State-group flips this session must patch itself: groups inside
+          // its open surfaces (containment), plus the main-rooted session-only
+          // ones (rendered with this session's uiState).
+          val openFlips = open.toList.flatMap(sid =>
+            r.affectedStateGroupsIn(sid, change, before, states)
+          )
+          val sessionOnlyFlips = r
+            .affectedStateGroups(change, before, states)
+            .filter(r.sessionOnlyStateGroups)
+          val flips = (openFlips ++ sessionOnlyFlips).distinct
+          val flipped = flips.toSet
+          // Active state members visible only to this session: those nested
+          // inside its open surfaces, plus the main-rooted subtrees the shared
+          // pass skipped as session-only (all-active minus shared-active is
+          // exactly those). Just-flipped subtrees are excluded — the flip's
+          // host morph re-renders them wholesale.
+          val openNested = open.toList.flatMap(sid =>
+            r.activeStateSurfacesIn(sid, states, flipped).toList
+          )
+          val sessionOnlySids =
+            if (r.sessionOnlyStateGroups.isEmpty) Set.empty[String]
+            else
+              r.activeStateSurfaces(states, flipped) --
+                r.activeStateSurfaces(
+                  states,
+                  flipped ++ r.sessionOnlyStateGroups
+                )
+          val sids = (open.toList ++ openNested ++ sessionOnlySids).distinct
+          // Static components: main-page owners whose bake is per-session
+          // (user-selected, or state-selected with a user owner in a branch)
+          // binding this entity (a dynamic group is never a bake owner, so
+          // main dynamics all belong to the shared pass), plus each visible
+          // surface's components binding it.
           val mainIds =
-            r.componentsFor(change.entityId).toList.filter(r.bakeOwnerIds)
-          val surfaceStaticIds = open.toList.flatMap(sid =>
+            r.componentsFor(change.entityId)
+              .toList
+              .filter(id =>
+                r.userBakeOwnerIds(id) || r.sessionOnlyStateGroups(id)
+              )
+          val surfaceStaticIds = sids.flatMap(sid =>
             r.surfaceComponentsFor(sid, change.entityId).toList
           )
-          val staticIds = (mainIds ++ surfaceStaticIds).distinct
-          // Dynamic groups this change can move the entity in/out of, per open
-          // surface (surface-namespaced ids never collide across surfaces).
+          val staticIds =
+            (mainIds ++ surfaceStaticIds).distinct.filterNot(flipped)
+          // Dynamic groups this change can move the entity in/out of, per
+          // visible surface (surface-namespaced ids never collide across
+          // surfaces).
           val dynamics =
-            open.toList
-              .flatMap(sid => r.affectedSurfaceDynamics(sid, change))
-              .distinct
+            sids.flatMap(sid => r.affectedSurfaceDynamics(sid, change)).distinct
           session.lastRendered.modify(
             diffPatches(
               r,
               _,
               staticIds,
               dynamics,
+              flips,
               change,
               states,
-              beforeSnapshot(states, change),
+              before,
               uiState
             )
           )

@@ -1,4 +1,4 @@
-# ADR 0007 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract
+# ADR 0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract
 
 - **Status:** Accepted
 - **Date:** 2026-07-11

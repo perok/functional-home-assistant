@@ -15,4 +15,5 @@ decision gets a new ADR. Do not append dated update sections.
 - [0004 — The slot model; AST (not JSONata) for queries; attribute memoization](0004-label-as-slot-and-predicate-engine.md)
 - [0005 — Node-scoped UI state and the cookie persistence tier](0005-node-state-and-the-cookie-tier.md)
 - [0006 — Pkl as the dashboard authoring language](0006-pkl-authoring-track.md)
-- [0007 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract](0007-every-node-is-a-cell.md)
+- [0007 — State-activated surfaces: if/else as an activation mode](0007-state-activated-surfaces.md)
+- [0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract](0008-every-node-is-a-cell.md)

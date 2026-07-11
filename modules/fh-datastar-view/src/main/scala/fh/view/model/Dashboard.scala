@@ -171,6 +171,59 @@ object Predicate:
   case class Not(item: Predicate) extends Predicate
   case class Cmp(property: String, op: Op, value: Json) extends Predicate
 
+/** How a [[Activation.State]] condition is quantified over the WHOLE live state
+  * map. A [[Predicate]] tests ONE entity; a surface's activation must decide
+  * over all of them, so the condition needs a quantifier:
+  *
+  *   - [[Any]]: some entity matches the condition (∃) — with an `entity_id` pin
+  *     inside the condition, the "entity X is in state Y" case.
+  *   - [[None]]: no entity matches (∄) — deliberately its own quantifier, NOT
+  *     expressible as a `Not` inside the condition (which still quantifies
+  *     existentially: "some entity fails the test").
+  *   - [[All]]: every entity matches (∀).
+  *
+  * Encoded as the lowercase strings `"any"`/`"none"`/`"all"`; decoding is
+  * case-insensitive (mirroring [[Op]]). The case names shadow `scala.Any` /
+  * `scala.None` only at unqualified use sites — always reference them as
+  * `Quantifier.Any` etc.
+  */
+enum Quantifier:
+  case Any, None, All
+
+object Quantifier:
+  given Decoder[Quantifier] = Decoder[String].emap(s =>
+    values
+      .find(_.toString.equalsIgnoreCase(s))
+      .toRight(s"unknown quantifier: $s")
+  )
+
+/** How a [[Surface]] becomes visible — its activation MODE, a sum so the
+  * invalid combination (a default-open flag AND a state condition on one
+  * member) is unrepresentable:
+  *
+  *   - [[User]] (`{kind:"user", defaultOpen}`): shown by a user action (a popup
+  *     open, a tab click), optionally from the first paint (`defaultOpen`).
+  *     Which member the client sees is per-connection state (uiState/cookie —
+  *     ADR 0005), so these surfaces render per session.
+  *   - [[State]] (`{kind:"state", condition, quantifier}`): shown while its
+  *     quantified `condition` holds over live entity state (an If/else branch).
+  *     The choice is server truth — a pure function of entity state, identical
+  *     for every viewer — so these surfaces ride the SHARED per-slug render
+  *     pass and never enter a session's open set. An "else" member is simply
+  *     `State(condition = <an always-true predicate>)` at a later `bakeIndex`
+  *     (selection is first-match in `bakeIndex` order — see
+  *     `Renderer.resolveActiveByState`); no member matching bakes empty
+  *     content.
+  *
+  * Kind-discriminated on the wire like [[Predicate]]/[[LayoutNode]]. A bake
+  * group must be mode-homogeneous — mixing kinds among one `bakeInto`'s members
+  * is a [[Dashboard.validate]] error — so any one member decides its group's
+  * mode.
+  */
+enum Activation derives ConfiguredDecoder:
+  case User(defaultOpen: Boolean = false)
+  case State(condition: Predicate, quantifier: Quantifier = Quantifier.Any)
+
 /** One branch of a [[LayoutNode.Dynamic]] group: entities matching the group's
   * query are rendered with the first case whose `when` predicate matches.
   */
@@ -330,28 +383,26 @@ case class Theme(
   *     [[Dashboard.card]]).
   *   - The host — the live-patch target and eviction group — is DERIVED, not
   *     authored; see [[hostId]].
-  *   - `bakeInto`/`bakeAs`: first-paint baking — when `defaultOpen`, the
-  *     Component whose id equals `bakeInto` receives this surface's rendered
-  *     content under the template var named `bakeAs` (e.g. a `tabs` card's
-  *     `{{{panel}}}`), keeping the default panel in the initial HTML (no
-  *     round-trip). The `_panel` suffix + `panel` name live only in the
-  *     authoring layer.
-  *   - `defaultOpen`: shown from the first paint without a user action — a tabs
-  *     default panel (or a popup open on load). The connection seeds its open
-  *     set with every default-open surface (so it receives live patches
-  *     immediately), and it is baked via `bakeInto`/`bakeAs` above. This is the
-  *     ONLY surface-level "shown by default" signal the backend reads.
+  *   - `bakeInto`/`bakeAs`: first-paint baking — the Component whose id equals
+  *     `bakeInto` receives the SELECTED member's rendered content under the
+  *     template var named `bakeAs` (e.g. a `tabs` card's `{{{panel}}}`),
+  *     keeping the shown panel/branch in the initial HTML (no round-trip). The
+  *     `_panel` suffix + `panel` name live only in the authoring layer.
+  *   - `activation`: HOW this surface becomes visible — see [[Activation]].
+  *     User-activated surfaces are opened by clicks / cookie selection (per
+  *     session); state-activated ones are selected by a condition over live
+  *     entity state (shared, server truth). Absent on the wire ⇒
+  *     `User(defaultOpen = false)`, so a plain popup declares nothing.
   */
 case class Surface(
     content: LayoutNode,
     bakeInto: Option[String] = None,
     bakeAs: Option[String] = None,
-    // A surface's position within its `bakeInto` group, so a cookie value
-    // (parsed to an int at the point of use) selects a member without parsing
-    // surface-id suffixes. `defaultOpen` stays for the fallback when no cookie /
-    // no match; it is effectively `bakeIndex == 0`.
+    // A surface's position within its `bakeInto` group: the ordered member
+    // list a cookie index (user mode) selects among, and the first-match
+    // order (then, elseif…, else) state selection walks.
     bakeIndex: Option[Int] = None,
-    defaultOpen: Boolean = false
+    activation: Activation = Activation.User(false)
 ) derives ConfiguredDecoder:
 
   /** The surface's host element id: the live-patch target AND the eviction
@@ -523,10 +574,34 @@ case class Dashboard(
         )
         .toList
 
+    // A bake group's activation mode must be homogeneous: the runtime decides
+    // per GROUP whether selection is user truth (cookie, per session) or server
+    // truth (state condition, shared) — a group mixing both has no coherent
+    // owner for that choice, so it is rejected here rather than half-working.
+    val activationErrors: List[String] =
+      surfaces.toList
+        .flatMap { case (sid, s) => s.bakeInto.map((_, sid, s.activation)) }
+        .groupBy(_._1)
+        .toList
+        .sortBy(_._1)
+        .flatMap { case (gid, members) =>
+          val kinds = members.map {
+            case (_, _, _: Activation.User)  => "user"
+            case (_, _, _: Activation.State) => "state"
+          }.distinct
+          Option
+            .when(kinds.size > 1)(
+              s"bake group '$gid' mixes user- and state-activated members: " +
+                members.map(_._2).sorted.mkString(", ")
+            )
+            .toList
+        }
+
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     chromeErrors ++
+      activationErrors ++
       walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")

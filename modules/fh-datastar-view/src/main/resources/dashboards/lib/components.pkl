@@ -112,15 +112,40 @@ class CardDef {
 /// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
 /// authored directly (a top-level `surfaces` mapping); inline surfaces ride on a
 /// node's [[Node.inlineSurfaces]] and are hoisted, keyed `<node-id>_<localKey>`.
-/// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
-/// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
-/// Boolean so omitNullProperties drops it and the decoder defaults it to false.
+/// `bakeInto`/`bakeAs`/`bakeIndex` drive first-paint baking (tabs, [[If]]
+/// branches); a plain popup leaves them null. `activation` is HOW the surface
+/// becomes visible — [[UserActivation]] or [[StateActivation]] — nullable so
+/// omitNullProperties drops it and the backend defaults to user activation,
+/// closed (a plain popup declares nothing).
 open class SurfaceDef {
   content: LayoutNode
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
-  defaultOpen: Boolean? = null
+  activation: (UserActivation|StateActivation)? = null
+}
+
+/// USER activation (mirrors fh.view.model.Activation.User): the surface is
+/// shown by a user action — a popup open, a tab click — so which member a
+/// client sees is per-session truth (uiState/cookie). `defaultOpen` bakes it
+/// from the first paint (a tab bar's first tab).
+class UserActivation {
+  kind: "user" = "user"
+  defaultOpen: Boolean = false
+}
+
+/// STATE activation (mirrors fh.view.model.Activation.State): the surface is
+/// shown while its quantified `condition` holds over live entity state — server
+/// truth, identical for every viewer (an [[If]] branch). A [[Predicate]] tests
+/// ONE entity, so the condition needs a `quantifier` over the whole state map:
+/// "any" = some entity matches (∃ — with an [[entityIs]] pin, the "entity X is
+/// in state Y" case), "none" = no entity matches (∄ — deliberately its own
+/// quantifier, NOT a `.not()` inside the condition, which would still quantify
+/// existentially), "all" = every entity matches (∀).
+class StateActivation {
+  kind: "state" = "state"
+  condition: Predicate
+  quantifier: "any"|"none"|"all" = "any"
 }
 
 /// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
@@ -538,9 +563,10 @@ hidden popup: Popup = new Popup {}
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
 /// the bar buttons open them, seed the active-tab signal, and persist the active
 /// index to the `fhui_<id>` cookie the server reads on the GET so reload /
-/// navigate restore the tab flash-free. The first tab is `defaultOpen` (baked on
-/// first paint) — emitted `null` for the rest so omitNullProperties drops it and
-/// the decoder defaults `false`, matching jsonnet byte-for-byte.
+/// navigate restore the tab flash-free. The first tab is default-open (baked on
+/// first paint) via `UserActivation { defaultOpen = true }` — the rest emit no
+/// `activation` at all (null, dropped by omitNullProperties) and decode to the
+/// closed user default.
 class Tabs extends Node {
   card = "tabs"
   // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
@@ -578,7 +604,7 @@ class Tabs extends Node {
         bakeInto = NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        defaultOpen = if (i == 0) true else null
+        activation = if (i == 0) new UserActivation { defaultOpen = true } else null
       }
     }
   }
@@ -823,9 +849,10 @@ abstract class Predicate {
   function not(): PNot = let (l = this) new PNot { item = l }
 }
 
-/// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
-/// `"attr:<name>"`; `value` is Any so a numeric threshold rides as a JSON
-/// number (unlike a slot literal, a query value is not stringified).
+/// `property <op> value`. `property` is one of `"domain"`, `"state"`,
+/// `"entity_id"`, or `"attr:<name>"`; `value` is Any so a numeric threshold
+/// rides as a JSON number (unlike a slot literal, a query value is not
+/// stringified).
 class Cmp extends Predicate {
   kind: "cmp" = "cmp"
   property: String
@@ -863,6 +890,10 @@ const always: Cmp = cmp("domain", "ne", "__never__")
 function domainIs(d: String): Cmp = cmp("domain", "eq", d)
 /// `state == s`, e.g. `stateIs("on")`.
 function stateIs(s: String): Cmp = cmp("state", "eq", s)
+/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — pins a condition to
+/// ONE entity, so an existentially quantified [[StateActivation]] ("any")
+/// reads "entity X is in state Y": `entityIs(...).and(stateIs("on"))`.
+function entityIs(id: String): Cmp = cmp("entity_id", "eq", id)
 /// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
 function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
 /// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
@@ -930,6 +961,90 @@ class DynamicGroup extends LayoutNode {
     when (render != null) { caseOf(always, render!!) }
   }
 }
+
+// ---- conditional sections (If/else via state-activated surfaces) ----
+// An If is NOT a new wire kind: it reuses the tabs machinery literally — a
+// host card with one bake hole + one inline surface per branch
+// (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
+// quantified condition over live entity state ([[StateActivation]]) instead of
+// the client cookie, so the choice is server truth, shared by every viewer.
+// Hidden-branch silence is structural: branch nodes live in surface indexes,
+// never the main reverse index, so the inactive branch is not rendered and
+// receives no updates.
+
+// Build a [[StateActivation]]. `p`/`q` are NOT named after the properties they
+// set (the amend-scoping gotcha — `condition = condition` inside the `new`
+// would self-recurse); `const local` because [[If.inlineSurfaces]] calls it
+// from the class body.
+const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): StateActivation =
+  new { condition = p; quantifier = q }
+
+/// A conditional section: the `then` cards are shown while the quantified
+/// `condition` holds over live entity state, the (optional) `else` cards while
+/// it does not. Built by [[iff]]/[[iffNone]]/[[iffAll]] — builder calls for
+/// single-card branches, the amend form for multi-card ones:
+///   c.iff(c.entityIs("light.x").and(c.stateIs("on")))
+///     .then(c.title("on")).`else`(c.title("off"))
+///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
+/// With no matching member (a condition that fails and no `else`) the host
+/// bakes empty; nesting an If inside `else` is the else-if story.
+class If extends Node {
+  card = "ifhost"
+  // The host is a bare wrapper with one `{{{branch}}}` bake hole (the selected
+  // member's rendered content, injected by the backend like the tabs
+  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no cookie.
+  cardDef = new CardDef {
+    template = #"<div id="{{id}}">{{{branch}}}</div>"#
+  }
+  hidden condition: Predicate
+  hidden quant: "any"|"none"|"all" = "any"
+  // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
+  // backticked for visual pairing (backticks are pure quoting, not identity).
+  hidden `then`: Listing<LayoutNode> = new {}
+  hidden `else`: Listing<LayoutNode> = new {}
+  // Each branch's cards hoisted into a Row-wrapped surface (like a tab panel).
+  // Selection is first-match in `bakeIndex` order: `then` is member 0 with the
+  // authored condition; `else` — present only when non-empty — is member 1
+  // with the always-true predicate. BOTH members carry the SAME `bakeAs`
+  // ("branch"): the backend reads a group's bake var off its first member.
+  inlineSurfaces = new Mapping {
+    ["then"] = new SurfaceDef {
+      content = new Row { children = `then` }
+      bakeInto = NODE_ID
+      bakeAs = "branch"
+      bakeIndex = 0
+      activation = stateActivation(condition, quant)
+    }
+    when (!`else`.isEmpty) {
+      ["else"] = new SurfaceDef {
+        content = new Row { children = `else` }
+        bakeInto = NODE_ID
+        bakeAs = "branch"
+        bakeIndex = 1
+        activation = stateActivation(always, "any")
+      }
+    }
+  }
+  /// Append card(s) to the `then` branch — one node, or `new Listing { ... }`
+  /// for several (a bare `new { ... }` argument cannot infer the Listing type;
+  /// multi-card branches read best in the amend form). Repeat calls append,
+  /// and the derived surfaces re-derive across chained calls (late binding).
+  function then(n: LayoutNode|Listing<LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
+  /// Append card(s) to the `else` branch — call sites backtick the reserved
+  /// word: `` .`else`(c.title("off")) ``.
+  function `else`(n: LayoutNode|Listing<LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
+}
+
+/// A conditional section as a call: `c.iff(p).then(...).`else`(...)` — shown
+/// while SOME entity matches `p` (quantifier "any"; pin one entity with
+/// [[entityIs]]). See [[If]] for the amend form.
+function iff(p: Predicate): If = new If { condition = p }
+/// [[iff]] with quantifier "none": shown while NO entity matches `p`.
+function iffNone(p: Predicate): If = new If { condition = p; quant = "none" }
+/// [[iff]] with quantifier "all": shown while EVERY entity matches `p`.
+function iffAll(p: Predicate): If = new If { condition = p; quant = "all" }
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,

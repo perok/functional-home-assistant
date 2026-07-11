@@ -6,6 +6,7 @@ import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   DynamicCase,
@@ -63,7 +64,7 @@ class ServerSuite extends munit.FunSuite {
             bakeInto = Some("c"),
             bakeAs = Some("panel"),
             bakeIndex = Some(0),
-            defaultOpen = true
+            activation = Activation.User(defaultOpen = true)
           ),
           "c_t1" -> Surface(
             panel("b"),
@@ -587,5 +588,364 @@ class ServerSuite extends munit.FunSuite {
       ),
       clue = patches
     )
+  }
+
+  // ---------------------------------------------------------------------------
+  // State-activated surfaces on the SHARED pass: hidden-branch silence, flips
+  // with cache prune, nested groups, popup containment (the feature contract)
+  // ---------------------------------------------------------------------------
+
+  private val always: Predicate =
+    Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+
+  // "Entity X is in state Y": the entity_id pin + the default Any quantifier.
+  private def entityIs(id: String, state: String): Predicate =
+    Predicate.And(
+      List(
+        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
+        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
+      )
+    )
+
+  private val armedCond = entityIs("alarm.h", "armed")
+
+  private val ifCards = Map(
+    "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+    "ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""),
+    "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+    "dot" -> CardDef("<b>{{state}}</b>", slots = List("state"))
+  )
+
+  private def branchCard(entity: String): LayoutNode.Component =
+    LayoutNode.Component(
+      "card",
+      slots = Map("state" -> SlotSource(Some(entity)))
+    )
+
+  private def stateMember(
+      content: LayoutNode,
+      host: String,
+      index: Int,
+      condition: Predicate
+  ): Surface =
+    Surface(
+      content,
+      bakeInto = Some(host),
+      bakeAs = Some("branch"),
+      bakeIndex = Some(index),
+      activation = Activation.State(condition)
+    )
+
+  /** An If/else dashboard: `ifhost` at "c_0" (col -> ifhost); `then` shows
+    * sensor.a while alarm.h == armed, the always-true `else` shows sensor.b.
+    */
+  private def ifDash(
+      thenContent: LayoutNode = branchCard("sensor.a"),
+      elseContent: LayoutNode = branchCard("sensor.b")
+  ): Dashboard =
+    Dashboard(
+      cards = ifCards,
+      card = LayoutNode
+        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+      surfaces = Map(
+        "then" -> stateMember(thenContent, "c_0", 0, armedCond),
+        "else" -> stateMember(elseContent, "c_0", 1, always)
+      )
+    )
+
+  private def es(id: String, state: String): EntityState =
+    EntityState(id, state, Map.empty)
+
+  /** Drives the SHARED per-slug pass over an EVOLVING store: each [[step]]
+    * applies one entity update (deriving the StateChange exactly like the WS
+    * ingest does) and returns the SSE patches emitted for it, diffing against
+    * the cache ACCUMULATED across steps — what multi-step contracts (flip then
+    * re-reveal) need, unlike the single-shot [[runShared]].
+    */
+  private class SharedHarness(
+      dash: Dashboard,
+      initial: Map[String, EntityState]
+  ) {
+    private val (store, server, renderer, cache) = (for {
+      store <- StateStore.inMemory(initial)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("dashboard" -> ref),
+        "dashboard",
+        sessions,
+        Map.empty
+      )
+      renderer <- ref.get
+      cache <- Ref[IO].of(Map.empty[String, String])
+    } yield (store, server, renderer, cache))
+      .timeout(30.seconds)
+      .unsafeRunSync()
+
+    def step(next: EntityState): List[String] =
+      (for {
+        prev <- store.snapshot.map(_.get(next.entityId))
+        _ <- store.update(next)
+        patches <- server.sharedPatches(
+          renderer,
+          cache,
+          StateChange(next.entityId, prev, next)
+        )
+      } yield patches.map(_.renderString))
+        .timeout(30.seconds)
+        .unsafeRunSync()
+
+    def cacheNow: Map[String, String] =
+      cache.get.timeout(30.seconds).unsafeRunSync()
+  }
+
+  test("state surfaces: churn in the INACTIVE branch emits ZERO patches") {
+    val h = new SharedHarness(
+      ifDash(),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0"),
+        "sensor.z" -> es("sensor.z", "Z0")
+      )
+    )
+    // then (sensor.a) is active; the ELSE branch's entity churns silently —
+    // its member surface is never in the active set, so its index is never
+    // consulted (structural silence, not a filtered render).
+    assertEquals(h.step(es("sensor.b", "B1")), Nil)
+    // An entity no branch binds and no condition reads: nothing at all (the
+    // O(1) shortcut path — no member condition match flipped for it).
+    assertEquals(h.step(es("sensor.z", "Z1")), Nil)
+    // The ACTIVE branch's entity, by contrast, patches its surface-scoped node.
+    val live = h.step(es("sensor.a", "A1"))
+    assertEquals(live.size, 1, clue = live)
+    assert(live.head.contains("""id="s_then__c""""), clue = live)
+    assert(live.head.contains("A1"), clue = live)
+  }
+
+  test(
+    "state flip: ONE host morph with the new branch at CURRENT state; members pruned"
+  ) {
+    val h = new SharedHarness(
+      ifDash(),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    )
+    // Establish the active branch in the shared cache...
+    assertEquals(h.step(es("sensor.a", "A1")).size, 1)
+    // ...and churn the hidden branch (never rendered, never patched).
+    assertEquals(h.step(es("sensor.b", "B1")), Nil)
+    // The flip: exactly ONE patch — the host morph — whose HTML is the else
+    // branch rendered against CURRENT state (B1, which no client ever saw).
+    val flip = h.step(es("alarm.h", "disarmed"))
+    assertEquals(flip.size, 1, clue = flip)
+    val p = flip.head
+    // The patch's ROOT element must be the id'd host itself: the default
+    // `outer` morph (no selector) targets the top-level element's id, so a
+    // wrapped/rootless fragment would be silently dropped by the client.
+    val root = p.linesIterator
+      .find(_.startsWith("data: elements "))
+      .map(_.stripPrefix("data: elements "))
+    assert(root.exists(_.startsWith("""<div id="c_0">""")), clue = p)
+    assert(p.contains("""id="s_else__c""""), clue = p)
+    assert(p.contains("B1"), clue = p)
+    assert(!p.contains("A1"), clue = p)
+    // The prune contract: both members' surface-scoped entries are gone; the
+    // host's fresh HTML is the only record of the group.
+    assert(!h.cacheNow.keys.exists(_.startsWith("s_then__")), clue = h.cacheNow)
+    assert(!h.cacheNow.keys.exists(_.startsWith("s_else__")), clue = h.cacheNow)
+    assert(h.cacheNow.contains("c_0"), clue = h.cacheNow)
+  }
+
+  test(
+    "flip prune: a re-revealed child diffs cleanly (no stale-cache suppression)"
+  ) {
+    val h = new SharedHarness(
+      ifDash(),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.a" -> es("sensor.a", "boot"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    )
+    // 1. Cache the then-branch child at "on".
+    assertEquals(h.step(es("sensor.a", "on")).size, 1)
+    // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
+    // (silent — the stale-entry trap this test springs), 4. flip back (host
+    // morph shows "off" from current state).
+    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
+    assertEquals(h.step(es("sensor.a", "off")), Nil)
+    val back = h.step(es("alarm.h", "armed"))
+    assertEquals(back.size, 1, clue = back)
+    assert(back.head.contains("off"), clue = back)
+    // 5. The re-revealed child returns to "on" — HTML byte-identical to the
+    // step-1 cache entry. Without the flip prune this would be suppressed as
+    // "unchanged" while the DOM (showing "off") has moved on.
+    val reveal = h.step(es("sensor.a", "on"))
+    assertEquals(reveal.size, 1, clue = reveal)
+    assert(reveal.head.contains("""id="s_then__c""""), clue = reveal)
+    assert(reveal.head.contains("on"), clue = reveal)
+  }
+
+  test("a dynamic group inside an INACTIVE branch stays silent") {
+    val dyn = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(always, "dot", slots = Map("state" -> SlotSource()))
+      )
+    )
+    val h = new SharedHarness(
+      ifDash(thenContent = dyn),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "light.x" -> es("light.x", "on"),
+        "light.y" -> es("light.y", "on"),
+        "light.z" -> es("light.z", "on"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    )
+    // Active branch: the group's members get the usual per-entity treatment,
+    // scoped under the member surface's id namespace.
+    val tick = h.step(es("light.x", "on2"))
+    // "on2" fails the query -> a membership change (remove) for the group.
+    assert(tick.nonEmpty, clue = tick)
+    assert(tick.forall(_.contains("s_then__c")), clue = tick)
+    // Flip to else: one host morph...
+    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
+    // ...and now the group is in a hidden branch: query-affecting churn that
+    // would previously re-render it emits NOTHING.
+    assertEquals(h.step(es("light.y", "off")), Nil)
+    assertEquals(h.step(es("light.y", "on")), Nil)
+  }
+
+  test("nested state groups: inner flips patch only inside the ACTIVE branch") {
+    // Outer If ("c_0"): then-branch content is col(ifhost) — the INNER host
+    // lives at the member's content path s_then__c_0; its members nest one
+    // level deeper. Inner condition: mode.h == night.
+    val innerHost =
+      LayoutNode.Component(
+        "col",
+        children = List(LayoutNode.Component("ifhost"))
+      )
+    val d = Dashboard(
+      cards = ifCards,
+      card = LayoutNode
+        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+      surfaces = Map(
+        "then" -> stateMember(innerHost, "c_0", 0, armedCond),
+        "else" -> stateMember(branchCard("sensor.b"), "c_0", 1, always),
+        "in_then" -> stateMember(
+          branchCard("sensor.x"),
+          "s_then__c_0",
+          0,
+          entityIs("mode.h", "night")
+        ),
+        "in_else" -> stateMember(
+          branchCard("sensor.y"),
+          "s_then__c_0",
+          1,
+          always
+        )
+      )
+    )
+    val h = new SharedHarness(
+      d,
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "mode.h" -> es("mode.h", "night"),
+        "sensor.x" -> es("sensor.x", "X0"),
+        "sensor.y" -> es("sensor.y", "Y0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    )
+    // Outer active: the inner flip morphs ONLY the inner host (recursion into
+    // the active member's index found it), rendered with its else branch.
+    val innerFlip = h.step(es("mode.h", "day"))
+    assertEquals(innerFlip.size, 1, clue = innerFlip)
+    assert(
+      innerFlip.head.contains("""<div id="s_then__c_0">"""),
+      clue = innerFlip
+    )
+    assert(innerFlip.head.contains("""id="s_in_else__c""""), clue = innerFlip)
+    // Flip the OUTER group away (one host morph of c_0)...
+    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
+    // ...then the inner group's condition flips inside the hidden branch:
+    // unreachable DOM, zero patches (the active-set recursion never descends
+    // into an unselected member).
+    assertEquals(h.step(es("mode.h", "night")), Nil)
+    // Liveness inside the hidden branch's active member is silent too.
+    assertEquals(h.step(es("sensor.y", "Y1")), Nil)
+  }
+
+  test("a state group inside a user-opened popup rides the PER-SESSION pass") {
+    // The If roots inside popup "det" (owner s_det__c_0): visibility is the
+    // session's open set, so its flips/liveness belong to changedPatches; the
+    // shared pass never reaches it (its owner is not main-rooted).
+    val d = Dashboard(
+      cards = ifCards,
+      card = LayoutNode.Component("col"),
+      surfaces = Map(
+        "det" -> Surface(
+          LayoutNode
+            .Component("col", children = List(LayoutNode.Component("ifhost")))
+        ),
+        "d_then" -> stateMember(
+          branchCard("sensor.a"),
+          "s_det__c_0",
+          0,
+          armedCond
+        ),
+        "d_else" -> stateMember(branchCard("sensor.b"), "s_det__c_0", 1, always)
+      )
+    )
+    val after = Map(
+      "alarm.h" -> es("alarm.h", "disarmed"),
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B0")
+    )
+    val change =
+      StateChange(
+        "alarm.h",
+        Some(es("alarm.h", "armed")),
+        es("alarm.h", "disarmed")
+      )
+    val (sessionPatches, sharedPatches) = (for {
+      store <- StateStore.inMemory(after)
+      ref <- SignallingRef[IO].of(Renderer.create(d))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("dashboard" -> ref),
+        "dashboard",
+        sessions,
+        Map.empty
+      )
+      renderer <- ref.get
+      session <- Session.create("dashboard")
+      _ <- session.open.set(Set("det"))
+      perSession <- server.changedPatches(session, change, Map.empty)
+      cache <- Ref[IO].of(Map.empty[String, String])
+      shared <- server.sharedPatches(renderer, cache, change)
+    } yield (perSession.map(_.renderString), shared.map(_.renderString)))
+      .timeout(30.seconds)
+      .unsafeRunSync()
+    // The session with the popup open gets exactly the inner host flip morph.
+    assertEquals(sessionPatches.size, 1, clue = sessionPatches)
+    assert(
+      sessionPatches.head.contains("""<div id="s_det__c_0">"""),
+      clue = sessionPatches
+    )
+    assert(
+      sessionPatches.head.contains("""id="s_d_else__c""""),
+      clue = sessionPatches
+    )
+    // The shared pass emits nothing for it — popup containment is per-session.
+    assertEquals(sharedPatches, Nil)
   }
 }
