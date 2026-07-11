@@ -15,3 +15,4 @@ decision gets a new ADR. Do not append dated update sections.
 - [0004 — The slot model; AST (not JSONata) for queries; attribute memoization](0004-label-as-slot-and-predicate-engine.md)
 - [0005 — Node-scoped UI state and the cookie persistence tier](0005-node-state-and-the-cookie-tier.md)
 - [0006 — Pkl as the dashboard authoring language](0006-pkl-authoring-track.md)
+- [0007 — State-activated surfaces: if/else as an activation mode](0007-state-activated-surfaces.md)

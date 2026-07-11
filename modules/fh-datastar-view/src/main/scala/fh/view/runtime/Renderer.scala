@@ -2,11 +2,13 @@ package fh.view.runtime
 
 import com.samskivert.mustache.Template
 import fh.view.model.{
+  Activation,
   Dashboard,
   DynamicCase,
   LayoutNode,
   Op,
   Predicate,
+  Quantifier,
   SlotSource,
   Surface
 }
@@ -172,19 +174,11 @@ class Renderer(
         _.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
       )
 
-  /** Component ids that own a bake group (some surface's `bakeInto` names
-    * them). Their HTML depends on the client's `uiState` (the baked member is
-    * cookie-selected), so their live patches must stay per-session; every other
-    * main-page node's HTML is a pure function of entity state and can be
-    * rendered once per slug and shared across connections (see `Server`).
-    */
-  val bakeOwnerIds: Set[String] =
-    dashboard.surfaces.values.flatMap(_.bakeInto).toSet
-
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
-    * carries none). This is the ordered member list a cookie index selects
-    * among.
+    * carries none). This is the ordered member list a cookie index (user mode)
+    * selects among, and the first-match order (then, elseif…, else) state
+    * selection walks.
     */
   private def bakeGroup(gid: String): List[String] =
     dashboard.surfaces.toList
@@ -194,13 +188,276 @@ class Renderer(
       .sortBy { case (sid, bi) => (bi.getOrElse(Int.MaxValue), sid) }
       .map(_._1)
 
-  /** Resolve which member of `gid`'s bake group is active, given the client's
-    * (untrusted) `uiState`. Parses `uiState.get(gid)` with `.toIntOption` and
-    * keeps it only when it indexes a real member; otherwise falls back to the
-    * group's `defaultOpen` member (or index 0). The second element is
-    * `Some(warning)` ONLY when a value was present but off (unparseable, or an
-    * int out of range) — `None` when the cookie is absent or valid. Pure: the
-    * single source of truth for both the chosen index and the malformed check.
+  /** Whether a surface has a user-mode activation with `defaultOpen` set — the
+    * "shown on first paint with no cookie / no click" flag, read in
+    * [[resolveActive]]'s fallback and for ungrouped (popup) surfaces in
+    * [[selectedSurfaces]].
+    */
+  private def defaultOpenUser(s: Surface): Boolean = s.activation match {
+    case Activation.User(d) => d
+    case _                  => false
+  }
+
+  /** Whether `gid`'s bake group is STATE-selected (its members carry
+    * `Activation.State`). `Dashboard.validate` rejects mode-mixed groups, so
+    * the first member decides for the whole group. State-selected groups are a
+    * pure function of entity state: they render in the SHARED per-slug pass,
+    * never against a session's uiState/open set (the core split — ADR 0002's
+    * shared/per-session cost model extended by activation mode).
+    */
+  private def isStateGroup(gid: String): Boolean =
+    bakeGroup(gid).headOption.exists(sid =>
+      dashboard.surfaces
+        .get(sid)
+        .exists(_.activation match {
+          case _: Activation.State => true
+          case _                   => false
+        })
+    )
+
+  /** Component ids that own a USER-selected bake group (tabs). Their HTML
+    * depends on the client's `uiState` (the baked member is cookie-selected),
+    * so their live patches must stay per-session and they are EXCLUDED from the
+    * shared per-slug pass (see `Server`).
+    */
+  val userBakeOwnerIds: Set[String] =
+    dashboard.surfaces.values
+      .flatMap(_.bakeInto)
+      .toSet
+      .filterNot(isStateGroup)
+
+  /** Component ids that own a STATE-selected bake group (If/else hosts). Their
+    * HTML — selection included — is a pure function of entity state, so unlike
+    * user-selected owners they stay IN the shared per-slug pass (rendered once
+    * per slug, fanned out to every viewer).
+    */
+  val stateBakeOwnerIds: Set[String] =
+    dashboard.surfaces.values
+      .flatMap(_.bakeInto)
+      .toSet
+      .filter(isStateGroup)
+
+  /** Whether a member surface's content subtree contains a user-selected bake
+    * owner, following nested state members transitively. Feeds
+    * [[sessionOnlyStateGroups]]: a user owner inside a state branch means that
+    * branch's HTML bakes a cookie-selected member, so the branch cannot render
+    * shared.
+    */
+  private def subtreeHasUserOwner(sid: String): Boolean = {
+    val ids =
+      surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
+    ids.exists(userBakeOwnerIds) ||
+    ids.exists(gid =>
+      stateBakeOwnerIds(gid) && bakeGroup(gid).exists(subtreeHasUserOwner)
+    )
+  }
+
+  /** State-selected groups whose member subtree contains a user-selected bake
+    * owner (tabs inside an If). Their host HTML embeds a cookie-selected
+    * member, so their flips must be patched PER-SESSION with that session's
+    * `uiState` — the Server excludes them from the shared flip path and mirrors
+    * them in the per-session pass instead. Every other state group is shared.
+    * Computed once per renderer (structure, not state).
+    */
+  val sessionOnlyStateGroups: Set[String] =
+    stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
+
+  /** State-selected owner ids grouped by the index that contains the owner
+    * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
+    * content tree. This is the recursion structure of the transitive active-set
+    * / affected-flip walks: a group is only VISIBLE through the chain of active
+    * members above it, so each walk starts at one root's owners and descends
+    * only into selected members.
+    */
+  private val stateGidsByRoot: Map[String, List[String]] = {
+    val prefixToRoot: Map[String, String] =
+      Map(mainIndex.idPrefix -> "") ++
+        surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
+    stateBakeOwnerIds.toList.sorted
+      .flatMap(gid =>
+        allIndexed.get(gid).map { case (_, _, prefix) =>
+          prefixToRoot(prefix) -> gid
+        }
+      )
+      .groupMap(_._1)(_._2)
+  }
+
+  private def stateGidsAtRoot(root: String): List[String] =
+    stateGidsByRoot.getOrElse(root, Nil)
+
+  /** Whether a state condition, quantified over the WHOLE live state map,
+    * holds. See [[fh.view.model.Quantifier]] for why `none` is its own
+    * quantifier and not a `Not` in the condition.
+    */
+  private def holds(
+      condition: Predicate,
+      quantifier: Quantifier,
+      states: Map[String, EntityState]
+  ): Boolean =
+    quantifier match {
+      case Quantifier.Any =>
+        states.values.exists(Renderer.matches(condition, _))
+      case Quantifier.None =>
+        !states.values.exists(Renderer.matches(condition, _))
+      case Quantifier.All =>
+        states.values.forall(Renderer.matches(condition, _))
+    }
+
+  /** Resolve which member of a STATE-selected group `gid` is active: the FIRST
+    * member (in `bakeIndex` order) whose quantified condition holds over
+    * `states` — so an "else" is just a member with an always-true condition at
+    * the last index, and a later `elseif` is one more member, no special
+    * casing. `None` when no member's condition holds (the host bakes empty
+    * content). The state-mode sibling of [[resolveActive]] — no uiState, no
+    * cookie warnings, pure over the snapshot (so the Server can evaluate it
+    * against a before AND after snapshot to detect a flip).
+    */
+  private[runtime] def resolveActiveByState(
+      gid: String,
+      states: Map[String, EntityState]
+  ): Option[Int] = {
+    val idx = bakeGroup(gid).indexWhere(sid =>
+      dashboard.surfaces
+        .get(sid)
+        .exists(_.activation match {
+          case Activation.State(condition, quantifier) =>
+            holds(condition, quantifier, states)
+          case _ => false
+        })
+    )
+    Option.when(idx >= 0)(idx)
+  }
+
+  /** The O(1) pre-test of the flip check, same cost model as [[dynamicDelta]]:
+    * a state change can only move a group's selection if the CHANGED entity's
+    * own match flipped for some member's condition — the quantified aggregate
+    * (any/none/all) is over per-entity matches, and only this entity's match
+    * changed. Only when this passes does [[affectedStateGroups]] pay for the
+    * full before/after selection. A newly-seen entity (`previous = None`) skips
+    * the shortcut: its mere appearance can move an `all`/`none` aggregate
+    * without any per-entity flip.
+    */
+  private def conditionTouched(gid: String, change: StateChange): Boolean =
+    change.previous match {
+      case None => true
+      case Some(prev) =>
+        bakeGroup(gid).exists(sid =>
+          dashboard.surfaces
+            .get(sid)
+            .exists(_.activation match {
+              case Activation.State(condition, _) =>
+                Renderer.matches(condition, prev) !=
+                  Renderer.matches(condition, change.current)
+              case _ => false
+            })
+        )
+    }
+
+  /** The state-selected groups whose ACTIVE MEMBER this change flips, visible
+    * from the main page — i.e. walking only through currently-selected members
+    * (a flip inside a hidden branch is unreachable DOM; when its ancestor later
+    * flips it in, the ancestor's host morph re-renders it fresh). Two-step per
+    * group: the O(1) [[conditionTouched]] shortcut, then
+    * [[resolveActiveByState]] over `before` vs `states`. The Server morphs each
+    * returned host (minus [[sessionOnlyStateGroups]] on the shared pass) and
+    * prunes its members' cache entries.
+    */
+  def affectedStateGroups(
+      change: StateChange,
+      before: Map[String, EntityState],
+      states: Map[String, EntityState]
+  ): List[String] =
+    affectedStateGroupsFrom("", change, before, states)
+
+  /** Like [[affectedStateGroups]], rooted at one surface's content tree — the
+    * per-session variant for state groups inside an OPEN (user) surface, whose
+    * visibility is this session's open set rather than the main page.
+    */
+  def affectedStateGroupsIn(
+      surfaceId: String,
+      change: StateChange,
+      before: Map[String, EntityState],
+      states: Map[String, EntityState]
+  ): List[String] =
+    affectedStateGroupsFrom(surfaceId, change, before, states)
+
+  private def affectedStateGroupsFrom(
+      root: String,
+      change: StateChange,
+      before: Map[String, EntityState],
+      states: Map[String, EntityState]
+  ): List[String] =
+    stateGidsAtRoot(root).flatMap { gid =>
+      val flipped =
+        conditionTouched(gid, change) &&
+          resolveActiveByState(gid, before) != resolveActiveByState(gid, states)
+      // Recurse into the CURRENTLY selected member only: nested groups in the
+      // inactive branch are not in any client's DOM.
+      val nested = resolveActiveByState(gid, states).toList.flatMap(idx =>
+        affectedStateGroupsFrom(bakeGroup(gid)(idx), change, before, states)
+      )
+      (if (flipped) List(gid) else Nil) ++ nested
+    }
+
+  /** The transitive ACTIVE set of state-selected member surfaces visible from
+    * the main page: each state group contributes its selected member's sid,
+    * then recurses into that member for nested groups. This is what keeps a
+    * hidden branch silent — inactive members are never in the set, so the
+    * Server never consults their indices (no guard map needed; silence is
+    * structural). `excluding` prunes whole subtrees: the Server passes the
+    * groups it flips this round (their host morph re-renders the member
+    * wholesale — patching its parts too would double-emit) and, on the shared
+    * pass, [[sessionOnlyStateGroups]].
+    */
+  def activeStateSurfaces(
+      states: Map[String, EntityState],
+      excluding: Set[String] = Set.empty
+  ): Set[String] =
+    activeStateSurfacesFrom("", states, excluding)
+
+  /** Like [[activeStateSurfaces]], rooted at one surface's content tree (the
+    * per-session pass, for state groups nested inside an open surface).
+    */
+  def activeStateSurfacesIn(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      excluding: Set[String] = Set.empty
+  ): Set[String] =
+    activeStateSurfacesFrom(surfaceId, states, excluding)
+
+  private def activeStateSurfacesFrom(
+      root: String,
+      states: Map[String, EntityState],
+      excluding: Set[String]
+  ): Set[String] =
+    stateGidsAtRoot(root)
+      .filterNot(excluding)
+      .flatMap { gid =>
+        resolveActiveByState(gid, states).toList.flatMap { idx =>
+          val sid = bakeGroup(gid)(idx)
+          sid :: activeStateSurfacesFrom(sid, states, excluding).toList
+        }
+      }
+      .toSet
+
+  /** The `s_<sid>__` node-id prefixes of every member of `gid`'s bake group —
+    * the cache-prune scope for a state-group flip (host id + these prefixes,
+    * the same contract as the Server's `repaintGroup`), so a later re-revealed
+    * member diffs from a known base instead of being suppressed by a stale
+    * pre-flip entry.
+    */
+  def bakeMemberPrefixes(gid: String): List[String] =
+    bakeGroup(gid).map(Renderer.surfacePrefix)
+
+  /** Resolve which member of a USER-selected group `gid` is active, given the
+    * client's (untrusted) `uiState`. Parses `uiState.get(gid)` with
+    * `.toIntOption` and keeps it only when it indexes a real member; otherwise
+    * falls back to the group's `defaultOpen` member (or index 0). The second
+    * element is `Some(warning)` ONLY when a value was present but off
+    * (unparseable, or an int out of range) — `None` when the cookie is absent
+    * or valid. Pure: the single source of truth for both the chosen index and
+    * the malformed check. State-selected groups never come through here — see
+    * [[resolveActiveByState]].
     */
   private[runtime] def resolveActive(
       gid: String,
@@ -210,7 +467,7 @@ class Renderer(
     val n = members.size
     val fallback =
       members.indexWhere(sid =>
-        dashboard.surfaces.get(sid).exists(_.defaultOpen)
+        dashboard.surfaces.get(sid).exists(defaultOpenUser)
       ) match {
         case -1 => 0
         case i  => i
@@ -234,10 +491,13 @@ class Renderer(
 
   /** Surfaces shown from the first paint with no user action, given the
     * client's `uiState` (default empty ⇒ today's behaviour). For each
-    * `bakeInto` group the [[resolveActive]]-selected member is chosen;
-    * ungrouped surfaces (`bakeInto = None`) contribute their `defaultOpen` ones
-    * as before. A connection seeds its open set with these so the baked panels
-    * receive live updates from the first paint (and on a navigate swap).
+    * USER-selected `bakeInto` group the [[resolveActive]]-selected member is
+    * chosen; ungrouped surfaces (`bakeInto = None`) contribute their
+    * `defaultOpen` ones as before. A connection seeds its open set with these
+    * so the baked panels receive live updates from the first paint (and on a
+    * navigate swap). STATE-selected members are excluded entirely — they never
+    * enter a session's open set, because their liveness is the SHARED per-slug
+    * pass's job (sessions keep handling only user-opened/user-baked surfaces).
     */
   def selectedSurfaces(
       uiState: Map[String, String] = Map.empty
@@ -248,21 +508,25 @@ class Renderer(
       baked
         .flatMap(_._2.bakeInto)
         .distinct
+        .filterNot(isStateGroup)
         .map(gid => bakeGroup(gid)(resolveActive(gid, uiState)._1))
         .toSet
     val fromUnbaked =
-      unbaked.collect { case (sid, s) if s.defaultOpen => sid }.toSet
+      unbaked.collect { case (sid, s) if defaultOpenUser(s) => sid }.toSet
     fromGroups ++ fromUnbaked
   }
 
-  /** Warnings for any bake group whose `uiState` value was present but off
-    * (unparseable / out of range). Pure — returns data (the Server logs it), so
-    * the renderer stays side-effect-free. Absent/valid cookies produce nothing.
+  /** Warnings for any USER-selected bake group whose `uiState` value was
+    * present but off (unparseable / out of range). Pure — returns data (the
+    * Server logs it), so the renderer stays side-effect-free. Absent/valid
+    * cookies produce nothing; a cookie naming a state-selected group is ignored
+    * (no client choice exists there to be malformed).
     */
   def uiStateAnomalies(uiState: Map[String, String]): List[String] =
     dashboard.surfaces.toList
       .flatMap(_._2.bakeInto)
       .distinct
+      .filterNot(isStateGroup)
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
   def componentsFor(entityId: String): Set[String] =
@@ -270,8 +534,8 @@ class Renderer(
 
   /** The live entities one node (by generated id) binds — the inverse of
     * [[componentsFor]], for edit-mode inspection ("debug this node"). Empty for
-    * a dynamic group (its members are per-entity children with their own ids) or
-    * an unknown id. Searches main + surface indices.
+    * a dynamic group (its members are per-entity children with their own ids)
+    * or an unknown id. Searches main + surface indices.
     */
   def entitiesForNode(id: String): List[String] =
     allIndexed.get(id) match {
@@ -407,14 +671,19 @@ class Renderer(
     }
 
   /** When component `id` owns a bake group (surfaces baked into it), bake the
-    * `uiState`-selected member as its `{{{bakeAs}}}` var so a `tabs` card's
-    * panel host renders the active tab on first paint, and inject `bakeIndex`
-    * (a backend-known structural var, like `id`) so the template can seed its
-    * signal to the selected index. The chrome wraps the content just as a later
-    * open/switch would, so first-paint and switch-back produce byte-identical
-    * HTML. With no cookie the selection is the group's `defaultOpen` member
-    * (index 0) — behaviour identical to before. No bake group → both maps empty
-    * (absent Mustache vars render empty). Returns `(baked, structural)`.
+    * SELECTED member as its `{{{bakeAs}}}` var so the host renders the active
+    * panel/branch on first paint, and inject `bakeIndex` (a backend-known
+    * structural var, like `id`) so a tabs template can seed its signal to the
+    * selected index. Selection dispatches on the group's activation mode:
+    * user-selected groups pick the `uiState`-selected member
+    * ([[resolveActive]]; no cookie ⇒ the `defaultOpen` member / index 0),
+    * state-selected groups pick the first member whose condition holds over
+    * live state ([[resolveActiveByState]]) — and when NO condition holds, bake
+    * the empty string, so the host still renders its wrapper with empty content
+    * rather than stale HTML. The chrome wraps the content just as a later
+    * open/switch/flip would, so first-paint and switch-back produce
+    * byte-identical HTML. No bake group → both maps empty (absent Mustache vars
+    * render empty). Returns `(baked, structural)`.
     */
   private def resolveBake(
       id: String,
@@ -422,9 +691,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): (Map[String, String], Map[String, String]) = {
     val group = bakeGroup(id)
-    if (group.isEmpty) (Map.empty, Map.empty)
-    else {
-      val idx = resolveActive(id, uiState)._1
+    def bakeMember(idx: Int): (Map[String, String], Map[String, String]) = {
       val sid = group(idx)
       val s = dashboard.surfaces(sid)
       (
@@ -435,6 +702,21 @@ class Renderer(
         Map("bakeIndex" -> idx.toString)
       )
     }
+    if (group.isEmpty) (Map.empty, Map.empty)
+    else if (isStateGroup(id))
+      resolveActiveByState(id, states) match {
+        case Some(idx) => bakeMember(idx)
+        case None      =>
+          // No branch matches: the host's {{{bakeAs}}} var is explicitly the
+          // empty string (all members share one bakeAs — they bake into one
+          // hole), so the wrapper renders empty instead of leaving the var
+          // absent-but-meaningful.
+          val as = group.headOption
+            .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
+            .getOrElse("")
+          (Map(as -> ""), Map.empty)
+      }
+    else bakeMember(resolveActive(id, uiState)._1)
   }
 
   private def render(
@@ -465,9 +747,17 @@ class Renderer(
         // live-patched (it depends on entities) is wrapped in an id'd element so
         // templates don't have to carry `id="{{id}}"` themselves. The wrapper is
         // layout-neutral (`.fh-cell { display: contents }`).
+        // TODO challange the point of fh-cell, more as a card wrapper?
         if (c.liveEntities.nonEmpty)
           s"""<div class="fh-cell" id="$id">$html</div>"""
-        else html
+        else if (bakeGroup(id).nonEmpty)
+          // A bake-group owner is its own morph target: its template carries
+          // `id="{{id}}"` (the surface host swapHost/flipStateGroup address).
+          // An id-less wrapper here would leave the flip's outer-morph patch
+          // rootless — Datastar drops a top-level element without an id.
+          html
+        else
+          s"""<div class="fh-cell">$html</div>"""
       case d: LayoutNode.Dynamic =>
         renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
     }
@@ -701,6 +991,10 @@ object Renderer {
         val lhs = property match {
           case "domain" => st.domain
           case "state"  => st.state
+          // The entity's identity itself — what lets a state-activation
+          // condition pin one entity ("entity X is in state Y") and a dynamic
+          // group enumerate an explicit entity set.
+          case "entity_id" => st.entityId
           case other if other.startsWith("attr:") =>
             st.attributes
               .get(other.stripPrefix("attr:"))
