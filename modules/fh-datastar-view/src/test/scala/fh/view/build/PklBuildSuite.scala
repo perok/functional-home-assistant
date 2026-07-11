@@ -478,9 +478,9 @@ class PklBuildSuite extends munit.FunSuite {
     assert(d.theme.chrome.contains("id=\"dashboard\""))
 
     val root = d.card.asInstanceOf[LayoutNode.Component]
-    assertEquals(root.card, "fhcol")
-    // The layout now interleaves component cards with two dynamic groups and
-    // ends with the popup-opening buttons.
+    assertEquals(root.card, "fhgrid")
+    // The grid interleaves component cards with two dynamic groups and ends
+    // with the popups COLUMN (a column nested in a grid cell).
     val children =
       root.children.collect { case c: LayoutNode.Component => c }
     assertEquals(
@@ -493,15 +493,23 @@ class PklBuildSuite extends munit.FunSuite {
         "sectionTitle",
         "sectionTitle",
         "sectionTitle",
-        "button",
-        "button",
-        "button"
+        "fhcol"
       )
     )
+    // Grid sizing: titles + the slider span the full grid (`fullWidth()`);
+    // the plain entity card keeps the default cell (no `cell` key at all).
+    assertEquals(children(0).cell.map(_.classes), Some(List("fh-cols-full")))
+    assertEquals(children(1).cell, None)
+    assertEquals(children(3).cell.map(_.classes), Some(List("fh-cols-full")))
+
+    // The three popup buttons stack inside the column.
+    val buttons =
+      children(7).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(buttons.map(_.card), List("button", "button", "button"))
 
     // The inline-popup trigger (the "Quick info…" button) carries a literal
     // onclick that references the SPLICED real surface id, not the raw token.
-    val inlineTrigger = children
+    val inlineTrigger = buttons
       .find(
         _.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self"))
       )
@@ -512,8 +520,13 @@ class PklBuildSuite extends munit.FunSuite {
     )
 
     // Two dynamic groups: a per-domain dispatch group and the low-battery one.
+    // Both are full-width grid cells (`fullWidth()` on the group root).
     val dyns = dynamics(d.card)
     assertEquals(dyns.size, 2)
+    assertEquals(
+      dyns.map(_.cell.map(_.classes)),
+      List(Some(List("fh-cols-full")), Some(List("fh-cols-full")))
+    )
 
     // Dispatch group: query = stateIs("on"); a light branch (a $self Slider)
     // + an always entityCard fallback; no `entity_id` slot survives the cases.

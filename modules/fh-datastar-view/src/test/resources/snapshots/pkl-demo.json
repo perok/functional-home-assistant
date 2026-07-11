@@ -1,9 +1,14 @@
 {
   "card" : {
-    "card" : "fhcol",
+    "card" : "fhgrid",
     "children" : [
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -59,6 +64,11 @@
       },
       {
         "card" : "slider",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -90,6 +100,11 @@
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -185,6 +200,11 @@
             }
           }
         ],
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "kind" : "dynamic",
         "query" : {
           "kind" : "cmp",
@@ -195,6 +215,11 @@
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -237,6 +262,11 @@
             }
           }
         ],
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "kind" : "dynamic",
         "query" : {
           "items" : [
@@ -258,6 +288,11 @@
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -266,64 +301,73 @@
         }
       },
       {
-        "card" : "button",
+        "card" : "fhcol",
         "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "label" : "Power detail…",
-          "onclick" : "@post('sse/surface/open/detail')"
-        }
-      },
-      {
-        "card" : "button",
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "self" : {
-            "content" : {
-              "card" : "popup",
-              "children" : [
-                {
-                  "card" : "fhcol",
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "Power detail…",
+              "onclick" : "@post('sse/surface/open/detail')"
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "inlineSurfaces" : {
+              "self" : {
+                "content" : {
+                  "card" : "popup",
                   "children" : [
                     {
-                      "card" : "sectionTitle",
+                      "card" : "fhcol",
                       "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Quick info"
-                      }
-                    },
-                    {
-                      "card" : "entityCard",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "entity_id" : "sensor.ams_1a4e_u1",
-                        "icon" : {
-                          "bypassUnavailable" : false,
-                          "reactive" : false,
-                          "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                        {
+                          "card" : "sectionTitle",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "label" : "Quick info"
+                          }
                         },
-                        "label" : "L1 voltage",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reactive" : true,
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        {
+                          "card" : "entityCard",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "entity_id" : "sensor.ams_1a4e_u1",
+                            "icon" : {
+                              "bypassUnavailable" : false,
+                              "reactive" : false,
+                              "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                            },
+                            "label" : "L1 voltage",
+                            "value" : {
+                              "bypassUnavailable" : true,
+                              "reactive" : true,
+                              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                            }
+                          }
+                        },
+                        {
+                          "card" : "button",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "label" : "Close",
+                            "onclick" : "@post('sse/popup/close')"
+                          }
                         }
-                      }
-                    },
-                    {
-                      "card" : "button",
-                      "children" : [
                       ],
                       "kind" : "component",
                       "slots" : {
-                        "label" : "Close",
-                        "onclick" : "@post('sse/popup/close')"
+                        
                       }
                     }
                   ],
@@ -332,28 +376,28 @@
                     
                   }
                 }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
               }
+            },
+            "kind" : "component",
+            "slots" : {
+              "label" : "Quick info…",
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "« Back to jsonnet",
+              "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
             }
           }
-        },
-        "kind" : "component",
-        "slots" : {
-          "label" : "Quick info…",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
-        }
-      },
-      {
-        "card" : "button",
-        "children" : [
         ],
         "kind" : "component",
         "slots" : {
-          "label" : "« Back to jsonnet",
-          "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
+          
         }
       }
     ],
