@@ -270,8 +270,8 @@ class Renderer(
 
   /** The live entities one node (by generated id) binds — the inverse of
     * [[componentsFor]], for edit-mode inspection ("debug this node"). Empty for
-    * a dynamic group (its members are per-entity children with their own ids) or
-    * an unknown id. Searches main + surface indices.
+    * a dynamic group (its members are per-entity children with their own ids)
+    * or an unknown id. Searches main + surface indices.
     */
   def entitiesForNode(id: String): List[String] =
     allIndexed.get(id) match {
