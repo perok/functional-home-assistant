@@ -169,6 +169,15 @@ class Server(
       }
       .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
 
+  /** Current number of subscribers on a slug's shared-patch topic, as a signal
+    * stream — a test seam (mirroring [[StateStore.changeSubscribers]]) to await
+    * an SSE connection's shared subscription before emitting a change, since
+    * the topic only reaches already-subscribed consumers. `0` for an unknown
+    * slug.
+    */
+  private[runtime] def sharedSubscribers(slug: String): Stream[IO, Int] =
+    sharedTopics.get(slug).map(_.subscribers).getOrElse(Stream.emit(0))
+
   /** The shared per-slug render/diff for one state change: the affected
     * main-page static components (reverse index, minus the USER bake-group
     * owners), the query-affected dynamic groups, plus everything state-selected
