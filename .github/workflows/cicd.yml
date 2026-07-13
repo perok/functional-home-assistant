@@ -44,22 +44,28 @@ jobs:
 
       - uses: sbt/setup-sbt@v1
 
-      # The editor's CodeMirror + lsp-client deps are esbuild-bundled into
+      # The editor's CodeMirror + lsp-client deps and the Pkl Lezer parser
+      # (generated from pkl.grammar) are esbuild-bundled into
       # resources/editor/vendor.js, which sbt then packages into the fat jar.
-      # vendor.js is NOT committed (it's gitignored) — CI is its source of
-      # truth; `npm ci` pins to package-lock.json for a reproducible bundle.
+      # vendor.js + pkl.parser*.js are NOT committed (gitignored) — CI is their
+      # source of truth; `npm ci` pins to package-lock.json for a reproducible
+      # bundle.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: modules/fh-datastar-view/editor-src/package-lock.json
 
-      - name: Vendor editor front-end (esbuild)
+      - name: Vendor editor front-end (esbuild) + Pkl grammar
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
       - name: Fmt check
         run: sbt scalafmtCheckAll
+
+      - name: Check Pkl parser against dashboards
+        working-directory: modules/fh-datastar-view/editor-src
+        run: node pkl.test.mjs
 
       - name: Test
         run: sbt 'fh-datastar-view/testFull'

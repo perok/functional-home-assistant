@@ -1,0 +1,307 @@
+// Lezer grammar for Pkl (https://pkl-lang.org), translated from the tree-sitter
+// grammar at apple/tree-sitter-pkl (grammar.js + queries/highlights.scm).
+//
+// Scope: a *highlighting-grade* grammar for the dashboard editor. It mirrors
+// tree-sitter-pkl's declaration structure faithfully enough to tag every token
+// the way highlights.scm does (keywords, types, properties, methods,
+// parameters, literals, operators, comments), but it deliberately does NOT
+// reproduce two things that only affect *tree shape*, never token colour:
+//
+//   * operator precedence / associativity — expressions are parsed as a flat
+//     chain of operands and operators (the tree nests differently than Pkl
+//     evaluates, but every token still lands under the same node kind), and
+//   * two of tree-sitter's newline-sensitive contextual tokens
+//     (_open_argument_paren / _binary_minus) — greedy shift (the `cont`
+//     precedence below) stands in for them, since either reading colours the
+//     same. The third, _open_subscript_bracket (a subscript `[` vs. the start
+//     of a new `["key"] =` entry), genuinely changes which tokens are members
+//     and IS reproduced, by the bracket tokenizer in pkl.tokens.js.
+//
+// Multi-`#` string delimiters, multi-line strings and interpolation are also
+// lexed by pkl.tokens.js (the counterpart of scanner.c).
+//
+// WHY A FULL LEZER GRAMMAR (and not just a beefed-up StreamLanguage tokenizer,
+// which this replaced): most of the *colour* win here is lexical — backtick
+// idents, `#`-delimited/multi-line strings, doc comments — and a stateful
+// StreamLanguage token() could deliver that with far less machinery (no
+// grammar DSL, no codegen step, no GLR markers). The reason to pay for the
+// parser is the parse TREE: structural token roles (property vs variable,
+// method/param names) and, more importantly, the node↔source-line mapping the
+// editor's "pkl:syntax" follow-up needs (see app.js). If that structural work
+// ever comes off the roadmap, a leaner StreamLanguage is the better-
+// proportioned choice — the whole parser is isolated behind `pkl()` in the
+// vendor bundle, so swapping back is a contained change.
+
+// `cont` forces the greedy "keep extending the current expression / decl" side
+// of every shift/reduce that comes from Pkl members having no separator token
+// (tree-sitter uses newline-sensitive contextual tokens instead). Either parse
+// colours identically, so greedy is a safe, conflict-free choice for a
+// highlighter.
+@precedence { cont @right }
+
+@top Module { moduleMember* }
+
+// Declarations, accepted in any order so a half-typed file keeps highlighting.
+// GLR (~member) lets a leading identifier resolve to property/method/element.
+moduleMember {
+  ModuleClause |
+  ExtendsOrAmendsClause |
+  ImportClause |
+  Annotation |
+  Class |
+  TypeAlias |
+  ClassMethod |
+  ClassProperty
+}
+
+ModuleClause { modifier* kw<"module"> QualifiedIdentifier }
+
+ExtendsOrAmendsClause { (kw<"extends"> | kw<"amends">) StringLiteral }
+
+ImportClause { importKw StringLiteral (kw<"as"> identifier)? }
+
+Class {
+  modifier* kw<"class"> identifier TypeParameterList?
+  (!cont ClassExtends)?
+  (!cont ClassBody)?
+}
+ClassExtends { kw<"extends"> QualifiedIdentifier TypeArgumentList? }
+ClassBody { "{" (ClassMethod | ClassProperty)* "}" }
+
+TypeAlias { modifier* kw<"typealias"> identifier TypeParameterList? "=" type }
+
+ClassProperty {
+  modifier* identifier
+  (
+    TypeAnnotation |
+    (TypeAnnotation? (("=" expr) | ObjectBody+))
+  ) ~member
+}
+
+ClassMethod { MethodHeader ("=" expr)? }
+
+MethodHeader {
+  modifier* kw<"function"> identifier TypeParameterList? ParameterList TypeAnnotation?
+}
+
+Annotation { "@" QualifiedIdentifier ObjectBody? }
+
+// ---- object bodies ---------------------------------------------------------
+
+ObjectBody { "{" ObjectBodyParameters? objectMember* "}" }
+
+ObjectBodyParameters { commaSep1<parameter> "->" }
+
+objectMember {
+  ObjectProperty |
+  ObjectMethod |
+  ObjectEntry |
+  MemberPredicate |
+  ForGenerator |
+  WhenGenerator |
+  ObjectSpread |
+  ObjectElement
+}
+
+ObjectProperty {
+  modifier* identifier
+  ((TypeAnnotation? "=" expr) | ObjectBody+) ~member
+}
+
+ObjectMethod { MethodHeader "=" expr }
+
+ObjectEntry { EntryLBracket expr "]" (("=" expr) | ObjectBody+) }
+
+MemberPredicate { "[[" expr "]]" (("=" expr) | ObjectBody+) }
+
+ForGenerator { kw<"for"> "(" parameter ("," parameter)? kw<"in"> expr ")" ObjectBody }
+
+WhenGenerator { kw<"when"> "(" expr ")" ObjectBody (kw<"else"> ObjectBody)? }
+
+ObjectSpread { ("..." | "...?") expr }
+
+ObjectElement { expr ~member }
+
+// ---- types (flat: nullable/constrained suffixes + `|` union chain) ---------
+
+TypeAnnotation { ":" type }
+
+type { atomType (!cont typeSuffix)* (!cont "|" atomType (!cont typeSuffix)*)* }
+
+atomType {
+  kw<"unknown"> |
+  kw<"nothing"> |
+  kw<"module"> |
+  StringLiteral |
+  DefaultUnionType |
+  DeclaredType |
+  ParenType ~paren
+}
+DefaultUnionType { ArithOp type }
+DeclaredType { QualifiedIdentifier (!cont TypeArgumentList)? }
+// `( type )` (parenthesized) or `( type, … ) -> type` (function type): GLR-merged.
+ParenType { "(" commaSep<type> ")" (!cont "->" type)? }
+
+typeSuffix {
+  "?" |                         // nullable
+  "(" commaSep1<expr> ")"       // constrained
+}
+
+TypeArgumentList { "<" commaSep1<type> ">" }
+TypeParameterList { "<" commaSep1<TypeParameter> ">" }
+TypeParameter { (kw<"in"> | kw<"out">)? identifier }
+
+ParameterList { "(" commaSep<parameter> ")" }
+parameter { TypedIdentifier | BlankIdentifier }
+TypedIdentifier { identifier ~paren TypeAnnotation? }
+BlankIdentifier { @specialize[@name="_"]<Name, "_"> }
+
+ArgumentList { "(" commaSep<expr> ")" }
+
+// ---- expressions (flat: operand (operator operand)*) -----------------------
+
+expr { prefixOp* operand (!cont infixTail)* }
+
+prefixOp { ArithOp | Not }
+
+infixTail {
+  binaryOp prefixOp* operand |
+  (kw<"is"> | kw<"as">) type
+}
+
+// ArithOp groups the operators containing `*` / `/` (which are wildcard /
+// path-separator in @lezer/highlight styleTags keys) into one styleable token.
+binaryOp { ArithOp | CompareOp | LogicOp | "<" | ">" }
+
+operand { primary (!cont suffix)* }
+
+suffix {
+  ("." | "?.") identifier (!cont ArgumentList)? |
+  SubscriptLBracket expr "]" |
+  NonNull
+}
+
+primary {
+  ThisExpr { kw<"this"> } |
+  OuterExpr { kw<"outer"> } |
+  ModuleExpr { kw<"module"> } |
+  SuperExpr { kw<"super"> } |
+  Null { kw<"null"> } |
+  BooleanLiteral { kw<"true"> | kw<"false"> } |
+  Number |
+  StringLiteral |
+  ThrowExpr { kw<"throw"> "(" expr ")" } |
+  TraceExpr { kw<"trace"> "(" expr ")" } |
+  ImportExpr { importKw "(" StringLiteral ")" } |
+  ReadExpr { readKw "(" expr ")" } |
+  IfExpr { kw<"if"> "(" expr ")" expr kw<"else"> expr } |
+  LetExpr { kw<"let"> "(" parameter "=" expr ")" expr } |
+  NewOrAmend |
+  ParenOrAmend |
+  FunctionLiteral |
+  UnqualifiedAccess { identifier ~paren (!cont ArgumentList)? }
+}
+
+// Amend expressions (`(expr) { … }`, `new T { … } { … }`) only hang off a
+// parenthesized or `new` parent — tree-sitter's amendExpr restriction — so
+// `foo { … }` stays an ObjectProperty rather than colliding with it.
+NewOrAmend { NewExpr (!cont ObjectBody)* }
+ParenOrAmend { ParenExpr (!cont ObjectBody)* }
+NewExpr { kw<"new"> type? ObjectBody }
+ParenExpr { "(" expr ")" ~paren }
+FunctionLiteral { ParameterList "->" expr ~paren }
+
+// ---- identifiers -----------------------------------------------------------
+
+identifier { Name | TypeName }
+QualifiedIdentifier { identifier (!cont "." identifier)* }
+
+// ---- keyword helpers -------------------------------------------------------
+
+kw<term> { @specialize[@name={term}]<Name, term> }
+
+importKw { @specialize[@name="import"]<Name, "import"> | ImportGlob }
+readKw { @specialize[@name="read"]<Name, "read"> | ReadNullable | ReadGlob }
+
+modifier {
+  kw<"external"> | kw<"abstract"> | kw<"open"> | kw<"local"> |
+  kw<"hidden"> | kw<"fixed"> | kw<"const">
+}
+
+// ---- tokens ----------------------------------------------------------------
+
+@skip { spaces | LineComment | DocComment | BlockComment | Shebang | ";" }
+
+@tokens {
+  spaces { $[ \t\f\r\n]+ }
+
+  Shebang { "#!" ![\n]* }
+
+  DocComment { "///" ![\n]* }
+  LineComment { "//" ![\n]* }
+  BlockComment { "/*" blockCommentRest }
+  blockCommentRest { ![*] blockCommentRest | "*" blockCommentAfterStar }
+  blockCommentAfterStar { "/" | "*" blockCommentAfterStar | ![/*] blockCommentRest }
+
+  ImportGlob { "import*" }
+  ReadGlob { "read*" }
+  ReadNullable { "read?" }
+
+  Name {
+    ($[a-z_] $[a-zA-Z0-9_]*) |
+    ("`" ![`]* "`")
+  }
+  TypeName { $[A-Z] $[a-zA-Z0-9_]* }
+
+  Number {
+    "0x" $[0-9a-fA-F] $[0-9a-fA-F_]* |
+    "0b" $[01] $[01_]* |
+    "0o" $[0-7] $[0-7_]* |
+    (
+      ($[0-9] $[0-9_]* ("." $[0-9] $[0-9_]*)?) |
+      ("." $[0-9] $[0-9_]*)
+    ) (("e" | "E") ("+" | "-")? $[0-9] $[0-9_]*)?
+  }
+
+  // Operators are grouped into named tokens because @lezer/highlight styleTags
+  // keys use `*` `/` `!` and space as selector syntax — so `*`, `/`, `!=`, `!!`
+  // etc. cannot be styled as bare literal-token names. `<` / `>` stay literals
+  // (they double as type-argument angle brackets).
+  ArithOp { "+" | "-" | "*" | "/" | "~/" | "%" | "**" }
+  CompareOp { "==" | "!=" | "<=" | ">=" }
+  LogicOp { "&&" | "||" | "|>" | "??" }
+  Not { "!" }
+  NonNull { "!!" }
+
+  "..." "...?"
+  "[[" "]]" "]"
+  "->"
+  "." "?." "," ":" "=" "<" ">" "|" "@" "?"
+  "(" ")" "{" "}"
+
+  @precedence { Shebang, DocComment, LineComment, ArithOp }
+  @precedence { ImportGlob, Name }
+  @precedence { ReadGlob, Name }
+  @precedence { ReadNullable, Name }
+  @precedence { Number, "." }
+  @precedence { "...?", "..." }
+  @precedence { "?.", "?" }
+  @precedence { NonNull, CompareOp, Not }
+  @precedence { "->", ArithOp }
+}
+
+// Multi-`#` string literals + interpolation, lexed like tree-sitter's scanner.c.
+@external tokens stringLiteral from "./pkl.tokens.js" { StringLiteral }
+
+// A single `[` is context-sensitive: a subscript (`x[i]`) vs. the start of a
+// new `["key"] = …` object entry — the same split tree-sitter draws with
+// scanner.c's _open_subscript_bracket. The external tokenizer resolves it from
+// the parse stack (can a subscript be shifted here?) plus a preceding-newline
+// check, and is the sole producer of single `[`, so there's no built-in `[` to
+// tie with. `[[` (member predicate) stays a built-in token.
+@external tokens brackets from "./pkl.tokens.js" { SubscriptLBracket, EntryLBracket }
+
+@detectDelim
+
+commaSep<rule> { (rule ("," rule)* ","?)? }
+commaSep1<rule> { rule ("," rule)* ","? }

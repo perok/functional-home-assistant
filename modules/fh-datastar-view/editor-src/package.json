@@ -2,9 +2,11 @@
   "name": "fh-editor-vendor",
   "private": true,
   "type": "module",
-  "description": "Bundles CodeMirror 6 + @codemirror/lsp-client into a single self-contained vendor.js for the dashboard editor. Run `npm install && npm run build` when the deps change; the built vendor.js is committed so the app needs no CDN or import map.",
+  "description": "Bundles CodeMirror 6 + @codemirror/lsp-client + the Pkl Lezer parser (generated from pkl.grammar) into a single self-contained vendor.js for the dashboard editor. Run `npm install && npm run build` when the deps or grammar change; vendor.js and the generated pkl.parser*.js are gitignored (CI rebuilds them), so the app needs no CDN or import map.",
   "scripts": {
-    "build": "esbuild vendor.entry.js --bundle --format=esm --outfile=../src/main/resources/editor/vendor.js"
+    "grammar": "lezer-generator pkl.grammar -o pkl.parser.js",
+    "build": "npm run grammar && esbuild vendor.entry.js --bundle --format=esm --outfile=../src/main/resources/editor/vendor.js",
+    "test": "npm run grammar && node pkl.test.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6",
@@ -13,9 +15,12 @@
     "@codemirror/lint": "^6",
     "@codemirror/lsp-client": "^6",
     "@codemirror/state": "^6",
-    "@codemirror/view": "^6"
+    "@codemirror/view": "^6",
+    "@lezer/highlight": "^1",
+    "@lezer/lr": "^1"
   },
   "devDependencies": {
+    "@lezer/generator": "^1",
     "esbuild": "^0.24"
   }
 }

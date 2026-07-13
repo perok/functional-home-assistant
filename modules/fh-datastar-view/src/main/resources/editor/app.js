@@ -10,9 +10,10 @@ import {
   EditorState, Compartment,
   EditorView, keymap, lineNumbers, highlightActiveLine,
   defaultKeymap, history, historyKeymap, indentWithTab,
-  StreamLanguage, LanguageSupport, syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching,
+  syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching,
   closeBrackets,
   LSPClient, languageServerExtensions, languageServerSupport,
+  pkl,
 } from "./vendor.js"
 
 const cfg = JSON.parse(document.getElementById("fh-editor-config").textContent)
@@ -25,45 +26,13 @@ const setMsg = (m) => { statusMsg.textContent = m }
 addEventListener("error", (e) => setMsg("JS error: " + (e.message || (e.error && e.error.message) || e.error)))
 addEventListener("unhandledrejection", (e) => setMsg("error: " + ((e.reason && e.reason.message) || e.reason)))
 
-// --- Pkl base highlighting: a small StreamLanguage tokenizer ---------------
-const Q3 = '"' + '"' + '"' // triple-quote, without writing it literally
-const KEYWORDS = new Set((
-  "abstract amends as class const else extends external false fixed for function " +
-  "hidden if import in is let local module new nothing null open out outer read super this throw trace " +
-  "true typealias unknown when"
-).split(" "))
-
-const pklStream = StreamLanguage.define({
-  name: "pkl",
-  startState() { return { inBlock: false } },
-  token(stream, state) {
-    if (state.inBlock) {
-      if (stream.skipTo("*/")) { stream.match("*/"); state.inBlock = false } else stream.skipToEnd()
-      return "comment"
-    }
-    if (stream.eatSpace()) return null
-    if (stream.match("//")) { stream.skipToEnd(); return "comment" }
-    if (stream.match("/*")) { state.inBlock = true; return "comment" }
-    if (stream.match(Q3)) { while (!stream.eol()) { if (stream.match(Q3)) break; stream.next() } return "string" }
-    if (stream.peek() === '"') {
-      stream.next()
-      while (!stream.eol()) { const c = stream.next(); if (c === "\\") stream.next(); else if (c === '"') break }
-      return "string"
-    }
-    if (stream.match(/^@[A-Za-z_][\w.]*/)) return "meta"
-    if (stream.match(/^0x[0-9a-fA-F_]+/) || stream.match(/^\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d+)?/)) return "number"
-    if (stream.match(/^[A-Za-z_$][\w$]*/)) {
-      const w = stream.current()
-      if (KEYWORDS.has(w)) return "keyword"
-      if (/^[A-Z]/.test(w)) return "typeName"
-      return "variableName"
-    }
-    stream.next()
-    return null
-  },
-  languageData: { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } },
-})
-const pkl = () => new LanguageSupport(pklStream)
+// Pkl syntax highlighting is the Lezer parser bundled into vendor.js (built
+// from editor-src/pkl.grammar, translated from tree-sitter-pkl); `pkl()`
+// returns its CodeMirror LanguageSupport. This replaced a hand-written
+// StreamLanguage tokenizer: a real parse tree was chosen over a leaner lexer
+// so the pkl:syntax follow-up (node <-> source-line mapping, see the focus
+// handler below) has a tree to hang off — see the tradeoff note atop
+// editor-src/pkl.grammar.
 
 // --- editor ----------------------------------------------------------------
 const host = document.getElementById("fh-editor-host")
