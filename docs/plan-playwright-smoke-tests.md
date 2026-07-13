@@ -137,15 +137,22 @@ covers render/live-update/control; the tabs/popup/slider checks wait on the rich
 
 ## Browsers & the sandbox
 
-- **This environment**: Chromium is preinstalled at `/opt/pw-browsers`;
-  `PLAYWRIGHT_BROWSERS_PATH` + `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` are set. Java Playwright honors
-  both, so it should find the preinstalled browser with no download. **Spike this first** (a
-  10-line `chromium.launch()` that opens `about:blank`): confirm the library's bundled driver is
-  compatible with that Chromium build. If the driver pins an incompatible version, set `channel` or
-  `executablePath` to `/opt/pw-browsers/chromium` — do **not** run `playwright install`.
+- **Local / CI**: install Chromium at the pinned Playwright version so it lands at the driver's own
+  revision and Playwright's default Linux path (`~/.cache/ms-playwright`) — e.g.
+  `npx playwright@<version> install chromium`, or the driver's own `install` command. The Java
+  driver then resolves the executable itself (no `executablePath`, no `PLAYWRIGHT_BROWSERS_PATH`
+  override, no `Test / fork`). Version-lock matters: the Node and Java Playwright releases pin the
+  same browser revision, so installing at a *different* Node CLI version drops a mismatched build
+  (e.g. `chromium-1228` with the newer `chrome-linux64` layout) that the pinned driver may not
+  expect.
 - **CI (GitHub Actions)**: the Java driver fetches its own browser on first run unless cached; add a
-  cached `chromium` install step (the driver's `install` command, or the Maven Playwright CLI).
-  Same cost as the node CLI — not a node-vs-JVM difference.
+  cached `chromium` install step at the pinned version (see `.github/workflows/cicd.yml`). Same cost
+  as the node CLI — not a node-vs-JVM difference.
+- **Historical note (spike sandbox)**: the original spike ran in a network-blocked sandbox with
+  Chromium preinstalled at a non-default `/opt/pw-browsers` at a revision that mismatched the
+  driver's pin, so `PLAYWRIGHT_BROWSERS_PATH` + a dynamic `setExecutablePath` glob were needed and
+  `playwright install` was impossible. None of that applies once the browser is installed at the
+  default path at the pinned revision.
 
 ## The suites (smoke-level, one behaviour each)
 
@@ -228,13 +235,19 @@ Extend `.github/workflows/cicd.yml`'s `ci` job (JDK 21 already present — **no 
   before the round-trip, and the combinator is a few lines, reusable, and never flaky in practice.
 - The slider: keyboard (`Home`/`End` on the focused `<input type=range>`, which natively jump to
   min/max) proved reliable headless — never needed the `fill` fallback.
-- Driver/browser compatibility: the pinned Playwright version's driver wanted to download its own
-  Chromium revision (mismatched with the sandbox's preinstalled one, and network-blocked besides).
-  Resolved with `setExecutablePath` (resolved dynamically — globs `chromium-*/chrome-linux/chrome`
-  under `PLAYWRIGHT_BROWSERS_PATH` rather than hardcoding a revision) plus explicitly passing
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` into the driver's own env via `Playwright.CreateOptions`
-  (the ambient process env doesn't carry it — sbt 2.0's persistent server keeps its start-time env).
-  See `SmokeSuite.beforeAll`.
+- Driver/browser compatibility: the browser is installed at the pinned Playwright version's own
+  revision (`playwright install` / the GHA step) at Playwright's default Linux path
+  (`~/.cache/ms-playwright`), so the driver resolves its own executable — no `executablePath` needed,
+  and no custom `chromium-*/chrome-*` path globbing to drift against Chromium's folder-layout
+  renames (`chrome-linux` → `chrome-linux64`). Because the browser is at the default path, no
+  `PLAYWRIGHT_BROWSERS_PATH` override — and hence no `Test / fork` / `Test / envVars` — is needed;
+  tests run unforked in the sbt JVM. We only pass `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` into the
+  driver's own env via `Playwright.CreateOptions` (the ambient process env doesn't carry it — sbt
+  2.0's persistent server keeps its start-time env) so it trusts the preinstalled browser rather
+  than re-fetching. The earlier sandbox-era approach (`setExecutablePath` globbing
+  `chromium-*/chrome-linux/chrome`) was a workaround for a network-blocked sandbox whose
+  preinstalled Chromium sat at a non-default path AND mismatched the driver's pin; it is no longer
+  used. See `SmokeSuite.beforeAll`.
 
 ## Work plan (execution checklist)
 

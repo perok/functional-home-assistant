@@ -32,11 +32,11 @@ abstract class SmokeSuite extends munit.FunSuite {
     // (sbt 2.0's persistent server keeps its start-time env), and the Java
     // driver only skips its own browser install when it sees
     // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` — so it's passed explicitly here
-    // rather than relied on from the process environment. The preinstalled
-    // Chromium's revision doesn't necessarily match what this Playwright
-    // version's driver would otherwise fetch, hence the explicit
-    // `executablePath` too (`docs/plan-playwright-smoke-tests.md`'s "spike
-    // this first").
+    // rather than relied on from the process environment. The browser is
+    // preinstalled at this Playwright version's pinned revision (see the GHA
+    // `playwright install` step / `PLAYWRIGHT_BROWSERS_PATH`), so the driver
+    // resolves its own executable under that path — no explicit
+    // `executablePath` needed (`docs/plan-playwright-smoke-tests.md`).
     playwright = Playwright.create(
       new Playwright.CreateOptions().setEnv(
         (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
@@ -44,11 +44,7 @@ abstract class SmokeSuite extends munit.FunSuite {
     )
     browser = playwright
       .chromium()
-      .launch(
-        new BrowserType.LaunchOptions()
-          .setHeadless(true)
-          .setExecutablePath(SmokeSuite.chromiumExecutable)
-      )
+      .launch(new BrowserType.LaunchOptions().setHeadless(true))
   }
 
   override def afterAll(): Unit = {
@@ -141,32 +137,5 @@ abstract class SmokeSuite extends munit.FunSuite {
       )
     )
     ()
-  }
-}
-
-object SmokeSuite {
-
-  /** Locate the preinstalled Chromium under `PLAYWRIGHT_BROWSERS_PATH`
-    * (`chromium-<rev>/chrome-linux/chrome`) rather than trust the pinned
-    * Playwright version's own revision (which may not match what's on disk) —
-    * see [[SmokeSuite.beforeAll]].
-    */
-  private def chromiumExecutable: java.nio.file.Path = {
-    val root = os.Path(
-      sys.env.getOrElse(
-        "PLAYWRIGHT_BROWSERS_PATH",
-        sys.error("PLAYWRIGHT_BROWSERS_PATH not set; can't locate Chromium")
-      ),
-      os.pwd
-    )
-    val chrome = os
-      .list(root)
-      .filter(p => os.isDir(p) && p.last.startsWith("chromium-"))
-      .map(_ / "chrome-linux" / "chrome")
-      .find(os.exists)
-      .getOrElse(
-        sys.error(s"no chromium-*/chrome-linux/chrome found under $root")
-      )
-    chrome.toNIO
   }
 }

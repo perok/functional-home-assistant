@@ -28,6 +28,15 @@ addCommandAlias(
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
+// Rebaseline the wire-format + visual snapshots after an INTENTIONAL change.
+// Uses the scoped `sys.props` form (set → testFull → unset) rather than a shell
+// `FH_UPDATE_SNAPSHOTS=1` export: sbt 2.0's persistent server keeps its
+// start-time env forever, which would silently leave the gate in regenerate
+// mode. See VisualSnapshot / PklBuildSuite.
+addCommandAlias(
+  "dashboardSnapshotsUpdate",
+  """; eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1") ; fh-datastar-view/testFull ; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")"""
+)
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
