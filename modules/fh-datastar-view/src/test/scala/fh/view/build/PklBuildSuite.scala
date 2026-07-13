@@ -24,8 +24,8 @@ class PklBuildSuite extends munit.FunSuite {
   /** Evaluate an entry the way the live server does (ADR 0009): entries/lib
     * import `hass.pkl`/`dump.pkl` over the `/system/pkl/` http URL, and a
     * [[SystemPkl]] provider resolves them in-memory off `tmp/lib/` (the files
-    * `copyLib` / `PklDump.render` wrote there). The embedded host is irrelevant —
-    * interception matches by path — so no server runs.
+    * `copyLib` / `PklDump.render` wrote there). The embedded host is irrelevant
+    * — interception matches by path — so no server runs.
     */
   private def evalSys(
       tmp: os.Path,
