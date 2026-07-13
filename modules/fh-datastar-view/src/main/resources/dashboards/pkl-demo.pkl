@@ -23,7 +23,7 @@ surfaces {
   ["detail"] {
     body {
       c.title("Power detail")
-      c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+      c.entityCard(dump.entities.sensor_ams_1a4e_q)
       c.button("Close", c.closePopup())
     }
   }
@@ -45,7 +45,7 @@ card = (c.grid) {
     (c.column) {
       children {
 
-        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+        c.entityCard(dump.entities.sensor_ams_1a4e_q)
 
 
         // Live value expression + explicit tap service, BUILDER style: each option
@@ -58,7 +58,7 @@ card = (c.grid) {
 
         // Domain-checked: only entities with a sliderSpec row (lights) compile.
         // A slider wants room — span the full grid width.
-        (c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)).fullWidth()
+        (c.slider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
       }
     }
 
