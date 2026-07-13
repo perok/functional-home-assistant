@@ -158,6 +158,9 @@ lazy val `fh-datastar-view` = project
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.31.1",
+      // already a runtime dep of pkl-core; explicit so PklDump can compile
+      // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
+      "org.pkl-lang" % "pkl-parser" % "0.31.1",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)

@@ -25,7 +25,7 @@ card = (c.column) {
     // reserved word, so its call sites are backticked. The condition pins ONE
     // entity via entityIs (+ .and), so the default "any" quantifier reads
     // "entity X is in state Y".
-    c.iff(c.entityIs(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`.entity_id).and(c.stateIs("on")))
+    c.iff(c.entityIs(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang.entity_id).and(c.stateIs("on")))
       .then(c.title("Demo light is on"))
       .`else`(c.title("Demo light is off"))
 
@@ -34,7 +34,7 @@ card = (c.column) {
     (c.iff(c.stateIs("on"))) {
       `then` {
         c.title("Something is on")
-        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+        c.entityCard(dump.entities.sensor_ams_1a4e_q)
       }
       `else` {
         c.title("All quiet")
