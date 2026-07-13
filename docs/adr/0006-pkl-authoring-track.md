@@ -45,8 +45,8 @@ extended. Once the hand-port completes they are deleted.
    `output { renderer = ... }` block; it just *is* its data, and the omit-null
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
-   the `theme.pkl` contract + its `theme-beer.pkl` (default) / `theme-pico.pkl`
-   implementations, `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
+   the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
+   default and only shipped theme), `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
    `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
    entries. A directory convention separates the two (Pkl has one file
    extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
@@ -148,8 +148,12 @@ extended. Once the hand-port completes they are deleted.
 
 Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 
-- Containers/sectionTitle/entityCard/button/slider; `expr`, and `exprOf`
-  multi-entity slots (0001/0004); `cssClass` slot on row/col.
+- Containers (grid/row/column)/sectionTitle/entityCard/button/slider; `expr`,
+  and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
+  grid/row/col; the layout-cell builders on the `LayoutNode` base —
+  `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
+  node-level `cell.classes` (the `fh-` layout contract; model + rationale in
+  ADR 0008).
 - `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/

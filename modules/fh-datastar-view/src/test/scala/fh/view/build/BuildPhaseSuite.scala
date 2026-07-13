@@ -3,6 +3,7 @@ package fh.view.build
 import fh.view.model.{
   Activation,
   CardDef,
+  Cell,
   Dashboard,
   LayoutNode,
   Op,
@@ -77,6 +78,22 @@ class BuildPhaseSuite extends munit.FunSuite {
     val errs = d.validate()
     assert(errs.exists(_.contains("label")), clue = errs)
     assert(!errs.exists(_.contains("missing slots: id")), clue = errs)
+  }
+
+  test("validate rejects a cell class that is not a plain CSS class token") {
+    // Cell classes are string-interpolated into the wrapper's class attribute,
+    // so anything beyond [A-Za-z0-9_-]+ must fail the build loudly.
+    val d = Dashboard(
+      cards = Map("card" -> CardDef("""<div>x</div>""")),
+      card = LayoutNode.Component(
+        card = "card",
+        cell = Some(Cell(classes = List("fh-cols-3", """bad"><script""")))
+      )
+    )
+    val errs = d.validate()
+    assert(errs.exists(_.contains("cell class")), clue = errs)
+    // The valid token passes; only the bad one is reported.
+    assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
   }
 
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {

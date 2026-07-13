@@ -13,12 +13,12 @@ import java.net.http.HttpClient
 
 object FHApi {
 
-  /** Resolve `SERVER`/`SECRET`/`SERVER_WS` from the process environment, falling
-    * back to a `.env` file (the same file `build.sbt` reads). The env var wins
-    * when set and non-empty; otherwise `.env` is consulted. This makes the app
-    * self-sufficient: forked `runMain` under sbt does not reliably inherit
-    * `run / envVars`, so relying on the process env alone is brittle — the
-    * `.env` fallback is deterministic.
+  /** Resolve `SERVER`/`SECRET`/`SERVER_WS` from the process environment,
+    * falling back to a `.env` file (the same file `build.sbt` reads). The env
+    * var wins when set and non-empty; otherwise `.env` is consulted. This makes
+    * the app self-sufficient: forked `runMain` under sbt does not reliably
+    * inherit `run / envVars`, so relying on the process env alone is brittle —
+    * the `.env` fallback is deterministic.
     */
   def fromEnv: Resource[IO, HomeAssistantApi[IO]] = for {
     server <- IO(lookup("SERVER"))
@@ -41,7 +41,10 @@ object FHApi {
     * then the discovered `.env`.
     */
   private def lookup(key: String): Option[String] =
-    sys.env.get(key).filter(_.nonEmpty).orElse(dotEnv.get(key).filter(_.nonEmpty))
+    sys.env
+      .get(key)
+      .filter(_.nonEmpty)
+      .orElse(dotEnv.get(key).filter(_.nonEmpty))
 
   /** Parsed `.env` (once), or empty if none is found. */
   private lazy val dotEnv: Map[String, String] =
@@ -65,13 +68,15 @@ object FHApi {
         finally src.close()
     }
 
-  /** Walk up from the working directory (the app runs with cwd = its module dir)
-    * to find the repo-root `.env`. Bounded so a missing file never walks the
-    * whole filesystem.
+  /** Walk up from the working directory (the app runs with cwd = its module
+    * dir) to find the repo-root `.env`. Bounded so a missing file never walks
+    * the whole filesystem.
     */
   private def findDotEnv(): Option[java.io.File] =
     Iterator
-      .iterate(new java.io.File(System.getProperty("user.dir")).getAbsoluteFile)(
+      .iterate(
+        new java.io.File(System.getProperty("user.dir")).getAbsoluteFile
+      )(
         _.getParentFile
       )
       .takeWhile(_ != null)

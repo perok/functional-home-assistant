@@ -1,7 +1,7 @@
 /// The BeerCSS Material Design 3 theme (`docs/plan-beercss-theme.md`) — the
 /// DEFAULT theme (wired in `entry.pkl`; contract + roster in `theme.pkl`).
 /// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
-/// another theme entirely (`theme = (import "lib/theme-pico.pkl").theme`).
+/// another theme entirely (any sibling module exporting a `theme.pkl` Theme).
 ///
 /// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
 /// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
@@ -194,11 +194,9 @@ class BeerTheme extends themeMod.Theme {
     }
 
     /* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it
-       styles as elements). Layout containers, ported from theme.pkl. */
-    .fh-row{display:flex;gap:1rem;flex-wrap:wrap}
-    .fh-col{display:flex;flex-direction:column;gap:1rem}
-    .fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}
-    .fh-cell{display:contents}
+       styles as elements). The fh- LAYOUT contract (grid/row/col/cell spans)
+       is the shared framework-agnostic default from theme.pkl. */
+    \(themeMod.layoutCss)
     .section{color:var(--primary)}
     .state{color:var(--on-surface-variant)}
     .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}

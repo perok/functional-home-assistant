@@ -15,31 +15,36 @@ import "lib/components.pkl" as c
 
 title = "Home"
 
-card = (c.column) {
+// The GRID is the default container (HA "sections" feel): full-width section
+// titles break the flow, and each dynamic group spans the grid while its
+// members flow two-up in the group's own 12-column grid (HA's default card
+// size). Size a card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl
+// for the fh- layout contract).
+card = (c.grid) {
   children {
-    c.title("Lights")
-    new c.DynamicGroup {
+    c.title("Lights").fullWidth()
+    (new c.DynamicGroup {
       query = c.domainIs("light")
       // Lights that are on get a brightness slider; the rest a toggle card.
       branches {
         [c.stateIs("on")] = c.slider
       }
       render = (e) -> (c.entityCard(e)) { tap = c.toggleTap }
-    }
+    }).fullWidth()
 
-    c.title("Switches")
-    new c.DynamicGroup {
+    c.title("Switches").fullWidth()
+    (new c.DynamicGroup {
       query = c.domainIs("switch")
       render = (e) -> (c.entityCard(e)) { tap = c.toggleTap }
-    }
+    }).fullWidth()
 
-    c.title("Low battery")
-    new c.DynamicGroup {
+    c.title("Low battery").fullWidth()
+    (new c.DynamicGroup {
       query = c.lowBattery(20)
       render = (e) -> (c.entityCard(e)) {
         label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
         secondary = "device_class"
       }
-    }
+    }).fullWidth()
   }
 }

@@ -114,11 +114,37 @@ object SlotSource:
   *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
   *     no entry either — [[Dashboard.validate]] only flags missing *required*
   *     slots and ignores extra ones.
+  *   - `wrapAsCell`: whether the renderer wraps this card's HTML in the id'd
+  *     `.fh-cell` layout/morph wrapper (see `Renderer.render`). ON by default —
+  *     every node is a cell, so containers lay their children out uniformly and
+  *     every node is an addressable Datastar morph target. Turn it OFF only for
+  *     a card whose root element must remain a *direct* child of a
+  *     framework-structural parent (e.g. the tab anchors under BeerCSS's
+  *     `.tabs > a`); such a card is never wrapped, never a morph target of its
+  *     own, and must not be used as a dynamic-group case (whose per-entity
+  *     children are always wrapped — they ARE the patch targets).
+  *     [[Dashboard.validate]] rejects the wrapper-dependent shapes on such a
+  *     card: live-entity slots, `cell` params, and dynamic-case use.
   */
 case class CardDef(
     template: String,
-    slots: List[String] = Nil
+    slots: List[String] = Nil,
+    wrapAsCell: Boolean = true
 ) derives ConfiguredDecoder
+
+/** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
+  * classes on the node's `.fh-cell` wrapper (`<div class="fh-cell fh-cols-3"
+  * id=…>`). Theme-agnostic: the class names are the `fh-` layout contract
+  * (`fh-cols-<1..12>`, `fh-cols-full`, …) every theme's CSS implements — see
+  * `lib/theme.pkl`. The authoring layer emits them from the
+  * HA-`grid_options`-flavored builders (`columns(n)`, `fullWidth()`, …).
+  *
+  * An object rather than a bare list so it can grow further
+  * HA-`grid_options`-style fields (rows, dense packing) without a wire break.
+  * [[Dashboard.validate]] rejects a class that is not a plain CSS class token
+  * (the renderer string-interpolates them into a `class` attribute).
+  */
+case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
 
 /** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
@@ -204,7 +230,11 @@ enum Activation derives ConfiguredDecoder:
 case class DynamicCase(
     when: Predicate,
     card: String,
-    slots: Map[String, SlotSource] = Map.empty
+    slots: Map[String, SlotSource] = Map.empty,
+    // Layout-cell classes for each per-entity member wrapper this case renders
+    // (every member of the branch shares them — the wrapper class set is
+    // static wire data, so in-place morphs re-emit it unchanged).
+    cell: Option[Cell] = None
 ) derives ConfiguredDecoder
 
 /** A node in the recursive dashboard layout tree. */
@@ -231,7 +261,9 @@ object LayoutNode:
   case class Component(
       card: String,
       slots: Map[String, SlotSource] = Map.empty,
-      children: List[LayoutNode] = Nil
+      children: List[LayoutNode] = Nil,
+      // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
+      cell: Option[Cell] = None
   ) extends LayoutNode:
     /** The card's subject entity — the `entity_id` slot's value when it is a
       * constant `literal` (the common case). A *transform* `entity_id`
@@ -269,7 +301,10 @@ object LayoutNode:
     */
   case class Dynamic(
       query: Option[Predicate] = None,
-      cases: List[DynamicCase] = Nil
+      cases: List[DynamicCase] = Nil,
+      // Layout-cell classes for the group's own root wrapper (`.fh-cell
+      // .fh-group`) — e.g. `fh-cols-full` to span a parent grid.
+      cell: Option[Cell] = None
   ) extends LayoutNode
 
   /** Stable, location-based id for an addressable node, derived from its index
@@ -299,7 +334,7 @@ object LayoutNode:
     s"${surfaceRootId(surfaceId)}__"
 
 /** The dashboard's presentation, owned entirely by the theme (so the app isn't
-  * tied to any particular CSS framework — e.g. Pico is just a `stylesheets`
+  * tied to any particular CSS framework — e.g. BeerCSS is just a `stylesheets`
   * entry here, not baked into the server).
   *
   *   - `tokens`: design tokens — Home Assistant frontend theme variable name ->
@@ -308,7 +343,7 @@ object LayoutNode:
   *   - `tokensDark`: token overrides applied under
   *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
   *     light/dark setting.
-  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the Pico CDN).
+  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the BeerCSS CDN).
   *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
   *     the document head after the stylesheets (ES modules — deferred, run
   *     after first paint). For framework helpers the theme's CSS needs (e.g.
@@ -457,26 +492,74 @@ case class Dashboard(
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
       nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
 
+    // Cell classes are string-interpolated into the wrapper's `class`
+    // attribute, so each must be a plain CSS class token — reject anything
+    // else loudly at build time rather than emitting broken/injectable markup.
+    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
+      cell.toList.flatMap(_.classes).collect {
+        case cls if !cls.matches("[A-Za-z0-9_-]+") =>
+          s"$nodeId: cell class '$cls' is not a plain CSS class token " +
+            "([A-Za-z0-9_-]+)"
+      }
+
+    // A `wrapAsCell = false` card renders bare — no id'd `.fh-cell` wrapper —
+    // so everything that rides on the wrapper is unusable with it, and
+    // silently so at render time. Reject the combinations loudly instead:
+    // live-entity slots (the pushed morphs would never match an element in the
+    // DOM), cell params (there is no wrapper to carry the classes), and
+    // dynamic cases (every member IS its wrapped per-entity patch target —
+    // Renderer.renderCase wraps unconditionally).
+    def noWrap(cardName: String): Boolean =
+      cards.get(cardName).exists(!_.wrapAsCell)
+
     def walk(node: LayoutNode, path: List[Int]): List[String] =
       node match
-        case LayoutNode.Component(card, slots, kids) =>
+        case c @ LayoutNode.Component(card, slots, kids, cell) =>
           val nodeId = LayoutNode.pathId(path)
+          val wrapErrors =
+            if (!noWrap(card)) Nil
+            else
+              Option
+                .when(c.liveEntities.nonEmpty)(
+                  s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
+                    s"entities (${c.liveEntities.mkString(", ")}) — an " +
+                    "unwrapped node has no morph target, so its live updates " +
+                    "would never apply; make those slots literal / " +
+                    "reactive=false or drop the opt-out"
+                )
+                .toList ++
+                Option
+                  .when(cell.isDefined)(
+                    s"$nodeId: card '$card' has wrapAsCell=false but carries " +
+                      "cell params — they ride on the .fh-cell wrapper this " +
+                      "card opts out of"
+                  )
+                  .toList
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, slots) ++ children(kids, path)
-        case LayoutNode.Dynamic(_, cases) =>
-          cases.flatMap { c =>
-            val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
-            checkRef(
-              nodeId,
-              c.card,
-              Dashboard.injectedDynamic,
-              c.slots.keySet
-            ) ++ slotErrors(nodeId, c.slots)
-          }
+          ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
+            wrapErrors ++ children(kids, path)
+        case LayoutNode.Dynamic(_, cases, cell) =>
+          cellErrors(LayoutNode.pathId(path), cell) ++
+            cases.flatMap { c =>
+              val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
+              checkRef(
+                nodeId,
+                c.card,
+                Dashboard.injectedDynamic,
+                c.slots.keySet
+              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell) ++
+                Option
+                  .when(noWrap(c.card))(
+                    s"$nodeId: card '${c.card}' has wrapAsCell=false and " +
+                      "cannot be a dynamic-group case — every member is " +
+                      "wrapped as its own per-entity patch target"
+                  )
+                  .toList
+            }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome

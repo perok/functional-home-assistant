@@ -1,9 +1,14 @@
 {
   "card" : {
-    "card" : "fhcol",
+    "card" : "fhgrid",
     "children" : [
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -12,84 +17,103 @@
         }
       },
       {
-        "card" : "entityCard",
+        "card" : "fhcol",
         "children" : [
+          {
+            "card" : "entityCard",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "entity_id" : "sensor.ams_1a4e_q",
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : "Power",
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+              }
+            }
+          },
+          {
+            "card" : "entityCard",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "entity_id" : "sensor.ams_1a4e_u1",
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : "L1 voltage",
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
+              },
+              "tappable" : "1",
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$round($number($state), 1) & \" V\""
+              }
+            }
+          },
+          {
+            "card" : "slider",
+            "cell" : {
+              "classes" : [
+                "fh-cols-full"
+              ]
+            },
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "action" : "light/turn_on",
+              "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "fill" : {
+                "bypassUnavailable" : false,
+                "default" : "100",
+                "reactive" : true,
+                "transform" : "($v := $attr.brightness; $v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
+              },
+              "key" : "brightness",
+              "label" : "Demo light",
+              "max" : "255",
+              "min" : "1",
+              "state" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state"
+              },
+              "value" : {
+                "bypassUnavailable" : false,
+                "default" : "0",
+                "reactive" : true,
+                "transform" : "$attr.brightness"
+              }
+            }
+          }
         ],
         "kind" : "component",
         "slots" : {
-          "entity_id" : "sensor.ams_1a4e_q",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
-          "label" : "Power",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-          }
-        }
-      },
-      {
-        "card" : "entityCard",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "entity_id" : "sensor.ams_1a4e_u1",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
-          "label" : "L1 voltage",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
-          },
-          "tappable" : "1",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$round($number($state), 1) & \" V\""
-          }
-        }
-      },
-      {
-        "card" : "slider",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "action" : "light/turn_on",
-          "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-          "fill" : {
-            "bypassUnavailable" : false,
-            "default" : "100",
-            "reactive" : true,
-            "transform" : "($v := $attr.brightness; $v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
-          },
-          "key" : "brightness",
-          "label" : "Demo light",
-          "max" : "255",
-          "min" : "1",
-          "state" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$state"
-          },
-          "value" : {
-            "bypassUnavailable" : false,
-            "default" : "0",
-            "reactive" : true,
-            "transform" : "$attr.brightness"
-          }
+          
         }
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -185,6 +209,11 @@
             }
           }
         ],
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "kind" : "dynamic",
         "query" : {
           "kind" : "cmp",
@@ -195,6 +224,11 @@
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -237,6 +271,11 @@
             }
           }
         ],
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "kind" : "dynamic",
         "query" : {
           "items" : [
@@ -258,6 +297,11 @@
       },
       {
         "card" : "sectionTitle",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "kind" : "component",
@@ -266,64 +310,73 @@
         }
       },
       {
-        "card" : "button",
+        "card" : "fhrow",
         "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "label" : "Power detail…",
-          "onclick" : "@post('sse/surface/open/detail')"
-        }
-      },
-      {
-        "card" : "button",
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "self" : {
-            "content" : {
-              "card" : "popup",
-              "children" : [
-                {
-                  "card" : "fhcol",
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "Power detail…",
+              "onclick" : "@post('sse/surface/open/detail')"
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "inlineSurfaces" : {
+              "self" : {
+                "content" : {
+                  "card" : "popup",
                   "children" : [
                     {
-                      "card" : "sectionTitle",
+                      "card" : "fhcol",
                       "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Quick info"
-                      }
-                    },
-                    {
-                      "card" : "entityCard",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "entity_id" : "sensor.ams_1a4e_u1",
-                        "icon" : {
-                          "bypassUnavailable" : false,
-                          "reactive" : false,
-                          "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                        {
+                          "card" : "sectionTitle",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "label" : "Quick info"
+                          }
                         },
-                        "label" : "L1 voltage",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reactive" : true,
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        {
+                          "card" : "entityCard",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "entity_id" : "sensor.ams_1a4e_u1",
+                            "icon" : {
+                              "bypassUnavailable" : false,
+                              "reactive" : false,
+                              "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                            },
+                            "label" : "L1 voltage",
+                            "value" : {
+                              "bypassUnavailable" : true,
+                              "reactive" : true,
+                              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                            }
+                          }
+                        },
+                        {
+                          "card" : "button",
+                          "children" : [
+                          ],
+                          "kind" : "component",
+                          "slots" : {
+                            "label" : "Close",
+                            "onclick" : "@post('sse/popup/close')"
+                          }
                         }
-                      }
-                    },
-                    {
-                      "card" : "button",
-                      "children" : [
                       ],
                       "kind" : "component",
                       "slots" : {
-                        "label" : "Close",
-                        "onclick" : "@post('sse/popup/close')"
+                        
                       }
                     }
                   ],
@@ -332,28 +385,28 @@
                     
                   }
                 }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
               }
+            },
+            "kind" : "component",
+            "slots" : {
+              "label" : "Quick info…",
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "« Back to jsonnet",
+              "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
             }
           }
-        },
-        "kind" : "component",
-        "slots" : {
-          "label" : "Quick info…",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
-        }
-      },
-      {
-        "card" : "button",
-        "children" : [
         ],
         "kind" : "component",
         "slots" : {
-          "label" : "« Back to jsonnet",
-          "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
+          
         }
       }
     ],
@@ -382,6 +435,11 @@
       "slots" : [
       ],
       "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "fhgrid" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
     "fhrow" : {
       "slots" : [
@@ -423,7 +481,8 @@
         "onclick",
         "active"
       ],
-      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>"
+      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>",
+      "wrapAsCell" : false
     },
     "tabs" : {
       "slots" : [
@@ -488,7 +547,7 @@
     "scripts" : [
       "https://cdn.jsdelivr.net/npm/beercss@4.0.23/dist/cdn/beer.min.js"
     ],
-    "styles" : "/* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body\n   specificity + all three class states + declaration order: see the\n   module doc for why each is required. */\nbody,body.light,body.dark{--primary:#006493;--on-primary:#ffffff;--primary-container:#cae6ff;--on-primary-container:#001e30;--secondary:#50606e;--on-secondary:#ffffff;--secondary-container:#d3e5f5;--on-secondary-container:#0c1d29;--tertiary:#65587b;--on-tertiary:#ffffff;--tertiary-container:#ebddff;--on-tertiary-container:#201634;--error:#ba1a1a;--on-error:#ffffff;--error-container:#ffdad6;--on-error-container:#410002;--background:#fcfcff;--on-background:#1a1c1e;--surface:#fcfcff;--on-surface:#1a1c1e;--surface-variant:#dde3ea;--on-surface-variant:#41474d;--outline:#72787e;--outline-variant:#c1c7ce;--shadow:#000000;--scrim:#000000;--inverse-surface:#2e3133;--inverse-on-surface:#f0f0f3;--inverse-primary:#8dcdff;--surface-dim:#d9dadd;--surface-bright:#f9f9fc;--surface-container-lowest:#ffffff;--surface-container-low:#f3f3f6;--surface-container:#edeef1;--surface-container-high:#e8e8eb;--surface-container-highest:#e2e2e5}\n@media (prefers-color-scheme:dark){\n  body,body.light,body.dark{--primary:#8dcdff;--on-primary:#00344f;--primary-container:#004b70;--on-primary-container:#cae6ff;--secondary:#b7c9d9;--on-secondary:#22323f;--secondary-container:#384956;--on-secondary-container:#d3e5f5;--tertiary:#cfc0e8;--on-tertiary:#362b4b;--tertiary-container:#4d4162;--on-tertiary-container:#ebddff;--error:#ffb4ab;--on-error:#690005;--error-container:#93000a;--on-error-container:#ffb4ab;--background:#1a1c1e;--on-background:#e2e2e5;--surface:#1a1c1e;--on-surface:#e2e2e5;--surface-variant:#41474d;--on-surface-variant:#c1c7ce;--outline:#8b9198;--outline-variant:#41474d;--shadow:#000000;--scrim:#000000;--inverse-surface:#e2e2e5;--inverse-on-surface:#2e3133;--inverse-primary:#006493;--surface-dim:#111416;--surface-bright:#37393c;--surface-container-lowest:#0c0e11;--surface-container-low:#1a1c1e;--surface-container:#1e2022;--surface-container-high:#282a2d;--surface-container-highest:#333537}\n}\n/* HA-token re-pointing — LAST so it wins in both schemes. Keeps the HA\n   look on MD3: HA blue as primary, HA background/text/divider, and the\n   card/dialog surfaces (article reads --surface-container-low, dialog\n   --surface-container-high) on the HA card color. */\nbody,body.light,body.dark{\n  --primary:var(--primary-color);\n  --on-primary:var(--text-primary-color);\n  --background:var(--primary-background-color);\n  --surface:var(--primary-background-color);\n  --on-background:var(--primary-text-color);\n  --on-surface:var(--primary-text-color);\n  --on-surface-variant:var(--secondary-text-color);\n  --outline-variant:var(--divider-color);\n  --error:var(--error-color);\n  --surface-container-low:var(--card-background-color);\n  --surface-container-high:var(--card-background-color);\n}\n\n/* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it\n   styles as elements). Layout containers, ported from theme.pkl. */\n.fh-row{display:flex;gap:1rem;flex-wrap:wrap}\n.fh-col{display:flex;flex-direction:column;gap:1rem}\n.fh-row>.fh-col{flex:1 1 0;min-width:0;align-self:flex-start}\n.fh-cell{display:contents}\n.section{color:var(--primary)}\n.state{color:var(--on-surface-variant)}\n.entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}\n/* Domain icon in the entity-card header (Material Symbols — the font\n   ships in the BeerCSS dist). */\n.entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}\n.card.tappable{cursor:pointer}\n/* The slider card's label line (class contract, like .card): label left,\n   live state right. */\n.slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between}\n/* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab\n   distribution, underline active indicator, hover/press states, all\n   framework CSS (an inline-size override to make tabs hug their labels\n   was tried and REVERTED: it detached the active underline from the\n   anchor). Only the panel wrapper is ours. */\n.tab-panel{display:contents}\n\n/* Popup: BeerCSS's <dialog> styling (fixed, centered, elevated,\n   surface-container-high) does the chrome; cap the width and unfill the ✕\n   (a bare <button> is a filled primary pill by default). */\ndialog.popup{max-inline-size:min(90vw,32rem)}\n.popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;\n  color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}",
+    "styles" : "/* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body\n   specificity + all three class states + declaration order: see the\n   module doc for why each is required. */\nbody,body.light,body.dark{--primary:#006493;--on-primary:#ffffff;--primary-container:#cae6ff;--on-primary-container:#001e30;--secondary:#50606e;--on-secondary:#ffffff;--secondary-container:#d3e5f5;--on-secondary-container:#0c1d29;--tertiary:#65587b;--on-tertiary:#ffffff;--tertiary-container:#ebddff;--on-tertiary-container:#201634;--error:#ba1a1a;--on-error:#ffffff;--error-container:#ffdad6;--on-error-container:#410002;--background:#fcfcff;--on-background:#1a1c1e;--surface:#fcfcff;--on-surface:#1a1c1e;--surface-variant:#dde3ea;--on-surface-variant:#41474d;--outline:#72787e;--outline-variant:#c1c7ce;--shadow:#000000;--scrim:#000000;--inverse-surface:#2e3133;--inverse-on-surface:#f0f0f3;--inverse-primary:#8dcdff;--surface-dim:#d9dadd;--surface-bright:#f9f9fc;--surface-container-lowest:#ffffff;--surface-container-low:#f3f3f6;--surface-container:#edeef1;--surface-container-high:#e8e8eb;--surface-container-highest:#e2e2e5}\n@media (prefers-color-scheme:dark){\n  body,body.light,body.dark{--primary:#8dcdff;--on-primary:#00344f;--primary-container:#004b70;--on-primary-container:#cae6ff;--secondary:#b7c9d9;--on-secondary:#22323f;--secondary-container:#384956;--on-secondary-container:#d3e5f5;--tertiary:#cfc0e8;--on-tertiary:#362b4b;--tertiary-container:#4d4162;--on-tertiary-container:#ebddff;--error:#ffb4ab;--on-error:#690005;--error-container:#93000a;--on-error-container:#ffb4ab;--background:#1a1c1e;--on-background:#e2e2e5;--surface:#1a1c1e;--on-surface:#e2e2e5;--surface-variant:#41474d;--on-surface-variant:#c1c7ce;--outline:#8b9198;--outline-variant:#41474d;--shadow:#000000;--scrim:#000000;--inverse-surface:#e2e2e5;--inverse-on-surface:#2e3133;--inverse-primary:#006493;--surface-dim:#111416;--surface-bright:#37393c;--surface-container-lowest:#0c0e11;--surface-container-low:#1a1c1e;--surface-container:#1e2022;--surface-container-high:#282a2d;--surface-container-highest:#333537}\n}\n/* HA-token re-pointing — LAST so it wins in both schemes. Keeps the HA\n   look on MD3: HA blue as primary, HA background/text/divider, and the\n   card/dialog surfaces (article reads --surface-container-low, dialog\n   --surface-container-high) on the HA card color. */\nbody,body.light,body.dark{\n  --primary:var(--primary-color);\n  --on-primary:var(--text-primary-color);\n  --background:var(--primary-background-color);\n  --surface:var(--primary-background-color);\n  --on-background:var(--primary-text-color);\n  --on-surface:var(--primary-text-color);\n  --on-surface-variant:var(--secondary-text-color);\n  --outline-variant:var(--divider-color);\n  --error:var(--error-color);\n  --surface-container-low:var(--card-background-color);\n  --surface-container-high:var(--card-background-color);\n}\n\n/* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it\n   styles as elements). The fh- LAYOUT contract (grid/row/col/cell spans)\n   is the shared framework-agnostic default from theme.pkl. */\n.fh-grid,.fh-group{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem)}\n.fh-grid.fh-start,.fh-group.fh-start{justify-content:flex-start}\n.fh-grid>:where(.fh-cell),.fh-group>:where(.fh-cell){flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem));min-width:0}.fh-cols-1{flex-basis:calc((100% + var(--fh-gap,1rem)) * 1 / 12 - var(--fh-gap,1rem))}\n.fh-cols-2{flex-basis:calc((100% + var(--fh-gap,1rem)) * 2 / 12 - var(--fh-gap,1rem))}\n.fh-cols-3{flex-basis:calc((100% + var(--fh-gap,1rem)) * 3 / 12 - var(--fh-gap,1rem))}\n.fh-cols-4{flex-basis:calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}\n.fh-cols-5{flex-basis:calc((100% + var(--fh-gap,1rem)) * 5 / 12 - var(--fh-gap,1rem))}\n.fh-cols-6{flex-basis:calc((100% + var(--fh-gap,1rem)) * 6 / 12 - var(--fh-gap,1rem))}\n.fh-cols-7{flex-basis:calc((100% + var(--fh-gap,1rem)) * 7 / 12 - var(--fh-gap,1rem))}\n.fh-cols-8{flex-basis:calc((100% + var(--fh-gap,1rem)) * 8 / 12 - var(--fh-gap,1rem))}\n.fh-cols-9{flex-basis:calc((100% + var(--fh-gap,1rem)) * 9 / 12 - var(--fh-gap,1rem))}\n.fh-cols-10{flex-basis:calc((100% + var(--fh-gap,1rem)) * 10 / 12 - var(--fh-gap,1rem))}\n.fh-cols-11{flex-basis:calc((100% + var(--fh-gap,1rem)) * 11 / 12 - var(--fh-gap,1rem))}\n.fh-cols-12{flex-basis:calc((100% + var(--fh-gap,1rem)) * 12 / 12 - var(--fh-gap,1rem))}\n.fh-cols-full{flex-basis:100%}\n.fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap}\n.fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}\n.fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}\n.fh-col>.fh-cell{width:100%}\n@media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}\n.section{color:var(--primary)}\n.state{color:var(--on-surface-variant)}\n.entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}\n/* Domain icon in the entity-card header (Material Symbols — the font\n   ships in the BeerCSS dist). */\n.entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}\n.card.tappable{cursor:pointer}\n/* The slider card's label line (class contract, like .card): label left,\n   live state right. */\n.slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between}\n/* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab\n   distribution, underline active indicator, hover/press states, all\n   framework CSS (an inline-size override to make tabs hug their labels\n   was tried and REVERTED: it detached the active underline from the\n   anchor). Only the panel wrapper is ours. */\n.tab-panel{display:contents}\n\n/* Popup: BeerCSS's <dialog> styling (fixed, centered, elevated,\n   surface-container-high) does the chrome; cap the width and unfill the ✕\n   (a bare <button> is a filled primary pill by default). */\ndialog.popup{max-inline-size:min(90vw,32rem)}\n.popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;\n  color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}",
     "stylesheets" : [
       "https://cdn.jsdelivr.net/npm/beercss@4.0.23/dist/cdn/beer.min.css"
     ],

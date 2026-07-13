@@ -306,7 +306,7 @@ object ServerApp extends IOApp {
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
-          case true  => IO.pure(Some(path))
+          case true => IO.pure(Some(path))
           case false =>
             IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
         }
