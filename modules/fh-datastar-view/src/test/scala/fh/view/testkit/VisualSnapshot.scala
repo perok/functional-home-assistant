@@ -9,9 +9,10 @@ import javax.imageio.ImageIO
   * checked-in wire-format snapshots. A component's rendered look is
   * deterministic here BY CONSTRUCTION: fixed viewport,
   * [[fh.view.smoke.SmokeSuite.settle]] kills animations and waits on webfonts,
-  * and every asset (fonts included) is the fully offline, pinned-version
-  * [[VendoredAssets]] set — so unlike a typical visual-regression setup there
-  * is no live CDN version drift to chase.
+  * and every asset (fonts included) is fetched at a version pinned in its CDN
+  * URL (`theme-beer.pkl`'s `beerVersion`, `Server.DatastarCdn`'s tag) — so
+  * unlike a typical visual-regression setup there is no live CDN version drift
+  * to chase.
   *
   * The comparison is NOT byte-identity: the only cross-environment variance
   * left after asset-pinning is the OS-level font rasterization stack (FreeType

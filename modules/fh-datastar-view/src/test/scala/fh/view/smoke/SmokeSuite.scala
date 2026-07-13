@@ -64,9 +64,9 @@ abstract class SmokeSuite extends munit.FunSuite {
     * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
     * `data-on:click` selector or a dropped SSE continuation line surfaces
     * exactly there. NOT gated on console "error"-level messages: those also
-    * cover benign failed-resource-load logs (e.g. the decorative BeerCSS assets
-    * [[VendoredAssets]] deliberately doesn't vendor, or the browser's own
-    * favicon probe), which would make this suite noisy rather than meaningful.
+    * cover benign failed-resource-load logs (e.g. a decorative BeerCSS
+    * sub-resource the CDN 404s, or the browser's own favicon probe), which
+    * would make this suite noisy rather than meaningful.
     */
   def withPage[A](
       dashboard: Dashboard,

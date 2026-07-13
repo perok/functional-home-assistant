@@ -73,10 +73,8 @@ modules/fh-datastar-view/
     ComponentVisualSuite.scala   # (added) component-level screenshot snapshots
   src/test/scala/fh/view/testkit/
     SmokeDashboard.scala   # the Tier-A Pkl fixture (real theme-beer.pkl + tabs/popup/slider)
-    VendoredAssets.scala   # offline AssetCache client (see src/test/resources/vendor/VENDORED.md)
     VisualSnapshot.scala   # the ComponentVisualSuite PNG-snapshot gate
   src/test/resources/
-    vendor/                # datastar.js / beer.min.{css,js} / the outlined icon font
     visual-snapshots/       # checked-in PNG baselines
 ```
 
@@ -220,15 +218,15 @@ Extend `.github/workflows/cicd.yml`'s `ci` job (JDK 21 already present — **no 
 
 ## Open decisions (resolved during implementation)
 
-- Datastar asset: local-vendored (`VendoredAssets`), as preferred — required, in the end: this
-  session's egress policy blocks `cdn.jsdelivr.net` outright, so `AssetCache.build`'s real fetch
-  path was never an option here. `raw.githubusercontent.com` (unlike jsdelivr's `/gh/` mirror of
-  it) IS reachable, so the vendored `datastar.js` is fetched from there — byte-identical to what
-  `Server.DatastarCdn` serves in production, not a rebuild from a different source. (A first attempt
-  vendored the `@starfederation/datastar` NPM package instead and rebundled it with esbuild — don't
-  repeat that: NPM's `1.0.0-beta.*` line turned out to use a materially different, non-colon
-  attribute syntax with no `init` plugin, so `data-init`/`data-on:click` silently never fired. See
-  `VendoredAssets.scala`'s `VENDORED.md` for the full provenance/licensing table.)
+- Theme assets (Datastar / BeerCSS / the icon font): `TestServer.served` builds the REAL
+  `AssetCache` exactly as `ServerApp` does — a JDK http client fetching the theme's pinned CDN URLs
+  into a temp dir — so the smoke/visual suites exercise the production fetch + CSS-sub-resource-
+  rewrite path unchanged. (An earlier iteration vendored those bytes under `src/test/resources/vendor/`
+  and served them through a fake `Client[IO]`; that existed ONLY because a sandboxed session's egress
+  policy blocked `cdn.jsdelivr.net`, and was removed once tests run in environments with normal
+  egress — dev machines and CI both reach the CDN, and production already depends on the same
+  reachability at startup. Versions stay pinned in the URLs, so the fetched bytes are still
+  deterministic.)
 - The retry-until helper for `recordedCalls`: went with the small `IO` combinator
   (`SmokeSuite.eventually`, an `fs2.Stream.repeatEval` poll with a timeout) rather than gating on a
   DOM-observable settle point — a control click in these suites doesn't always have one available
@@ -258,17 +256,17 @@ Extend `.github/workflows/cicd.yml`'s `ci` job (JDK 21 already present — **no 
 3. [x] `Browser` suite fixture + `SmokeSuite` base (per-test bound server + `Page`, console-error
    collector, cats-effect `Resource` bridge). *(Landed as `page.onPageError`, not a console-`error`
    collector — see "What this is NOT"-adjacent note in `SmokeSuite`'s doc comment: console `error`
-   also covers benign failed-resource-load logs for assets `VendoredAssets` deliberately doesn't
-   vendor, which would make the gate noise, not signal.)*
+   also covers benign failed-resource-load logs for decorative sub-resources the CDN 404s, which
+   would make the gate noise, not signal.)*
 4. [x] `RenderSmokeSuite` + `LiveUpdateSmokeSuite` (prove server-up + SSE-to-DOM morph).
 5. [x] `ControlSmokeSuite` (click → `recordedCalls` → round-trip morph).
 6. [x] Tier-A fixture Pkl dashboard with tabs/popup/slider; `UiSmokeSuite`. *(`SmokeDashboard`,
    built through the real Pkl pipeline like `PklDashboardBehaviourSuite`'s fixture, but with the
    REAL `theme-beer.pkl` — not a dummy theme — since these suites exist specifically to exercise
    real CSS/JS in a real browser.)*
-7. [x] Local Datastar asset serving for hermeticity. *(`VendoredAssets` + a fake `Client[IO]` that
-   drives the real `AssetCache.build` pipeline — including its CSS sub-resource rewriting — against
-   vendored bytes instead of the network.)*
+7. [x] Theme asset serving via the real `AssetCache.build` pipeline (JDK client → pinned CDN URLs),
+   wired exactly as `ServerApp` — including its CSS sub-resource rewriting. *(Briefly vendored for a
+   network-blocked sandbox; reverted to the live-CDN fetch once tests run with normal egress.)*
 7a. [x] (Added, beyond the original plan) `ComponentVisualSuite`: component-level screenshot
    snapshots — see "What this is NOT" above.
 8. [ ] CI: cached `chromium` install step + trace artifact on failure; optional `testOnly *Smoke*`

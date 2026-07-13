@@ -6,11 +6,12 @@ package fh.view.runtime
 import cats.effect.{IO, Resource}
 import com.comcast.ip4s.{host, port}
 import fh.view.model.Dashboard
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, VendoredAssets}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
+import org.http4s.jdkhttpclient.JdkHttpClient
 
 import scala.concurrent.duration.*
 
@@ -146,11 +147,12 @@ object TestServer {
       )
     } yield new TestServer(fake, store, server, dashboard.slug)
 
-  /** Same wiring as [[resource]], plus an offline [[AssetCache]]
-    * ([[VendoredAssets]] — no CDN, no network) and a real ember bind on an
-    * OS-assigned loopback port, so a browser (the Playwright smoke suite) can
-    * navigate to it. State is still driven in-process through
-    * `TestServer.fake.emit`, exactly as [[resource]].
+  /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
+    * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
+    * into a temp dir — and a real ember bind on an OS-assigned loopback port,
+    * so a browser (the Playwright smoke suite) can navigate to it. State is
+    * still driven in-process through `TestServer.fake.emit`, exactly as
+    * [[resource]].
     */
   def served(
       dashboard: Dashboard,
@@ -159,11 +161,18 @@ object TestServer {
     for {
       fake <- FakeHomeAssistant.create(entities).toResource
       store <- StateStore.create(fake)
-      rendererRef <- SignallingRef[IO]
-        .of(Renderer.create(dashboard))
-        .toResource
+      renderer = Renderer.create(dashboard)
+      rendererRef <- SignallingRef[IO].of(renderer).toResource
       sessions <- Sessions.create.toResource
-      assets <- VendoredAssets.build.toResource
+      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
+      assetsDir <- IO.blocking(os.temp.dir(prefix = "fh-smoke-assets")).toResource
+      assets <- AssetCache
+        .build(
+          assetsDir,
+          Server.DatastarCdn :: renderer.stylesheets ++ renderer.scripts,
+          JdkHttpClient[IO](httpClient)
+        )
+        .toResource
       server <- Server.resource(
         fake,
         store,
