@@ -36,6 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: coursier/cache-action@v6
+      - uses: coursier/setup-action@v1
+        with:
+          apps: scalafmt
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -58,12 +63,9 @@ jobs:
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
-      - name: Bootstrap sbt server
-        run: sbt about
-
       - parallel:
           - name: Fmt check
-            run: sbt scalafmtCheckAll
+            run: scalafmt --test
 
           - name: Test
             run: sbt 'fh-datastar-view/testFull'
