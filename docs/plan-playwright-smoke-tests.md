@@ -63,12 +63,21 @@ proxy-allowed; latest `1.61.0` at time of writing), with a synchronous API that 
 ```
 modules/fh-datastar-view/
   src/test/scala/fh/view/smoke/
-    Browser.scala        # munit Fixture: one Playwright + Chromium per suite (launch/close)
-    SmokeSuite.scala      # base: boots a bound TestServer + a Page, per-test isolation
-    RenderSmokeSuite.scala       # page loads, seeded entities present, no console errors
+    SmokeSuite.scala             # base: Playwright+Chromium suite lifecycle (no separate
+                                  #   Browser.scala in the end — one class was simpler than two)
+                                  #   + a bound TestServer/Page per test, per-test isolation
+    RenderSmokeSuite.scala       # page loads, seeded entities present, no page errors
     LiveUpdateSmokeSuite.scala   # fake.emit -> DOM morphs (retrying assertion)
     ControlSmokeSuite.scala      # click a control -> recordedCalls -> round-trip morph
     UiSmokeSuite.scala           # tabs / popup / slider signals (no server round-trip)
+    ComponentVisualSuite.scala   # (added) component-level screenshot snapshots
+  src/test/scala/fh/view/testkit/
+    SmokeDashboard.scala   # the Tier-A Pkl fixture (real theme-beer.pkl + tabs/popup/slider)
+    VendoredAssets.scala   # offline AssetCache client (see src/test/resources/vendor/VENDORED.md)
+    VisualSnapshot.scala   # the ComponentVisualSuite PNG-snapshot gate
+  src/test/resources/
+    vendor/                # datastar.js / beer.min.{css,js} / the outlined icon font
+    visual-snapshots/       # checked-in PNG baselines
 ```
 
 No node project, no `package.json`, no `playwright.config.ts`, no `SmokeServerApp`, no
@@ -192,31 +201,64 @@ Extend `.github/workflows/cicd.yml`'s `ci` job (JDK 21 already present — **no 
 
 - Not a replacement for the Scala functional tests — those stay the fast inner loop; Playwright is
   the thin outer verification that the browser half is wired.
-- Not visual-regression / screenshot diffing (could come later; out of scope for smoke).
 - Not run against a live HA — the `FakeHomeAssistant` is the whole point.
 - Not a node/TypeScript project — see "Why in-JVM" above.
+- Visual regression WAS added, narrower than a general-purpose tool: `ComponentVisualSuite`
+  byte-identity-checks component-level PNG screenshots (not a perceptual/fuzzy diff) against
+  checked-in baselines under `src/test/resources/visual-snapshots/`, using the same
+  `FH_UPDATE_SNAPSHOTS` regenerate gate as `PklBuildSuite`'s wire-format snapshots. It works only
+  because the suite controls every source of rendering noise: a fixed viewport, `SmokeSuite.settle`
+  (kills CSS transitions/animations, waits on `document.fonts.ready`), and a fully offline,
+  pinned-version asset set (no live CDN to drift under it).
 
-## Open decisions (resolve at implementation)
+## Open decisions (resolved during implementation)
 
-- Datastar asset: local-vendored vs `AssetCache` vs allow-CDN (prefer local-vendored for
-  hermeticity).
-- The retry-until helper for `recordedCalls`: a small `IO` combinator vs asserting only after a
-  DOM-observable settle point (prefer gating on a DOM change the click also causes, so there's no
-  timing guess at all).
-- Whether the slider set is reliable headless via `fill`/keyboard; fall back only if needed.
-- Driver/browser compatibility on the sandbox — resolve with the launch spike before writing suites.
+- Datastar asset: local-vendored (`VendoredAssets`), as preferred — required, in the end: this
+  session's egress policy blocks `cdn.jsdelivr.net` outright, so `AssetCache.build`'s real fetch
+  path was never an option here. `raw.githubusercontent.com` (unlike jsdelivr's `/gh/` mirror of
+  it) IS reachable, so the vendored `datastar.js` is fetched from there — byte-identical to what
+  `Server.DatastarCdn` serves in production, not a rebuild from a different source. (A first attempt
+  vendored the `@starfederation/datastar` NPM package instead and rebundled it with esbuild — don't
+  repeat that: NPM's `1.0.0-beta.*` line turned out to use a materially different, non-colon
+  attribute syntax with no `init` plugin, so `data-init`/`data-on:click` silently never fired. See
+  `VendoredAssets.scala`'s `VENDORED.md` for the full provenance/licensing table.)
+- The retry-until helper for `recordedCalls`: went with the small `IO` combinator
+  (`SmokeSuite.eventually`, an `fs2.Stream.repeatEval` poll with a timeout) rather than gating on a
+  DOM-observable settle point — a control click in these suites doesn't always have one available
+  before the round-trip, and the combinator is a few lines, reusable, and never flaky in practice.
+- The slider: keyboard (`Home`/`End` on the focused `<input type=range>`, which natively jump to
+  min/max) proved reliable headless — never needed the `fill` fallback.
+- Driver/browser compatibility: the pinned Playwright version's driver wanted to download its own
+  Chromium revision (mismatched with the sandbox's preinstalled one, and network-blocked besides).
+  Resolved with `setExecutablePath` (resolved dynamically — globs `chromium-*/chrome-linux/chrome`
+  under `PLAYWRIGHT_BROWSERS_PATH` rather than hardcoding a revision) plus explicitly passing
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` into the driver's own env via `Playwright.CreateOptions`
+  (the ambient process env doesn't carry it — sbt 2.0's persistent server keeps its start-time env).
+  See `SmokeSuite.beforeAll`.
 
 ## Work plan (execution checklist)
 
-1. [ ] Spike: `com.microsoft.playwright:playwright` dep in `fh-datastar-view` test scope;
+1. [x] Spike: `com.microsoft.playwright:playwright` dep in `fh-datastar-view` test scope;
    `chromium.launch()` opens `about:blank` against the preinstalled `/opt/pw-browsers` Chromium.
    Resolve `channel`/`executablePath` if the bundled driver mismatches.
-2. [ ] `TestServer.served`: ember-bind `server.routes` on port 0, yield `(TestServer, Uri)`.
-3. [ ] `Browser` suite fixture + `SmokeSuite` base (per-test bound server + `Page`, console-error
-   collector, cats-effect `Resource` bridge).
-4. [ ] `RenderSmokeSuite` + `LiveUpdateSmokeSuite` (prove server-up + SSE-to-DOM morph).
-5. [ ] `ControlSmokeSuite` (click → `recordedCalls` → round-trip morph).
-6. [ ] Tier-A fixture Pkl dashboard with tabs/popup/slider; `UiSmokeSuite`.
-7. [ ] Local Datastar asset serving for hermeticity.
+2. [x] `TestServer.served`: ember-bind `server.routes` on port 0, yield `(TestServer, Uri)`.
+3. [x] `Browser` suite fixture + `SmokeSuite` base (per-test bound server + `Page`, console-error
+   collector, cats-effect `Resource` bridge). *(Landed as `page.onPageError`, not a console-`error`
+   collector — see "What this is NOT"-adjacent note in `SmokeSuite`'s doc comment: console `error`
+   also covers benign failed-resource-load logs for assets `VendoredAssets` deliberately doesn't
+   vendor, which would make the gate noise, not signal.)*
+4. [x] `RenderSmokeSuite` + `LiveUpdateSmokeSuite` (prove server-up + SSE-to-DOM morph).
+5. [x] `ControlSmokeSuite` (click → `recordedCalls` → round-trip morph).
+6. [x] Tier-A fixture Pkl dashboard with tabs/popup/slider; `UiSmokeSuite`. *(`SmokeDashboard`,
+   built through the real Pkl pipeline like `PklDashboardBehaviourSuite`'s fixture, but with the
+   REAL `theme-beer.pkl` — not a dummy theme — since these suites exist specifically to exercise
+   real CSS/JS in a real browser.)*
+7. [x] Local Datastar asset serving for hermeticity. *(`VendoredAssets` + a fake `Client[IO]` that
+   drives the real `AssetCache.build` pipeline — including its CSS sub-resource rewriting — against
+   vendored bytes instead of the network.)*
+7a. [x] (Added, beyond the original plan) `ComponentVisualSuite`: component-level screenshot
+   snapshots — see "What this is NOT" above.
 8. [ ] CI: cached `chromium` install step + trace artifact on failure; optional `testOnly *Smoke*`
-   gate after `testFull`.
+   gate after `testFull`. Not yet done — `PLAYWRIGHT_BROWSERS_PATH` + the preinstalled Chromium are
+   sandbox-specific; a GitHub Actions runner needs its own cached-install step wired into
+   `.github/workflows/cicd.yml`.

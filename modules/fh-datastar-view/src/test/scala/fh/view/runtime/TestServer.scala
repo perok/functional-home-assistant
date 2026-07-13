@@ -4,10 +4,12 @@
 package fh.view.runtime
 
 import cats.effect.{IO, Resource}
+import com.comcast.ip4s.{host, port}
 import fh.view.model.Dashboard
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, VendoredAssets}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
@@ -32,6 +34,25 @@ final class TestServer(
     */
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
+
+  /** Await 1 subscriber on the slug's shared-patch topic — the fan-out an
+    * open SSE connection (browser or otherwise) subscribes to for main-page
+    * patches. Paired with [[awaitChangeSubscribers]] as the readiness gate a
+    * browser test awaits before `fake.emit` (a browser establishes its own
+    * SSE connection asynchronously on page load, so there is no response
+    * body to read progress from the way [[observePatch]]'s callers can).
+    */
+  def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
+    server.sharedSubscribers(slug).filter(_ >= n).head.compile.drain
+
+  /** The two readiness gates a live SSE connection needs before a change is
+    * guaranteed to reach it (topics only deliver to already-subscribed
+    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 2 for
+    * one open connection (the shared publisher's own subscription plus this
+    * connection's). The smoke suites' one gate to await before `fake.emit`.
+    */
+  def awaitLive(subscribers: Int = 2): IO[Unit] =
+    awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
   private val app = server.routes.orNotFound
 
@@ -118,4 +139,39 @@ object TestServer {
         sessions
       )
     } yield new TestServer(fake, store, server, dashboard.slug)
+
+  /** Same wiring as [[resource]], plus an offline [[AssetCache]]
+    * ([[VendoredAssets]] — no CDN, no network) and a real ember bind on an
+    * OS-assigned loopback port, so a browser (the Playwright smoke suite) can
+    * navigate to it. State is still driven in-process through
+    * `TestServer.fake.emit`, exactly as [[resource]].
+    */
+  def served(
+      dashboard: Dashboard,
+      entities: List[FixtureEntity]
+  ): Resource[IO, (TestServer, Uri)] =
+    for {
+      fake <- FakeHomeAssistant.create(entities).toResource
+      store <- StateStore.create(fake)
+      rendererRef <- SignallingRef[IO]
+        .of(Renderer.create(dashboard))
+        .toResource
+      sessions <- Sessions.create.toResource
+      assets <- VendoredAssets.build.toResource
+      server <- Server.resource(
+        fake,
+        store,
+        Map(dashboard.slug -> rendererRef),
+        dashboard.slug,
+        sessions,
+        assets
+      )
+      bound <- EmberServerBuilder
+        .default[IO]
+        .withHost(host"127.0.0.1")
+        .withPort(port"0")
+        .withHttpApp(server.routes.orNotFound)
+        .withShutdownTimeout(0.seconds)
+        .build
+    } yield (new TestServer(fake, store, server, dashboard.slug), bound.baseUri)
 }
