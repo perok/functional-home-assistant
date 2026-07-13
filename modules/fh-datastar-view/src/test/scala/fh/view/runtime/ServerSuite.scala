@@ -1,8 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.protocol.client.TriggerData
-import cats.effect.{IO, Resource}
+import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
@@ -16,8 +14,9 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
+import fh.view.testkit.FakeHomeAssistant
+import fh.view.testkit.DashboardBuilders.st
 import fs2.concurrent.{SignallingRef, Topic}
-import ha.runtime.definitions.{DeviceId, EntityId}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
@@ -148,8 +147,11 @@ class ServerSuite extends munit.FunSuite {
       store <- StateStore.inMemory(Map.empty)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map(dash.slug -> ref),
         dash.slug,
@@ -231,37 +233,6 @@ class ServerSuite extends munit.FunSuite {
   // Shared per-slug patch fan-out
   // ---------------------------------------------------------------------------
 
-  /** The Server never touches the HA api on the SSE/patch path; every method
-    * fails loudly so an unexpected call surfaces as a test failure.
-    */
-  private object StubApi extends HomeAssistantApi[IO] {
-    private def na: IO[Nothing] =
-      IO.raiseError(new NotImplementedError("test stub"))
-    private def naR: Resource[IO, Nothing] = Resource.eval(na)
-    def configDeviceRegistryList = na
-    def configEntityRegistryList = na
-    def configEntityRegistryGet(entityId: EntityId) = na
-    def manifestList() = na
-    def configEntriesGet(type_filter: List[String], domain: Option[String]) =
-      na
-    def deviceAutomationTriggerList(deviceId: DeviceId) = na
-    def deviceAutomationActionList(deviceId: DeviceId) = na
-    def deviceAutomationActionCapabilities(action: Json) = na
-    def getConfigWS = na
-    def getServicesWS = na
-    def event(event: Option[String]) = naR
-    def trigger(data: TriggerData*) = naR
-    def callService(
-        domain: String,
-        service: String,
-        entityId: String,
-        serviceData: Json
-    ) = na
-    def getStates = na
-    def getServices = na
-    def templateFunc[Body: io.circe.Decoder](template: String) = na
-  }
-
   /** Counts every live-patch render, so the test can assert a fragment was
     * produced ONCE for N viewers.
     */
@@ -308,8 +279,11 @@ class ServerSuite extends munit.FunSuite {
       renderer = new CountingRenderer(liveLeafDash, count)
       ref <- SignallingRef[IO].of(renderer: Renderer)
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -352,8 +326,8 @@ class ServerSuite extends munit.FunSuite {
   // Per-entity dynamic-group patches (Tier 1 in-place + Tier 2 add/remove)
   // ---------------------------------------------------------------------------
 
-  private def on(id: String): EntityState = EntityState(id, "on", Map.empty)
-  private def off(id: String): EntityState = EntityState(id, "off", Map.empty)
+  private def on(id: String): EntityState = st(id, "on")
+  private def off(id: String): EntityState = st(id, "off")
 
   // A dynamic group of on-state entities as the layout root (group id "c"); each
   // member renders `<span>on</span>` in an `fh-cell` wrapper `c_<slug>`.
@@ -386,8 +360,11 @@ class ServerSuite extends munit.FunSuite {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -557,8 +534,11 @@ class ServerSuite extends munit.FunSuite {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(surfaceDynDash))
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -645,8 +625,7 @@ class ServerSuite extends munit.FunSuite {
       )
     )
 
-  private def es(id: String, state: String): EntityState =
-    EntityState(id, state, Map.empty)
+  private def es(id: String, state: String): EntityState = st(id, state)
 
   /** Drives the SHARED per-slug pass over an EVOLVING store: each [[step]]
     * applies one entity update (deriving the StateChange exactly like the WS
@@ -662,8 +641,11 @@ class ServerSuite extends munit.FunSuite {
       store <- StateStore.inMemory(initial)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -910,8 +892,11 @@ class ServerSuite extends munit.FunSuite {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(d))
       sessions <- Sessions.create
+      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
+      // still raises); the store is driven in-memory, so the empty seed is inert.
+      fake <- FakeHomeAssistant.create(Nil)
       server = new Server(
-        StubApi,
+        fake,
         store,
         Map("dashboard" -> ref),
         "dashboard",

@@ -13,19 +13,10 @@ import fh.view.model.{
   Surface,
   Theme
 }
+import fh.view.testkit.DashboardBuilders.{col, lit, row, st}
 import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
-
-  private def st(
-      entityId: String,
-      state: String,
-      attrs: (String, Json)*
-  ): EntityState =
-    EntityState(entityId, state, attrs.toMap)
-
-  // A constant literal slot (a bare value, no entity/transform).
-  private def lit(s: String): SlotSource = SlotSource(literal = Some(s))
 
   // Card templates are pure content; the backend wraps entity-bound components
   // in the id'd morph target.
@@ -102,11 +93,6 @@ class RendererSuite extends munit.FunSuite {
       )
     )
   }
-
-  private def col(kids: LayoutNode*): LayoutNode =
-    LayoutNode.Component("col", children = kids.toList)
-  private def row(kids: LayoutNode*): LayoutNode =
-    LayoutNode.Component("row", children = kids.toList)
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(cards, layout)

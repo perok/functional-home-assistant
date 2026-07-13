@@ -254,6 +254,10 @@ Each reads as a behaviour, top to bottom, against `HouseFixture` + `FakeHomeAssi
    dump from the same fixture the runtime serves; `testkit/PklFixture` builds a
    real `Dashboard` through `SourceEval.eval` → `hoistInlineSurfaces` → decode;
    `functional/PklDashboardBehaviourSuite` renders + streams it against the fake.)*
-7. [ ] Narrow `ServerSuite`/`RendererSuite` onto the testkit; delete duplicated scaffolding
-   and the local `StubApi`.
-8. [ ] `sbt 'fh-datastar-view/testFull'` green; `sbt scalafmt`.
+7. [x] Narrow `ServerSuite`/`RendererSuite` onto the testkit; delete duplicated scaffolding
+   and the local `StubApi`. *(Done: `testkit/DashboardBuilders` holds the shared
+   `st`/`lit`/`col`/`row`/`component` constructors both suites re-declared; `ServerSuite.StubApi`
+   is gone — the unit tests now stand up the testkit `FakeHomeAssistant` (still raises on any
+   registry call). Bespoke card maps + dashboards stay per-suite, since their exact HTML is the
+   assertion. No test removed — the churn/flip/membership invariants are all preserved.)*
+8. [x] `sbt 'fh-datastar-view/testFull'` green (135 tests); `sbt scalafmt`.
