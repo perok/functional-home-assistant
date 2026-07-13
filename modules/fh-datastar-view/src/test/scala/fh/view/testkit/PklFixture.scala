@@ -14,10 +14,32 @@ import io.circe.Json
   * from one source).
   *
   * This is the seam a functional test uses to serve a Pkl-authored dashboard,
-  * and the same builder the Playwright smoke plan will reuse for its richer
-  * fixture entry.
+  * and the same builder `PklBuildSuite` uses to exercise the build pipeline
+  * against TEST-OWNED entries (rather than the shipped dashboards, which are
+  * free to evolve). Entries here typically set a dummy theme, so the theme's CSS
+  * is out of scope — visual/theme coverage is the browser smoke plan's job.
   */
 object PklFixture {
+
+  /** The raw evaluated entry: the wire JSON (before hoist/decode) plus the
+    * precise transitive import set (what `Dashboard.validate` needs for its
+    * literal locator).
+    */
+  final case class Built(value: Json, imports: Set[os.Path])
+
+  /** A trivial theme an entry can set to keep BeerCSS (and all CSS) out of the
+    * build: every [[fh.view.model.Theme]] field is empty. Paste into a fixture
+    * entry as `theme = <this>` after `import "lib/theme.pkl" as th`.
+    */
+  val dummyTheme: String =
+    """new th.Theme {
+      |  tokens = new {}
+      |  tokensDark = new {}
+      |  stylesheets = new {}
+      |  scripts = new {}
+      |  styles = ""
+      |  chrome = ""
+      |}""".stripMargin
 
   /** The real Pkl library modules, as shipped under the resources dir. `os.pwd`
     * in the test JVM is the repo root (mirroring `PklBuildSuite`).
@@ -36,17 +58,15 @@ object PklFixture {
       "entry.pkl"
     )
 
-  /** Evaluate `entrySource` (a full entry `.pkl`, e.g. one that
-    * `amends "lib/entry.pkl"`) against a `lib/dump.pkl` rendered from `dump`,
-    * and return the decoded [[Dashboard]] with its `slug` set. Throws with the
-    * pipeline's error text if evaluation, hoisting, or decoding fails — so a
-    * broken fixture fails loudly at the call site.
+  /** Stage the lib + a `lib/dump.pkl` rendered from `dump`, write `entrySource`
+    * as `<slug>.pkl`, and evaluate it. Throws with the pipeline's error text if
+    * evaluation fails — so a broken fixture fails loudly at the call site.
     */
-  def buildDashboard(
+  def eval(
       slug: String,
       entrySource: String,
       dump: Json = HouseFixture.transformedDump
-  ): Dashboard = {
+  ): Built = {
     val tmp = os.temp.dir()
     os.makeDir.all(tmp / "lib")
     libModules.foreach(n => os.copy.into(dashboardsDir / "lib" / n, tmp / "lib"))
@@ -58,11 +78,24 @@ object PklFixture {
     val result = SourceEval
       .eval(tmp, entryFile)
       .fold(err => sys.error(s"Pkl eval failed for $entryFile: $err"), identity)
-    val hoisted = DashboardBuild.hoistInlineSurfaces(result.value)
-    hoisted
+    Built(result.value, result.imports)
+  }
+
+  /** Evaluate `entrySource` and return the decoded [[Dashboard]] with its `slug`
+    * set (hoisting inline surfaces first, as the build phase does). Throws if
+    * hoisting or decoding fails.
+    */
+  def buildDashboard(
+      slug: String,
+      entrySource: String,
+      dump: Json = HouseFixture.transformedDump
+  ): Dashboard = {
+    val built = eval(slug, entrySource, dump)
+    DashboardBuild
+      .hoistInlineSurfaces(built.value)
       .as[Dashboard]
       .fold(
-        err => sys.error(s"decoding $entryFile as Dashboard failed: $err"),
+        err => sys.error(s"decoding $slug as Dashboard failed: $err"),
         _.copy(slug = slug)
       )
   }

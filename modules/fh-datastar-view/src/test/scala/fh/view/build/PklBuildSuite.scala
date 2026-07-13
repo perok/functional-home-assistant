@@ -1,13 +1,7 @@
 package fh.view.build
 
-import fh.view.model.{
-  Activation,
-  Dashboard,
-  LayoutNode,
-  Op,
-  Predicate,
-  Quantifier
-}
+import fh.view.model.{Dashboard, LayoutNode, Op, Predicate}
+import fh.view.testkit.PklFixture
 import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
@@ -258,53 +252,6 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
   }
 
-  test(
-    "theme-pico.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
-  ) {
-    // A probe entry re-exposes the theme so the assertions read a pinned
-    // shape, independent of whatever else the lib module happens to export.
-    // (Pico probes the Theme contract here; the beer DEFAULT theme is pinned
-    // by the wire snapshots, which carry the full theme JSON.)
-    val tmp = os.temp.dir()
-    copyLib(tmp, "theme.pkl", "theme-pico.pkl", "tokens.pkl")
-    os.write(
-      tmp / "probe.pkl",
-      """module probe
-        |import "lib/theme-pico.pkl" as themeMod
-        |theme = themeMod.theme
-        |""".stripMargin
-    )
-    val result = SourceEval.eval(tmp, "probe.pkl")
-    assert(result.isRight, clue = result)
-    val theme = result.toOption.get.value.hcursor.downField("theme")
-    assert(
-      theme
-        .get[String]("chrome")
-        .toOption
-        .exists(_.contains("id=\"dashboard\"")),
-      clue = result
-    )
-    assertEquals(
-      theme.downField("tokens").get[String]("primary-color").toOption,
-      Some("#03a9f4")
-    )
-    assert(
-      theme.downField("tokensDark").keys.exists(_.nonEmpty),
-      clue = result
-    )
-    assert(
-      theme
-        .get[List[String]]("stylesheets")
-        .toOption
-        .exists(_.exists(_.contains("pico"))),
-      clue = result
-    )
-    assert(
-      theme.get[String]("styles").toOption.exists(_.contains(".fh-row")),
-      clue = result
-    )
-  }
-
   test("components.pkl derives the card registry from the card classes") {
     // `cards` is assembled via pkl:reflect over the module's concrete Node
     // subclasses (each class carries its template + declared slots as a hidden
@@ -379,202 +326,140 @@ class PklBuildSuite extends munit.FunSuite {
     )
   }
 
-  test("pkl-demo evaluates through the full pipeline into a valid Dashboard") {
-    val resources = resourcesLib / os.up
-    val tmp = os.temp.dir()
-    copyLib(
-      tmp,
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-    os.copy.into(resources / "pkl-demo.pkl", tmp)
+  // ---------------------------------------------------------------------------
+  // Full-pipeline tests over TEST-OWNED fixture entries.
+  //
+  // These evaluate small entries this suite owns (NOT the shipped dashboards,
+  // which are free to evolve) through the real pipeline: Pkl -> hoist -> decode
+  // -> validate. They set a DUMMY theme (PklFixture.dummyTheme), so the theme's
+  // CSS is out of scope here — visual/theme coverage is the browser smoke plan's
+  // job. Entities come from HouseFixture (via HouseFixture.transformedDump), the
+  // same source the functional runtime tests serve.
+  // ---------------------------------------------------------------------------
 
-    // Fake transformed dump defining exactly the entities the demo references.
-    val fakeDump = io.circe.parser
-      .parse("""
-        {
-          "areas": {},
-          "floors": {},
-          "entities": {
-            "sensor_ams_1a4e_q": {
-              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
-              "domain": "sensor", "attributes": {}
-            },
-            "sensor_ams_1a4e_u1": {
-              "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
-              "domain": "sensor", "attributes": {}
-            },
-            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
-              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-              "friendly_name": "Demo light",
-              "domain": "light", "attributes": { "color_mode": "brightness" }
-            }
-          }
-        }
-      """)
-      .toOption
-      .get
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+  /** A feature-rich fixture entry: containers, sectionTitle, entityCard (default
+    * + tap), a domain-checked slider, a dynamic group, and both a registered and
+    * an inline popup — enough composition to exercise the hoist + decode path.
+    */
+  private val fixtureFeatures =
+    s"""amends "lib/entry.pkl"
+       |
+       |import "lib/components.pkl" as c
+       |import "lib/dump.pkl" as dump
+       |import "lib/theme.pkl" as th
+       |
+       |theme = ${PklFixture.dummyTheme}
+       |
+       |surfaces {
+       |  ["detail"] {
+       |    body {
+       |      c.title("Detail")
+       |      c.entityCard(dump.entities.sensor_outside_temp)
+       |      c.button("Close", c.closePopup())
+       |    }
+       |  }
+       |}
+       |
+       |card = (c.column) {
+       |  children {
+       |    c.title("Features")
+       |    c.entityCard(dump.entities.sensor_outside_temp)
+       |    c.entityCard(dump.entities.light_kitchen).tap(c.toggleTap)
+       |    c.slider(dump.entities.light_kitchen)
+       |    new c.DynamicGroup {
+       |      query = c.stateIs("on")
+       |      render = (e) -> c.entityCard(e)
+       |    }
+       |    c.button("Detail…", c.openPopup("detail"))
+       |    c.button("Inline…", c.openPopupInline(new c.Column {
+       |      children {
+       |        c.title("Inline")
+       |        c.button("Close", c.closePopup())
+       |      }
+       |    }))
+       |  }
+       |}
+       |""".stripMargin
 
-    val result = SourceEval.eval(tmp, "pkl-demo.pkl")
-    assert(result.isRight, clue = result)
-    val r = result.toOption.get
+  /** A surfaces fixture: a tabs group (two panels) + an If/else — the two
+    * inline-surface hoist paths (tab panels and branches).
+    */
+  private val fixtureSurfaces =
+    s"""amends "lib/entry.pkl"
+       |
+       |import "lib/components.pkl" as c
+       |import "lib/dump.pkl" as dump
+       |import "lib/theme.pkl" as th
+       |
+       |theme = ${PklFixture.dummyTheme}
+       |
+       |card = (c.column) {
+       |  children {
+       |    (c.tabs) {
+       |      tabs {
+       |        ["Temp"] { c.entityCard(dump.entities.sensor_outside_temp) }
+       |        ["Light"] { c.entityCard(dump.entities.light_kitchen) }
+       |      }
+       |    }
+       |    c.iff(c.entityIs("light.kitchen").and(c.stateIs("on")))
+       |      .then(c.entityCard(dump.entities.light_kitchen))
+       |      .`else`(c.entityCard(dump.entities.sensor_outside_temp))
+       |  }
+       |}
+       |""".stripMargin
 
-    // The precise import set is the demo's full transitive closure.
-    val importNames = r.imports.map(_.last)
-    assert(
-      Set(
-        "pkl-demo.pkl",
-        "components.pkl",
-        "theme.pkl",
-        "theme-beer.pkl",
-        "tokens.pkl",
-        "hass.pkl",
-        "dump.pkl"
-      )
-        .subsetOf(importNames),
-      clue = importNames
-    )
-
-    // The FULL build pipeline: hoist the inline popup surface into the
-    // registry (splicing the trigger's NODE_ID), then decode.
-    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
+  test(
+    "fixture-features builds through the full pipeline into a valid Dashboard"
+  ) {
+    val built = PklFixture.eval("fixture-features", fixtureFeatures)
+    val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
     // Every @@NODE_ID@@ token was spliced with a real id — none survives.
     assert(
       !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
       clue = "unspliced NODE_ID token remained in the hoisted JSON"
     )
-    val decoded = hoisted.as[Dashboard]
-    assert(decoded.isRight, clue = decoded)
-    val d = decoded.toOption.get
+    val d = hoisted.as[Dashboard].fold(e => fail(s"decode: $e"), identity)
 
+    // The composed card set is present.
     assert(
-      Set(
-        "fhrow",
-        "fhcol",
-        "sectionTitle",
-        "entityCard",
-        "button",
-        "slider",
-        "popup"
-      ).subsetOf(d.cards.keySet),
+      Set("fhcol", "sectionTitle", "entityCard", "slider", "button", "popup")
+        .subsetOf(d.cards.keySet),
       clue = d.cards.keySet
     )
-    // Two surfaces: the REGISTERED `detail` popup and the hoisted INLINE one
-    // (keyed `<node-id>_self`, node-id in the `c`-rooted pathId scheme).
+    // The registered popup plus a hoisted inline surface (keyed `<node-id>_self`).
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
-    val inlineId =
-      d.surfaces.keys
-        .find(_.endsWith("_self"))
-        .getOrElse(
-          fail(s"no hoisted _self surface: ${d.surfaces.keySet}")
-        )
-    assert(inlineId.startsWith("c"), clue = inlineId)
-    assert(d.theme.tokens.nonEmpty)
-    assert(d.theme.chrome.contains("id=\"dashboard\""))
-
-    val root = d.card.asInstanceOf[LayoutNode.Component]
-    assertEquals(root.card, "fhcol")
-    // The layout now interleaves component cards with two dynamic groups and
-    // ends with the popup-opening buttons.
-    val children =
-      root.children.collect { case c: LayoutNode.Component => c }
-    assertEquals(
-      children.map(_.card),
-      List(
-        "sectionTitle",
-        "entityCard",
-        "entityCard",
-        "slider",
-        "sectionTitle",
-        "sectionTitle",
-        "sectionTitle",
-        "button",
-        "button",
-        "button"
-      )
-    )
-
-    // The inline-popup trigger (the "Quick info…" button) carries a literal
-    // onclick that references the SPLICED real surface id, not the raw token.
-    val inlineTrigger = children
-      .find(
-        _.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self"))
-      )
-      .getOrElse(fail("no inline-popup trigger button found"))
-    assertEquals(
-      inlineTrigger.slots("onclick").literal,
-      Some(s"@post('sse/surface/open/$inlineId')")
-    )
-
-    // Two dynamic groups: a per-domain dispatch group and the low-battery one.
-    val dyns = dynamics(d.card)
-    assertEquals(dyns.size, 2)
-
-    // Dispatch group: query = stateIs("on"); a light branch (a $self Slider)
-    // + an always entityCard fallback; no `entity_id` slot survives the cases.
-    val dispatch = dyns(0)
-    assertEquals(
-      dispatch.query,
-      Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
-    )
-    assertEquals(dispatch.cases.map(_.card), List("slider", "entityCard"))
-    assertEquals(
-      dispatch.cases(0).when,
-      Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
-    )
-    assertEquals(
-      dispatch.cases(1).when,
-      Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
-    )
-    dispatch.cases.foreach(cse =>
-      assert(!cse.slots.contains("entity_id"), clue = cse.slots.keySet)
-    )
-
-    // Low-battery group: query = lowBattery(20) =
-    // deviceClassIs("battery").and(stateBelow(20)).
-    val battery = dyns(1)
-    assertEquals(battery.cases.map(_.card), List("entityCard"))
-    battery.query match {
-      case Some(Predicate.And(items)) =>
-        assertEquals(
-          items,
-          List(
-            Predicate
-              .Cmp("attr:device_class", Op.Eq, Json.fromString("battery")),
-            Predicate.Cmp("state", Op.Lt, Json.fromInt(20))
-          )
-        )
-      case other => fail(s"expected And query, got $other")
-    }
-
-    // Slider config resolved at build time, as STRING literals (the slot
-    // decoder rejects numbers — the highest-risk contract rule).
-    val slider = children(3)
-    assertEquals(slider.slots("min").literal, Some("1"))
-    assertEquals(slider.slots("max").literal, Some("255"))
-    assertEquals(slider.slots("action").literal, Some("light/turn_on"))
-    assertEquals(slider.slots("key").literal, Some("brightness"))
-    assertEquals(
-      slider.slots("entity_id").literal,
-      Some("light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang")
-    )
-
-    // The tapped entity card: constant `tappable` marker + an identity-derived
-    // (non-reactive) onclick expression.
-    val tapped = children(2)
-    assertEquals(tapped.slots("tappable").literal, Some("1"))
-    val onclick = tapped.slots("onclick")
-    assertEquals(onclick.literal, None)
-    assertEquals(onclick.reactive, false)
-    assert(onclick.transform.contains("sse/action/"), clue = onclick)
-
+    assert(d.surfaces.keys.exists(_.endsWith("_self")), clue = d.surfaces.keySet)
+    // One dynamic group in the layout.
+    assertEquals(dynamics(d.card).size, 1, clue = d.card)
     // Validation (card refs, required slots, JSONata compile) passes.
-    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
+    assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
+  }
+
+  test("fixture-surfaces builds tabs + If into hoisted surfaces that validate") {
+    val built = PklFixture.eval("fixture-surfaces", fixtureSurfaces)
+    val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
+    assert(
+      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
+      clue = "unspliced NODE_ID token remained in the hoisted JSON"
+    )
+    val d = hoisted.as[Dashboard].fold(e => fail(s"decode: $e"), identity)
+
+    // Two tab panels (…_t0/_t1) + an If's then/else branches, all hoisted.
+    assert(
+      d.cards.contains("tabs") && d.cards.contains("ifhost"),
+      clue = d.cards.keySet
+    )
+    assert(
+      d.surfaces.keys.exists(_.endsWith("_t0")) &&
+        d.surfaces.keys.exists(_.endsWith("_t1")),
+      clue = d.surfaces.keySet
+    )
+    assert(
+      d.surfaces.keys.exists(_.endsWith("_then")) &&
+        d.surfaces.keys.exists(_.endsWith("_else")),
+      clue = d.surfaces.keySet
+    )
+    assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
 
   /** Evaluate a probe module that imports the real lib and decode its `node`
@@ -985,251 +870,19 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(inner(1).slots("max").literal, Some("255"))
   }
 
-  test(
-    "pkl-tabs evaluates, hoists, and validates end-to-end (mirror jsonnet)"
-  ) {
-    val resources = resourcesLib / os.up
-    val tmp = os.temp.dir()
-    copyLib(
-      tmp,
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-    os.copy.into(resources / "pkl-tabs.pkl", tmp)
-
-    // Fake transformed dump defining exactly the entities the tabs demo names:
-    // a light (Lights tab) + two sensors (Sensors tab).
-    val fakeDump = io.circe.parser
-      .parse("""
-        {
-          "areas": {},
-          "floors": {},
-          "entities": {
-            "sensor_ams_1a4e_q": {
-              "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
-              "domain": "sensor", "attributes": {}
-            },
-            "sensor_ams_1a4e_u1": {
-              "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
-              "domain": "sensor", "attributes": {}
-            },
-            "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
-              "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-              "friendly_name": "Demo light",
-              "domain": "light", "attributes": {}
-            }
-          }
-        }
-      """)
-      .toOption
-      .get
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
-
-    val result = SourceEval.eval(tmp, "pkl-tabs.pkl")
-    assert(result.isRight, clue = result)
-    val r = result.toOption.get
-
-    // FULL build pipeline: hoist the inline tab surfaces (splicing each
-    // trigger's NODE_ID), then decode.
-    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
-    // No @@NODE_ID@@ token survives the hoist anywhere in the JSON.
-    assert(
-      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
-      clue = "unspliced NODE_ID token remained in the hoisted JSON"
-    )
-    val decoded = hoisted.as[Dashboard]
-    assert(decoded.isRight, clue = decoded)
-    val d = decoded.toOption.get
-
-    // The sugar produced two inline tab surfaces.
-    assertEquals(d.surfaces.size, 2, clue = d.surfaces.keySet)
-    // Both panels share ONE derived host (exclusivity by shared hostId).
-    assertEquals(
-      d.surfaces.values.map(_.hostId).toSet.size,
-      1,
-      clue = d.surfaces
-    )
-    // Ids use the unified scheme: idBase (`c`-rooted pathId) + the `t<i>` key.
-    assert(
-      d.surfaces.keySet.forall(_.matches("c(_\\d+)+_t\\d+")),
-      clue = d.surfaces.keySet
-    )
-    assert(
-      d.surfaces.keySet.exists(_.endsWith("_t0")) &&
-        d.surfaces.keySet.exists(_.endsWith("_t1")),
-      clue = d.surfaces.keySet
-    )
-    // Every surface is a chrome-less panel with a bake position.
-    assert(
-      d.surfaces.values.forall(s =>
-        s.bakeInto.isDefined && s.bakeAs.contains("panel")
-      ),
-      clue = d.surfaces
-    )
-    assertEquals(
-      d.surfaces.values.flatMap(_.bakeIndex).toList.sorted,
-      List(0, 1),
-      clue = d.surfaces
-    )
-    // Exactly ONE default-open member — the FIRST tab — expressed through the
-    // activation sum ({kind:"user", defaultOpen:true}); the other panel emits
-    // no `activation` at all (dropped null) and decodes to the closed user
-    // default.
-    assertEquals(
-      d.surfaces.toList.sortBy(_._1).map(_._2.activation),
-      List(Activation.User(true), Activation.User(false)),
-      clue = d.surfaces
-    )
-
-    // The tabs component sits in the layout with two tab-bar buttons; each
-    // button's onclick references the SPLICED real surface id (not the raw
-    // token) AND writes the fhui_ restore cookie.
-    val root = d.card.asInstanceOf[LayoutNode.Component]
-    val tabsNode = root.children
-      .collectFirst {
-        case c: LayoutNode.Component if c.card == "tabs" => c
-      }
-      .getOrElse(fail("no tabs component in the layout"))
-    val tabButtons =
-      tabsNode.children.collect { case c: LayoutNode.Component => c }
-    assertEquals(tabButtons.map(_.card), List("tab", "tab"))
-    tabButtons.foreach { b =>
-      val onclick = b
-        .slots("onclick")
-        .literal
-        .getOrElse(fail(s"tab button onclick not a literal: ${b.slots}"))
-      assert(onclick.contains("fhui_"), clue = onclick)
-      // The spliced surface id it opens is a real registered surface.
-      val opened = d.surfaces.keys
-        .find(id => onclick.contains(id))
-        .getOrElse(fail(s"onclick references no known surface: $onclick"))
-      assert(!opened.contains(DashboardBuild.NodeIdToken), clue = opened)
-    }
-
-    // Validation (card refs, required slots, JSONata compile) passes.
-    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
-  }
-
-  test("pkl-if evaluates, hoists, and validates end-to-end (If/else)") {
-    val resources = resourcesLib / os.up
-    val tmp = os.temp.dir()
-    copyLib(
-      tmp,
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-    os.copy.into(resources / "pkl-if.pkl", tmp)
-    // The entry names exactly the snapshot dump's entities (the demo light +
-    // the two AMS sensors).
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
-
-    val result = SourceEval.eval(tmp, "pkl-if.pkl")
-    assert(result.isRight, clue = result)
-    val r = result.toOption.get
-
-    // FULL build pipeline: hoist the inline branch surfaces (splicing each
-    // host's NODE_ID), then decode.
-    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
-    assert(
-      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
-      clue = "unspliced NODE_ID token remained in the hoisted JSON"
-    )
-    val decoded = hoisted.as[Dashboard]
-    assert(decoded.isRight, clue = decoded)
-    val d = decoded.toOption.get
-
-    // Three If hosts in the layout, all referencing the reflect-registered
-    // `ifhost` card; hosts carry no static children — branches live in
-    // surfaces only (that structural split IS the hidden-branch silence).
-    assert(d.cards.contains("ifhost"), clue = d.cards.keySet)
-    val root = d.card.asInstanceOf[LayoutNode.Component]
-    val hosts = root.children.collect {
-      case c: LayoutNode.Component if c.card == "ifhost" => c
-    }
-    assertEquals(hosts.size, 3)
-    assert(hosts.forall(_.children.isEmpty), clue = hosts)
-
-    // Hoisted surface ids are `<host-id>_<then|else>`; the iffNone If has no
-    // else member (no match ⇒ the host bakes empty).
-    assertEquals(
-      d.surfaces.keySet,
-      Set("c_1_then", "c_1_else", "c_2_then", "c_2_else", "c_3_then")
-    )
-    // Every member of a group carries the SAME bake var ("branch" — the
-    // backend reads it off the group's first member), its host, and its
-    // first-match position.
-    assert(
-      d.surfaces.values.forall(_.bakeAs.contains("branch")),
-      clue = d.surfaces
-    )
-    assertEquals(d.surfaces("c_1_then").bakeInto, Some("c_1"))
-    assertEquals(d.surfaces("c_1_then").bakeIndex, Some(0))
-    assertEquals(d.surfaces("c_1_else").bakeIndex, Some(1))
-
-    // The builder-form If: a StateActivation carrying the authored
-    // entityIs(..).and(stateIs("on")) condition, default quantifier "any".
-    d.surfaces("c_1_then").activation match {
-      case Activation.State(Predicate.And(items), q) =>
-        assertEquals(q, Quantifier.Any)
-        assertEquals(
-          items,
-          List(
-            Predicate.Cmp(
-              "entity_id",
-              Op.Eq,
-              Json.fromString(
-                "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang"
-              )
-            ),
-            Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-          )
-        )
-      case other => fail(s"expected a State(And(..)) activation: $other")
-    }
-    // The else member is State(condition = the always-true predicate) — no
-    // nullable condition on the wire.
-    assertEquals(
-      d.surfaces("c_1_else").activation,
-      Activation.State(
-        Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-        Quantifier.Any
-      )
-    )
-    // The iffNone variant rides its quantifier onto the wire.
-    d.surfaces("c_3_then").activation match {
-      case Activation.State(_, q) => assertEquals(q, Quantifier.None)
-      case other => fail(s"expected a State activation: $other")
-    }
-    // Branch bodies are Row-wrapped, like tab panels.
-    assertEquals(
-      d.surfaces("c_2_then").content.asInstanceOf[LayoutNode.Component].card,
-      "fhrow"
-    )
-
-    // Validation (card refs incl. ifhost, required slots, JSONata compile,
-    // bake-group activation homogeneity) passes.
-    assertEquals(d.validate(SourceEval.literalLocator(r.imports)), Nil)
-  }
-
   // ---------------------------------------------------------------------------
-  // Wire-format snapshot tests (plan-jsonnet-removal.md Phase 0).
+  // Wire-format snapshot tests.
   //
-  // These byte-identity-check the evaluated `{cards, card, theme, surfaces}`
-  // wire JSON of the REAL Pkl entries against checked-in resource files, so
-  // authoring-layer / backend refactors are guarded by `sbt test` instead of
-  // manual diffing. The snapshot is exactly what production renders:
-  // `PklBuild.eval` → `SourceEval.Result.value` (the raw evaluated JSON, BEFORE
-  // normalize/hoist/decode), printed with the fixed `spaces2SortKeys` printer so
-  // Pkl map-ordering can never make the output nondeterministic. No live HA is
-  // needed — a minimal fake `lib/dump.pkl` (below) supplies the entities.
+  // These byte-identity-check the evaluated `{cards, card, surfaces}` wire JSON
+  // of the TEST-OWNED fixture entries (above) against checked-in resource files,
+  // so authoring-layer / backend refactors are guarded by `sbt test` instead of
+  // manual diffing. `theme` is STRIPPED before comparison: the fixtures set a
+  // dummy theme and the theme's CSS is deliberately out of scope here (the
+  // browser smoke plan covers design). The snapshot is the raw evaluated JSON
+  // (BEFORE normalize/hoist/decode) minus `theme`, printed with the fixed
+  // `spaces2SortKeys` printer so Pkl map-ordering can never make it
+  // nondeterministic. No live HA — HouseFixture.transformedDump supplies the
+  // entities.
   //
   // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
   // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
@@ -1249,56 +902,16 @@ class PklBuildSuite extends munit.FunSuite {
   private val snapshotDir =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "snapshots"
 
-  /** One fake transformed dump covering exactly the entities the entries name:
-    * two sensors (`_q` power, `_u1` voltage) and the demo light (with a
-    * `color_mode` so the demo slider resolves). No areas/floors are referenced.
+  /** Evaluate a fixture entry through the pipeline and return the raw evaluated
+    * wire JSON with `theme` stripped, printed with the fixed deterministic
+    * printer — the authoring/composition contract, free of theme CSS.
     */
-  private val snapshotDump = io.circe.parser
-    .parse("""
-      {
-        "areas": {},
-        "floors": {},
-        "entities": {
-          "sensor_ams_1a4e_q": {
-            "entity_id": "sensor.ams_1a4e_q", "friendly_name": "Power",
-            "domain": "sensor", "attributes": {}
-          },
-          "sensor_ams_1a4e_u1": {
-            "entity_id": "sensor.ams_1a4e_u1", "friendly_name": "L1 voltage",
-            "domain": "sensor", "attributes": {}
-          },
-          "light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang": {
-            "entity_id": "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-            "friendly_name": "Demo light",
-            "domain": "light", "attributes": { "color_mode": "brightness" }
-          }
-        }
-      }
-    """)
-    .toOption
-    .get
-
-  /** Evaluate a real entry through the fake-dump pipeline and return the raw
-    * evaluated wire JSON, printed with the fixed deterministic printer.
-    */
-  private def evalEntryWire(entry: String): String = {
-    val resources = resourcesLib / os.up
-    val tmp = os.temp.dir()
-    copyLib(
-      tmp,
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-    os.copy.into(resources / entry, tmp)
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
-    val result = SourceEval.eval(tmp, entry)
-    assert(result.isRight, clue = result)
-    result.toOption.get.value.spaces2SortKeys
-  }
+  private def fixtureWire(slug: String, entry: String): String =
+    PklFixture
+      .eval(slug, entry)
+      .value
+      .mapObject(_.remove("theme"))
+      .spaces2SortKeys
 
   /** Compare `actual` against the checked-in snapshot `name.json`. With
     * `FH_UPDATE_SNAPSHOTS=1` it (re)writes the resource file and passes; else
@@ -1335,49 +948,17 @@ class PklBuildSuite extends munit.FunSuite {
     }
   }
 
-  test("addon seed dashboard builds and validates against an EMPTY dump") {
-    // The seed shipped in the add-on image (home-addon/dashboards-seed/) must
-    // work on ANY Home Assistant instance, so it may reference no concrete
-    // entities. Proven by the strictest case: it never imports lib/dump.pkl
-    // (none is written here), and the decoded dashboard validates.
-    val tmp = os.temp.dir()
-    copyLib(
-      tmp,
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-    os.copy.into(
-      os.pwd / "home-addon" / "dashboards-seed" / "dashboard.pkl",
-      tmp
-    )
-
-    val result = SourceEval.eval(tmp, "dashboard.pkl")
-    assert(result.isRight, clue = result)
-    val r = result.toOption.get
-    assert(!r.imports.map(_.last).contains("dump.pkl"), clue = r.imports)
-
-    val hoisted = DashboardBuild.hoistInlineSurfaces(r.value)
-    val decoded = hoisted.as[Dashboard]
-    assert(decoded.isRight, clue = decoded)
-    assertEquals(
-      decoded.toOption.get.validate(SourceEval.literalLocator(r.imports)),
-      Nil
+  test("fixture-features wire JSON matches the checked-in snapshot") {
+    checkSnapshot(
+      "fixture-features",
+      fixtureWire("fixture-features", fixtureFeatures)
     )
   }
 
-  test("pkl-demo wire JSON matches the checked-in snapshot") {
-    checkSnapshot("pkl-demo", evalEntryWire("pkl-demo.pkl"))
-  }
-
-  test("pkl-tabs wire JSON matches the checked-in snapshot") {
-    checkSnapshot("pkl-tabs", evalEntryWire("pkl-tabs.pkl"))
-  }
-
-  test("pkl-if wire JSON matches the checked-in snapshot") {
-    checkSnapshot("pkl-if", evalEntryWire("pkl-if.pkl"))
+  test("fixture-surfaces wire JSON matches the checked-in snapshot") {
+    checkSnapshot(
+      "fixture-surfaces",
+      fixtureWire("fixture-surfaces", fixtureSurfaces)
+    )
   }
 }

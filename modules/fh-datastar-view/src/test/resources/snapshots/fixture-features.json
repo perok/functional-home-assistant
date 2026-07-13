@@ -1,0 +1,316 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "children" : [
+      {
+        "card" : "sectionTitle",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "label" : "Features"
+        }
+      },
+      {
+        "card" : "entityCard",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "entity_id" : "sensor.outside_temp",
+          "icon" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+          },
+          "label" : "Outside Temperature",
+          "value" : {
+            "bypassUnavailable" : true,
+            "reactive" : true,
+            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+          }
+        }
+      },
+      {
+        "card" : "entityCard",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "entity_id" : "light.kitchen",
+          "icon" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+          },
+          "label" : "Kitchen",
+          "onclick" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "\"@post('sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
+          },
+          "tappable" : "1",
+          "value" : {
+            "bypassUnavailable" : true,
+            "reactive" : true,
+            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+          }
+        }
+      },
+      {
+        "card" : "slider",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "action" : "light/turn_on",
+          "entity_id" : "light.kitchen",
+          "fill" : {
+            "bypassUnavailable" : false,
+            "default" : "100",
+            "reactive" : true,
+            "transform" : "($v := $attr.brightness; $v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
+          },
+          "key" : "brightness",
+          "label" : "Kitchen",
+          "max" : "255",
+          "min" : "1",
+          "state" : {
+            "bypassUnavailable" : true,
+            "reactive" : true,
+            "transform" : "$state"
+          },
+          "value" : {
+            "bypassUnavailable" : false,
+            "default" : "0",
+            "reactive" : true,
+            "transform" : "$attr.brightness"
+          }
+        }
+      },
+      {
+        "cases" : [
+          {
+            "card" : "entityCard",
+            "slots" : {
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : {
+                "bypassUnavailable" : false,
+                "reactive" : true,
+                "transform" : "$attr.friendly_name ? $attr.friendly_name : $entity_id"
+              },
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+              }
+            },
+            "when" : {
+              "kind" : "cmp",
+              "op" : "ne",
+              "property" : "domain",
+              "value" : "__never__"
+            }
+          }
+        ],
+        "kind" : "dynamic",
+        "query" : {
+          "kind" : "cmp",
+          "op" : "eq",
+          "property" : "state",
+          "value" : "on"
+        }
+      },
+      {
+        "card" : "button",
+        "children" : [
+        ],
+        "kind" : "component",
+        "slots" : {
+          "label" : "Detail…",
+          "onclick" : "@post('sse/surface/open/detail')"
+        }
+      },
+      {
+        "card" : "button",
+        "children" : [
+        ],
+        "inlineSurfaces" : {
+          "self" : {
+            "content" : {
+              "card" : "popup",
+              "children" : [
+                {
+                  "card" : "fhcol",
+                  "children" : [
+                    {
+                      "card" : "sectionTitle",
+                      "children" : [
+                      ],
+                      "kind" : "component",
+                      "slots" : {
+                        "label" : "Inline"
+                      }
+                    },
+                    {
+                      "card" : "button",
+                      "children" : [
+                      ],
+                      "kind" : "component",
+                      "slots" : {
+                        "label" : "Close",
+                        "onclick" : "@post('sse/popup/close')"
+                      }
+                    }
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          "label" : "Inline…",
+          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
+        }
+      }
+    ],
+    "kind" : "component",
+    "slots" : {
+      
+    }
+  },
+  "cards" : {
+    "button" : {
+      "slots" : [
+        "label",
+        "onclick"
+      ],
+      "template" : "<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>"
+    },
+    "entityCard" : {
+      "slots" : [
+        "label",
+        "value",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
+    },
+    "fhcol" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "fhrow" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "ifhost" : {
+      "slots" : [
+      ],
+      "template" : "<div id=\"{{id}}\">{{{branch}}}</div>"
+    },
+    "popup" : {
+      "slots" : [
+      ],
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+    },
+    "sectionTitle" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<h2 class=\"section\">{{label}}</h2>"
+    },
+    "slider" : {
+      "slots" : [
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
+    },
+    "tab" : {
+      "slots" : [
+        "label",
+        "onclick",
+        "active"
+      ],
+      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>"
+    },
+    "tabs" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ tab_{{id}}: {{bakeIndex}} }\">\n    {{{panel}}}\n  </div>\n</div>"
+    }
+  },
+  "surfaces" : {
+    "detail" : {
+      "content" : {
+        "card" : "popup",
+        "children" : [
+          {
+            "card" : "sectionTitle",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "Detail"
+            }
+          },
+          {
+            "card" : "entityCard",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "entity_id" : "sensor.outside_temp",
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : "Outside Temperature",
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+              }
+            }
+          },
+          {
+            "card" : "button",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "label" : "Close",
+              "onclick" : "@post('sse/popup/close')"
+            }
+          }
+        ],
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      }
+    }
+  }
+}

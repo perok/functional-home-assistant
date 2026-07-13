@@ -218,12 +218,14 @@ Each reads as a behaviour, top to bottom, against `HouseFixture` + `FakeHomeAssi
 | `functional/*Suite.scala` | **new** — the behaviour tests above |
 | `runtime/ServerSuite.scala` | narrow to the diff/fan-out unit invariants; drop `StubApi` (use the testkit), drop the re-declared scaffolding |
 | `runtime/RendererSuite.scala` | keep the render/transform/dispatch units; pull scaffolding from the testkit |
-| `build/PklBuildSuite.scala`, `build/BuildPhaseSuite.scala` | unchanged (already fake-dump based); optionally share the fixture for the Tier-A dump |
+| `build/PklBuildSuite.scala` | decoupled from the shipped dashboards + theme: full-pipeline + wire-snapshot tests now run against TEST-OWNED fixture entries (`fixtureFeatures`/`fixtureSurfaces` via `PklFixture`) with a dummy theme, and the snapshot strips `theme` — so real-dashboard edits and theme CSS no longer break it (browser smoke will cover shipped/demo dashboards + design). Inline-probe tests unchanged |
+| `build/BuildPhaseSuite.scala` | unchanged (already fake-dump based) |
 
 ## Non-goals
 
-- Not replacing the wire-format snapshot safety net (`PklBuildSuite` snapshots) — that
-  guards the *authoring* contract and stays.
+- Not removing the wire-format snapshot safety net — it stays as the *authoring/composition*
+  contract guard, but is decoupled from the shipped dashboards + theme CSS: it snapshots
+  test-owned fixture entries with `theme` stripped (see the `PklBuildSuite` row above).
 - Not testing the browser (Datastar attribute *behaviour* in a real DOM) — that is the
   separate Playwright smoke plan (`docs/plan-playwright-smoke-tests.md`).
 - Not simulating HA service semantics inside the fake (see §2).
