@@ -64,10 +64,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Set PLAYWRIGHT_BROWSERS_PATH
-        run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> $GITHUB_ENV
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
       - parallel:
           - name: Fmt check
