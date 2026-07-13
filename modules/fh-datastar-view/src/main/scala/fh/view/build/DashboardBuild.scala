@@ -158,9 +158,13 @@ object DashboardBuild {
       obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
     )
 
-  // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/defaultOpen).
+  // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
   // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
   // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
+  // The retired flat `defaultOpen` is deliberately NOT lifted: its meaning moved
+  // into the `activation` object ({kind:"user", defaultOpen}), and an authoring
+  // layer still emitting the flat key is silently ignored (decoder default =
+  // user activation, whose no-cookie fallback is index 0 — the old semantics).
   private def surfaceOf(defObj: JsonObject): Json =
     Json.fromJsonObject(
       JsonObject.fromIterable(
@@ -169,7 +173,7 @@ object DashboardBuild {
             "bakeInto",
             "bakeAs",
             "bakeIndex",
-            "defaultOpen"
+            "activation"
           )
             .flatMap(k => defObj(k).map(k -> _))
       )

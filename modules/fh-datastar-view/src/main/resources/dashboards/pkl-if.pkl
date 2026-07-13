@@ -1,0 +1,50 @@
+// A Pkl-authored If/else dashboard, served at /d/pkl-if (slug = filename) —
+// the demo entry for conditional sections. An `If` is the tabs machinery with
+// a condition: each branch is an inline surface baked into the host's
+// `{{{branch}}}` hole, and the ACTIVE member is selected by a quantified
+// condition over live entity state (server truth, shared by every viewer)
+// instead of a click/cookie. The hidden branch is not rendered and receives
+// no updates; toggling the condition entity swaps the branch live in every
+// open client.
+//
+// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; this entry
+// sets only `card` (its branches become hoisted surfaces at build time).
+// (Plain `//` comments: a doc comment would attach to the first import, which
+// Pkl rejects — entries have no `module` clause to absorb it.)
+
+amends "lib/entry.pkl"
+
+import "lib/components.pkl" as c
+import "lib/dump.pkl" as dump
+
+card = (c.column) {
+  children {
+    c.title("If/else")
+
+    // BUILDER form: `iff(condition).then(card).`else`(card)` — `else` is a Pkl
+    // reserved word, so its call sites are backticked. The condition pins ONE
+    // entity via entityIs (+ .and), so the default "any" quantifier reads
+    // "entity X is in state Y".
+    c.iff(c.entityIs(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`.entity_id).and(c.stateIs("on")))
+      .then(c.title("Demo light is on"))
+      .`else`(c.title("Demo light is off"))
+
+    // AMEND form — multi-card branches list their cards directly (comma-free,
+    // like a tab body); the outer parens around the amended call are mandatory.
+    (c.iff(c.stateIs("on"))) {
+      `then` {
+        c.title("Something is on")
+        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+      }
+      `else` {
+        c.title("All quiet")
+      }
+    }
+
+    // QUANTIFIER variant: iffNone — shown while NO entity matches (an ∄ of its
+    // own, not expressible as .not() inside the condition). No `else` branch:
+    // while some light is on, the host bakes empty.
+    c.iffNone(c.domainIs("light").and(c.stateIs("on")))
+      .then(c.entityCard(dump.entities.sensor_ams_1a4e_u1))
+  }
+}

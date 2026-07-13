@@ -69,7 +69,8 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
    scoped form instead:
    `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1"); fh-datastar-view/testFull; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`.
    The backend model (`Dashboard.scala`) should not need to change for
-   authoring-layer work.
+   authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
+   — were the sanctioned structural exception; see ADR 0008).
 4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
    browser (`sbt dashboardServe`), per ADR 0006.
 5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
@@ -87,9 +88,8 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 | `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens |
-| `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` only); implementations are the `theme-*.pkl` siblings |
-| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes |
-| `resources/dashboards/lib/theme-pico.pkl` | The original Pico theme (opt-in per entry) |
+| `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` + the reusable `layoutCss` for the `fh-` layout classes) and the theme-author guide; implementations are the `theme-*.pkl` siblings |
+| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes |
 | `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
 | `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
@@ -134,7 +134,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
-- Cards (`lib/components.pkl`): `fhrow`/`fhcol` containers, `sectionTitle`, `stateCard`,
+- Cards (`lib/components.pkl`): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
   by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
@@ -142,6 +142,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
   when a light is off).
+- **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`
+  (the real flex/grid item and Datastar morph target; `CardDef.wrapAsCell = false` is the rare
+  opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to half — HA
+  `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
+  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`centered()`/`cellClass`
+  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Dynamic groups flow
+  their members the same way (`.fh-group`).
 - Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
   And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
   entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
@@ -149,13 +156,16 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   typed cards + editor completion. `fh.view.build.SourceEval` is the (Pkl-only) seam;
   everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
   (`hass.pkl` hand-written domain schema, `components.pkl`, the `theme.pkl` contract +
-  `theme-beer.pkl`/`theme-pico.pkl` implementations, `tokens.pkl`, the entry
+  the `theme-beer.pkl` implementation, `tokens.pkl`, the entry
   scaffold `entry.pkl`); top-level `*.pkl` files are entries that `amends "lib/entry.pkl"` and set
   only `card` (+ optional `title`/`surfaces`/`theme`). Slug = filename; `ServerApp.discoverEntries`
   scans `*.pkl` only. `lib/dump.pkl` is a TYPED dump generated by `PklDump` from the live fetch
-  (gitignored). Feature surface: containers/sectionTitle/entityCard/button/slider, expr/exprOf,
+  (gitignored). Feature surface: containers (grid/row/column) + the layout-cell builders
+  (`columns`/`fullWidth`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/slider,
+  expr/exprOf,
   serviceTap/navigate, tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
-  typed Predicate AST), three-tier slider config — see ADR 0006 for the deliberate API shape
+  typed Predicate AST), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
+  surfaces on the tabs machinery, ADR 0007), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
   precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
