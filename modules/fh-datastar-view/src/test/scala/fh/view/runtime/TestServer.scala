@@ -35,20 +35,20 @@ final class TestServer(
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
 
-  /** Await 1 subscriber on the slug's shared-patch topic — the fan-out an
-    * open SSE connection (browser or otherwise) subscribes to for main-page
-    * patches. Paired with [[awaitChangeSubscribers]] as the readiness gate a
-    * browser test awaits before `fake.emit` (a browser establishes its own
-    * SSE connection asynchronously on page load, so there is no response
-    * body to read progress from the way [[observePatch]]'s callers can).
+  /** Await 1 subscriber on the slug's shared-patch topic — the fan-out an open
+    * SSE connection (browser or otherwise) subscribes to for main-page patches.
+    * Paired with [[awaitChangeSubscribers]] as the readiness gate a browser
+    * test awaits before `fake.emit` (a browser establishes its own SSE
+    * connection asynchronously on page load, so there is no response body to
+    * read progress from the way [[observePatch]]'s callers can).
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
     server.sharedSubscribers(slug).filter(_ >= n).head.compile.drain
 
   /** The two readiness gates a live SSE connection needs before a change is
     * guaranteed to reach it (topics only deliver to already-subscribed
-    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 2 for
-    * one open connection (the shared publisher's own subscription plus this
+    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 2 for one
+    * open connection (the shared publisher's own subscription plus this
     * connection's). The smoke suites' one gate to await before `fake.emit`.
     */
   def awaitLive(subscribers: Int = 2): IO[Unit] =
@@ -63,14 +63,20 @@ final class TestServer(
 
   /** The rendered page shell for this dashboard (`GET /d/<slug>`). */
   def page: IO[String] =
-    run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug"))).flatMap(bodyOf)
+    run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug")))
+      .flatMap(bodyOf)
 
   /** POST an action route (e.g. `sse/action/light/toggle/light.kitchen`) and
     * return its status. The body is a fire-and-forget SSE ack the test ignores;
     * the observable effect is the recorded [[ServiceCall]].
     */
   def post(path: String): IO[Status] =
-    run(Request[IO](Method.POST, Uri.unsafeFromString("/" + path.stripPrefix("/"))))
+    run(
+      Request[IO](
+        Method.POST,
+        Uri.unsafeFromString("/" + path.stripPrefix("/"))
+      )
+    )
       .map(_.status)
 
   private val patchUri: Uri =
@@ -78,9 +84,9 @@ final class TestServer(
 
   /** Open one live SSE connection, wait until the store's change publishers are
     * attached, run `trigger` (typically a `fake.emit`), and succeed once a
-    * pushed fragment contains `marker`. If the marker never arrives the returned
-    * `IO` fails via `timeout` — so this is the positive "a change reaches the
-    * browser" assertion.
+    * pushed fragment contains `marker`. If the marker never arrives the
+    * returned `IO` fails via `timeout` — so this is the positive "a change
+    * reaches the browser" assertion.
     *
     * `subscribers` is the number of `StateStore.changes` consumers to await
     * before triggering (topics only reach already-subscribed consumers): the
@@ -116,8 +122,8 @@ final class TestServer(
 
 object TestServer {
 
-  /** Wire a [[TestServer]] for `dashboard`, seeded with `entities`. The returned
-    * resource owns the store's live feed and the server's shared-patch
+  /** Wire a [[TestServer]] for `dashboard`, seeded with `entities`. The
+    * returned resource owns the store's live feed and the server's shared-patch
     * publishers for its lifetime (via [[Server.resource]]).
     */
   def resource(

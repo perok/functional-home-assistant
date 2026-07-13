@@ -2,8 +2,8 @@ package fh.view.testkit
 
 import fh.view.model.Dashboard
 
-/** The Pkl-authored dashboard the browser suites (`fh.view.smoke`) drive:
-  * real `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
+/** The Pkl-authored dashboard the browser suites (`fh.view.smoke`) drive: real
+  * `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
   * elsewhere, these tests exist specifically to exercise real CSS/JS in a real
   * browser), plus one of each interaction class a UI/visual smoke test needs
   * something to click — a popup trigger, a tab bar, and a brightness slider —
@@ -47,5 +47,6 @@ object SmokeDashboard {
        |}
        |""".stripMargin
 
-  val dashboard: Dashboard = PklFixture.buildDashboard("smoke-house", entrySource)
+  val dashboard: Dashboard =
+    PklFixture.buildDashboard("smoke-house", entrySource)
 }

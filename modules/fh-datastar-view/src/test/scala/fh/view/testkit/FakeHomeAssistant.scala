@@ -31,11 +31,11 @@ final case class ServiceCall(
   *     events onto (the change feed the store's background fiber drains), and
   *   - [[callService]] records the call for later assertion.
   *
-  * The remaining twelve methods raise `NotImplementedError`: they are not on the
-  * runtime hot path, so an unexpected call is a loud test failure rather than a
-  * silent stub. This lets a test drive the WHOLE loop — `StateStore.create` ->
-  * `Server` -> HTTP/SSE -> `callService` — against static, in-repo state with a
-  * scripted timeline, and no live HA.
+  * The remaining twelve methods raise `NotImplementedError`: they are not on
+  * the runtime hot path, so an unexpected call is a loud test failure rather
+  * than a silent stub. This lets a test drive the WHOLE loop —
+  * `StateStore.create` -> `Server` -> HTTP/SSE -> `callService` — against
+  * static, in-repo state with a scripted timeline, and no live HA.
   */
 final class FakeHomeAssistant private (
     stateRef: Ref[IO, Map[String, FixtureEntity]],
@@ -72,28 +72,30 @@ final class FakeHomeAssistant private (
       state: String,
       attributes: Map[String, Json] = Map.empty
   ): IO[Unit] =
-    stateRef.modify { current =>
-      val prev = current.getOrElse(
-        entityId,
-        FixtureEntity(entityId, "unknown", Map.empty)
-      )
-      val next = FixtureEntity(entityId, state, attributes)
-      (current.updated(entityId, next), (prev, next))
-    }.flatMap { case (prev, next) =>
-      events.offer(
-        Event(
-          data = Event.EventData(
-            entity_id = entityId,
-            new_state = next.eventDataState,
-            old_state = prev.eventDataState
-          ),
-          event_type = "state_changed",
-          time_fired = "1970-01-01T00:00:00+00:00",
-          origin = "LOCAL",
-          context = ResultContext("test", None, None)
+    stateRef
+      .modify { current =>
+        val prev = current.getOrElse(
+          entityId,
+          FixtureEntity(entityId, "unknown", Map.empty)
         )
-      )
-    }
+        val next = FixtureEntity(entityId, state, attributes)
+        (current.updated(entityId, next), (prev, next))
+      }
+      .flatMap { case (prev, next) =>
+        events.offer(
+          Event(
+            data = Event.EventData(
+              entity_id = entityId,
+              new_state = next.eventDataState,
+              old_state = prev.eventDataState
+            ),
+            event_type = "state_changed",
+            time_fired = "1970-01-01T00:00:00+00:00",
+            origin = "LOCAL",
+            context = ResultContext("test", None, None)
+          )
+        )
+      }
 
   /** Every `call_service` recorded so far, in order. */
   def recordedCalls: IO[Vector[ServiceCall]] = calls.get

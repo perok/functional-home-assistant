@@ -6,9 +6,9 @@ import fh.view.testkit.{HouseFixture, ServiceCall, SmokeDashboard}
 import io.circe.Json
 
 /** "Click -> HA -> back": the control->service->feed->browser loop, driven
-  * through an actual mouse click rather than a raw `POST` (the Scala
-  * functional suite's level) — proving the `data-on:click` wiring itself,
-  * not just the route it targets.
+  * through an actual mouse click rather than a raw `POST` (the Scala functional
+  * suite's level) — proving the `data-on:click` wiring itself, not just the
+  * route it targets.
   */
 class ControlSmokeSuite extends SmokeSuite {
 
@@ -22,7 +22,14 @@ class ControlSmokeSuite extends SmokeSuite {
         calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
       } yield assertEquals(
         calls,
-        Vector(ServiceCall("light", "toggle", HouseFixture.kitchenLight.entityId, Json.obj()))
+        Vector(
+          ServiceCall(
+            "light",
+            "toggle",
+            HouseFixture.kitchenLight.entityId,
+            Json.obj()
+          )
+        )
       )
     }
   }
@@ -32,7 +39,8 @@ class ControlSmokeSuite extends SmokeSuite {
       val kitchenState = page
         .locator(
           "article.entity",
-          new com.microsoft.playwright.Page.LocatorOptions().setHasText("Kitchen")
+          new com.microsoft.playwright.Page.LocatorOptions()
+            .setHasText("Kitchen")
         )
         .locator(".state")
       for {

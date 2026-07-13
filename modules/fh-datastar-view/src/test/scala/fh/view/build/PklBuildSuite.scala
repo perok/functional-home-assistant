@@ -466,9 +466,10 @@ class PklBuildSuite extends munit.FunSuite {
   // same source the functional runtime tests serve.
   // ---------------------------------------------------------------------------
 
-  /** A feature-rich fixture entry: containers, sectionTitle, entityCard (default
-    * + tap), a domain-checked slider, a dynamic group, and both a registered and
-    * an inline popup — enough composition to exercise the hoist + decode path.
+  /** A feature-rich fixture entry: containers, sectionTitle, entityCard
+    * (default + tap), a domain-checked slider, a dynamic group, and both a
+    * registered and an inline popup — enough composition to exercise the hoist
+    * + decode path.
     */
   private val fixtureFeatures =
     s"""amends "lib/entry.pkl"
@@ -557,14 +558,19 @@ class PklBuildSuite extends munit.FunSuite {
     )
     // The registered popup plus a hoisted inline surface (keyed `<node-id>_self`).
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
-    assert(d.surfaces.keys.exists(_.endsWith("_self")), clue = d.surfaces.keySet)
+    assert(
+      d.surfaces.keys.exists(_.endsWith("_self")),
+      clue = d.surfaces.keySet
+    )
     // One dynamic group in the layout.
     assertEquals(dynamics(d.card).size, 1, clue = d.card)
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
 
-  test("fixture-surfaces builds tabs + If into hoisted surfaces that validate") {
+  test(
+    "fixture-surfaces builds tabs + If into hoisted surfaces that validate"
+  ) {
     val built = PklFixture.eval("fixture-surfaces", fixtureSurfaces)
     val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
     assert(

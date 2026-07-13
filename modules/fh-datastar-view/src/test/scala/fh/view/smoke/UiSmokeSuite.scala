@@ -7,8 +7,8 @@ import fh.view.testkit.{HouseFixture, ServiceCall, SmokeDashboard}
 import io.circe.Json
 
 /** Signal-driven UI with no server round-trip — tabs, popup, slider — the
-  * Datastar attribute wiring (`data-signals`/`data-bind`/`data-class`) that
-  * has no wire-level observable at all; only a real DOM proves it.
+  * Datastar attribute wiring (`data-signals`/`data-bind`/`data-class`) that has
+  * no wire-level observable at all; only a real DOM proves it.
   */
 class UiSmokeSuite extends SmokeSuite {
 
@@ -28,7 +28,10 @@ class UiSmokeSuite extends SmokeSuite {
   test("popup: a tap opens it, the close button dismisses it") {
     withPage(SmokeDashboard.dashboard, HouseFixture.all) { (page, _) =>
       val kitchenCard = page
-        .locator("article.entity", new Page.LocatorOptions().setHasText("Kitchen"))
+        .locator(
+          "article.entity",
+          new Page.LocatorOptions().setHasText("Kitchen")
+        )
       val popup = page.locator(".popup")
       for {
         _ <- IO.blocking(assertThat(popup).hasCount(0))

@@ -4,10 +4,10 @@ import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.testkit.{FixtureDashboard, HouseFixture}
 
-/** "SSE morphs the DOM": the check only a real browser can make — that a
-  * pushed `datastar-patch-elements` frame is not just sent on the wire (the
-  * Scala functional suite already proves that end-to-end), but actually
-  * APPLIED by Datastar to the live page.
+/** "SSE morphs the DOM": the check only a real browser can make — that a pushed
+  * `datastar-patch-elements` frame is not just sent on the wire (the Scala
+  * functional suite already proves that end-to-end), but actually APPLIED by
+  * Datastar to the live page.
   */
 class LiveUpdateSmokeSuite extends SmokeSuite {
 

@@ -11,13 +11,13 @@ import scala.concurrent.duration.*
   * behaviour as [[DashboardBehaviourSuite]], but the dashboard is a real Pkl
   * entry evaluated through the genuine authoring pipeline (Pkl -> model ->
   * renderer -> SSE) rather than a hand-built [[fh.view.model.Dashboard]]. It
-  * pins that the Pkl track and the runtime track meet: an entry authored against
-  * a [[HouseFixture]]-derived `lib/dump.pkl` renders and streams the live state
-  * the fake serves — with no live HA.
+  * pins that the Pkl track and the runtime track meet: an entry authored
+  * against a [[HouseFixture]]-derived `lib/dump.pkl` renders and streams the
+  * live state the fake serves — with no live HA.
   *
-  * The entry is authored against `dump.entities.<key>` for the fixture entities;
-  * because the dump and the seeded state both derive from [[HouseFixture]], the
-  * two cannot drift.
+  * The entry is authored against `dump.entities.<key>` for the fixture
+  * entities; because the dump and the seeded state both derive from
+  * [[HouseFixture]], the two cannot drift.
   */
 class PklDashboardBehaviourSuite extends munit.FunSuite {
 

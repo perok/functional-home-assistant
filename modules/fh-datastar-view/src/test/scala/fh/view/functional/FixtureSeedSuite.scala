@@ -20,7 +20,8 @@ class FixtureSeedSuite extends munit.FunSuite {
       .timeout(30.seconds)
       .unsafeRunSync()
 
-    val expected = HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
+    val expected =
+      HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
     assertEquals(snapshot, expected)
   }
 }

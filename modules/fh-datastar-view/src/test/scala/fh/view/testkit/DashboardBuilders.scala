@@ -7,10 +7,11 @@ import io.circe.Json
 /** The small constructors the runtime unit suites (`RendererSuite`,
   * `ServerSuite`) used to each re-declare — entity states, literal slots, and
   * the common container/leaf layout nodes. Pulled here so the scaffolding is
-  * written once and a suite reads as the behaviour under test, not its plumbing.
+  * written once and a suite reads as the behaviour under test, not its
+  * plumbing.
   *
-  * Card *templates* and whole dashboards stay in the suites: their exact HTML is
-  * what those tests assert, so they are fixtures, not shared scaffolding.
+  * Card *templates* and whole dashboards stay in the suites: their exact HTML
+  * is what those tests assert, so they are fixtures, not shared scaffolding.
   */
 object DashboardBuilders {
 
@@ -28,7 +29,9 @@ object DashboardBuilders {
   ): LayoutNode.Component =
     LayoutNode.Component(card, slots.toMap)
 
-  /** A `col` container over `kids` (the card name each suite's `cards` defines). */
+  /** A `col` container over `kids` (the card name each suite's `cards`
+    * defines).
+    */
   def col(kids: LayoutNode*): LayoutNode.Component =
     LayoutNode.Component("col", children = kids.toList)
 

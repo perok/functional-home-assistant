@@ -10,8 +10,8 @@ import scala.concurrent.duration.*
 
 /** End-to-end behaviour of the dashboard against a stubbed Home Assistant: the
   * whole loop — seed snapshot -> `StateStore` -> `Server` -> HTTP/SSE, and
-  * control -> `callService` — with no live HA and a scripted timeline. Each test
-  * reads as an observable behaviour, asserted at the HTTP boundary.
+  * control -> `callService` — with no live HA and a scripted timeline. Each
+  * test reads as an observable behaviour, asserted at the HTTP boundary.
   */
 class DashboardBehaviourSuite extends munit.FunSuite {
 
@@ -56,7 +56,8 @@ class DashboardBehaviourSuite extends munit.FunSuite {
       // A distinctive marker only the OFF light fragment can contain.
       ts.observePatch(
         marker = "Kitchen: <span>off</span>",
-        trigger = ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
+        trigger =
+          ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
       )
     }
   }
@@ -119,7 +120,8 @@ class DashboardBehaviourSuite extends munit.FunSuite {
           marker = "Kitchen: <span>off</span>",
           // The fake records the call; HA's resulting state change is emitted
           // explicitly (the fake does not simulate HA semantics).
-          trigger = ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
+          trigger =
+            ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
         )
         calls <- ts.fake.recordedCalls
       } yield assertEquals(

@@ -5,16 +5,16 @@ import fh.view.runtime.{AssetCache, Server}
 import org.http4s.{Request, Response, Status}
 import org.http4s.client.Client
 
-/** An offline [[AssetCache]] for the browser smoke suite. `theme-beer.pkl`
-  * and [[Server.DatastarCdn]] point at `cdn.jsdelivr.net` in production; this
+/** An offline [[AssetCache]] for the browser smoke suite. `theme-beer.pkl` and
+  * [[Server.DatastarCdn]] point at `cdn.jsdelivr.net` in production; this
   * session's egress policy blocks that host, and a hermetic test shouldn't
   * depend on any CDN being reachable anyway. Instead of hand-rolling
-  * [[AssetCache]]'s fetch/rewrite/CSS-sub-resource logic, this drives the
-  * REAL [[AssetCache.build]] against a fake [[Client]] that resolves the
-  * exact URLs `theme-beer.pkl` references to the files vendored under
+  * [[AssetCache]]'s fetch/rewrite/CSS-sub-resource logic, this drives the REAL
+  * [[AssetCache.build]] against a fake [[Client]] that resolves the exact URLs
+  * `theme-beer.pkl` references to the files vendored under
   * `src/test/resources/vendor/` (see `VENDORED.md` there) — everything else
-  * 404s, which `AssetCache` already tolerates per-URL (keeps the original
-  * CDN URL, logs, moves on).
+  * 404s, which `AssetCache` already tolerates per-URL (keeps the original CDN
+  * URL, logs, moves on).
   */
 object VendoredAssets {
 
@@ -30,18 +30,20 @@ object VendoredAssets {
   )
 
   /** The CDN URLs a fixture dashboard using `theme-beer.pkl` needs cached —
-    * `AssetCache.build`'s `urls` argument. */
+    * `AssetCache.build`'s `urls` argument.
+    */
   val urls: List[String] = urlToResource.keySet.toList
 
   private def readResource(path: String): Array[Byte] = {
     val in = getClass.getClassLoader.getResourceAsStream(path)
-    if (in == null) sys.error(s"vendored test asset not found on classpath: $path")
+    if (in == null)
+      sys.error(s"vendored test asset not found on classpath: $path")
     try in.readAllBytes()
     finally in.close()
   }
 
-  /** Serves the vendored bytes for a known URL, 404s any other request —
-    * never touches the network.
+  /** Serves the vendored bytes for a known URL, 404s any other request — never
+    * touches the network.
     */
   private val client: Client[IO] = Client[IO] { (req: Request[IO]) =>
     val body = urlToResource.get(req.uri.renderString).map(readResource)
@@ -53,8 +55,8 @@ object VendoredAssets {
     )
   }
 
-  /** Build the [[AssetCache]] used by [[fh.view.runtime.TestServer.served]]:
-    * a fresh temp dir, populated from the vendored files via the real
+  /** Build the [[AssetCache]] used by [[fh.view.runtime.TestServer.served]]: a
+    * fresh temp dir, populated from the vendored files via the real
     * [[AssetCache.build]] pipeline (so CSS sub-resource rewriting is exactly
     * production behaviour) against the offline [[client]].
     */

@@ -54,7 +54,8 @@ final case class FixtureEntity(
 
   /** A Pkl-safe key for this entity in a generated `lib/dump.pkl` — the id with
     * every non-alphanumeric character folded to `_` (so `dump.entities.<key>`
-    * is a legal dotted access). Matches the sanitizing `DataDump.transform` does.
+    * is a legal dotted access). Matches the sanitizing `DataDump.transform`
+    * does.
     */
   def dumpKey: String = entityId.replaceAll("[^A-Za-z0-9]", "_")
 
@@ -117,6 +118,7 @@ object FixtureEntity {
         ),
       s => Document.fromString(s),
       arr => Document.array(arr.map(jsonToDocument)),
-      obj => Document.obj(obj.toList.map { case (k, v) => k -> jsonToDocument(v) })
+      obj =>
+        Document.obj(obj.toList.map { case (k, v) => k -> jsonToDocument(v) })
     )
 }

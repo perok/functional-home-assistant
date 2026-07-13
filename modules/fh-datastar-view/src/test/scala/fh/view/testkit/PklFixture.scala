@@ -7,17 +7,17 @@ import io.circe.Json
 /** Builds a real [[Dashboard]] from an inline Pkl entry through the genuine
   * authoring pipeline — the Tier-A path of `plan-functional-e2e-tests.md`:
   * `.pkl` -> `SourceEval.eval` -> `DashboardBuild.hoistInlineSurfaces` ->
-  * decode. It stages a temp dir exactly as `PklBuildSuite` does (the real
-  * `lib` modules copied in, a generated `lib/dump.pkl` beside them), so no
-  * live HA is touched; the dump is supplied by the caller (typically
+  * decode. It stages a temp dir exactly as `PklBuildSuite` does (the real `lib`
+  * modules copied in, a generated `lib/dump.pkl` beside them), so no live HA is
+  * touched; the dump is supplied by the caller (typically
   * [[HouseFixture.transformedDump]], so the dashboard and the served state come
   * from one source).
   *
   * This is the seam a functional test uses to serve a Pkl-authored dashboard,
   * and the same builder `PklBuildSuite` uses to exercise the build pipeline
   * against TEST-OWNED entries (rather than the shipped dashboards, which are
-  * free to evolve). Entries here typically set a dummy theme, so the theme's CSS
-  * is out of scope — visual/theme coverage is the browser smoke plan's job.
+  * free to evolve). Entries here typically set a dummy theme, so the theme's
+  * CSS is out of scope — visual/theme coverage is the browser smoke plan's job.
   */
 object PklFixture {
 
@@ -69,7 +69,9 @@ object PklFixture {
   ): Built = {
     val tmp = os.temp.dir()
     os.makeDir.all(tmp / "lib")
-    libModules.foreach(n => os.copy.into(dashboardsDir / "lib" / n, tmp / "lib"))
+    libModules.foreach(n =>
+      os.copy.into(dashboardsDir / "lib" / n, tmp / "lib")
+    )
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
@@ -81,9 +83,9 @@ object PklFixture {
     Built(result.value, result.imports)
   }
 
-  /** Evaluate `entrySource` and return the decoded [[Dashboard]] with its `slug`
-    * set (hoisting inline surfaces first, as the build phase does). Throws if
-    * hoisting or decoding fails.
+  /** Evaluate `entrySource` and return the decoded [[Dashboard]] with its
+    * `slug` set (hoisting inline surfaces first, as the build phase does).
+    * Throws if hoisting or decoding fails.
     */
   def buildDashboard(
       slug: String,

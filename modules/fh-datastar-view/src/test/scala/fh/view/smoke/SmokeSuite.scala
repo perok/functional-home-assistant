@@ -15,12 +15,12 @@ import scala.jdk.CollectionConverters.*
 /** Base for the browser smoke suites (`docs/plan-playwright-smoke-tests.md`):
   * one Playwright + headless Chromium per suite (cheap page creation off the
   * shared browser), a fresh bound [[TestServer]] + `BrowserContext`/[[Page]]
-  * per test — so recorded calls, seeded state, and cookies (the tabs
-  * restore cookie) never bleed between tests — navigated to the dashboard
-  * under test. Every [[withPage]] call fails the test on any browser console
-  * `error`: a silent JS exception (a wrong `data-on:click` selector, a
-  * dropped SSE continuation line) is exactly the class of bug a wire-level
-  * test can't see — that's the whole reason this suite exists.
+  * per test — so recorded calls, seeded state, and cookies (the tabs restore
+  * cookie) never bleed between tests — navigated to the dashboard under test.
+  * Every [[withPage]] call fails the test on any browser console `error`: a
+  * silent JS exception (a wrong `data-on:click` selector, a dropped SSE
+  * continuation line) is exactly the class of bug a wire-level test can't see —
+  * that's the whole reason this suite exists.
   */
 abstract class SmokeSuite extends munit.FunSuite {
 
@@ -57,21 +57,20 @@ abstract class SmokeSuite extends munit.FunSuite {
   }
 
   /** Serve `dashboard`/`entities` on a freshly bound [[TestServer]], open a
-    * fresh `BrowserContext`/[[Page]] against it, navigate to the dashboard,
-    * and run `f` with the [[Page]] and the [[TestServer]] (for `fake.emit` /
-    * the SSE-subscriber readiness gates — the browser opens its OWN SSE
-    * connection, so a test that emits a change still must await it, exactly
-    * as [[TestServer.observePatch]] does for the HTTP-body-stream suites).
-    * Everything is released after; a global timeout so a missed assertion
-    * fails fast rather than hanging the suite.
+    * fresh `BrowserContext`/[[Page]] against it, navigate to the dashboard, and
+    * run `f` with the [[Page]] and the [[TestServer]] (for `fake.emit` / the
+    * SSE-subscriber readiness gates — the browser opens its OWN SSE connection,
+    * so a test that emits a change still must await it, exactly as
+    * [[TestServer.observePatch]] does for the HTTP-body-stream suites).
+    * Everything is released after; a global timeout so a missed assertion fails
+    * fast rather than hanging the suite.
     *
     * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
     * `data-on:click` selector or a dropped SSE continuation line surfaces
     * exactly there. NOT gated on console "error"-level messages: those also
-    * cover benign failed-resource-load logs (e.g. the decorative BeerCSS
-    * assets [[VendoredAssets]] deliberately doesn't vendor, or the browser's
-    * own favicon probe), which would make this suite noisy rather than
-    * meaningful.
+    * cover benign failed-resource-load logs (e.g. the decorative BeerCSS assets
+    * [[VendoredAssets]] deliberately doesn't vendor, or the browser's own
+    * favicon probe), which would make this suite noisy rather than meaningful.
     */
   def withPage[A](
       dashboard: Dashboard,
@@ -101,7 +100,10 @@ abstract class SmokeSuite extends munit.FunSuite {
     } yield (page, ts)
 
     val result =
-      resource.use { case (p, ts) => f(p, ts) }.timeout(45.seconds).unsafeRunSync()
+      resource
+        .use { case (p, ts) => f(p, ts) }
+        .timeout(45.seconds)
+        .unsafeRunSync()
     assert(pageErrors.isEmpty, clue = pageErrors.toList)
     result
   }
@@ -146,8 +148,8 @@ object SmokeSuite {
 
   /** Locate the preinstalled Chromium under `PLAYWRIGHT_BROWSERS_PATH`
     * (`chromium-<rev>/chrome-linux/chrome`) rather than trust the pinned
-    * Playwright version's own revision (which may not match what's on
-    * disk) — see [[SmokeSuite.beforeAll]].
+    * Playwright version's own revision (which may not match what's on disk) —
+    * see [[SmokeSuite.beforeAll]].
     */
   private def chromiumExecutable: java.nio.file.Path = {
     val root = os.Path(
@@ -157,7 +159,8 @@ object SmokeSuite {
       ),
       os.pwd
     )
-    val chrome = os.list(root)
+    val chrome = os
+      .list(root)
       .filter(p => os.isDir(p) && p.last.startsWith("chromium-"))
       .map(_ / "chrome-linux" / "chrome")
       .find(os.exists)

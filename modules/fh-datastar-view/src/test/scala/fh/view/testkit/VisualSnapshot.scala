@@ -4,17 +4,17 @@ package fh.view.testkit
   * ([[fh.view.smoke]]) — the same checked-in-resource-file contract
   * `PklBuildSuite`'s wire-format snapshots use, extended to screenshots. A
   * component's rendered look is deterministic here BY CONSTRUCTION: fixed
-  * viewport, [[fh.view.smoke.SmokeSuite.settle]] kills animations and waits
-  * on webfonts, and every asset (fonts included) is the fully offline,
-  * pinned-version [[VendoredAssets]] set — so unlike a typical visual-regression
-  * setup, there is no live CDN version drift to chase.
+  * viewport, [[fh.view.smoke.SmokeSuite.settle]] kills animations and waits on
+  * webfonts, and every asset (fonts included) is the fully offline,
+  * pinned-version [[VendoredAssets]] set — so unlike a typical
+  * visual-regression setup, there is no live CDN version drift to chase.
   *
-  * To regenerate after an intentional visual change:
-  * `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1")' 'fh-datastar-view/testFull'
-  * 'eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`
-  * (NOT a plain `FH_UPDATE_SNAPSHOTS=1` shell export — sbt 2.0's persistent
-  * server keeps its start-time env forever, leaving the gate silently stuck
-  * in regenerate mode; see `PklBuildSuite`).
+  * To regenerate after an intentional visual change: `sbt 'eval
+  * sys.props.put("FH_UPDATE_SNAPSHOTS", "1")' 'fh-datastar-view/testFull' 'eval
+  * sys.props.remove("FH_UPDATE_SNAPSHOTS")'` (NOT a plain
+  * `FH_UPDATE_SNAPSHOTS=1` shell export — sbt 2.0's persistent server keeps its
+  * start-time env forever, leaving the gate silently stuck in regenerate mode;
+  * see `PklBuildSuite`).
   */
 object VisualSnapshot {
 
