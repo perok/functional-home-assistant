@@ -17,85 +17,94 @@
         }
       },
       {
-        "card" : "entityCard",
+        "card" : "fhcol",
         "children" : [
+          {
+            "card" : "entityCard",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "entity_id" : "sensor.ams_1a4e_q",
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : "Power",
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+              }
+            }
+          },
+          {
+            "card" : "entityCard",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "entity_id" : "sensor.ams_1a4e_u1",
+              "icon" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+              },
+              "label" : "L1 voltage",
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
+              },
+              "tappable" : "1",
+              "value" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$round($number($state), 1) & \" V\""
+              }
+            }
+          },
+          {
+            "card" : "slider",
+            "cell" : {
+              "classes" : [
+                "fh-cols-full"
+              ]
+            },
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "action" : "light/turn_on",
+              "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
+              "fill" : {
+                "bypassUnavailable" : false,
+                "default" : "100",
+                "reactive" : true,
+                "transform" : "($v := $attr.brightness; $v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
+              },
+              "key" : "brightness",
+              "label" : "Demo light",
+              "max" : "255",
+              "min" : "1",
+              "state" : {
+                "bypassUnavailable" : true,
+                "reactive" : true,
+                "transform" : "$state"
+              },
+              "value" : {
+                "bypassUnavailable" : false,
+                "default" : "0",
+                "reactive" : true,
+                "transform" : "$attr.brightness"
+              }
+            }
+          }
         ],
         "kind" : "component",
         "slots" : {
-          "entity_id" : "sensor.ams_1a4e_q",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
-          "label" : "Power",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-          }
-        }
-      },
-      {
-        "card" : "entityCard",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "entity_id" : "sensor.ams_1a4e_u1",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
-          "label" : "L1 voltage",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"')\""
-          },
-          "tappable" : "1",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$round($number($state), 1) & \" V\""
-          }
-        }
-      },
-      {
-        "card" : "slider",
-        "cell" : {
-          "classes" : [
-            "fh-cols-full"
-          ]
-        },
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "action" : "light/turn_on",
-          "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-          "fill" : {
-            "bypassUnavailable" : false,
-            "default" : "100",
-            "reactive" : true,
-            "transform" : "($v := $attr.brightness; $v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
-          },
-          "key" : "brightness",
-          "label" : "Demo light",
-          "max" : "255",
-          "min" : "1",
-          "state" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "transform" : "$state"
-          },
-          "value" : {
-            "bypassUnavailable" : false,
-            "default" : "0",
-            "reactive" : true,
-            "transform" : "$attr.brightness"
-          }
+          
         }
       },
       {
@@ -301,7 +310,7 @@
         }
       },
       {
-        "card" : "fhcol",
+        "card" : "fhrow",
         "children" : [
           {
             "card" : "button",

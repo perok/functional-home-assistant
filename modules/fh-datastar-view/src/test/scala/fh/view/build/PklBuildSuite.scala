@@ -487,32 +487,37 @@ class PklBuildSuite extends munit.FunSuite {
 
     val root = d.card.asInstanceOf[LayoutNode.Component]
     assertEquals(root.card, "fhgrid")
-    // The grid interleaves component cards with two dynamic groups and ends
-    // with the popups COLUMN (a column nested in a grid cell).
+    // The grid interleaves component cards with two dynamic groups; the
+    // entity cards + slider are grouped in a COLUMN, and the popups ROW ends
+    // the layout (both nested containers in a grid cell).
     val children =
       root.children.collect { case c: LayoutNode.Component => c }
     assertEquals(
       children.map(_.card),
       List(
         "sectionTitle",
-        "entityCard",
-        "entityCard",
-        "slider",
+        "fhcol",
         "sectionTitle",
         "sectionTitle",
         "sectionTitle",
-        "fhcol"
+        "fhrow"
       )
     )
-    // Grid sizing: titles + the slider span the full grid (`fullWidth()`);
-    // the plain entity card keeps the default cell (no `cell` key at all).
+    // Grid sizing: the title spans the full grid (`fullWidth()`); the column
+    // keeps the default cell (no `cell` key at all).
     assertEquals(children(0).cell.map(_.classes), Some(List("fh-cols-full")))
     assertEquals(children(1).cell, None)
-    assertEquals(children(3).cell.map(_.classes), Some(List("fh-cols-full")))
 
-    // The three popup buttons stack inside the column.
+    // The entity cards + slider nested inside the column.
+    val column =
+      children(1).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(column.map(_.card), List("entityCard", "entityCard", "slider"))
+    assertEquals(column(0).cell, None)
+    assertEquals(column(2).cell.map(_.classes), Some(List("fh-cols-full")))
+
+    // The three popup buttons stack inside the row.
     val buttons =
-      children(7).children.collect { case c: LayoutNode.Component => c }
+      children(5).children.collect { case c: LayoutNode.Component => c }
     assertEquals(buttons.map(_.card), List("button", "button", "button"))
 
     // The inline-popup trigger (the "Quick info…" button) carries a literal
@@ -575,7 +580,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     // Slider config resolved at build time, as STRING literals (the slot
     // decoder rejects numbers — the highest-risk contract rule).
-    val slider = children(3)
+    val slider = column(2)
     assertEquals(slider.slots("min").literal, Some("1"))
     assertEquals(slider.slots("max").literal, Some("255"))
     assertEquals(slider.slots("action").literal, Some("light/turn_on"))
@@ -587,7 +592,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     // The tapped entity card: constant `tappable` marker + an identity-derived
     // (non-reactive) onclick expression.
-    val tapped = children(2)
+    val tapped = column(1)
     assertEquals(tapped.slots("tappable").literal, Some("1"))
     val onclick = tapped.slots("onclick")
     assertEquals(onclick.literal, None)
