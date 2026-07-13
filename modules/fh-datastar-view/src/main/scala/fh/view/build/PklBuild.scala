@@ -54,7 +54,7 @@ object PklBuild {
       val writer = new StringWriter
       ValueRenderers.json(writer, "  ", true).renderDocument(module)
       parser.parse(writer.toString).left.map(_.message).map { json =>
-        SourceEval.Result(json, importSet(dashboardsDir, entry))
+        SourceEval.Result(json, importSet(dashboardsDir, entry, system))
       }
     } catch {
       case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
@@ -107,22 +107,47 @@ object PklBuild {
     * Uses pkl-core's static analyzer (`Analyzer.importGraph`): the graph's
     * module set (the `imports` map keys, plus resolved targets) is every module
     * the entry pulls in. We keep only `file:` modules under the dashboards dir
-    * (dropping `pkl:`/`package:`/`https:` stdlib and remote imports, which are
-    * not local files to watch). On any failure — or an empty result — we fall
-    * back to the conservative superset (every `*.pkl` under the dir); the entry
-    * is always included regardless.
+    * (dropping `pkl:`/`package:`/`http(s):` stdlib and remote imports, which
+    * are not local files to watch). On any failure — or an empty result — we
+    * fall back to the conservative superset (every `*.pkl` under the dir); the
+    * entry is always included regardless.
+    *
+    * When a [[SystemPkl]] is present the entry imports `hass.pkl`/`dump.pkl`
+    * over the `/system/pkl/` http URL (ADR 0009). To keep the analysis PRECISE
+    * (rather than throwing on the http import and collapsing to the superset),
+    * we give the analyzer the same in-memory intercept factory + an
+    * http-admitting security manager. Those artifacts then resolve as `http:`
+    * modules and are correctly filtered out here (they are not local files to
+    * watch — the schema's backing `lib/hass.pkl` is re-added explicitly by
+    * `ServerApp.watchedSet`; the live `dump.pkl` is intentionally not watched).
     */
   private def importSet(
       dashboardsDir: os.Path,
-      entry: os.Path
+      entry: os.Path,
+      system: Option[SystemPkl]
   ): Set[os.Path] = {
+    val baseFactories =
+      List(ModuleKeyFactories.standardLibrary, ModuleKeyFactories.file)
+    val factories = system match {
+      case Some(sys) => new SystemPkl.Factory(sys) :: baseFactories
+      case None      => baseFactories
+    }
+    val securityManager = system match {
+      case None => SecurityManagers.defaultManager
+      case Some(_) =>
+        SecurityManagers.standard(
+          AllowedModules,
+          SecurityManagers.defaultAllowedResources,
+          SecurityManagers.defaultTrustLevels,
+          null
+        )
+    }
     val precise = Try {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
-        SecurityManagers.defaultManager,
-        java.util.List
-          .of(ModuleKeyFactories.standardLibrary, ModuleKeyFactories.file),
+        securityManager,
+        factories.asJava,
         null,
         null,
         HttpClient.dummyClient(),

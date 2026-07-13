@@ -56,12 +56,19 @@ object ServerApp extends IOApp {
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
+        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) — over the
+        // `/system/pkl/*` route AND, crucially, on the server's own eval path
+        // (ADR 0009): entries import them by http URL, and this provider lets
+        // `PklBuild` resolve those imports in-memory instead of fetching from
+        // itself. `prepareDumps` above already wrote the live `lib/dump.pkl`, so
+        // reads (by-name, off disk) reflect the current dump.
+        systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Per-entry: a broken dashboard (e.g. a bad user edit before a
         // restart) is logged and skipped, not a crash loop; only zero
         // buildable dashboards is fatal.
         built <- entries
           .traverse { case (slug, entry) =>
-            buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
+            buildEntry(dashboardsDir, slug, entry, systemPkl).attempt.flatMap {
               case Right(r) => IO.pure(Some((slug, r)))
               case Left(err) =>
                 IO.println(
@@ -111,11 +118,6 @@ object ServerApp extends IOApp {
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
         defaultSlug <- defaultSlugFrom(built.map(_._1)).toResource
-        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) over
-        // `/system/pkl/*` straight off disk — the same source the in-server
-        // import interception uses. `prepareDumps` above already wrote the
-        // live `lib/dump.pkl`, so reads reflect the current dump.
-        systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
         server <- Server.resource(
@@ -137,7 +139,8 @@ object ServerApp extends IOApp {
           dashboardsDir,
           entries,
           rendererRefs,
-          importsRef
+          importsRef,
+          systemPkl
         ).compile.drain.background
         _ <- EmberServerBuilder
           .default[IO]
@@ -189,23 +192,41 @@ object ServerApp extends IOApp {
   private def buildEntry(
       dashboardsDir: os.Path,
       slug: String,
-      entry: String
+      entry: String,
+      system: SystemPkl
   ): IO[(Renderer, Set[os.Path])] =
-    DashboardBuild.reevaluate(dashboardsDir, entry).map {
+    DashboardBuild.reevaluate(dashboardsDir, entry, Some(system)).map {
       case (dash, imports) =>
         Renderer.create(dash.copy(slug = slug)) -> imports
     }
 
-  /** The set of files to watch: every entry's transitive imports plus the entry
-    * files themselves (so a brand-new import or a top-level edit is caught).
+  /** The set of files to watch: every entry's transitive imports, the entry
+    * files themselves (so a brand-new import or a top-level edit is caught),
+    * and the fh-owned schema `lib/hass.pkl` added EXPLICITLY.
+    *
+    * `hass.pkl` is imported over `http://…/system/pkl/hass.pkl` (ADR 0009), so
+    * `PklBuild.importSet`'s file-only analyzer drops it from the transitive set
+    * — without this add, editing the schema would stop hot-reloading. The live
+    * `dump.pkl` is deliberately NOT watched (it is regenerated from HA state,
+    * not hand-edited; a build-time force-rerun is a separate follow-up, see
+    * `docs/plan-pkl-live-endpoint-and-deps.md`).
+    *
+    * This explicit add is also the seam for a future "local-dev only" toggle:
+    * watching the schema source is a checkout/dev-loop concern, irrelevant to a
+    * deployed add-on whose schema is fixed per image.
     */
   private def watchedSet(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       imports: List[Set[os.Path]]
-  ): Set[Path] =
-    (imports.flatten.toSet ++ entries.map { case (_, e) => dashboardsDir / e })
+  ): Set[Path] = {
+    val hass = dashboardsDir / "lib" / "hass.pkl"
+    val hassIfPresent = if (os.exists(hass)) Set(hass) else Set.empty[os.Path]
+    (imports.flatten.toSet ++
+      entries.map { case (_, e) => dashboardsDir / e } ++
+      hassIfPresent)
       .map(fs2Path)
+  }
 
   private val watchedEvents = List(
     Watcher.EventType.Created,
@@ -226,7 +247,8 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       rendererRefs: Map[String, SignallingRef[IO, Renderer]],
-      importsRef: SignallingRef[IO, Set[Path]]
+      importsRef: SignallingRef[IO, Set[Path]],
+      system: SystemPkl
   ): Stream[IO, Unit] =
     Stream.resource(Watcher.default[IO]).flatMap { watcher =>
       val reconcile =
@@ -255,7 +277,7 @@ object ServerApp extends IOApp {
           .evalMap { _ =>
             entries
               .traverse { case (slug, entry) =>
-                buildEntry(dashboardsDir, slug, entry).attempt
+                buildEntry(dashboardsDir, slug, entry, system).attempt
                   .map((slug, _))
               }
               .flatMap { results =>

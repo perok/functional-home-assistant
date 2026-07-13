@@ -19,7 +19,7 @@
 amends "lib/entry.pkl"
 
 import "lib/components.pkl" as c
-import "lib/dump.pkl" as dump
+import "http://localhost:8080/system/pkl/dump.pkl" as dump
 
 card = (c.column) {
   children {

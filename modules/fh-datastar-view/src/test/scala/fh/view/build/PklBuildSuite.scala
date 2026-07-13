@@ -21,6 +21,18 @@ class PklBuildSuite extends munit.FunSuite {
       case d: LayoutNode.Dynamic   => List(d)
     }
 
+  /** Evaluate an entry the way the live server does (ADR 0009): entries/lib
+    * import `hass.pkl`/`dump.pkl` over the `/system/pkl/` http URL, and a
+    * [[SystemPkl]] provider resolves them in-memory off `tmp/lib/` (the files
+    * `copyLib` / `PklDump.render` wrote there). The embedded host is irrelevant —
+    * interception matches by path — so no server runs.
+    */
+  private def evalSys(
+      tmp: os.Path,
+      entry: String
+  ): Either[String, SourceEval.Result] =
+    SourceEval.eval(tmp, entry, Some(SystemPkl.fromDisk(tmp)))
+
   test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
     val tmp = os.temp.dir()
     os.write(
@@ -31,7 +43,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "test.pkl")
+    val result = evalSys(tmp, "test.pkl")
     assert(result.isRight, clue = result)
     val r = result.toOption.get
     assertEquals(r.value.hcursor.get[Int]("a").toOption, Some(1))
@@ -48,7 +60,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "bad.pkl")
+    val result = evalSys(tmp, "bad.pkl")
     assert(result.isLeft, clue = result)
     assert(result.left.exists(_.contains("bad.pkl")), clue = result)
   }
@@ -119,28 +131,32 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "entry.pkl",
       """module entry
         |
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |import "lib/components.pkl" as c
         |
         |x = 1
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "entry.pkl")
+    val result = evalSys(tmp, "entry.pkl")
     assert(result.isRight, clue = result)
     val imports = result.toOption.get.imports
 
-    // The entry + its transitive imports, and nothing else.
+    // The entry + its transitive FILE imports, and nothing else. hass.pkl is
+    // imported over the `/system/pkl/` http URL (ADR 0009), so it resolves as an
+    // `http:` module and is filtered out of the (local-files-to-watch) set —
+    // even though the intercept factory keeps the analysis precise (no collapse
+    // to the all-*.pkl superset, so `unrelated.pkl` stays excluded).
     assertEquals(
       imports,
       Set(
         tmp / "entry.pkl",
-        tmp / "lib" / "components.pkl",
-        tmp / "lib" / "hass.pkl"
+        tmp / "lib" / "components.pkl"
       ),
       clue = imports
     )
     assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)
+    assert(!imports.contains(tmp / "lib" / "hass.pkl"), clue = imports)
   }
 
   /** The real Pkl library modules, as shipped in the resources dir. */
@@ -162,7 +178,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |
         |light: hass.LightEntity = new {
         |  entity_id = "light.kitchen"
@@ -181,7 +197,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val c = result.toOption.get.value.hcursor
     assertEquals(
@@ -200,11 +216,11 @@ class PklBuildSuite extends munit.FunSuite {
     os.write.over(
       tmp / "probe.pkl",
       """module probe
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |bad: hass.SensorEntity = new { entity_id = "NotAnId" }
         |""".stripMargin
     )
-    assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
+    assert(evalSys(tmp, "probe.pkl").isLeft)
   }
 
   /** A small transformed dump (the OUTPUT shape of DataDump.transform): one
@@ -337,14 +353,14 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/dump.pkl" as dump
+        |import "http://localhost:8080/system/pkl/dump.pkl" as dump
         |
         |areaId = dump.areas.`new`.area_id
         |floorName = dump.`3rd_floor`.floor_name
         |viaFloor = dump.`3rd_floor`.`new`.light_lamp.entity_id
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val c = result.toOption.get.value.hcursor
     assertEquals(c.get[String]("areaId").toOption, Some("new_1"))
@@ -360,7 +376,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/dump.pkl" as dump
+        |import "http://localhost:8080/system/pkl/dump.pkl" as dump
         |
         |flat = dump.entities.light_kitchen.entity_id
         |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
@@ -369,7 +385,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val c = result.toOption.get.value.hcursor
     assertEquals(c.get[String]("flat").toOption, Some("light.kitchen"))
@@ -394,7 +410,7 @@ class PklBuildSuite extends munit.FunSuite {
         |theme = themeMod.theme
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val theme = result.toOption.get.value.hcursor.downField("theme")
     assert(
@@ -439,7 +455,7 @@ class PklBuildSuite extends munit.FunSuite {
         |cards = c.cards
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cards = result.toOption.get.value.hcursor.downField("cards")
 
@@ -497,7 +513,7 @@ class PklBuildSuite extends munit.FunSuite {
         |node = new c.SectionTitle { text = "x" }
         |""".stripMargin
     )
-    val nodeResult = SourceEval.eval(tmp, "probe.pkl")
+    val nodeResult = evalSys(tmp, "probe.pkl")
     assert(nodeResult.isRight, clue = nodeResult)
     val nodeKeys =
       nodeResult.toOption.get.value.hcursor.downField("node").keys
@@ -548,11 +564,14 @@ class PklBuildSuite extends munit.FunSuite {
       .get
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
 
-    val result = SourceEval.eval(tmp, "pkl-demo.pkl")
+    val result = evalSys(tmp, "pkl-demo.pkl")
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
-    // The precise import set is the demo's full transitive closure.
+    // The precise import set is the demo's full transitive closure of FILE
+    // imports. hass.pkl + dump.pkl are `/system/pkl/` http imports (ADR 0009),
+    // so they resolve as `http:` and are filtered out of the watch set (hass is
+    // re-added explicitly by ServerApp; dump is intentionally unwatched).
     val importNames = r.imports.map(_.last)
     assert(
       Set(
@@ -560,13 +579,13 @@ class PklBuildSuite extends munit.FunSuite {
         "components.pkl",
         "theme.pkl",
         "theme-beer.pkl",
-        "tokens.pkl",
-        "hass.pkl",
-        "dump.pkl"
+        "tokens.pkl"
       )
         .subsetOf(importNames),
       clue = importNames
     )
+    assert(!importNames.contains("hass.pkl"), clue = importNames)
+    assert(!importNames.contains("dump.pkl"), clue = importNames)
 
     // The FULL build pipeline: hoist the inline popup surface into the
     // registry (splicing the trigger's NODE_ID), then decode.
@@ -733,14 +752,14 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       s"""module probe
          |
-         |import "lib/hass.pkl"
+         |import "http://localhost:8080/system/pkl/hass.pkl"
          |import "lib/components.pkl" as c
          |
          |$body
          |
          |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     result.toOption.get.value.hcursor
       .downField("node")
@@ -760,14 +779,14 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       s"""module probe
          |
-         |import "lib/hass.pkl"
+         |import "http://localhost:8080/system/pkl/hass.pkl"
          |import "lib/components.pkl" as c
          |
          |$body
          |
          |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     result.toOption.get.value.hcursor
       .downField("node")
@@ -812,7 +831,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |import "lib/components.pkl" as c
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
@@ -821,7 +840,7 @@ class PklBuildSuite extends munit.FunSuite {
         |ctor = new c.EntityCard { entity = x; tap = c.toggleTap }
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     val call = cur.downField("call").focus
@@ -842,7 +861,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |import "lib/components.pkl" as c
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
@@ -858,7 +877,7 @@ class PklBuildSuite extends munit.FunSuite {
         |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     def focus(k: String) = cur.downField(k).focus
@@ -880,7 +899,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |import "lib/components.pkl" as c
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
@@ -893,7 +912,7 @@ class PklBuildSuite extends munit.FunSuite {
         |custom = c.entityCard(x).cellClass("my-hero")
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
@@ -926,7 +945,7 @@ class PklBuildSuite extends munit.FunSuite {
         |packed = c.grid.centered(false)
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     def clazz(k: String) =
@@ -989,7 +1008,7 @@ class PklBuildSuite extends munit.FunSuite {
         |}
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val cur = result.toOption.get.value.hcursor
     val builder = cur.downField("builder").focus
@@ -1008,7 +1027,7 @@ class PklBuildSuite extends munit.FunSuite {
         |p = c.entityIs("light.kitchen")
         |""".stripMargin
     )
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val p = result.toOption.get.value.hcursor.downField("p").as[Predicate]
     assertEquals(
@@ -1130,13 +1149,13 @@ class PklBuildSuite extends munit.FunSuite {
     os.write(
       tmp / "probe.pkl",
       """module probe
-        |import "lib/hass.pkl"
+        |import "http://localhost:8080/system/pkl/hass.pkl"
         |import "lib/components.pkl" as c
         |sensor: hass.GenericEntity = new { entity_id = "sensor.temp"; domain = "sensor" }
         |node = new c.Slider { entity = sensor }
         |""".stripMargin
     )
-    assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
+    assert(evalSys(tmp, "probe.pkl").isLeft)
   }
 
   test("floorView emits one section per area-with-lights (title + sliders)") {
@@ -1187,13 +1206,13 @@ class PklBuildSuite extends munit.FunSuite {
       """module probe
         |
         |import "lib/components.pkl" as c
-        |import "lib/dump.pkl" as dump
+        |import "http://localhost:8080/system/pkl/dump.pkl" as dump
         |
         |node = c.floorView(dump.over)
         |""".stripMargin
     )
 
-    val result = SourceEval.eval(tmp, "probe.pkl")
+    val result = evalSys(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val node = result.toOption.get.value.hcursor
       .downField("node")
@@ -1265,7 +1284,7 @@ class PklBuildSuite extends munit.FunSuite {
       .get
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
 
-    val result = SourceEval.eval(tmp, "pkl-tabs.pkl")
+    val result = evalSys(tmp, "pkl-tabs.pkl")
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
@@ -1367,7 +1386,7 @@ class PklBuildSuite extends munit.FunSuite {
     // the two AMS sensors).
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
 
-    val result = SourceEval.eval(tmp, "pkl-if.pkl")
+    val result = evalSys(tmp, "pkl-if.pkl")
     assert(result.isRight, clue = result)
     val r = result.toOption.get
 
@@ -1531,7 +1550,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     os.copy.into(resources / entry, tmp)
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(snapshotDump))
-    val result = SourceEval.eval(tmp, entry)
+    val result = evalSys(tmp, entry)
     assert(result.isRight, clue = result)
     result.toOption.get.value.spaces2SortKeys
   }
@@ -1591,7 +1610,7 @@ class PklBuildSuite extends munit.FunSuite {
       tmp
     )
 
-    val result = SourceEval.eval(tmp, "dashboard.pkl")
+    val result = evalSys(tmp, "dashboard.pkl")
     assert(result.isRight, clue = result)
     val r = result.toOption.get
     assert(!r.imports.map(_.last).contains("dump.pkl"), clue = r.imports)

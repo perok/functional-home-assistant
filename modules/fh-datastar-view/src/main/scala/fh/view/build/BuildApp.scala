@@ -31,8 +31,13 @@ object BuildApp extends IOApp {
         .get("DASHBOARD_ENTRY")
         .map(_.getOrElse(defaultDashboardEntry))
 
+      // Entries import `hass.pkl`/`dump.pkl` over the `/system/pkl/` http URL
+      // (ADR 0009); the provider lets `PklBuild` resolve them in-memory off
+      // disk. `evaluate` runs `prepareDumps` first, so `dump.pkl` exists before
+      // the by-name read.
+      systemPkl = SystemPkl.fromDisk(dashboardsDir)
       result <- FHApi.fromEnv.use(
-        DashboardBuild.evaluate(_, dashboardsDir, entry)
+        DashboardBuild.evaluate(_, dashboardsDir, entry, Some(systemPkl))
       )
       dashboardJson = result.value
       _ <- IO.println(

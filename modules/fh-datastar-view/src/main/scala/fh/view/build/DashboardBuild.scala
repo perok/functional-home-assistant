@@ -43,9 +43,10 @@ object DashboardBuild {
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      system: Option[SystemPkl] = None
   ): IO[SourceEval.Result] =
-    prepareDumps(api, dashboardsDir) *> evalSource(dashboardsDir, entry)
+    prepareDumps(api, dashboardsDir) *> evalSource(dashboardsDir, entry, system)
 
   /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
     *
@@ -55,9 +56,10 @@ object DashboardBuild {
     */
   private def evalSource(
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      system: Option[SystemPkl]
   ): IO[SourceEval.Result] =
-    IO.blocking(SourceEval.eval(dashboardsDir, entry))
+    IO.blocking(SourceEval.eval(dashboardsDir, entry, system))
       .flatMap(
         _.leftMap(err => new RuntimeException(s"dashboard eval failed:\n$err"))
           .liftTo[IO]
@@ -273,9 +275,10 @@ object DashboardBuild {
     */
   private def evalAndDecode(
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      system: Option[SystemPkl]
   ): IO[(Dashboard, Set[os.Path])] =
-    evalSource(dashboardsDir, entry).flatMap { r =>
+    evalSource(dashboardsDir, entry, system).flatMap { r =>
       decode(r.value, r.imports).map(_ -> r.imports)
     }
 
@@ -286,9 +289,14 @@ object DashboardBuild {
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      system: Option[SystemPkl] = None
   ): IO[(Dashboard, Set[os.Path])] =
-    prepareDumps(api, dashboardsDir) *> evalAndDecode(dashboardsDir, entry)
+    prepareDumps(api, dashboardsDir) *> evalAndDecode(
+      dashboardsDir,
+      entry,
+      system
+    )
 
   /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
     * dump rewrite) — used by live reload when only the dashboard sources
@@ -296,7 +304,8 @@ object DashboardBuild {
     */
   def reevaluate(
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      system: Option[SystemPkl] = None
   ): IO[(Dashboard, Set[os.Path])] =
-    evalAndDecode(dashboardsDir, entry)
+    evalAndDecode(dashboardsDir, entry, system)
 }

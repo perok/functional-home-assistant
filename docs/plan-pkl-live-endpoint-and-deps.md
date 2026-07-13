@@ -162,8 +162,17 @@ JSON is import-mechanism-independent).
 
 ### Known limitations / follow-ups (Track A)
 
-- **Watch of intercepted-but-local files.** Handled in step 4; called out because
-  the analyzer's drop of non-`file:` imports is easy to miss.
+- **Watch of intercepted-but-local files.** Handled in step 4: `ServerApp` adds
+  `lib/hass.pkl` to the watch set **explicitly** (the analyzer drops the http
+  import, so it would otherwise stop reloading on schema edits). This explicit add
+  is the seam for a **future "local-dev only" toggle** — watching the schema
+  source matters in a checkout/dev loop but is irrelevant to a deployed add-on
+  whose schema is fixed per image; gate it there when the dev/prod split is wired.
+- **TODO (later): force-rerun the dump.** `dump.pkl` is deliberately NOT watched
+  (it is regenerated from HA state, not hand-edited). But there is no way today to
+  ask the server to re-fetch + re-render the dump on demand (e.g. after adding a
+  device in HA) short of a restart. Add a build-time force-rerun path (an endpoint
+  or signal that re-runs `prepareDumps` and re-evaluates entries) as a follow-up.
 - **Canonical host** unification with the PWA URL (see above) — deferred.
 - **HTTPS/cert.** The prototype allows plain `http:` (decided). A production
   cross-network deployment over `https:` needs a cert reachable by pkl-lsp; out of
