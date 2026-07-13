@@ -1,9 +1,12 @@
 # Plan: Pkl live schema endpoint + `@fh-dashboard` dependency
 
-**Status: designed, prototype in progress** — the two enabling pkl-core
-capabilities are spiked and confirmed on 0.31.1 (see "Spike evidence" below).
-Track A (the live http endpoint + in-server interception) is being prototyped;
-Track B (`@fh-dashboard` project dependency) is designed and deferred.
+**Status: prototype landed through step 3; step 4 (import migration) pending.**
+The two enabling pkl-core capabilities are spiked and confirmed on 0.31.1 (see
+"Spike evidence" below). Track A steps 1–3 are implemented (interception infra,
+the `/system/pkl/*` route, runtime wiring) — the imports themselves are **not yet
+migrated** to http, so the mechanism is dormant behind the existing relative-file
+imports until step 4. Track B (`@fh-dashboard` project dependency) is designed and
+deferred.
 
 ## The idea
 
@@ -121,7 +124,7 @@ Verify each with `sbt 'fh-datastar-view/testFull'` (fake dumps, full pipeline, n
 live HA). The wire-format snapshots are the safety net — none should move (evaluated
 JSON is import-mechanism-independent).
 
-1. **Interception infra (additive; no entry changes).**
+1. ✅ **Interception infra (additive; no entry changes).**
    - `runtime`/`build`: a `SystemPkl` provider — `contentFor(path): Option[String]`
      for `/system/pkl/{hass,dump}.pkl` — backed by disk `lib/hass.pkl` + a dump
      `Ref`.
@@ -137,16 +140,17 @@ JSON is import-mechanism-independent).
      hass+dump against an in-memory `SystemPkl`, with no server — mirrors the
      spike. Existing suite stays green (no import changes yet).
 
-2. **The `/system/pkl/*` route.** Add `GET /system/pkl/hass.pkl` and
-   `…/dump.pkl` to `Server.scala` (flat `HttpRoutes.of`), serving `SystemPkl`
-   content as `text/plain`. `dump.pkl` reflects the current dump `Ref`. Verify:
-   `curl` the route from a running `dashboardServe`; the returned dump parses as
-   Pkl (round-trips through the evaluator).
+2. ✅ **The `/system/pkl/*` route.** `GET /system/pkl/:name` in `Server.scala`
+   (flat `HttpRoutes.of`) serves `SystemPkl` content as `text/plain`, 404 for an
+   unknown name. Covered by a `ServerSuite` test.
 
-3. **Wire `SystemPkl` into the runtime.** `ServerApp` builds the dump `Ref`,
-   refreshes it wherever `prepareDumps` runs, and passes the `SystemPkl` to both
-   `PklBuild.eval` (self-eval interception) and the route. Verify: `dashboardServe`
-   evaluates the demos with interception on; snapshots unchanged.
+3. ✅ **Wire `SystemPkl` into the runtime.** `ServerApp` builds
+   `SystemPkl.fromDisk(dashboardsDir)` after `prepareDumps` has written the live
+   `lib/dump.pkl`, and passes it to `Server.resource` (the route). Reads are
+   by-name off disk, so no `Ref` to invalidate — chosen over a dump `Ref` for the
+   prototype (see "One content source, two consumers"). Interception via
+   `PklBuild.eval(system = …)` is available but only exercised once step 4 switches
+   the imports to http.
 
 4. **Migrate hass+dump imports to http (behind the demos).** Switch entries/lib to
    the http URLs; update the test harness so its fake dump is served via `SystemPkl`
