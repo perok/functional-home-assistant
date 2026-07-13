@@ -57,6 +57,52 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(os.temp.dir(), "x.yaml").isLeft)
   }
 
+  test("SystemPkl interception serves /system/pkl imports from memory") {
+    // Mirrors the plan's spike: an entry http-imports the dump, which itself
+    // relatively imports hass.pkl; BOTH resolve from the in-memory provider —
+    // no http server is running. Proves the self-import cycle is broken.
+    val tmp = os.temp.dir()
+    val hass =
+      """module hass
+        |class Entity { entity_id: String; domain: String; friendly_name: String }
+        |""".stripMargin
+    val dump =
+      """module dump
+        |import "hass.pkl"
+        |kitchen: hass.Entity = new {
+        |  entity_id = "light.kitchen"; domain = "light"; friendly_name = "Kitchen"
+        |}
+        |""".stripMargin
+    os.write(
+      tmp / "entry.pkl",
+      """import "http://home/system/pkl/dump.pkl" as dump
+        |name = dump.kitchen.friendly_name
+        |dom = dump.kitchen.domain
+        |""".stripMargin
+    )
+    val system = SystemPkl(Some(hass), Some(dump))
+    val result = PklBuild.eval(tmp, "entry.pkl", Some(system))
+    assert(result.isRight, clue = result)
+    val r = result.toOption.get
+    assertEquals(r.value.hcursor.get[String]("name").toOption, Some("Kitchen"))
+    assertEquals(r.value.hcursor.get[String]("dom").toOption, Some("light"))
+  }
+
+  test("without a SystemPkl provider, http imports are refused (unchanged)") {
+    // Interception is additive: the default eval path still rejects http imports
+    // via the preconfigured allowlist (checked before any fetch), so nothing
+    // changes until a provider opts an entry in. The import is USED so Pkl
+    // actually forces the load — an unused import is lazily skipped.
+    val tmp = os.temp.dir()
+    os.write(
+      tmp / "entry.pkl",
+      """import "http://home/system/pkl/dump.pkl" as dump
+        |name = dump.kitchen
+        |""".stripMargin
+    )
+    assert(PklBuild.eval(tmp, "entry.pkl").isLeft)
+  }
+
   test("PklBuild.eval reports the entry's precise transitive imports only") {
     // Entry imports components.pkl (which transitively imports hass.pkl); an
     // unrelated sibling .pkl in the same dir is NOT imported, so the static

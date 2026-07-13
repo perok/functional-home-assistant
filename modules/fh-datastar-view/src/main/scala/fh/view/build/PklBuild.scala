@@ -7,6 +7,7 @@ import org.pkl.core.module.ModuleKeyFactories
 import org.pkl.core.{
   Analyzer,
   Evaluator,
+  EvaluatorBuilder,
   ModuleSource,
   SecurityManagers,
   StackFrameTransformers,
@@ -14,6 +15,7 @@ import org.pkl.core.{
 }
 
 import java.io.StringWriter
+import java.util.regex.Pattern
 
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
@@ -40,11 +42,12 @@ object PklBuild {
     */
   def eval(
       dashboardsDir: os.Path,
-      entryFile: String
+      entryFile: String,
+      system: Option[SystemPkl] = None
   ): Either[String, SourceEval.Result] = {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
-      val evaluator = Evaluator.preconfigured()
+      val evaluator = buildEvaluator(system)
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
@@ -57,6 +60,47 @@ object PklBuild {
       case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
     }
   }
+
+  /** The module allowlist for the intercepting evaluator. Overriding the
+    * preconfigured allowlist means we must re-list every scheme entries use;
+    * `http:` is the addition (`preconfigured()` allows `https:` but not plain
+    * `http:`, and the `/system/pkl/` endpoint is plain http — decided in the
+    * plan). Interception matches by path and never touches the socket, but the
+    * allowlist gate is applied to the URI scheme regardless.
+    */
+  private val AllowedModules: java.util.List[Pattern] =
+    List(
+      "repl:",
+      "file:",
+      "modulepath:",
+      "https:",
+      "http:",
+      "pkl:",
+      "package:",
+      "projectpackage:"
+    ).map(Pattern.compile).asJava
+
+  /** The evaluator for one eval. Without a [[SystemPkl]] it is exactly today's
+    * `Evaluator.preconfigured()` (default — existing callers and the offline
+    * suite are untouched). With one, we PREPEND the intercept factory to the
+    * preconfigured factory list (so it wins over the built-in `http` factory
+    * while every other preconfigured factory is preserved) and widen the
+    * allowlist to admit `http:`.
+    */
+  private def buildEvaluator(system: Option[SystemPkl]): Evaluator =
+    system match {
+      case None => Evaluator.preconfigured()
+      case Some(sys) =>
+        val builder = EvaluatorBuilder.preconfigured()
+        val factories =
+          (new SystemPkl.Factory(
+            sys
+          ) :: builder.getModuleKeyFactories.asScala.toList).asJava
+        builder
+          .setModuleKeyFactories(factories)
+          .setAllowedModules(AllowedModules)
+          .build()
+    }
 
   /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
     *
