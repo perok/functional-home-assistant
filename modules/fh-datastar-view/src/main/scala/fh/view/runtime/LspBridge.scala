@@ -26,10 +26,10 @@ import java.nio.charset.StandardCharsets
   * [[toFrames]] parses the child's stdout into messages; [[encodeFrame]] wraps
   * each client message with a header before it reaches stdin.
   *
-  * Lifecycle: the child is a `Stream.resource` inside the `send` stream, so when
-  * the socket closes (http4s finalizes `send`) the process is destroyed. The
-  * client → server direction rides a [[Queue]] created before `build` so both
-  * halves can see it.
+  * Lifecycle: the child is a `Stream.resource` inside the `send` stream, so
+  * when the socket closes (http4s finalizes `send`) the process is destroyed.
+  * The client → server direction rides a [[Queue]] created before `build` so
+  * both halves can see it.
   */
 object LspBridge {
 
@@ -115,7 +115,9 @@ object LspBridge {
     roots
       .filter(os.exists)
       .flatMap(r => os.list(r).filter(os.isDir))
-      .map(d => if (os.exists(d / "Contents" / "Home")) d / "Contents" / "Home" else d)
+      .map(d =>
+        if (os.exists(d / "Contents" / "Home")) d / "Contents" / "Home" else d
+      )
       .flatMap(home =>
         featureVersion(home)
           .filter(_ >= 23)
@@ -127,8 +129,8 @@ object LspBridge {
       .map(_._2.toString)
   }
 
-  /** The Java feature version from a JDK home's `release` file (`JAVA_VERSION`),
-    * e.g. `"25.0.3"` -> 25, `"1.8.0"` -> 8.
+  /** The Java feature version from a JDK home's `release` file
+    * (`JAVA_VERSION`), e.g. `"25.0.3"` -> 25, `"1.8.0"` -> 8.
     */
   private def featureVersion(home: os.Path): Option[Int] =
     scala.util
@@ -171,9 +173,9 @@ object LspBridge {
     go(Chunk.empty, in).stream
   }
 
-  /** Extract one frame from the front of `buf`, returning it plus the remainder,
-    * or `None` if a complete frame isn't buffered yet. The header block is
-    * ASCII; the `\r\n\r\n` separator ends it.
+  /** Extract one frame from the front of `buf`, returning it plus the
+    * remainder, or `None` if a complete frame isn't buffered yet. The header
+    * block is ASCII; the `\r\n\r\n` separator ends it.
     */
   private def extract(buf: Chunk[Byte]): Option[(String, Chunk[Byte])] = {
     val arr = buf.toArray
@@ -189,7 +191,12 @@ object LspBridge {
           else {
             val json =
               new String(arr, bodyStart, len, StandardCharsets.UTF_8)
-            Some((json, Chunk.array(arr, bodyStart + len, arr.length - bodyStart - len)))
+            Some(
+              (
+                json,
+                Chunk.array(arr, bodyStart + len, arr.length - bodyStart - len)
+              )
+            )
           }
       }
     }
@@ -200,7 +207,9 @@ object LspBridge {
     var i = 0
     val end = arr.length - 3
     while (i < end) {
-      if (arr(i) == 13 && arr(i + 1) == 10 && arr(i + 2) == 13 && arr(i + 3) == 10)
+      if (
+        arr(i) == 13 && arr(i + 1) == 10 && arr(i + 2) == 13 && arr(i + 3) == 10
+      )
         return i
       i += 1
     }

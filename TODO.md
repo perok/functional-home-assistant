@@ -10,6 +10,8 @@
   TODO lots of design stuff, like tabs, are added to themes.libsonnet, should some of that be injectable from the components themselves?
   TODO Parse AST of Pkl directly and use that to validate jsonata. Provide positional errors.
   TODO condital component to filter them out
+- (cd modules/fh-datastar-view/editor-src; npm install), do this from sbt
+- reload page on not component changes but layout 
 
 ---
 TODO document the API surface

@@ -202,16 +202,16 @@ class PklBuildSuite extends munit.FunSuite {
     .toOption
     .get
 
-  test("PklDump.render emits typed, backticked declarations") {
+  test("PklDump.render emits typed declarations, plain when legal") {
     val src = PklDump.render(fakeTransformedDump)
     assert(src.contains("import \"hass.pkl\""), clue = src)
     assert(
-      src.contains("const hidden `e_light_kitchen`: hass.LightEntity"),
+      src.contains("const hidden e_light_kitchen: hass.LightEntity"),
       clue = src
     )
-    assert(src.contains("class `Area_kjokken` extends hass.Area"), clue = src)
+    assert(src.contains("class Area_kjokken extends hass.Area"), clue = src)
     assert(
-      src.contains("class `Floor_ground_floor` extends hass.Floor"),
+      src.contains("class Floor_ground_floor extends hass.Floor"),
       clue = src
     )
     // Escaped quotes survive; null friendly_name emits no assignment.
@@ -223,7 +223,81 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("effect_list = new Listing { \"colorloop\" }"),
       clue = src
     )
-    assert(src.contains("lights = List(`light_kitchen`)"), clue = src)
+    assert(src.contains("lights = List(light_kitchen)"), clue = src)
+    // Every name in this dump is a legal plain identifier — no identifier is
+    // backticked (the `///` doc header's markdown backticks don't count).
+    val code = src.linesIterator.filterNot(_.trim.startsWith("///"))
+    assert(!code.exists(_.contains("`")), clue = src)
+  }
+
+  test("PklDump.render backticks reserved-word and digit-leading names") {
+    // Area "New" slugs to the Pkl keyword `new`; floor "3rd floor" slugs to
+    // the digit-leading `3rd_floor` — both illegal as plain identifiers.
+    val awkwardDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "new": { "area_id": "new_1", "floor_id": "f3", "area_name": "New" }
+          },
+          "floors": {
+            "3rd_floor": {
+              "floor_id": "f3",
+              "floor_name": "3rd floor",
+              "areas": {
+                "new": { "area_id": "new_1", "floor_id": "f3", "area_name": "New" }
+              }
+            }
+          },
+          "entities": {
+            "light_lamp": {
+              "entity_id": "light.lamp",
+              "friendly_name": "Lamp",
+              "domain": "light",
+              "area_id": "new_1",
+              "floor_id": "f3",
+              "attributes": {}
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    val src = PklDump.render(awkwardDump)
+    // The prefixed class names are legal plain identifiers (the `Area_`/
+    // `Floor_` prefix guarantees a letter-leading, non-keyword name), so they
+    // stay unquoted; only the bare slug used as a property key must be ticked.
+    assert(src.contains("class Area_new extends hass.Area"), clue = src)
+    assert(src.contains("class Floor_3rd_floor extends hass.Floor"), clue = src)
+    assert(src.contains("`new`: Area_new = new {}"), clue = src)
+    assert(src.contains("`3rd_floor`: Floor_3rd_floor = new {}"), clue = src)
+    assert(src.contains("areas = List(`new`)"), clue = src)
+    // The plain-safe entity name stays unquoted even in this dump.
+    assert(
+      src.contains("const hidden e_light_lamp: hass.LightEntity"),
+      clue = src
+    )
+
+    // And the rendered module must actually evaluate, dot-paths included.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl")
+    os.write(tmp / "lib" / "dump.pkl", src)
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/dump.pkl" as dump
+        |
+        |areaId = dump.areas.`new`.area_id
+        |floorName = dump.`3rd_floor`.floor_name
+        |viaFloor = dump.`3rd_floor`.`new`.light_lamp.entity_id
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[String]("areaId").toOption, Some("new_1"))
+    assertEquals(c.get[String]("floorName").toOption, Some("3rd floor"))
+    assertEquals(c.get[String]("viaFloor").toOption, Some("light.lamp"))
   }
 
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
@@ -252,6 +326,53 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
   }
 
+  test(
+    "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+  ) {
+    // A probe entry re-exposes the theme so the assertions read a pinned
+    // shape, independent of whatever else the lib module happens to export —
+    // the Theme contract every implementation module must satisfy (the wire
+    // snapshots additionally pin the beer theme's full JSON).
+    val tmp = os.temp.dir()
+    copyLib(tmp, "theme.pkl", "theme-beer.pkl", "tokens.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |import "lib/theme-beer.pkl" as themeMod
+        |theme = themeMod.theme
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val theme = result.toOption.get.value.hcursor.downField("theme")
+    assert(
+      theme
+        .get[String]("chrome")
+        .toOption
+        .exists(_.contains("id=\"dashboard\"")),
+      clue = result
+    )
+    assertEquals(
+      theme.downField("tokens").get[String]("primary-color").toOption,
+      Some("#03a9f4")
+    )
+    assert(
+      theme.downField("tokensDark").keys.exists(_.nonEmpty),
+      clue = result
+    )
+    assert(
+      theme
+        .get[List[String]]("stylesheets")
+        .toOption
+        .exists(_.exists(_.contains("beercss"))),
+      clue = result
+    )
+    assert(
+      theme.get[String]("styles").toOption.exists(_.contains(".fh-row")),
+      clue = result
+    )
+  }
+
   test("components.pkl derives the card registry from the card classes") {
     // `cards` is assembled via pkl:reflect over the module's concrete Node
     // subclasses (each class carries its template + declared slots as a hidden
@@ -273,6 +394,7 @@ class PklBuildSuite extends munit.FunSuite {
     val expectedSlots = Map(
       "fhrow" -> Nil,
       "fhcol" -> Nil,
+      "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
       "button" -> List("label", "onclick"),
@@ -305,6 +427,13 @@ class PklBuildSuite extends munit.FunSuite {
       assertEquals(
         card.get[List[String]]("slots").toOption,
         Some(slots),
+        clue = name
+      )
+      // `tab` is the single wrapAsCell opt-out (the `.tabs > a` structural
+      // selector); every other card omits the key (backend defaults TRUE).
+      assertEquals(
+        card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
+        Option.when(name == "tab")(false),
         clue = name
       )
     }
@@ -607,6 +736,96 @@ class PklBuildSuite extends munit.FunSuite {
     // Button and Slider builder chains match their amend forms.
     assertEquals(focus("btnBuilder"), focus("btnAmend"))
     assertEquals(focus("sliderBuilder"), focus("sliderAmend"))
+  }
+
+  test("cell builders emit fh- classes, identical to the property form") {
+    // The HA-grid_options-flavored layout builders (`columns`/`fullWidth`/
+    // `cellClass`) append to the node-level `cell.classes`; the emitted JSON
+    // must be byte-identical to assigning the `cell` property.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |builder = c.entityCard(x).columns(3).cellClass("hero")
+        |amend = (c.entityCard(x)) {
+        |  cell = new c.Cell { classes { "fh-cols-3"; "hero" } }
+        |}
+        |full = c.entityCard(x).fullWidth()
+        |custom = c.entityCard(x).cellClass("my-hero")
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
+    def classes(k: String) =
+      cur.downField(k).downField("cell").get[List[String]]("classes").toOption
+    assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
+    assertEquals(classes("full"), Some(List("fh-cols-full")))
+    assertEquals(classes("custom"), Some(List("my-hero")))
+    // A node with no layout builders decodes with NO cell at all (the null
+    // default is dropped from the wire JSON).
+    val plain = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = new c.EntityCard { entity = light }""".stripMargin
+    )
+    assertEquals(plain.cell, None)
+  }
+
+  test(
+    "Grid group-centering: default emits no marker, centered(false) emits fh-start"
+  ) {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |
+        |base = (c.grid) {}
+        |packed = c.grid.centered(false)
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    def clazz(k: String) =
+      cur.downField(k).downField("slots").get[String]("class").toOption
+    // Centered is the default -> no `class` slot (the group-center CSS is the
+    // grid's baseline); left-packing rides on the `fh-start` marker.
+    assertEquals(clazz("base"), None)
+    assertEquals(clazz("packed"), Some("fh-start"))
+  }
+
+  test("caseOf copies the render fn's cell onto the emitted Case") {
+    val dyn = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e).fullWidth()
+        |}""".stripMargin
+    )
+    assertEquals(dyn.cases.size, 1)
+    assertEquals(
+      dyn.cases.head.cell.map(_.classes),
+      Some(List("fh-cols-full"))
+    )
+    // The group's own cell (set as a property) rides on the Dynamic node.
+    val sized = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e)
+        |  cell = new c.Cell { classes { "fh-cols-full" } }
+        |}""".stripMargin
+    )
+    assertEquals(sized.cell.map(_.classes), Some(List("fh-cols-full")))
   }
 
   test("If builder and amend forms produce identical wire output") {

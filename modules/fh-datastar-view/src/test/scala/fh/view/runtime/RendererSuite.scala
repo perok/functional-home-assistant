@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.model.{
   Activation,
   CardDef,
+  Cell,
   Dashboard,
   DynamicCase,
   LayoutNode,
@@ -18,8 +19,9 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  // Card templates are pure content; the backend wraps entity-bound components
-  // in the id'd morph target.
+  // Card templates are pure content; the backend wraps EVERY component in the
+  // id'd `.fh-cell` morph target (unless the card opts out via
+  // `wrapAsCell = false`).
   private val cards = Map(
     "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
@@ -261,24 +263,152 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "container templates splice children; entity-less nodes get id-less fh-cell wrappers"
+    "container templates splice children; EVERY node (containers and entity-less leaves included) is wrapped in its id'd fh-cell"
   ) {
     val layout =
       col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // no entities anywhere -> fh-cell wrappers carry no ids (nothing is a
-    // morph target); with no theme.chrome, renderPage falls back to the
-    // minimal `#dashboard` frame (no popup host — a popup-less dashboard
-    // ships no theme).
+    // every node — the root container, the nested container, and the static
+    // leaf — gets the backend-owned `.fh-cell` morph wrapper with its path id;
+    // with no theme.chrome, renderPage falls back to the minimal `#dashboard`
+    // frame (no popup host — a popup-less dashboard ships no theme).
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-cell"><div class="fh-col"><div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div></div></div></main>"""
+      """<main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
     )
-    // containers are still addressable and re-render their children by id
+    // containers are addressable and re-render (wrapped) by id
     assertEquals(
       r.renderNodeById("c_0", Map.empty).get,
-      """<div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div>"""
+      """<div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div>"""
+    )
+  }
+
+  test(
+    "a wrapAsCell=false card renders bare: no fh-cell wrapper, no injected id wrapper"
+  ) {
+    // The card opts out of the backend-owned wrapper (its root must stay a
+    // direct child of a framework-structural parent). It may still read
+    // `{{id}}` internally, but the renderer injects no wrapper element. Such
+    // a card may only carry literal / identity slots — a live-entity slot on
+    // an unwrapped node is a validate error (see the rejection test below).
+    val bareCards = cards + ("naked" -> CardDef(
+      """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
+      slots = List("state"),
+      wrapAsCell = false
+    ))
+    val d = Dashboard(
+      bareCards,
+      LayoutNode.Component("naked", slots = Map("state" -> lit("42")))
+    )
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    assertEquals(
+      r.renderNodeById("c", Map.empty).get,
+      """<a class="tab" data-tab="c"><span>42</span></a>"""
+    )
+  }
+
+  test(
+    "validate rejects the wrapper-dependent shapes on a wrapAsCell=false card"
+  ) {
+    // Everything that rides on the `.fh-cell` wrapper is unusable on a card
+    // that opts out of it — and silently so at render time, which is why each
+    // shape is a loud build error instead.
+    val bareCards = cards + ("naked" -> CardDef(
+      "<a>{{state}}</a>",
+      slots = List("state"),
+      wrapAsCell = false
+    ))
+    // A live-entity slot: the pushed morphs could never match an element.
+    val live = Dashboard(
+      bareCards,
+      LayoutNode.Component(
+        "naked",
+        slots = Map("state" -> SlotSource(Some("sensor.t")))
+      )
+    )
+    assert(
+      live.validate().exists(_.contains("binds live entities")),
+      clue = live.validate()
+    )
+    // Cell params: there is no wrapper to carry the classes.
+    val sized = Dashboard(
+      bareCards,
+      LayoutNode.Component(
+        "naked",
+        slots = Map("state" -> lit("42")),
+        cell = Some(Cell(classes = List("fh-cols-3")))
+      )
+    )
+    assert(
+      sized.validate().exists(_.contains("carries cell params")),
+      clue = sized.validate()
+    )
+    // A dynamic case: every member is a wrapped per-entity patch target.
+    val dynCase = Dashboard(
+      bareCards,
+      LayoutNode.Dynamic(
+        query = None,
+        cases = List(
+          DynamicCase(
+            Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+            "naked",
+            slots = Map("state" -> lit("x"))
+          )
+        )
+      )
+    )
+    assert(
+      dynCase.validate().exists(_.contains("cannot be a dynamic-group case")),
+      clue = dynCase.validate()
+    )
+  }
+
+  test("authored cell classes ride on every wrapper kind") {
+    // Static component wrapper, dynamic group root, and per-entity case
+    // members: the node-level `cell.classes` (the fh- layout contract) are
+    // appended to the backend-owned wrapper's class attribute.
+    val sized = LayoutNode.Component(
+      "btn",
+      Map("label" -> lit("Go")),
+      cell = Some(Cell(classes = List("fh-cols-3", "hero")))
+    )
+    assertEquals(
+      renderer(sized).renderNodeById("c", Map.empty).get,
+      """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
+    )
+
+    val dyn = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
+          "btn",
+          slots = Map("label" -> lit("L")),
+          cell = Some(Cell(classes = List("fh-cols-4")))
+        )
+      ),
+      cell = Some(Cell(classes = List("fh-cols-full")))
+    )
+    val html = renderer(dyn)
+      .renderNodeById("c", Map("light.a" -> st("light.a", "on")))
+      .get
+    assertEquals(
+      html,
+      """<div class="fh-cell fh-group fh-cols-full" id="c">""" +
+        """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div></div>"""
+    )
+    // The per-member in-place path emits the identical wrapper classes.
+    assertEquals(
+      renderer(dyn)
+        .renderDynamicChild(
+          "c",
+          "light.a",
+          Map("light.a" -> st("light.a", "on"))
+        )
+        .get,
+      """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div>"""
     )
   }
 
@@ -295,7 +425,7 @@ class RendererSuite extends munit.FunSuite {
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<main id="dashboard"><div class="fh-cell"><div class="fh-col"><div class="fh-cell"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      """<main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
     )
   }
 
@@ -354,10 +484,14 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = renderer(dyn)
     // dynamic as layout root -> the group's own id'd container "c" is the outer
-    // morph target; each child is ALSO wrapped in its own id'd `fh-cell` (the
-    // per-entity patch target) `<groupId>_<sanitized entity>`.
+    // morph target (itself a cell, plus `fh-group`); each child is ALSO wrapped
+    // in its own id'd `fh-cell` (the per-entity patch target)
+    // `<groupId>_<sanitized entity>`.
     val html = r.renderNodeById("c", states).get
-    assert(html.startsWith("""<div id="c">"""), clue = html)
+    assert(
+      html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
+      clue = html
+    )
     // light.a dispatched to the btn case, sensor.b to the card case, each in its
     // own per-entity wrapper.
     assert(
@@ -741,7 +875,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("""id="popups""""), clue = body)
     assertEquals(
       body,
-      """<div class="fh-cell"><div class="fh-col"><div class="fh-cell"><div class="fh-row"><div class="fh-cell"><button>Go</button></div></div></div></div></div>"""
+      """<div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div>"""
     )
   }
 

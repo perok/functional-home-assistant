@@ -213,6 +213,11 @@
       ],
       "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
+    "fhgrid" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
     "fhrow" : {
       "slots" : [
       ],
@@ -253,7 +258,8 @@
         "onclick",
         "active"
       ],
-      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>"
+      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>",
+      "wrapAsCell" : false
     },
     "tabs" : {
       "slots" : [

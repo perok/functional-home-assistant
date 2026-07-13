@@ -58,6 +58,9 @@ jobs:
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
+      - name: Fmt check
+        run: sbt scalafmtCheckAll
+
       - name: Test
         run: sbt 'fh-datastar-view/testFull'
 
