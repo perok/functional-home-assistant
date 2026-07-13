@@ -59,16 +59,11 @@ jobs:
         run: npm ci && npm run build
 
       - parallel:
-          fmt:
-            steps:
-              - name: Fmt check
-                run: sbt scalafmtCheckAll
+          - name: Fmt check
+            run: sbt scalafmtCheckAll
 
-
-          test:
-            steps:
-              - name: Test
-                run: sbt 'fh-datastar-view/testFull'
+          - name: Test
+            run: sbt 'fh-datastar-view/testFull'
 
       - name: Assemble fat jar
         run: sbt 'fh-datastar-view/assembly'
