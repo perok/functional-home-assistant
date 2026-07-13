@@ -791,7 +791,9 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(plain.cell, None)
   }
 
-  test("Grid group-centering: default emits no marker, centered(false) emits fh-start") {
+  test(
+    "Grid group-centering: default emits no marker, centered(false) emits fh-start"
+  ) {
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl", "components.pkl")
     os.write(
