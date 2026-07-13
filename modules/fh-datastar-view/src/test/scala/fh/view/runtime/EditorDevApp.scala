@@ -25,6 +25,10 @@ object EditorDevApp extends IOApp.Simple {
       .withPort(port"8090")
       .withHttpWebSocketApp(wsb => editor.routes(wsb).orNotFound)
       .build
-      .use(_ => IO.println("editor dev harness on http://127.0.0.1:8090/edit") *> IO.never)
+      .use(_ =>
+        IO.println(
+          "editor dev harness on http://127.0.0.1:8090/edit"
+        ) *> IO.never
+      )
   }
 }

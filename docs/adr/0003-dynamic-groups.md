@@ -85,8 +85,10 @@ matched entity (no cross-entity slots inside a case) — the current invariant.
 A re-render of a group re-renders every matched card, but the cards'
 action/config slots are memoized identity slots (ADR 0004), so it costs ~2 live
 JSONata evals per card. Main-page groups render once per slug in the shared
-pass regardless of viewer count; only groups inside an open surface render per
-session. **Future work** (flagged at the shared patch publisher in `Server`):
+pass regardless of viewer count — including groups inside a state-activated
+surface's active branch (ADR 0007); only groups inside a user-opened surface
+render per session (and a group inside an *inactive* state branch renders
+nowhere at all). **Future work** (flagged at the shared patch publisher in `Server`):
 coalesce/debounce event bursts — the query filter bounds *what* re-renders;
 batching would bound *how often*.
 

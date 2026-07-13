@@ -25,7 +25,8 @@ cards = c.cards
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a
-/// different look (`theme = (import "lib/theme-pico.pkl").theme`) or retune
+/// different look (`theme = (import "lib/theme-mine.pkl").theme`, any module
+/// exporting a `theme.pkl` Theme) or retune
 /// this one by amending (`theme { md3Light { ["primary"] = "#..." } }`).
 theme = themeMod.theme
 

@@ -8,90 +8,38 @@
         ],
         "kind" : "component",
         "slots" : {
-          "label" : "Tabs"
+          "label" : "If/else"
         }
       },
       {
-        "card" : "fhrow",
+        "card" : "ifhost",
         "children" : [
-          {
-            "card" : "button",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "label" : "« Home",
-              "onclick" : "@post('sse/navigate/dashboard'); history.pushState(null,'',new URL('d/dashboard',document.baseURI))"
-            }
-          }
-        ],
-        "kind" : "component",
-        "slots" : {
-          
-        }
-      },
-      {
-        "card" : "tabs",
-        "children" : [
-          {
-            "card" : "tab",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "active" : "$tab_@@NODE_ID@@ == 0",
-              "label" : "Lights",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
-            }
-          },
-          {
-            "card" : "tab",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "active" : "$tab_@@NODE_ID@@ == 1",
-              "label" : "Sensors",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
-            }
-          }
         ],
         "inlineSurfaces" : {
-          "t0" : {
+          "else" : {
             "activation" : {
-              "defaultOpen" : true,
-              "kind" : "user"
+              "condition" : {
+                "kind" : "cmp",
+                "op" : "ne",
+                "property" : "domain",
+                "value" : "__never__"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
             },
-            "bakeAs" : "panel",
-            "bakeIndex" : 0,
+            "bakeAs" : "branch",
+            "bakeIndex" : 1,
             "bakeInto" : "@@NODE_ID@@",
             "content" : {
               "card" : "fhrow",
               "children" : [
                 {
-                  "card" : "entityCard",
+                  "card" : "sectionTitle",
                   "children" : [
                   ],
                   "kind" : "component",
                   "slots" : {
-                    "entity_id" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang",
-                    "icon" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-                    },
-                    "label" : "Demo light",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "\"@post('sse/action/\" & (($a := $lookup({\"scene\": \"scene/turn_on\", \"script\": \"script/turn_on\", \"button\": \"button/press\", \"input_button\": \"input_button/press\"}, $domain); $a ? $a : \"homeassistant/toggle\")) & \"/\" & $entity_id & \"')\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reactive" : true,
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
+                    "label" : "Demo light is off"
                   }
                 }
               ],
@@ -101,13 +49,120 @@
               }
             }
           },
-          "t1" : {
-            "bakeAs" : "panel",
+          "then" : {
+            "activation" : {
+              "condition" : {
+                "items" : [
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "entity_id",
+                    "value" : "light.skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang"
+                  },
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "state",
+                    "value" : "on"
+                  }
+                ],
+                "kind" : "and"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
+            },
+            "bakeAs" : "branch",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "sectionTitle",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "label" : "Demo light is on"
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      },
+      {
+        "card" : "ifhost",
+        "children" : [
+        ],
+        "inlineSurfaces" : {
+          "else" : {
+            "activation" : {
+              "condition" : {
+                "kind" : "cmp",
+                "op" : "ne",
+                "property" : "domain",
+                "value" : "__never__"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
+            },
+            "bakeAs" : "branch",
             "bakeIndex" : 1,
             "bakeInto" : "@@NODE_ID@@",
             "content" : {
               "card" : "fhrow",
               "children" : [
+                {
+                  "card" : "sectionTitle",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "label" : "All quiet"
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          },
+          "then" : {
+            "activation" : {
+              "condition" : {
+                "kind" : "cmp",
+                "op" : "eq",
+                "property" : "state",
+                "value" : "on"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
+            },
+            "bakeAs" : "branch",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "sectionTitle",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "label" : "Something is on"
+                  }
+                },
                 {
                   "card" : "entityCard",
                   "children" : [
@@ -124,10 +179,56 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "transform" : "$round($number($state), 1) & \" \" & $attr.unit_of_measurement"
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
-                },
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      },
+      {
+        "card" : "ifhost",
+        "children" : [
+        ],
+        "inlineSurfaces" : {
+          "then" : {
+            "activation" : {
+              "condition" : {
+                "items" : [
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "domain",
+                    "value" : "light"
+                  },
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "state",
+                    "value" : "on"
+                  }
+                ],
+                "kind" : "and"
+              },
+              "kind" : "state",
+              "quantifier" : "none"
+            },
+            "bakeAs" : "branch",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
                 {
                   "card" : "entityCard",
                   "children" : [
@@ -144,7 +245,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "transform" : "$round($number($state), 1) & \" \" & $attr.unit_of_measurement"
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
                 }

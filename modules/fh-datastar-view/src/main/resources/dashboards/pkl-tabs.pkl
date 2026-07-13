@@ -34,13 +34,13 @@ card = (c.column) {
       tabs {
         // Entity cards toggled on tap (options amended onto the call).
         ["Lights"] {
-          (c.entityCard(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)) {
+          (c.entityCard(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)) {
             tap = c.toggleTap
           }
         }
         // Live value expressions (own unit).
         ["Sensors"] {
-          (c.entityCard(dump.entities.`sensor_ams_1a4e_q`)) {
+          (c.entityCard(dump.entities.sensor_ams_1a4e_q)) {
             value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
           }
           (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {

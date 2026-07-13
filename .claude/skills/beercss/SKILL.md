@@ -46,31 +46,32 @@ selector). Blog posts are mostly v3; class names changed across majors.
    (+ `-container`/`-text`/`-border` variants), `responsive`, `s`/`m`/`l`
    breakpoint prefixes, `active`.
 
-## JavaScript: we do NOT ship beer.min.js
+## JavaScript: beer.min.js ships for VISUALS only
 
-`beer.min.js` is optional — it provides `ui(...)` (mode/theme switching,
-element triggering via `data-ui`) and `material-dynamic-colors` (runtime MD3
-palette from a hex/image). Verified exceptions where it IS required upstream:
+`beer.min.js` IS in the theme's `scripts` (`theme-beer.pkl`) — needed for the
+slider's live track-fill during a drag and the auto light/dark `<body>` class.
+It binds via delegated listeners + a MutationObserver, so its bindings survive
+Datastar SSE morphs (spike-verified); the slider fill is ALSO backend-baked
+into the template (`--_start`/`--_end` inline style) so every morph is correct
+without JS.
 
-- **slider**: the track-fill of `<div class="slider"><input type=range><span></span></div>`
-  is JS-updated; without JS the fill doesn't track the value.
-- **textarea**: auto-resize (non-Chromium).
-
-Project stance: CSS-only. Backend/Datastar already own the behaviors the JS
-provides — dialogs are transient `<dialog open>` fragments patched into
-`#popups` (works CSS-only; `.active` class is the alternative), tab switching
-is our surface swap + `data-class` active toggling, theming is our token
-system. If beer.min.js is ever added (e.g. for the slider), first verify its
-bindings survive Datastar morphs (delegated document-level listeners survive;
-per-element listeners bound at init do not).
+Dashboard BEHAVIOR stays with Datastar/backend: dialogs are transient
+`<dialog open>` fragments patched into `#popups`, tab switching is our surface
+swap + `data-class` active toggling, theming is our token system. Nothing uses
+`ui(...)` or `material-dynamic-colors` at runtime — don't reach for them.
 
 ## Project conventions (fh-datastar-view)
 
-- `lib/theme-beer.pkl` is the DEFAULT theme (wired in `entry.pkl`; contract
-  class in `theme.pkl`, Pico alternative in `theme-pico.pkl` — see
-  `docs/plan-beercss-theme.md`); contract classes (`.card`, `.popup`,
+- `lib/theme-beer.pkl` is the DEFAULT (and only shipped) theme — wired in
+  `entry.pkl`; contract class + theme-author guide in `theme.pkl`, see
+  `docs/plan-beercss-theme.md`. Contract classes (`.card`, `.popup`,
   `.tabbar`, `.fh-row`…) stay on the markup — BeerCSS element styling applies
   *underneath* them.
+- LAYOUT does not use BeerCSS's `grid`/`s* m* l*` classes: the dashboard's
+  grid is the theme-agnostic `fh-` contract (`.fh-grid`/`.fh-cell`/
+  `.fh-cols-*`, `theme.pkl`'s `layoutCss` — ADR 0007), which theme-beer
+  interpolates into its `styles`. BeerCSS helpers are still fine ON cards
+  (via `cellClass`/card templates), but cell sizing rides on `fh-cols-*`.
 - The color variable names are BeerCSS's MD3 roles — **SETTINGS.md (link
   above) is the authoritative list**. The palettes live ON `BeerTheme`
   (`theme-beer.pkl`) as amendable `hidden md3Light`/`md3Dark` props (styles

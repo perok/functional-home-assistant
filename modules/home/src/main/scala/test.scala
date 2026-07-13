@@ -10,7 +10,7 @@ object hello {
   val lys = entities.light.hue_led_list_kjokken_light
 
   // entities.automation.off
-  //services.light.`Turn on`()
+  // services.light.`Turn on`()
   // lys.turn_on()
 
   // services.input_button.Press
@@ -35,8 +35,8 @@ object hello {
       api: HomeAssistantApiService[IO]
   ): IO[PostServiceApiOutput] = {
     val lys2 = entities.light.plug
-    //val service = services.light.Toggle()
-     val service = services.light.toggle()
+    // val service = services.light.Toggle()
+    val service = services.light.toggle()
 
     // api.postServiceApi(service.domain, service.serviceId, entity_id = lys2.id.some)
     api.postServiceApi(

@@ -40,6 +40,20 @@ Second round (2026-07-07, the popup/tabs ergonomics pass):
 - A `Mapping<String, Listing<X>>` default of `(_) -> new Listing {}` goes one step further: the amended-into-existence value is a Listing, so the body **adds elements directly** (that's how a tab lists its cards with no `children` key).
 - `Mapping.keys.toList()` preserves insertion order, and a List generator `for (i, x in list)` yields (index, element) — the index-deriving bridge for Mapping-keyed classes (Tabs' `t\(i)` surface keys / `bakeIndex`).
 
+### Spike: then/else builder (If component, 2026-07-10)
+
+Scratch files in `~/.claude/jobs/b46d7318/tmp/pkl-spike/` (`q1`–`q7` + the scala-cli runner):
+
+- **`then` is NOT reserved** — works unquoted as a property name, method name, amend-body key, and call (`x.then(3)`); no backticks needed anywhere. (`else` IS reserved and always needs backticks.)
+- **Backticked `` `else` `` works in every position**: property decl (`` hidden `else`: Listing<Node> = new {} ``), Listing-amend in a body (`` `else` { new { name = "x" } } `` adds elements), method decl (`` function `else`(n: Int): Int ``), and method call (`` b.`else`(21) ``).
+- **Builder methods returning amended self work**: ``function then(n: Node): If = let (l = this) (l) { `then` { n } }`` — the parameter `n` inside the amend body binds lexically (no self-reference hazard; only a parameter NAMED like the property would recurse). The result keeps its class (`is If`).
+- **Method/property same-name coexistence survives backtick asymmetry**: `function then` + property `` `then` `` in one class is fine, and so is the fully unquoted pair (`function then` + `hidden then`) — decl, amend body, and derived-prop reads all resolve to the property; call syntax picks the method. Backticks are pure quoting, not part of identity.
+- **Late binding re-derives through chained builder calls**: with `combined` computed from `` `then` ``/`` `else` ``, both `iff().then(nd("a")).then(nd("b")).`else`(nd("c"))` and the amend form `` (iff()) { `then` { nd("a"); nd("b") } `else` { nd("c") } } `` yield the identical re-derived `[T:a, T:b, E:c]`.
+- **Default method parameters do NOT exist**: `function f(a: Int, b: Int = 2)` → ``Unexpected token `=`. Expected `,` or `)`.``
+- **Union params + spread work**: `function then(n: Node|Listing<Node>)` dispatched with `if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }` — single node, `new Listing { ... }`, and mixed repeat calls all append correctly.
+- **Bare `new { ... }` does NOT infer from a method parameter type** — `.then(new { nd("a") })` fails with `Cannot tell which parent to amend.` for both a plain `Listing<Node>` param and the union. Call sites must write `new Listing { ... }` (or pass one node at a time / use the amend form).
+- **`elseIf` chaining is feasible**: `hidden elifs: Listing<Pair<String, Node>>` + ``function elseIf(p, n) = let (l = this) (l) { elifs { Pair(p, n) } }`` appends in author order; `.then(a).elseIf(p1, b).elseIf(p2, c).`else`(d)` derives `[T:a, EI:p1->b, EI:p2->c, E:d]`.
+
 ## Design
 
 ### A. Call-style card factories (methods; `|>` only for additions)
@@ -87,6 +101,34 @@ c.entityCard(dump.entities.switch_office) |> c.tappable
 ```
 
 Methods are not first-class values, so there is deliberately no `x |> c.entityCard` construction form — construction is a call, `|>` is for additions. `new c.X { ... }` remains fully supported (same classes underneath — the reflect-derived `cards` registry is untouched). Containers (`Column`/`Row`/`Tabs`/`Popup`) originally kept the `new` + `children {}` style; **superseded 2026-07-07**: each container now also exposes a hidden amendable base instance (`(c.row) { children { ... } }`, `(c.column)`, `(c.popup)`, `(c.tabs)`), `Tabs` is keyed `Mapping<String, Listing<LayoutNode>>` (label → cards, Row-wrapped; the `Tab` class is gone), and registered popup surfaces amend into existence via the `PopupSurface` mapping default in `entry.pkl` (see the second-round spike results above).
+
+#### A2. Fluent builder config methods (added 2026-07-10)
+
+The parenthesized amend for options is exact but noisy — the outer parens are mandatory, and inside a render lambda `(e) -> (c.entityCard(e)) { … }` they nest awkwardly. So each per-instance option is **also** a fluent builder method on the card class: it amends `this` and returns the same class, chaining paren-free.
+
+```pkl
+class EntityCard extends Node {
+  // …hidden props + slots…
+  function label(l: String|Expr): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|Expr): EntityCard = let (self = this) (self) { value = v }
+  function secondary(s: String|Expr): EntityCard = let (self = this) (self) { secondary = s }
+  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
+  function tap(t: Tap): EntityCard = let (self = this) (self) { tap = t }
+}
+```
+
+Authoring — the three styles are interchangeable and emit byte-identical node JSON:
+
+```pkl
+// amend (mandatory parens)
+(c.entityCard(x)) { value = c.expr("…"); tap = c.serviceTap("homeassistant/toggle") }
+// builder (paren-free chain) — reads top-to-bottom, no wrapping parens
+c.entityCard(x).value(c.expr("…")).tap(c.serviceTap("homeassistant/toggle"))
+// especially cleaner inside a dynamic render lambda:
+render = (e) -> c.entityCard(e).tap(c.toggleTap).label(c.expr("…"))
+```
+
+Added to `EntityCard` (`label`/`value`/`secondary`/`icon`/`tap`), `Button` (`entity`/`label`/`action`), `Slider` (`label`/`action`/`key`/`min`/`max`), and `Row`/`Column` (`cssClass`). Mechanics + gotchas: methods and properties are separate namespaces so `function tap` coexists with the `hidden tap` prop; late binding re-derives `slots` from the amended value; `let (self = this)` captures the receiver before the amend body (a bare `this` would rebind); the parameter must not be named after the property it sets (self-reference in the amend). This fills the gap `|>` mixins cannot — a mixin like `tappable` takes no arguments, so parameterized options had no paren-free form before. Verified on pkl-core 0.31.1 (spike: builder == amend == `new`, byte-identical, for all four card families incl. inside a render lambda) and guarded in `PklBuildSuite` by the builder-vs-amend identity test plus the unchanged wire snapshots.
 
 ### B. Dynamic groups: Mapping branches + render lambdas (`SELF` internal-only)
 

@@ -23,12 +23,12 @@ object AppHome extends IOApp.Simple {
     for {
       _ <- IO.unit
       // _ <- api.getConfigWS.debug("get config")
-      //things <- api
+      // things <- api
       //  .deviceAutomationActionList(
       //    ha.generated.manifest.`Zigbee Home Automation`.config_entries.zha.`Home Assistant SkyConnect`.devices.hue_led_list_kjøkken.id
       //  )
       //  .debug("deviceautomationList")
-      //_ <- api
+      // _ <- api
       //  .deviceAutomationActionCapabilities(
       //    things
       //      .find(
