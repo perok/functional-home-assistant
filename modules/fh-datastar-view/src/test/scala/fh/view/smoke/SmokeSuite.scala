@@ -44,17 +44,23 @@ abstract class SmokeSuite extends munit.FunSuite {
     )
     browser = playwright
       .chromium()
-      .launch(new BrowserType.LaunchOptions().setHeadless(true).setArgs(List(
-        //https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
-        "--disable-gpu",
-        "--disable-font-subpixel-positioning",
-        "--disable-lcd-text",
-        "--disable-threaded-animation",
-        "--disable-threaded-scrolling",
-        "--disable-in-process-stack-traces",
-        "--disable-checker-imaging",
-        "--force-color-profile=srgb"
-      ).asJava))
+      .launch(
+        new BrowserType.LaunchOptions()
+          .setHeadless(true)
+          .setArgs(
+            List(
+              // https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
+              "--disable-gpu",
+              "--disable-font-subpixel-positioning",
+              "--disable-lcd-text",
+              "--disable-threaded-animation",
+              "--disable-threaded-scrolling",
+              "--disable-in-process-stack-traces",
+              "--disable-checker-imaging",
+              "--force-color-profile=srgb"
+            ).asJava
+          )
+      )
   }
 
   override def afterAll(): Unit = {
