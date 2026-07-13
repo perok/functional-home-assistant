@@ -58,6 +58,12 @@ jobs:
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Set PLAYWRIGHT_BROWSERS_PATH
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> $GITHUB_ENV
+
       - name: Fmt check
         run: sbt scalafmtCheckAll
 
