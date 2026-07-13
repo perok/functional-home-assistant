@@ -3,6 +3,7 @@ package fh.view.runtime
 import com.samskivert.mustache.Template
 import fh.view.model.{
   Activation,
+  Cell,
   Dashboard,
   DynamicCase,
   LayoutNode,
@@ -88,6 +89,13 @@ class Renderer(
   }
 
   private val mainIndex = new Index(dashboard.card, "")
+
+  /** Cards that opted out of the `.fh-cell` wrapper
+    * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
+    * stay a direct child of a framework-structural parent (the tab anchors).
+    */
+  private val noWrapCards: Set[String] =
+    dashboard.cards.collect { case (name, cd) if !cd.wrapAsCell => name }.toSet
 
   /** Memo for identity-derived (`reactive: false`) slot values, keyed by
     * `(entityId, transform)`. Such a slot reads only the entity's immutable
@@ -561,7 +569,7 @@ class Renderer(
   def surface(surfaceId: String): Option[Surface] =
     dashboard.surfaces.get(surfaceId)
 
-  /** External stylesheet URLs the theme wants `<link>`-ed (e.g. Pico). */
+  /** External stylesheet URLs the theme wants `<link>`-ed (e.g. BeerCSS). */
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
   /** External JS URLs the theme wants `<script type="module">`-injected (e.g.
@@ -743,21 +751,29 @@ class Renderer(
           childrenHtml,
           states
         )
-        // The backend owns the Datastar morph target: any component that can be
-        // live-patched (it depends on entities) is wrapped in an id'd element so
-        // templates don't have to carry `id="{{id}}"` themselves. The wrapper is
-        // layout-neutral (`.fh-cell { display: contents }`).
-        // TODO challange the point of fh-cell, more as a card wrapper?
-        if (c.liveEntities.nonEmpty)
-          s"""<div class="fh-cell" id="$id">$html</div>"""
-        else if (bakeGroup(id).nonEmpty)
-          // A bake-group owner is its own morph target: its template carries
-          // `id="{{id}}"` (the surface host swapHost/flipStateGroup address).
-          // An id-less wrapper here would leave the flip's outer-morph patch
-          // rootless — Datastar drops a top-level element without an id.
-          html
+        // EVERY node is a cell: the backend owns the id'd `.fh-cell` wrapper, so
+        // templates never carry `id="{{id}}"` themselves, every node is a
+        // Datastar morph target, and containers lay their children out
+        // uniformly (`.fh-cell` is the real flex/grid item — the themes style
+        // it). Authored `cell` classes (fh-cols-*, …) ride on the
+        // wrapper. Exceptions: a card that opted out via `CardDef.wrapAsCell =
+        // false` (its root must stay a direct child of a framework-structural
+        // parent, e.g. the tab anchors), and a bake-group owner with no live
+        // entity of its own (e.g. `Tabs`, `If`) — it is never itself a morph
+        // target (only its baked panel/branch, addressed separately via
+        // `{{id}}_panel` etc., is), and it may host a card like `If`'s whose
+        // template already carries `id="{{id}}"` as the surface host
+        // swapHost/flipStateGroup address — an extra id'd wrapper there would
+        // duplicate the id and leave the flip's outer-morph patch rootless
+        // (Datastar drops a top-level element without an id). A bake-owner that
+        // ALSO binds a live entity (e.g. `tabsLive`) still needs the wrapper: it
+        // IS a morph target for its own state-driven re-render.
+        if (noWrapCards(c.card)) html
+        else if (c.liveEntities.isEmpty && bakeGroup(id).nonEmpty) html
         else
-          s"""<div class="fh-cell">$html</div>"""
+          s"""<div class="fh-cell${Renderer.cellClasses(
+              c.cell
+            )}" id="$id">$html</div>"""
       case d: LayoutNode.Dynamic =>
         renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
     }
@@ -778,7 +794,13 @@ class Renderer(
             .find(c => Renderer.matches(c.when, st))
             .map(renderCase(id, entityId, _, states))
         }
-    s"""<div id="$id">${children.mkString}</div>"""
+    // The group root is itself a cell (a first-class layout item in its
+    // container) plus `.fh-group`, the themed flow container its per-entity
+    // member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to
+    // span a parent grid) ride on it.
+    s"""<div class="fh-cell fh-group${Renderer.cellClasses(
+        d.cell
+      )}" id="$id">${children.mkString}</div>"""
   }
 
   /** The stable, per-entity id of one dynamic-group child (`<groupId>_<slug>`),
@@ -849,12 +871,18 @@ class Renderer(
       c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
     val id = dynamicChildId(groupId, entityId)
     val html = renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
-    // Each child gets the SAME id'd morph wrapper as a static live component, so
+    // Each child gets the SAME id'd `.fh-cell` wrapper as a static component, so
     // it is an addressable per-entity patch target (in-place morph / insert /
-    // remove) rather than only ever re-rendered as part of the whole group. The
-    // wrapper is layout-neutral (`.fh-cell { display: contents }`). The child id
-    // does not encode the matched case, so a case-branch switch is just a morph.
-    s"""<div class="fh-cell" id="$id">$html</div>"""
+    // remove) rather than only ever re-rendered as part of the whole group —
+    // which is why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card
+    // has no per-entity morph target and is not usable as a dynamic case). The
+    // case's `cell` classes are static wire data shared by every member, so
+    // in-place morphs / inserts / whole-group repaints re-emit them
+    // identically. The child id does not encode the matched case, so a
+    // case-branch switch is just a morph.
+    s"""<div class="fh-cell${Renderer.cellClasses(
+        c.cell
+      )}" id="$id">$html</div>"""
   }
 
   private def renderTemplate(
@@ -957,6 +985,13 @@ object Renderer {
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
   def sanitize(s: String): String = LayoutNode.sanitize(s)
+
+  /** A node's authored layout-cell classes as the wrapper `class` suffix
+    * (leading space included), `""` when absent/empty. Validated by
+    * `Dashboard.validate` to be plain class tokens.
+    */
+  private def cellClasses(cell: Option[Cell]): String =
+    cell.map(_.classes).filter(_.nonEmpty).fold("")(_.mkString(" ", " ", ""))
 
   /** Build the jmustache context at the Java boundary: the string slot/param
     * context plus, when present, a `children` list of `{html}` maps for

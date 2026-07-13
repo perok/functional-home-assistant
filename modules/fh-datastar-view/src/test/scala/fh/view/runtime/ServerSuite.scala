@@ -501,7 +501,10 @@ class ServerSuite extends munit.FunSuite {
     assertEquals(patches.size, 1, clue = patches)
     val p = patches.head
     // one outer morph of the GROUP (not a remove/insert), only light.a remains.
-    assert(p.contains("""elements <div id="c">"""), clue = p)
+    assert(
+      p.contains("""elements <div class="fh-cell fh-group" id="c">"""),
+      clue = p
+    )
     assert(p.contains("""id="c_light_a""""), clue = p)
     assert(!p.contains("mode remove"), clue = p)
     // child cache entries are pruned; the group entry is refreshed.
@@ -522,7 +525,12 @@ class ServerSuite extends munit.FunSuite {
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     val (patches, cache) = runShared(dynDash, after, change)
     assertEquals(patches.size, 1, clue = patches)
-    assert(patches.head.contains("""elements <div id="c">"""), clue = patches)
+    assert(
+      patches.head.contains(
+        """elements <div class="fh-cell fh-group" id="c">"""
+      ),
+      clue = patches
+    )
     assert(cache.contains("c"), clue = cache)
   }
 

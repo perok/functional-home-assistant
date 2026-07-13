@@ -2,11 +2,12 @@
 
 **Status: DEFAULT theme** (browser-signed-off + flipped 2026-07-08) —
 `entry.pkl` wires every dashboard to `theme-beer.pkl` unless the entry
-overrides; the pilot entry is retired. `theme.pkl` is now the contract-only
-module (the `open class Theme`), with implementations `theme-beer.pkl`
-(default) and `theme-pico.pkl` (the original look). Remaining work: offline
-asset caching + phase-2 polish (see "Next steps"). Supersedes
-`plan-tw-theme.md`.
+overrides; the pilot entry is retired. `theme.pkl` is now the contract module
+(the `open class Theme` + the shared `layoutCss`); `theme-beer.pkl` is the
+default AND only shipped implementation (the interim `theme-pico.pkl` port of
+the original look was deleted with ADR 0007 rather than kept in lockstep).
+Remaining work: offline asset caching + phase-2 polish (see "Next steps").
+Supersedes `plan-tw-theme.md`.
 
 ## Goal
 
@@ -112,7 +113,8 @@ BeerCSS's element styling applies underneath the contract classes.
    `theme-beer.pkl`; the old Pico theme moved to `theme-pico.pkl` and
    `theme.pkl` was reduced to the contract class; pilot entry + its snapshot
    deleted; snapshots regenerated (both now carry the beer theme);
-   `plan-tw-theme.md` marked superseded.
+   `plan-tw-theme.md` marked superseded. (`theme-pico.pkl` itself was later
+   deleted with ADR 0007 — BeerCSS is the only shipped theme.)
 3. ~~**Offline theme assets — backend download + cache.**~~ Done 2026-07-08:
    `AssetCache` (`fh/view/runtime/AssetCache.scala`) fetches every theme
    `stylesheets`/`scripts` URL once at startup, persists under URL-hashed
@@ -132,14 +134,15 @@ BeerCSS's element styling applies underneath the contract classes.
      `data-class` active toggle + cookie onclick, and `Button` lost its tab
      arm. The MD3 look (underline indicator, hover/press states, even
      distribution) is framework CSS now; the beer theme keeps only
-     `.tab-panel`. theme-pico styles `.tabs > a` as the old bordered pills.
+     `.tab-panel`. (The since-deleted theme-pico styled `.tabs > a` as the
+     old bordered pills.)
    - Entity-domain icons: the `entityCard` header renders
      `{{#icon}}<i>{{icon}}</i>{{/icon}}`; the `icon` slot is an author
      literal or (default) a runtime `$lookup($domain)` identity slot over a
      `domainIcons` table in components.pkl — so dynamic-group ($self) cards
      get the matched entity's icon too, and unlisted domains render nothing.
-     Material Symbols names; the font ships in the BeerCSS dist; theme-pico
-     hides `header i` (it has no icon font).
+     Material Symbols names; the font ships in the BeerCSS dist; a theme
+     without an icon font should hide `.entity header i`.
    - Slider label line: the `<header>` was swallowed by BeerCSS (it styles
      `header` as a 4rem app-bar grid), and BeerCSS's `.row`/`.max` helpers
      wrapped the state text per-character (`.max` = inline-size:100%) —

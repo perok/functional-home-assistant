@@ -259,18 +259,18 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test(
-    "theme-pico.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+    "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
   ) {
     // A probe entry re-exposes the theme so the assertions read a pinned
-    // shape, independent of whatever else the lib module happens to export.
-    // (Pico probes the Theme contract here; the beer DEFAULT theme is pinned
-    // by the wire snapshots, which carry the full theme JSON.)
+    // shape, independent of whatever else the lib module happens to export —
+    // the Theme contract every implementation module must satisfy (the wire
+    // snapshots additionally pin the beer theme's full JSON).
     val tmp = os.temp.dir()
-    copyLib(tmp, "theme.pkl", "theme-pico.pkl", "tokens.pkl")
+    copyLib(tmp, "theme.pkl", "theme-beer.pkl", "tokens.pkl")
     os.write(
       tmp / "probe.pkl",
       """module probe
-        |import "lib/theme-pico.pkl" as themeMod
+        |import "lib/theme-beer.pkl" as themeMod
         |theme = themeMod.theme
         |""".stripMargin
     )
@@ -296,7 +296,7 @@ class PklBuildSuite extends munit.FunSuite {
       theme
         .get[List[String]]("stylesheets")
         .toOption
-        .exists(_.exists(_.contains("pico"))),
+        .exists(_.exists(_.contains("beercss"))),
       clue = result
     )
     assert(
@@ -326,6 +326,7 @@ class PklBuildSuite extends munit.FunSuite {
     val expectedSlots = Map(
       "fhrow" -> Nil,
       "fhcol" -> Nil,
+      "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
       "button" -> List("label", "onclick"),
@@ -358,6 +359,13 @@ class PklBuildSuite extends munit.FunSuite {
       assertEquals(
         card.get[List[String]]("slots").toOption,
         Some(slots),
+        clue = name
+      )
+      // `tab` is the single wrapAsCell opt-out (the `.tabs > a` structural
+      // selector); every other card omits the key (backend defaults TRUE).
+      assertEquals(
+        card.get[Option[Boolean]]("wrapAsCell").toOption.flatten,
+        Option.when(name == "tab")(false),
         clue = name
       )
     }
@@ -478,30 +486,43 @@ class PklBuildSuite extends munit.FunSuite {
     assert(d.theme.chrome.contains("id=\"dashboard\""))
 
     val root = d.card.asInstanceOf[LayoutNode.Component]
-    assertEquals(root.card, "fhcol")
-    // The layout now interleaves component cards with two dynamic groups and
-    // ends with the popup-opening buttons.
+    assertEquals(root.card, "fhgrid")
+    // The grid interleaves component cards with two dynamic groups; the
+    // entity cards + slider are grouped in a COLUMN, and the popups ROW ends
+    // the layout (both nested containers in a grid cell).
     val children =
       root.children.collect { case c: LayoutNode.Component => c }
     assertEquals(
       children.map(_.card),
       List(
         "sectionTitle",
-        "entityCard",
-        "entityCard",
-        "slider",
+        "fhcol",
         "sectionTitle",
         "sectionTitle",
         "sectionTitle",
-        "button",
-        "button",
-        "button"
+        "fhrow"
       )
     )
+    // Grid sizing: the title spans the full grid (`fullWidth()`); the column
+    // keeps the default cell (no `cell` key at all).
+    assertEquals(children(0).cell.map(_.classes), Some(List("fh-cols-full")))
+    assertEquals(children(1).cell, None)
+
+    // The entity cards + slider nested inside the column.
+    val column =
+      children(1).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(column.map(_.card), List("entityCard", "entityCard", "slider"))
+    assertEquals(column(0).cell, None)
+    assertEquals(column(2).cell.map(_.classes), Some(List("fh-cols-full")))
+
+    // The three popup buttons stack inside the row.
+    val buttons =
+      children(5).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(buttons.map(_.card), List("button", "button", "button"))
 
     // The inline-popup trigger (the "Quick info…" button) carries a literal
     // onclick that references the SPLICED real surface id, not the raw token.
-    val inlineTrigger = children
+    val inlineTrigger = buttons
       .find(
         _.slots.get("onclick").flatMap(_.literal).exists(_.contains("_self"))
       )
@@ -512,8 +533,13 @@ class PklBuildSuite extends munit.FunSuite {
     )
 
     // Two dynamic groups: a per-domain dispatch group and the low-battery one.
+    // Both are full-width grid cells (`fullWidth()` on the group root).
     val dyns = dynamics(d.card)
     assertEquals(dyns.size, 2)
+    assertEquals(
+      dyns.map(_.cell.map(_.classes)),
+      List(Some(List("fh-cols-full")), Some(List("fh-cols-full")))
+    )
 
     // Dispatch group: query = stateIs("on"); a light branch (a $self Slider)
     // + an always entityCard fallback; no `entity_id` slot survives the cases.
@@ -554,7 +580,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     // Slider config resolved at build time, as STRING literals (the slot
     // decoder rejects numbers — the highest-risk contract rule).
-    val slider = children(3)
+    val slider = column(2)
     assertEquals(slider.slots("min").literal, Some("1"))
     assertEquals(slider.slots("max").literal, Some("255"))
     assertEquals(slider.slots("action").literal, Some("light/turn_on"))
@@ -566,7 +592,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     // The tapped entity card: constant `tappable` marker + an identity-derived
     // (non-reactive) onclick expression.
-    val tapped = children(2)
+    val tapped = column(1)
     assertEquals(tapped.slots("tappable").literal, Some("1"))
     val onclick = tapped.slots("onclick")
     assertEquals(onclick.literal, None)
@@ -722,6 +748,94 @@ class PklBuildSuite extends munit.FunSuite {
     // Button and Slider builder chains match their amend forms.
     assertEquals(focus("btnBuilder"), focus("btnAmend"))
     assertEquals(focus("sliderBuilder"), focus("sliderAmend"))
+  }
+
+  test("cell builders emit fh- classes, identical to the property form") {
+    // The HA-grid_options-flavored layout builders (`columns`/`fullWidth`/
+    // `cellClass`) append to the node-level `cell.classes`; the emitted JSON
+    // must be byte-identical to assigning the `cell` property.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/hass.pkl"
+        |import "lib/components.pkl" as c
+        |
+        |x: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |builder = c.entityCard(x).columns(3).cellClass("hero")
+        |amend = (c.entityCard(x)) {
+        |  cell = new c.Cell { classes { "fh-cols-3"; "hero" } }
+        |}
+        |full = c.entityCard(x).fullWidth()
+        |custom = c.entityCard(x).cellClass("my-hero")
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
+    def classes(k: String) =
+      cur.downField(k).downField("cell").get[List[String]]("classes").toOption
+    assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
+    assertEquals(classes("full"), Some(List("fh-cols-full")))
+    assertEquals(classes("custom"), Some(List("my-hero")))
+    // A node with no layout builders decodes with NO cell at all (the null
+    // default is dropped from the wire JSON).
+    val plain = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = new c.EntityCard { entity = light }""".stripMargin
+    )
+    assertEquals(plain.cell, None)
+  }
+
+  test("Grid group-centering: default emits no marker, centered(false) emits fh-start") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |
+        |base = (c.grid) {}
+        |packed = c.grid.centered(false)
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    def clazz(k: String) =
+      cur.downField(k).downField("slots").get[String]("class").toOption
+    // Centered is the default -> no `class` slot (the group-center CSS is the
+    // grid's baseline); left-packing rides on the `fh-start` marker.
+    assertEquals(clazz("base"), None)
+    assertEquals(clazz("packed"), Some("fh-start"))
+  }
+
+  test("caseOf copies the render fn's cell onto the emitted Case") {
+    val dyn = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e).fullWidth()
+        |}""".stripMargin
+    )
+    assertEquals(dyn.cases.size, 1)
+    assertEquals(
+      dyn.cases.head.cell.map(_.classes),
+      Some(List("fh-cols-full"))
+    )
+    // The group's own cell (set as a property) rides on the Dynamic node.
+    val sized = probeDynamic(
+      """node = new c.DynamicGroup {
+        |  query = c.stateIs("on")
+        |  render = (e) -> c.entityCard(e)
+        |  cell = new c.Cell { classes { "fh-cols-full" } }
+        |}""".stripMargin
+    )
+    assertEquals(sized.cell.map(_.classes), Some(List("fh-cols-full")))
   }
 
   test("If builder and amend forms produce identical wire output") {

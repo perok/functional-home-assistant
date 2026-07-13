@@ -29,11 +29,47 @@ class Slot {
   reactive: Boolean = true
 }
 
+/// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
+/// classes the renderer puts on this node's `.fh-cell` wrapper. The class
+/// names are the theme-agnostic `fh-` layout contract (see lib/theme.pkl).
+/// Authors normally use the builder methods on [[LayoutNode]] (`columns`,
+/// `fullWidth`, `cellClass`) rather than writing one directly.
+class Cell {
+  classes: Listing<String> = new {}
+}
+
 /// The common supertype of every layout-tree node. `kind` is the circe
 /// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
 /// [[DynamicGroup]].
+///
+/// Every node is a CELL: the renderer wraps it in an id'd `.fh-cell` (the
+/// real flex/grid item), and the layout builders below put `fh-` contract
+/// classes on that wrapper. They follow HA's `grid_options` conventions —
+/// inside a [[Grid]] (12 columns), `columns(n)` is a card's width in grid
+/// columns (default 4, a third of the grid, like HA sections). No effect
+/// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
+/// builders return the base [[LayoutNode]] type, so chain them AFTER
+/// card-specific ones:
+/// `c.entityCard(e).tap(c.toggleTap).columns(3)`.
 abstract class LayoutNode {
   kind: String
+  /// Layout-cell classes for this node's wrapper. Null (dropped from the wire
+  /// JSON) until a layout builder adds one.
+  cell: Cell? = null
+  /// This cell spans `n` of the surrounding grid's 12 columns (HA
+  /// `grid_options.columns`). No effect outside a [[Grid]]/group.
+  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
+  /// Span the surrounding grid's full width (HA `columns: full`).
+  function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
+  /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
+  /// custom rule). Must be a plain class token — validated at build time.
+  function cellClass(cls: String): LayoutNode = addCellClass(cls)
+  // Shared appender: replace `cell` with a copy carrying one more class (the
+  // null default is never amended — amending a null Listing is an error).
+  function addCellClass(cls: String): LayoutNode =
+    let (self = this)
+    let (prev = if (self.cell != null) self.cell!!.classes else new Listing<String> {})
+      (self) { cell = new Cell { classes = (prev) { cls } } }
 }
 
 abstract class Node extends LayoutNode {
@@ -62,6 +98,14 @@ abstract class Node extends LayoutNode {
 class CardDef {
   template: String
   slots: Listing<String> = new {}
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell`
+  // layout/morph wrapper. Null (dropped by omitNullProperties, backend
+  // defaults TRUE) for every normal card; set `false` only for a card whose
+  // root must stay a direct child of a framework-structural parent (the
+  // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
+  // never a morph target; live-entity slots, cell params, and dynamic-case
+  // use are all build errors on it (Dashboard.validate).
+  wrapAsCell: Boolean? = null
 }
 
 /// An on-demand render subtree the build-phase hoist lifts into the top-level
@@ -296,6 +340,39 @@ class Column extends Node {
 /// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
 hidden column: Column = new Column {}
 
+/// 12-column grid container — the DEFAULT top-level container (the HA
+/// "sections" feel): children flow as rows, each cell spanning `columns(n)`
+/// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
+/// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
+/// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
+/// layout contract CSS lives in lib/theme.pkl.
+class Grid extends Node {
+  card = "fhgrid"
+  cardDef = new CardDef {
+    template = """
+      <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden cssClass: String? = null
+  /// Group-center the cells: a partial row is centered, a full row fills.
+  /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
+  hidden centered: Boolean = true
+  slots {
+    when (cssClass != null || !centered) {
+      ["class"] = new Listing<String> {
+        when (cssClass != null) { cssClass!! }
+        when (!centered) { "fh-start" }
+      }.toList().join(" ")
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
+  /// Toggle group-centering of the cells (see [[centered]] property).
+  function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
+}
+/// Amendable base instance — `(c.grid) { children { ... } }` (see [[row]]).
+hidden grid: Grid = new Grid {}
+
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
   card = "sectionTitle"
@@ -312,8 +389,8 @@ class SectionTitle extends Node {
 }
 
 /// Default entity icon per domain — Material Symbols names (the font ships
-/// with the BeerCSS theme; a theme without an icon font hides `header i`, see
-/// theme-pico.pkl). Resolved at RUNTIME via `$lookup($domain)` (the slider
+/// with the BeerCSS theme; a theme without an icon font should hide
+/// `.entity header i`). Resolved at RUNTIME via `$lookup($domain)` (the slider
 /// config's identity-slot mechanism), so dynamic-group ($self) cards get the
 /// matched entity's icon too; an unlisted domain yields "" and the template
 /// section renders nothing.
@@ -457,6 +534,10 @@ class TabButton extends Node {
   cardDef = new CardDef {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
+    // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
+    // styling is the structural selector `.tabs > a` — so this is the one card
+    // that opts out of the universal `.fh-cell` wrapper.
+    wrapAsCell = false
   }
   hidden label: String
   hidden onclick: String
@@ -841,6 +922,9 @@ class Case {
   `when`: Predicate
   card: String
   slots: Mapping<String, Slot|String> = new {}
+  /// Layout-cell classes for each per-entity member wrapper this case renders
+  /// (copied from the render fn's node by [[caseOf]]).
+  cell: Cell? = null
 }
 
 // Build a [[Case]] from a predicate and a render fn: apply the fn to the
@@ -862,6 +946,8 @@ const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
           }
         }
       }
+      // The render fn's layout-cell classes apply to every member wrapper.
+      cell = node.cell
     }
 
 /// A runtime-resolved group: render one card PER live entity matching `query`.
