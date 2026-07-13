@@ -21,9 +21,12 @@ import javax.imageio.ImageIO
   * own `toHaveScreenshot` uses): a pixel counts as "different" only if its YIQ
   * color distance exceeds [[Threshold]] AND it is not an anti-aliased edge in
   * either image; the snapshot fails only if more than [[MaxDiffRatio]] of the
-  * image's pixels differ (a dimension change always fails). That makes the
-  * baseline portable across environments while still catching real visual
-  * regressions.
+  * image's pixels differ. A dimension change beyond a ±[[MaxDimDelta]]px
+  * rounding tolerance always fails (a real reflow); within that tolerance the
+  * shared rectangle is compared, since a component's screenshot is its own
+  * content-derived box and a different font-rasterization stack can round that
+  * box by a pixel on an axis. That makes the baseline portable across
+  * environments while still catching real visual regressions.
   *
   * To regenerate after an intentional visual change: `sbt
   * dashboardSnapshotsUpdate` (the scoped-`sys.props` alias — NOT a plain
@@ -45,6 +48,14 @@ object VisualSnapshot {
     * far more than this.
     */
   private val MaxDiffRatio = 0.002
+
+  /** Per-axis pixel tolerance on the screenshot's own dimensions. A component's
+    * bounding box is content-derived, so a different OS font-rasterization stack
+    * can round it by a pixel; a delta this small is the same sub-pixel noise the
+    * perceptual diff already forgives, so we compare over the shared rectangle
+    * instead of hard-failing. A larger delta is a genuine reflow and fails.
+    */
+  private val MaxDimDelta = 2
 
   private def updating: Boolean =
     sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
@@ -81,18 +92,23 @@ object VisualSnapshot {
         )
       }
 
-      if (
-        expectedImg.getWidth != actualImg.getWidth ||
-        expectedImg.getHeight != actualImg.getHeight
-      ) {
+      val dw = math.abs(expectedImg.getWidth - actualImg.getWidth)
+      val dh = math.abs(expectedImg.getHeight - actualImg.getHeight)
+      if (dw > MaxDimDelta || dh > MaxDimDelta) {
         fail(
           s"dimensions ${expectedImg.getWidth}x${expectedImg.getHeight} -> " +
             s"${actualImg.getWidth}x${actualImg.getHeight}"
         )
       }
 
-      val total = expectedImg.getWidth * expectedImg.getHeight
-      val diff = Pixelmatch.diffPixels(expectedImg, actualImg, Threshold)
+      // Within tolerance: compare over the rectangle both images share, so a
+      // ±MaxDimDelta rounding rim doesn't fail an otherwise-identical component.
+      val w = math.min(expectedImg.getWidth, actualImg.getWidth)
+      val h = math.min(expectedImg.getHeight, actualImg.getHeight)
+      val expectedCrop = expectedImg.getSubimage(0, 0, w, h)
+      val actualCrop = actualImg.getSubimage(0, 0, w, h)
+      val total = w * h
+      val diff = Pixelmatch.diffPixels(expectedCrop, actualCrop, Threshold)
       val budget = math.floor(total * MaxDiffRatio).toInt
       if (diff > budget) {
         fail(
