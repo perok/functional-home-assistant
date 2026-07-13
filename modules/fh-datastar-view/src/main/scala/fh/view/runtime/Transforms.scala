@@ -45,7 +45,7 @@ object Transforms {
       .distinct
       .map { t =>
         Transform.parse(t) match {
-          case Right(c) => t -> c
+          case Right(c)  => t -> c
           case Left(err) =>
             throw new IllegalStateException(
               s"unvalidated transform reached transform setup: $t ($err)"

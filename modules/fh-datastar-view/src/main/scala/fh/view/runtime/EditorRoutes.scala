@@ -62,7 +62,7 @@ final class EditorRoutes(
       case req @ GET -> "edit" /: "file" /: rest =>
         resolveEditable(rest) match {
           case None => NotFound()
-          case _ =>
+          case _    =>
             fileService[IO](
               FileService.Config(dashboardsDir.toString, "edit/file")
             ).apply(req).getOrElseF(NotFound())
@@ -81,7 +81,7 @@ final class EditorRoutes(
       case GET -> Root / "lsp" / "pkl" =>
         pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
-          case None =>
+          case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
         }
     }

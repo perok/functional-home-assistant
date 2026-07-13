@@ -347,7 +347,7 @@ class Renderer(
     */
   private def conditionTouched(gid: String, change: StateChange): Boolean =
     change.previous match {
-      case None => true
+      case None       => true
       case Some(prev) =>
         bakeGroup(gid).exists(sid =>
           dashboard.surfaces
@@ -481,11 +481,11 @@ class Renderer(
         case i  => i
       }
     uiState.get(gid) match {
-      case None => (fallback, None)
+      case None      => (fallback, None)
       case Some(raw) =>
         raw.toIntOption.filter(i => i >= 0 && i < n) match {
           case Some(i) => (i, None)
-          case None =>
+          case None    =>
             (
               fallback,
               Some(
@@ -1019,9 +1019,9 @@ object Renderer {
     */
   def matches(p: Predicate, st: EntityState): Boolean =
     p match {
-      case Predicate.And(items) => items.forall(matches(_, st))
-      case Predicate.Or(items)  => items.exists(matches(_, st))
-      case Predicate.Not(item)  => !matches(item, st)
+      case Predicate.And(items)               => items.forall(matches(_, st))
+      case Predicate.Or(items)                => items.exists(matches(_, st))
+      case Predicate.Not(item)                => !matches(item, st)
       case Predicate.Cmp(property, op, value) =>
         val lhs = property match {
           case "domain" => st.domain
@@ -1029,7 +1029,7 @@ object Renderer {
           // The entity's identity itself — what lets a state-activation
           // condition pin one entity ("entity X is in state Y") and a dynamic
           // group enumerate an explicit entity set.
-          case "entity_id" => st.entityId
+          case "entity_id"                        => st.entityId
           case other if other.startsWith("attr:") =>
             st.attributes
               .get(other.stripPrefix("attr:"))

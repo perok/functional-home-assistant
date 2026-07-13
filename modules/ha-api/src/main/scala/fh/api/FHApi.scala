@@ -49,7 +49,7 @@ object FHApi {
   /** Parsed `.env` (once), or empty if none is found. */
   private lazy val dotEnv: Map[String, String] =
     findDotEnv() match {
-      case None => Map.empty
+      case None    => Map.empty
       case Some(f) =>
         val src = scala.io.Source.fromFile(f)
         try
