@@ -248,8 +248,12 @@ Each reads as a behaviour, top to bottom, against `HouseFixture` + `FakeHomeAssi
 4. [ ] First functional suite: initial render + state-change-pushes-fragment + no-op emit
    (Tier B dashboard).
 5. [ ] Service-call functional tests (toggle, value-carrying, round-trip).
-6. [ ] One Tier-A test: a fixture `.pkl` built via `DashboardBuild` against a
-   `HouseFixture`-derived dump, served against the fake.
+6. [x] One Tier-A test: a fixture `.pkl` built via `DashboardBuild` against a
+   `HouseFixture`-derived dump, served against the fake. *(Done:
+   `FixtureEntity.toDumpEntry`/`HouseFixture.transformedDump` derive the authoring
+   dump from the same fixture the runtime serves; `testkit/PklFixture` builds a
+   real `Dashboard` through `SourceEval.eval` → `hoistInlineSurfaces` → decode;
+   `functional/PklDashboardBehaviourSuite` renders + streams it against the fake.)*
 7. [ ] Narrow `ServerSuite`/`RendererSuite` onto the testkit; delete duplicated scaffolding
    and the local `StubApi`.
 8. [ ] `sbt 'fh-datastar-view/testFull'` green; `sbt scalafmt`.

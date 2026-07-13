@@ -78,4 +78,16 @@ object HouseFixture {
       frontDoor,
       tv
     )
+
+  /** The whole house as a [[fh.view.build.DataDump.transform]] output — the
+    * `{ areas, floors, entities }` JSON [[fh.view.build.PklDump.render]] turns
+    * into `lib/dump.pkl`. No areas/floors (the fixture entities carry no
+    * `area_id`); every entity is one derived row. This is what a Tier-A Pkl
+    * dashboard is authored against, so it and the served state share one source.
+    */
+  val transformedDump: Json = Json.obj(
+    "areas" -> Json.obj(),
+    "floors" -> Json.obj(),
+    "entities" -> Json.fromFields(all.map(_.toDumpEntry))
+  )
 }

@@ -49,6 +49,38 @@ final case class FixtureEntity(
     )
   }
 
+  /** The entity's domain — the segment before the first `.` of its id. */
+  def domain: String = entityId.takeWhile(_ != '.')
+
+  /** A Pkl-safe key for this entity in a generated `lib/dump.pkl` — the id with
+    * every non-alphanumeric character folded to `_` (so `dump.entities.<key>`
+    * is a legal dotted access). Matches the sanitizing `DataDump.transform` does.
+    */
+  def dumpKey: String = entityId.replaceAll("[^A-Za-z0-9]", "_")
+
+  /** This entity as one row of a [[fh.view.build.DataDump.transform]] output
+    * object — the shape [[fh.view.build.PklDump.render]] consumes to emit the
+    * typed `lib/dump.pkl`. `entity_id`/`domain`/`friendly_name` are lifted to
+    * top-level fields (where `PklDump` reads them); the remaining attributes
+    * ride under `attributes` (from which `PklDump` picks only registry facts
+    * like `color_mode`).
+    *
+    * Deriving the AUTHORING dump from the same [[FixtureEntity]] the runtime
+    * SERVES is what keeps "the entities the dashboard was built against" and
+    * "the live state the runtime pushes" from drifting — the single-source-of-
+    * truth property the functional suite depends on, now extended to the Pkl
+    * (Tier-A) path.
+    */
+  def toDumpEntry: (String, Json) = {
+    val friendly = attributes.get("friendly_name")
+    val fields = List(
+      "entity_id" -> Json.fromString(entityId),
+      "domain" -> Json.fromString(domain),
+      "attributes" -> Json.fromFields(attributes.removed("friendly_name"))
+    ) ++ friendly.map("friendly_name" -> _)
+    dumpKey -> Json.fromFields(fields)
+  }
+
   /** This entity as the `new_state`/`old_state` payload of a `state_changed`
     * event. The runtime's `applyEvent` reads only `state` (a `Json`) and the
     * full `attributes` map, so the timestamps/context are inert filler.
