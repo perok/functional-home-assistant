@@ -135,8 +135,8 @@ case class CardDef(
 /** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
   * classes on the node's `.fh-cell` wrapper (`<div class="fh-cell fh-cols-3"
   * id=…>`). Theme-agnostic: the class names are the `fh-` layout contract
-  * (`fh-cols-<1..12>`, `fh-cols-full`, `fh-center`, …) every theme's CSS
-  * implements — see `lib/theme.pkl`. The authoring layer emits them from the
+  * (`fh-cols-<1..12>`, `fh-cols-full`, …) every theme's CSS implements — see
+  * `lib/theme.pkl`. The authoring layer emits them from the
   * HA-`grid_options`-flavored builders (`columns(n)`, `fullWidth()`, …).
   *
   * An object rather than a bare list so it can grow further

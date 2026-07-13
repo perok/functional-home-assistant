@@ -386,11 +386,11 @@ class RendererSuite extends munit.FunSuite {
     val sized = LayoutNode.Component(
       "btn",
       Map("label" -> lit("Go")),
-      cell = Some(Cell(classes = List("fh-cols-3", "fh-center")))
+      cell = Some(Cell(classes = List("fh-cols-3", "hero")))
     )
     assertEquals(
       renderer(sized).renderNodeById("c", Map.empty).get,
-      """<div class="fh-cell fh-cols-3 fh-center" id="c"><button>Go</button></div>"""
+      """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
     )
 
     val dyn = LayoutNode.Dynamic(

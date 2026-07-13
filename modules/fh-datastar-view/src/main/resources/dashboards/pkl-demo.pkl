@@ -31,28 +31,37 @@ surfaces {
 
 
 // The GRID is the default top-level container (HA "sections" feel): children
-// flow as rows from the top-left, each cell spanning `columns(n)` of 12
-// (default 6 — half the grid, HA's default card size); section titles span
-// the full width so they break the flow like HA section headings.
+// flow as rows, each cell spanning `columns(n)` of 12 (default 4 — a third,
+// HA's default card size); a partial row group-centers by default. Section
+// titles span the full width so they break the flow like HA section headings.
+// (`columns(n)`/`fullWidth()` are GRID-only — inside a row/column, cells
+// share/fill instead. See ADR 0008.)
 card = (c.grid) {
   children {
     c.title("Pkl demo").fullWidth()
-
     // Default display: friendly_name label, $state + auto-appended unit.
-    // No layout builder -> the default half-grid cell.
-    c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+    // No layout builder -> the default third-grid cell.
 
-    // Live value expression + explicit tap service, BUILDER style: each option
-    // is a method that returns the card, so they chain paren-free (vs the
-    // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
-    // emitted node is byte-identical (the wire snapshot guards this).
-    c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-      .value(c.expr(#"$round($number($state), 1) & " V""#))
-      .tap(c.serviceTap("homeassistant/toggle"))
+    (c.column) {
+      children {
 
-    // Domain-checked: only entities with a sliderSpec row (lights) compile.
-    // A slider wants room — span the full grid width.
-    (c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)).fullWidth()
+        c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+
+
+        // Live value expression + explicit tap service, BUILDER style: each option
+        // is a method that returns the card, so they chain paren-free (vs the
+        // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
+        // emitted node is byte-identical (the wire snapshot guards this).
+        c.entityCard(dump.entities.sensor_ams_1a4e_u1)
+          .value(c.expr(#"$round($number($state), 1) & " V""#))
+          .tap(c.serviceTap("homeassistant/toggle"))
+
+        // Domain-checked: only entities with a sliderSpec row (lights) compile.
+        // A slider wants room — span the full grid width.
+        (c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)).fullWidth()
+      }
+    }
+
 
     // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity, the
     // card chosen by the first matching branch (author order = dispatch order).
@@ -89,7 +98,7 @@ card = (c.grid) {
     // surface; the second opens an INLINE popup whose content the build-phase
     // hoist lifts into a surface (keyed by this button's derived id + "_self").
     c.title("Popups").fullWidth()
-    (c.column) {
+    (c.row) {
       children {
         c.button("Power detail…", c.openPopup("detail"))
         c.button("Quick info…", c.openPopupInline(new c.Column {

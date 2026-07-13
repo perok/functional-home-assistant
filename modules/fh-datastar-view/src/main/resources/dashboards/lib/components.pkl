@@ -33,7 +33,7 @@ class Slot {
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
 /// names are the theme-agnostic `fh-` layout contract (see lib/theme.pkl).
 /// Authors normally use the builder methods on [[LayoutNode]] (`columns`,
-/// `fullWidth`, `centered`, `cellClass`) rather than writing one directly.
+/// `fullWidth`, `cellClass`) rather than writing one directly.
 class Cell {
   classes: Listing<String> = new {}
 }
@@ -46,8 +46,10 @@ class Cell {
 /// real flex/grid item), and the layout builders below put `fh-` contract
 /// classes on that wrapper. They follow HA's `grid_options` conventions —
 /// inside a [[Grid]] (12 columns), `columns(n)` is a card's width in grid
-/// columns (default 6, half the grid, like HA sections). The builders return
-/// the base [[LayoutNode]] type, so chain them AFTER card-specific ones:
+/// columns (default 4, a third of the grid, like HA sections). No effect
+/// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
+/// builders return the base [[LayoutNode]] type, so chain them AFTER
+/// card-specific ones:
 /// `c.entityCard(e).tap(c.toggleTap).columns(3)`.
 abstract class LayoutNode {
   kind: String
@@ -59,8 +61,6 @@ abstract class LayoutNode {
   function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
   /// Span the surrounding grid's full width (HA `columns: full`).
   function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
-  /// Center this cell's content (e.g. a hero card on mobile).
-  function centered(): LayoutNode = addCellClass("fh-center")
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
@@ -341,10 +341,11 @@ class Column extends Node {
 hidden column: Column = new Column {}
 
 /// 12-column grid container — the DEFAULT top-level container (the HA
-/// "sections" feel): children flow as rows from the top-left, each cell
-/// spanning `columns(n)` of 12 (default 6 — half the grid, HA's default card
-/// size); `fullWidth()` spans the row. Theme-agnostic markup (`.fh-grid`);
-/// the `fh-` layout contract CSS lives in lib/theme.pkl.
+/// "sections" feel): children flow as rows, each cell spanning `columns(n)`
+/// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
+/// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
+/// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
+/// layout contract CSS lives in lib/theme.pkl.
 class Grid extends Node {
   card = "fhgrid"
   cardDef = new CardDef {
@@ -353,13 +354,21 @@ class Grid extends Node {
       """
   }
   hidden cssClass: String? = null
+  /// Group-center the cells: a partial row is centered, a full row fills.
+  /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
+  hidden centered: Boolean = true
   slots {
-    when (cssClass != null) {
-      ["class"] = cssClass!!
+    when (cssClass != null || !centered) {
+      ["class"] = new Listing<String> {
+        when (cssClass != null) { cssClass!! }
+        when (!centered) { "fh-start" }
+      }.toList().join(" ")
     }
   }
   // Fluent config (see [[EntityCard]]'s builder methods).
   function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
+  /// Toggle group-centering of the cells (see [[centered]] property).
+  function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
 }
 /// Amendable base instance — `(c.grid) { children { ... } }` (see [[row]]).
 hidden grid: Grid = new Grid {}

@@ -19,9 +19,10 @@
 ///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
 ///   wrapper (the id'd flex/grid item the renderer puts around EVERY card) ->
 ///   `.fh-cell`, a dynamic group's member-flow container -> `.fh-group`,
-///   per-cell layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full`/`.fh-center`
-///   (authored via the HA-style builders `columns(n)`/`fullWidth()`/
-///   `centered()` — see components.pkl [[LayoutNode]]),
+///   per-cell layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full` (authored
+///   via the HA-style builders `columns(n)`/`fullWidth()` on
+///   components.pkl [[LayoutNode]]), a grid's group-centering opt-out ->
+///   the `.fh-start` marker on the grid element (`Grid.centered(false)`),
 ///   cards -> `.card`, section titles -> `.section`, state text -> `.state`,
 ///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`.
 ///
@@ -54,30 +55,46 @@
 module theme
 
 /// Framework-agnostic CSS for the `fh-` layout contract — the sane default
-/// every theme can reuse. The model mirrors HA's "sections" dashboard: a
-/// [[components#Grid]] (`.fh-grid`) is a 12-column grid whose cells default to
-/// half its width (HA's default card size, `grid_options.columns: 6`); a cell
-/// overrides its span with `.fh-cols-<n>`/`.fh-cols-full` (the `columns(n)`/
-/// `fullWidth()` builders). A dynamic group (`.fh-group`) flows its members
-/// the same way. The default-span selectors use `:where()` so any authored
-/// single-class span rule beats them; `--fh-gap` retunes spacing per theme
-/// (or per entry via `tokens`).
+/// every theme can reuse. Three container behaviors, mirroring HA's
+/// "sections" dashboard (see ADR 0008):
+///
+///   - GRID (`.fh-grid`, the default top-level container + dynamic-group
+///     `.fh-group`): a 12-column sizing system where a cell's width is its
+///     `columns(n)` span (default 4 — a third, HA's default card size) of 12.
+///     Built on flexbox rather than CSS grid so a PARTIAL row (cells not
+///     summing to 12) group-centers while a FULL row fills edge-to-edge — the
+///     HA-sections feel. Centering is ON by default; `Grid.centered(false)`
+///     emits `.fh-start` to left-pack instead. The span basis
+///     `(100% + gap) * n/12 - gap` makes any set of spans summing to 12 fit
+///     one row exactly (the `+gap`/`-gap` cancels the inter-cell gaps).
+///   - ROW (`.fh-row`): a horizontal flex line whose children SHARE the width
+///     equally (`flex:1 1 0`). No 12-col spans here — sizing is share-based.
+///   - COLUMN (`.fh-col`): a vertical flex stack whose children FILL the width.
+///
+/// So `columns(n)`/`fullWidth()` are GRID-ONLY affordances; inside a row/column
+/// you don't size children, they share/fill. Rows and columns nest freely into
+/// each other and into grid cells. On narrow screens (<=640px) every grid cell
+/// collapses to full width. The default-span selectors use `:where()` so any
+/// authored `.fh-cols-<n>` beats them; `--fh-gap` retunes spacing per theme.
 const layoutCss: String = """
-  .fh-grid,.fh-group{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--fh-gap,1rem)}
-  .fh-grid>:where(.fh-cell),.fh-group>:where(.fh-cell){grid-column:span 6;min-width:0}
+  .fh-grid,.fh-group{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem)}
+  .fh-grid.fh-start,.fh-group.fh-start{justify-content:flex-start}
+  .fh-grid>:where(.fh-cell),.fh-group>:where(.fh-cell){flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem));min-width:0}
   """ + colSpans + """
 
-  .fh-cols-full{grid-column:1/-1}
+  .fh-cols-full{flex-basis:100%}
   .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap}
-  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
   .fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}
-  .fh-center{display:flex;flex-direction:column;align-items:center;text-align:center}
+  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
+  .fh-col>.fh-cell{width:100%}
+  @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """
 
-// One span rule per grid column count (`.fh-cols-1` .. `.fh-cols-12`).
+// One span rule per grid column count (`.fh-cols-1` .. `.fh-cols-12`): the
+// flex-basis that makes an n/12 cell fit (gaps cancel — see [[layoutCss]]).
 const local colSpans: String = new Listing {
   for (n in IntSeq(1, 12)) {
-    ".fh-cols-\(n){grid-column:span \(n)}"
+    ".fh-cols-\(n){flex-basis:calc((100% + var(--fh-gap,1rem)) * \(n) / 12 - var(--fh-gap,1rem))}"
   }
 }.toList().join("\n")
 

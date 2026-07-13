@@ -747,8 +747,8 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("cell builders emit fh- classes, identical to the property form") {
     // The HA-grid_options-flavored layout builders (`columns`/`fullWidth`/
-    // `centered`/`cellClass`) append to the node-level `cell.classes`; the
-    // emitted JSON must be byte-identical to assigning the `cell` property.
+    // `cellClass`) append to the node-level `cell.classes`; the emitted JSON
+    // must be byte-identical to assigning the `cell` property.
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl", "components.pkl")
     os.write(
@@ -760,9 +760,9 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |builder = c.entityCard(x).columns(3).centered()
+        |builder = c.entityCard(x).columns(3).cellClass("hero")
         |amend = (c.entityCard(x)) {
-        |  cell = new c.Cell { classes { "fh-cols-3"; "fh-center" } }
+        |  cell = new c.Cell { classes { "fh-cols-3"; "hero" } }
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
@@ -774,7 +774,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(cur.downField("builder").focus, cur.downField("amend").focus)
     def classes(k: String) =
       cur.downField(k).downField("cell").get[List[String]]("classes").toOption
-    assertEquals(classes("builder"), Some(List("fh-cols-3", "fh-center")))
+    assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
     // A node with no layout builders decodes with NO cell at all (the null
@@ -784,6 +784,30 @@ class PklBuildSuite extends munit.FunSuite {
         |node = new c.EntityCard { entity = light }""".stripMargin
     )
     assertEquals(plain.cell, None)
+  }
+
+  test("Grid group-centering: default emits no marker, centered(false) emits fh-start") {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "lib/components.pkl" as c
+        |
+        |base = (c.grid) {}
+        |packed = c.grid.centered(false)
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val cur = result.toOption.get.value.hcursor
+    def clazz(k: String) =
+      cur.downField(k).downField("slots").get[String]("class").toOption
+    // Centered is the default -> no `class` slot (the group-center CSS is the
+    // grid's baseline); left-packing rides on the `fh-start` marker.
+    assertEquals(clazz("base"), None)
+    assertEquals(clazz("packed"), Some("fh-start"))
   }
 
   test("caseOf copies the render fn's cell onto the emitted Case") {

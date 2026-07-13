@@ -1,7 +1,7 @@
 # ADR 0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract
 
 - **Status:** Accepted
-- **Date:** 2026-07-11
+- **Date:** 2026-07-12
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
 
 ## Context
@@ -58,30 +58,46 @@ know.
    HA-`grid_options`-style fields (rows, dense) without a wire break. Case
    `cell`s are static wire data, so in-place morphs, membership inserts, and
    whole-group repaints re-emit byte-identical wrappers.
-5. **The `fh-` layout contract, HA-sections-shaped.** The class vocabulary is
-   theme-agnostic: `.fh-grid` (a `Grid` container) and `.fh-group` (a dynamic
-   group's member flow) are 12-column grids whose cells default to **half the
-   grid** — HA's default card size (`grid_options.columns: 6`); `.fh-cols-<n>`
-   / `.fh-cols-full` override the span; `.fh-center` centers a cell's content;
-   `--fh-gap` is the spacing knob. `theme.pkl` carries this CSS as a reusable
-   `const layoutCss` that a theme interpolates at the top of its `styles`
-   (theme-beer does) — a future theme reuses it or replaces the layout system
-   wholesale, and the visual classes (`.card`, `.section`, …) remain the part
-   each theme styles its own way. The default-span selectors use `:where()` so
-   any authored single-class span rule wins on specificity. There is
-   deliberately NO mobile-collapse media query: like an HA section, the
-   12-column grid holds on phones (a 6-column card is half the screen — the
-   HA tile look); use `fullWidth()` for cards that need the row.
+5. **The `fh-` layout contract: three container behaviours.** The class
+   vocabulary is theme-agnostic, and each container speaks exactly one sizing
+   language — the fix for the original bug, where `.fh-cell` tried to speak
+   both grid-spans and flex-share at once and `columns()`/`fullWidth()` went
+   silently inert inside a flexbox row:
+   - **`.fh-grid`** (a `Grid` container) and **`.fh-group`** (a dynamic group's
+     member flow) are the 12-column *sizing* system: a cell's width is its
+     `columns(n)` span (default **4** — a third, HA's `grid_options.columns`
+     default card size), `fullWidth()` = 12. This is built on **flexbox, not
+     CSS grid**, so a PARTIAL row (spans not summing to 12) group-centers while
+     a FULL row fills edge-to-edge — the HA-sections feel. The span basis is
+     `calc((100% + gap) * n/12 - gap)`: the `+gap`/`-gap` cancels the
+     inter-cell gaps so any set of spans summing to 12 fits one row exactly
+     (CSS grid gets this free but can't center partial rows; flexbox centers
+     but needs the gap-cancelling calc — we want the centering). Centering is
+     the **default**; `Grid.centered(false)` emits the `.fh-start` marker to
+     left-pack. On phones (`max-width:640px`) every grid cell collapses to full
+     width.
+   - **`.fh-row`** is a horizontal flex line whose children SHARE the width
+     equally (`flex:1 1 0`).
+   - **`.fh-col`** is a vertical flex stack whose children FILL the width.
+
+   So `columns(n)`/`fullWidth()` are **grid-only** affordances — inside a
+   row/column you don't size children, they share/fill; rows and columns nest
+   freely into each other and into grid cells. `--fh-gap` is the spacing knob;
+   `theme.pkl` carries all of this as a reusable `const layoutCss` a theme
+   interpolates at the top of its `styles` (theme-beer does) — a future theme
+   reuses it or replaces the layout system wholesale, and the visual classes
+   (`.card`, `.section`, …) remain each theme's own. The default-span selectors
+   use `:where()` so any authored `.fh-cols-<n>` wins on specificity.
 6. **Authoring follows HA naming.** Layout builders live on the Pkl
-   `LayoutNode` base, so components and dynamic groups share them:
-   `columns(n)` (HA `grid_options.columns`), `fullWidth()` (HA `columns:
-   full`), `centered()`, and the `cellClass("…")` escape hatch. They append to
-   the node's `cell.classes` (never amending the null default) and return the
-   base `LayoutNode` type — chain them AFTER card-specific builders
-   (`c.entityCard(e).tap(…).columns(3)`). `caseOf` copies a render fn's `cell`
-   onto the emitted `Case`. The `Grid` class (`card = "fhgrid"`) is the
-   default top-level container; `Row`/`Column` remain for one-dimensional
-   flows (e.g. a column of buttons occupying one grid cell).
+   `LayoutNode` base, so components and dynamic groups share them: `columns(n)`
+   (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), and the
+   `cellClass("…")` escape hatch. They append to the node's `cell.classes`
+   (never amending the null default) and return the base `LayoutNode` type —
+   chain them AFTER card-specific builders (`c.entityCard(e).tap(…).columns(3)`).
+   `caseOf` copies a render fn's `cell` onto the emitted `Case`. The `Grid`
+   class (`card = "fhgrid"`) is the default top-level container and carries the
+   `centered(on: Boolean)` toggle (group-centering, default on); `Row`/`Column`
+   are the one-dimensional share/fill flows that nest inside it.
 
 ### Rejected: template-owned id roots
 
@@ -125,12 +141,13 @@ framework-agnostic, and a new look is a sibling module exporting a
 
 ## Verification
 
-`fh-datastar-view/testFull` green (110 tests): renderer wrapper semantics
+`fh-datastar-view/testFull` green (132 tests): renderer wrapper semantics
 (universal wrap, `wrapAsCell = false` bare render, cell classes on all three
 wrapper kinds incl. the per-member in-place path), builder-vs-property JSON
-identity, `caseOf` cell copy, validate's token rejection, and the wire
-snapshots (regenerated deliberately for `wrapAsCell`, the `fhgrid` registry
-entry, the layout CSS, and the demo's grid tree). **Visual verification in the
-browser (`sbt dashboardServe` — tab bar styling, popup chrome over the new
-wrapper, grid flow light/dark/narrow) is still pending**; per ADR 0006 that
-check cannot be done from the terminal.
+identity, the `Grid.centered(false)` → `.fh-start` marker (default emits no
+class), `caseOf` cell copy, validate's token rejection, and the wire snapshots
+(regenerated deliberately for the flex-based grid CSS — span basis, group
+centering, mobile collapse — and the demo's grid tree). **Visual verification
+in the browser (`sbt dashboardServe` — grid flow, partial-row centering,
+row-share/column-fill nesting, the phone collapse, light/dark) is still
+pending**; per ADR 0006 that check cannot be done from the terminal.

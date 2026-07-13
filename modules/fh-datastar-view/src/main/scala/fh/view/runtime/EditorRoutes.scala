@@ -63,7 +63,9 @@ final class EditorRoutes(
         resolveEditable(rest) match {
           case None => NotFound()
           case _ =>
-            fileService[IO](FileService.Config(dashboardsDir.toString, "edit/file")).apply(req).getOrElseF(NotFound())
+            fileService[IO](
+              FileService.Config(dashboardsDir.toString, "edit/file")
+            ).apply(req).getOrElseF(NotFound())
         }
 
       case req @ PUT -> "edit" /: "file" /: rest =>
@@ -91,7 +93,6 @@ final class EditorRoutes(
   private val staticAssets =
     Set("app.js", "vendor.js", "app.css", "overlay.js", "overlay.css")
 
-
   /** Serve one static editor asset through http4s [[StaticFile]] straight from
     * the classpath (`/editor/…`) — content type from the extension, caching
     * validators, conditional/range support. The editor's own assets are static;
@@ -101,9 +102,11 @@ final class EditorRoutes(
     StaticFile
       .fromResource(s"/editor/$name", Some(req))
       .semiflatMap {
-        /** Serve `editor/index.html` (a classpath resource) with the per-request base
-         * href + config JSON injected (the two `__…__` placeholders).
-         */
+
+        /** Serve `editor/index.html` (a classpath resource) with the
+          * per-request base href + config JSON injected (the two `__…__`
+          * placeholders).
+          */
         case resp if name.endsWith(".html") =>
           val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
           val config = Json

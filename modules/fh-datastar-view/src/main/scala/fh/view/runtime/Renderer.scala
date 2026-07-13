@@ -755,7 +755,7 @@ class Renderer(
         // templates never carry `id="{{id}}"` themselves, every node is a
         // Datastar morph target, and containers lay their children out
         // uniformly (`.fh-cell` is the real flex/grid item — the themes style
-        // it). Authored `cell` classes (fh-cols-*, fh-center, …) ride on the
+        // it). Authored `cell` classes (fh-cols-*, …) ride on the
         // wrapper. Exceptions: a card that opted out via `CardDef.wrapAsCell =
         // false` (its root must stay a direct child of a framework-structural
         // parent, e.g. the tab anchors), and a bake-group owner with no live
