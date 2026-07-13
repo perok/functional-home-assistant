@@ -1,12 +1,12 @@
 # Plan: Pkl live schema endpoint + `@fh-dashboard` dependency
 
-**Status: prototype landed through step 3; step 4 (import migration) pending.**
-The two enabling pkl-core capabilities are spiked and confirmed on 0.31.1 (see
-"Spike evidence" below). Track A steps 1–3 are implemented (interception infra,
-the `/system/pkl/*` route, runtime wiring) — the imports themselves are **not yet
-migrated** to http, so the mechanism is dormant behind the existing relative-file
-imports until step 4. Track B (`@fh-dashboard` project dependency) is designed and
-deferred.
+**Status: Track A complete (steps 1–4). See ADR 0009.** The two enabling
+pkl-core capabilities are spiked and confirmed on 0.31.1 (see "Spike evidence"
+below). Entries + `lib/components.pkl` import `hass.pkl`/`dump.pkl` over the
+`/system/pkl/` http URL; the server resolves them in-memory on its own eval path
+and serves the route for external consumers (verified: full suite green with
+snapshots unchanged; live `dashboardServe` evaluates all entries and serves the
+route). Track B (`@fh-dashboard` project dependency) is designed and deferred.
 
 ## The idea
 
@@ -152,7 +152,7 @@ JSON is import-mechanism-independent).
    `PklBuild.eval(system = …)` is available but only exercised once step 4 switches
    the imports to http.
 
-4. **Migrate hass+dump imports to http (behind the demos).** Switch entries/lib to
+4. ✅ **Migrate hass+dump imports to http (behind the demos).** Switch entries/lib to
    the http URLs; update the test harness so its fake dump is served via `SystemPkl`
    rather than a temp-dir file; handle the watch gap — the import analyzer
    (`PklBuild.importSet`) drops non-`file:` imports, so an intercepted URL's backing
