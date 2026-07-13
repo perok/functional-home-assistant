@@ -165,7 +165,9 @@ object TestServer {
       rendererRef <- SignallingRef[IO].of(renderer).toResource
       sessions <- Sessions.create.toResource
       httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
-      assetsDir <- IO.blocking(os.temp.dir(prefix = "fh-smoke-assets")).toResource
+      assetsDir <- IO
+        .blocking(os.temp.dir(prefix = "fh-smoke-assets"))
+        .toResource
       assets <- AssetCache
         .build(
           assetsDir,

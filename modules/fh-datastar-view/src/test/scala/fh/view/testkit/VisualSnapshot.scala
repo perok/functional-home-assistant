@@ -4,15 +4,14 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
 
-/** Perceptual PNG snapshots for the component visual suite
-  * ([[fh.view.smoke]]) — the screenshot analogue of `PklBuildSuite`'s
-  * checked-in wire-format snapshots. A component's rendered look is
-  * deterministic here BY CONSTRUCTION: fixed viewport,
-  * [[fh.view.smoke.SmokeSuite.settle]] kills animations and waits on webfonts,
-  * and every asset (fonts included) is fetched at a version pinned in its CDN
-  * URL (`theme-beer.pkl`'s `beerVersion`, `Server.DatastarCdn`'s tag) — so
-  * unlike a typical visual-regression setup there is no live CDN version drift
-  * to chase.
+/** Perceptual PNG snapshots for the component visual suite ([[fh.view.smoke]])
+  * — the screenshot analogue of `PklBuildSuite`'s checked-in wire-format
+  * snapshots. A component's rendered look is deterministic here BY
+  * CONSTRUCTION: fixed viewport, [[fh.view.smoke.SmokeSuite.settle]] kills
+  * animations and waits on webfonts, and every asset (fonts included) is
+  * fetched at a version pinned in its CDN URL (`theme-beer.pkl`'s
+  * `beerVersion`, `Server.DatastarCdn`'s tag) — so unlike a typical
+  * visual-regression setup there is no live CDN version drift to chase.
   *
   * The comparison is NOT byte-identity: the only cross-environment variance
   * left after asset-pinning is the OS-level font rasterization stack (FreeType
@@ -40,10 +39,10 @@ object VisualSnapshot {
   /** Per-pixel YIQ color-distance tolerance (0..1); pixelmatch's default. */
   private val Threshold = 0.1
 
-  /** Fraction of pixels allowed to differ before the snapshot fails. Kept
-    * small because anti-aliased edge pixels — the bulk of cross-environment
-    * noise — are already excluded by the AA detection, so a genuine change
-    * lights up far more than this.
+  /** Fraction of pixels allowed to differ before the snapshot fails. Kept small
+    * because anti-aliased edge pixels — the bulk of cross-environment noise —
+    * are already excluded by the AA detection, so a genuine change lights up
+    * far more than this.
     */
   private val MaxDiffRatio = 0.002
 
@@ -125,7 +124,9 @@ private object Pixelmatch {
       var x = 0
       while (x < w) {
         val pos = y * w + x
-        if (math.abs(colorDelta(img1, img2, pos, pos, yOnly = false)) > maxDelta) {
+        if (
+          math.abs(colorDelta(img1, img2, pos, pos, yOnly = false)) > maxDelta
+        ) {
           // A pixel that differs but reads as anti-aliasing in EITHER image is
           // rasterization noise, not a real change — skip it.
           val aa =
@@ -197,10 +198,10 @@ private object Pixelmatch {
     if (y1 > y2) -delta else delta
   }
 
-  /** True if pixel (x1,y1) of `img` looks anti-aliased: it has both a
-    * brighter and a darker neighbor, and one of those extremes has many
-    * identical siblings in both images (a solid edge on one side). Mirrors
-    * pixelmatch's `antialiased`.
+  /** True if pixel (x1,y1) of `img` looks anti-aliased: it has both a brighter
+    * and a darker neighbor, and one of those extremes has many identical
+    * siblings in both images (a solid edge on one side). Mirrors pixelmatch's
+    * `antialiased`.
     */
   private def antialiased(
       img: Array[Int],
@@ -242,8 +243,20 @@ private object Pixelmatch {
 
     if (min == 0.0 || max == 0.0) return false
 
-    (hasManySiblings(img, minX, minY, w, h) && hasManySiblings(img2, minX, minY, w, h)) ||
-    (hasManySiblings(img, maxX, maxY, w, h) && hasManySiblings(img2, maxX, maxY, w, h))
+    (hasManySiblings(img, minX, minY, w, h) && hasManySiblings(
+      img2,
+      minX,
+      minY,
+      w,
+      h
+    )) ||
+    (hasManySiblings(img, maxX, maxY, w, h) && hasManySiblings(
+      img2,
+      maxX,
+      maxY,
+      w,
+      h
+    ))
   }
 
   /** True if pixel (x1,y1) has 3+ identical neighbors (incl. edges). */
