@@ -206,7 +206,7 @@ class BeerTheme extends themeMod.Theme {
     .card.tappable{cursor:pointer}
     /* The slider card's label line (class contract, like .card): label left,
        live state right. */
-    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between}
+    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels
