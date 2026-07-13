@@ -72,7 +72,7 @@ object HAWSApiLowLevel {
             .flatMap { response =>
               validate.lift(response) match {
                 case Some(value) => value.pure[IO]
-                case None =>
+                case None        =>
                   IO.raiseError(new Exception(s"Wrong msg: $response"))
               }
             }

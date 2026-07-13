@@ -154,7 +154,7 @@ class Server(
     sharedTopics.toList
       .map { case (slug, topic) =>
         val patches = renderers.get(slug) match {
-          case None => Stream.empty
+          case None      => Stream.empty
           case Some(ref) =>
             ref.discrete.switchMap { renderer =>
               Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap {
@@ -337,7 +337,7 @@ class Server(
       uiState: Map[String, String]
   ): (Map[String, String], List[Patch]) =
     renderer.renderNodeById(gid, states, uiState) match {
-      case None => (cache, Nil)
+      case None       => (cache, Nil)
       case Some(html) =>
         if (cache.get(gid).contains(html)) (cache, Nil)
         else {
@@ -452,7 +452,7 @@ class Server(
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
           case ((c, acc), e) =>
             renderer.renderDynamicChild(gid, e, states) match {
-              case None => (c, acc) // defensive: not renderable, skip
+              case None       => (c, acc) // defensive: not renderable, skip
               case Some(html) =>
                 val cid = renderer.dynamicChildId(gid, e)
                 // Insert before the first EXISTING (pre-change) member sorting
@@ -488,7 +488,7 @@ class Server(
       states: Map[String, EntityState]
   ): (Map[String, String], List[Patch]) =
     renderer.renderNodeById(gid, states) match {
-      case None => (cache, Nil)
+      case None       => (cache, Nil)
       case Some(html) =>
         if (cache.get(gid).contains(html)) (cache, Nil)
         else {
@@ -623,7 +623,7 @@ class Server(
       states <- stateStore.snapshot
       open <- session.open.get
       out <- renderer match {
-        case None => IO.pure(List.empty[ServerSentEvent])
+        case None    => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
           val before = beforeSnapshot(states, change)
           // State-group flips this session must patch itself: groups inside
@@ -702,7 +702,7 @@ class Server(
       uiState: Map[String, String]
   ): IO[Unit] =
     renderer.surface(id) match {
-      case None => IO.unit
+      case None       => IO.unit
       case Some(surf) =>
         swapHost(session, renderer, surf.hostId, Some(id), uiState)
     }
@@ -765,7 +765,7 @@ class Server(
       uiState: Map[String, String]
   ): IO[Unit] =
     renderers.get(slug) match {
-      case None => IO.unit
+      case None      => IO.unit
       case Some(ref) =>
         for {
           renderer <- ref.get
@@ -813,7 +813,7 @@ class Server(
         case None => BadRequest("""{"success":false,"error":"missing conn"}""")
         case Some(conn) =>
           sessions.get(conn).flatMap {
-            case None => NoContent() // stale/unknown connection
+            case None          => NoContent() // stale/unknown connection
             case Some(session) =>
               session.slug.get
                 .flatMap(slug => renderers.get(slug).traverse(_.get))
@@ -845,7 +845,7 @@ class Server(
       serviceData: Json
   ): IO[Response[IO]] =
     api.callService(domain, service, entityId, serviceData).attempt.flatMap {
-      case Right(_) => NoContent()
+      case Right(_)  => NoContent()
       case Left(err) =>
         BadRequest(
           Json
@@ -866,7 +866,7 @@ class Server(
     */
   private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
     renderers.get(slug) match {
-      case None => NotFound()
+      case None      => NotFound()
       case Some(ref) =>
         (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
           val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
@@ -892,7 +892,7 @@ class Server(
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     renderers.get(slug) match {
-      case None => NotFound()
+      case None      => NotFound()
       case Some(ref) =>
         val uiState = Server.uiStateOf(req)
         // The editor embeds the dashboard as `?edit=1`; that turns on the

@@ -164,7 +164,7 @@ object LspBridge {
     def go(buf: Chunk[Byte], s: Stream[IO, Byte]): Pull[IO, String, Unit] =
       extract(buf) match {
         case Some((json, rest)) => Pull.output1(json) >> go(rest, s)
-        case None =>
+        case None               =>
           s.pull.uncons.flatMap {
             case Some((hd, tl)) => go(buf ++ hd, tl)
             case None           => Pull.done
