@@ -1,6 +1,6 @@
 # CI + CD in one pipeline.
 #
-# ci: every PR and main push — test + assemble the fat jar (scoped to
+# ci: every PR, merge-queue entry, and main push — test + assemble the fat jar (scoped to
 #     fh-datastar-view: home/home-codegen need live-HA codegen and cannot
 #     compile in CI; tests run on fake dumps, no HA needed).
 # cd: main only, after ci is green. Publishes ONLY when home-addon/config.yaml
@@ -15,6 +15,7 @@ name: CICD
 
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:
@@ -65,7 +66,7 @@ jobs:
         run: sbt 'fh-datastar-view/assembly'
 
       - name: Upload jar for cd
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: addon-jar
@@ -74,7 +75,7 @@ jobs:
 
   cd:
     needs: ci
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
