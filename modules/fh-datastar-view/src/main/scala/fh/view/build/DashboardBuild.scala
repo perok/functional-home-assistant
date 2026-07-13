@@ -258,7 +258,7 @@ object DashboardBuild {
         )
         .liftTo[IO]
       _ <- dashboard.validate(SourceEval.literalLocator(sources)) match {
-        case Nil => IO.unit
+        case Nil  => IO.unit
         case errs =>
           new RuntimeException(
             s"dashboard failed validation (${errs.size} error(s)):\n" +

@@ -53,7 +53,6 @@ class CodeGenServices(
         .filter(_._2.nonEmpty)
         .filterNot(stuff => stuff._2.isEmpty)
         .map { (targetDomain, stuff) =>
-
           val domainDifferent = targetDomain =!= domain.domain.some
 
           val services = stuff

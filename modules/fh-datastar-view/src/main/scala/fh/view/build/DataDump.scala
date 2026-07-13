@@ -81,7 +81,7 @@ object DataDump {
   def transform(raw: Json): Json = {
     def keyBy(arr: Json, keyField: String, key: String => String): Json =
       arr.asArray match {
-        case None => arr
+        case None        => arr
         case Some(items) =>
           val entries = items.flatMap { item =>
             item.hcursor.get[String](keyField).toOption.map { raw =>
@@ -92,7 +92,7 @@ object DataDump {
       }
 
     raw.asObject match {
-      case None => raw
+      case None      => raw
       case Some(obj) =>
         val areasArr = obj("areas").getOrElse(Json.arr())
         val areaItems = areasArr.asArray.getOrElse(Vector.empty)

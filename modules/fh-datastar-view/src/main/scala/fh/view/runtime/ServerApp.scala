@@ -62,7 +62,7 @@ object ServerApp extends IOApp {
         built <- entries
           .traverse { case (slug, entry) =>
             buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
-              case Right(r) => IO.pure(Some((slug, r)))
+              case Right(r)  => IO.pure(Some((slug, r)))
               case Left(err) =>
                 IO.println(
                   s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
@@ -306,17 +306,17 @@ object ServerApp extends IOApp {
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
-          case true => IO.pure(Some(path))
+          case true  => IO.pure(Some(path))
           case false =>
             IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
         }
       case None =>
         val cache = os.pwd / ".pkl-lsp" / s"pkl-lsp-$PklLspVersion.jar"
         IO.blocking(os.exists(cache)).flatMap {
-          case true => IO.pure(Some(cache))
+          case true  => IO.pure(Some(cache))
           case false =>
             downloadPklLsp(client, cache).attempt.flatMap {
-              case Right(_) => IO.pure(Some(cache))
+              case Right(_)  => IO.pure(Some(cache))
               case Left(err) =>
                 IO.println(
                   s"pkl-lsp: could not obtain jar (${err.getMessage}); " +

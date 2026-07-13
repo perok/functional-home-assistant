@@ -9,9 +9,9 @@ val commonSettings = Seq(
   tpolecatExcludeOptions ++= Set(
     ScalacOptions.warnError
   ),
-  //Test / tpolecatExcludeOptions ++= Set(
+  // Test / tpolecatExcludeOptions ++= Set(
   //  ScalacOptions.fatalWarnings
-  //),
+  // ),
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.0",
     "io.scalaland" %% "chimney" % "1.10.0",
@@ -20,8 +20,14 @@ val commonSettings = Seq(
 )
 addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
 // Datastar dashboard: build phase (regenerate dashboard.json) and runtime server.
-addCommandAlias("dashboardBuild", "fh-datastar-view/runMain fh.view.build.BuildApp")
-addCommandAlias("dashboardServe", "fh-datastar-view/runMain fh.view.runtime.ServerApp")
+addCommandAlias(
+  "dashboardBuild",
+  "fh-datastar-view/runMain fh.view.build.BuildApp"
+)
+addCommandAlias(
+  "dashboardServe",
+  "fh-datastar-view/runMain fh.view.runtime.ServerApp"
+)
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
@@ -90,9 +96,9 @@ lazy val `home-codegen` =
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
       haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
-      haUrl := "TODO" //envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
-      //haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
-      //haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
+      haUrl := "TODO" // envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
+      // haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
+      // haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
 
 lazy val home = project // using the others as if they are libs
@@ -100,10 +106,10 @@ lazy val home = project // using the others as if they are libs
   .dependsOn(`ha-api`, `home-codegen`)
   .settings(
     commonSettings,
-    //assembly / assemblyMergeStrategy := {
+    // assembly / assemblyMergeStrategy := {
     //  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
     //  case x                             => MergeStrategy.first
-    //},
+    // },
     run / fork := true,
     run / javaOptions ++= Seq(
       "-Dcats.effect.tracing.mode=full"
@@ -121,10 +127,10 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    //run / envVars := Map(
+    // run / envVars := Map(
     //  "SERVER" -> (`home-codegen` / haUrl).value,
     //  "SECRET" -> secretToken
-    //),
+    // ),
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),

@@ -57,7 +57,7 @@ final class AssetCache private (
         val p = dir / name
         Option.when(os.exists(p) && os.isFile(p))(os.read.bytes(p))
       }.flatMap {
-        case None => NotFound()
+        case None        => NotFound()
         case Some(bytes) =>
           Ok(bytes).map(
             _.withContentType(`Content-Type`(AssetCache.mediaTypeOf(name)))
@@ -95,7 +95,7 @@ object AssetCache {
             // Relative (resolves via the page's <base href>) so the same
             // rendered HTML works directly and behind the ingress prefix.
             case Right(name) => IO.pure(Some(url -> s"assets/$name"))
-            case Left(err) =>
+            case Left(err)   =>
               IO.println(
                 s"asset cache: keeping original URL for $url (${err.getMessage})"
               ).as(None)
@@ -138,7 +138,7 @@ object AssetCache {
     IO.blocking(os.exists(dir / name)).flatMap {
       case true                           => IO.pure(name)
       case false if name.endsWith(".css") => cacheCss(dir, url, name, client)
-      case false =>
+      case false                          =>
         fetch(client, url).flatMap(write(dir / name, _)).as(name)
     }
   }
@@ -172,7 +172,7 @@ object AssetCache {
             case false => fetch(client, abs).flatMap(write(dir / subName, _))
           }
           cached.attempt.flatMap {
-            case Right(_) => IO.pure(Some(ref -> subName))
+            case Right(_)  => IO.pure(Some(ref -> subName))
             case Left(err) =>
               IO.println(
                 s"asset cache: keeping ref $ref in $url (${err.getMessage})"

@@ -55,8 +55,8 @@ object StaticCode {
     private val elemLabels = labelling.elemLabels.zipWithIndex.toList
     def fields(t: T): List[Field] =
       elemLabels.map((label, i) =>
-        val stringInstantiatedValue = inst.project(t)(i)(
-          [t] => (tc: ToCode[t], v: t) => tc.staticInstantiate(v)
+        val stringInstantiatedValue = inst.project(t)(i)([t] =>
+          (tc: ToCode[t], v: t) => tc.staticInstantiate(v)
         )
 
         Field(label, stringInstantiatedValue)
