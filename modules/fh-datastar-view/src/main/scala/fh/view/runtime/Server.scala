@@ -4,6 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
+import fh.view.build.SystemPkl
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{SignallingRef, Topic}
@@ -76,7 +77,12 @@ class Server(
     // Local cache of the themes' external assets ([[AssetCache]]): page URLs
     // are rewritten through it and `/assets/:name` serves from it. The empty
     // default (pass-through, no local assets) keeps tests ceremony-free.
-    assets: AssetCache = AssetCache.empty
+    assets: AssetCache = AssetCache.empty,
+    // The live home's Pkl artifacts (schema + dump) served over `/system/pkl/`
+    // for pkl-lsp / the editor / remote authors. The empty default serves
+    // nothing (404) — the server's own eval uses in-memory interception, not
+    // this route.
+    systemPkl: SystemPkl = SystemPkl.empty
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -86,6 +92,20 @@ class Server(
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
+
+    // The live home's Pkl artifacts — the domain schema + the freshly-rendered
+    // per-home dump — as source text. pkl-lsp (behind the `/edit` editor) and
+    // remote authors fetch these to resolve `import
+    // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
+    // hits this route (it resolves those imports via in-memory interception).
+    case GET -> Root / "system" / "pkl" / name =>
+      systemPkl.module(name) match {
+        case Some(text) =>
+          Ok(text).map(
+            _.withContentType(`Content-Type`(MediaType.text.plain))
+          )
+        case None => NotFound()
+      }
 
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
@@ -994,7 +1014,8 @@ object Server {
       renderers: Map[String, SignallingRef[IO, Renderer]],
       defaultSlug: String,
       sessions: Sessions,
-      assets: AssetCache = AssetCache.empty
+      assets: AssetCache = AssetCache.empty,
+      systemPkl: SystemPkl = SystemPkl.empty
   ): Resource[IO, Server] =
     for {
       topics <- renderers.keySet.toList
@@ -1008,7 +1029,8 @@ object Server {
         defaultSlug,
         sessions,
         topics,
-        assets
+        assets,
+        systemPkl
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server

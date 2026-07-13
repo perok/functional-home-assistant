@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.build.DashboardBuild
+import fh.view.build.{DashboardBuild, SystemPkl}
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
@@ -111,6 +111,11 @@ object ServerApp extends IOApp {
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
         defaultSlug <- defaultSlugFrom(built.map(_._1)).toResource
+        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) over
+        // `/system/pkl/*` straight off disk — the same source the in-server
+        // import interception uses. `prepareDumps` above already wrote the
+        // live `lib/dump.pkl`, so reads reflect the current dump.
+        systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
         server <- Server.resource(
@@ -119,7 +124,8 @@ object ServerApp extends IOApp {
           rendererRefs,
           defaultSlug,
           sessions,
-          assets
+          assets,
+          systemPkl
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and

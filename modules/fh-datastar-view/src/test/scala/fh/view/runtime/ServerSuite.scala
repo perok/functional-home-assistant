@@ -181,6 +181,42 @@ class ServerSuite extends munit.FunSuite {
     )
   }
 
+  test("/system/pkl serves a provided module and 404s an unknown one") {
+    val system = fh.view.build.SystemPkl(
+      hass = Some("// schema"),
+      dump = Some("kitchen = 1")
+    )
+    val (dumpStatus, dumpBody, hassStatus, missStatus) = (for {
+      store <- StateStore.inMemory(Map.empty)
+      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      sessions <- Sessions.create
+      server = new Server(
+        StubApi,
+        store,
+        Map("home" -> ref),
+        "home",
+        sessions,
+        Map.empty,
+        AssetCache.empty,
+        system
+      )
+      routes = server.routes.orNotFound
+      get = (p: String) =>
+        routes.run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
+      dump <- get("/system/pkl/dump.pkl")
+      dumpBody <- dump.body.through(fs2.text.utf8.decode).compile.string
+      hass <- get("/system/pkl/hass.pkl")
+      miss <- get("/system/pkl/nope.pkl")
+    } yield (dump.status, dumpBody, hass.status, miss.status))
+      .timeout(30.seconds)
+      .unsafeRunSync()
+
+    assertEquals(dumpStatus, Status.Ok)
+    assertEquals(dumpBody, "kitchen = 1")
+    assertEquals(hassStatus, Status.Ok)
+    assertEquals(missStatus, Status.NotFound)
+  }
+
   test("patchElements collapses multi-line fragments to a single data line") {
     val sse = Datastar.patchElements("<div>\n  <span>x</span>\n</div>")
     assertEquals(sse.eventType, Some("datastar-patch-elements"))

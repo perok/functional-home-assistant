@@ -62,6 +62,24 @@ object SystemPkl {
         case _          => None
       }
 
+  /** Serves nothing (every lookup is `None` → the route 404s, the factory falls
+    * through). The default for callers that don't wire a live home.
+    */
+  val empty: SystemPkl = apply(None, None)
+
+  /** Serve the two artifacts straight off disk under `<dashboardsDir>/lib/`.
+    * Reads are by-name (per lookup), so `dump.pkl` reflects the latest
+    * `DashboardBuild.prepareDumps` write without any cache to invalidate.
+    */
+  def fromDisk(dashboardsDir: os.Path): SystemPkl = {
+    val lib = dashboardsDir / "lib"
+    def read(name: String): Option[String] = {
+      val p = lib / name
+      Option.when(os.exists(p))(os.read(p))
+    }
+    apply(read("hass.pkl"), read("dump.pkl"))
+  }
+
   /** An in-memory [[ModuleKey]] backing an intercepted `/system/pkl/…` URI.
     * `hasHierarchicalUris = true` lets a relative `import "hass.pkl"` inside
     * the served `dump.pkl` resolve to the sibling `…/system/pkl/hass.pkl`,
