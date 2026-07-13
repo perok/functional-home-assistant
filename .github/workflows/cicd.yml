@@ -69,12 +69,11 @@ jobs:
       - name: Set PLAYWRIGHT_BROWSERS_PATH
         run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> $GITHUB_ENV
 
-      - parallel:
-          - name: Fmt check
-            run: scalafmt --test
+      - name: Fmt check
+        run: scalafmt --test
 
-          - name: Test
-            run: sbt 'fh-datastar-view/testFull'
+      - name: Test
+        run: sbt 'fh-datastar-view/testFull'
 
       - name: Assemble fat jar
         run: sbt 'fh-datastar-view/assembly'
