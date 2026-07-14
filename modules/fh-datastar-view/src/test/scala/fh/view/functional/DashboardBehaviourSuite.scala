@@ -1,6 +1,5 @@
 package fh.view.functional
 
-import fh.view.testkit.DashboardBuilders.col
 import fh.view.testkit.{FixtureDashboard, HouseFixture, ServiceCall}
 import io.circe.Json
 
@@ -9,10 +8,11 @@ import io.circe.Json
   * control -> `callService` — with no live HA and a scripted timeline. Each
   * test reads as an observable behaviour, asserted at the HTTP boundary.
   *
-  * Each test declares only the world it exercises: the entities the fake is
-  * seeded from, and a dashboard built (via [[FixtureDashboard]]) over just the
-  * cards that bind them. A control-only test seeds only the light it clicks,
-  * with an empty layout — the smallest world that still records the call.
+  * Each test builds only the world it exercises with the [[scene]] builder: the
+  * cards it asserts on (each auto-seeds the entity it binds) plus any extra
+  * entity it drives directly. A control-only test adds no card at all and just
+  * seeds the light it clicks with `.entity(...)` — the smallest world that still
+  * records the call.
   */
 class DashboardBehaviourSuite extends FunctionalSuite {
 
@@ -21,13 +21,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
 
   test("initial page render reflects the seeded snapshot") {
     val html = withServer(
-      FixtureDashboard.build(
-        col(
-          FixtureDashboard.reading(outside),
-          FixtureDashboard.light("Kitchen", kitchen)
-        )
-      ),
-      List(outside, kitchen)
+      scene
+        .card(FixtureDashboard.reading(outside))
+        .card(FixtureDashboard.light("Kitchen", kitchen))
     )(_.page)
     // The numeric reading and its unit (pulled from $attr) are present...
     assert(html.contains("12.4"), clue = html)
@@ -38,10 +34,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a state change pushes a fragment carrying the new value") {
-    withServer(
-      FixtureDashboard.build(col(FixtureDashboard.reading(outside))),
-      List(outside)
-    ) { ts =>
+    withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
       ts.observePatch(
         marker = "13.1",
         trigger = ts.fake.emit(outside.entityId, "13.1", outside.attributes)
@@ -50,10 +43,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("turning the kitchen light off pushes its new state over SSE") {
-    withServer(
-      FixtureDashboard.build(col(FixtureDashboard.light("Kitchen", kitchen))),
-      List(kitchen)
-    ) { ts =>
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       // A distinctive marker only the OFF light fragment can contain.
       ts.observePatch(
         marker = "Kitchen: <span>off</span>",
@@ -66,28 +56,23 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // Pins StateStore's "publish only on real change" contract end-to-end: an
     // emit of the current value is dropped, so the FIRST observed change is the
     // subsequent real one — driven through the fake's queue, not a private seam.
-    val firstState = withServer(
-      FixtureDashboard.build(col(FixtureDashboard.reading(outside))),
-      List(outside)
-    ) { ts =>
-      for {
-        firstChange <- ts.store.changes.take(1).compile.lastOrError.start
-        _ <- ts.awaitChangeSubscribers(1)
-        // No-op: same value the fixture already seeded -> dropped by update.
-        _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
-        // A real change -> published.
-        _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
-        change <- firstChange.joinWithNever
-      } yield change.current.state
+    val firstState = withServer(scene.card(FixtureDashboard.reading(outside))) {
+      ts =>
+        for {
+          firstChange <- ts.store.changes.take(1).compile.lastOrError.start
+          _ <- ts.awaitChangeSubscribers(1)
+          // No-op: same value the fixture already seeded -> dropped by update.
+          _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
+          // A real change -> published.
+          _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
+          change <- firstChange.joinWithNever
+        } yield change.current.state
     }
     assertEquals(firstState, "13.1")
   }
 
   test("a control click calls the service back into HA") {
-    val calls = withServer(
-      FixtureDashboard.build(col()),
-      List(kitchen)
-    ) { ts =>
+    val calls = withServer(scene.entity(kitchen)) { ts =>
       ts.post("sse/action/light/toggle/light.kitchen") *> ts.fake.recordedCalls
     }
     assertEquals(
@@ -97,10 +82,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a value-carrying control passes its data through to HA") {
-    val calls = withServer(
-      FixtureDashboard.build(col()),
-      List(kitchen)
-    ) { ts =>
+    val calls = withServer(scene.entity(kitchen)) { ts =>
       ts.post("sse/action/light/turn_on/light.kitchen/brightness/200") *>
         ts.fake.recordedCalls
     }
@@ -118,10 +100,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("round-trip: act on HA, then the consequent state reaches the browser") {
-    withServer(
-      FixtureDashboard.build(col(FixtureDashboard.light("Kitchen", kitchen))),
-      List(kitchen)
-    ) { ts =>
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       for {
         _ <- ts.post("sse/action/light/turn_off/light.kitchen")
         _ <- ts.observePatch(

@@ -2,9 +2,8 @@ package fh.view.functional
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
-import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.Scene
 
 import scala.concurrent.duration.*
 
@@ -13,24 +12,26 @@ import scala.concurrent.duration.*
   * `StateStore` -> `Server` -> HTTP/SSE, and control -> `callService` — against
   * a stubbed Home Assistant with a scripted timeline.
   *
-  * [[withServer]] takes the two fakes a test varies — the `dashboard` under
-  * test and the `entities` the [[fh.view.testkit.FakeHomeAssistant]] is seeded
-  * from — as parameters, so each test declares only the world it exercises.
-  * Most tests start from an empty seed and add just the entity (and the card
-  * that binds it, via `FixtureDashboard`/`DashboardBuilders`) whose behaviour
-  * they assert; that keeps a failure's world small and readable.
+  * [[withServer]] takes a [[Scene]] — the builder that assembles the dashboard
+  * under test and derives the entities the [[fh.view.testkit.FakeHomeAssistant]]
+  * is seeded from — so a test declares only the world it exercises: it adds the
+  * cards it asserts on (whose entities auto-seed) and any extra entities it
+  * drives directly, and the two can't fall out of sync by hand.
   */
 abstract class FunctionalSuite extends munit.FunSuite {
 
-  /** Run `f` against a freshly-wired [[TestServer]] for `dashboard`, seeded with
-    * `entities`, with a global timeout so a missed SSE fragment fails fast
-    * rather than hanging.
+  /** A fresh empty [[Scene]] — sugar so tests read `withServer(scene.card(..))`
+    * rather than naming the companion.
     */
-  def withServer[A](dashboard: Dashboard, entities: List[FixtureEntity])(
-      f: TestServer => IO[A]
-  ): A =
+  protected def scene: Scene = Scene.empty
+
+  /** Run `f` against a freshly-wired [[TestServer]] for `scene`'s dashboard,
+    * seeded with `scene`'s entities, with a global timeout so a missed SSE
+    * fragment fails fast rather than hanging.
+    */
+  def withServer[A](scene: Scene)(f: TestServer => IO[A]): A =
     TestServer
-      .resource(dashboard, entities)
+      .resource(scene.dashboard, scene.entities)
       .use(f)
       .timeout(45.seconds)
       .unsafeRunSync()

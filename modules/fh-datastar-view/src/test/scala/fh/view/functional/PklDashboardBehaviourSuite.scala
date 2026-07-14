@@ -1,6 +1,6 @@
 package fh.view.functional
 
-import fh.view.testkit.{HouseFixture, PklFixture}
+import fh.view.testkit.{HouseFixture, PklFixture, Scene}
 
 /** The Tier-A capstone of `plan-functional-e2e-tests.md`: the SAME end-to-end
   * behaviour as [[DashboardBehaviourSuite]], but the dashboard is a real Pkl
@@ -12,8 +12,9 @@ import fh.view.testkit.{HouseFixture, PklFixture}
   *
   * The entry is authored against `dump.entities.<key>` for the fixture
   * entities; because the dump and the seeded state both derive from
-  * [[HouseFixture]], the two cannot drift. The dashboard references both
-  * entities, but each test seeds the fake with only the state it asserts on.
+  * [[HouseFixture]], the two cannot drift. Both entities the entry references
+  * auto-seed through the [[Scene]] builder, exactly as the hand-built Tier-B
+  * dashboards do — the same reference-derived seeding across both tiers.
   */
 class PklDashboardBehaviourSuite extends FunctionalSuite {
 
@@ -43,10 +44,7 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
     PklFixture.buildDashboard("fixture-home", entrySource)
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    val html = withServer(
-      dashboard,
-      List(HouseFixture.outsideTemp, HouseFixture.kitchenLight)
-    )(_.page)
+    val html = withServer(Scene.of(dashboard))(_.page)
     // entityCard label = the live friendly_name; value = $state + unit.
     assert(html.contains("Outside Temperature"), clue = html)
     assert(html.contains("12.4"), clue = html)
@@ -57,7 +55,7 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a state change streams a fragment through the Pkl-built dashboard") {
-    withServer(dashboard, List(HouseFixture.outsideTemp)) { ts =>
+    withServer(Scene.of(dashboard)) { ts =>
       ts.observePatch(
         marker = "13.1",
         trigger = ts.fake.emit(
