@@ -8,6 +8,12 @@ A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assis
 
 Scala 3 + Typelevel stack (cats-effect, http4s, circe, chimney) + smithy4s for the REST API. Built with **sbt 2.0.0**.
 
+## Principles
+
+- Type driven development. The types inform us about structure and flow, verify with that before spending resources on the actual details
+- Parse, don't validate. Use new types and ADTs and make the invariants of the data in the types
+- Removing code is usually a better sign than adding code
+
 ## Build & run commands
 
 ```bash
