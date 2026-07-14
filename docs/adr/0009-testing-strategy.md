@@ -119,6 +119,30 @@ snapshots). Anti-flake rules: never `sleep` (Playwright retrying assertions or a
 bounded `eventually` poll), drive time only through `fake.emit`, one browser per
 suite with a fresh `BrowserContext` + bound server per test.
 
+#### Known limitation: native form controls aren't snapshot-portable
+
+`ComponentVisualSuite."slider looks right"` screenshots a native
+`<input type=range>`. Its thumb/fill is drawn by the browser's **built-in
+form-control styling**, which `settle` does NOT neutralize — `settle` pins fonts
+and kills CSS animation, but the range control's rendering is neither. That
+rendering differs by a few pixels across Chromium builds/platforms, so a baseline
+generated on CI (`ubuntu-latest`) can report ~0.45% (224 px, a solid ~4 px bar at
+the fill boundary — not scattered antialiasing) on a dev machine that renders the
+identical model. It is a **false positive**, confirmed by: the input `value` is
+correct (fixture brightness 180) in every run; the evaluated model/HTML/CSS is
+byte-identical; and it reproduces on commits that never touched the slider. It
+sits right at the 0.2 % budget, so it is intermittent (usually green on a
+full-suite re-run).
+
+**Do not** regenerate the baseline locally (`sbt dashboardSnapshotsUpdate`) to
+"fix" it — that overwrites the CI-portable image with one machine's rendering and
+moves the failure elsewhere. The durable fix is to take the native control out of
+the equation: style the slider with `appearance: none` + an explicit
+track/thumb in the (already environment-pinned) theme, so the snapshot compares
+only theme-controlled pixels — then regenerate once. Until then this one snapshot
+is a known, ignorable local flake. (`SmokeDashboard`'s font-pinning comment
+covers text portability; it deliberately says nothing about form controls.)
+
 ### 5. Reach-in unit tests stay, narrowed
 
 `RendererSuite`/`ServerSuite` keep the diff/churn/membership/flip invariants that
