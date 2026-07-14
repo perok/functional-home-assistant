@@ -7,16 +7,16 @@ import fh.view.testkit.Scene
 
 import scala.concurrent.duration.*
 
-/** Shared base for the end-to-end functional suites (ADR 0009): the whole loop —
-  * seed snapshot ->
-  * `StateStore` -> `Server` -> HTTP/SSE, and control -> `callService` — against
-  * a stubbed Home Assistant with a scripted timeline.
+/** Shared base for the end-to-end functional suites (ADR 0009): the whole loop
+  * — seed snapshot -> `StateStore` -> `Server` -> HTTP/SSE, and control ->
+  * `callService` — against a stubbed Home Assistant with a scripted timeline.
   *
   * [[withServer]] takes a [[Scene]] — the builder that assembles the dashboard
-  * under test and derives the entities the [[fh.view.testkit.FakeHomeAssistant]]
-  * is seeded from — so a test declares only the world it exercises: it adds the
-  * cards it asserts on (whose entities auto-seed) and any extra entities it
-  * drives directly, and the two can't fall out of sync by hand.
+  * under test and derives the entities the
+  * [[fh.view.testkit.FakeHomeAssistant]] is seeded from — so a test declares
+  * only the world it exercises: it adds the cards it asserts on (whose entities
+  * auto-seed) and any extra entities it drives directly, and the two can't fall
+  * out of sync by hand.
   */
 abstract class FunctionalSuite extends munit.FunSuite {
 

@@ -12,14 +12,14 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /** Base for the browser smoke suites (ADR 0009): one Playwright + headless
-  * Chromium per suite (cheap page creation off the
-  * shared browser), a fresh bound [[TestServer]] + `BrowserContext`/[[Page]]
-  * per test — so recorded calls, seeded state, and cookies (the tabs restore
-  * cookie) never bleed between tests — navigated to the dashboard under test.
-  * Every [[withPage]] call fails the test on any browser console `error`: a
-  * silent JS exception (a wrong `data-on:click` selector, a dropped SSE
-  * continuation line) is exactly the class of bug a wire-level test can't see —
-  * that's the whole reason this suite exists.
+  * Chromium per suite (cheap page creation off the shared browser), a fresh
+  * bound [[TestServer]] + `BrowserContext`/[[Page]] per test — so recorded
+  * calls, seeded state, and cookies (the tabs restore cookie) never bleed
+  * between tests — navigated to the dashboard under test. Every [[withPage]]
+  * call fails the test on any browser console `error`: a silent JS exception (a
+  * wrong `data-on:click` selector, a dropped SSE continuation line) is exactly
+  * the class of bug a wire-level test can't see — that's the whole reason this
+  * suite exists.
   */
 abstract class SmokeSuite extends munit.FunSuite {
 
@@ -70,14 +70,13 @@ abstract class SmokeSuite extends munit.FunSuite {
   /** Serve `scene`'s dashboard — seeded with the entities it references (plus
     * any `.entity(...)` extras), auto-derived by the [[Scene]] builder so the
     * served world can't drift from the dashboard — on a freshly bound
-    * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it, navigate
-    * to the dashboard, and run `f` with the [[Page]] and the [[TestServer]] (for
-    * `fake.emit` / the
-    * SSE-subscriber readiness gates — the browser opens its OWN SSE connection,
-    * so a test that emits a change still must await it, exactly as
-    * [[TestServer.observePatch]] does for the HTTP-body-stream suites).
-    * Everything is released after; a global timeout so a missed assertion fails
-    * fast rather than hanging the suite.
+    * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it,
+    * navigate to the dashboard, and run `f` with the [[Page]] and the
+    * [[TestServer]] (for `fake.emit` / the SSE-subscriber readiness gates — the
+    * browser opens its OWN SSE connection, so a test that emits a change still
+    * must await it, exactly as [[TestServer.observePatch]] does for the
+    * HTTP-body-stream suites). Everything is released after; a global timeout
+    * so a missed assertion fails fast rather than hanging the suite.
     *
     * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
     * `data-on:click` selector or a dropped SSE continuation line surfaces

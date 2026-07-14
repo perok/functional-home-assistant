@@ -4,13 +4,13 @@ import fh.view.model.{Dashboard, LayoutNode, SlotSource}
 import fh.view.testkit.DashboardBuilders.col
 
 /** The world a functional test drives: a [[Dashboard]] under test plus the
-  * entities a [[FakeHomeAssistant]] is seeded from — assembled with a builder so
-  * a test never has to keep those two in sync by hand.
+  * entities a [[FakeHomeAssistant]] is seeded from — assembled with a builder
+  * so a test never has to keep those two in sync by hand.
   *
   * The entities the dashboard REFERENCES are seeded automatically: [[entities]]
   * walks the produced dashboard for every entity id its cards bind and resolves
-  * each against the [[Scene.registry]] (the shared [[HouseFixture]] house), so a
-  * card placed in the layout brings its entity with it. `[[entity]]` adds
+  * each against the [[Scene.registry]] (the shared [[HouseFixture]] house), so
+  * a card placed in the layout brings its entity with it. `[[entity]]` adds
   * entities BEYOND what the dashboard references — a control-only test that
   * clicks a light with no card for it, a dynamic-group member matched by query
   * rather than named in a slot — and doubles as a resolution source, so a test
@@ -18,8 +18,8 @@ import fh.view.testkit.DashboardBuilders.col
   *
   * Two entry points feed the same machinery: [[Scene.empty]] accumulates root
   * cards via [[card]] (the hand-built Tier-B dashboard), while [[Scene.of]]
-  * wraps a ready dashboard (the Pkl-built Tier-A capstone) — both auto-seed what
-  * they reference.
+  * wraps a ready dashboard (the Pkl-built Tier-A capstone) — both auto-seed
+  * what they reference.
   */
 final class Scene private (
     private val children: Vector[LayoutNode],
@@ -34,10 +34,10 @@ final class Scene private (
   def card(node: LayoutNode): Scene =
     new Scene(children :+ node, prebuilt, extras)
 
-  /** Seed one entity BEYOND what the dashboard references (a control target with
-    * no card, a dynamic-group member). Also a resolution source, so this entity
-    * satisfies a dashboard reference the registry doesn't carry — or restates
-    * one it does, overriding its seeded state.
+  /** Seed one entity BEYOND what the dashboard references (a control target
+    * with no card, a dynamic-group member). Also a resolution source, so this
+    * entity satisfies a dashboard reference the registry doesn't carry — or
+    * restates one it does, overriding its seeded state.
     */
   def entity(e: FixtureEntity): Scene =
     new Scene(children, prebuilt, extras :+ e)
@@ -54,8 +54,8 @@ final class Scene private (
 
   /** The seed for the fake: every entity the dashboard references (resolved
     * against the registry + [[extras]]) followed by any extras not already
-    * pulled in, deduplicated by id. An extra shadows the registry, so a test can
-    * seed a referenced entity at a non-default state. A referenced id that
+    * pulled in, deduplicated by id. An extra shadows the registry, so a test
+    * can seed a referenced entity at a non-default state. A referenced id that
     * neither the registry nor an extra supplies fails loudly here — the "the
     * entities exist" check the builder now owns.
     */
@@ -109,6 +109,8 @@ object Scene {
         dyn.cases.flatMap(_.slots.values.toList.flatMap(_.entityId))
     }
 
-    (walk(d.card) ++ d.surfaces.values.toList.flatMap(s => walk(s.content))).distinct
+    (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>
+      walk(s.content)
+    )).distinct
   }
 }

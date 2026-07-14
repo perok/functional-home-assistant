@@ -18,8 +18,8 @@ import io.circe.Json
   * Each test builds only the world it exercises with the [[scene]] builder: the
   * cards it asserts on (each auto-seeds the entity it binds) plus any extra
   * entity it drives directly. A control-only test adds no card at all and just
-  * seeds the light it clicks with `.entity(...)` — the smallest world that still
-  * records the call.
+  * seeds the light it clicks with `.entity(...)` — the smallest world that
+  * still records the call.
   */
 class DashboardBehaviourSuite extends FunctionalSuite {
 

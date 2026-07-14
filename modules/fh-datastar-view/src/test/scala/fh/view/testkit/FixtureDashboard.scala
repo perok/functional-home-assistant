@@ -105,11 +105,11 @@ object FixtureDashboard {
 
   /** An If/else dashboard (ADR 0007's state-activated surfaces): an `ifhost`
     * root (id "c") whose `then` branch is baked while `condEntity` holds
-    * `activeState`, and whose always-true `else` branch bakes otherwise. This is
-    * the shape a state flip drives end-to-end — the host re-bakes the
-    * newly-selected branch on the deciding entity's change. The condition entity
-    * rides only the activation predicate (named in no slot), so a [[Scene]]
-    * seeds it via `.entity(..)`.
+    * `activeState`, and whose always-true `else` branch bakes otherwise. This
+    * is the shape a state flip drives end-to-end — the host re-bakes the
+    * newly-selected branch on the deciding entity's change. The condition
+    * entity rides only the activation predicate (named in no slot), so a
+    * [[Scene]] seeds it via `.entity(..)`.
     */
   def ifElse(
       condEntity: String,

@@ -59,10 +59,11 @@ object VisualSnapshot {
   private val MaxDiffRatio = 0.002
 
   /** Per-axis pixel tolerance on the screenshot's own dimensions. A component's
-    * bounding box is content-derived, so a different OS font-rasterization stack
-    * can round it by a pixel; a delta this small is the same sub-pixel noise the
-    * perceptual diff already forgives, so we compare over the shared rectangle
-    * instead of hard-failing. A larger delta is a genuine reflow and fails.
+    * bounding box is content-derived, so a different OS font-rasterization
+    * stack can round it by a pixel; a delta this small is the same sub-pixel
+    * noise the perceptual diff already forgives, so we compare over the shared
+    * rectangle instead of hard-failing. A larger delta is a genuine reflow and
+    * fails.
     */
   private val MaxDimDelta = 2
 

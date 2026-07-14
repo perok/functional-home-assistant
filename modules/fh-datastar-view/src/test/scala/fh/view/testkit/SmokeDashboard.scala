@@ -23,10 +23,10 @@ object SmokeDashboard {
     * on every component. `@fontsource/inter`'s relative `url(...)` woff2 refs
     * are localized by `AssetCache` exactly like the Material Symbols icon font,
     * so both environments render byte-identical glyphs and only sub-pixel
-    * FreeType antialiasing is left — which the perceptual diff already forgives.
-    * This makes [[VisualSnapshot]]'s "every asset (fonts included) is pinned"
-    * claim actually true. TEST-ONLY: the live `theme-beer.pkl` keeps its system
-    * stack (a real user's browser picks the first font it has).
+    * FreeType antialiasing is left — which the perceptual diff already
+    * forgives. This makes [[VisualSnapshot]]'s "every asset (fonts included) is
+    * pinned" claim actually true. TEST-ONLY: the live `theme-beer.pkl` keeps
+    * its system stack (a real user's browser picks the first font it has).
     */
   private val fontPinnedTheme =
     """theme {
