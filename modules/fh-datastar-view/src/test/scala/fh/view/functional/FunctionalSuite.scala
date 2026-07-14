@@ -1,7 +1,6 @@
 package fh.view.functional
 
 import cats.effect.IO
-import cats.effect.unsafe.implicits.global
 import fh.view.runtime.TestServer
 import fh.view.testkit.Scene
 
@@ -18,7 +17,7 @@ import scala.concurrent.duration.*
   * auto-seed) and any extra entities it drives directly, and the two can't fall
   * out of sync by hand.
   */
-abstract class FunctionalSuite extends munit.FunSuite {
+abstract class FunctionalSuite extends munit.CatsEffectSuite {
 
   /** A fresh empty [[Scene]] — sugar so tests read `withServer(scene.card(..))`
     * rather than naming the companion.
@@ -27,12 +26,12 @@ abstract class FunctionalSuite extends munit.FunSuite {
 
   /** Run `f` against a freshly-wired [[TestServer]] for `scene`'s dashboard,
     * seeded with `scene`'s entities, with a global timeout so a missed SSE
-    * fragment fails fast rather than hanging.
+    * fragment fails fast rather than hanging. Returns the `IO` for munit to run
+    * (via [[munit.CatsEffectSuite]]) — no `unsafeRunSync`.
     */
-  def withServer[A](scene: Scene)(f: TestServer => IO[A]): A =
+  def withServer[A](scene: Scene)(f: TestServer => IO[A]): IO[A] =
     TestServer
       .resource(scene.dashboard, scene.entities)
       .use(f)
       .timeout(45.seconds)
-      .unsafeRunSync()
 }

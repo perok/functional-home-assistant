@@ -181,6 +181,9 @@ lazy val `fh-datastar-view` = project
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
       "com.dashjoin" % "jsonata" % "0.9.10",
       "org.scalameta" %% "munit" % "1.3.3" % Test,
+      // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
+      // and adds IO-aware assertions (assertIO, IO#assertEquals).
+      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
       "com.microsoft.playwright" % "playwright" % "1.61.0" % Test

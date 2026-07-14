@@ -44,14 +44,15 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
     PklFixture.buildDashboard("fixture-home", entrySource)
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    val html = withServer(Scene.of(dashboard))(_.page)
-    // entityCard label = the live friendly_name; value = $state + unit.
-    assert(html.contains("Outside Temperature"), clue = html)
-    assert(html.contains("12.4"), clue = html)
-    assert(html.contains("°C"), clue = html)
-    // The kitchen light card: its friendly_name label and its "on" state.
-    assert(html.contains("Kitchen"), clue = html)
-    assert(html.contains(">on<"), clue = html)
+    withServer(Scene.of(dashboard))(_.page).map { html =>
+      // entityCard label = the live friendly_name; value = $state + unit.
+      assert(html.contains("Outside Temperature"), clue = html)
+      assert(html.contains("12.4"), clue = html)
+      assert(html.contains("°C"), clue = html)
+      // The kitchen light card: its friendly_name label and its "on" state.
+      assert(html.contains("Kitchen"), clue = html)
+      assert(html.contains(">on<"), clue = html)
+    }
   }
 
   test("a state change streams a fragment through the Pkl-built dashboard") {

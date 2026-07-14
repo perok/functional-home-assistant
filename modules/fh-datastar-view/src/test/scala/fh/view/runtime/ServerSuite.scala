@@ -2,7 +2,6 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.kernel.Ref
-import cats.effect.unsafe.implicits.global
 import fh.view.model.{
   Activation,
   CardDef,
@@ -24,7 +23,7 @@ import org.http4s.implicits.*
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
-class ServerSuite extends munit.FunSuite {
+class ServerSuite extends munit.CatsEffectSuite {
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
   // into it (c_t0 default, c_t1) — the cookie index selects among them.
@@ -142,7 +141,7 @@ class ServerSuite extends munit.FunSuite {
   /** GET the page shell for `dash` (served at its own slug) and return the
     * HTML.
     */
-  private def pageHtml(dash: Dashboard): String =
+  private def pageHtml(dash: Dashboard): IO[String] =
     (for {
       store <- StateStore.inMemory(Map.empty)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
@@ -161,26 +160,24 @@ class ServerSuite extends munit.FunSuite {
       resp <- server.routes.orNotFound
         .run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/${dash.slug}")))
       body <- resp.body.through(fs2.text.utf8.decode).compile.string
-    } yield body).timeout(30.seconds).unsafeRunSync()
+    } yield body).timeout(30.seconds)
 
   test("page <title> uses the dashboard's authored title when present") {
-    assert(
-      pageHtml(titleDash("home", Some("My Home")))
-        .contains("<title>My Home</title>")
-    )
+    pageHtml(titleDash("home", Some("My Home"))).map { html =>
+      assert(html.contains("<title>My Home</title>"))
+    }
   }
 
   test("page <title> falls back to the slug when no title is authored") {
-    assert(
-      pageHtml(titleDash("energy", None)).contains("<title>energy</title>")
-    )
+    pageHtml(titleDash("energy", None)).map { html =>
+      assert(html.contains("<title>energy</title>"))
+    }
   }
 
   test("page <title> escapes an authored title") {
-    assert(
-      pageHtml(titleDash("x", Some("A & <B>")))
-        .contains("<title>A &amp; &lt;B&gt;</title>")
-    )
+    pageHtml(titleDash("x", Some("A & <B>"))).map { html =>
+      assert(html.contains("<title>A &amp; &lt;B&gt;</title>"))
+    }
   }
 
   test("patchElements collapses multi-line fragments to a single data line") {
@@ -319,7 +316,7 @@ class ServerSuite extends munit.FunSuite {
     } yield count.get()
     // ...and (b) it was rendered once, by the shared pass (the per-session
     // loops render only bake owners / open surfaces — none here).
-    assertEquals(io.timeout(30.seconds).unsafeRunSync(), 1)
+    io.timeout(30.seconds).assertEquals(1)
   }
 
   // ---------------------------------------------------------------------------
@@ -355,7 +352,7 @@ class ServerSuite extends munit.FunSuite {
       after: Map[String, EntityState],
       change: StateChange,
       seedCache: Map[String, String] = Map.empty
-  ): (List[String], Map[String, String]) =
+  ): IO[(List[String], Map[String, String])] =
     (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
@@ -377,22 +374,22 @@ class ServerSuite extends munit.FunSuite {
       finalCache <- cache.get
     } yield (patches.map(_.renderString), finalCache))
       .timeout(30.seconds)
-      .unsafeRunSync()
 
   test("dynamic in-place tick patches ONE child, not the whole group") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     // light.b ticks (a fresh EntityState, same "on" state) -> InPlace member.
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
-    val (patches, _) = runShared(dynDash, after, change)
-    assertEquals(patches.size, 1, clue = patches)
-    val p = patches.head
-    // outer-morphs the child id (default mode, no mode line), not the group.
-    assert(
-      p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
-      clue = p
-    )
-    assert(!p.contains("id=\"c\""), clue = p)
-    assert(!p.contains("mode "), clue = p)
+    runShared(dynDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      // outer-morphs the child id (default mode, no mode line), not the group.
+      assert(
+        p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
+        clue = p
+      )
+      assert(!p.contains("id=\"c\""), clue = p)
+      assert(!p.contains("mode "), clue = p)
+    }
   }
 
   test("dynamic add: per-entity insert BEFORE the DOM successor") {
@@ -405,19 +402,20 @@ class ServerSuite extends munit.FunSuite {
     )
     val change = StateChange("light.b", Some(off("light.b")), on("light.b"))
     // Group already established in the cache so the per-entity path engages.
-    val (patches, cache) =
-      runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>"))
-    assertEquals(patches.size, 1, clue = patches)
-    val p = patches.head
-    assert(p.contains("mode before"), clue = p)
-    assert(p.contains("selector #c_light_c"), clue = p) // first member after b
-    assert(
-      p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
-      clue = p
-    )
-    // the new child is cached; the group-level entry is invalidated.
-    assert(cache.contains("c_light_b"), clue = cache)
-    assert(!cache.contains("c"), clue = cache)
+    runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>")).map {
+      case (patches, cache) =>
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode before"), clue = p)
+        assert(p.contains("selector #c_light_c"), clue = p) // first member after b
+        assert(
+          p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
+          clue = p
+        )
+        // the new child is cached; the group-level entry is invalidated.
+        assert(cache.contains("c_light_b"), clue = cache)
+        assert(!cache.contains("c"), clue = cache)
+    }
   }
 
   test("dynamic add of the last-sorting entity APPENDS into the group") {
@@ -428,16 +426,17 @@ class ServerSuite extends munit.FunSuite {
       "light.z" -> on("light.z")
     )
     val change = StateChange("light.z", Some(off("light.z")), on("light.z"))
-    val (patches, _) =
-      runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>"))
-    assertEquals(patches.size, 1, clue = patches)
-    val p = patches.head
-    assert(p.contains("mode append"), clue = p)
-    assert(p.contains("selector #c"), clue = p)
-    assert(
-      p.contains("""elements <div class="fh-cell" id="c_light_z">"""),
-      clue = p
-    )
+    runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>")).map {
+      case (patches, _) =>
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode append"), clue = p)
+        assert(p.contains("selector #c"), clue = p)
+        assert(
+          p.contains("""elements <div class="fh-cell" id="c_light_z">"""),
+          clue = p
+        )
+    }
   }
 
   test("dynamic remove: per-entity remove patch (no elements), child pruned") {
@@ -449,45 +448,47 @@ class ServerSuite extends munit.FunSuite {
       "light.d" -> on("light.d")
     )
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
-    val (patches, cache) = runShared(
+    runShared(
       dynDash,
       after,
       change,
       seedCache = Map("c" -> "<stale>", "c_light_b" -> "<old>")
-    )
-    assertEquals(patches.size, 1, clue = patches)
-    val p = patches.head
-    assert(p.contains("mode remove"), clue = p)
-    assert(p.contains("selector #c_light_b"), clue = p)
-    // remove carries no HTML payload (the event name still says "…elements").
-    assert(!p.contains("data: elements"), clue = p)
-    assert(!cache.contains("c_light_b"), clue = cache)
+    ).map { case (patches, cache) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("mode remove"), clue = p)
+      assert(p.contains("selector #c_light_b"), clue = p)
+      // remove carries no HTML payload (the event name still says "…elements").
+      assert(!p.contains("data: elements"), clue = p)
+      assert(!cache.contains("c_light_b"), clue = cache)
+    }
   }
 
   test("heuristic: removing 1 of 2 members repaints the whole group + prunes") {
     // shown 2, churn 1 -> 1 < 0.5*2 is false -> whole-group repaint fallback.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
-    val (patches, cache) = runShared(
+    runShared(
       dynDash,
       after,
       change,
       seedCache =
         Map("c" -> "<stale>", "c_light_a" -> "<a>", "c_light_b" -> "<b>")
-    )
-    assertEquals(patches.size, 1, clue = patches)
-    val p = patches.head
-    // one outer morph of the GROUP (not a remove/insert), only light.a remains.
-    assert(
-      p.contains("""elements <div class="fh-cell fh-group" id="c">"""),
-      clue = p
-    )
-    assert(p.contains("""id="c_light_a""""), clue = p)
-    assert(!p.contains("mode remove"), clue = p)
-    // child cache entries are pruned; the group entry is refreshed.
-    assert(!cache.contains("c_light_a"), clue = cache)
-    assert(!cache.contains("c_light_b"), clue = cache)
-    assert(cache.get("c").exists(_.contains("id=\"c\"")), clue = cache)
+    ).map { case (patches, cache) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      // one outer morph of the GROUP (not a remove/insert), only light.a remains.
+      assert(
+        p.contains("""elements <div class="fh-cell fh-group" id="c">"""),
+        clue = p
+      )
+      assert(p.contains("""id="c_light_a""""), clue = p)
+      assert(!p.contains("mode remove"), clue = p)
+      // child cache entries are pruned; the group entry is refreshed.
+      assert(!cache.contains("c_light_a"), clue = cache)
+      assert(!cache.contains("c_light_b"), clue = cache)
+      assert(cache.get("c").exists(_.contains("id=\"c\"")), clue = cache)
+    }
   }
 
   test("membership change on a not-yet-cached group falls back to repaint") {
@@ -500,15 +501,16 @@ class ServerSuite extends munit.FunSuite {
       "light.d" -> on("light.d")
     )
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
-    val (patches, cache) = runShared(dynDash, after, change)
-    assertEquals(patches.size, 1, clue = patches)
-    assert(
-      patches.head.contains(
-        """elements <div class="fh-cell fh-group" id="c">"""
-      ),
-      clue = patches
-    )
-    assert(cache.contains("c"), clue = cache)
+    runShared(dynDash, after, change).map { case (patches, cache) =>
+      assertEquals(patches.size, 1, clue = patches)
+      assert(
+        patches.head.contains(
+          """elements <div class="fh-cell fh-group" id="c">"""
+        ),
+        clue = patches
+      )
+      assert(cache.contains("c"), clue = cache)
+    }
   }
 
   // A dynamic group inside an open SURFACE (id "det"); its group id is
@@ -538,7 +540,7 @@ class ServerSuite extends munit.FunSuite {
   test("open surface's dynamic group gets the same per-entity treatment") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
-    val (patches, _) = (for {
+    (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(surfaceDynDash))
       sessions <- Sessions.create
@@ -556,18 +558,18 @@ class ServerSuite extends munit.FunSuite {
       session <- Session.create("dashboard")
       _ <- session.open.set(Set("det"))
       patches <- server.changedPatches(session, change, Map.empty)
-      cache <- session.lastRendered.get
-    } yield (patches.map(_.renderString), cache))
+    } yield patches.map(_.renderString))
       .timeout(30.seconds)
-      .unsafeRunSync()
-    assertEquals(patches.size, 1, clue = patches)
-    // one child morph, surface-namespaced id — not the whole surface group.
-    assert(
-      patches.head.contains(
-        """elements <div class="fh-cell" id="s_det__c_light_b">"""
-      ),
-      clue = patches
-    )
+      .map { patches =>
+        assertEquals(patches.size, 1, clue = patches)
+        // one child morph, surface-namespaced id — not the whole surface group.
+        assert(
+          patches.head.contains(
+            """elements <div class="fh-cell" id="s_det__c_light_b">"""
+          ),
+          clue = patches
+        )
+      }
   }
 
   // ---------------------------------------------------------------------------
@@ -642,31 +644,12 @@ class ServerSuite extends munit.FunSuite {
     * re-reveal) need, unlike the single-shot [[runShared]].
     */
   private class SharedHarness(
-      dash: Dashboard,
-      initial: Map[String, EntityState]
+      store: StateStore,
+      server: Server,
+      renderer: Renderer,
+      cache: Ref[IO, Map[String, String]]
   ) {
-    private val (store, server, renderer, cache) = (for {
-      store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
-      sessions <- Sessions.create
-      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
-      // still raises); the store is driven in-memory, so the empty seed is inert.
-      fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        Map.empty
-      )
-      renderer <- ref.get
-      cache <- Ref[IO].of(Map.empty[String, String])
-    } yield (store, server, renderer, cache))
-      .timeout(30.seconds)
-      .unsafeRunSync()
-
-    def step(next: EntityState): List[String] =
+    def step(next: EntityState): IO[List[String]] =
       (for {
         prev <- store.snapshot.map(_.get(next.entityId))
         _ <- store.update(next)
@@ -677,101 +660,137 @@ class ServerSuite extends munit.FunSuite {
         )
       } yield patches.map(_.renderString))
         .timeout(30.seconds)
-        .unsafeRunSync()
 
-    def cacheNow: Map[String, String] =
-      cache.get.timeout(30.seconds).unsafeRunSync()
+    def cacheNow: IO[Map[String, String]] =
+      cache.get.timeout(30.seconds)
+  }
+
+  private object SharedHarness {
+    def create(
+        dash: Dashboard,
+        initial: Map[String, EntityState]
+    ): IO[SharedHarness] =
+      (for {
+        store <- StateStore.inMemory(initial)
+        ref <- SignallingRef[IO].of(Renderer.create(dash))
+        sessions <- Sessions.create
+        // Stub HA: the SSE/patch path never calls it (an unexpected registry
+        // call still raises); the store is driven in-memory, so the empty seed
+        // is inert.
+        fake <- FakeHomeAssistant.create(Nil)
+        server = new Server(
+          fake,
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          Map.empty
+        )
+        renderer <- ref.get
+        cache <- Ref[IO].of(Map.empty[String, String])
+      } yield new SharedHarness(store, server, renderer, cache))
+        .timeout(30.seconds)
   }
 
   test("state surfaces: churn in the INACTIVE branch emits ZERO patches") {
-    val h = new SharedHarness(
-      ifDash(),
-      Map(
-        "alarm.h" -> es("alarm.h", "armed"),
-        "sensor.a" -> es("sensor.a", "A0"),
-        "sensor.b" -> es("sensor.b", "B0"),
-        "sensor.z" -> es("sensor.z", "Z0")
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0"),
+          "sensor.b" -> es("sensor.b", "B0"),
+          "sensor.z" -> es("sensor.z", "Z0")
+        )
       )
-    )
-    // then (sensor.a) is active; the ELSE branch's entity churns silently —
-    // its member surface is never in the active set, so its index is never
-    // consulted (structural silence, not a filtered render).
-    assertEquals(h.step(es("sensor.b", "B1")), Nil)
-    // An entity no branch binds and no condition reads: nothing at all (the
-    // O(1) shortcut path — no member condition match flipped for it).
-    assertEquals(h.step(es("sensor.z", "Z1")), Nil)
-    // The ACTIVE branch's entity, by contrast, patches its surface-scoped node.
-    val live = h.step(es("sensor.a", "A1"))
-    assertEquals(live.size, 1, clue = live)
-    assert(live.head.contains("""id="s_then__c""""), clue = live)
-    assert(live.head.contains("A1"), clue = live)
+      // then (sensor.a) is active; the ELSE branch's entity churns silently —
+      // its member surface is never in the active set, so its index is never
+      // consulted (structural silence, not a filtered render).
+      _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
+      // An entity no branch binds and no condition reads: nothing at all (the
+      // O(1) shortcut path — no member condition match flipped for it).
+      _ <- h.step(es("sensor.z", "Z1")).assertEquals(Nil)
+      // The ACTIVE branch's entity, by contrast, patches its surface-scoped node.
+      live <- h.step(es("sensor.a", "A1"))
+    } yield {
+      assertEquals(live.size, 1, clue = live)
+      assert(live.head.contains("""id="s_then__c""""), clue = live)
+      assert(live.head.contains("A1"), clue = live)
+    }
   }
 
   test(
     "state flip: ONE host morph with the new branch at CURRENT state; members pruned"
   ) {
-    val h = new SharedHarness(
-      ifDash(),
-      Map(
-        "alarm.h" -> es("alarm.h", "armed"),
-        "sensor.a" -> es("sensor.a", "A0"),
-        "sensor.b" -> es("sensor.b", "B0")
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
       )
-    )
-    // Establish the active branch in the shared cache...
-    assertEquals(h.step(es("sensor.a", "A1")).size, 1)
-    // ...and churn the hidden branch (never rendered, never patched).
-    assertEquals(h.step(es("sensor.b", "B1")), Nil)
-    // The flip: exactly ONE patch — the host morph — whose HTML is the else
-    // branch rendered against CURRENT state (B1, which no client ever saw).
-    val flip = h.step(es("alarm.h", "disarmed"))
-    assertEquals(flip.size, 1, clue = flip)
-    val p = flip.head
-    // The patch's ROOT element must be the id'd host itself: the default
-    // `outer` morph (no selector) targets the top-level element's id, so a
-    // wrapped/rootless fragment would be silently dropped by the client.
-    val root = p.linesIterator
-      .find(_.startsWith("data: elements "))
-      .map(_.stripPrefix("data: elements "))
-    assert(root.exists(_.startsWith("""<div id="c_0">""")), clue = p)
-    assert(p.contains("""id="s_else__c""""), clue = p)
-    assert(p.contains("B1"), clue = p)
-    assert(!p.contains("A1"), clue = p)
-    // The prune contract: both members' surface-scoped entries are gone; the
-    // host's fresh HTML is the only record of the group.
-    assert(!h.cacheNow.keys.exists(_.startsWith("s_then__")), clue = h.cacheNow)
-    assert(!h.cacheNow.keys.exists(_.startsWith("s_else__")), clue = h.cacheNow)
-    assert(h.cacheNow.contains("c_0"), clue = h.cacheNow)
+      // Establish the active branch in the shared cache...
+      _ <- h.step(es("sensor.a", "A1")).map(p => assertEquals(p.size, 1))
+      // ...and churn the hidden branch (never rendered, never patched).
+      _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
+      // The flip: exactly ONE patch — the host morph — whose HTML is the else
+      // branch rendered against CURRENT state (B1, which no client ever saw).
+      flip <- h.step(es("alarm.h", "disarmed"))
+      cache <- h.cacheNow
+    } yield {
+      assertEquals(flip.size, 1, clue = flip)
+      val p = flip.head
+      // The patch's ROOT element must be the id'd host itself: the default
+      // `outer` morph (no selector) targets the top-level element's id, so a
+      // wrapped/rootless fragment would be silently dropped by the client.
+      val root = p.linesIterator
+        .find(_.startsWith("data: elements "))
+        .map(_.stripPrefix("data: elements "))
+      assert(root.exists(_.startsWith("""<div id="c_0">""")), clue = p)
+      assert(p.contains("""id="s_else__c""""), clue = p)
+      assert(p.contains("B1"), clue = p)
+      assert(!p.contains("A1"), clue = p)
+      // The prune contract: both members' surface-scoped entries are gone; the
+      // host's fresh HTML is the only record of the group.
+      assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
+      assert(!cache.keys.exists(_.startsWith("s_else__")), clue = cache)
+      assert(cache.contains("c_0"), clue = cache)
+    }
   }
 
   test(
     "flip prune: a re-revealed child diffs cleanly (no stale-cache suppression)"
   ) {
-    val h = new SharedHarness(
-      ifDash(),
-      Map(
-        "alarm.h" -> es("alarm.h", "armed"),
-        "sensor.a" -> es("sensor.a", "boot"),
-        "sensor.b" -> es("sensor.b", "B0")
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "boot"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
       )
-    )
-    // 1. Cache the then-branch child at "on".
-    assertEquals(h.step(es("sensor.a", "on")).size, 1)
-    // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
-    // (silent — the stale-entry trap this test springs), 4. flip back (host
-    // morph shows "off" from current state).
-    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
-    assertEquals(h.step(es("sensor.a", "off")), Nil)
-    val back = h.step(es("alarm.h", "armed"))
-    assertEquals(back.size, 1, clue = back)
-    assert(back.head.contains("off"), clue = back)
-    // 5. The re-revealed child returns to "on" — HTML byte-identical to the
-    // step-1 cache entry. Without the flip prune this would be suppressed as
-    // "unchanged" while the DOM (showing "off") has moved on.
-    val reveal = h.step(es("sensor.a", "on"))
-    assertEquals(reveal.size, 1, clue = reveal)
-    assert(reveal.head.contains("""id="s_then__c""""), clue = reveal)
-    assert(reveal.head.contains("on"), clue = reveal)
+      // 1. Cache the then-branch child at "on".
+      _ <- h.step(es("sensor.a", "on")).map(p => assertEquals(p.size, 1))
+      // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
+      // (silent — the stale-entry trap this test springs), 4. flip back (host
+      // morph shows "off" from current state).
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      _ <- h.step(es("sensor.a", "off")).assertEquals(Nil)
+      back <- h.step(es("alarm.h", "armed"))
+      _ = assertEquals(back.size, 1, clue = back)
+      _ = assert(back.head.contains("off"), clue = back)
+      // 5. The re-revealed child returns to "on" — HTML byte-identical to the
+      // step-1 cache entry. Without the flip prune this would be suppressed as
+      // "unchanged" while the DOM (showing "off") has moved on.
+      reveal <- h.step(es("sensor.a", "on"))
+    } yield {
+      assertEquals(reveal.size, 1, clue = reveal)
+      assert(reveal.head.contains("""id="s_then__c""""), clue = reveal)
+      assert(reveal.head.contains("on"), clue = reveal)
+    }
   }
 
   test("a dynamic group inside an INACTIVE branch stays silent") {
@@ -781,28 +800,30 @@ class ServerSuite extends munit.FunSuite {
         DynamicCase(always, "dot", slots = Map("state" -> SlotSource()))
       )
     )
-    val h = new SharedHarness(
-      ifDash(thenContent = dyn),
-      Map(
-        "alarm.h" -> es("alarm.h", "armed"),
-        "light.x" -> es("light.x", "on"),
-        "light.y" -> es("light.y", "on"),
-        "light.z" -> es("light.z", "on"),
-        "sensor.b" -> es("sensor.b", "B0")
+    for {
+      h <- SharedHarness.create(
+        ifDash(thenContent = dyn),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "light.x" -> es("light.x", "on"),
+          "light.y" -> es("light.y", "on"),
+          "light.z" -> es("light.z", "on"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
       )
-    )
-    // Active branch: the group's members get the usual per-entity treatment,
-    // scoped under the member surface's id namespace.
-    val tick = h.step(es("light.x", "on2"))
-    // "on2" fails the query -> a membership change (remove) for the group.
-    assert(tick.nonEmpty, clue = tick)
-    assert(tick.forall(_.contains("s_then__c")), clue = tick)
-    // Flip to else: one host morph...
-    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
-    // ...and now the group is in a hidden branch: query-affecting churn that
-    // would previously re-render it emits NOTHING.
-    assertEquals(h.step(es("light.y", "off")), Nil)
-    assertEquals(h.step(es("light.y", "on")), Nil)
+      // Active branch: the group's members get the usual per-entity treatment,
+      // scoped under the member surface's id namespace.
+      tick <- h.step(es("light.x", "on2"))
+      // "on2" fails the query -> a membership change (remove) for the group.
+      _ = assert(tick.nonEmpty, clue = tick)
+      _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
+      // Flip to else: one host morph...
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      // ...and now the group is in a hidden branch: query-affecting churn that
+      // would previously re-render it emits NOTHING.
+      _ <- h.step(es("light.y", "off")).assertEquals(Nil)
+      _ <- h.step(es("light.y", "on")).assertEquals(Nil)
+    } yield ()
   }
 
   test("nested state groups: inner flips patch only inside the ACTIVE branch") {
@@ -835,33 +856,38 @@ class ServerSuite extends munit.FunSuite {
         )
       )
     )
-    val h = new SharedHarness(
-      d,
-      Map(
-        "alarm.h" -> es("alarm.h", "armed"),
-        "mode.h" -> es("mode.h", "night"),
-        "sensor.x" -> es("sensor.x", "X0"),
-        "sensor.y" -> es("sensor.y", "Y0"),
-        "sensor.b" -> es("sensor.b", "B0")
+    for {
+      h <- SharedHarness.create(
+        d,
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "mode.h" -> es("mode.h", "night"),
+          "sensor.x" -> es("sensor.x", "X0"),
+          "sensor.y" -> es("sensor.y", "Y0"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
       )
-    )
-    // Outer active: the inner flip morphs ONLY the inner host (recursion into
-    // the active member's index found it), rendered with its else branch.
-    val innerFlip = h.step(es("mode.h", "day"))
-    assertEquals(innerFlip.size, 1, clue = innerFlip)
-    assert(
-      innerFlip.head.contains("""<div id="s_then__c_0">"""),
-      clue = innerFlip
-    )
-    assert(innerFlip.head.contains("""id="s_in_else__c""""), clue = innerFlip)
-    // Flip the OUTER group away (one host morph of c_0)...
-    assertEquals(h.step(es("alarm.h", "disarmed")).size, 1)
-    // ...then the inner group's condition flips inside the hidden branch:
-    // unreachable DOM, zero patches (the active-set recursion never descends
-    // into an unselected member).
-    assertEquals(h.step(es("mode.h", "night")), Nil)
-    // Liveness inside the hidden branch's active member is silent too.
-    assertEquals(h.step(es("sensor.y", "Y1")), Nil)
+      // Outer active: the inner flip morphs ONLY the inner host (recursion into
+      // the active member's index found it), rendered with its else branch.
+      innerFlip <- h.step(es("mode.h", "day"))
+      _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
+      _ = assert(
+        innerFlip.head.contains("""<div id="s_then__c_0">"""),
+        clue = innerFlip
+      )
+      _ = assert(
+        innerFlip.head.contains("""id="s_in_else__c""""),
+        clue = innerFlip
+      )
+      // Flip the OUTER group away (one host morph of c_0)...
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      // ...then the inner group's condition flips inside the hidden branch:
+      // unreachable DOM, zero patches (the active-set recursion never descends
+      // into an unselected member).
+      _ <- h.step(es("mode.h", "night")).assertEquals(Nil)
+      // Liveness inside the hidden branch's active member is silent too.
+      _ <- h.step(es("sensor.y", "Y1")).assertEquals(Nil)
+    } yield ()
   }
 
   test("a state group inside a user-opened popup rides the PER-SESSION pass") {
@@ -896,7 +922,7 @@ class ServerSuite extends munit.FunSuite {
         Some(es("alarm.h", "armed")),
         es("alarm.h", "disarmed")
       )
-    val (sessionPatches, sharedPatches) = (for {
+    (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(d))
       sessions <- Sessions.create
@@ -919,18 +945,19 @@ class ServerSuite extends munit.FunSuite {
       shared <- server.sharedPatches(renderer, cache, change)
     } yield (perSession.map(_.renderString), shared.map(_.renderString)))
       .timeout(30.seconds)
-      .unsafeRunSync()
-    // The session with the popup open gets exactly the inner host flip morph.
-    assertEquals(sessionPatches.size, 1, clue = sessionPatches)
-    assert(
-      sessionPatches.head.contains("""<div id="s_det__c_0">"""),
-      clue = sessionPatches
-    )
-    assert(
-      sessionPatches.head.contains("""id="s_d_else__c""""),
-      clue = sessionPatches
-    )
-    // The shared pass emits nothing for it — popup containment is per-session.
-    assertEquals(sharedPatches, Nil)
+      .map { case (sessionPatches, sharedPatches) =>
+        // The session with the popup open gets exactly the inner host flip morph.
+        assertEquals(sessionPatches.size, 1, clue = sessionPatches)
+        assert(
+          sessionPatches.head.contains("""<div id="s_det__c_0">"""),
+          clue = sessionPatches
+        )
+        assert(
+          sessionPatches.head.contains("""id="s_d_else__c""""),
+          clue = sessionPatches
+        )
+        // The shared pass emits nothing — popup containment is per-session.
+        assertEquals(sharedPatches, Nil)
+      }
   }
 }

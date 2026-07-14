@@ -1,6 +1,5 @@
 package fh.view.functional
 
-import cats.effect.unsafe.implicits.global
 import fh.view.runtime.StateStore
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture}
 
@@ -11,17 +10,15 @@ import scala.concurrent.duration.*
   * the real [[StateStore]] seed reproduces each entity's state and attributes
   * exactly. If this drifts, every downstream behaviour test is suspect.
   */
-class FixtureSeedSuite extends munit.FunSuite {
+class FixtureSeedSuite extends munit.CatsEffectSuite {
 
   test("StateStore seeded from the fake reproduces every fixture entity") {
-    val snapshot = FakeHomeAssistant
+    FakeHomeAssistant
       .create(HouseFixture.all)
       .flatMap(fake => StateStore.create(fake).use(_.snapshot))
       .timeout(30.seconds)
-      .unsafeRunSync()
-
-    val expected =
-      HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
-    assertEquals(snapshot, expected)
+      .assertEquals(
+        HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
+      )
   }
 }

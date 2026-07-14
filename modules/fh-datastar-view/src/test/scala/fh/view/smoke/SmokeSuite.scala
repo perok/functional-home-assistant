@@ -1,7 +1,6 @@
 package fh.view.smoke
 
 import cats.effect.{IO, Resource}
-import cats.effect.unsafe.implicits.global
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
 import com.microsoft.playwright.options.ViewportSize
 import fh.view.runtime.TestServer
@@ -21,7 +20,7 @@ import scala.jdk.CollectionConverters.*
   * the class of bug a wire-level test can't see — that's the whole reason this
   * suite exists.
   */
-abstract class SmokeSuite extends munit.FunSuite {
+abstract class SmokeSuite extends munit.CatsEffectSuite {
 
   private var playwright: Playwright = uninitialized
   private var browser: Browser = uninitialized
@@ -90,7 +89,7 @@ abstract class SmokeSuite extends munit.FunSuite {
       viewport: Option[(Int, Int)] = None
   )(
       f: (Page, TestServer) => IO[A]
-  ): A = {
+  ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
     viewport.foreach { case (w, h) =>
@@ -111,13 +110,10 @@ abstract class SmokeSuite extends munit.FunSuite {
       _ <- Resource.eval(IO.blocking(page.navigate(uri.renderString)))
     } yield (page, ts)
 
-    val result =
-      resource
-        .use { case (p, ts) => f(p, ts) }
-        .timeout(45.seconds)
-        .unsafeRunSync()
-    assert(pageErrors.isEmpty, clue = pageErrors.toList)
-    result
+    resource
+      .use { case (p, ts) => f(p, ts) }
+      .timeout(45.seconds)
+      .flatTap(_ => IO(assert(pageErrors.isEmpty, clue = pageErrors.toList)))
   }
 
   /** Poll `io` until `cond` holds, or fail after `timeout`. The
