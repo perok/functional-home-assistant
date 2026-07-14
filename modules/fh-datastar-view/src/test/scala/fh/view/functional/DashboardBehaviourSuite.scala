@@ -1,6 +1,13 @@
 package fh.view.functional
 
-import fh.view.testkit.{FixtureDashboard, HouseFixture, ServiceCall}
+import fh.view.model.{Op, Predicate}
+import fh.view.testkit.{
+  FixtureDashboard,
+  FixtureEntity,
+  HouseFixture,
+  Scene,
+  ServiceCall
+}
 import io.circe.Json
 
 /** End-to-end behaviour of the dashboard against a stubbed Home Assistant: the
@@ -18,6 +25,23 @@ class DashboardBehaviourSuite extends FunctionalSuite {
 
   private val outside = HouseFixture.outsideTemp
   private val kitchen = HouseFixture.kitchenLight
+
+  private def onLight(id: String, name: String): FixtureEntity =
+    FixtureEntity(
+      s"light.$id",
+      "on",
+      Map("friendly_name" -> Json.fromString(name))
+    )
+  private def offLight(id: String, name: String): FixtureEntity =
+    onLight(id, name).copy(state = "off")
+
+  // A group of the lights currently on, and one of ALL lights (state-agnostic).
+  private def onGroup = FixtureDashboard.group(
+    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+  )
+  private def lightGroup = FixtureDashboard.group(
+    Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
+  )
 
   test("initial page render reflects the seeded snapshot") {
     val html = withServer(
@@ -113,6 +137,98 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       } yield assertEquals(
         calls,
         Vector(ServiceCall("light", "turn_off", "light.kitchen", Json.obj()))
+      )
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dynamic groups end-to-end. The group matches by QUERY, so its members are
+  // named in no slot — they are seeded through the Scene's `.entities(..)`
+  // extras (exactly the case that builder exists for). These pin the membership
+  // machinery `RendererSuite` unit-tests (`affectedDynamics`, per-entity render)
+  // at the wire: the actual SSE patch a group emits as members enter/leave.
+  // ---------------------------------------------------------------------------
+
+  test("an entity entering a dynamic group streams its card in over SSE") {
+    // beta is off (outside the `state == on` group); when it turns on the group
+    // re-renders and the pushed fragment carries beta's now-visible member card.
+    // (The emit carries beta's attributes so its member card keeps its name —
+    // HA sends full attributes on every state_changed, and the card reads
+    // friendly_name.)
+    val alpha = onLight("alpha", "Alpha")
+    val beta = offLight("beta", "Beta")
+    withServer(scene.card(onGroup).entities(alpha, beta)) { ts =>
+      ts.observePatch(
+        marker = "Beta: <span>on</span>",
+        trigger = ts.fake.emit(beta.entityId, "on", beta.attributes)
+      )
+    }
+  }
+
+  test("an entity leaving a dynamic group is removed per-entity over SSE") {
+    // Three members on (a minority-churn group, so a single departure takes the
+    // per-entity path, not a whole-group repaint). The first change establishes
+    // the group in the diff cache (its first membership change always repaints);
+    // the second — dropping one of the now-three members — is 1-of-3 churn, so
+    // it emits a `mode remove` patch for exactly that member's cell.
+    val alpha = onLight("alpha", "Alpha")
+    val beta = onLight("beta", "Beta")
+    val gamma = offLight("gamma", "Gamma")
+    withServer(scene.card(onGroup).entities(alpha, beta, gamma)) { ts =>
+      for {
+        // Establish: gamma joins (2 -> 3 members, a boundary repaint). Observing
+        // its card confirms the group is now cached before we drive the removal.
+        _ <- ts.observePatch(
+          marker = "Gamma: <span>on</span>",
+          trigger = ts.fake.emit(gamma.entityId, "on", gamma.attributes)
+        )
+        // Remove: beta leaves the on-group. 1-of-3 churn -> a per-entity remove
+        // targeting only beta's cell (id derived from its entity id).
+        _ <- ts.observePatch(
+          marker = "mode remove",
+          trigger = ts.fake.emit(beta.entityId, "off", beta.attributes)
+        )
+      } yield ()
+    }
+  }
+
+  test("an in-place state change re-renders a group member's card over SSE") {
+    // A `domain == light` group: the kitchen light stays a member across an
+    // on->off change (its domain is unchanged), so the change is an in-place
+    // member tick — the group morphs just that one member card with the new
+    // state, never a membership delta.
+    withServer(
+      scene
+        .card(lightGroup)
+        .entities(kitchen, HouseFixture.livingRoomLight)
+    ) { ts =>
+      ts.observePatch(
+        marker = "Kitchen: <span>off</span>",
+        trigger = ts.fake.emit(kitchen.entityId, "off", kitchen.attributes)
+      )
+    }
+  }
+
+  test("a state-activated surface flips its baked branch over SSE") {
+    // An If/else host: the `else` branch shows while the alarm is disarmed; when
+    // it arms, the deciding entity's change flips the host to bake the `then`
+    // branch, whose content streams over SSE. The alarm rides only the
+    // activation predicate (no slot), so it is seeded as a Scene extra; the two
+    // branch readings are referenced by the surfaces, so they must be supplied
+    // too (the extras double as the resolution source).
+    val alarm = FixtureEntity("alarm.home", "disarmed")
+    val armed = FixtureEntity("sensor.armed", "ON")
+    val disarmed = FixtureEntity("sensor.disarmed", "OFF")
+    val dash = FixtureDashboard.ifElse(
+      condEntity = alarm.entityId,
+      activeState = "armed",
+      thenBranch = FixtureDashboard.light("Armed", armed),
+      elseBranch = FixtureDashboard.light("Disarmed", disarmed)
+    )
+    withServer(Scene.of(dash).entities(alarm, armed, disarmed)) { ts =>
+      ts.observePatch(
+        marker = "Armed: <span>ON</span>",
+        trigger = ts.fake.emit(alarm.entityId, "armed", Map.empty)
       )
     }
   }
