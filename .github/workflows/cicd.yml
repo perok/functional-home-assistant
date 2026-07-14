@@ -66,9 +66,6 @@ jobs:
       - name: Install Playwright Browsers
         run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
-      - name: Set PLAYWRIGHT_BROWSERS_PATH
-        run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> $GITHUB_ENV
-
       - parallel:
           - name: Fmt check
             run: scalafmt --test
