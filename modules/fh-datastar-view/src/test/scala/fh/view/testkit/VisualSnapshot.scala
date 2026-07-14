@@ -39,6 +39,15 @@ object VisualSnapshot {
   private val snapshotDir =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "visual-snapshots"
 
+  /** Where a mismatch drops its `before`/`after` PNGs, side by side under a
+    * stable (gitignored) path so CI can collect them as an artifact — a local
+    * vs `ubuntu-latest` rasterization diff is only inspectable by eye, so the
+    * failing pair has to leave the machine. `.github/workflows/cicd.yml`
+    * uploads this dir on failure.
+    */
+  private val failureDir =
+    os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
+
   /** Per-pixel YIQ color-distance tolerance (0..1); pixelmatch's default. */
   private val Threshold = 0.1
 
@@ -66,7 +75,8 @@ object VisualSnapshot {
 
   /** Compare `actual` PNG bytes against the checked-in `name.png`. With the
     * update gate on, (re)writes the resource file; otherwise runs the
-    * perceptual diff, writing `actual` to a temp file for review on mismatch.
+    * perceptual diff, dropping the before/after pair into [[failureDir]] on
+    * mismatch for review.
     */
   def check(name: String, actual: Array[Byte]): Unit = {
     val file = snapshotDir / s"$name.png"
@@ -83,12 +93,16 @@ object VisualSnapshot {
       val actualImg = decode(actual)
 
       def fail(reason: String): Nothing = {
-        val actualFile = os.temp.dir() / s"$name.actual.png"
-        os.write(actualFile, actual)
+        // Drop the baseline and the actual side by side under the stable
+        // failure dir, so CI can archive the pair and a human can flick
+        // between them (the diff is sub-pixel; only the eye can judge it).
+        os.makeDir.all(failureDir)
+        os.copy.over(file, failureDir / s"$name.expected.png")
+        os.write.over(failureDir / s"$name.actual.png", actual)
         throw new AssertionError(
-          s"visual snapshot for $name.png changed ($reason). Actual written to " +
-            s"$actualFile for review. If intended, regenerate with " +
-            "`sbt dashboardSnapshotsUpdate`."
+          s"visual snapshot for $name.png changed ($reason). before/after written to " +
+            s"$failureDir ($name.expected.png / $name.actual.png) for review. If " +
+            "intended, regenerate with `sbt dashboardSnapshotsUpdate`."
         )
       }
 

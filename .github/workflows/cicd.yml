@@ -83,6 +83,20 @@ jobs:
           report_paths: '**/target/**/test-reports/*.xml'
           require_tests: true
 
+      # A visual snapshot mismatch (ComponentVisualSuite) is a local vs
+      # ubuntu-latest font-rasterization diff that can only be judged by eye,
+      # so ship the before/after PNG pair VisualSnapshot drops on failure as a
+      # downloadable archive. `if-no-files-found: ignore` keeps a non-visual
+      # failure (fmt, a behavioural suite) from erroring here.
+      - name: Upload visual snapshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-snapshot-failures
+          path: modules/fh-datastar-view/target/visual-failures/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Assemble fat jar
         run: sbt 'fh-datastar-view/assembly'
 
