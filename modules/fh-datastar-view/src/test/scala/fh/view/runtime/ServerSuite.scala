@@ -407,7 +407,10 @@ class ServerSuite extends munit.CatsEffectSuite {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
         assert(p.contains("mode before"), clue = p)
-        assert(p.contains("selector #c_light_c"), clue = p) // first member after b
+        assert(
+          p.contains("selector #c_light_c"),
+          clue = p
+        ) // first member after b
         assert(
           p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
           clue = p

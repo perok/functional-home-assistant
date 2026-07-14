@@ -52,8 +52,14 @@ class AssetCacheSuite extends munit.CatsEffectSuite {
       hits <- Ref[IO].of(Map.empty[String, Int])
       cache <- build(dir, List(cssUrl, jsUrl), stubClient(hits))
     } yield {
-      assertEquals(cache.rewrite(cssUrl), s"assets/${AssetCache.hashName(cssUrl)}")
-      assertEquals(cache.rewrite(jsUrl), s"assets/${AssetCache.hashName(jsUrl)}")
+      assertEquals(
+        cache.rewrite(cssUrl),
+        s"assets/${AssetCache.hashName(cssUrl)}"
+      )
+      assertEquals(
+        cache.rewrite(jsUrl),
+        s"assets/${AssetCache.hashName(jsUrl)}"
+      )
       assertEquals(cache.rewrite("https://other/x.css"), "https://other/x.css")
     }
   }
@@ -78,7 +84,10 @@ class AssetCacheSuite extends munit.CatsEffectSuite {
         cached.contains("url(https://cdn.example/lib@1.0/dist/font.woff2)"),
         clue = cached
       )
-      assert(cached.contains("url(data:image/gif;base64,R0lGOD)"), clue = cached)
+      assert(
+        cached.contains("url(data:image/gif;base64,R0lGOD)"),
+        clue = cached
+      )
       // The sub-resources landed on disk.
       assertEquals(os.read(dir / fontName), "WOFF2BYTES")
       assertEquals(os.read(dir / imgName), "PNGBYTES")
@@ -96,7 +105,10 @@ class AssetCacheSuite extends munit.CatsEffectSuite {
     } yield {
       assertEquals(recorded, Map.empty[String, Int])
       // And it still rewrites (mapping is rebuilt from the urls, not the fetch).
-      assertEquals(cache2.rewrite(cssUrl), s"assets/${AssetCache.hashName(cssUrl)}")
+      assertEquals(
+        cache2.rewrite(cssUrl),
+        s"assets/${AssetCache.hashName(cssUrl)}"
+      )
     }
   }
 
@@ -117,7 +129,10 @@ class AssetCacheSuite extends munit.CatsEffectSuite {
       }
     })
     build(dir, List(cssUrl), partial).map { cache =>
-      assertEquals(cache.rewrite(cssUrl), s"assets/${AssetCache.hashName(cssUrl)}")
+      assertEquals(
+        cache.rewrite(cssUrl),
+        s"assets/${AssetCache.hashName(cssUrl)}"
+      )
       val cached = os.read(dir / AssetCache.hashName(cssUrl))
       assert(cached.contains("url(font.woff2)"), clue = cached)
     }
