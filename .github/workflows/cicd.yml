@@ -63,6 +63,9 @@ jobs:
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
+      - name: Install Playwright Browsers
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
+
       - parallel:
           - name: Fmt check
             run: scalafmt --test
@@ -76,6 +79,20 @@ jobs:
         with:
           report_paths: '**/target/**/test-reports/*.xml'
           require_tests: true
+
+      # A visual snapshot mismatch (ComponentVisualSuite) is a local vs
+      # ubuntu-latest font-rasterization diff that can only be judged by eye,
+      # so ship the before/after PNG pair VisualSnapshot drops on failure as a
+      # downloadable archive. `if-no-files-found: ignore` keeps a non-visual
+      # failure (fmt, a behavioural suite) from erroring here.
+      - name: Upload visual snapshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-snapshot-failures
+          path: modules/fh-datastar-view/target/visual-failures/
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Assemble fat jar
         run: sbt 'fh-datastar-view/assembly'

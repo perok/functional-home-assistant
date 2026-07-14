@@ -1,0 +1,304 @@
+{
+  "card" : {
+    "card" : "fhcol",
+    "children" : [
+      {
+        "card" : "tabs",
+        "children" : [
+          {
+            "card" : "tab",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "active" : "$tab_@@NODE_ID@@ == 0",
+              "label" : "Temp",
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
+            }
+          },
+          {
+            "card" : "tab",
+            "children" : [
+            ],
+            "kind" : "component",
+            "slots" : {
+              "active" : "$tab_@@NODE_ID@@ == 1",
+              "label" : "Light",
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
+            }
+          }
+        ],
+        "inlineSurfaces" : {
+          "t0" : {
+            "activation" : {
+              "defaultOpen" : true,
+              "kind" : "user"
+            },
+            "bakeAs" : "panel",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "sensor.outside_temp",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Outside Temperature",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          },
+          "t1" : {
+            "bakeAs" : "panel",
+            "bakeIndex" : 1,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.kitchen",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Kitchen",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      },
+      {
+        "card" : "ifhost",
+        "children" : [
+        ],
+        "inlineSurfaces" : {
+          "else" : {
+            "activation" : {
+              "condition" : {
+                "kind" : "cmp",
+                "op" : "ne",
+                "property" : "domain",
+                "value" : "__never__"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
+            },
+            "bakeAs" : "branch",
+            "bakeIndex" : 1,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "sensor.outside_temp",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Outside Temperature",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          },
+          "then" : {
+            "activation" : {
+              "condition" : {
+                "items" : [
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "entity_id",
+                    "value" : "light.kitchen"
+                  },
+                  {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "state",
+                    "value" : "on"
+                  }
+                ],
+                "kind" : "and"
+              },
+              "kind" : "state",
+              "quantifier" : "any"
+            },
+            "bakeAs" : "branch",
+            "bakeIndex" : 0,
+            "bakeInto" : "@@NODE_ID@@",
+            "content" : {
+              "card" : "fhrow",
+              "children" : [
+                {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.kitchen",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Kitchen",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                }
+              ],
+              "kind" : "component",
+              "slots" : {
+                
+              }
+            }
+          }
+        },
+        "kind" : "component",
+        "slots" : {
+          
+        }
+      }
+    ],
+    "kind" : "component",
+    "slots" : {
+      
+    }
+  },
+  "cards" : {
+    "button" : {
+      "slots" : [
+        "label",
+        "onclick"
+      ],
+      "template" : "<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>"
+    },
+    "entityCard" : {
+      "slots" : [
+        "label",
+        "value",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
+    },
+    "fhcol" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "fhgrid" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "fhrow" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "ifhost" : {
+      "slots" : [
+      ],
+      "template" : "<div id=\"{{id}}\">{{{branch}}}</div>"
+    },
+    "popup" : {
+      "slots" : [
+      ],
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+    },
+    "sectionTitle" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<h2 class=\"section\">{{label}}</h2>"
+    },
+    "slider" : {
+      "slots" : [
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
+    },
+    "tab" : {
+      "slots" : [
+        "label",
+        "onclick",
+        "active"
+      ],
+      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}</a>",
+      "wrapAsCell" : false
+    },
+    "tabs" : {
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ tab_{{id}}: {{bakeIndex}} }\">\n    {{{panel}}}\n  </div>\n</div>"
+    }
+  },
+  "surfaces" : {
+    
+  }
+}

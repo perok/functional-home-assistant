@@ -28,6 +28,15 @@ addCommandAlias(
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
+// Rebaseline the wire-format + visual snapshots after an INTENTIONAL change.
+// Uses the scoped `sys.props` form (set → testFull → unset) rather than a shell
+// `FH_UPDATE_SNAPSHOTS=1` export: sbt 2.0's persistent server keeps its
+// start-time env forever, which would silently leave the gate in regenerate
+// mode. See VisualSnapshot / PklBuildSuite.
+addCommandAlias(
+  "dashboardSnapshotsUpdate",
+  """; eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1") ; fh-datastar-view/testFull ; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")"""
+)
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
@@ -171,7 +180,13 @@ lazy val `fh-datastar-view` = project
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
       "com.dashjoin" % "jsonata" % "0.9.10",
-      "org.scalameta" %% "munit" % "1.3.3" % Test
+      "org.scalameta" %% "munit" % "1.3.3" % Test,
+      // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
+      // and adds IO-aware assertions (assertIO, IO#assertEquals).
+      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test,
+      // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
+      // real Chromium in-JVM against the fixture-backed TestServer.
+      "com.microsoft.playwright" % "playwright" % "1.61.0" % Test
     )
   )
 
