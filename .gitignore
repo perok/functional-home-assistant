@@ -5,6 +5,10 @@ modules/fh-datastar-view/src/main/resources/dashboards/dump.libsonnet
 modules/fh-datastar-view/src/main/resources/dashboards/lib/dump.pkl
 modules/fh-datastar-view/dashboard.json
 modules/fh-datastar-view/assets-cache/
+# Pkl @fh-dashboard project-dependency lockfile + package cache (ADR 0010,
+# Track B), resolved in-process from the local lib/ — a build product.
+modules/fh-datastar-view/src/main/resources/dashboards/PklProject.deps.json
+modules/fh-datastar-view/src/main/resources/dashboards/.pkl-cache/
 
 .semanticdb
 

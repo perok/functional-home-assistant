@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.build.{DashboardBuild, PklDump, SourceEval, SystemPkl}
+import fh.view.build.{DashboardBuild, PklDump, SourceEval}
 import fh.view.model.Dashboard
 import io.circe.Json
 
@@ -28,7 +28,9 @@ object PklFixture {
 
   /** A trivial theme an entry can set to keep BeerCSS (and all CSS) out of the
     * build: every [[fh.view.model.Theme]] field is empty. Paste into a fixture
-    * entry as `theme = <this>` after `import "lib/theme.pkl" as th`.
+    * entry as `theme = <this>` after `import "@fh-dashboard/theme.pkl" as th`
+    * (the alias keeps `th.Theme` the SAME module identity the base module's
+    * `theme` property expects — a plain file import would be a distinct URI).
     */
   val dummyTheme: String =
     """new th.Theme {
@@ -72,15 +74,18 @@ object PklFixture {
       os.copy.into(dashboardsDir / "lib" / n, tmp / "lib")
     )
     os.write(tmp / "lib" / "dump.pkl", PklDump.render(dump))
+    // Stage the Pkl project so an entry resolves the `@fh-dashboard` alias
+    // exactly as the live server does (ADR 0010, Track B): the package manifest
+    // in `lib/` plus the consumer `PklProject` that maps `@fh-dashboard` ->
+    // `./lib`. `PklBuild` resolves the (network-free, local) lockfile in-process.
+    os.copy.into(dashboardsDir / "lib" / "PklProject", tmp / "lib")
+    os.copy.into(dashboardsDir / "PklProject", tmp)
 
     val entryFile = s"$slug.pkl"
     os.write(tmp / entryFile, entrySource)
 
-    // `components.pkl` imports `hass.pkl` (and entries import `dump.pkl`) over
-    // the `/system/pkl/` http URL (ADR 0010); the provider resolves those in
-    // memory from the staged `lib/` — exactly as the live server does.
     val result = SourceEval
-      .eval(tmp, entryFile, Some(SystemPkl.fromDisk(tmp)))
+      .eval(tmp, entryFile)
       .fold(err => sys.error(s"Pkl eval failed for $entryFile: $err"), identity)
     Built(result.value, result.imports)
   }

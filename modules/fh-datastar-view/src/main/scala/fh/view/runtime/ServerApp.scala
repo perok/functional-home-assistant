@@ -56,12 +56,15 @@ object ServerApp extends IOApp {
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
-        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) — over the
-        // `/system/pkl/*` route AND, crucially, on the server's own eval path
-        // (ADR 0010): entries import them by http URL, and this provider lets
-        // `PklBuild` resolve those imports in-memory instead of fetching from
-        // itself. `prepareDumps` above already wrote the live `lib/dump.pkl`, so
-        // reads (by-name, off disk) reflect the current dump.
+        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) over the
+        // public `/system/pkl/*` route for external tooling — pkl-lsp, remote
+        // authors — that fetch the schema/dump for real (ADR 0010). The
+        // server's OWN eval no longer imports over http: entries import the
+        // library through the `@fh-dashboard` package alias (Track B), resolved
+        // from `lib/` in-process, so this provider backs only the route. It is
+        // still threaded into the eval path as a harmless fallback for any
+        // residual http import. `prepareDumps` above wrote the live
+        // `lib/dump.pkl`; reads are by-name off disk, reflecting the dump.
         systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Per-entry: a broken dashboard (e.g. a bad user edit before a
         // restart) is logged and skipped, not a crash loop; only zero
@@ -202,29 +205,32 @@ object ServerApp extends IOApp {
 
   /** The set of files to watch: every entry's transitive imports, the entry
     * files themselves (so a brand-new import or a top-level edit is caught),
-    * and the fh-owned schema `lib/hass.pkl` added EXPLICITLY.
+    * and every `*.pkl` under `lib/` (the authoring library) added EXPLICITLY.
     *
-    * `hass.pkl` is imported over `http://…/system/pkl/hass.pkl` (ADR 0010), so
-    * `PklBuild.importSet`'s file-only analyzer drops it from the transitive set
-    * — without this add, editing the schema would stop hot-reloading. The live
-    * `dump.pkl` is deliberately NOT watched (it is regenerated from HA state,
-    * not hand-edited; a build-time force-rerun is a separate follow-up, see
-    * `docs/plan-pkl-live-endpoint-and-deps.md`).
+    * The library is imported through the `@fh-dashboard` alias (ADR 0010, Track
+    * B), so those modules resolve as `projectpackage:` and `PklBuild.importSet`
+    * does not surface them as local `file:` paths — without this add, editing a
+    * card class or the schema would stop hot-reloading. The generated
+    * `lib/dump.pkl` is still watched here (it is under `lib/`), which is
+    * harmless: it is only rewritten on a live-state re-fetch, not hand-edited.
     *
     * This explicit add is also the seam for a future "local-dev only" toggle:
-    * watching the schema source is a checkout/dev-loop concern, irrelevant to a
-    * deployed add-on whose schema is fixed per image.
+    * watching the library sources is a checkout/dev-loop concern, irrelevant to
+    * a deployed add-on whose library is fixed per image.
     */
   private def watchedSet(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       imports: List[Set[os.Path]]
   ): Set[Path] = {
-    val hass = dashboardsDir / "lib" / "hass.pkl"
-    val hassIfPresent = if (os.exists(hass)) Set(hass) else Set.empty[os.Path]
+    val libDir = dashboardsDir / "lib"
+    val libSources =
+      if (os.exists(libDir))
+        os.list(libDir).filter(p => os.isFile(p) && p.ext == "pkl").toSet
+      else Set.empty[os.Path]
     (imports.flatten.toSet ++
       entries.map { case (_, e) => dashboardsDir / e } ++
-      hassIfPresent)
+      libSources)
       .map(fs2Path)
   }
 

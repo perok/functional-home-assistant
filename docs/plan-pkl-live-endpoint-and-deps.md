@@ -1,12 +1,18 @@
 # Plan: Pkl live schema endpoint + `@fh-dashboard` dependency
 
-**Status: Track A complete (steps 1–4). See ADR 0010.** The two enabling
-pkl-core capabilities are spiked and confirmed on 0.31.1 (see "Spike evidence"
-below). Entries + `lib/components.pkl` import `hass.pkl`/`dump.pkl` over the
-`/system/pkl/` http URL; the server resolves them in-memory on its own eval path
-and serves the route for external consumers (verified: full suite green with
-snapshots unchanged; live `dashboardServe` evaluates all entries and serves the
-route). Track B (`@fh-dashboard` project dependency) is designed and deferred.
+**Status: Track A + Track B complete. See ADR 0010.** The two enabling pkl-core
+capabilities are spiked and confirmed on 0.31.1 (see "Spike evidence" below).
+Track A: `Server` serves `hass.pkl`/`dump.pkl` over the `/system/pkl/` http route
+for external editors (pkl-lsp / remote authors); the in-memory interception
+factory remains a fallback on the eval path. Track B (landed): entries import the
+library through the `@fh-dashboard` project-dependency alias (`lib/PklProject`
+package + a consumer `PklProject` mapping `@fh-dashboard -> ./lib`), resolved
+in-process and network-free by `PklBuild.resolveProjectDeps`;
+`lib/components.pkl` reverted to a relative `import "hass.pkl"`, and the one-URI
+constraint now holds through the package base. Verified: full suite green with
+wire snapshots unchanged (the one failing `ComponentVisualSuite.slider` snapshot
+is a PRE-EXISTING native range-input rendering diff vs the CI-generated baseline —
+reproduces identically on the pre-Track-B commit; unrelated to this work).
 
 ## The idea
 
@@ -178,21 +184,30 @@ JSON is import-mechanism-independent).
   cross-network deployment over `https:` needs a cert reachable by pkl-lsp; out of
   scope here.
 
-## Track B — `@fh-dashboard` project dependency (deferred)
+## Track B — `@fh-dashboard` project dependency (landed)
 
-Designed and spike-verified (local half), not started. When picked up:
+The local half shipped as designed:
 
-- Add a `lib/PklProject` (package `fh-dashboard`, base uri + version) and a
-  consumer `PklProject` mapping `["fh-dashboard"] = import("./lib/PklProject")`.
-- Resolve deps **in-process** (spike B: `ProjectDependenciesResolver` +
-  `PackageResolver.getInstance`, no pkl CLI) and write `PklProject.deps.json`
-  (gitignored); `PklBuild` uses `applyFromProject`.
-- Entries write `import "@fh-dashboard/…"`; the monorepo resolves it to local
-  `lib/` (preserves hot-reload — a *remote* package would make card iteration a
-  publish loop). Publishing to a `package://…` registry (remote half: network +
-  checksum, unspiked) is a later, post-API-stability step. "Published + local
-  fallback" is this **resolution mapping**, chosen per project — not runtime
-  failover.
+- `lib/PklProject` (package `fh-dashboard`, base uri + version) + a consumer
+  `dashboards/PklProject` mapping `["fh-dashboard"] = import("./lib/PklProject")`.
+- Deps resolved **in-process** (`ProjectDependenciesResolver` +
+  `PackageResolver.getInstance`, no pkl CLI) in `PklBuild.resolveProjectDeps`,
+  which writes `PklProject.deps.json` (gitignored) and `applyFromProject`s it onto
+  the evaluator.
+- Entries write `amends "@fh-dashboard/entry.pkl"` + `import "@fh-dashboard/…"`;
+  the monorepo resolves it to local `lib/` (preserves hot-reload — a *remote*
+  package would make card iteration a publish loop). Package-internal modules use
+  RELATIVE imports (`components.pkl` → `import "hass.pkl"`), so the one-URI
+  constraint holds through the package base (ADR 0010).
+- Test staging (`PklFixture`/`PklBuildSuite.copyLib`) copies both `PklProject`
+  files into the temp dir so probes resolve `@fh-dashboard` exactly as the server
+  does; the watch set adds `lib/*.pkl` explicitly (the `projectpackage:` imports
+  fall out of the file-only analyzer).
+
+Publishing to a `package://…` registry (remote half: network + checksum,
+unspiked) is a later, post-API-stability step; only the consumer mapping flips.
+"Published + local fallback" is this **resolution mapping**, chosen per project —
+not runtime failover.
 
 ## Non-goals / discipline
 

@@ -4,6 +4,8 @@ import io.circe.parser
 import org.pkl.core.evaluatorSettings.TraceMode
 import org.pkl.core.http.HttpClient
 import org.pkl.core.module.ModuleKeyFactories
+import org.pkl.core.packages.PackageResolver
+import org.pkl.core.project.{Project, ProjectDependenciesResolver}
 import org.pkl.core.{
   Analyzer,
   Evaluator,
@@ -14,7 +16,7 @@ import org.pkl.core.{
   ValueRenderers
 }
 
-import java.io.StringWriter
+import java.io.{FileOutputStream, PrintWriter, StringWriter}
 import java.util.regex.Pattern
 
 import scala.jdk.CollectionConverters.*
@@ -47,7 +49,7 @@ object PklBuild {
   ): Either[String, SourceEval.Result] = {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
-      val evaluator = buildEvaluator(system)
+      val evaluator = buildEvaluator(dashboardsDir, system)
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
@@ -80,27 +82,67 @@ object PklBuild {
       "projectpackage:"
     ).map(Pattern.compile).asJava
 
-  /** The evaluator for one eval. Without a [[SystemPkl]] it is exactly today's
-    * `Evaluator.preconfigured()` (default — existing callers and the offline
-    * suite are untouched). With one, we PREPEND the intercept factory to the
-    * preconfigured factory list (so it wins over the built-in `http` factory
-    * while every other preconfigured factory is preserved) and widen the
-    * allowlist to admit `http:`.
+  /** The evaluator for one eval.
+    *
+    *   1. When `dashboardsDir` is a Pkl project (has a `PklProject`), we
+    *      `applyFromProject` so entries can import the `lib/` library through
+    *      the `@fh-dashboard` alias (ADR 0010, Track B). Plain relative-import
+    *      evals — most unit probes, no `PklProject` — skip this and behave
+    *      exactly as `Evaluator.preconfigured()`.
+    *   2. When a [[SystemPkl]] is supplied, we PREPEND its intercept factory to
+    *      the (now possibly project-derived) factory list so it wins over the
+    *      built-in `http` factory, and widen the allowlist to admit `http:` —
+    *      this keeps any residual `http://…/system/pkl/…` import resolvable and
+    *      backs the public route's provider. Order matters: `applyFromProject`
+    *      first, then read `getModuleKeyFactories` so the project's factories
+    *      are preserved (verified composing on pkl-core 0.31.1).
     */
-  private def buildEvaluator(system: Option[SystemPkl]): Evaluator =
-    system match {
-      case None      => Evaluator.preconfigured()
-      case Some(sys) =>
-        val builder = EvaluatorBuilder.preconfigured()
-        val factories =
-          (new SystemPkl.Factory(
-            sys
-          ) :: builder.getModuleKeyFactories.asScala.toList).asJava
-        builder
-          .setModuleKeyFactories(factories)
-          .setAllowedModules(AllowedModules)
-          .build()
+  private def buildEvaluator(
+      dashboardsDir: os.Path,
+      system: Option[SystemPkl]
+  ): Evaluator = {
+    val builder = EvaluatorBuilder.preconfigured()
+    resolveProjectDeps(dashboardsDir).foreach(builder.applyFromProject)
+    system.foreach { sys =>
+      val factories =
+        (new SystemPkl.Factory(sys) ::
+          builder.getModuleKeyFactories.asScala.toList).asJava
+      builder.setModuleKeyFactories(factories).setAllowedModules(AllowedModules)
     }
+    builder.build()
+  }
+
+  /** If `dashboardsDir` is a Pkl project, load it and ensure its
+    * `PklProject.deps.json` lockfile exists, so `applyFromProject` can resolve
+    * the `@fh-dashboard` alias. Resolution is IN-PROCESS and network-free for
+    * the local `@fh-dashboard -> lib/` mapping (`ProjectDependenciesResolver` +
+    * a dummy http client — the local dependency is never fetched); the lockfile
+    * is written once and reused (stable for a local dep). Returns the loaded
+    * [[Project]], or `None` when there is no `PklProject` (the plain-eval
+    * path).
+    */
+  private def resolveProjectDeps(dashboardsDir: os.Path): Option[Project] = {
+    val projectFile = dashboardsDir / "PklProject"
+    Option.when(os.exists(projectFile)) {
+      val project = Project.loadFromPath(projectFile.toNIO)
+      val depsJson = dashboardsDir / "PklProject.deps.json"
+      if (!os.exists(depsJson)) {
+        val resolver = new ProjectDependenciesResolver(
+          project,
+          PackageResolver.getInstance(
+            SecurityManagers.defaultManager,
+            HttpClient.dummyClient(),
+            (dashboardsDir / ".pkl-cache").toNIO
+          ),
+          new PrintWriter(new StringWriter)
+        )
+        val out = new FileOutputStream(depsJson.toNIO.toFile)
+        try resolver.resolve().writeTo(out)
+        finally out.close()
+      }
+      project
+    }
+  }
 
   /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
     *
@@ -112,14 +154,16 @@ object PklBuild {
     * fall back to the conservative superset (every `*.pkl` under the dir); the
     * entry is always included regardless.
     *
-    * When a [[SystemPkl]] is present the entry imports `hass.pkl`/`dump.pkl`
-    * over the `/system/pkl/` http URL (ADR 0010). To keep the analysis PRECISE
-    * (rather than throwing on the http import and collapsing to the superset),
-    * we give the analyzer the same in-memory intercept factory + an
-    * http-admitting security manager. Those artifacts then resolve as `http:`
-    * modules and are correctly filtered out here (they are not local files to
-    * watch — the schema's backing `lib/hass.pkl` is re-added explicitly by
-    * `ServerApp.watchedSet`; the live `dump.pkl` is intentionally not watched).
+    * A shipped entry imports its library through the `@fh-dashboard` alias (ADR
+    * 0010, Track B), which the file-only analyzer here cannot resolve — so it
+    * throws and this collapses to the superset (every `*.pkl` under the dir).
+    * That is exactly what we want for the real dashboards: the whole authoring
+    * dir is watched, and `ServerApp.watchedSet` adds the `lib/` sources for
+    * good measure. Precision still applies to plain FILE-import entries (e.g.
+    * the unit probes), where the graph resolves and unrelated siblings drop
+    * out. The `SystemPkl` factory + http-admitting security manager below keep
+    * any residual `http://…/system/pkl/…` import analyzable rather than
+    * throwing.
     */
   private def importSet(
       dashboardsDir: os.Path,

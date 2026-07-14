@@ -1,0 +1,19 @@
+/// The consumer project for the dashboard entries in this directory. Its one
+/// job is to bind the alias `@fh-dashboard` to the local `lib/` package, so an
+/// entry imports the authoring library by name:
+///
+///   import "@fh-dashboard/components.pkl" as c
+///   import "@fh-dashboard/dump.pkl" as dump
+///   amends "@fh-dashboard/entry.pkl"
+///
+/// rather than by relative file path or the `/system/pkl/` http URL. A single
+/// alias means the day `lib/` is published to a registry, only this mapping
+/// flips (`["fh-dashboard"] = "package://.../fh-dashboard@1.0.0"`) — the entries
+/// do not change. See `docs/adr/0010-live-pkl-schema-endpoint.md` (Track B) and
+/// `PklBuild.resolveProjectDeps` (the in-process, network-free resolver that
+/// writes `PklProject.deps.json`).
+amends "pkl:Project"
+
+dependencies {
+  ["fh-dashboard"] = import("./lib/PklProject")
+}

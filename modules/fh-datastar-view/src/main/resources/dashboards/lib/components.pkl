@@ -13,12 +13,13 @@
 /// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
 module components
 
-// The domain schema is fetched from the LIVE home over `/system/pkl/` (ADR
-// 0010), not a relative file — so `dump.pkl` (which resolves `hass.pkl` as an
-// http sibling) and this module share ONE hass module URI, hence one set of
-// hass types. The server intercepts this URL in-memory (host-agnostic, by path);
-// external consumers fetch it for real.
-import "http://localhost:8080/system/pkl/hass.pkl"
+// The domain schema, imported as a package-internal sibling. `dump.pkl` (which
+// is generated with the same relative `import "hass.pkl"`) resolves it to the
+// SAME module URI as this one, so the two share ONE set of hass types — the
+// load-bearing identity constraint (ADR 0010). Because entries pull both this
+// module AND `dump.pkl` through the `@fh-dashboard` package alias, each such
+// relative import resolves under the one package base, keeping that single URI.
+import "hass.pkl"
 import "pkl:reflect"
 
 // ---- backend output shapes (mirror fh.view.model) ----
