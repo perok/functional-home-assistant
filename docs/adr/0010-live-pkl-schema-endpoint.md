@@ -1,4 +1,4 @@
-# ADR 0009 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side
+# ADR 0010 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side
 
 - **Status:** Accepted (Track A landed: entries migrated to the http imports)
 - **Date:** 2026-07-13

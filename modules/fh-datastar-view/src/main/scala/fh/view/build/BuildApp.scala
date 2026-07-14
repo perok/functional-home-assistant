@@ -32,7 +32,7 @@ object BuildApp extends IOApp {
         .map(_.getOrElse(defaultDashboardEntry))
 
       // Entries import `hass.pkl`/`dump.pkl` over the `/system/pkl/` http URL
-      // (ADR 0009); the provider lets `PklBuild` resolve them in-memory off
+      // (ADR 0010); the provider lets `PklBuild` resolve them in-memory off
       // disk. `evaluate` runs `prepareDumps` first, so `dump.pkl` exists before
       // the by-name read.
       systemPkl = SystemPkl.fromDisk(dashboardsDir)

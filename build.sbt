@@ -9,19 +9,34 @@ val commonSettings = Seq(
   tpolecatExcludeOptions ++= Set(
     ScalacOptions.warnError
   ),
-  //Test / tpolecatExcludeOptions ++= Set(
+  // Test / tpolecatExcludeOptions ++= Set(
   //  ScalacOptions.fatalWarnings
-  //),
+  // ),
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.0",
-    "io.scalaland" %% "chimney" % "1.10.0",
+    "io.scalaland" %% "chimney" % "1.11.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
 )
 addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
 // Datastar dashboard: build phase (regenerate dashboard.json) and runtime server.
-addCommandAlias("dashboardBuild", "fh-datastar-view/runMain fh.view.build.BuildApp")
-addCommandAlias("dashboardServe", "fh-datastar-view/runMain fh.view.runtime.ServerApp")
+addCommandAlias(
+  "dashboardBuild",
+  "fh-datastar-view/runMain fh.view.build.BuildApp"
+)
+addCommandAlias(
+  "dashboardServe",
+  "fh-datastar-view/runMain fh.view.runtime.ServerApp"
+)
+// Rebaseline the wire-format + visual snapshots after an INTENTIONAL change.
+// Uses the scoped `sys.props` form (set → testFull → unset) rather than a shell
+// `FH_UPDATE_SNAPSHOTS=1` export: sbt 2.0's persistent server keeps its
+// start-time env forever, which would silently leave the gate in regenerate
+// mode. See VisualSnapshot / PklBuildSuite.
+addCommandAlias(
+  "dashboardSnapshotsUpdate",
+  """; eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1") ; fh-datastar-view/testFull ; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")"""
+)
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
@@ -35,8 +50,8 @@ lazy val `ha-api` = project // todo add api layer here as well
       "org.typelevel" %% "cats-effect" % "3.7.0"
     ),
     libraryDependencies ++= Seq(
-      "io.circe" %% "circe-core" % "0.14.15",
-      "io.circe" %% "circe-parser" % "0.14.15",
+      "io.circe" %% "circe-core" % "0.14.16",
+      "io.circe" %% "circe-parser" % "0.14.16",
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
     )
@@ -48,7 +63,7 @@ lazy val `fh-domain` = project
     commonSettings,
     libraryDependencies ++= Seq(
       "org.typelevel" %% "shapeless3-deriving" % "3.6.0",
-      "io.circe" %% "circe-core" % "0.14.15",
+      "io.circe" %% "circe-core" % "0.14.16",
       "org.http4s" %% "http4s-core" % http4sVersion
     )
   )
@@ -71,8 +86,8 @@ lazy val `fh-codegen-plugin` = project
       // "org.scalameta" %% "scalameta" % "4.12.7", https://github.com/scalameta/scalameta/issues/4145
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
-      "io.circe" %% "circe-core" % "0.14.15",
-      "io.circe" %% "circe-parser" % "0.14.15"
+      "io.circe" %% "circe-core" % "0.14.16",
+      "io.circe" %% "circe-parser" % "0.14.16"
     )
   )
 
@@ -90,9 +105,9 @@ lazy val `home-codegen` =
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
       haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
-      haUrl := "TODO" //envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
-      //haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
-      //haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
+      haUrl := "TODO" // envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
+      // haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
+      // haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
     )
 
 lazy val home = project // using the others as if they are libs
@@ -100,10 +115,10 @@ lazy val home = project // using the others as if they are libs
   .dependsOn(`ha-api`, `home-codegen`)
   .settings(
     commonSettings,
-    //assembly / assemblyMergeStrategy := {
+    // assembly / assemblyMergeStrategy := {
     //  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
     //  case x                             => MergeStrategy.first
-    //},
+    // },
     run / fork := true,
     run / javaOptions ++= Seq(
       "-Dcats.effect.tracing.mode=full"
@@ -121,10 +136,10 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    //run / envVars := Map(
+    // run / envVars := Map(
     //  "SERVER" -> (`home-codegen` / haUrl).value,
     //  "SECRET" -> secretToken
-    //),
+    // ),
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
@@ -152,8 +167,8 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
-      "io.circe" %% "circe-core" % "0.14.15",
-      "io.circe" %% "circe-parser" % "0.14.15",
+      "io.circe" %% "circe-core" % "0.14.16",
+      "io.circe" %% "circe-parser" % "0.14.16",
       // filesystem paths/IO for the build phase (was transitive via sjsonnet)
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
@@ -164,8 +179,14 @@ lazy val `fh-datastar-view` = project
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
-      "com.dashjoin" % "jsonata" % "0.9.8",
-      "org.scalameta" %% "munit" % "1.3.3" % Test
+      "com.dashjoin" % "jsonata" % "0.9.10",
+      "org.scalameta" %% "munit" % "1.3.3" % Test,
+      // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
+      // and adds IO-aware assertions (assertIO, IO#assertEquals).
+      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test,
+      // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
+      // real Chromium in-JVM against the fixture-backed TestServer.
+      "com.microsoft.playwright" % "playwright" % "1.61.0" % Test
     )
   )
 

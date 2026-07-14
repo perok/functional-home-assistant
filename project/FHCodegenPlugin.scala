@@ -25,46 +25,48 @@ object FHCodegenPlugin extends AutoPlugin {
     // Need to output to unmanaged source directory since we don't have anything to "cache from"
     fhOutputDirectory := (Compile / scalaSource).value,
     // TODO Could we trigger this when dependencies changes? and on first compile?
-    fhTaskCodeGen := Def.uncached { Def.taskDyn {
-      val dir = fhOutputDirectory.value
-      val project = fhCodegenPluginProject.value
-      val url = haUrl.value
-      val secret = haSecret.value
+    fhTaskCodeGen := Def.uncached {
+      Def.taskDyn {
+        val dir = fhOutputDirectory.value
+        val project = fhCodegenPluginProject.value
+        val url = haUrl.value
+        val secret = haSecret.value
 
-      try {
-        Files.walkFileTree(
-          dir.toPath,
-          new SimpleFileVisitor[Path] {
-            override def visitFile(
-                file: Path,
-                attrs: BasicFileAttributes
-            ): FileVisitResult = {
-              Files.deleteIfExists(file)
-              super.visitFile(file, attrs)
-            }
+        try {
+          Files.walkFileTree(
+            dir.toPath,
+            new SimpleFileVisitor[Path] {
+              override def visitFile(
+                  file: Path,
+                  attrs: BasicFileAttributes
+              ): FileVisitResult = {
+                Files.deleteIfExists(file)
+                super.visitFile(file, attrs)
+              }
 
-            override def postVisitDirectory(
-                dir: Path,
-                exc: IOException
-            ): FileVisitResult = {
-              Files.deleteIfExists(dir)
-              super.postVisitDirectory(dir, exc)
+              override def postVisitDirectory(
+                  dir: Path,
+                  exc: IOException
+              ): FileVisitResult = {
+                Files.deleteIfExists(dir)
+                super.postVisitDirectory(dir, exc)
+              }
             }
-          }
-        )
-      } catch {
-        case e => e.printStackTrace()
-      }
-      Def.task {
-        val result = (Compile / runMain)
-          .toTask(
-            s" fh.codegen.Plugin $dir $url $secret"
           )
-          .value
+        } catch {
+          case e => e.printStackTrace()
+        }
+        Def.task {
+          val result = (Compile / runMain)
+            .toTask(
+              s" fh.codegen.Plugin $dir $url $secret"
+            )
+            .value
 
-        (dir ** "*.scala").get()
-      }
-    }.value }
+          (dir ** "*.scala").get()
+        }
+      }.value
+    }
     /*    Compile / sourceGenerators += Def.taskDyn {
       val dir = fhOutputDirectory.value
       val project = fhProject.value

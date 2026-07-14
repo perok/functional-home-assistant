@@ -58,7 +58,7 @@ object ServerApp extends IOApp {
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
         // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) — over the
         // `/system/pkl/*` route AND, crucially, on the server's own eval path
-        // (ADR 0009): entries import them by http URL, and this provider lets
+        // (ADR 0010): entries import them by http URL, and this provider lets
         // `PklBuild` resolve those imports in-memory instead of fetching from
         // itself. `prepareDumps` above already wrote the live `lib/dump.pkl`, so
         // reads (by-name, off disk) reflect the current dump.
@@ -69,7 +69,7 @@ object ServerApp extends IOApp {
         built <- entries
           .traverse { case (slug, entry) =>
             buildEntry(dashboardsDir, slug, entry, systemPkl).attempt.flatMap {
-              case Right(r) => IO.pure(Some((slug, r)))
+              case Right(r)  => IO.pure(Some((slug, r)))
               case Left(err) =>
                 IO.println(
                   s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
@@ -204,7 +204,7 @@ object ServerApp extends IOApp {
     * files themselves (so a brand-new import or a top-level edit is caught),
     * and the fh-owned schema `lib/hass.pkl` added EXPLICITLY.
     *
-    * `hass.pkl` is imported over `http://…/system/pkl/hass.pkl` (ADR 0009), so
+    * `hass.pkl` is imported over `http://…/system/pkl/hass.pkl` (ADR 0010), so
     * `PklBuild.importSet`'s file-only analyzer drops it from the transitive set
     * — without this add, editing the schema would stop hot-reloading. The live
     * `dump.pkl` is deliberately NOT watched (it is regenerated from HA state,
@@ -334,17 +334,17 @@ object ServerApp extends IOApp {
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
-          case true => IO.pure(Some(path))
+          case true  => IO.pure(Some(path))
           case false =>
             IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
         }
       case None =>
         val cache = os.pwd / ".pkl-lsp" / s"pkl-lsp-$PklLspVersion.jar"
         IO.blocking(os.exists(cache)).flatMap {
-          case true => IO.pure(Some(cache))
+          case true  => IO.pure(Some(cache))
           case false =>
             downloadPklLsp(client, cache).attempt.flatMap {
-              case Right(_) => IO.pure(Some(cache))
+              case Right(_)  => IO.pure(Some(cache))
               case Left(err) =>
                 IO.println(
                   s"pkl-lsp: could not obtain jar (${err.getMessage}); " +

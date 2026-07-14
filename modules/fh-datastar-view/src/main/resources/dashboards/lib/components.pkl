@@ -14,7 +14,7 @@
 module components
 
 // The domain schema is fetched from the LIVE home over `/system/pkl/` (ADR
-// 0009), not a relative file — so `dump.pkl` (which resolves `hass.pkl` as an
+// 0010), not a relative file — so `dump.pkl` (which resolves `hass.pkl` as an
 // http sibling) and this module share ONE hass module URI, hence one set of
 // hass types. The server intercepts this URL in-memory (host-agnostic, by path);
 // external consumers fetch it for real.

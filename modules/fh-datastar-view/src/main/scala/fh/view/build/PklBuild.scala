@@ -89,7 +89,7 @@ object PklBuild {
     */
   private def buildEvaluator(system: Option[SystemPkl]): Evaluator =
     system match {
-      case None => Evaluator.preconfigured()
+      case None      => Evaluator.preconfigured()
       case Some(sys) =>
         val builder = EvaluatorBuilder.preconfigured()
         val factories =
@@ -113,7 +113,7 @@ object PklBuild {
     * entry is always included regardless.
     *
     * When a [[SystemPkl]] is present the entry imports `hass.pkl`/`dump.pkl`
-    * over the `/system/pkl/` http URL (ADR 0009). To keep the analysis PRECISE
+    * over the `/system/pkl/` http URL (ADR 0010). To keep the analysis PRECISE
     * (rather than throwing on the http import and collapsing to the superset),
     * we give the analyzer the same in-memory intercept factory + an
     * http-admitting security manager. Those artifacts then resolve as `http:`
@@ -133,7 +133,7 @@ object PklBuild {
       case None      => baseFactories
     }
     val securityManager = system match {
-      case None => SecurityManagers.defaultManager
+      case None    => SecurityManagers.defaultManager
       case Some(_) =>
         SecurityManagers.standard(
           AllowedModules,

@@ -1,6 +1,6 @@
 # Plan: Pkl live schema endpoint + `@fh-dashboard` dependency
 
-**Status: Track A complete (steps 1–4). See ADR 0009.** The two enabling
+**Status: Track A complete (steps 1–4). See ADR 0010.** The two enabling
 pkl-core capabilities are spiked and confirmed on 0.31.1 (see "Spike evidence"
 below). Entries + `lib/components.pkl` import `hass.pkl`/`dump.pkl` over the
 `/system/pkl/` http URL; the server resolves them in-memory on its own eval path
