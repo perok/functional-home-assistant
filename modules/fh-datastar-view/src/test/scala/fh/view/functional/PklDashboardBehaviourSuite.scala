@@ -1,11 +1,6 @@
 package fh.view.functional
 
-import cats.effect.IO
-import cats.effect.unsafe.implicits.global
-import fh.view.runtime.TestServer
 import fh.view.testkit.{HouseFixture, PklFixture}
-
-import scala.concurrent.duration.*
 
 /** The Tier-A capstone of `plan-functional-e2e-tests.md`: the SAME end-to-end
   * behaviour as [[DashboardBehaviourSuite]], but the dashboard is a real Pkl
@@ -17,9 +12,10 @@ import scala.concurrent.duration.*
   *
   * The entry is authored against `dump.entities.<key>` for the fixture
   * entities; because the dump and the seeded state both derive from
-  * [[HouseFixture]], the two cannot drift.
+  * [[HouseFixture]], the two cannot drift. The dashboard references both
+  * entities, but each test seeds the fake with only the state it asserts on.
   */
-class PklDashboardBehaviourSuite extends munit.FunSuite {
+class PklDashboardBehaviourSuite extends FunctionalSuite {
 
   /** A minimal real entry over two fixture entities: a numeric sensor (whose
     * `entityCard` value auto-appends the unit) and the kitchen light. Authored
@@ -45,17 +41,12 @@ class PklDashboardBehaviourSuite extends munit.FunSuite {
 
   private val dashboard =
     PklFixture.buildDashboard("fixture-home", entrySource)
-  private val house = HouseFixture.all
-
-  private def withServer[A](f: TestServer => IO[A]): A =
-    TestServer
-      .resource(dashboard, house)
-      .use(f)
-      .timeout(45.seconds)
-      .unsafeRunSync()
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    val html = withServer(_.page)
+    val html = withServer(
+      dashboard,
+      List(HouseFixture.outsideTemp, HouseFixture.kitchenLight)
+    )(_.page)
     // entityCard label = the live friendly_name; value = $state + unit.
     assert(html.contains("Outside Temperature"), clue = html)
     assert(html.contains("12.4"), clue = html)
@@ -66,7 +57,7 @@ class PklDashboardBehaviourSuite extends munit.FunSuite {
   }
 
   test("a state change streams a fragment through the Pkl-built dashboard") {
-    withServer { ts =>
+    withServer(dashboard, List(HouseFixture.outsideTemp)) { ts =>
       ts.observePatch(
         marker = "13.1",
         trigger = ts.fake.emit(

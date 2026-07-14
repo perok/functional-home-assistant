@@ -1,35 +1,34 @@
 package fh.view.functional
 
-import cats.effect.IO
-import cats.effect.unsafe.implicits.global
-import fh.view.runtime.TestServer
+import fh.view.testkit.DashboardBuilders.col
 import fh.view.testkit.{FixtureDashboard, HouseFixture, ServiceCall}
 import io.circe.Json
-
-import scala.concurrent.duration.*
 
 /** End-to-end behaviour of the dashboard against a stubbed Home Assistant: the
   * whole loop — seed snapshot -> `StateStore` -> `Server` -> HTTP/SSE, and
   * control -> `callService` — with no live HA and a scripted timeline. Each
   * test reads as an observable behaviour, asserted at the HTTP boundary.
+  *
+  * Each test declares only the world it exercises: the entities the fake is
+  * seeded from, and a dashboard built (via [[FixtureDashboard]]) over just the
+  * cards that bind them. A control-only test seeds only the light it clicks,
+  * with an empty layout — the smallest world that still records the call.
   */
-class DashboardBehaviourSuite extends munit.FunSuite {
+class DashboardBehaviourSuite extends FunctionalSuite {
 
-  private val dashboard = FixtureDashboard.dashboard
-  private val house = HouseFixture.all
-
-  /** Run `f` against a freshly-wired [[TestServer]], with a global timeout so a
-    * missed SSE fragment fails fast rather than hanging.
-    */
-  private def withServer[A](f: TestServer => IO[A]): A =
-    TestServer
-      .resource(dashboard, house)
-      .use(f)
-      .timeout(45.seconds)
-      .unsafeRunSync()
+  private val outside = HouseFixture.outsideTemp
+  private val kitchen = HouseFixture.kitchenLight
 
   test("initial page render reflects the seeded snapshot") {
-    val html = withServer(_.page)
+    val html = withServer(
+      FixtureDashboard.build(
+        col(
+          FixtureDashboard.reading(outside),
+          FixtureDashboard.light("Kitchen", kitchen)
+        )
+      ),
+      List(outside, kitchen)
+    )(_.page)
     // The numeric reading and its unit (pulled from $attr) are present...
     assert(html.contains("12.4"), clue = html)
     assert(html.contains("°C"), clue = html)
@@ -39,25 +38,26 @@ class DashboardBehaviourSuite extends munit.FunSuite {
   }
 
   test("a state change pushes a fragment carrying the new value") {
-    withServer { ts =>
+    withServer(
+      FixtureDashboard.build(col(FixtureDashboard.reading(outside))),
+      List(outside)
+    ) { ts =>
       ts.observePatch(
         marker = "13.1",
-        trigger = ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          "13.1",
-          HouseFixture.outsideTemp.attributes
-        )
+        trigger = ts.fake.emit(outside.entityId, "13.1", outside.attributes)
       )
     }
   }
 
   test("turning the kitchen light off pushes its new state over SSE") {
-    withServer { ts =>
+    withServer(
+      FixtureDashboard.build(col(FixtureDashboard.light("Kitchen", kitchen))),
+      List(kitchen)
+    ) { ts =>
       // A distinctive marker only the OFF light fragment can contain.
       ts.observePatch(
         marker = "Kitchen: <span>off</span>",
-        trigger =
-          ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
+        trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
       )
     }
   }
@@ -66,18 +66,17 @@ class DashboardBehaviourSuite extends munit.FunSuite {
     // Pins StateStore's "publish only on real change" contract end-to-end: an
     // emit of the current value is dropped, so the FIRST observed change is the
     // subsequent real one — driven through the fake's queue, not a private seam.
-    val firstState = withServer { ts =>
+    val firstState = withServer(
+      FixtureDashboard.build(col(FixtureDashboard.reading(outside))),
+      List(outside)
+    ) { ts =>
       for {
         firstChange <- ts.store.changes.take(1).compile.lastOrError.start
         _ <- ts.awaitChangeSubscribers(1)
         // No-op: same value the fixture already seeded -> dropped by update.
-        _ <- ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          HouseFixture.outsideTemp.state,
-          HouseFixture.outsideTemp.attributes
-        )
+        _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
         // A real change -> published.
-        _ <- ts.fake.emit(HouseFixture.outsideTemp.entityId, "13.1", Map.empty)
+        _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
         change <- firstChange.joinWithNever
       } yield change.current.state
     }
@@ -85,7 +84,10 @@ class DashboardBehaviourSuite extends munit.FunSuite {
   }
 
   test("a control click calls the service back into HA") {
-    val calls = withServer { ts =>
+    val calls = withServer(
+      FixtureDashboard.build(col()),
+      List(kitchen)
+    ) { ts =>
       ts.post("sse/action/light/toggle/light.kitchen") *> ts.fake.recordedCalls
     }
     assertEquals(
@@ -95,7 +97,10 @@ class DashboardBehaviourSuite extends munit.FunSuite {
   }
 
   test("a value-carrying control passes its data through to HA") {
-    val calls = withServer { ts =>
+    val calls = withServer(
+      FixtureDashboard.build(col()),
+      List(kitchen)
+    ) { ts =>
       ts.post("sse/action/light/turn_on/light.kitchen/brightness/200") *>
         ts.fake.recordedCalls
     }
@@ -113,15 +118,17 @@ class DashboardBehaviourSuite extends munit.FunSuite {
   }
 
   test("round-trip: act on HA, then the consequent state reaches the browser") {
-    withServer { ts =>
+    withServer(
+      FixtureDashboard.build(col(FixtureDashboard.light("Kitchen", kitchen))),
+      List(kitchen)
+    ) { ts =>
       for {
         _ <- ts.post("sse/action/light/turn_off/light.kitchen")
         _ <- ts.observePatch(
           marker = "Kitchen: <span>off</span>",
           // The fake records the call; HA's resulting state change is emitted
           // explicitly (the fake does not simulate HA semantics).
-          trigger =
-            ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
+          trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
         )
         calls <- ts.fake.recordedCalls
       } yield assertEquals(
