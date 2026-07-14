@@ -59,11 +59,20 @@ jobs:
           cache: npm
           cache-dependency-path: modules/fh-datastar-view/editor-src/package-lock.json
 
+      # Cache Playwright browsers based on lockfile
+      - name: Cache Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/build.sbt') }}
+
       - name: Vendor editor front-end (esbuild)
         working-directory: modules/fh-datastar-view/editor-src
         run: npm ci && npm run build
 
       - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
       - parallel:
