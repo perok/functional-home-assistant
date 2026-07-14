@@ -11,8 +11,8 @@ import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-/** Base for the browser smoke suites (`docs/plan-playwright-smoke-tests.md`):
-  * one Playwright + headless Chromium per suite (cheap page creation off the
+/** Base for the browser smoke suites (ADR 0009): one Playwright + headless
+  * Chromium per suite (cheap page creation off the
   * shared browser), a fresh bound [[TestServer]] + `BrowserContext`/[[Page]]
   * per test — so recorded calls, seeded state, and cookies (the tabs restore
   * cookie) never bleed between tests — navigated to the dashboard under test.
@@ -35,7 +35,7 @@ abstract class SmokeSuite extends munit.FunSuite {
     // preinstalled at this Playwright version's pinned revision (see the GHA
     // `playwright install` step / `PLAYWRIGHT_BROWSERS_PATH`), so the driver
     // resolves its own executable under that path — no explicit
-    // `executablePath` needed (`docs/plan-playwright-smoke-tests.md`).
+    // `executablePath` needed (ADR 0009).
     playwright = Playwright.create(
       new Playwright.CreateOptions().setEnv(
         (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava

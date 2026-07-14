@@ -2,7 +2,7 @@ package fh.view.functional
 
 import fh.view.testkit.{HouseFixture, PklFixture, Scene}
 
-/** The Tier-A capstone of `plan-functional-e2e-tests.md`: the SAME end-to-end
+/** The Tier-A capstone (ADR 0009): the SAME end-to-end
   * behaviour as [[DashboardBehaviourSuite]], but the dashboard is a real Pkl
   * entry evaluated through the genuine authoring pipeline (Pkl -> model ->
   * renderer -> SSE) rather than a hand-built [[fh.view.model.Dashboard]]. It

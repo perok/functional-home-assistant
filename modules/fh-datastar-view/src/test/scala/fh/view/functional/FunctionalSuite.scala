@@ -7,8 +7,8 @@ import fh.view.testkit.Scene
 
 import scala.concurrent.duration.*
 
-/** Shared base for the end-to-end functional suites
-  * (`plan-functional-e2e-tests.md`): the whole loop — seed snapshot ->
+/** Shared base for the end-to-end functional suites (ADR 0009): the whole loop —
+  * seed snapshot ->
   * `StateStore` -> `Server` -> HTTP/SSE, and control -> `callService` — against
   * a stubbed Home Assistant with a scripted timeline.
   *

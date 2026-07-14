@@ -5,7 +5,7 @@ import fh.view.model.Dashboard
 import io.circe.Json
 
 /** Builds a real [[Dashboard]] from an inline Pkl entry through the genuine
-  * authoring pipeline — the Tier-A path of `plan-functional-e2e-tests.md`:
+  * authoring pipeline — the Tier-A path (ADR 0009):
   * `.pkl` -> `SourceEval.eval` -> `DashboardBuild.hoistInlineSurfaces` ->
   * decode. It stages a temp dir exactly as `PklBuildSuite` does (the real `lib`
   * modules copied in, a generated `lib/dump.pkl` beside them), so no live HA is
