@@ -92,7 +92,7 @@ jobs:
           name: visual-snapshot-failures
           path: modules/fh-datastar-view/target/visual-failures/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
       - name: Assemble fat jar
         run: sbt 'fh-datastar-view/assembly'
