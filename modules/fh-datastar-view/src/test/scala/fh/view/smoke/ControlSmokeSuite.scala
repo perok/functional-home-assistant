@@ -2,7 +2,7 @@ package fh.view.smoke
 
 import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import fh.view.testkit.{HouseFixture, ServiceCall, SmokeDashboard}
+import fh.view.testkit.{HouseFixture, Scene, ServiceCall, SmokeDashboard}
 import io.circe.Json
 
 /** "Click -> HA -> back": the control->service->feed->browser loop, driven
@@ -12,11 +12,13 @@ import io.circe.Json
   */
 class ControlSmokeSuite extends SmokeSuite {
 
+  private val scene = Scene.of(SmokeDashboard.dashboard)
+
   private def clickToggle(page: com.microsoft.playwright.Page): IO[Unit] =
     IO.blocking(page.getByText("Toggle Kitchen").click())
 
   test("clicking a control calls the service back into HA") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all) { (page, ts) =>
+    withPage(scene) { (page, ts) =>
       for {
         _ <- clickToggle(page)
         calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
@@ -35,7 +37,7 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("round-trip: a click's consequent state reaches the browser") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all) { (page, ts) =>
+    withPage(scene) { (page, ts) =>
       val kitchenState = page
         .locator(
           "article.entity",

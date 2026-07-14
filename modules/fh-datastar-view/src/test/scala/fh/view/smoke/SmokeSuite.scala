@@ -4,9 +4,8 @@ import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
 import com.microsoft.playwright.options.ViewportSize
-import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.Scene
 
 import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
@@ -68,9 +67,12 @@ abstract class SmokeSuite extends munit.FunSuite {
     if (playwright != null) playwright.close()
   }
 
-  /** Serve `dashboard`/`entities` on a freshly bound [[TestServer]], open a
-    * fresh `BrowserContext`/[[Page]] against it, navigate to the dashboard, and
-    * run `f` with the [[Page]] and the [[TestServer]] (for `fake.emit` / the
+  /** Serve `scene`'s dashboard — seeded with the entities it references (plus
+    * any `.entity(...)` extras), auto-derived by the [[Scene]] builder so the
+    * served world can't drift from the dashboard — on a freshly bound
+    * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it, navigate
+    * to the dashboard, and run `f` with the [[Page]] and the [[TestServer]] (for
+    * `fake.emit` / the
     * SSE-subscriber readiness gates — the browser opens its OWN SSE connection,
     * so a test that emits a change still must await it, exactly as
     * [[TestServer.observePatch]] does for the HTTP-body-stream suites).
@@ -85,8 +87,7 @@ abstract class SmokeSuite extends munit.FunSuite {
     * would make this suite noisy rather than meaningful.
     */
   def withPage[A](
-      dashboard: Dashboard,
-      entities: List[FixtureEntity],
+      scene: Scene,
       viewport: Option[(Int, Int)] = None
   )(
       f: (Page, TestServer) => IO[A]
@@ -97,7 +98,7 @@ abstract class SmokeSuite extends munit.FunSuite {
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
     val resource = for {
-      served <- TestServer.served(dashboard, entities)
+      served <- TestServer.served(scene.dashboard, scene.entities)
       (ts, uri) = served
       context <- Resource.make(IO.blocking(browser.newContext(contextOptions)))(
         c => IO.blocking(c.close())

@@ -2,7 +2,7 @@ package fh.view.smoke
 
 import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import fh.view.testkit.{FixtureDashboard, HouseFixture}
+import fh.view.testkit.{FixtureDashboard, HouseFixture, Scene}
 
 /** "SSE morphs the DOM": the check only a real browser can make — that a pushed
   * `datastar-patch-elements` frame is not just sent on the wire (the Scala
@@ -12,7 +12,7 @@ import fh.view.testkit.{FixtureDashboard, HouseFixture}
 class LiveUpdateSmokeSuite extends SmokeSuite {
 
   test("a live state change morphs the DOM, no reload") {
-    withPage(FixtureDashboard.dashboard, HouseFixture.all) { (page, ts) =>
+    withPage(Scene.of(FixtureDashboard.dashboard)) { (page, ts) =>
       for {
         _ <- ts.awaitLive()
         _ <- ts.fake.emit(

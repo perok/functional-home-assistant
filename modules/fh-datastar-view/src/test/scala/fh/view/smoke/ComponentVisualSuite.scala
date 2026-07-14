@@ -3,7 +3,7 @@ package fh.view.smoke
 import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import fh.view.testkit.{HouseFixture, SmokeDashboard, VisualSnapshot}
+import fh.view.testkit.{Scene, SmokeDashboard, VisualSnapshot}
 
 /** "Verify looks": component-level screenshots of [[SmokeDashboard]] against
   * checked-in [[VisualSnapshot]] baselines — the piece a wire-format test
@@ -16,9 +16,10 @@ import fh.view.testkit.{HouseFixture, SmokeDashboard, VisualSnapshot}
 class ComponentVisualSuite extends SmokeSuite {
 
   private val viewport = Some(900 -> 700)
+  private val scene = Scene.of(SmokeDashboard.dashboard)
 
   test("entityCard (on) looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
@@ -28,7 +29,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("entityCard (off, inside the default-open tab panel) looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
@@ -42,7 +43,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("button looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
@@ -55,7 +56,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("slider looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
@@ -69,7 +70,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("tabs bar + default panel look right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
@@ -91,7 +92,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("an open popup looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         val popup = page.locator(".popup")
         for {
@@ -106,7 +107,7 @@ class ComponentVisualSuite extends SmokeSuite {
   }
 
   test("the full dashboard looks right") {
-    withPage(SmokeDashboard.dashboard, HouseFixture.all, viewport) {
+    withPage(scene, viewport) {
       (page, _) =>
         IO.blocking {
           settle(page)
