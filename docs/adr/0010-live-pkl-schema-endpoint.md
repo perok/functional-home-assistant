@@ -52,6 +52,19 @@ An unknown name is a 404. This is the live, always-in-sync endpoint that pkl-lsp
 and remote authors fetch for completion/diagnostics — the schema+dump of *that*
 running home, not a checkout's stale file.
 
+**Caching: `no-cache` + an `ETag`, and `no-cache` is the load-bearing half.**
+`dump.pkl` is live per-home data under a URL that never changes, so anything that
+stores it (a browser, a proxy on the split-horizon remote path) could hand an
+author completions for devices they no longer own. `no-cache` forbids reuse
+without revalidation — never silently stale. The `ETag` serves no *current*
+consumer: pkl does no conditional requests at all (pkl-core 0.31.1 has no
+`If-None-Match`/`ETag`/`Cache-Control` handling anywhere — verified against the
+jar; its only caching is the per-evaluator in-memory module cache keyed by
+resolved URI). It is there for the consumers that do revalidate — editor/browser
+JS, remote tooling asking "did this home's entity set change?" without pulling a
+~450KB dump. Hashing per request is trivial next to serving the body, and this
+route is hit at editor-session start, never on the live hot path.
+
 A custom `org.pkl.core.module.ModuleKeyFactory` (`SystemPkl.Factory`) can
 intercept `…/system/pkl/…` URIs **by path** (host-agnostic) and resolve them from
 the same `SystemPkl` provider via `ResolvedModuleKeys.virtual` — pure in-memory,
@@ -118,20 +131,33 @@ file-based (siblings in one `lib/`, one file URI) — never mixed.
 
 ## The watch set
 
-`PklBuild.importSet` computes the file-watch set from `Analyzer.importGraph` with
-file-only factories, keeping only `file:` modules. A shipped entry's
-`@fh-dashboard/…` imports resolve as `projectpackage:`, which that analyzer cannot
-resolve — so it falls back to the conservative superset (every `*.pkl` under the
-dir). That is exactly what we want for the real dashboards: the whole authoring
-directory is watched. `ServerApp.watchedSet` *also* adds every `*.pkl` under
-`lib/` explicitly, so a card-class or schema edit always triggers a live reload
-even when a precise (file-import) analysis omits the library. The generated
-`lib/dump.pkl` rides along harmlessly (it is rewritten only on a live-state
-re-fetch, not hand-edited; a build-time force-rerun is a separate follow-up).
+`PklBuild.importSet` computes the file-watch set from `Analyzer.importGraph`, and
+**the `@fh-dashboard` alias resolves there too** — so the set is precise, with no
+`lib/` special-casing anywhere.
 
-This explicit `lib/` add is a deliberate seam for a future "local-dev only"
-toggle: watching the library source is a checkout/dev-loop concern, irrelevant to
-a deployed add-on whose library is fixed per image.
+Two of the `Analyzer` constructor's slots do it: the `moduleCacheDir` and the
+`DeclaredDependencies` (`project.getDependencies` — the same `resolveProjectDeps`
+output the evaluator gets). With those supplied and the `projectpackage`/`pkg`
+factories registered, an `import "@fh-dashboard/components.pkl"` analyzes as
+`projectpackage://fh.local/fh-dashboard@1.0.0#/components.pkl` and — because
+`@fh-dashboard` is a **local** dependency — `graph.resolvedImports` maps it
+straight back to the real `file:…/lib/components.pkl`. The existing `file:` filter
+then picks up exactly the library modules the entry imports, and nothing else.
+(Verified on pkl-core 0.31.1; `PklBuildSuite` pins it with a probe that imports
+`@fh-dashboard/hass.pkl` and asserts an unimported sibling stays *out* of the set
+— the assertion that separates "precise" from the superset, since the superset
+contains the aliased module too and would pass vacuously.)
+
+So editing a card class or the schema hot-reloads every entry that imports it, by
+the ordinary import mechanism. `ServerApp.watchedSet` is just
+`imports ++ entry files`; the earlier explicit "add every `*.pkl` under `lib/`"
+is gone, and with it the "local-dev only toggle" that add was meant to seam —
+watching follows imports, so a deployed add-on whose library never changes simply
+never fires a reload.
+
+The conservative superset (every `*.pkl` under the dir) remains as the fallback
+for an analysis that throws, which is now an unexpected path rather than the
+normal one for shipped entries.
 
 ## Alternatives rejected
 
