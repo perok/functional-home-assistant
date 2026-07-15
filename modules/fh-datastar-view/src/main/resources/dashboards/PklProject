@@ -1,19 +1,24 @@
 /// The consumer project for the dashboard entries in this directory. Its one
-/// job is to bind the alias `@fh-dashboard` to the local `lib/` package, so an
-/// entry imports the authoring library by name:
+/// job is to bind the two aliases an entry imports by name:
 ///
-///   import "@fh-dashboard/components.pkl" as c
-///   import "@fh-dashboard/dump.pkl" as dump
+///   import "@fh-dashboard/components.pkl" as c   // the shared library (lib/)
+///   import "@fh-home/dump.pkl" as dump           // THIS home's live dump
 ///   amends "@fh-dashboard/entry.pkl"
 ///
-/// rather than by relative file path or the `/system/pkl/` http URL. A single
-/// alias means the day `lib/` is published to a registry, only this mapping
-/// flips (`["fh-dashboard"] = "package://.../fh-dashboard@1.0.0"`) — the entries
-/// do not change. See `docs/adr/0010-live-pkl-schema-endpoint.md` (Track B) and
+/// rather than by relative file path or the `/system/pkl/` http URL. The split
+/// is by lifecycle (ADR 0010): `@fh-dashboard` is shared and one day publishable
+/// to a registry — at which point only its mapping here flips
+/// (`["fh-dashboard"] = "package://.../fh-dashboard@1.0.0"`) — while `@fh-home`
+/// is per-home, regenerated from the live instance, and always local. Entries do
+/// not change either way.
+///
+/// See `docs/adr/0010-live-pkl-schema-endpoint.md` (Track B) and
 /// `PklBuild.resolveProjectDeps` (the in-process, network-free resolver that
-/// writes `PklProject.deps.json`).
+/// writes `PklProject.deps.json`). Resolving THIS project is enough: `@fh-home`'s
+/// own `@fh-dashboard` dependency resolves with it, no separate lockfile needed.
 amends "pkl:Project"
 
 dependencies {
   ["fh-dashboard"] = import("./lib/PklProject")
+  ["fh-home"] = import("./home/PklProject")
 }

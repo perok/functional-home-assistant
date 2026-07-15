@@ -41,7 +41,7 @@ object BuildApp extends IOApp {
       )
       dashboardJson = result.value
       _ <- IO.println(
-        s"Wrote entity dump to ${dashboardsDir / "lib" / "dump.pkl"}"
+        s"Wrote entity dump to ${DashboardBuild.dumpPath(dashboardsDir)}"
       )
 
       // Validate it decodes into the runtime model before writing it.

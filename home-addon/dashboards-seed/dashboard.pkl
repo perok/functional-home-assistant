@@ -6,11 +6,12 @@
 // It references NO concrete entities: every section is a live query
 // (DynamicGroup) over whatever this Home Assistant instance has, so it renders
 // on any installation. For entity-specific cards, import the generated typed
-// dump (`import "@fh-dashboard/dump.pkl" as dump`) and reference
+// dump (`import "@fh-home/dump.pkl" as dump`) and reference
 // `dump.entities.<your_entity>` — see the lib/ modules for the full card set.
 //
-// `@fh-dashboard` is the shared authoring library (the seeded `lib/`); the
-// sibling `PklProject` file maps that alias to it (ADR 0010).
+// Two aliases, split by lifecycle (ADR 0010): `@fh-dashboard` is the shared
+// authoring library (the seeded `lib/`), `@fh-home` is YOUR home's generated
+// dump. The sibling `PklProject` file maps both.
 
 amends "@fh-dashboard/entry.pkl"
 

@@ -39,7 +39,7 @@ object SmokeDashboard {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/dump.pkl" as dump
+       |import "@fh-home/dump.pkl" as dump
        |
        |title = "Smoke House"
        |

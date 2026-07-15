@@ -32,8 +32,8 @@ default File editor / Samba add-ons can reach them without extra config.
   discovered at startup.
 - A dashboard that is broken at startup is skipped (and logged); the add-on
   only fails to start when *no* dashboard builds.
-- `lib/dump.pkl` is regenerated from your live entity registry on every
-  startup — don't edit it; import it (`import "lib/dump.pkl" as dump`) for
+- `home/dump.pkl` is regenerated from your live entity registry on every
+  startup — don't edit it; import it (`import "@fh-home/dump.pkl" as dump`) for
   typed references to your entities (`dump.entities.<name>`).
 
 ### Re-seeding

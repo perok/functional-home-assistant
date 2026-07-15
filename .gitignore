@@ -2,7 +2,7 @@ modules/home-codegen/src/main/scala/ha/generated
 
 # fh-datastar-view generated build artifacts
 modules/fh-datastar-view/src/main/resources/dashboards/dump.libsonnet
-modules/fh-datastar-view/src/main/resources/dashboards/lib/dump.pkl
+modules/fh-datastar-view/src/main/resources/dashboards/home/dump.pkl
 modules/fh-datastar-view/dashboard.json
 modules/fh-datastar-view/assets-cache/
 # Pkl @fh-dashboard project-dependency lockfile + package cache (ADR 0010,
@@ -13,6 +13,7 @@ modules/fh-datastar-view/assets-cache/
 # products wherever they land.
 modules/fh-datastar-view/src/main/resources/dashboards/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/lib/PklProject.deps.json
+modules/fh-datastar-view/src/main/resources/dashboards/home/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/.pkl-cache/
 
 .semanticdb

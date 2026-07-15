@@ -16,12 +16,13 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump ONCE and write it next to the dashboard sources
-    * (so `import "lib/dump.pkl"` resolves). This is the build phase's job: it
-    * owns fetching + writing the dump, and the runtime
-    * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dump once
-    * for all entries, then [[reevaluate]]s each against the on-disk copy.
+  /** Fetch the live entity dump ONCE and write it into the `@fh-home` package
+    * ([[DumpPath]]), so an entry's `import "@fh-home/dump.pkl"` resolves. This
+    * is the build phase's job: it owns fetching + writing the dump, and the
+    * runtime ([[fh.view.runtime.ServerApp]]) calls through here rather than
+    * reaching into [[DataDump]]/[[PklDump]] directly — the runtime writes the
+    * dump once for all entries, then [[reevaluate]]s each against the on-disk
+    * copy.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
@@ -30,12 +31,24 @@ object DashboardBuild {
     DataDump.fetch(api).flatMap { dump =>
       IO.blocking {
         os.write.over(
-          dashboardsDir / "lib" / "dump.pkl",
+          dumpPath(dashboardsDir),
           PklDump.render(dump),
           createFolders = true
         )
       }
     }
+
+  /** Where the generated dump lives, relative to the dashboards dir: inside the
+    * `@fh-home` package rather than beside the shared library.
+    *
+    * The dump is per-home live data and can never ship inside a published
+    * `@fh-dashboard`, so it gets its own package with its own lifecycle (ADR
+    * 0010). It also must NOT sit at the dashboards-dir top level, where
+    * `ServerApp.discoverEntries` would scan it as an entry.
+    */
+  val DumpPath: os.RelPath = os.RelPath("home") / "dump.pkl"
+
+  def dumpPath(dashboardsDir: os.Path): os.Path = dashboardsDir / DumpPath
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
     * JSON + the set of files read (entry + transitive imports).

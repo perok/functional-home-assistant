@@ -134,21 +134,65 @@ class PklBuildSuite extends munit.FunSuite {
     assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)
   }
 
+  test("the add-on seed layout evaluates from its manifests alone") {
+    // Mirrors home-addon/Dockerfile's COPY steps exactly: lib/ (the
+    // @fh-dashboard package), home/PklProject (the @fh-home manifest, with NO
+    // dump beside it yet), the consumer PklProject, and the seeded entry.
+    //
+    // Two things this pins, neither visible to the rest of the suite because
+    // the Dockerfile is never executed here:
+    //   - the consumer project declares @fh-home, so shipping its manifest is
+    //     mandatory: without it the dependency resolve fails and EVERY entry
+    //     dies at startup, not just dump-importing ones;
+    //   - a fresh add-on evaluates before `prepareDumps` has ever run, so the
+    //     seed must build with the @fh-home package still empty.
+    val tmp = os.temp.dir()
+    val dashboards = resourcesLib / os.up
+    os.copy(dashboards / "lib", tmp / "lib")
+    os.makeDir.all(tmp / "home")
+    os.copy.into(dashboards / "home" / "PklProject", tmp / "home")
+    os.copy.into(dashboards / "PklProject", tmp)
+    os.copy.into(
+      os.pwd / "home-addon" / "dashboards-seed" / "dashboard.pkl",
+      tmp
+    )
+    assert(!os.exists(tmp / "home" / "dump.pkl"), "seed must ship no dump")
+
+    val result = SourceEval.eval(tmp, "dashboard.pkl")
+    assert(result.isRight, clue = result)
+  }
+
   /** The real Pkl library modules, as shipped in the resources dir. */
   private val resourcesLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
 
-  /** Copy the given lib modules into `tmp/lib/` and stage the Pkl project, so a
-    * probe can import the library through the `@fh-dashboard` alias (ADR 0010,
-    * Track B) — the package manifest in `lib/` plus the consumer `PklProject`
-    * that maps `@fh-dashboard` -> `./lib`. Staging the project is harmless for
-    * pure file-import probes (which import by the relative `lib/<name>` path).
+  /** Copy the given lib modules into `tmp/lib/` and stage the Pkl projects, so
+    * a probe resolves the aliases exactly as the live server does (ADR 0010,
+    * Track B): the `@fh-dashboard` package manifest in `lib/`, the `@fh-home`
+    * manifest in `home/`, and the consumer `PklProject` that maps both.
+    *
+    * Both manifests are staged unconditionally because the consumer project
+    * declares both dependencies — a missing one fails the resolve for every
+    * probe, not just the ones that import a dump. Staging is harmless for pure
+    * file-import probes (which import by the relative `lib/<name>` path).
     */
   private def copyLib(tmp: os.Path, names: String*): Unit = {
     os.makeDir.all(tmp / "lib")
     names.foreach(n => os.copy.into(resourcesLib / n, tmp / "lib"))
     os.copy.into(resourcesLib / "PklProject", tmp / "lib")
+    os.makeDir.all(tmp / "home")
+    os.copy.into(resourcesLib / os.up / "home" / "PklProject", tmp / "home")
     os.copy.into(resourcesLib / os.up / "PklProject", tmp)
+  }
+
+  /** Write a generated dump into the staged `@fh-home` package, where
+    * `DashboardBuild.prepareDumps` puts it in production — so a probe imports
+    * it as `@fh-home/dump.pkl` and the emitted `import "@fh-dashboard/hass.pkl"`
+    * resolves to the same `hass` identity `components.pkl` sees.
+    */
+  private def writeDump(tmp: os.Path, source: String): Unit = {
+    os.makeDir.all(tmp / "home")
+    os.write.over(tmp / "home" / "dump.pkl", source)
   }
 
   /** Evaluate a probe against the staged Pkl project (ADR 0010, Track B): a
@@ -261,7 +305,10 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("PklDump.render emits typed declarations, plain when legal") {
     val src = PklDump.render(fakeTransformedDump)
-    assert(src.contains("import \"hass.pkl\""), clue = src)
+    // The schema comes in by ALIAS, not as a file sibling: the dump lives in
+    // its own `@fh-home` package, and the alias is what lands its `hass` types
+    // on the same URI `components.pkl` sees (ADR 0010, "Module identity").
+    assert(src.contains("import \"@fh-dashboard/hass.pkl\""), clue = src)
     assert(
       src.contains("const hidden e_light_kitchen: hass.LightEntity"),
       clue = src
@@ -337,12 +384,12 @@ class PklBuildSuite extends munit.FunSuite {
     // And the rendered module must actually evaluate, dot-paths included.
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl")
-    os.write(tmp / "lib" / "dump.pkl", src)
+    writeDump(tmp, src)
     os.write(
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/dump.pkl" as dump
+        |import "@fh-home/dump.pkl" as dump
         |
         |areaId = dump.areas.`new`.area_id
         |floorName = dump.`3rd_floor`.floor_name
@@ -360,12 +407,12 @@ class PklBuildSuite extends munit.FunSuite {
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl")
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeTransformedDump))
+    writeDump(tmp, PklDump.render(fakeTransformedDump))
     os.write(
       tmp / "probe.pkl",
       """module probe
         |
-        |import "lib/dump.pkl" as dump
+        |import "@fh-home/dump.pkl" as dump
         |
         |flat = dump.entities.light_kitchen.entity_id
         |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
@@ -532,7 +579,7 @@ class PklBuildSuite extends munit.FunSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/dump.pkl" as dump
+       |import "@fh-home/dump.pkl" as dump
        |import "@fh-dashboard/theme.pkl" as th
        |
        |theme = ${PklFixture.dummyTheme}
@@ -575,7 +622,7 @@ class PklBuildSuite extends munit.FunSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/dump.pkl" as dump
+       |import "@fh-home/dump.pkl" as dump
        |import "@fh-dashboard/theme.pkl" as th
        |
        |theme = ${PklFixture.dummyTheme}
@@ -1112,13 +1159,13 @@ class PklBuildSuite extends munit.FunSuite {
       """)
       .toOption
       .get
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(fakeDump))
+    writeDump(tmp, PklDump.render(fakeDump))
     os.write(
       tmp / "probe.pkl",
       """module probe
         |
         |import "@fh-dashboard/components.pkl" as c
-        |import "@fh-dashboard/dump.pkl" as dump
+        |import "@fh-home/dump.pkl" as dump
         |
         |node = c.floorView(dump.over)
         |""".stripMargin

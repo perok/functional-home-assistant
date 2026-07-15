@@ -1,8 +1,8 @@
-# ADR 0010 — The live Pkl schema endpoint + the `@fh-dashboard` authoring alias
+# ADR 0010 — The live Pkl schema endpoint + the `@fh-dashboard` / `@fh-home` aliases
 
 - **Status:** Accepted (Track A: the `/system/pkl/*` HTTP endpoint; Track B: entries
-  import the library through the `@fh-dashboard` project-dependency alias — both landed)
-- **Date:** 2026-07-14
+  import the library and the dump through project-dependency aliases — both landed)
+- **Date:** 2026-07-15
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
 
 See also ADR [0006](0006-pkl-authoring-track.md) (Pkl as the authoring language);
@@ -20,6 +20,11 @@ Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
   PackageResolver.getInstance(sm, dummyHttpClient, cacheDir), writer).resolve()`
   writes a `PklProject.deps.json` for a `"type":"local"` dep with no network and no
   pkl CLI; `EvaluatorBuilder.applyFromProject` then resolves `@fh-dashboard/…`.
+  Resolving the consumer alone also covers a nested package's own deps.
+- **Import analysis (B):** `Analyzer`'s `DeclaredDependencies` + `moduleCacheDir`
+  slots make `projectpackage:` imports analyzable, and `graph.resolvedImports`
+  maps a LOCAL dep's modules back to their real `file:` paths — the basis of the
+  precise watch set.
 
 ## Context
 
@@ -27,9 +32,10 @@ A dashboard entry pulls in two fh-owned Pkl artifacts:
 
 - **`lib/hass.pkl`** — the hand-written HA domain schema (entity/area/floor
   classes). Static; ships with the module.
-- **`lib/dump.pkl`** — the *typed* dump of THIS home's live entities/areas/floors
+- **`home/dump.pkl`** — the *typed* dump of THIS home's live entities/areas/floors
   (`PklDump.render(DataDump.fetch(...))`), regenerated from the live instance.
-  Gitignored; per-home; changes as the home changes.
+  Gitignored; per-home; changes as the home changes. It lives in its own package
+  (`@fh-home`) because its lifecycle is the opposite of the library's — see Track B.
 
 Two consumers must resolve these, and they resolve imports differently:
 
@@ -46,8 +52,8 @@ Two complementary mechanisms, one for each consumer class.
 ### Track A — the `/system/pkl/:name` HTTP endpoint (for external editors)
 
 `Server` serves `GET /system/pkl/{hass,dump}.pkl` as `text/plain` from a
-`SystemPkl` provider (`SystemPkl.fromDisk(dashboardsDir)` reads
-`lib/{hass,dump}.pkl`; `prepareDumps` has already written the live `dump.pkl`).
+`SystemPkl` provider (`SystemPkl.fromDisk(dashboardsDir)` reads `lib/hass.pkl`
+and `home/dump.pkl`; `prepareDumps` has already written the live dump).
 An unknown name is a 404. This is the live, always-in-sync endpoint that pkl-lsp
 and remote authors fetch for completion/diagnostics — the schema+dump of *that*
 running home, not a checkout's stale file.
@@ -74,60 +80,101 @@ shipped entries no longer take it (Track B). `hasHierarchicalUris = true` lets a
 served `dump.pkl`'s own `import "hass.pkl"` resolve to its `…/system/pkl/hass.pkl`
 sibling; the evaluator's allowlist admits `http:` when this factory is present.
 
-### Track B — the `@fh-dashboard` alias (the authoring surface for entries)
+### Track B — the `@fh-dashboard` / `@fh-home` aliases (the authoring surface)
 
-Entries do **not** import the library by http URL or relative path. `lib/` is a
-Pkl **package** (`lib/PklProject`, name `fh-dashboard`), and the entries'
-directory is a **consumer project** (`dashboards/PklProject`) that maps the alias
-`@fh-dashboard` to `./lib`. An entry reads:
+Entries do **not** import the library by http URL or relative path. There are two
+Pkl **packages**, split by lifecycle, and the entries' directory is a **consumer
+project** (`dashboards/PklProject`) mapping both aliases:
+
+- **`@fh-dashboard` → `./lib`** (`lib/PklProject`, name `fh-dashboard`) — the
+  shared authoring library: schema, card classes, themes, tokens, entry base.
+  Versionable; one day publishable to a registry.
+- **`@fh-home` → `./home`** (`home/PklProject`, name `fh-home`) — THIS home's
+  live data: just the generated `dump.pkl`. Per-home, regenerated from the live
+  instance, and **never publishable** — decoupling the dump from the live home is
+  precisely what this whole ADR exists to avoid. It depends on `@fh-dashboard`
+  for the schema.
+
+An entry reads:
 
 ```pkl
 amends "@fh-dashboard/entry.pkl"
 import "@fh-dashboard/components.pkl" as c
-import "@fh-dashboard/dump.pkl" as dump
+import "@fh-home/dump.pkl" as dump
 ```
 
-`PklBuild.resolveProjectDeps` resolves that mapping **in-process and network-free**
+The split is what makes the publish story true rather than aspirational: with the
+dump inside `@fh-dashboard`, publishing would have forced it out at exactly the
+moment the schema became remote — the riskiest possible time to discover the
+identity constraint above. Splitting now costs one manifest and proves the
+arrangement works while everything is still local. `home/dump.pkl` also must not
+sit at the dashboards top level, where `discoverEntries` would scan it as an
+entry (`DashboardBuild.DumpPath` owns the location).
+
+`PklBuild.resolveProjectDeps` resolves the mapping **in-process and network-free**
 (`ProjectDependenciesResolver` + a dummy HTTP client — a *local* dependency is
 never fetched), writes the `PklProject.deps.json` lockfile once (gitignored), and
-`EvaluatorBuilder.applyFromProject` makes `@fh-dashboard/…` resolve to the local
-`lib/`. No relative paths, no embedded host, no self-fetch — and offline
-build/test paths keep working (the resolve reads local files only).
+`EvaluatorBuilder.applyFromProject` makes the aliases resolve to the local `lib/`
+and `home/`. No relative paths, no embedded host, no self-fetch — and offline
+build/test paths keep working (the resolve reads local files only). Resolving the
+**consumer** project is enough: `@fh-home`'s own `@fh-dashboard` dependency
+resolves with it, and only `dashboards/PklProject.deps.json` is written (verified
+on 0.31.1) — no per-package pass.
 
-**Package-internal modules use RELATIVE imports** (`components.pkl` →
-`import "hass.pkl"`, `entry.pkl` → `import "components.pkl"`). The `@fh-dashboard`
-alias is declared only in the *consumer* project, so a package member cannot (and
-must not) reference its own package by alias — and it does not need to (see the
-identity constraint below).
+**A module imports its OWN package's modules relatively, and another package's by
+alias.** `components.pkl` → `import "hass.pkl"`, `entry.pkl` →
+`import "components.pkl"`: an alias is declared by a *consumer* project, so a
+package member cannot reference its own package by alias — and need not, since the
+relative import already lands on the package base. `dump.pkl` is the other case:
+it is a member of `@fh-home` reaching into a *different* package, so it writes
+`import "@fh-dashboard/hass.pkl"` — declared as a dependency in `home/PklProject`,
+and resolving to the same base `components.pkl`'s relative import does.
 
 The day `lib/` is published to a registry, only the consumer `PklProject` mapping
 flips (`["fh-dashboard"] = "package://…/fh-dashboard@1.0.0"`); entries do not
-change. "Published + local fallback" is this *resolution mapping*, chosen per
-project — not runtime failover.
+change, and neither does the dump's alias import. "Published + local fallback" is
+this *resolution mapping*, chosen per project — not runtime failover.
 
-## The load-bearing constraint: one URI per module
+## The load-bearing constraint: module identity
 
-**Pkl identifies a module by its resolved URI.** Two imports of byte-identical
-`hass.pkl` under two different URIs produce **two distinct module instances with
-distinct, non-interchangeable classes**: a `hass.LightEntity` from one is not the
-same type as one from the other, and passing it where the other is expected is a
-Pkl type error. Entries pass `dump.*` entities into `components.pkl` card
-factories, so `dump.pkl` and `components.pkl` MUST see the same `hass` URI.
+**Pkl identifies a module by the artifact an import RESOLVES to, not by the
+import URI you wrote.** Two *files* holding byte-identical `hass.pkl` produce two
+distinct module instances with distinct, non-interchangeable classes: a
+`hass.LightEntity` from one is not the same type as one from the other, and
+passing it where the other is expected is a Pkl type error. Entries pass `dump.*`
+entities into `components.pkl` card factories, so the dump and the library MUST
+reach the same `hass` **artifact**.
 
-Track B satisfies this **through the package base**: because the entry pulls both
-`components.pkl` and `dump.pkl` in through `@fh-dashboard`, each module's relative
-`import "hass.pkl"` resolves under the one package base
-(`projectpackage://fh.local/fh-dashboard@1.0.0#/hass.pkl`) — a single URI, hence
-a single set of `hass` types. `dump.pkl`'s emitted `import "hass.pkl"` is
-unchanged; it just resolves under the package instead of as a file sibling. This
-was spike-verified on pkl-core 0.31.1 (a `dump` entity fed to a `components` card
-factory typechecks; a deliberately-split second URI errors as the classic
-"expected hass#Entity, got hass#Entity").
+Spike-verified on pkl-core 0.31.1, feeding a `dump` entity to a card factory
+whose parameter is `hass.Entity`:
 
-Consequence for tests: a probe that mixes `components.pkl` with a plain
-`hass.pkl`/`dump.pkl` **file** import would split the URI. Probes therefore either
-go fully through `@fh-dashboard` (staged by `copyLib`/`PklFixture`) or stay purely
-file-based (siblings in one `lib/`, one file URI) — never mixed.
+| how the dump reaches the schema | result |
+|---|---|
+| `@fh-dashboard/hass.pkl` (alias, from its own package) | typechecks |
+| `../lib/hass.pkl` (relative escape — a *different URI string*, same file) | typechecks |
+| its own copied `home/hass.pkl` (a genuinely separate file) | **type error** |
+
+So multiplying URIs onto one file is harmless; **duplicating the file is what
+breaks**. (An earlier version of this ADR stated the rule as "one URI per
+module", which predicts the first two rows fail. They don't. The failure mode is
+real but its trigger is artifact duplication.) The error, when it does fire, is
+the notoriously confusing `Expected value of type "hass#Entity", but got type
+"hass#LightEntity"` — same-looking names, different modules.
+
+Both packages satisfy this through **one `@fh-dashboard` package base**:
+`components.pkl`'s package-internal `import "hass.pkl"` and `dump.pkl`'s
+`import "@fh-dashboard/hass.pkl"` both land on
+`projectpackage://fh.local/fh-dashboard@1.0.0#/hass.pkl` — one artifact, one set
+of `hass` types. This survives publication: once `@fh-dashboard` is a registry
+package, the dump's alias import resolves into the same package-cache artifact
+`components.pkl` uses.
+
+Consequence for tests: a probe must not reach the schema through a *second copy*
+of it. Probes either go through the aliases (staged by `copyLib`/`PklFixture`) or
+stay purely file-based against one `lib/` — never a mix that stages a duplicate.
+The identity is guarded implicitly but non-vacuously: `SmokeDashboard` and the
+`PklBuildSuite` fixtures pass `dump.entities.*` into `c.entityCard(...)`, which
+is exactly the shape row 3 above proves is sensitive.
 
 ## The watch set
 
@@ -180,6 +227,15 @@ normal one for shipped entries.
 - **A published `hass.pkl`/`dump.pkl` package.** Decouples the schema+dump from the
   *live* home — the whole point is that they track the running instance, which is
   why they are served (Track A) and mapped locally (Track B), not versioned.
+- **Keep the dump inside `@fh-dashboard`.** Where it started. It works only while
+  the library is local: a published package can never carry per-home data, so the
+  dump would have to move out at exactly the moment the schema went remote — the
+  worst time to first exercise the identity constraint. `@fh-home` costs one
+  manifest and settles it now.
+- **Put `dump.pkl` beside the entries as a plain file.** No third manifest, and an
+  entry's `import "home/dump.pkl"` would resolve. But it re-embeds a relative path
+  in every entry — the thing Track B removed — and a top-level `dump.pkl` would be
+  scanned as an entry. The alias keeps entry text uniform and relocatable.
 
 ## Open follow-ups
 
@@ -197,3 +253,6 @@ normal one for shipped entries.
   deployment over `https:` needs a cert reachable by pkl-lsp — out of scope so far.
 - **Publish `@fh-dashboard`.** The remote half (a `package://…` registry: network +
   checksum, unspiked) is a post-API-stability step; only the consumer mapping flips.
+  The dump does not participate: it is already outside that package (`@fh-home`),
+  and its `@fh-dashboard/hass.pkl` import resolves into the published artifact —
+  spike-verified as the same identity `components.pkl` sees.

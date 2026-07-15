@@ -8,7 +8,7 @@ import io.circe.Json
   * authoring pipeline — the Tier-A path (ADR 0009): `.pkl` -> `SourceEval.eval`
   * -> `DashboardBuild.hoistInlineSurfaces` -> decode. It stages a temp dir
   * exactly as `PklBuildSuite` does (the real `lib` modules copied in, a
-  * generated `lib/dump.pkl` beside them), so no live HA is touched; the dump is
+  * generated `home/dump.pkl` in the @fh-home package), so no live HA is touched; the dump is
   * supplied by the caller (typically [[HouseFixture.transformedDump]], so the
   * dashboard and the served state come from one source).
   *
@@ -59,9 +59,10 @@ object PklFixture {
       "entry.pkl"
     )
 
-  /** Stage the lib + a `lib/dump.pkl` rendered from `dump`, write `entrySource`
-    * as `<slug>.pkl`, and evaluate it. Throws with the pipeline's error text if
-    * evaluation fails — so a broken fixture fails loudly at the call site.
+  /** Stage the lib + a `home/dump.pkl` rendered from `dump`, write
+    * `entrySource` as `<slug>.pkl`, and evaluate it. Throws with the pipeline's
+    * error text if evaluation fails — so a broken fixture fails loudly at the
+    * call site.
     */
   def eval(
       slug: String,
@@ -73,12 +74,16 @@ object PklFixture {
     libModules.foreach(n =>
       os.copy.into(dashboardsDir / "lib" / n, tmp / "lib")
     )
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(dump))
-    // Stage the Pkl project so an entry resolves the `@fh-dashboard` alias
-    // exactly as the live server does (ADR 0010, Track B): the package manifest
-    // in `lib/` plus the consumer `PklProject` that maps `@fh-dashboard` ->
-    // `./lib`. `PklBuild` resolves the (network-free, local) lockfile in-process.
+    // Stage both Pkl packages + the consumer project, so an entry resolves the
+    // aliases exactly as the live server does (ADR 0010, Track B): the
+    // `@fh-dashboard` manifest in `lib/`, the `@fh-home` manifest in `home/`
+    // (with the generated dump inside it, where `prepareDumps` writes it), and
+    // the consumer `PklProject` mapping both. `PklBuild` resolves the
+    // (network-free, local) lockfile in-process.
+    os.makeDir.all(tmp / "home")
+    os.write(DashboardBuild.dumpPath(tmp), PklDump.render(dump))
     os.copy.into(dashboardsDir / "lib" / "PklProject", tmp / "lib")
+    os.copy.into(dashboardsDir / "home" / "PklProject", tmp / "home")
     os.copy.into(dashboardsDir / "PklProject", tmp)
 
     val entryFile = s"$slug.pkl"

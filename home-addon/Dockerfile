@@ -32,14 +32,19 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
 # Dashboard seed: the shared Pkl lib + the generic starter entry. Never ships
-# lib/dump.pkl (user-specific, regenerated at every startup) nor the demo
-# entries (they reference dev-instance entities). The `lib/` copy includes its
-# `PklProject` (the `@fh-dashboard` package manifest); the consumer `PklProject`
-# below binds the `@fh-dashboard` alias to it so seeded entries resolve their
-# imports (ADR 0010, Track B). `PklProject.deps.json` is NOT shipped — it is the
-# generated lockfile, resolved in-process at startup.
+# the demo entries (they reference dev-instance entities), and never ships a
+# dump — that is this user's own live data, written into the `@fh-home` package
+# at every startup.
+#
+# Three manifests, all required (ADR 0010, Track B): `lib/PklProject` (the
+# `@fh-dashboard` package), `home/PklProject` (the `@fh-home` package that will
+# hold the generated dump), and the consumer `PklProject` that binds BOTH
+# aliases. The consumer declares `@fh-home`, so its manifest must exist or the
+# dependency resolve fails at startup for every entry — the `home/` dir ships
+# with only that manifest in it. `PklProject.deps.json` is NOT shipped: it is
+# the generated lockfile, resolved in-process at startup.
 COPY modules/fh-datastar-view/src/main/resources/dashboards/lib /opt/dashboards-seed/lib
-RUN rm -f /opt/dashboards-seed/lib/dump.pkl
+COPY modules/fh-datastar-view/src/main/resources/dashboards/home/PklProject /opt/dashboards-seed/home/PklProject
 COPY modules/fh-datastar-view/src/main/resources/dashboards/PklProject /opt/dashboards-seed/PklProject
 COPY home-addon/dashboards-seed/ /opt/dashboards-seed/
 

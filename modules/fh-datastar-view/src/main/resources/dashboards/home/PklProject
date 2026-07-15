@@ -1,0 +1,30 @@
+/// The Pkl package that carries THIS home's live data — today just the
+/// generated `dump.pkl` (the typed entity/area/floor dump `PklDump` renders
+/// from the live HA registry). Entries depend on it under the alias
+/// `@fh-home`, so an entry writes `import "@fh-home/dump.pkl" as dump`.
+///
+/// Why this is its own package, separate from `@fh-dashboard` (ADR 0010):
+/// the two artifacts have opposite lifecycles. The library in `lib/` is shared,
+/// versionable, and one day publishable to a registry; the dump is per-home,
+/// regenerated from the live instance, and can NEVER ship in a published
+/// package — decoupling it from the live home is exactly the thing the whole
+/// endpoint exists to avoid. Keeping it here means publishing `@fh-dashboard`
+/// only flips the consumer's mapping; the dump stays local either way, and
+/// entries never change.
+///
+/// `dump.pkl` reaches the domain schema through the `@fh-dashboard` dependency
+/// below (`import "@fh-dashboard/hass.pkl"`) rather than as a file sibling, so
+/// its `hass` types are the SAME module identity `components.pkl` sees. That is
+/// load-bearing — see ADR 0010, "Module identity".
+amends "pkl:Project"
+
+package {
+  name = "fh-home"
+  baseUri = "package://fh.local/fh-home"
+  version = "1.0.0"
+  packageZipUrl = "https://fh.local/fh-home@\(version).zip"
+}
+
+dependencies {
+  ["fh-dashboard"] = import("../lib/PklProject")
+}

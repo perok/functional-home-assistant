@@ -66,17 +66,19 @@ object SystemPkl {
     */
   val empty: SystemPkl = apply(None, None)
 
-  /** Serve the two artifacts straight off disk under `<dashboardsDir>/lib/`.
-    * Reads are by-name (per lookup), so `dump.pkl` reflects the latest
-    * `DashboardBuild.prepareDumps` write without any cache to invalidate.
+  /** Serve the two artifacts straight off disk: the schema from the
+    * `@fh-dashboard` library (`lib/hass.pkl`), the dump from the `@fh-home`
+    * package ([[DashboardBuild.DumpPath]]) — they live in separate packages
+    * because their lifecycles differ (ADR 0010). Reads are by-name (per
+    * lookup), so `dump.pkl` reflects the latest `DashboardBuild.prepareDumps`
+    * write without any cache to invalidate.
     */
   def fromDisk(dashboardsDir: os.Path): SystemPkl = {
-    val lib = dashboardsDir / "lib"
-    def read(name: String): Option[String] = {
-      val p = lib / name
-      Option.when(os.exists(p))(os.read(p))
-    }
-    apply(read("hass.pkl"), read("dump.pkl"))
+    def read(p: os.Path): Option[String] = Option.when(os.exists(p))(os.read(p))
+    apply(
+      read(dashboardsDir / "lib" / "hass.pkl"),
+      read(DashboardBuild.dumpPath(dashboardsDir))
+    )
   }
 
   /** An in-memory [[ModuleKey]] backing an intercepted `/system/pkl/…` URI.

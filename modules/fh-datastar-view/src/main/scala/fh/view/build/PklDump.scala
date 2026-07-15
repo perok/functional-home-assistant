@@ -123,11 +123,19 @@ object PklDump {
          |${tick(propName)}: ${tick(s"Floor_$slug")} = new {}""".stripMargin
     }
 
+    // The schema comes in BY ALIAS, not as a file sibling: `dump.pkl` lives in
+    // its own `@fh-home` package (it is live per-home data and can never ship
+    // inside the shared `@fh-dashboard` library), so it is no longer a sibling
+    // of `hass.pkl`. The alias resolves to
+    // `projectpackage://fh.local/fh-dashboard@1.0.0#/hass.pkl` — the SAME URI
+    // `components.pkl`'s own relative `import "hass.pkl"` lands on — which is
+    // what keeps a dump entity assignable to a card factory's `hass.Entity`
+    // parameter. See ADR 0010, "Module identity".
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
        |/// The entity/area/floor dump, typed against `hass.pkl`.
        |module dump
        |
-       |import "hass.pkl"
+       |import "@fh-dashboard/hass.pkl"
        |
        |${entityDecls.mkString("\n\n")}
        |
