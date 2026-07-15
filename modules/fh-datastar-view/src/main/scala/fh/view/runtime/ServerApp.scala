@@ -203,36 +203,22 @@ object ServerApp extends IOApp {
         Renderer.create(dash.copy(slug = slug)) -> imports
     }
 
-  /** The set of files to watch: every entry's transitive imports, the entry
-    * files themselves (so a brand-new import or a top-level edit is caught),
-    * and every `*.pkl` under `lib/` (the authoring library) added EXPLICITLY.
+  /** The set of files to watch: every entry's transitive imports plus the entry
+    * files themselves (so a brand-new import or a top-level edit is caught).
     *
-    * The library is imported through the `@fh-dashboard` alias (ADR 0010, Track
-    * B), so those modules resolve as `projectpackage:` and `PklBuild.importSet`
-    * does not surface them as local `file:` paths — without this add, editing a
-    * card class or the schema would stop hot-reloading. The generated
-    * `lib/dump.pkl` is still watched here (it is under `lib/`), which is
-    * harmless: it is only rewritten on a live-state re-fetch, not hand-edited.
-    *
-    * This explicit add is also the seam for a future "local-dev only" toggle:
-    * watching the library sources is a checkout/dev-loop concern, irrelevant to
-    * a deployed add-on whose library is fixed per image.
+    * The `lib/` authoring library needs no special handling: `@fh-dashboard` is
+    * a LOCAL project dependency, so `PklBuild.importSet` resolves those
+    * `projectpackage:` imports back to their real paths under `lib/` and they
+    * arrive here as ordinary `file:` imports. Editing a card class or the
+    * schema hot-reloads every entry that imports it.
     */
   private def watchedSet(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       imports: List[Set[os.Path]]
-  ): Set[Path] = {
-    val libDir = dashboardsDir / "lib"
-    val libSources =
-      if (os.exists(libDir))
-        os.list(libDir).filter(p => os.isFile(p) && p.ext == "pkl").toSet
-      else Set.empty[os.Path]
-    (imports.flatten.toSet ++
-      entries.map { case (_, e) => dashboardsDir / e } ++
-      libSources)
+  ): Set[Path] =
+    (imports.flatten.toSet ++ entries.map { case (_, e) => dashboardsDir / e })
       .map(fs2Path)
-  }
 
   private val watchedEvents = List(
     Watcher.EventType.Created,

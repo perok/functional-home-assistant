@@ -54,10 +54,8 @@ class PklBuildSuite extends munit.FunSuite {
   test("PklBuild.eval reports the entry's precise transitive imports only") {
     // A plain FILE import is tracked precisely: the entry + its transitive file
     // imports, and nothing else — an unrelated sibling that is never imported
-    // is excluded (unlike the all-*.pkl superset). (A shipped entry imports the
-    // library through the `@fh-dashboard` alias, which resolves as
-    // `projectpackage:` and falls back to that superset — see the ServerApp
-    // watch-set note; here we pin the precise file path with a bare helper.)
+    // is excluded (unlike the all-*.pkl superset). The `@fh-dashboard` alias
+    // gets the same precision; that is pinned separately below.
     val tmp = os.temp.dir()
     os.makeDir.all(tmp / "lib")
     os.write(
@@ -92,6 +90,45 @@ class PklBuildSuite extends munit.FunSuite {
         tmp / "entry.pkl",
         tmp / "lib" / "helper.pkl"
       ),
+      clue = imports
+    )
+    assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)
+  }
+
+  test("PklBuild.eval resolves @fh-dashboard imports back to their lib files") {
+    // The guard behind `ServerApp.watchedSet` NOT bulk-adding `lib/`: because
+    // `@fh-dashboard` is a LOCAL project dependency, the analyzer resolves its
+    // `projectpackage:` imports back to real `lib/*.pkl` paths, so an aliased
+    // library module lands in the watch set as an ordinary file. If that ever
+    // regressed, `importSet` would silently fall back to the all-*.pkl
+    // superset — which still contains `lib/hass.pkl`, so asserting only its
+    // presence would pass vacuously. The `unrelated.pkl` exclusion is what
+    // actually separates "precise" from "superset": the superset would sweep
+    // it in.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl")
+    os.write(
+      tmp / "unrelated.pkl",
+      """module unrelated
+        |orphan = 1
+        |""".stripMargin
+    )
+    os.write(
+      tmp / "probe.pkl",
+      """import "@fh-dashboard/hass.pkl"
+        |
+        |light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |id = light.entity_id
+        |""".stripMargin
+    )
+
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val imports = result.toOption.get.imports
+
+    assertEquals(
+      imports,
+      Set(tmp / "probe.pkl", tmp / "lib" / "hass.pkl"),
       clue = imports
     )
     assert(!imports.contains(tmp / "unrelated.pkl"), clue = imports)

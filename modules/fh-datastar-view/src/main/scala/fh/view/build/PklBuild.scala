@@ -49,14 +49,18 @@ object PklBuild {
   ): Either[String, SourceEval.Result] = {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
-      val evaluator = buildEvaluator(dashboardsDir, system)
+      val project = resolveProjectDeps(dashboardsDir)
+      val evaluator = buildEvaluator(system, project)
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
       val writer = new StringWriter
       ValueRenderers.json(writer, "  ", true).renderDocument(module)
       parser.parse(writer.toString).left.map(_.message).map { json =>
-        SourceEval.Result(json, importSet(dashboardsDir, entry, system))
+        SourceEval.Result(
+          json,
+          importSet(dashboardsDir, entry, system, project)
+        )
       }
     } catch {
       case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
@@ -84,11 +88,12 @@ object PklBuild {
 
   /** The evaluator for one eval.
     *
-    *   1. When `dashboardsDir` is a Pkl project (has a `PklProject`), we
-    *      `applyFromProject` so entries can import the `lib/` library through
-    *      the `@fh-dashboard` alias (ADR 0010, Track B). Plain relative-import
-    *      evals — most unit probes, no `PklProject` — skip this and behave
-    *      exactly as `Evaluator.preconfigured()`.
+    *   1. When the dashboards dir is a Pkl project (has a `PklProject`),
+    *      `project` is its loaded form and we `applyFromProject` so entries can
+    *      import the `lib/` library through the `@fh-dashboard` alias (ADR
+    *      0010, Track B). Plain relative-import evals — most unit probes, no
+    *      `PklProject` — pass `None` and behave exactly as
+    *      `Evaluator.preconfigured()`.
     *   2. When a [[SystemPkl]] is supplied, we PREPEND its intercept factory to
     *      the (now possibly project-derived) factory list so it wins over the
     *      built-in `http` factory, and widen the allowlist to admit `http:` —
@@ -98,11 +103,11 @@ object PklBuild {
     *      are preserved (verified composing on pkl-core 0.31.1).
     */
   private def buildEvaluator(
-      dashboardsDir: os.Path,
-      system: Option[SystemPkl]
+      system: Option[SystemPkl],
+      project: Option[Project]
   ): Evaluator = {
     val builder = EvaluatorBuilder.preconfigured()
-    resolveProjectDeps(dashboardsDir).foreach(builder.applyFromProject)
+    project.foreach(builder.applyFromProject)
     system.foreach { sys =>
       val factories =
         (new SystemPkl.Factory(sys) ::
@@ -154,24 +159,39 @@ object PklBuild {
     * fall back to the conservative superset (every `*.pkl` under the dir); the
     * entry is always included regardless.
     *
-    * A shipped entry imports its library through the `@fh-dashboard` alias (ADR
-    * 0010, Track B), which the file-only analyzer here cannot resolve — so it
-    * throws and this collapses to the superset (every `*.pkl` under the dir).
-    * That is exactly what we want for the real dashboards: the whole authoring
-    * dir is watched, and `ServerApp.watchedSet` adds the `lib/` sources for
-    * good measure. Precision still applies to plain FILE-import entries (e.g.
-    * the unit probes), where the graph resolves and unrelated siblings drop
-    * out. The `SystemPkl` factory + http-admitting security manager below keep
-    * any residual `http://…/system/pkl/…` import analyzable rather than
-    * throwing.
+    * **The `@fh-dashboard` alias resolves here too**, which is why this is
+    * precise rather than a superset for the real dashboards. Two of the
+    * `Analyzer` constructor's slots do the work: the `moduleCacheDir` and the
+    * `DeclaredDependencies` (`project.getDependencies`, the same
+    * [[resolveProjectDeps]] output the evaluator gets). With those supplied and
+    * the `projectpackage`/`pkg` factories registered, an
+    * `import "@fh-dashboard/components.pkl"` analyzes as
+    * `projectpackage://fh.local/fh-dashboard@1.0.0#/components.pkl`, and —
+    * because `@fh-dashboard` is a LOCAL dependency — `graph.resolvedImports`
+    * maps it straight back to the real `file:…/lib/components.pkl`. So the
+    * `file:` filter below picks up exactly the library modules the entry
+    * actually imports, and nothing else (verified on pkl-core 0.31.1).
+    *
+    * That precision is why `ServerApp.watchedSet` does NOT need to bulk-add
+    * `lib/`: an entry that imports a card class watches that card class, and a
+    * library module nobody imports is correctly not watched.
+    *
+    * The `SystemPkl` factory + http-admitting security manager below keep any
+    * residual `http://…/system/pkl/…` import analyzable rather than throwing.
     */
   private def importSet(
       dashboardsDir: os.Path,
       entry: os.Path,
-      system: Option[SystemPkl]
+      system: Option[SystemPkl],
+      project: Option[Project]
   ): Set[os.Path] = {
     val baseFactories =
-      List(ModuleKeyFactories.standardLibrary, ModuleKeyFactories.file)
+      List(
+        ModuleKeyFactories.standardLibrary,
+        ModuleKeyFactories.file,
+        ModuleKeyFactories.projectpackage,
+        ModuleKeyFactories.pkg
+      )
     val factories = system match {
       case Some(sys) => new SystemPkl.Factory(sys) :: baseFactories
       case None      => baseFactories
@@ -192,8 +212,8 @@ object PklBuild {
         false,
         securityManager,
         factories.asJava,
-        null,
-        null,
+        (dashboardsDir / ".pkl-cache").toNIO,
+        project.map(_.getDependencies).orNull,
         HttpClient.dummyClient(),
         TraceMode.COMPACT
       )
