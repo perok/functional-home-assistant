@@ -5,6 +5,7 @@ package fh.view.runtime
 
 import cats.effect.{IO, Resource}
 import com.comcast.ip4s.{host, port}
+import fh.view.build.SystemPkl
 import fh.view.model.Dashboard
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fs2.concurrent.SignallingRef
@@ -129,7 +130,11 @@ object TestServer {
     */
   def resource(
       dashboard: Dashboard,
-      entities: List[FixtureEntity]
+      entities: List[FixtureEntity],
+      // The instance's Pkl artifacts, served over `/system/pkl/` — what a CLI
+      // pull fetches (ADR 0010). Empty (serving nothing) for every test that
+      // isn't about that endpoint.
+      systemPkl: SystemPkl = SystemPkl.empty
   ): Resource[IO, TestServer] =
     for {
       fake <- FakeHomeAssistant.create(entities).toResource
@@ -143,7 +148,8 @@ object TestServer {
         store,
         Map(dashboard.slug -> rendererRef),
         dashboard.slug,
-        sessions
+        sessions,
+        systemPkl = systemPkl
       )
     } yield new TestServer(fake, store, server, dashboard.slug)
 

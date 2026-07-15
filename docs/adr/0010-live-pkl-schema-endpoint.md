@@ -19,11 +19,14 @@ Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
   nothing imports over http (see Use cases), and the served dump's own
   `@fh-dashboard` import could not resolve that way regardless. Retained as a
   fallback; a candidate for deletion.
-- **Not possible (spiked, and it shapes the design):** `package://` forces
-  `https:` — `package://localhost:8099/x@1.0.0` issues
-  `GET https://localhost:8099/x@1.0.0` and a plaintext host is never contacted. And
-  an http-served module cannot resolve an `@alias`: `Cannot import dependency
-  because there is no project found`.
+- **Package URLs + rewrites (spiked):** `package://` maps to an `https:` outbound
+  request (`package://fh.local/x@1.0.0` → `GET https://fh.local/x@1.0.0`), but
+  `HttpClient.Builder.addRewrite(from, to)` retargets it — a rewrite to
+  `http://127.0.0.1:8099/` was received by a **plaintext** server. So http package
+  hosting IS possible; https is not a hard floor.
+- **An http-served module cannot resolve an `@alias`** (spiked): `Cannot import
+  dependency because there is no project found`. `@` imports resolve against an
+  enclosing project; an http module has none.
 - **Local dep (B):** `ProjectDependenciesResolver(Project.loadFromPath(p),
   PackageResolver.getInstance(sm, dummyHttpClient, cacheDir), writer).resolve()`
   writes a `PklProject.deps.json` for a `"type":"local"` dep with no network and no
@@ -90,28 +93,31 @@ their Mustache templates inline), so a pushed dashboard needs nothing on the
 server. Once the components are published, a normal remote package dependency
 replaces the push, and they stop being special.
 
-### Why this rules out importing from the instance
+### Why the dump is never imported from the instance
 
-Two spikes on 0.31.1 close off the alternatives, and both cut the same way:
+The reason is **checksums, not transport**. Serving packages from the instance
+over plain http is entirely possible — `HttpClient.addRewrite` retargets the
+`https:` outbound request a `package://` URI produces, and a rewrite to
+`http://…` reached a plaintext server in a spike. Transport is not the obstacle.
 
-- **`package://` is https-only.** `package://localhost:8099/x@1.0.0` issues
-  `GET https://localhost:8099/x@1.0.0` — the scheme is forced, a plaintext server
-  sees nothing, and there is no knob. So an alias can never point at the add-on's
-  plain-http port. Packages are also **checksum-pinned**, which is right for a
-  versioned library and fatally wrong for a dump that is rewritten every start.
-- **An http-served module cannot resolve an alias.** A dump fetched over http and
-  imported as a module fails its own `import "@fh-dashboard/hass.pkl"` with
-  `Cannot import dependency because there is no project found` — `@` imports
-  resolve against an *enclosing project*, and an http module has none. Only a
-  sibling `import "hass.pkl"` works there (via `hasHierarchicalUris`).
+The obstacle is that **a package is checksum-pinned by design**. Resolution
+records the zip's sha256 into `PklProject.deps.json` and verifies it on every
+later use. That is exactly right for a versioned library and exactly wrong for
+`dump.pkl`, which is rewritten on every start under an unchanged version: the
+pin either breaks immediately or has to be re-minted per fetch, at which point it
+is not a pin. **A live artifact and a checksummed package are opposites**, and no
+transport trick reconciles them.
 
-So the dump text can serve the **package** world or the **http-module** world,
-never both. The package world wins: it is the one that also supports third-party
-component packages, and it keeps entry text free of host literals. `PklDump`
-therefore emits `import "@fh-dashboard/hass.pkl"`, and `/system/pkl/` demotes from
-"a module source editors import" to "**the artifacts this instance is
-authoritative for, for a client to copy locally**" — which needs no cert, no
-checksums, and works over plain http.
+The module-import escape is closed separately: a dump fetched over http as a
+*module* cannot resolve its own `import "@fh-dashboard/hass.pkl"` (`Cannot import
+dependency because there is no project found`) — only a sibling `import
+"hass.pkl"` works there. So the dump text can serve the **package** world or the
+**http-module** world, never both. The package world wins: it is what third-party
+component packages need, and it keeps entry text free of host literals. `PklDump`
+therefore emits `import "@fh-dashboard/hass.pkl"`, and `/system/pkl/` is a
+**file-download API**: the client copies the dump into its own `@fh-home` package,
+where it is a plain local file with no checksum to satisfy. No cert, no pinning,
+plain http.
 
 That also gives the endpoint's `ETag` a real consumer at last: a CLI pull is a
 conditional `GET`, so an unchanged home costs a `304` instead of ~450KB.
@@ -298,10 +304,13 @@ normal one for shipped entries.
   authoring surface. It is also now a dead end: an http-served module cannot
   resolve an `@alias` at all (no enclosing project), so a library reached this way
   could never itself use the aliases.
-- **Point an alias at the instance (`package://<home>:8123/…`).** The natural
-  guess for the remote author, and impossible: `package://` forces `https:` (a
-  plaintext host is never contacted), and packages are checksum-pinned — right for
-  a versioned library, fatal for a per-start dump. The CLI pull replaces it.
+- **Point `@fh-home` at the instance as a package (`package://<home>/…`).**
+  Technically possible — `addRewrite` retargets the `https:` request to the
+  add-on's plain http port — but wrong for the dump on checksum grounds (above),
+  and it would make every consumer configure a rewrite to read a file. The CLI
+  pull is the same bytes with none of the ceremony. Serving `@fh-dashboard` this
+  way is a real option, just not a needed one: every persona already has `lib/`
+  locally.
 - **Write `@fh-dashboard/hass.pkl` inside `components.pkl`.** A package member
   referencing its own alias: the alias is not declared in the package's project,
   so it fails standalone, and in the best case resolves to the identical URI a
@@ -351,12 +360,20 @@ normal one for shipped entries.
   adding a dependency to their `PklProject` would keep getting the stale
   `PklProject.deps.json`. Fixing both means deciding what startup does when the
   network is down or a checksum moved.
-- **How a published package is actually addressed.** UNVERIFIED, and worth a spike
-  before promising it: package metadata is fetched from `https://<authority><path>@<version>`
-  (observed), so `package://github.com/<org>/<repo>/<pkg>@1.0.0` would `GET`
-  `https://github.com/<org>/<repo>/<pkg>@1.0.0`, which GitHub will not serve.
-  "Publish to GitHub and refer to the project path" therefore probably needs a
-  metadata host (GitHub Pages, a redirect, or a registry) rather than the repo URL.
+- **Publishing is a GitHub release; `pkg.pkl-lang.org` is the registry.** No
+  hosting to run: cut a GitHub release and consumers depend on
+  `package://pkg.pkl-lang.org/github.com/<owner>/<repo>/<release>` — the service
+  redirects to the release assets. (An earlier revision of this ADR guessed that
+  the repo URL itself would have to serve metadata and that a separate host was
+  needed. Wrong: `package://github.com/…` indeed does not work, but the registry
+  path is the supported form. See apple/pkl discussions#1479.)
+- **Air-gapped / mirrored installs** (`pkl-lang.org/blog/using-packages-in-air-gapped-environments`).
+  Once `@fh-dashboard` is published, an HA box with no internet cannot resolve it.
+  `evaluatorSettings.http.rewrites` is the answer, and it lives in `PklProject`, so
+  it is a per-project setting the add-on could ship — mirror both
+  `https://pkg.pkl-lang.org/` and `https://github.com/` (the registry redirects to
+  release assets, so both need mirroring). Rewrite targets may be plain `http://`
+  (spiked). Checksum behaviour behind a mirror is NOT yet verified.
 - **HTTPS/cert.** The endpoint allows plain `http:` (decided). Under the CLI-pull
   model this is no longer load-bearing: a file download needs no cert, and pkl-lsp
   never crosses the network. It returns only if something must *import* over the
