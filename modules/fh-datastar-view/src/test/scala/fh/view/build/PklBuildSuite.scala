@@ -135,27 +135,27 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("the add-on seed layout evaluates from its manifests alone") {
-    // Mirrors home-addon/Dockerfile's COPY steps exactly: lib/ (the
-    // @fh-dashboard package), home/PklProject (the @fh-home manifest, with NO
-    // dump beside it yet), the consumer PklProject, and the seeded entry.
+    // Mirrors home-addon/Dockerfile's two COPY steps exactly — the library from
+    // the module, everything user-facing from the seed dir — and then evaluates
+    // the seeded starter the way a fresh add-on does.
     //
-    // Two things this pins, neither visible to the rest of the suite because
-    // the Dockerfile is never executed here:
-    //   - the consumer project declares @fh-home, so shipping its manifest is
-    //     mandatory: without it the dependency resolve fails and EVERY entry
-    //     dies at startup, not just dump-importing ones;
+    // Three things this pins, none of them visible elsewhere in the suite
+    // because the Dockerfile is never executed here:
+    //   - the seed owns its OWN manifests rather than borrowing the dev
+    //     checkout's, so they can drift out of agreement with `lib/`. This is
+    //     the only thing that catches that: the seed's `@fh-dashboard` binding
+    //     must still match the package `lib/PklProject` actually declares.
+    //   - the consumer declares `@fh-home`, so shipping its manifest is
+    //     mandatory: without it the resolve fails and EVERY entry dies at
+    //     startup, not just dump-importing ones.
     //   - a fresh add-on evaluates before `prepareDumps` has ever run, so the
-    //     seed must build with the @fh-home package still empty.
+    //     starter must build with the `@fh-home` package still empty.
     val tmp = os.temp.dir()
-    val dashboards = resourcesLib / os.up
-    os.copy(dashboards / "lib", tmp / "lib")
-    os.makeDir.all(tmp / "home")
-    os.copy.into(dashboards / "home" / "PklProject", tmp / "home")
-    os.copy.into(dashboards / "PklProject", tmp)
-    os.copy.into(
-      os.pwd / "home-addon" / "dashboards-seed" / "dashboard.pkl",
-      tmp
-    )
+    os.copy(resourcesLib, tmp / "lib")
+    os.copy(os.pwd / "home-addon" / "dashboards-seed", tmp, mergeFolders = true)
+
+    assert(os.exists(tmp / "PklProject"), "seed must ship the consumer project")
+    assert(os.exists(tmp / "home" / "PklProject"), "seed must ship @fh-home")
     assert(!os.exists(tmp / "home" / "dump.pkl"), "seed must ship no dump")
 
     val result = SourceEval.eval(tmp, "dashboard.pkl")

@@ -38,9 +38,14 @@ default File editor / Samba add-ons can reach them without extra config.
 
 ### Re-seeding
 
-The seed is copied only when the `dashboards/` directory is empty. To get a
+The seed is copied only when the dashboards directory is empty. To get a
 fresh copy of the starter or an updated `lib/` after an add-on upgrade, move
 your entries elsewhere, empty the directory, and restart.
+
+What you get: your entries (`*.pkl`, starting with `dashboard.pkl`), `lib/` (the
+authoring library that ships with the add-on — don't edit it, it is replaced on
+upgrade), `home/` (your regenerated `dump.pkl`), and `PklProject`, which binds
+the `@fh-dashboard` and `@fh-home` names your entries import.
 
 ## Options
 

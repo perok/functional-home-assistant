@@ -31,21 +31,31 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
-# Dashboard seed: the shared Pkl lib + the generic starter entry. Never ships
-# the demo entries (they reference dev-instance entities), and never ships a
-# dump — that is this user's own live data, written into the `@fh-home` package
-# at every startup.
+# Dashboard seed — everything `run.sh` copies into the user's editable
+# `/homeassistant/fh-dashboards` on first start. Exactly two sources, split by
+# who owns the file:
 #
-# Three manifests, all required (ADR 0010, Track B): `lib/PklProject` (the
-# `@fh-dashboard` package), `home/PklProject` (the `@fh-home` package that will
-# hold the generated dump), and the consumer `PklProject` that binds BOTH
-# aliases. The consumer declares `@fh-home`, so its manifest must exist or the
-# dependency resolve fails at startup for every entry — the `home/` dir ships
-# with only that manifest in it. `PklProject.deps.json` is NOT shipped: it is
-# the generated lockfile, resolved in-process at startup.
+#   home-addon/dashboards-seed/  the USER's workspace: the starter entry and the
+#                                project manifests that bind @fh-dashboard and
+#                                @fh-home. Written for the end user and kept
+#                                there, so this directory IS the product
+#                                surface — read it to see what a user gets. It
+#                                deliberately does not borrow the dev checkout's
+#                                own PklProject, whose docs describe the demo
+#                                entries and dev workspace.
+#   lib/                         the authoring library: fh's code, versioned
+#                                with the image and replaced wholesale on
+#                                upgrade. Not duplicated into the seed dir —
+#                                it is a dependency, not user scaffolding.
+#
+# Never shipped: the demo entries (they reference dev-instance entities), any
+# dump (that is the user's own live data, written into home/ at every start),
+# and PklProject.deps.json (the generated lockfile, resolved in-process at
+# startup). The seed's `home/` therefore arrives holding only its manifest.
+#
+# PklBuildSuite's seed-layout test mirrors these two COPYs, so the manifests
+# here cannot drift out of agreement with lib/ unnoticed (ADR 0010, Track B).
 COPY modules/fh-datastar-view/src/main/resources/dashboards/lib /opt/dashboards-seed/lib
-COPY modules/fh-datastar-view/src/main/resources/dashboards/home/PklProject /opt/dashboards-seed/home/PklProject
-COPY modules/fh-datastar-view/src/main/resources/dashboards/PklProject /opt/dashboards-seed/PklProject
 COPY home-addon/dashboards-seed/ /opt/dashboards-seed/
 
 COPY home-addon/run.sh /run.sh
