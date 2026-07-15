@@ -5,9 +5,21 @@
 - **Date:** 2026-07-14
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
 
-See also the design plan `docs/plan-pkl-live-endpoint-and-deps.md` (the spike
-evidence + step-by-step log) and ADR [0006](0006-pkl-authoring-track.md) (Pkl as
-the authoring language).
+See also ADR [0006](0006-pkl-authoring-track.md) (Pkl as the authoring language);
+the enabling pkl-core APIs are recorded in the `pkl-core-http-intercept-and-local-deps`
+memory.
+
+Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
+
+- **Interception (A):** a `ModuleKeyFactory` registered ahead of
+  `ModuleKeyFactories.http` returns `ResolvedModuleKeys.virtual(...)` for a
+  `…/system/pkl/…` URI with no server running; `hasHierarchicalUris = true` makes
+  the nested `import "hass.pkl"` resolve through the same factory. The only gate is
+  the module allowlist (`setAllowedModules([… "http:" …])`).
+- **Local dep (B):** `ProjectDependenciesResolver(Project.loadFromPath(p),
+  PackageResolver.getInstance(sm, dummyHttpClient, cacheDir), writer).resolve()`
+  writes a `PklProject.deps.json` for a `"type":"local"` dep with no network and no
+  pkl CLI; `EvaluatorBuilder.applyFromProject` then resolves `@fh-dashboard/…`.
 
 ## Context
 
@@ -143,10 +155,19 @@ a deployed add-on whose library is fixed per image.
   *live* home — the whole point is that they track the running instance, which is
   why they are served (Track A) and mapped locally (Track B), not versioned.
 
-## Canonical host (Track A follow-up)
+## Open follow-ups
 
-The endpoint literal in the `SystemPkl` route is `http://localhost:8080/system/pkl/…`.
-Because the server matches by path, it only has to resolve for *external*
-consumers; the follow-up unifies it on the single canonical URL from the PWA
-split-horizon remote-access story (`docs/pwa-remote-access.md`), so a remote
-author points that one name at their home exactly as the PWA does.
+- **Canonical host.** The endpoint literal is `http://localhost:8080/system/pkl/…`.
+  Because the server matches by path, it only has to resolve for *external*
+  consumers; unify it on the single canonical URL from the PWA split-horizon
+  remote-access story (`docs/pwa-remote-access.md`), so a remote author points that
+  one name at their home exactly as the PWA does.
+- **Force-rerun the dump.** `dump.pkl` is deliberately not watched (regenerated
+  from HA state, not hand-edited). There is no way today to make the server
+  re-fetch + re-render it on demand (e.g. after adding a device) short of a
+  restart — add a build-time force-rerun path (endpoint or signal that re-runs
+  `prepareDumps` and re-evaluates entries).
+- **HTTPS/cert.** The endpoint allows plain `http:` (decided). A cross-network
+  deployment over `https:` needs a cert reachable by pkl-lsp — out of scope so far.
+- **Publish `@fh-dashboard`.** The remote half (a `package://…` registry: network +
+  checksum, unspiked) is a post-API-stability step; only the consumer mapping flips.

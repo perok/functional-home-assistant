@@ -20,8 +20,7 @@ import java.util.Optional
   * in-server import interception ([[SystemPkl.Factory]], for the server's own
   * eval). Because the server resolves its own `http://…/system/pkl/…` imports
   * from memory, it never HTTP-fetches from itself — no bootstrap cycle, and the
-  * offline build/test paths keep working. See
-  * `docs/plan-pkl-live-endpoint-and-deps.md`.
+  * offline build/test paths keep working. See ADR 0010.
   */
 trait SystemPkl {
 
