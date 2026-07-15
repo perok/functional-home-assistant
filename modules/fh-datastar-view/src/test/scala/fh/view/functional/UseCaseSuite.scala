@@ -5,7 +5,9 @@ import cats.effect.IO
 import fh.view.build.{DashboardBuild, PklDump, SourceEval, SystemPkl}
 import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
+
 import fh.view.testkit.{HouseFixture, PklFixture}
+
 import org.http4s.*
 import org.http4s.headers.{`If-None-Match`, ETag}
 import org.http4s.implicits.*
@@ -13,9 +15,9 @@ import org.http4s.implicits.*
 /** One test per consumer in ADR 0010's "Use cases" table.
   *
   * Not unit tests of a class: each pins the load-bearing PROPERTY one persona's
-  * workflow depends on. The four stories are meant to be ONE design, so a change
-  * that quietly serves three of them should fail here rather than in someone's
-  * home.
+  * workflow depends on. The four stories are meant to be ONE design, so a
+  * change that quietly serves three of them should fail here rather than in
+  * someone's home.
   *
   * The invariant under all four: **evaluation always runs against a fully-local
   * project**; an instance is synced FROM and pushed TO, never imported from.
@@ -27,8 +29,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
   /** Stage a dashboards workspace the way every persona has one: the library,
     * both package manifests, the consumer project. `withDump = false` is the
-    * laptop before a pull — the `@fh-home` package exists but is empty, which is
-    * also the state a freshly-seeded add-on starts in.
+    * laptop before a pull — the `@fh-home` package exists but is empty, which
+    * is also the state a freshly-seeded add-on starts in.
     */
   private def stageWorkspace(withDump: Boolean): os.Path = {
     val dir = os.temp.dir()
@@ -79,7 +81,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
   // ---------------------------------------------------------------- persona 2
 
-  test("end user on a local editor: pulling the dump makes their project resolve") {
+  test(
+    "end user on a local editor: pulling the dump makes their project resolve"
+  ) {
     // The instance: a home with a live dump, serving it over /system/pkl.
     val instance = stageWorkspace(withDump = true)
 
@@ -184,7 +188,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       |function gauge(l: String): Gauge = new Gauge { label = l }
       |""".stripMargin
 
-  test("component developer: their own card class reaches the registry and renders") {
+  test(
+    "component developer: their own card class reaches the registry and renders"
+  ) {
     // Their components live only on their laptop, so the instance can never
     // evaluate this entry — they evaluate locally and push the RESULT. Two
     // properties make that workflow real, and this test pins both.
@@ -214,20 +220,61 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val dashboard = DashboardBuild
       .hoistInlineSurfaces(built.value)
       .as[Dashboard]
-      .fold(err => fail(s"decode failed: $err"), _.copy(slug = "pushed"))
+      .fold(err => fail(s"decode failed: $err"), identity)
 
     assert(dashboard.cards.contains("gauge"), clue = dashboard.cards.keys)
 
-    // 2. Self-containment: the card carries its own template, so the server can
-    //    render it while holding no source for it — which is what lets a push
-    //    skip the Pkl layer and ship only JSON. If rendering ever grew a
-    //    dependency on resolving templates from disk, this is what would catch
-    //    it: `mycards.pkl` exists in no lib and in no file the server reads.
-    TestServer.resource(dashboard, Nil).use { ts =>
-      ts.page.map { html =>
-        assert(html.contains("from my own component"), clue = html)
-        assert(html.contains("""class="mine""""), clue = html)
+    // 2. Push: the instance runs its OWN dashboard and has never seen
+    //    `mycards.pkl`. The developer POSTs the evaluated JSON — exactly what
+    //    `built.value` is — under a brand-new slug, skipping the Pkl layer
+    //    entirely. It works only because the wire model is self-contained:
+    //    every card carries its own template, so the server needs no source.
+    //    If rendering ever grew a dependency on resolving templates from disk,
+    //    this is what would catch it.
+    TestServer
+      .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
+      .use { ts =>
+        val app = ts.server.routes.orNotFound
+        val push = (slug: String, body: String) =>
+          app.run(
+            Request[IO](
+              Method.POST,
+              Uri.unsafeFromString(s"/system/push/$slug")
+            ).withEntity(body)
+          )
+        for {
+          // The slug does not exist yet — push is what mints it.
+          before <- app.run(Request[IO](Method.GET, uri"/d/preview"))
+          pushed <- push("preview", built.value.noSpaces)
+          after <- app.run(Request[IO](Method.GET, uri"/d/preview"))
+          html <- after.body.through(fs2.text.utf8.decode).compile.string
+
+          // A dashboard naming a card nobody defines must be REJECTED, not
+          // installed to render blank: push runs the same validation as the
+          // eval path, and the developer has no server log to read, so the
+          // error has to come back on the wire.
+          bogus <- push(
+            "bogus",
+            """{"cards":{},"card":{"kind":"component","card":"nosuchcard",
+              |"children":[],"slots":{}}}""".stripMargin
+          )
+          bogusBody <- bogus.body.through(fs2.text.utf8.decode).compile.string
+          notJson <- push("bad", "not json at all")
+        } yield {
+          assertEquals(before.status, Status.NotFound)
+          assertEquals(pushed.status, Status.Ok)
+          assertEquals(after.status, Status.Ok)
+          assert(html.contains("from my own component"), clue = html)
+          assert(html.contains("""class="mine""""), clue = html)
+
+          // Specifically a VALIDATION rejection, naming the offending card —
+          // not merely a 400 from failing to decode, which this body does
+          // cleanly. Without this the assertion above cannot tell the two apart.
+          assertEquals(bogus.status, Status.BadRequest)
+          assert(bogusBody.contains("nosuchcard"), clue = bogusBody)
+
+          assertEquals(notJson.status, Status.BadRequest)
+        }
       }
-    }
   }
 }

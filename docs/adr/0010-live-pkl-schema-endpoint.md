@@ -64,7 +64,7 @@ invariant the whole design hangs on:
 | **End user, `/edit`** | the HA server | the seeded `lib/` | `prepareDumps`, at startup | works |
 | **End user, local editor** | their laptop | their copy of `lib/` | a CLI pull from the instance | needs the CLI |
 | **Repo developer** | laptop, local server | the repo's `lib/`, live-edited | `prepareDumps` vs a dev HA | works |
-| **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | needs CLI pull + push |
+| **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | server side works; needs the CLI |
 
 **End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
@@ -88,9 +88,20 @@ resolves `@fh-dashboard` back to those files.
 **Component developer.** Writes their own cards locally and a local entry that
 imports both them and `@fh-home/dump.pkl`. Their instance cannot evaluate that
 entry — it has never seen their components. So they evaluate **locally** and push
-the **result**: the wire model `{cards, card}` is self-contained (cards carry
-their Mustache templates inline), so a pushed dashboard needs nothing on the
-server. Once the components are published, a normal remote package dependency
+the **result** to `POST /system/push/:slug`: the wire model `{cards, card}` is
+self-contained (cards carry their Mustache templates inline), so a pushed
+dashboard needs nothing on the server. Push mints the slug at runtime and is
+ephemeral (nothing is written to disk; a restart returns the instance to its
+on-disk entries). The push body is validated exactly as an evaluated entry is —
+same `DashboardBuild.decode` — because a pushing developer reads no server log,
+so an unknown card comes back as a `400` naming it.
+
+For their cards to exist at all, the entry must name their module in
+`componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
+`reflect.Module.imports` yields URIs as plain strings and there is no
+reflect-by-string to walk them back into modules.
+
+Once the components are published, a normal remote package dependency
 replaces the push, and they stop being special.
 
 ### Why the dump is never imported from the instance
@@ -342,17 +353,33 @@ normal one for shipped entries.
   re-fetch + re-render it on demand (e.g. after adding a device) short of a
   restart — add a build-time force-rerun path (endpoint or signal that re-runs
   `prepareDumps` and re-evaluates entries).
-- **The `fh` CLI (`pull` / `push`).** The one missing piece for two of the four use
-  cases, and the only consumer the `/system/pkl` endpoint has.
+- **The `fh` CLI (`pull` / `push`).** The client half of two of the four use
+  cases; both server endpoints now exist.
   - `pull`: conditional `GET /system/pkl/dump.pkl` (send `If-None-Match`, honour
     the `304`) → write `home/dump.pkl`. Plain http, no cert, no checksums.
-  - `push`: evaluate locally, `POST` the `{cards, card}` JSON, hot-swap a
-    renderer. Two known wrinkles: `Server.renderers` is a `Map[String,
-    SignallingRef]` fixed at construction, so a push cannot mint a NEW slug —
-    it must target an existing one (a seeded `preview` entry, or restructure to a
-    `Ref[Map[…]]`); and the file watcher's reconcile would clobber a pushed slug
-    on the next edit unless that slug is excluded. Push is a *write*: it must ride
-    HA-authenticated ingress, never the documented-as-unauthenticated direct port.
+  - `push`: evaluate locally, `POST` the evaluated JSON to
+    `/system/push/:slug`. **Server side is done** (`Server.push`): the registry
+    is a `Ref[Map[…]]` and the shared fan-out one multiplexed topic, so a push
+    mints a NEW slug at runtime — no seeded `preview` entry needed. Remaining
+    wrinkle: the file watcher's reconcile would clobber a pushed slug that
+    shadows a real entry on the next edit (pushed slugs are ephemeral and
+    in-memory, so a distinct slug simply survives until restart).
+- **`/system/push` is unauthenticated (decided), and must be covered when auth
+  lands.** It is a *write*, so the instinct is to gate it to HA-authenticated
+  ingress. That gate is not currently expressible: `config.yaml` sets
+  `ingress_port: 8080` and also lists `8080/tcp` under `ports`, so ingress and
+  direct traffic arrive on **one listener**, distinguishable only by the
+  `X-Ingress-Path` header — which any direct client can simply send. A header
+  check would be security theatre wherever the direct port is published.
+  Accepted because push grants nothing new: the direct port is already
+  documented as unauthenticated and the server drives HA with its own token, so
+  anyone who can reach it can already control every device — push adds
+  defacement to a strictly larger hole. The plan is auth on the direct port,
+  which covers this route with it. If push ever needs to outlive that (or the
+  trust model changes), the real fix is a **separate ingress-only port**: move
+  `ingress_port` to one never listed in `ports`, and mount the write routes only
+  on that listener, so the boundary is reachability rather than a client-supplied
+  header.
 - **Remote dependencies do not resolve today.** Two blockers for the published
   world, both small but deliberate: `resolveProjectDeps` hardcodes
   `HttpClient.dummyClient()` (a remote dep dies with `Dummy HTTP client cannot

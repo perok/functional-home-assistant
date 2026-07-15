@@ -3,6 +3,7 @@ package fh.view.runtime
 import cats.data.NonEmptyList
 import cats.effect.IO
 import cats.effect.kernel.Ref
+import cats.effect.std.Supervisor
 import fh.view.model.{
   Activation,
   CardDef,
@@ -151,17 +152,15 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map(dash.slug -> ref),
-        dash.slug,
-        sessions,
-        Map.empty
-      )
-      resp <- server.routes.orNotFound
-        .run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/${dash.slug}")))
-      body <- resp.body.through(fs2.text.utf8.decode).compile.string
+      body <- Server
+        .resource(fake, store, Map(dash.slug -> ref), dash.slug, sessions)
+        .use { server =>
+          server.routes.orNotFound
+            .run(
+              Request[IO](Method.GET, Uri.unsafeFromString(s"/d/${dash.slug}"))
+            )
+            .flatMap(_.body.through(fs2.text.utf8.decode).compile.string)
+        }
     } yield body).timeout(30.seconds)
 
   test("page <title> uses the dashboard's authored title when present") {
@@ -192,24 +191,28 @@ class ServerSuite extends munit.CatsEffectSuite {
       ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("home" -> ref),
-        "home",
-        sessions,
-        Map.empty,
-        AssetCache.empty,
-        system
-      )
-      routes = server.routes.orNotFound
-      get = (p: String) =>
-        routes.run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
-      dump <- get("/system/pkl/dump.pkl")
-      dumpBody <- dump.body.through(fs2.text.utf8.decode).compile.string
-      hass <- get("/system/pkl/hass.pkl")
-      miss <- get("/system/pkl/nope.pkl")
-    } yield (dump.status, dumpBody, hass.status, miss.status))
+      out <- Server
+        .resource(
+          fake,
+          store,
+          Map("home" -> ref),
+          "home",
+          sessions,
+          AssetCache.empty,
+          system
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          val get = (p: String) =>
+            routes.run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
+          for {
+            dump <- get("/system/pkl/dump.pkl")
+            dumpBody <- dump.body.through(fs2.text.utf8.decode).compile.string
+            hass <- get("/system/pkl/hass.pkl")
+            miss <- get("/system/pkl/nope.pkl")
+          } yield (dump.status, dumpBody, hass.status, miss.status)
+        }
+    } yield out)
       .timeout(30.seconds)
       .unsafeRunSync()
 
@@ -219,7 +222,9 @@ class ServerSuite extends munit.CatsEffectSuite {
     assertEquals(missStatus, Status.NotFound)
   }
 
-  test("/system/pkl revalidates: no-cache always, 304 only on a stale-free tag") {
+  test(
+    "/system/pkl revalidates: no-cache always, 304 only on a stale-free tag"
+  ) {
     // `dump.pkl` is live per-home data under a fixed URL, so the contract is
     // "never reuse without asking": `no-cache` on every response (200 and 304
     // alike — a 304 refreshes the directive), and a 304 only when the client's
@@ -237,33 +242,40 @@ class ServerSuite extends munit.CatsEffectSuite {
       ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("home" -> ref),
-        "home",
-        sessions,
-        Map.empty,
-        AssetCache.empty,
-        system
-      )
-      routes = server.routes.orNotFound
-      uri = Uri.unsafeFromString("/system/pkl/dump.pkl")
-      ok <- routes.run(Request[IO](Method.GET, uri))
-      okTag = ok.headers.get[ETag].map(_.tag)
-      // The client comes back with the tag it was given: unchanged -> 304.
-      matched <- routes.run(
-        Request[IO](Method.GET, uri)
-          .putHeaders(`If-None-Match`(okTag.map(NonEmptyList.one)))
-      )
-      // A tag the served bytes never had must be re-served in full, not 304'd.
-      stale <- routes.run(
-        Request[IO](Method.GET, uri)
-          .putHeaders(
-            `If-None-Match`(Some(NonEmptyList.one(EntityTag("stale-etag"))))
-          )
-      )
-    } yield (ok, okTag, matched, stale)).timeout(30.seconds).unsafeRunSync()
+      out <- Server
+        .resource(
+          fake,
+          store,
+          Map("home" -> ref),
+          "home",
+          sessions,
+          AssetCache.empty,
+          system
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          val uri = Uri.unsafeFromString("/system/pkl/dump.pkl")
+          for {
+            ok <- routes.run(Request[IO](Method.GET, uri))
+            okTag = ok.headers.get[ETag].map(_.tag)
+            // The client comes back with the tag it was given: unchanged -> 304.
+            matched <- routes.run(
+              Request[IO](Method.GET, uri)
+                .putHeaders(`If-None-Match`(okTag.map(NonEmptyList.one)))
+            )
+            // A tag the served bytes never had must be re-served in full, not
+            // 304'd.
+            stale <- routes.run(
+              Request[IO](Method.GET, uri)
+                .putHeaders(
+                  `If-None-Match`(
+                    Some(NonEmptyList.one(EntityTag("stale-etag")))
+                  )
+                )
+            )
+          } yield (ok, okTag, matched, stale)
+        }
+    } yield out).timeout(30.seconds).unsafeRunSync()
 
     assertEquals(ok.status, Status.Ok)
     assert(okTag.isDefined, clue = ok.headers)
@@ -370,47 +382,48 @@ class ServerSuite extends munit.CatsEffectSuite {
       store <- StateStore.inMemory(
         Map("sensor.a" -> EntityState("sensor.a", "initial", Map.empty))
       )
-      topic <- Topic[IO, ServerSentEvent]
       renderer = new CountingRenderer(liveLeafDash, count)
       ref <- SignallingRef[IO].of(renderer: Renderer)
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        Map("dashboard" -> topic)
-      )
-      // The lifecycle owner (ServerApp via Server.resource) runs the shared
-      // publishers; here the test does.
-      publisher <- server.sharedPatchPublishers.compile.drain.start
-      connect = server.routes.orNotFound
-        .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
-      resp1 <- connect
-      resp2 <- connect
-      awaitMarker = (resp: Response[IO]) =>
-        resp.body
-          .through(fs2.text.utf8.decode)
-          .scan("")(_ + _)
-          .exists(_.contains(marker))
-          .compile
-          .drain
-      seen1 <- awaitMarker(resp1).start
-      seen2 <- awaitMarker(resp2).start
-      // Deterministic readiness (topics deliver only to already-subscribed
-      // consumers): both connections on the slug's shared topic, and the
-      // publisher + both per-session change loops on the store's change topic.
-      _ <- topic.subscribers.filter(_ >= 2).head.compile.drain
-      _ <- store.changeSubscribers.filter(_ >= 3).head.compile.drain
-      _ <- store.update(EntityState("sensor.a", marker, Map.empty))
-      // (a) both SSE streams receive the changed fragment...
-      _ <- seen1.joinWithNever
-      _ <- seen2.joinWithNever
-      _ <- publisher.cancel
+      // `Server.resource` runs the shared publishers for the scope's lifetime —
+      // so the render count below is entirely the shared pass's doing.
+      _ <- Server
+        .resource(
+          fake,
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val connect = server.routes.orNotFound
+            .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+          val awaitMarker = (resp: Response[IO]) =>
+            resp.body
+              .through(fs2.text.utf8.decode)
+              .scan("")(_ + _)
+              .exists(_.contains(marker))
+              .compile
+              .drain
+          for {
+            resp1 <- connect
+            resp2 <- connect
+            seen1 <- awaitMarker(resp1).start
+            seen2 <- awaitMarker(resp2).start
+            // Deterministic readiness (topics deliver only to already-subscribed
+            // consumers): both connections on the shared topic, and the
+            // publisher + both per-session change loops on the store's changes.
+            _ <- server.sharedSubscribers.filter(_ >= 2).head.compile.drain
+            _ <- store.changeSubscribers.filter(_ >= 3).head.compile.drain
+            _ <- store.update(EntityState("sensor.a", marker, Map.empty))
+            // (a) both SSE streams receive the changed fragment...
+            _ <- seen1.joinWithNever
+            _ <- seen2.joinWithNever
+          } yield ()
+        }
     } yield count.get()
     // ...and (b) it was rendered once, by the shared pass (the per-session
     // loops render only bake owners / open surfaces — none here).
@@ -458,19 +471,17 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        Map.empty
-      )
-      renderer <- ref.get
-      cache <- Ref[IO].of(seedCache)
-      patches <- server.sharedPatches(renderer, cache, change)
-      finalCache <- cache.get
-    } yield (patches.map(_.renderString), finalCache))
+      out <- Server
+        .resource(fake, store, Map("dashboard" -> ref), "dashboard", sessions)
+        .use { server =>
+          for {
+            renderer <- ref.get
+            cache <- Ref[IO].of(seedCache)
+            patches <- server.sharedPatches(renderer, cache, change)
+            finalCache <- cache.get
+          } yield (patches.map(_.renderString), finalCache)
+        }
+    } yield out)
       .timeout(30.seconds)
 
   test("dynamic in-place tick patches ONE child, not the whole group") {
@@ -648,17 +659,15 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        Map.empty
-      )
-      session <- Session.create("dashboard")
-      _ <- session.open.set(Set("det"))
-      patches <- server.changedPatches(session, change, Map.empty)
+      patches <- Server
+        .resource(fake, store, Map("dashboard" -> ref), "dashboard", sessions)
+        .use { server =>
+          for {
+            session <- Session.create("dashboard")
+            _ <- session.open.set(Set("det"))
+            ps <- server.changedPatches(session, change, Map.empty)
+          } yield ps
+        }
     } yield patches.map(_.renderString))
       .timeout(30.seconds)
       .map { patches =>
@@ -767,6 +776,19 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   private object SharedHarness {
+
+    /** One supervisor for the whole suite.
+      *
+      * [[Server.resource]] normally owns this (it scopes the shared publishers'
+      * fibers), but these harness tests hold their `Server` in `IO` rather than
+      * `Resource` — they drive `sharedPatches` directly and never start a
+      * publisher, so nothing is ever supervised through it and it holds no
+      * fibers to leak. Allocated without a release for the same reason: there
+      * is nothing to cancel.
+      */
+    private lazy val suiteSupervisor: Supervisor[IO] =
+      Supervisor[IO].allocated.unsafeRunSync()._1
+
     def create(
         dash: Dashboard,
         initial: Map[String, EntityState]
@@ -779,13 +801,16 @@ class ServerSuite extends munit.CatsEffectSuite {
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
         fake <- FakeHomeAssistant.create(Nil)
+        registry <- Ref[IO].of(Map("dashboard" -> ref))
+        topic <- Topic[IO, (String, ServerSentEvent)]
         server = new Server(
           fake,
           store,
-          Map("dashboard" -> ref),
+          registry,
           "dashboard",
           sessions,
-          Map.empty
+          topic,
+          suiteSupervisor
         )
         renderer <- ref.get
         cache <- Ref[IO].of(Map.empty[String, String])
@@ -1030,21 +1055,19 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
-      server = new Server(
-        fake,
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        Map.empty
-      )
-      renderer <- ref.get
-      session <- Session.create("dashboard")
-      _ <- session.open.set(Set("det"))
-      perSession <- server.changedPatches(session, change, Map.empty)
-      cache <- Ref[IO].of(Map.empty[String, String])
-      shared <- server.sharedPatches(renderer, cache, change)
-    } yield (perSession.map(_.renderString), shared.map(_.renderString)))
+      out <- Server
+        .resource(fake, store, Map("dashboard" -> ref), "dashboard", sessions)
+        .use { server =>
+          for {
+            renderer <- ref.get
+            session <- Session.create("dashboard")
+            _ <- session.open.set(Set("det"))
+            perSession <- server.changedPatches(session, change, Map.empty)
+            cache <- Ref[IO].of(Map.empty[String, String])
+            shared <- server.sharedPatches(renderer, cache, change)
+          } yield (perSession, shared)
+        }
+    } yield (out._1.map(_.renderString), out._2.map(_.renderString)))
       .timeout(30.seconds)
       .map { case (sessionPatches, sharedPatches) =>
         // The session with the popup open gets exactly the inner host flip morph.

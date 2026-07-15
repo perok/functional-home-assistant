@@ -187,8 +187,9 @@ class PklBuildSuite extends munit.FunSuite {
 
   /** Write a generated dump into the staged `@fh-home` package, where
     * `DashboardBuild.prepareDumps` puts it in production — so a probe imports
-    * it as `@fh-home/dump.pkl` and the emitted `import "@fh-dashboard/hass.pkl"`
-    * resolves to the same `hass` identity `components.pkl` sees.
+    * it as `@fh-home/dump.pkl` and the emitted
+    * `import "@fh-dashboard/hass.pkl"` resolves to the same `hass` identity
+    * `components.pkl` sees.
     */
   private def writeDump(tmp: os.Path, source: String): Unit = {
     os.makeDir.all(tmp / "home")

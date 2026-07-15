@@ -37,15 +37,17 @@ final class TestServer(
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
 
-  /** Await 1 subscriber on the slug's shared-patch topic — the fan-out an open
-    * SSE connection (browser or otherwise) subscribes to for main-page patches.
-    * Paired with [[awaitChangeSubscribers]] as the readiness gate a browser
-    * test awaits before `fake.emit` (a browser establishes its own SSE
-    * connection asynchronously on page load, so there is no response body to
-    * read progress from the way [[observePatch]]'s callers can).
+  /** Await 1 subscriber on the shared-patch topic — the fan-out an open SSE
+    * connection (browser or otherwise) subscribes to for main-page patches. The
+    * topic is multiplexed across slugs, so this counts connections, not viewers
+    * of this slug (every suite here drives a single dashboard). Paired with
+    * [[awaitChangeSubscribers]] as the readiness gate a browser test awaits
+    * before `fake.emit` (a browser establishes its own SSE connection
+    * asynchronously on page load, so there is no response body to read progress
+    * from the way [[observePatch]]'s callers can).
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
-    server.sharedSubscribers(slug).filter(_ >= n).head.compile.drain
+    server.sharedSubscribers.filter(_ >= n).head.compile.drain
 
   /** The two readiness gates a live SSE connection needs before a change is
     * guaranteed to reach it (topics only deliver to already-subscribed
@@ -115,7 +117,7 @@ final class TestServer(
         // subscribers): the shared per-slug publisher + this session on
         // `changes`, and this connection on the slug's shared topic.
         _ <- store.changeSubscribers.filter(_ >= subscribers).head.compile.drain
-        _ <- server.sharedSubscribers(slug).filter(_ >= 1).head.compile.drain
+        _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
         _ <- trigger
         _ <- fiber.joinWithNever.timeout(timeout)
       } yield ()

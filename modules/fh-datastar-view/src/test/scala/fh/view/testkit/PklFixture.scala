@@ -8,9 +8,10 @@ import io.circe.Json
   * authoring pipeline — the Tier-A path (ADR 0009): `.pkl` -> `SourceEval.eval`
   * -> `DashboardBuild.hoistInlineSurfaces` -> decode. It stages a temp dir
   * exactly as `PklBuildSuite` does (the real `lib` modules copied in, a
-  * generated `home/dump.pkl` in the @fh-home package), so no live HA is touched; the dump is
-  * supplied by the caller (typically [[HouseFixture.transformedDump]], so the
-  * dashboard and the served state come from one source).
+  * generated `home/dump.pkl` in the @fh-home package), so no live HA is
+  * touched; the dump is supplied by the caller (typically
+  * [[HouseFixture.transformedDump]], so the dashboard and the served state come
+  * from one source).
   *
   * This is the seam a functional test uses to serve a Pkl-authored dashboard,
   * and the same builder `PklBuildSuite` uses to exercise the build pipeline

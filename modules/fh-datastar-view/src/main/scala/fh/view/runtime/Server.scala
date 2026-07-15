@@ -3,8 +3,9 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
+import cats.effect.std.Supervisor
 import cats.syntax.all.*
-import fh.view.build.SystemPkl
+import fh.view.build.{DashboardBuild, SystemPkl}
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{SignallingRef, Topic}
@@ -61,24 +62,38 @@ private enum Patch:
   * groups (If/else hosts and their active branches, whose selection is server
   * truth) — are rendered ONCE per slug by [[sharedPatchPublishers]] (one
   * subscription to the state stream per dashboard, per-slug diff cache) and
-  * fanned out to every connection viewing that slug over `sharedTopics`. Only
+  * fanned out to every connection viewing that slug over `sharedTopic`. Only
   * what truly differs per client stays per-session in [[changedPatches]]:
   * open-surface nodes and USER bake-group-owner nodes (their HTML depends on
   * the client's `uiState`), plus the state groups those pull in (nested in an
   * open popup, or with a user owner in a branch). Construct via
-  * [[Server.resource]], which creates the topics and runs the publishers.
+  * [[Server.resource]], which creates the topic and runs the publishers.
+  *
+  * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
+  * dashboard at runtime (ADR 0010), which is why the registry is a `Ref` and
+  * the shared fan-out is one multiplexed topic rather than a map of them.
   */
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
     // One hot-swappable renderer per dashboard slug (live reload swaps in place;
-    // `.discrete` drives a body repaint over SSE).
-    renderers: Map[String, SignallingRef[IO, Renderer]],
+    // `.discrete` drives a body repaint over SSE). A `Ref` because the slug set
+    // is not fixed at startup: `push` mints one at runtime (ADR 0010).
+    renderers: Ref[IO, Map[String, SignallingRef[IO, Renderer]]],
     defaultSlug: String,
     sessions: Sessions,
-    // Per-slug fan-out of the shared main-page patches (fed by
-    // `sharedPatchPublishers`; every connection viewing the slug subscribes).
-    sharedTopics: Map[String, Topic[IO, ServerSentEvent]],
+    // Fan-out of the shared main-page patches, fed by the per-slug publishers
+    // and tagged with the slug they came from; every connection subscribes ONCE
+    // and keeps only its current slug's events.
+    //
+    // Why one multiplexed topic rather than a topic per slug: a connection
+    // subscribes when it opens, so a per-slug map would freeze the slug set at
+    // connect time and a slug pushed later could never reach an open
+    // connection. Tagging is what lets `push` mint a slug at runtime.
+    sharedTopic: Topic[IO, (String, ServerSentEvent)],
+    // Starts the per-slug shared-patch publisher for a slug minted by `push`.
+    // Scoped to `Server.resource`, so those fibers die with the server.
+    supervisor: Supervisor[IO],
     // Local cache of the themes' external assets ([[AssetCache]]): page URLs
     // are rewritten through it and `/assets/:name` serves from it. The empty
     // default (pass-through, no local assets) keeps tests ceremony-free.
@@ -115,8 +130,23 @@ class Server(
     case GET -> Root / "edit" / "node" / slug / id / "debug" =>
       nodeDebug(slug, id)
 
+    // Install a pre-evaluated dashboard under `slug`, live (ADR 0010, persona
+    // 4). The body is the SAME `{cards, card}` wire JSON the Pkl layer emits —
+    // pushing simply skips that layer, which is why a component developer can
+    // ship cards this server has no source for.
+    //
+    // NOTE — unauthenticated, deliberately, matching the port it rides: the
+    // direct port is documented as unauthenticated and the server already
+    // drives Home Assistant with its own token, so anyone who can reach this
+    // can already control every device. It is nonetheless a WRITE: when auth
+    // lands for the direct port it must cover this route.
+    case req @ POST -> Root / "system" / "push" / slug =>
+      pushResponse(slug, req)
+
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
-      if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
+      renderers.get.flatMap { rs =>
+        if (rs.contains(slug)) sseStream(slug, req) else NotFound()
+      }
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -172,33 +202,87 @@ class Server(
     * bound *how often*. (Fold this into the dynamic-groups ADR when the perf
     * model is settled.)
     */
-  def sharedPatchPublishers: Stream[IO, Nothing] =
-    sharedTopics.toList
-      .map { case (slug, topic) =>
-        val patches = renderers.get(slug) match {
-          case None      => Stream.empty
-          case Some(ref) =>
-            ref.discrete.switchMap { renderer =>
-              Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap {
-                cache =>
-                  stateStore.changes
-                    .evalMap(sharedPatches(renderer, cache, _))
-                    .flatMap(Stream.emits)
-              }
-            }
-        }
-        patches.through(topic.publish)
-      }
-      .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
+  /** The current renderer for `slug`, or `None` if no such dashboard is
+    * registered. Reads through the registry `Ref`, so it sees slugs pushed
+    * after startup.
+    */
+  private def rendererFor(slug: String): IO[Option[Renderer]] =
+    renderers.get.flatMap(_.get(slug).traverse(_.get))
 
-  /** Current number of subscribers on a slug's shared-patch topic, as a signal
+  /** The shared render/diff loop for ONE slug: one subscription to the state
+    * stream, one diff cache, publishing slug-tagged patches to [[sharedTopic]].
+    * Started once per slug — at startup by [[Server.resource]], or on demand by
+    * [[push]] for a slug minted at runtime.
+    */
+  private def publisherFor(
+      slug: String,
+      ref: SignallingRef[IO, Renderer]
+  ): Stream[IO, Nothing] =
+    ref.discrete
+      .switchMap { renderer =>
+        Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap { cache =>
+          stateStore.changes
+            .evalMap(sharedPatches(renderer, cache, _))
+            .flatMap(Stream.emits)
+        }
+      }
+      .map(sse => (slug, sse))
+      .through(sharedTopic.publish)
+
+  /** Start every currently-registered slug's publisher. Slugs pushed later get
+    * theirs from [[push]] via the supervisor.
+    */
+  def sharedPatchPublishers: Stream[IO, Nothing] =
+    Stream
+      .eval(renderers.get)
+      .flatMap { rs =>
+        rs.toList
+          .map { case (slug, ref) => publisherFor(slug, ref) }
+          .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
+      }
+
+  /** Current number of subscribers on the shared-patch topic, as a signal
     * stream — a test seam (mirroring [[StateStore.changeSubscribers]]) to await
     * an SSE connection's shared subscription before emitting a change, since
-    * the topic only reaches already-subscribed consumers. `0` for an unknown
-    * slug.
+    * the topic only reaches already-subscribed consumers.
+    *
+    * Not per-slug: one multiplexed topic means one subscription per connection,
+    * whatever it is viewing.
     */
-  private[runtime] def sharedSubscribers(slug: String): Stream[IO, Int] =
-    sharedTopics.get(slug).map(_.subscribers).getOrElse(Stream.emit(0))
+  private[runtime] def sharedSubscribers: Stream[IO, Int] =
+    sharedTopic.subscribers
+
+  /** Install `dashboard` under its slug, live, without evaluating any Pkl — the
+    * component-developer story (ADR 0010, persona 4): they author cards the
+    * server holds no source for, evaluate on their laptop, and push the RESULT.
+    * Viable only because the wire model is self-contained (every card carries
+    * its own template), so this needs nothing but the JSON.
+    *
+    * An EXISTING slug reuses its `SignallingRef` — setting it repaints open
+    * connections exactly as live reload does, which is the push/look/edit loop.
+    * A NEW slug also needs its publisher started, hence the supervisor.
+    *
+    * Ephemeral by design: this touches no file, so a restart returns the
+    * instance to its on-disk dashboards, and the file watcher's next reconcile
+    * reclaims a slug that shadows a real entry.
+    */
+  def push(dashboard: Dashboard): IO[Unit] =
+    SignallingRef[IO].of(Renderer.create(dashboard)).flatMap { fresh =>
+      renderers
+        .modify { rs =>
+          rs.get(dashboard.slug) match {
+            case Some(existing) => (rs, Some(existing))
+            case None           => (rs + (dashboard.slug -> fresh), None)
+          }
+        }
+        .flatMap {
+          case Some(existing) => existing.set(Renderer.create(dashboard))
+          case None           =>
+            supervisor
+              .supervise(publisherFor(dashboard.slug, fresh).compile.drain)
+              .void
+        }
+    }
 
   /** The shared per-slug render/diff for one state change: the affected
     * main-page static components (reverse index, minus the USER bake-group
@@ -544,27 +628,24 @@ class Server(
       // Seed the open set with this client's selected tab panels (from its
       // cookies), so the baked-inline tabs receive live updates from the first
       // paint. Warn on any off cookie value.
-      _ <- renderers
-        .get(slug)
-        .traverse_(_.get.flatMap { r =>
-          warnAnomalies(r, uiState) *>
-            session.open.set(r.selectedSurfaces(uiState))
-        })
+      _ <- rendererFor(slug).flatMap(_.traverse_ { r =>
+        warnAnomalies(r, uiState) *>
+          session.open.set(r.selectedSurfaces(uiState))
+      })
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers). The session's slug can change mid-connection
-      // (navigate), so subscribe to EVERY slug's topic and keep only the
-      // current slug's events — dashboards are few. A dropped-or-duplicate
-      // fragment around the navigate moment is harmless: navigate does a full
-      // body repaint, and Datastar morphs are idempotent.
-      shared = sharedTopics.toList
-        .map { case (s, topic) =>
-          topic
-            .subscribe(64)
-            .evalFilter(_ => session.slug.get.map(_ == s))
-        }
-        .reduceOption(_.merge(_))
-        .getOrElse(Stream.empty)
+      // (navigate), so keep only the current slug's events — the filter is read
+      // per event, not fixed at connect, so it follows a navigate. A
+      // dropped-or-duplicate fragment around the navigate moment is harmless:
+      // navigate does a full body repaint, and Datastar morphs are idempotent.
+      //
+      // One subscription to the multiplexed topic, so a slug that did not exist
+      // when this connection opened (pushed since) still reaches it.
+      shared = sharedTopic
+        .subscribe(64)
+        .evalFilter { case (s, _) => session.slug.get.map(_ == s) }
+        .map { case (_, sse) => sse }
       // What truly differs per client: open-surface nodes and user
       // bake-group-owner nodes (plus the state groups those pull in),
       // re-rendered per state change with this session's uiState/open set and
@@ -590,12 +671,21 @@ class Server(
     * CURRENT dashboard: watch every renderer, but only repaint when the one
     * that reloaded is the one this connection is viewing now (it may have
     * navigated since connecting).
+    *
+    * The watched set is the registry as it stands when this connection opens. A
+    * slug pushed LATER is therefore not watched by this connection — it still
+    * receives that slug's shared entity patches (the topic is multiplexed) and
+    * renders it correctly on navigate, but a re-push of it would not repaint
+    * here until the page is reloaded. The push/look/edit loop is unaffected,
+    * since the slug exists before the developer opens it.
     */
   private def reloadRepaints(
       session: Session,
       uiState: Map[String, String]
   ): Stream[IO, ServerSentEvent] =
-    renderers.toList
+    Stream
+      .eval(renderers.get)
+      .flatMap(rs => Stream.emits(rs.toList))
       .map { case (s, ref) =>
         ref.discrete.drop(1).evalMapFilter { r =>
           session.slug.get.flatMap { cur =>
@@ -620,8 +710,7 @@ class Server(
           }
         }
       }
-      .reduceOption(_.merge(_))
-      .getOrElse(Stream.empty)
+      .parJoinUnbounded
 
   /** Re-render the nodes a changed entity drives that are truly per-connection
     * — for each open surface, that surface's components/dynamics, plus any
@@ -650,7 +739,7 @@ class Server(
   ): IO[List[ServerSentEvent]] =
     for {
       slug <- session.slug.get
-      renderer <- renderers.get(slug).traverse(_.get)
+      renderer <- rendererFor(slug)
       states <- stateStore.snapshot
       open <- session.open.get
       out <- renderer match {
@@ -795,11 +884,10 @@ class Server(
       slug: String,
       uiState: Map[String, String]
   ): IO[Unit] =
-    renderers.get(slug) match {
-      case None      => IO.unit
-      case Some(ref) =>
+    rendererFor(slug).flatMap {
+      case None           => IO.unit
+      case Some(renderer) =>
         for {
-          renderer <- ref.get
           states <- stateStore.snapshot
           _ <- session.slug.set(slug)
           _ <- warnAnomalies(renderer, uiState)
@@ -847,7 +935,7 @@ class Server(
             case None          => NoContent() // stale/unknown connection
             case Some(session) =>
               session.slug.get
-                .flatMap(slug => renderers.get(slug).traverse(_.get))
+                .flatMap(rendererFor)
                 .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
           }
       }
@@ -896,10 +984,10 @@ class Server(
     * Read-only; an unknown slug is a 404, an unknown/childless node is `[]`.
     */
   private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
-    renderers.get(slug) match {
-      case None      => NotFound()
-      case Some(ref) =>
-        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+    rendererFor(slug).flatMap {
+      case None           => NotFound()
+      case Some(renderer) =>
+        stateStore.snapshot.flatMap { states =>
           val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
             states.get(e) match {
               case Some(st) =>
@@ -949,6 +1037,34 @@ class Server(
     * The ETag is a strong validator over the exact bytes served, so it is
     * correct by construction: same text ⇒ same tag.
     */
+  /** Decode a pushed dashboard and install it live under `slug`.
+    *
+    * The body goes through the SAME [[DashboardBuild.decode]] as the server's
+    * own eval path, so a push is validated identically — an unknown card
+    * reference or an uncompilable slot transform is rejected rather than
+    * installed. That matters more here than on the eval path: the pushing
+    * developer has no server logs, so the failure has to come back on the wire.
+    * Hence 400 + the validation message, which is the CLI's error output.
+    *
+    * The slug comes from the URL, not the body: it is the address the developer
+    * asked for, and forcing it keeps `/d/<slug>` and the registry key in step
+    * (the same `copy(slug = ...)` the eval path applies at decode time).
+    */
+  private def pushResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
+    req.bodyText.compile.string
+      .map(io.circe.parser.parse)
+      .flatMap {
+        case Left(err) =>
+          BadRequest(s"push body is not JSON: ${err.getMessage}")
+        case Right(json) =>
+          DashboardBuild
+            .decode(json)
+            .map(_.copy(slug = slug))
+            .flatMap(d => push(d).as(d))
+            .flatMap(d => Ok(s"pushed ${d.slug} (${d.cards.size} cards)"))
+            .handleErrorWith(err => BadRequest(err.getMessage))
+      }
+
   private def systemPklResponse(
       text: String,
       req: Request[IO]
@@ -984,14 +1100,14 @@ class Server(
   }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
-    renderers.get(slug) match {
-      case None      => NotFound()
-      case Some(ref) =>
+    rendererFor(slug).flatMap {
+      case None           => NotFound()
+      case Some(renderer) =>
         val uiState = Server.uiStateOf(req)
         // The editor embeds the dashboard as `?edit=1`; that turns on the
         // per-node inspection overlay (Focus / Debug). Off for normal viewers.
         val editMode = req.uri.query.params.get("edit").contains("1")
-        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+        stateStore.snapshot.flatMap { states =>
           warnAnomalies(renderer, uiState) *>
             Ok(
               page(
@@ -1076,10 +1192,14 @@ class Server(
 
 object Server {
 
-  /** Build the server with one shared-patch topic per slug and run the per-slug
+  /** Build the server with the shared-patch topic and run the per-slug
     * publishers ([[Server.sharedPatchPublishers]]) for the life of the
     * resource. The single construction point (ServerApp and tests) so the
     * shared fan-out is never accidentally left un-driven.
+    *
+    * `renderers` seeds the registry; it is not the final word — [[Server.push]]
+    * adds to it at runtime, and the supervisor here owns the publishers those
+    * pushed slugs start, so they end with the resource like the seeded ones.
     */
   def resource(
       api: HomeAssistantApi[IO],
@@ -1091,17 +1211,17 @@ object Server {
       systemPkl: SystemPkl = SystemPkl.empty
   ): Resource[IO, Server] =
     for {
-      topics <- renderers.keySet.toList
-        .traverse(slug => Topic[IO, ServerSentEvent].tupleLeft(slug))
-        .map(_.toMap)
-        .toResource
+      topic <- Topic[IO, (String, ServerSentEvent)].toResource
+      registry <- Ref[IO].of(renderers).toResource
+      supervisor <- Supervisor[IO]
       server = new Server(
         api,
         stateStore,
-        renderers,
+        registry,
         defaultSlug,
         sessions,
-        topics,
+        topic,
+        supervisor,
         assets,
         systemPkl
       )
