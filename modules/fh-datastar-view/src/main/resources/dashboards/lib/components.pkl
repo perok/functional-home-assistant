@@ -1064,10 +1064,23 @@ function iffAll(p: Predicate): If = new If { condition = p; quant = "all" }
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
 // co-located with the logic; hidden, so it never emits into a node's JSON).
-// The registry below assembles `cardName -> CardDef` by reflecting over this
-// module's concrete [[Node]] subclasses — registration is automatic: a new
-// card is just a class. `reflect.Property.defaultValue` reads the evaluated
-// CLASS-LEVEL default, which is why a `cardDef` must be self-contained.
+// [[cardsOf]] assembles `cardName -> CardDef` by reflecting over the concrete
+// [[Node]] subclasses of the given modules — within a module, registration is
+// automatic: a new card is just a class. `reflect.Property.defaultValue` reads
+// the evaluated CLASS-LEVEL default, which is why a `cardDef` must be
+// self-contained.
+//
+// Why a LIST of modules rather than just this one: a card class defined outside
+// this library (a third-party component) has to reach the registry too, or the
+// backend has no template to render it with. Pkl cannot discover those on its
+// own — `reflect.Module.imports` yields import URIs as plain STRINGS, and Pkl
+// has no reflect-by-string, so there is no way to walk the import graph and
+// collect what it finds. The module VALUES must therefore be named, which is
+// what an entry's `componentModules` does (see `entry.pkl`).
+//
+// Note a component must live in its own module: classes in an AMENDING module
+// (every entry) require the `local` modifier, and `local` classes are invisible
+// to reflect — so a card class written inline in an entry can never register.
 
 const local nodeClass = reflect.Class(Node)
 
@@ -1081,10 +1094,19 @@ const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
     if (v is CardDef) v
     else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
 
-cards: Mapping<String, CardDef> = new {
-  for (clsName, cls in reflect.Module(module).classes) {
-    when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
-      [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+/// The card registry for `mods` — every concrete [[Node]] subclass they define,
+/// keyed by its card name. Two modules claiming the SAME card name is a Pkl
+/// error ("Duplicate definition of member"), so a component module cannot
+/// silently shadow a library card.
+function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
+  for (m in mods) {
+    for (clsName, cls in reflect.Module(m).classes) {
+      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+      }
     }
   }
 }
+
+/// This library's own cards — the registry an entry gets by default.
+cards: Mapping<String, CardDef> = cardsOf(List(module))

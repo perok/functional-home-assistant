@@ -2,10 +2,9 @@ package fh.view.functional
 
 import cats.data.NonEmptyList
 import cats.effect.IO
-import fh.view.build.{PklDump, SourceEval, SystemPkl}
-import fh.view.model.{CardDef, Dashboard}
+import fh.view.build.{DashboardBuild, PklDump, SourceEval, SystemPkl}
+import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
-import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.testkit.{HouseFixture, PklFixture}
 import org.http4s.*
 import org.http4s.headers.{`If-None-Match`, ETag}
@@ -163,26 +162,67 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
   // ---------------------------------------------------------------- persona 4
 
-  test("component developer: a dashboard renders from cards the server has no source for") {
+  /** A component module of their own: a card class in a plain (non-amending)
+    * module, which is the only place one can live — see `entry.pkl`'s
+    * `componentModules`.
+    */
+  private val privateComponent =
+    """module mycards
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |
+      |class Gauge extends c.Node {
+      |  card = "gauge"
+      |  cardDef = new c.CardDef {
+      |    template = "<article class=\"mine\">{{label}}</article>"
+      |    slots { "label" }
+      |  }
+      |  label: String
+      |  slots { ["label"] = label }
+      |}
+      |
+      |function gauge(l: String): Gauge = new Gauge { label = l }
+      |""".stripMargin
+
+  test("component developer: their own card class reaches the registry and renders") {
     // Their components live only on their laptop, so the instance can never
-    // evaluate their entry — they evaluate locally and push the RESULT. That is
-    // viable only because the wire model is self-contained: every card carries
-    // its own template, so a pushed dashboard needs nothing on the server.
-    //
-    // `privateCard` exists in no lib and in no file the server can read; it
-    // arrives only as data. If rendering ever grew a dependency on resolving
-    // templates from disk, this is what would catch it.
-    val dashboard = Dashboard(
-      cards = Map(
-        "privateCard" -> CardDef(
-          """<article class="mine">{{label}}</article>""",
-          List("label")
-        )
-      ),
-      card = component("privateCard", "label" -> lit("from my own component")),
-      slug = "pushed"
+    // evaluate this entry — they evaluate locally and push the RESULT. Two
+    // properties make that workflow real, and this test pins both.
+    val dir = stageWorkspace(withDump = true)
+    os.write(dir / "mycards.pkl", privateComponent)
+    os.write(
+      dir / "mine.pkl",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "mycards.pkl" as mine
+         |import "@fh-dashboard/theme.pkl" as th
+         |
+         |theme = ${PklFixture.dummyTheme}
+         |
+         |componentModules { mine }
+         |
+         |card = mine.gauge("from my own component")
+         |""".stripMargin
     )
 
+    // 1. Registration: their class joins `cards` purely by being named in
+    //    `componentModules`, with no edit to the library.
+    val built = SourceEval
+      .eval(dir, "mine.pkl")
+      .fold(err => fail(s"eval failed: $err"), identity)
+    val dashboard = DashboardBuild
+      .hoistInlineSurfaces(built.value)
+      .as[Dashboard]
+      .fold(err => fail(s"decode failed: $err"), _.copy(slug = "pushed"))
+
+    assert(dashboard.cards.contains("gauge"), clue = dashboard.cards.keys)
+
+    // 2. Self-containment: the card carries its own template, so the server can
+    //    render it while holding no source for it — which is what lets a push
+    //    skip the Pkl layer and ship only JSON. If rendering ever grew a
+    //    dependency on resolving templates from disk, this is what would catch
+    //    it: `mycards.pkl` exists in no lib and in no file the server reads.
     TestServer.resource(dashboard, Nil).use { ts =>
       ts.page.map { html =>
         assert(html.contains("from my own component"), clue = html)
