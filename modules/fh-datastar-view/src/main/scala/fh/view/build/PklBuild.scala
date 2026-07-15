@@ -178,6 +178,21 @@ object PklBuild {
     * the evaluator and the analyzer — a remote dep resolves offline as long as
     * its version is already IN this cache (pre-seeded by `LibPackage`).
     */
+  /** [[cacheDir]] for callers without a loaded project (the `/system/pkl/
+    * packages/` route's provider): load the workspace's `PklProject` if there
+    * is one — a manifest that fails to load falls back to the default, since
+    * the caller is serving reads, not evaluating.
+    */
+  private[build] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
+    val projectFile = dashboardsDir / "PklProject"
+    val project = Try(
+      Option.when(os.exists(projectFile))(
+        Project.loadFromPath(projectFile.toNIO)
+      )
+    ).toOption.flatten
+    cacheDir(dashboardsDir, project)
+  }
+
   private def cacheDir(
       dashboardsDir: os.Path,
       project: Option[Project]

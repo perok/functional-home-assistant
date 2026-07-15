@@ -3,19 +3,18 @@ package fh.view.build
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
-/** Add-on boot: bring the user's dashboards workspace to a state the server
-  * can evaluate, without ever owning the user's files (ADR 0010, "the add-on
+/** Add-on boot: bring the user's dashboards workspace to a state the server can
+  * evaluate, without ever owning the user's files (ADR 0010, "the add-on
   * workspace").
   *
-  * The library is NOT copied into the workspace. The bundled `lib/` (baked
-  * into the image) is packaged by [[LibPackage]] into the persistent package
-  * cache, and the seeded manifests depend on it as
+  * The library is NOT copied into the workspace. The bundled `lib/` (baked into
+  * the image) is packaged by [[LibPackage]] into the persistent package cache,
+  * and the seeded manifests depend on it as
   * `package://fh.invalid/fh-dashboard@<bundled version>` — so the user's dir
   * holds only user files, a runtime upgrade never touches the user's pin (the
-  * old version keeps resolving from the cache), and a LIB upgrade is the
-  * user's deliberate pin bump. Pre-package-form installs are migrated: their
-  * seeded `lib/` copy and manifests are renamed to dated backups, never
-  * deleted.
+  * old version keeps resolving from the cache), and a LIB upgrade is the user's
+  * deliberate pin bump. Pre-package-form installs are migrated: their seeded
+  * `lib/` copy and manifests are renamed to dated backups, never deleted.
   *
   * Idempotent; called on every start, before anything evaluates. Pure
   * side-effecting file work — the caller wraps it in `IO.blocking` and prints
@@ -23,12 +22,16 @@ import java.time.format.DateTimeFormatter
   */
 object AddonBootstrap {
 
-  /** @param dashboardsDir the user's workspace (`/homeassistant/fh-dashboards`)
-    * @param bundledLib    the image's library (`/opt/fh/lib`), read-only
-    * @param seedDir       starter entries copied on first boot only
-    * @param cacheDir      the persistent package cache (`/data/pkl-cache`) —
-    *                      written into the seeded manifests' `moduleCacheDir`,
-    *                      so pkl-lsp and the server resolve from the same place
+  /** @param dashboardsDir
+    *   the user's workspace (`/homeassistant/fh-dashboards`)
+    * @param bundledLib
+    *   the image's library (`/opt/fh/lib`), read-only
+    * @param seedDir
+    *   starter entries copied on first boot only
+    * @param cacheDir
+    *   the persistent package cache (`/data/pkl-cache`) — written into the
+    *   seeded manifests' `moduleCacheDir`, so pkl-lsp and the server resolve
+    *   from the same place
     */
   def run(
       dashboardsDir: os.Path,
@@ -88,8 +91,8 @@ object AddonBootstrap {
     log.result()
   }
 
-  /** Write `content` to `path` unless the user owns it: absent → write; the
-    * old seeded form (recognized by `oldFormMarker`) → dated backup + write;
+  /** Write `content` to `path` unless the user owns it: absent → write; the old
+    * seeded form (recognized by `oldFormMarker`) → dated backup + write;
     * anything else is the user's (their own dependency declarations, their pin
     * bumps) and is left untouched.
     */

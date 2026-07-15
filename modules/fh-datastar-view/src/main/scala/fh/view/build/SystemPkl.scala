@@ -28,6 +28,17 @@ trait SystemPkl {
     * `None` when the name is not one this home serves.
     */
   def module(name: String): Option[String]
+
+  /** A resolved-package artifact by cache file name — the metadata JSON for
+    * `"<name>@<version>"`, the module zip for `"<name>@<version>.zip"` — or
+    * `None` when this home's package cache has no such artifact. Backs the
+    * `/system/pkl/packages/` route (ADR 0010): a laptop workspace without a
+    * repo checkout points `package://fh.invalid/…` at it with one
+    * `http.rewrites` line and resolves the SAME artifacts the instance
+    * evaluates (same sha256 pin). Serves whatever versions the cache holds, so
+    * a laptop pinned to an older lib than the instance still resolves.
+    */
+  def packageArtifact(file: String): Option[Array[Byte]] = None
 }
 
 object SystemPkl {
@@ -66,20 +77,49 @@ object SystemPkl {
     */
   val empty: SystemPkl = apply(None, None)
 
-  /** Serve the two artifacts straight off disk: the schema from the
-    * `@fh-dashboard` library (`lib/hass.pkl`), the dump from the `@fh-home`
-    * package ([[DashboardBuild.DumpPath]]) — they live in separate packages
-    * because their lifecycles differ (ADR 0010). Reads are by-name (per
-    * lookup), so `dump.pkl` reflects the latest `DashboardBuild.prepareDumps`
-    * write without any cache to invalidate.
+  /** Serve the artifacts straight off disk: the schema from the `@fh-dashboard`
+    * library (`lib/hass.pkl` — present in the repo layout; a package-form
+    * add-on workspace has no `lib/`, so that name 404s there and the packages
+    * route is the replacement), the dump from the `@fh-home` package
+    * ([[DashboardBuild.DumpPath]]), and package artifacts from this workspace's
+    * package cache (`PklBuild.workspaceCacheDir` — the same cache the server
+    * evaluates from, pre-seeded by `LibPackage` on the add-on). Reads are
+    * by-name (per lookup), so `dump.pkl` reflects the latest
+    * `DashboardBuild.prepareDumps` write without any cache to invalidate.
     */
   def fromDisk(dashboardsDir: os.Path): SystemPkl = {
     def read(p: os.Path): Option[String] = Option.when(os.exists(p))(os.read(p))
-    apply(
-      read(dashboardsDir / "lib" / "hass.pkl"),
-      read(DashboardBuild.dumpPath(dashboardsDir))
-    )
+    // Computed once: the manifest's `moduleCacheDir` does not move at runtime.
+    val cache = PklBuild.workspaceCacheDir(dashboardsDir)
+    new SystemPkl {
+      def module(name: String): Option[String] =
+        name match {
+          case "hass.pkl" => read(dashboardsDir / "lib" / "hass.pkl")
+          case "dump.pkl" => read(DashboardBuild.dumpPath(dashboardsDir))
+          case _          => None
+        }
+      override def packageArtifact(file: String): Option[Array[Byte]] = {
+        val (base, suffix) =
+          if (file.endsWith(".zip")) (file.dropRight(4), ".zip")
+          else (file, ".json")
+        // `base` is one path segment (the router splits on `/`), but reject
+        // anything outside the artifact-name shape regardless — this indexes
+        // into the filesystem.
+        Option
+          .when(ArtifactBase.matches(base)) {
+            cache / "package-2" / LibPackage.Host / base / s"$base$suffix"
+          }
+          .filter(os.exists)
+          .map(os.read.bytes)
+      }
+    }
   }
+
+  /** `<name>@<version>` as it appears in the cache layout — conservative
+    * charset, no separators, so it can never escape the cache dir.
+    */
+  private val ArtifactBase =
+    """[A-Za-z0-9][A-Za-z0-9._+-]*@[A-Za-z0-9][A-Za-z0-9._+-]*""".r
 
   /** An in-memory [[ModuleKey]] backing an intercepted `/system/pkl/…` URI.
     * `hasHierarchicalUris = true` lets a relative `import "hass.pkl"` inside

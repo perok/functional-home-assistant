@@ -124,6 +124,25 @@ class Server(
         case None       => NotFound()
       }
 
+    // The instance's resolved lib packages (ADR 0010): the metadata JSON at
+    // `<name>@<version>`, the module zip at `<name>@<version>.zip` — exactly
+    // pkl's remote-package protocol, so a laptop workspace resolves
+    // `package://fh.invalid/fh-dashboard@<v>` from this instance with one
+    // `http.rewrites` line (`https://fh.invalid/` → `http://<home>/system/pkl/
+    // packages/`), landing on the same sha256-pinned artifacts the instance
+    // itself evaluates. No cache headers: pkl fetches per resolve, and a
+    // proxy-cached zip would turn the dev-image drift case (lib bytes changed
+    // under an unchanged version) into a confusing stale-checksum failure.
+    case GET -> Root / "system" / "pkl" / "packages" / file =>
+      systemPkl.packageArtifact(file) match {
+        case Some(bytes) =>
+          val mediaType =
+            if (file.endsWith(".zip")) MediaType.application.zip
+            else MediaType.application.json
+          Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
+        case None => NotFound()
+      }
+
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
     // dashboard injects when embedded in the editor preview (`?edit=1`).

@@ -2,15 +2,26 @@ package fh.view.functional
 
 import cats.data.NonEmptyList
 import cats.effect.IO
-import fh.view.build.{DashboardBuild, PklDump, SourceEval, SystemPkl}
+import com.comcast.ip4s.{host, port}
+import fh.view.build.{
+  AddonBootstrap,
+  DashboardBuild,
+  LibPackage,
+  PklDump,
+  SourceEval,
+  SystemPkl
+}
 import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
 
 import fh.view.testkit.{HouseFixture, PklFixture}
 
 import org.http4s.*
+import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.headers.{`If-None-Match`, ETag}
 import org.http4s.implicits.*
+
+import scala.concurrent.duration.*
 
 /** One test per consumer in ADR 0010's "Use cases" table.
   *
@@ -156,6 +167,179 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assertEquals(second.status, Status.NotModified)
         }
       }
+  }
+
+  test(
+    "end user on a local editor, no checkout: the instance's lib arrives as a package"
+  ) {
+    // The complement of the pull test above: there the laptop had the lib (a
+    // git copy) and lacked the dump; here it has NEITHER lib nor checkout —
+    // only a `package://fh.invalid/fh-dashboard@<v>` pin and one rewrite
+    // toward the instance's `/system/pkl/packages/` route. This is the whole
+    // laptop story for a user who never cloned the repo, and it is
+    // deliberately end-to-end: pkl's REAL package resolver over a REAL socket,
+    // so any drift in the metadata shape, the zip layout, or the route breaks
+    // here and not on someone's laptop.
+    val root = os.temp.dir()
+    val instance = root / "fh-dashboards"
+    val _ = AddonBootstrap.run(
+      instance,
+      bundledLib = dashboards / "lib",
+      seedDir = os.pwd / "home-addon" / "dashboards-seed",
+      cacheDir = root / "pkl-cache"
+    )
+    val v = LibPackage.version(dashboards / "lib")
+    val artifacts = LibPackage.build(dashboards / "lib")
+
+    // The laptop workspace: the pin, the @fh-home package with an
+    // already-pulled dump (the pull itself is the previous test), an entry.
+    // Templated via .replace — `\(version)` must reach Pkl verbatim.
+    val laptop = root / "laptop"
+    os.makeDir.all(laptop / "home")
+    os.write(
+      laptop / "PklProject",
+      """amends "pkl:Project"
+        |dependencies {
+        |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
+        |  ["fh-home"] = import("./home/PklProject")
+        |}
+        |""".stripMargin.replace("@V@", v)
+    )
+    os.write(
+      laptop / "home" / "PklProject",
+      """amends "pkl:Project"
+        |package {
+        |  name = "fh-home"
+        |  baseUri = "package://fh.invalid/fh-home"
+        |  version = "1.0.0"
+        |  packageZipUrl = "https://fh.invalid/fh-home@\(version).zip"
+        |}
+        |dependencies {
+        |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
+        |}
+        |""".stripMargin.replace("@V@", v)
+    )
+    os.write(
+      laptop / "home" / "dump.pkl",
+      PklDump.render(HouseFixture.transformedDump)
+    )
+    os.write(laptop / "mine.pkl", entryNeedingDump)
+    val laptopCache = root / "laptop-cache"
+
+    // A malformed artifact name must never index into the filesystem.
+    assertEquals(SystemPkl.fromDisk(instance).packageArtifact(".."), None)
+
+    TestServer
+      .resource(
+        PklFixture.buildDashboard("home", entryNeedingDump),
+        Nil,
+        SystemPkl.fromDisk(instance)
+      )
+      .flatMap { ts =>
+        EmberServerBuilder
+          .default[IO]
+          .withHost(host"127.0.0.1")
+          .withPort(port"0")
+          .withHttpApp(ts.server.routes.orNotFound)
+          .withShutdownTimeout(0.seconds)
+          .build
+          .map(bound => (ts, bound.baseUri))
+      }
+      .use { case (ts, base) =>
+        val app = ts.server.routes.orNotFound
+        val get = (file: String) =>
+          app.run(
+            Request[IO](
+              Method.GET,
+              Uri.unsafeFromString(s"/system/pkl/packages/$file")
+            )
+          )
+        for {
+          // The wire contract pkl's resolver consumes: metadata JSON naming
+          // the sha256 that the zip actually hashes to — the pin that will
+          // land in the laptop's lockfile.
+          meta <- get(s"fh-dashboard@$v")
+          metaBody <- meta.body.through(fs2.text.utf8.decode).compile.string
+          zip <- get(s"fh-dashboard@$v.zip")
+          zipBytes <- zip.body.compile.to(Array)
+          missing <- get("fh-dashboard@9.9.9-nosuch")
+
+          // The laptop's whole flow, over the real socket: resolve (writes
+          // the lockfile, fetches metadata + zip into the laptop's own cache)
+          // then evaluate the entry against what arrived.
+          properties <- IO.blocking(
+            resolveAndEvalOverHttp(laptop, laptopCache, base)
+          )
+        } yield {
+          assertEquals(meta.status, Status.Ok)
+          assertEquals(
+            meta.headers.get[headers.`Content-Type`].map(_.mediaType),
+            Some(MediaType.application.json)
+          )
+          assert(metaBody.contains(artifacts.sha256), clue = metaBody)
+          assertEquals(zip.status, Status.Ok)
+          assertEquals(LibPackage.sha256(zipBytes), artifacts.sha256)
+          assertEquals(missing.status, Status.NotFound)
+
+          assert(properties.containsKey("card"), clue = properties.keySet)
+          // The artifacts really crossed the wire: the laptop's own cache now
+          // holds the same package entry the instance evaluates from.
+          assert(
+            os.exists(
+              LibPackage.cacheEntryDir(laptopCache, v) /
+                s"fh-dashboard@$v.zip"
+            ),
+            clue = os.walk(laptopCache).mkString("\n")
+          )
+        }
+      }
+  }
+
+  /** What a laptop's pkl tooling does, minus the manifest-declared rewrite
+    * sugar: an HttpClient rewriting `https://fh.invalid/` to the instance's
+    * `/system/pkl/packages/`, driving pkl's real project resolver + evaluator.
+    */
+  private def resolveAndEvalOverHttp(
+      laptop: os.Path,
+      laptopCache: os.Path,
+      base: Uri
+  ): java.util.Map[String, AnyRef] = {
+    import org.pkl.core.http.HttpClient
+    import org.pkl.core.packages.PackageResolver
+    import org.pkl.core.project.{Project, ProjectDependenciesResolver}
+    import org.pkl.core.{EvaluatorBuilder, ModuleSource, SecurityManagers}
+
+    val http = HttpClient
+      .builder()
+      .addRewrite(
+        java.net.URI.create("https://fh.invalid/"),
+        java.net.URI.create(s"${base.renderString}/system/pkl/packages/")
+      )
+      .build()
+    val resolver = new ProjectDependenciesResolver(
+      Project.loadFromPath((laptop / "PklProject").toNIO),
+      PackageResolver.getInstance(
+        SecurityManagers.defaultManager,
+        http,
+        laptopCache.toNIO
+      ),
+      new java.io.PrintWriter(new java.io.StringWriter)
+    )
+    val out =
+      new java.io.FileOutputStream(
+        (laptop / "PklProject.deps.json").toNIO.toFile
+      )
+    try resolver.resolve().writeTo(out)
+    finally out.close()
+
+    val evaluator = EvaluatorBuilder
+      .preconfigured()
+      .setHttpClient(http)
+      .setModuleCacheDir(laptopCache.toNIO)
+      .applyFromProject(Project.loadFromPath((laptop / "PklProject").toNIO))
+      .build()
+    try evaluator.evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO)).getProperties
+    finally evaluator.close()
   }
 
   // ---------------------------------------------------------------- persona 3

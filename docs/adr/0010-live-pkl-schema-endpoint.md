@@ -74,7 +74,7 @@ invariant the whole design hangs on:
 | | evaluates on | `@fh-dashboard` is | `home/dump.pkl` written by | today |
 |---|---|---|---|---|
 | **End user, `/edit`** | the HA server | the bundled lib, as a version-pinned package from the persistent cache | `prepareDumps`, at startup | works |
-| **End user, local editor** | their laptop (git copy) | their checkout's `lib/`; the same versioned package fetched from the instance once the packages endpoint exists | a CLI pull from the instance | needs the CLI |
+| **End user, local editor** | their laptop (git copy, or no checkout at all) | their checkout's `lib/`, or the same versioned package fetched from the instance (`/system/pkl/packages/`) | a CLI pull from the instance | works (a `pull` CLI would remove the manual steps) |
 | **Repo developer** | laptop, local server | the repo's `lib/`, live-edited | `prepareDumps` vs a dev HA | works |
 | **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | server side works; needs the CLI |
 
@@ -176,15 +176,37 @@ Two complementary mechanisms, one for each consumer class.
 and `home/dump.pkl`; `prepareDumps` has already written the live dump).
 An unknown name is a 404. This is the live, always-in-sync mirror of what *that*
 running home is authoritative for, so a client can copy it locally instead of
-working against a checkout's stale file.
+working against a checkout's stale file. (On a package-form add-on workspace
+there is no `lib/`, so `hass.pkl` 404s there — harmless, because nothing needs
+it over http anymore: the schema travels inside the lib package below, and the
+dump's `@fh-dashboard/hass.pkl` import resolves against the puller's own pin.)
 
-**It is a file-download API, not a module source, and it has no consumer yet.**
-pkl-lsp does not fetch it — `LspBridge` runs pkl-lsp server-side against on-disk
-paths (see Use cases) — and no `.pkl` file imports by URL since entries moved to
-the aliases. Its consumer is the not-yet-built CLI pull. It is kept, rather than
-deleted, because it is the whole remote-author story: a laptop cannot import from
-the instance (https-only packages, no project for http modules), so *fetching the
-file* is the only mechanism left, and this is it.
+**`GET /system/pkl/packages/<name>@<version>[.zip]`** serves the instance's
+resolved lib packages: the metadata JSON at the bare name, the module zip at
+`.zip` — exactly pkl's remote-package protocol, straight from the same
+persistent cache the instance evaluates from (`SystemPkl.packageArtifact`; the
+artifact name is shape-checked so it can never index outside the cache). A
+laptop workspace with no repo checkout pins
+`package://fh.invalid/fh-dashboard@<v>` and maps it here with one
+`evaluatorSettings.http.rewrites` line (`https://fh.invalid/` →
+`http://<home>:8080/system/pkl/packages/`), landing on the same sha256-pinned
+artifacts the instance runs — checksums stay honest because a package version
+is immutable (the dump, which is not, stays a pull; see above). The cache
+serves every version it holds, so a laptop pinned to an older lib than the
+instance still resolves. No cache headers: pkl fetches per resolve, and a
+proxy-cached zip would turn the dev-image drift case into a confusing
+stale-checksum failure. `UseCaseSuite` pins the flow end-to-end — pkl's real
+resolver + evaluator over a real socket against this route.
+
+**The `.pkl` routes are a file-download API, not a module source, and the dump
+route's consumer is the not-yet-built CLI pull.** pkl-lsp does not fetch it —
+`LspBridge` runs pkl-lsp server-side against on-disk paths (see Use cases) —
+and no `.pkl` file imports by URL since entries moved to the aliases. It is
+kept, rather than deleted, because a live artifact cannot be a package (the
+checksum argument above), so *fetching the file* is the only mechanism a remote
+author has for the dump. The packages route is different in kind: it IS a
+module source, consumed by pkl's own resolver — which is exactly why only the
+immutable, versioned lib is served through it.
 
 **Caching: `no-cache` + an `ETag`, and `no-cache` is the load-bearing half.**
 `dump.pkl` is live per-home data under a URL that never changes, so anything that
@@ -312,8 +334,8 @@ A **lib** upgrade is the user's deliberate pin bump (`/edit` today, a future
 `fh sync`). Pin-in-user-file is then correct semantics rather than a stranding
 hazard, and the instance and the laptop become symmetric: the same
 `package://fh.invalid/fh-dashboard@<v>` pin resolves from the local cache on the
-instance and (once the `/system/pkl/packages/` endpoint exists — follow-ups)
-over an `http.rewrites` mapping on a laptop. What the split demands in exchange
+instance and over an `http.rewrites` mapping toward `/system/pkl/packages/` on
+a laptop (below). What the split demands in exchange
 is a wire-format **compatibility contract** between independently-shipping
 artifacts — see follow-ups.
 
@@ -436,14 +458,6 @@ normal one for shipped entries.
 
 ## Open follow-ups
 
-- **The `/system/pkl/packages/` endpoint.** The laptop half of the decoupled
-  lib (now the implemented add-on design — see Decision): serve the same two
-  artifacts the cache holds (`fh-dashboard@<v>.json` + `.zip`, immutable per
-  version) so a laptop workspace without a repo checkout pins the identical
-  package via an `evaluatorSettings.http.rewrites` mapping
-  (`https://fh.invalid/` → `http://<ha>:8080/system/pkl/packages/`). The
-  server-side artifacts already exist (`LibPackage`); only the route is missing.
-  The dump is unaffected: always a pull, never a package (checksums, above).
 - **The wire-format compatibility contract.** The price of lib/runtime
   decoupling: independently-shipping artifacts need, at minimum, the runtime
   rejecting output from a lib newer than it understands with a clear error — a
