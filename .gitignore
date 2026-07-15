@@ -6,9 +6,11 @@ modules/fh-datastar-view/src/main/resources/dashboards/lib/dump.pkl
 modules/fh-datastar-view/dashboard.json
 modules/fh-datastar-view/assets-cache/
 # Pkl @fh-dashboard project-dependency lockfile + package cache (ADR 0010,
-# Track B), resolved in-process from the local lib/ — a build product. Resolving
-# the consumer project also writes the local dependency's own lockfile, hence
-# the lib/ entry.
+# Track B), resolved in-process from the local lib/ — a build product. The
+# server/build only ever resolves the CONSUMER project, so only the first is
+# written on our own paths; the lib/ one shows up when a pkl tool (the CLI,
+# pkl-lsp) is pointed at that package directly in a checkout. Both are build
+# products wherever they land.
 modules/fh-datastar-view/src/main/resources/dashboards/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/lib/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/.pkl-cache/
