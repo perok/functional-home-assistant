@@ -15,7 +15,15 @@ Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
   `ModuleKeyFactories.http` returns `ResolvedModuleKeys.virtual(...)` for a
   `…/system/pkl/…` URI with no server running; `hasHierarchicalUris = true` makes
   the nested `import "hass.pkl"` resolve through the same factory. The only gate is
-  the module allowlist (`setAllowedModules([… "http:" …])`).
+  the module allowlist (`setAllowedModules([… "http:" …])`). **Now vestigial** —
+  nothing imports over http (see Use cases), and the served dump's own
+  `@fh-dashboard` import could not resolve that way regardless. Retained as a
+  fallback; a candidate for deletion.
+- **Not possible (spiked, and it shapes the design):** `package://` forces
+  `https:` — `package://localhost:8099/x@1.0.0` issues
+  `GET https://localhost:8099/x@1.0.0` and a plaintext host is never contacted. And
+  an http-served module cannot resolve an `@alias`: `Cannot import dependency
+  because there is no project found`.
 - **Local dep (B):** `ProjectDependenciesResolver(Project.loadFromPath(p),
   PackageResolver.getInstance(sm, dummyHttpClient, cacheDir), writer).resolve()`
   writes a `PklProject.deps.json` for a `"type":"local"` dep with no network and no
@@ -37,26 +45,97 @@ A dashboard entry pulls in two fh-owned Pkl artifacts:
   Gitignored; per-home; changes as the home changes. It lives in its own package
   (`@fh-home`) because its lifecycle is the opposite of the library's — see Track B.
 
-Two consumers must resolve these, and they resolve imports differently:
+## Use cases
 
-- the **server** evaluating its own entries at startup/reload (in-process, via
-  pkl-core) and the **offline** build/test paths (no live home);
-- external **editors** — the `/edit` in-browser pkl-lsp subprocess and any remote
-  author's Pkl tooling — which resolve imports by *actually fetching* URLs and
-  cannot run fh's Java module factories.
+Four consumers. They differ only in **where `lib/` comes from** and **who writes
+`home/dump.pkl`** — never in how an entry resolves anything. That is the
+invariant the whole design hangs on:
+
+> **Evaluation always runs against a fully-local project**: a consumer
+> `PklProject` binding `@fh-dashboard` and `@fh-home` to packages on the same
+> machine as the evaluator. A running instance is something you **sync from** and
+> **push to** — never something you **import from**.
+
+| | evaluates on | `@fh-dashboard` is | `home/dump.pkl` written by | today |
+|---|---|---|---|---|
+| **End user, `/edit`** | the HA server | the seeded `lib/` | `prepareDumps`, at startup | works |
+| **End user, local editor** | their laptop | their copy of `lib/` | a CLI pull from the instance | needs the CLI |
+| **Repo developer** | laptop, local server | the repo's `lib/`, live-edited | `prepareDumps` vs a dev HA | works |
+| **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | needs CLI pull + push |
+
+**End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
+`LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
+absolute on-disk paths in `initialize`, so completion resolves the seeded `lib/`
+and the freshly-written `home/dump.pkl` from local files, through the project.
+Nothing is fetched. This is the default path and it needs no network story at all.
+
+**End user, local editor.** Has a copy of their dashboards dir (it lives under
+`/homeassistant/fh-dashboards`, exposed via the File editor / Samba), so they
+already have `lib/`, the manifests, and their entries. The one thing that goes
+stale is the dump — it tracks a home that keeps changing. They need to
+*re-materialize* `home/dump.pkl` from the instance, which is a **file fetch**, not
+an import: `GET /system/pkl/dump.pkl` → write it into `home/`. Their project then
+resolves exactly as the server's does.
+
+**Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
+checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
+live-reloads edits to `components.pkl`/themes because the precise import set
+resolves `@fh-dashboard` back to those files.
+
+**Component developer.** Writes their own cards locally and a local entry that
+imports both them and `@fh-home/dump.pkl`. Their instance cannot evaluate that
+entry — it has never seen their components. So they evaluate **locally** and push
+the **result**: the wire model `{cards, card}` is self-contained (cards carry
+their Mustache templates inline), so a pushed dashboard needs nothing on the
+server. Once the components are published, a normal remote package dependency
+replaces the push, and they stop being special.
+
+### Why this rules out importing from the instance
+
+Two spikes on 0.31.1 close off the alternatives, and both cut the same way:
+
+- **`package://` is https-only.** `package://localhost:8099/x@1.0.0` issues
+  `GET https://localhost:8099/x@1.0.0` — the scheme is forced, a plaintext server
+  sees nothing, and there is no knob. So an alias can never point at the add-on's
+  plain-http port. Packages are also **checksum-pinned**, which is right for a
+  versioned library and fatally wrong for a dump that is rewritten every start.
+- **An http-served module cannot resolve an alias.** A dump fetched over http and
+  imported as a module fails its own `import "@fh-dashboard/hass.pkl"` with
+  `Cannot import dependency because there is no project found` — `@` imports
+  resolve against an *enclosing project*, and an http module has none. Only a
+  sibling `import "hass.pkl"` works there (via `hasHierarchicalUris`).
+
+So the dump text can serve the **package** world or the **http-module** world,
+never both. The package world wins: it is the one that also supports third-party
+component packages, and it keeps entry text free of host literals. `PklDump`
+therefore emits `import "@fh-dashboard/hass.pkl"`, and `/system/pkl/` demotes from
+"a module source editors import" to "**the artifacts this instance is
+authoritative for, for a client to copy locally**" — which needs no cert, no
+checksums, and works over plain http.
+
+That also gives the endpoint's `ETag` a real consumer at last: a CLI pull is a
+conditional `GET`, so an unchanged home costs a `304` instead of ~450KB.
 
 ## Decision
 
 Two complementary mechanisms, one for each consumer class.
 
-### Track A — the `/system/pkl/:name` HTTP endpoint (for external editors)
+### Track A — the `/system/pkl/:name` HTTP endpoint (the instance's mirror)
 
 `Server` serves `GET /system/pkl/{hass,dump}.pkl` as `text/plain` from a
 `SystemPkl` provider (`SystemPkl.fromDisk(dashboardsDir)` reads `lib/hass.pkl`
 and `home/dump.pkl`; `prepareDumps` has already written the live dump).
-An unknown name is a 404. This is the live, always-in-sync endpoint that pkl-lsp
-and remote authors fetch for completion/diagnostics — the schema+dump of *that*
-running home, not a checkout's stale file.
+An unknown name is a 404. This is the live, always-in-sync mirror of what *that*
+running home is authoritative for, so a client can copy it locally instead of
+working against a checkout's stale file.
+
+**It is a file-download API, not a module source, and it has no consumer yet.**
+pkl-lsp does not fetch it — `LspBridge` runs pkl-lsp server-side against on-disk
+paths (see Use cases) — and no `.pkl` file imports by URL since entries moved to
+the aliases. Its consumer is the not-yet-built CLI pull. It is kept, rather than
+deleted, because it is the whole remote-author story: a laptop cannot import from
+the instance (https-only packages, no project for http modules), so *fetching the
+file* is the only mechanism left, and this is it.
 
 **Caching: `no-cache` + an `ETag`, and `no-cache` is the load-bearing half.**
 `dump.pkl` is live per-home data under a URL that never changes, so anything that
@@ -216,8 +295,13 @@ normal one for shipped entries.
 - **Import the library over the http URL (Track A) from entries.** The prototype
   did this; it works, but embeds a host literal in every entry and puts the
   interception factory on the hot eval path. `@fh-dashboard` is the cleaner
-  authoring surface and keeps the http endpoint for its real job (external
-  editors that must fetch).
+  authoring surface. It is also now a dead end: an http-served module cannot
+  resolve an `@alias` at all (no enclosing project), so a library reached this way
+  could never itself use the aliases.
+- **Point an alias at the instance (`package://<home>:8123/…`).** The natural
+  guess for the remote author, and impossible: `package://` forces `https:` (a
+  plaintext host is never contacted), and packages are checksum-pinned — right for
+  a versioned library, fatal for a per-start dump. The CLI pull replaces it.
 - **Write `@fh-dashboard/hass.pkl` inside `components.pkl`.** A package member
   referencing its own alias: the alias is not declared in the package's project,
   so it fails standalone, and in the best case resolves to the identical URI a
@@ -249,8 +333,34 @@ normal one for shipped entries.
   re-fetch + re-render it on demand (e.g. after adding a device) short of a
   restart — add a build-time force-rerun path (endpoint or signal that re-runs
   `prepareDumps` and re-evaluates entries).
-- **HTTPS/cert.** The endpoint allows plain `http:` (decided). A cross-network
-  deployment over `https:` needs a cert reachable by pkl-lsp — out of scope so far.
+- **The `fh` CLI (`pull` / `push`).** The one missing piece for two of the four use
+  cases, and the only consumer the `/system/pkl` endpoint has.
+  - `pull`: conditional `GET /system/pkl/dump.pkl` (send `If-None-Match`, honour
+    the `304`) → write `home/dump.pkl`. Plain http, no cert, no checksums.
+  - `push`: evaluate locally, `POST` the `{cards, card}` JSON, hot-swap a
+    renderer. Two known wrinkles: `Server.renderers` is a `Map[String,
+    SignallingRef]` fixed at construction, so a push cannot mint a NEW slug —
+    it must target an existing one (a seeded `preview` entry, or restructure to a
+    `Ref[Map[…]]`); and the file watcher's reconcile would clobber a pushed slug
+    on the next edit unless that slug is excluded. Push is a *write*: it must ride
+    HA-authenticated ingress, never the documented-as-unauthenticated direct port.
+- **Remote dependencies do not resolve today.** Two blockers for the published
+  world, both small but deliberate: `resolveProjectDeps` hardcodes
+  `HttpClient.dummyClient()` (a remote dep dies with `Dummy HTTP client cannot
+  send request`), and it only resolves when the lockfile is *absent* — so a user
+  adding a dependency to their `PklProject` would keep getting the stale
+  `PklProject.deps.json`. Fixing both means deciding what startup does when the
+  network is down or a checksum moved.
+- **How a published package is actually addressed.** UNVERIFIED, and worth a spike
+  before promising it: package metadata is fetched from `https://<authority><path>@<version>`
+  (observed), so `package://github.com/<org>/<repo>/<pkg>@1.0.0` would `GET`
+  `https://github.com/<org>/<repo>/<pkg>@1.0.0`, which GitHub will not serve.
+  "Publish to GitHub and refer to the project path" therefore probably needs a
+  metadata host (GitHub Pages, a redirect, or a registry) rather than the repo URL.
+- **HTTPS/cert.** The endpoint allows plain `http:` (decided). Under the CLI-pull
+  model this is no longer load-bearing: a file download needs no cert, and pkl-lsp
+  never crosses the network. It returns only if something must *import* over the
+  wire.
 - **Publish `@fh-dashboard`.** The remote half (a `package://…` registry: network +
   checksum, unspiked) is a post-API-stability step; only the consumer mapping flips.
   The dump does not participate: it is already outside that package (`@fh-home`),
