@@ -182,6 +182,121 @@ class PklBuildSuite extends munit.FunSuite {
   private def evalProj(tmp: os.Path, entry: String) =
     SourceEval.eval(tmp, entry)
 
+  /** A minimal published third-party package served over http — metadata JSON
+    * at the bare name, module zip at `.zip`, the same remote-package protocol
+    * `/system/pkl/packages/` speaks. Returns the port and a stop handle.
+    */
+  private def thirdPartyServer(): (Int, () => Unit) = {
+    val zip = {
+      val dir = os.temp.dir()
+      os.write(dir / "mod.pkl", "greeting: String = \"from remote package\"\n")
+      LibPackage.zipBytes(dir)
+    }
+    val metadata =
+      s"""{"name":"thirdparty","packageUri":"package://fh.invalid/thirdparty@1.0.0",
+         |"version":"1.0.0","packageZipUrl":"https://fh.invalid/thirdparty@1.0.0.zip",
+         |"packageZipChecksums":{"sha256":"${LibPackage.sha256(zip)}"},"dependencies":{}}""".stripMargin
+    val server = com.sun.net.httpserver.HttpServer
+      .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext(
+      "/",
+      { ex =>
+        val body: Array[Byte] = ex.getRequestURI.getPath match {
+          case "/thirdparty@1.0.0.zip" => zip
+          case "/thirdparty@1.0.0"     => metadata.getBytes
+          case _                       => Array.emptyByteArray
+        }
+        if (body.isEmpty) ex.sendResponseHeaders(404, -1)
+        else {
+          ex.sendResponseHeaders(200, body.length.toLong)
+          ex.getResponseBody.write(body)
+        }
+        ex.close()
+      }
+    )
+    server.start()
+    (server.getAddress.getPort, () => server.stop(0))
+  }
+
+  /** The staged local-dep workspace plus a REMOTE third-party dependency,
+    * mapped to the local server by the manifest's own
+    * `evaluatorSettings.http.rewrites` — exactly how a real workspace maps
+    * `fh.invalid` at a real host (the documented air-gap mechanism).
+    */
+  private def stageThirdParty(tmp: os.Path, port: Int, version: String): Unit = {
+    copyLib(tmp, "hass.pkl")
+    writeThirdPartyManifest(tmp, port, version)
+    os.write.over(
+      tmp / "probe.pkl",
+      """import "@thirdparty/mod.pkl" as m
+        |msg: String = m.greeting
+        |""".stripMargin
+    )
+  }
+
+  private def writeThirdPartyManifest(
+      tmp: os.Path,
+      port: Int,
+      version: String
+  ): Unit =
+    os.write.over(
+      tmp / "PklProject",
+      s"""amends "pkl:Project"
+         |evaluatorSettings {
+         |  http {
+         |    rewrites {
+         |      ["https://fh.invalid/"] = "http://127.0.0.1:$port/"
+         |    }
+         |  }
+         |}
+         |dependencies {
+         |  ["fh-dashboard"] = import("./lib/PklProject")
+         |  ["fh-home"] = import("./home/PklProject")
+         |  ["thirdparty"] { uri = "package://fh.invalid/thirdparty@$version" }
+         |}
+         |""".stripMargin
+    )
+
+  test(
+    "a published third-party package resolves through the manifest's http.rewrites"
+  ) {
+    // The post-publish half of persona 4 (ADR 0010): a user adds a released
+    // component package next to @fh-dashboard and the server's OWN resolve
+    // path fetches it — the client is derived from the manifest's settings,
+    // not hardcoded dummy (which died with "Dummy HTTP client cannot send
+    // request" for any remote dep).
+    val (port, stop) = thirdPartyServer()
+    try {
+      val tmp = os.temp.dir()
+      stageThirdParty(tmp, port, "1.0.0")
+      val result = evalProj(tmp, "probe.pkl")
+      val msg = result.map(_.value.hcursor.get[String]("msg"))
+      assertEquals(msg, Right(Right("from remote package")), clue = result)
+    } finally stop()
+  }
+
+  test(
+    "an unresolvable remote dep fails naming the package and keeps the lockfile"
+  ) {
+    val (port, stop) = thirdPartyServer()
+    val tmp = os.temp.dir()
+    stageThirdParty(tmp, port, "1.0.0")
+    assert(evalProj(tmp, "probe.pkl").isRight)
+    stop()
+    val lockBefore = os.read(tmp / "PklProject.deps.json")
+
+    // Bump the pin to a version neither the warm cache nor the (now-dead)
+    // registry has: the manifest edit makes the lockfile stale, re-resolution
+    // must fail LOUDLY with pkl's own error naming the package — and the
+    // previous lockfile must survive the failure (resolve-before-write).
+    writeThirdPartyManifest(tmp, port, "2.0.0")
+    os.mtime.set(tmp / "PklProject", System.currentTimeMillis() + 1000)
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isLeft, clue = result)
+    assert(result.left.exists(_.contains("thirdparty")), clue = result)
+    assertEquals(os.read(tmp / "PklProject.deps.json"), lockBefore)
+  }
+
   test("hass.pkl types the dump's entity shapes with a generic fallback") {
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl")

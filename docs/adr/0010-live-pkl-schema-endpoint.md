@@ -122,9 +122,8 @@ Once the components are published — a GitHub release, referenced as
 follow-ups) — a normal remote package dependency in the consumer's `PklProject`
 replaces the push, and they stop being special: any user adds the dep next to
 `@fh-dashboard`, names the module in `componentModules`, and uses the cards.
-(For that to work on a pure-`/edit` instance, the server's resolver must fetch
-real remote packages — today it cannot; see "Remote dependencies do not resolve"
-in the follow-ups.)
+This works on a pure-`/edit` instance: the server's resolver fetches real
+remote packages, honoring the manifest's own `http.rewrites` (see Track B).
 
 ### Why the dump is never imported from the instance
 
@@ -261,15 +260,24 @@ arrangement works while everything is still local. `home/dump.pkl` also must not
 sit at the dashboards top level, where `discoverEntries` would scan it as an
 entry (`DashboardBuild.DumpPath` owns the location).
 
-`PklBuild.resolveProjectDeps` resolves the mapping **in-process and network-free**
-(`ProjectDependenciesResolver` + a dummy HTTP client — a *local* dependency is
-never fetched), writes the `PklProject.deps.json` lockfile once (gitignored), and
-`EvaluatorBuilder.applyFromProject` makes the aliases resolve to the local `lib/`
-and `home/`. No relative paths, no embedded host, no self-fetch — and offline
-build/test paths keep working (the resolve reads local files only). Resolving the
-**consumer** project is enough: `@fh-home`'s own `@fh-dashboard` dependency
-resolves with it, and only `dashboards/PklProject.deps.json` is written (verified
-on 0.31.1) — no per-package pass.
+`PklBuild.resolveProjectDeps` resolves the mapping **in-process**, writes the
+`PklProject.deps.json` lockfile (gitignored; re-resolved whenever a `PklProject`
+outdates it), and `EvaluatorBuilder.applyFromProject` makes the aliases resolve
+to the local `lib/` and `home/`. The network is touched only for a REMOTE
+dependency not already in the package cache: local deps read files, a cached
+remote version satisfies the resolver without a request (the client is lazy and
+is never built then — offline build/test paths and add-on boots keep working),
+and an uncached remote dep (a published third-party card package, a bumped lib
+pin) is fetched for real through a client derived from the manifest's own
+`evaluatorSettings.http.rewrites` — the documented air-gap mechanism, and the
+same mapping the pkl CLI would honor, so one manifest serves both worlds
+(spike-verified on 0.31.1; `applyFromProject` applies the same settings on the
+eval side by itself). A failed fetch propagates as the entry's build error with
+pkl's own message naming the package, and resolve-before-write keeps the
+previous lockfile intact. No relative paths, no embedded host, no self-fetch.
+Resolving the **consumer** project is enough: `@fh-home`'s own `@fh-dashboard`
+dependency resolves with it, and only `dashboards/PklProject.deps.json` is
+written (verified on 0.31.1) — no per-package pass.
 
 **A module imports its OWN package's modules relatively, and another package's by
 alias.** `components.pkl` → `import "hass.pkl"`, `entry.pkl` →
@@ -499,13 +507,6 @@ normal one for shipped entries.
   `ingress_port` to one never listed in `ports`, and mount the write routes only
   on that listener, so the boundary is reachability rather than a client-supplied
   header.
-- **Remote dependencies do not resolve today.** Two blockers for the published
-  world, both small but deliberate: `resolveProjectDeps` hardcodes
-  `HttpClient.dummyClient()` (a remote dep dies with `Dummy HTTP client cannot
-  send request`), and it only resolves when the lockfile is *absent* — so a user
-  adding a dependency to their `PklProject` would keep getting the stale
-  `PklProject.deps.json`. Fixing both means deciding what startup does when the
-  network is down or a checksum moved.
 - **Publishing is a GitHub release; `pkg.pkl-lang.org` is the registry.** No
   hosting to run: cut a GitHub release and consumers depend on
   `package://pkg.pkl-lang.org/github.com/<owner>/<repo>/<release>` — the service
@@ -519,7 +520,9 @@ normal one for shipped entries.
   it is a per-project setting the add-on could ship — mirror both
   `https://pkg.pkl-lang.org/` and `https://github.com/` (the registry redirects to
   release assets, so both need mirroring). Rewrite targets may be plain `http://`
-  (spiked). Checksum behaviour behind a mirror is NOT yet verified.
+  (spiked). Checksums verify normally behind a rewrite: `PklBuildSuite`'s
+  third-party test resolves a sha256-pinned package through `http.rewrites`
+  to a plain-http server.
 - **HTTPS/cert.** The endpoint allows plain `http:` (decided). Under the CLI-pull
   model this is no longer load-bearing: a file download needs no cert, and pkl-lsp
   never crosses the network. It returns only if something must *import* over the

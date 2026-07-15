@@ -126,12 +126,19 @@ object PklBuild {
 
   /** If `dashboardsDir` is a Pkl project, load it and ensure its
     * `PklProject.deps.json` lockfile exists, so `applyFromProject` can resolve
-    * the `@fh-dashboard` alias. Resolution is IN-PROCESS and network-free for
-    * the local `@fh-dashboard -> lib/` mapping (`ProjectDependenciesResolver` +
-    * a dummy http client — the local dependency is never fetched); the lockfile
-    * is written once and reused (stable for a local dep). Returns the loaded
-    * [[Project]], or `None` when there is no `PklProject` (the plain-eval
-    * path).
+    * the `@fh-dashboard` alias. Resolution is IN-PROCESS, and touches the
+    * network only for a REMOTE dependency that is not already in the package
+    * cache: local deps read files, and a cached remote version satisfies the
+    * resolver without a request (so add-on boots stay offline-safe — the client
+    * below is lazy and is never even built then). An uncached remote dep — a
+    * published third-party card package, or a bumped `@fh-dashboard` pin the
+    * image didn't bundle — is fetched for real, honoring the manifest's own
+    * `evaluatorSettings.http.rewrites` (the documented air-gap mechanism; how a
+    * workspace maps `fh.invalid` to a real host). If that fetch fails (offline,
+    * dead registry), the error propagates into the entry's build error verbatim
+    * — pkl names the package URI — and the resolve-before-write order below
+    * keeps the previous lockfile intact. Returns the loaded [[Project]], or
+    * `None` when there is no `PklProject` (the plain-eval path).
     */
   private def resolveProjectDeps(dashboardsDir: os.Path): Option[Project] = {
     val projectFile = dashboardsDir / "PklProject"
@@ -143,17 +150,41 @@ object PklBuild {
           project,
           PackageResolver.getInstance(
             SecurityManagers.defaultManager,
-            HttpClient.dummyClient(),
+            settingsHttpClient(project),
             cacheDir(dashboardsDir, Some(project)).toNIO
           ),
           new PrintWriter(new StringWriter)
         )
+        // Resolve fully BEFORE opening the lockfile: `FileOutputStream`
+        // truncates on open, so the old order destroyed the previous lockfile
+        // whenever resolution threw.
+        val resolved = resolver.resolve()
         val out = new FileOutputStream(depsJson.toNIO.toFile)
-        try resolver.resolve().writeTo(out)
+        try resolved.writeTo(out)
         finally out.close()
       }
       project
     }
+  }
+
+  /** The resolver's http client, from the manifest's own
+    * `evaluatorSettings.http` (spike-verified on 0.31.1: `setRewrites` with the
+    * settings' map reproduces what the pkl CLI does with them; a manifest
+    * without the block yields a plain client). Lazy — a fully-cached resolve
+    * never builds it — with bounded timeouts so a dead registry fails a boot in
+    * seconds, not minutes. The evaluator side needs no counterpart:
+    * `applyFromProject` already applies the same settings (spike-verified).
+    */
+  private def settingsHttpClient(project: Project): HttpClient = {
+    val builder = HttpClient
+      .builder()
+      .setConnectTimeout(java.time.Duration.ofSeconds(10))
+      .setRequestTimeout(java.time.Duration.ofSeconds(60))
+    Option(project.getEvaluatorSettings)
+      .flatMap(s => Option(s.http()))
+      .flatMap(h => Option(h.rewrites()))
+      .foreach(builder.setRewrites)
+    builder.buildLazily()
   }
 
   /** Re-resolve when the lockfile is absent OR any `PklProject` under the dir
