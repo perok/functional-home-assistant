@@ -85,6 +85,7 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 | `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed `home/dump.pkl` generation |
+| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The add-on boot path (ADR 0010): `@fh-dashboard` packaged into a persistent cache + workspace seed/migration (dated backups, never delete user files) |
 | `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens |

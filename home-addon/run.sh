@@ -1,6 +1,7 @@
 #!/bin/sh
-# FH Dashboard add-on entrypoint. Seeds the user-editable dashboards dir on
-# first start, wires the supervisor-proxied HA endpoints, and execs the app.
+# FH Dashboard add-on entrypoint. Wires the supervisor-proxied HA endpoints
+# and execs the app; workspace seeding/migration is AddonBootstrap's job
+# (in the server, driven by the FH_* exports below).
 set -e
 
 # s6-overlay v3 (the hassio base image init) SCRUBS the container environment
@@ -18,11 +19,6 @@ fi
 # Under /homeassistant (the homeassistant_config map) so the seeded entries are
 # visible in the File editor / Samba homeassistant/ share for editing.
 DASH_DIR=/homeassistant/fh-dashboards
-mkdir -p "$DASH_DIR"
-if [ -z "$(ls -A "$DASH_DIR")" ]; then
-  echo "Seeding starter dashboards into $DASH_DIR"
-  cp -r /opt/dashboards-seed/. "$DASH_DIR"/
-fi
 
 # HA core via the supervisor proxy. The WS endpoint is NOT the /api/websocket
 # path derived from SERVER, hence the explicit SERVER_WS override. Pre-set
@@ -51,6 +47,13 @@ export DASHBOARDS_DIR="$DASH_DIR"
 # /data is add-on private persistent storage; the asset cache needs no user
 # editing, unlike the dashboards.
 export FH_ASSETS_DIR=/data/assets-cache
+
+# AddonBootstrap inputs (ADR 0010): the bundled lib is packaged into the
+# persistent pkl cache at boot; starter entries seed an empty workspace;
+# old copy-if-empty installs are migrated with dated backups.
+export FH_BUNDLED_LIB=/opt/fh/lib
+export FH_SEED_DIR=/opt/dashboards-seed
+export FH_PKL_CACHE_DIR=/data/pkl-cache
 
 if [ -f /data/options.json ]; then
   DEFAULT_DASHBOARD="$(jq -r '.default_dashboard // empty' /data/options.json)"

@@ -127,7 +127,7 @@ object PklDump {
     // its own `@fh-home` package (it is live per-home data and can never ship
     // inside the shared `@fh-dashboard` library), so it is no longer a sibling
     // of `hass.pkl`. The alias resolves to
-    // `projectpackage://fh.local/fh-dashboard@1.0.0#/hass.pkl` — the SAME URI
+    // `projectpackage://fh.invalid/fh-dashboard@1.0.0#/hass.pkl` — the SAME URI
     // `components.pkl`'s own relative `import "hass.pkl"` lands on — which is
     // what keeps a dump entity assignable to a card factory's `hass.Entity`
     // parameter. See ADR 0010, "Module identity".

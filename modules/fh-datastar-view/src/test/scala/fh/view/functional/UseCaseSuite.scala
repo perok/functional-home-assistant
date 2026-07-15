@@ -69,13 +69,26 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   // ---------------------------------------------------------------- persona 1
 
   test("end user on /edit: the seeded workspace builds server-side") {
-    // What a fresh add-on does: seed the dir, write the dump from HA, evaluate.
-    // pkl-lsp behind /edit resolves these same local files (it runs as a
-    // server-side subprocess over on-disk paths), so nothing here is fetched.
-    val dir = stageWorkspace(withDump = true)
-    os.write(dir / "dashboard.pkl", entryNeedingDump)
+    // What a fresh add-on does: bootstrap the workspace (package-form
+    // manifests, lib pre-cached — AddonBootstrapSuite pins that machinery),
+    // write the dump from HA, evaluate. pkl-lsp behind /edit resolves the same
+    // manifests + cache (`moduleCacheDir` is declared IN the manifest), so
+    // nothing here is fetched.
+    val root = os.temp.dir()
+    val ws = root / "fh-dashboards"
+    val _ = fh.view.build.AddonBootstrap.run(
+      ws,
+      bundledLib = dashboards / "lib",
+      seedDir = os.pwd / "home-addon" / "dashboards-seed",
+      cacheDir = root / "pkl-cache"
+    )
+    os.write(
+      ws / "home" / "dump.pkl",
+      PklDump.render(HouseFixture.transformedDump)
+    )
+    os.write(ws / "mine.pkl", entryNeedingDump)
 
-    val result = SourceEval.eval(dir, "dashboard.pkl")
+    val result = SourceEval.eval(ws, "mine.pkl")
     assert(result.isRight, clue = result)
   }
 

@@ -19,11 +19,23 @@ Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
   nothing imports over http (see Use cases), and the served dump's own
   `@fh-dashboard` import could not resolve that way regardless. Retained as a
   fallback; a candidate for deletion.
-- **Package URLs + rewrites (spiked):** `package://` maps to an `https:` outbound
-  request (`package://fh.local/x@1.0.0` → `GET https://fh.local/x@1.0.0`), but
-  `HttpClient.Builder.addRewrite(from, to)` retargets it — a rewrite to
-  `http://127.0.0.1:8099/` was received by a **plaintext** server. So http package
-  hosting IS possible; https is not a hard floor.
+- **Package URLs + rewrites (spiked end-to-end):** `package://` maps to an
+  `https:` outbound request (`package://fh.local/x@1.0.0` →
+  `GET https://fh.local/x@1.0.0`), but `HttpClient.Builder.addRewrite(from, to)`
+  retargets it. The **full remote-package flow works over plain http**: a
+  hand-rolled metadata JSON (`{name, packageUri, version, packageZipUrl,
+  packageZipChecksums.sha256, dependencies}`) plus a zip with the modules at its
+  root, served by a plaintext local server, resolves (`"type":"remote"` with the
+  sha256 pinned in `PklProject.deps.json`) and evaluates. https is not a floor
+  anywhere in the chain. Laptop-side (pkl CLI / pkl-lsp) the same rewrite is the
+  documented `evaluatorSettings.http.rewrites` air-gap mechanism, untested here
+  (no CLI in this environment).
+- **Absolute-path local dep (spiked):** a consumer `PklProject` may declare
+  `["fh-dashboard"] = import("file:///opt/…/lib/PklProject")` — a dependency
+  *outside* the project dir. It resolves and evaluates; `deps.json` records the
+  dep **relativized** against the project dir (`"path": "../opt/…"`), so the
+  lockfile is machine-specific and must be regenerated wherever the layout
+  differs.
 - **An http-served module cannot resolve an `@alias`** (spiked): `Cannot import
   dependency because there is no project found`. `@` imports resolve against an
   enclosing project; an http module has none.
@@ -61,24 +73,28 @@ invariant the whole design hangs on:
 
 | | evaluates on | `@fh-dashboard` is | `home/dump.pkl` written by | today |
 |---|---|---|---|---|
-| **End user, `/edit`** | the HA server | the seeded `lib/` | `prepareDumps`, at startup | works |
-| **End user, local editor** | their laptop | their copy of `lib/` | a CLI pull from the instance | needs the CLI |
+| **End user, `/edit`** | the HA server | the bundled lib, as a version-pinned package from the persistent cache | `prepareDumps`, at startup | works |
+| **End user, local editor** | their laptop (git copy) | their checkout's `lib/`; the same versioned package fetched from the instance once the packages endpoint exists | a CLI pull from the instance | needs the CLI |
 | **Repo developer** | laptop, local server | the repo's `lib/`, live-edited | `prepareDumps` vs a dev HA | works |
 | **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | server side works; needs the CLI |
 
 **End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
-absolute on-disk paths in `initialize`, so completion resolves the seeded `lib/`
-and the freshly-written `home/dump.pkl` from local files, through the project.
-Nothing is fetched. This is the default path and it needs no network story at all.
+absolute on-disk paths in `initialize`, so completion resolves the library (from
+the persistent package cache — `moduleCacheDir` is declared IN the generated
+`PklProject`, so pkl-lsp finds it with no extra configuration) and the
+freshly-written `home/dump.pkl`, through the project. Nothing is fetched. This is
+the default path and it needs no network story at all.
 
-**End user, local editor.** Has a copy of their dashboards dir (it lives under
-`/homeassistant/fh-dashboards`, exposed via the File editor / Samba), so they
-already have `lib/`, the manifests, and their entries. The one thing that goes
-stale is the dump — it tracks a home that keeps changing. They need to
-*re-materialize* `home/dump.pkl` from the instance, which is a **file fetch**, not
-an import: `GET /system/pkl/dump.pkl` → write it into `home/`. Their project then
-resolves exactly as the server's does.
+**End user, local editor.** Has **a git copy of the setup**: their own workspace
+— their entries and the manifests — evaluated **locally**, with completion.
+(Editing the instance's files in place is not a supported laptop mode; live
+editing on the instance is what `/edit` is for.) Then everything must resolve
+locally: `@fh-dashboard` from their checkout (or, under discussion, as a
+*versioned* package fetched from their own instance — see follow-ups), and the
+dump — the one thing only the instance knows — *re-materialized* from it. That
+is a **file fetch**, not an import: `GET /system/pkl/dump.pkl` → write it into
+`home/`. Their project then resolves exactly as the server's does.
 
 **Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
 checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
@@ -101,8 +117,14 @@ For their cards to exist at all, the entry must name their module in
 `reflect.Module.imports` yields URIs as plain strings and there is no
 reflect-by-string to walk them back into modules.
 
-Once the components are published, a normal remote package dependency
-replaces the push, and they stop being special.
+Once the components are published — a GitHub release, referenced as
+`package://pkg.pkl-lang.org/github.com/<owner>/<repo>/<release>` (see
+follow-ups) — a normal remote package dependency in the consumer's `PklProject`
+replaces the push, and they stop being special: any user adds the dep next to
+`@fh-dashboard`, names the module in `componentModules`, and uses the cards.
+(For that to work on a pure-`/edit` instance, the server's resolver must fetch
+real remote packages — today it cannot; see "Remote dependencies do not resolve"
+in the follow-ups.)
 
 ### Why the dump is never imported from the instance
 
@@ -118,6 +140,16 @@ later use. That is exactly right for a versioned library and exactly wrong for
 pin either breaks immediately or has to be re-minted per fetch, at which point it
 is not a pin. **A live artifact and a checksummed package are opposites**, and no
 transport trick reconciles them.
+
+Spiked (0.31.1), serving changed bytes under an unchanged version: the failure
+mode is not even a checksum error — it is **silent staleness**. The package
+cache is keyed by `name@version` and wins over the network at every layer:
+eval with the old lockfile serves the old dump (expected), but so does a **full
+re-resolve** — `ProjectDependenciesResolver` satisfies the metadata lookup from
+the cache too, so the regenerated `deps.json` re-pins the OLD checksum without
+ever contacting the instance. Only deleting the cache entry *and* the lockfile
+sees the new bytes — a pull with strictly more steps, whose failure mode
+("device missing from completions") gives no error to notice.
 
 The module-import escape is closed separately: a dump fetched over http as a
 *module* cannot resolve its own `import "@fh-dashboard/hass.pkl"` (`Cannot import
@@ -229,7 +261,66 @@ and resolving to the same base `components.pkl`'s relative import does.
 The day `lib/` is published to a registry, only the consumer `PklProject` mapping
 flips (`["fh-dashboard"] = "package://…/fh-dashboard@1.0.0"`); entries do not
 change, and neither does the dump's alias import. "Published + local fallback" is
-this *resolution mapping*, chosen per project — not runtime failover.
+this *resolution mapping*, chosen per project — not runtime failover. The add-on
+workspace already lives on the package side of that flip (below); the repo
+checkout keeps the local-path mapping, which is what makes the repo developer's
+live-edit watch set work.
+
+### The add-on workspace — the lib as a decoupled, version-pinned package
+
+On a Home Assistant install, the library never enters the user's directory. The
+lib **versions independently of the runtime** (its version is `lib/PklProject`'s
+own `version`; the authoring layer is where churn lives by design — the runtime
+is a stable renderer of the wire model), and the user's workspace depends on it
+as `package://fh.invalid/fh-dashboard@<version>`, resolved from a **persistent
+package cache** under `/data/pkl-cache` that survives image upgrades.
+
+`AddonBootstrap` (run by the server at startup when `FH_BUNDLED_LIB` /
+`FH_SEED_DIR` / `FH_PKL_CACHE_DIR` are set — `run.sh` only exports the paths)
+does, idempotently:
+
+1. **Seed the cache** (`LibPackage`): packages the image's `/opt/fh/lib` into
+   the two-file resolved-package layout
+   `<cache>/package-2/fh.invalid/fh-dashboard@<v>/fh-dashboard@<v>.{json,zip}`
+   (deterministic zip — sorted entries, fixed timestamps — so the sha256 doubles
+   as a drift detector; lib bytes changing under an unchanged version is logged
+   as a WARNING and overwritten, since the instance must run what it ships).
+   Spiked (0.31.1): a warm cache satisfies BOTH `ProjectDependenciesResolver`
+   and evaluation against `HttpClient.dummyClient()` — fresh and offline
+   installs resolve with no network and no interception.
+2. **Generate the manifests** when absent: a consumer `PklProject` pinning the
+   bundled lib version and declaring `moduleCacheDir` (so pkl-lsp and any pkl
+   tool resolve from the same cache), and a `home/PklProject` for `@fh-home`.
+   Once written they are the **user's files**: a customized manifest is never
+   rewritten. Only the recognizable *old-form* manifests (the copy-if-empty
+   era's `import("./lib/PklProject")`) are migrated — backed up first.
+3. **Migrate old installs**: a workspace-resident `lib/` is renamed to
+   `lib.backup.<date>` (anything user-visible we remove or replace is renamed to
+   a dated backup, **never deleted**), old-form manifests are backed up and
+   regenerated, and the lockfile is deleted.
+4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
+   manifests, no lib) only into a workspace with no top-level `*.pkl`.
+
+`PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
+whenever a `PklProject` is newer than the lockfile (and boot deletes it
+outright), so the pin in the manifest is always what evaluates.
+
+The decoupling is the point: a **runtime** upgrade never moves the user's pin —
+the new image seeds its bundled lib version into the cache *alongside* the old
+one, and the user's dashboards keep evaluating against the version they pinned.
+A **lib** upgrade is the user's deliberate pin bump (`/edit` today, a future
+`fh sync`). Pin-in-user-file is then correct semantics rather than a stranding
+hazard, and the instance and the laptop become symmetric: the same
+`package://fh.invalid/fh-dashboard@<v>` pin resolves from the local cache on the
+instance and (once the `/system/pkl/packages/` endpoint exists — follow-ups)
+over an `http.rewrites` mapping on a laptop. What the split demands in exchange
+is a wire-format **compatibility contract** between independently-shipping
+artifacts — see follow-ups.
+
+`AddonBootstrapSuite` pins this whole contract: lib-free workspace, offline
+evaluation from the pre-seeded cache, module identity under the package form
+(the dump's remote-dep `@fh-dashboard` and the consumer's land on ONE cached
+artifact), dated-backup migration, quiet second boot, loud drift.
 
 ## The load-bearing constraint: module identity
 
@@ -260,7 +351,7 @@ the notoriously confusing `Expected value of type "hass#Entity", but got type
 Both packages satisfy this through **one `@fh-dashboard` package base**:
 `components.pkl`'s package-internal `import "hass.pkl"` and `dump.pkl`'s
 `import "@fh-dashboard/hass.pkl"` both land on
-`projectpackage://fh.local/fh-dashboard@1.0.0#/hass.pkl` — one artifact, one set
+`projectpackage://fh.invalid/fh-dashboard@1.0.0#/hass.pkl` — one artifact, one set
 of `hass` types. This survives publication: once `@fh-dashboard` is a registry
 package, the dump's alias import resolves into the same package-cache artifact
 `components.pkl` uses.
@@ -282,7 +373,7 @@ Two of the `Analyzer` constructor's slots do it: the `moduleCacheDir` and the
 `DeclaredDependencies` (`project.getDependencies` — the same `resolveProjectDeps`
 output the evaluator gets). With those supplied and the `projectpackage`/`pkg`
 factories registered, an `import "@fh-dashboard/components.pkl"` analyzes as
-`projectpackage://fh.local/fh-dashboard@1.0.0#/components.pkl` and — because
+`projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl` and — because
 `@fh-dashboard` is a **local** dependency — `graph.resolvedImports` maps it
 straight back to the real `file:…/lib/components.pkl`. The existing `file:` filter
 then picks up exactly the library modules the entry imports, and nothing else.
@@ -320,8 +411,10 @@ normal one for shipped entries.
   add-on's plain http port — but wrong for the dump on checksum grounds (above),
   and it would make every consumer configure a rewrite to read a file. The CLI
   pull is the same bytes with none of the ceremony. Serving `@fh-dashboard` this
-  way is a real option, just not a needed one: every persona already has `lib/`
-  locally.
+  way is different: the library IS a versioned artifact, so a version-pinned
+  package keeps the checksum honest — that is exactly the implemented add-on
+  design (see Decision), and the planned `/system/pkl/packages/` endpoint
+  extends it to the git-copy laptop (see follow-ups).
 - **Write `@fh-dashboard/hass.pkl` inside `components.pkl`.** A package member
   referencing its own alias: the alias is not declared in the package's project,
   so it fails standalone, and in the best case resolves to the identical URI a
@@ -343,6 +436,18 @@ normal one for shipped entries.
 
 ## Open follow-ups
 
+- **The `/system/pkl/packages/` endpoint.** The laptop half of the decoupled
+  lib (now the implemented add-on design — see Decision): serve the same two
+  artifacts the cache holds (`fh-dashboard@<v>.json` + `.zip`, immutable per
+  version) so a laptop workspace without a repo checkout pins the identical
+  package via an `evaluatorSettings.http.rewrites` mapping
+  (`https://fh.invalid/` → `http://<ha>:8080/system/pkl/packages/`). The
+  server-side artifacts already exist (`LibPackage`); only the route is missing.
+  The dump is unaffected: always a pull, never a package (checksums, above).
+- **The wire-format compatibility contract.** The price of lib/runtime
+  decoupling: independently-shipping artifacts need, at minimum, the runtime
+  rejecting output from a lib newer than it understands with a clear error — a
+  schema-version stamp checked in `Dashboard.validate`.
 - **Canonical host.** The endpoint literal is `http://localhost:8080/system/pkl/…`.
   Because the server matches by path, it only has to resolve for *external*
   consumers; unify it on the single canonical URL from the PWA split-horizon

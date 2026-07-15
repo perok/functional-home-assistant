@@ -20,9 +20,9 @@ amends "pkl:Project"
 
 package {
   name = "fh-home"
-  baseUri = "package://fh.local/fh-home"
+  baseUri = "package://fh.invalid/fh-home"
   version = "1.0.0"
-  packageZipUrl = "https://fh.local/fh-home@\(version).zip"
+  packageZipUrl = "https://fh.invalid/fh-home@\(version).zip"
 }
 
 dependencies {

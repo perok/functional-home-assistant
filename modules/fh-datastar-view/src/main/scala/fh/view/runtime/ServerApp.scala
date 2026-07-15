@@ -28,6 +28,7 @@ object ServerApp extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
+      _ <- bootstrapIfAddon(dashboardsDir)
       // Loopback by default: /sse/action/* drives HA with the server's token
       // and no auth, so LAN exposure is opt-in (HOST=0.0.0.0).
       bindHost <- Env[IO]
@@ -302,6 +303,36 @@ object ServerApp extends IOApp {
     }
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
+
+  /** Add-on boot only (`FH_BUNDLED_LIB` set by `run.sh`): package the bundled
+    * library into the persistent cache and seed/migrate the user's workspace
+    * ([[fh.view.build.AddonBootstrap]]) before anything discovers or evaluates
+    * entries. A dev/repo run has no bundled lib and skips this entirely — the
+    * repo workspace maps `@fh-dashboard` to `./lib` as a local dep.
+    */
+  private def bootstrapIfAddon(dashboardsDir: os.Path): IO[Unit] =
+    Env[IO].get("FH_BUNDLED_LIB").flatMap {
+      case None      => IO.unit
+      case Some(lib) =>
+        (Env[IO].get("FH_SEED_DIR"), Env[IO].get("FH_PKL_CACHE_DIR")).tupled
+          .flatMap {
+            case (Some(seed), Some(cache)) =>
+              IO.blocking(
+                fh.view.build.AddonBootstrap.run(
+                  dashboardsDir,
+                  bundledLib = os.Path(lib, os.pwd),
+                  seedDir = os.Path(seed, os.pwd),
+                  cacheDir = os.Path(cache, os.pwd)
+                )
+              ).flatMap(_.traverse_(IO.println))
+            case _ =>
+              IO.raiseError(
+                new RuntimeException(
+                  "FH_BUNDLED_LIB is set but FH_SEED_DIR / FH_PKL_CACHE_DIR are not — all three come from run.sh"
+                )
+              )
+          }
+    }
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]

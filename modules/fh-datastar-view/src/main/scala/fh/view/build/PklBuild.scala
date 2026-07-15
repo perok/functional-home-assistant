@@ -50,7 +50,8 @@ object PklBuild {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val project = resolveProjectDeps(dashboardsDir)
-      val evaluator = buildEvaluator(system, project)
+      val evaluator =
+        buildEvaluator(system, project, cacheDir(dashboardsDir, project))
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
@@ -104,10 +105,16 @@ object PklBuild {
     */
   private def buildEvaluator(
       system: Option[SystemPkl],
-      project: Option[Project]
+      project: Option[Project],
+      cache: os.Path
   ): Evaluator = {
     val builder = EvaluatorBuilder.preconfigured()
     project.foreach(builder.applyFromProject)
+    // Same cache the resolver used — a REMOTE dep (the add-on's package-form
+    // `@fh-dashboard`) must find its pre-seeded zip here rather than in
+    // `preconfigured()`'s `~/.pkl/cache`. Set after `applyFromProject` so it
+    // wins even when the project declares no `moduleCacheDir` of its own.
+    builder.setModuleCacheDir(cache.toNIO)
     system.foreach { sys =>
       val factories =
         (new SystemPkl.Factory(sys) ::
@@ -131,13 +138,13 @@ object PklBuild {
     Option.when(os.exists(projectFile)) {
       val project = Project.loadFromPath(projectFile.toNIO)
       val depsJson = dashboardsDir / "PklProject.deps.json"
-      if (!os.exists(depsJson)) {
+      if (staleLockfile(dashboardsDir, depsJson)) {
         val resolver = new ProjectDependenciesResolver(
           project,
           PackageResolver.getInstance(
             SecurityManagers.defaultManager,
             HttpClient.dummyClient(),
-            (dashboardsDir / ".pkl-cache").toNIO
+            cacheDir(dashboardsDir, Some(project)).toNIO
           ),
           new PrintWriter(new StringWriter)
         )
@@ -148,6 +155,41 @@ object PklBuild {
       project
     }
   }
+
+  /** Re-resolve when the lockfile is absent OR any `PklProject` under the dir
+    * outdates it — so editing a manifest (adding a dependency, bumping the
+    * `@fh-dashboard` pin) takes effect on the next eval instead of silently
+    * serving the stale pin forever (the frozen-lockfile bug, ADR 0010).
+    */
+  private def staleLockfile(
+      dashboardsDir: os.Path,
+      depsJson: os.Path
+  ): Boolean =
+    !os.exists(depsJson) || {
+      val lockTime = os.mtime(depsJson)
+      os.walk(dashboardsDir, maxDepth = 2)
+        .exists(p => p.last == "PklProject" && os.mtime(p) > lockTime)
+    }
+
+  /** The package cache for this workspace: the project's own
+    * `evaluatorSettings.moduleCacheDir` when declared (the add-on workspace
+    * points it at persistent storage, and pkl-lsp honors the same setting), a
+    * workspace-local `.pkl-cache` otherwise. Used identically by the resolver,
+    * the evaluator and the analyzer — a remote dep resolves offline as long as
+    * its version is already IN this cache (pre-seeded by `LibPackage`).
+    */
+  private def cacheDir(
+      dashboardsDir: os.Path,
+      project: Option[Project]
+  ): os.Path =
+    project
+      .flatMap(p => Option(p.getEvaluatorSettings.moduleCacheDir()))
+      .map { p =>
+        // pkl resolves a relative moduleCacheDir against the project dir.
+        if (p.isAbsolute) os.Path(p)
+        else dashboardsDir / os.RelPath(p.toString)
+      }
+      .getOrElse(dashboardsDir / ".pkl-cache")
 
   /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
     *
@@ -166,7 +208,7 @@ object PklBuild {
     * [[resolveProjectDeps]] output the evaluator gets). With those supplied and
     * the `projectpackage`/`pkg` factories registered, an
     * `import "@fh-dashboard/components.pkl"` analyzes as
-    * `projectpackage://fh.local/fh-dashboard@1.0.0#/components.pkl`, and —
+    * `projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl`, and —
     * because `@fh-dashboard` is a LOCAL dependency — `graph.resolvedImports`
     * maps it straight back to the real `file:…/lib/components.pkl`. So the
     * `file:` filter below picks up exactly the library modules the entry
@@ -212,7 +254,7 @@ object PklBuild {
         false,
         securityManager,
         factories.asJava,
-        (dashboardsDir / ".pkl-cache").toNIO,
+        cacheDir(dashboardsDir, project).toNIO,
         project.map(_.getDependencies).orNull,
         HttpClient.dummyClient(),
         TraceMode.COMPACT

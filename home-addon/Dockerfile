@@ -31,31 +31,32 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
-# Dashboard seed — everything `run.sh` copies into the user's editable
-# `/homeassistant/fh-dashboards` on first start. Exactly two sources, split by
-# who owns the file:
+# Two artifacts for `AddonBootstrap` (run by the server at startup — run.sh
+# only exports the paths), split by who owns the files:
 #
-#   home-addon/dashboards-seed/  the USER's workspace: the starter entry and the
-#                                project manifests that bind @fh-dashboard and
-#                                @fh-home. Written for the end user and kept
-#                                there, so this directory IS the product
-#                                surface — read it to see what a user gets. It
-#                                deliberately does not borrow the dev checkout's
-#                                own PklProject, whose docs describe the demo
-#                                entries and dev workspace.
-#   lib/                         the authoring library: fh's code, versioned
-#                                with the image and replaced wholesale on
-#                                upgrade. Not duplicated into the seed dir —
-#                                it is a dependency, not user scaffolding.
+#   /opt/fh/lib            the authoring library — fh's code, versioned by its
+#                          OWN `lib/PklProject` version, decoupled from the
+#                          add-on version (ADR 0010). Never copied into the
+#                          user's workspace: at boot it is packaged into the
+#                          persistent package cache (/data/pkl-cache) and the
+#                          user's manifests depend on it as
+#                          `package://fh.invalid/fh-dashboard@<version>`, so a
+#                          runtime upgrade never moves the user's pin.
+#   /opt/dashboards-seed   starter ENTRIES only, copied into the user's
+#                          `/homeassistant/fh-dashboards` on first boot. The
+#                          project manifests are NOT files here — AddonBootstrap
+#                          generates them against the bundled lib version, and
+#                          migrates pre-package-form installs with dated
+#                          backups (never deleting user-visible files).
 #
 # Never shipped: the demo entries (they reference dev-instance entities), any
-# dump (that is the user's own live data, written into home/ at every start),
-# and PklProject.deps.json (the generated lockfile, resolved in-process at
-# startup). The seed's `home/` therefore arrives holding only its manifest.
+# dump (the user's own live data, written into home/ at every start), and
+# PklProject.deps.json (the generated lockfile, resolved in-process at boot).
 #
-# PklBuildSuite's seed-layout test mirrors these two COPYs, so the manifests
-# here cannot drift out of agreement with lib/ unnoticed (ADR 0010, Track B).
-COPY modules/fh-datastar-view/src/main/resources/dashboards/lib /opt/dashboards-seed/lib
+# AddonBootstrapSuite pins this whole contract — seeding, offline evaluation
+# from the pre-seeded cache, upgrade migration — against these same two
+# directories.
+COPY modules/fh-datastar-view/src/main/resources/dashboards/lib /opt/fh/lib
 COPY home-addon/dashboards-seed/ /opt/dashboards-seed/
 
 COPY home-addon/run.sh /run.sh

@@ -15,7 +15,7 @@ amends "pkl:Project"
 
 package {
   name = "fh-dashboard"
-  baseUri = "package://fh.local/fh-dashboard"
+  baseUri = "package://fh.invalid/fh-dashboard"
   version = "1.0.0"
-  packageZipUrl = "https://fh.local/fh-dashboard@\(version).zip"
+  packageZipUrl = "https://fh.invalid/fh-dashboard@\(version).zip"
 }
