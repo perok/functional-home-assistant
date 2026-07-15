@@ -11,7 +11,12 @@ import fs2.concurrent.{SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
-import org.http4s.headers.`Content-Type`
+import org.http4s.headers.{
+  `Cache-Control`,
+  `Content-Type`,
+  `If-None-Match`,
+  ETag
+}
 import org.http4s.ServerSentEvent
 
 import scala.concurrent.duration.*
@@ -98,13 +103,10 @@ class Server(
     // remote authors fetch these to resolve `import
     // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
     // hits this route (it resolves those imports via in-memory interception).
-    case GET -> Root / "system" / "pkl" / name =>
+    case req @ GET -> Root / "system" / "pkl" / name =>
       systemPkl.module(name) match {
-        case Some(text) =>
-          Ok(text).map(
-            _.withContentType(`Content-Type`(MediaType.text.plain))
-          )
-        case None => NotFound()
+        case Some(text) => systemPklResponse(text, req)
+        case None       => NotFound()
       }
 
     // Edit-mode node inspection ("debug this node"): the live entity state of
@@ -918,6 +920,68 @@ class Server(
             .map(_.withContentType(`Content-Type`(MediaType.application.json)))
         }
     }
+
+  /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
+    * `ETag` (and a `304` for a matching `If-None-Match`).
+    *
+    * **`no-cache` is the load-bearing header, not the ETag.** `dump.pkl` is
+    * this home's LIVE entity dump: it is rewritten whenever the home's registry
+    * changes, under a URL that never changes. Anything that stores it — a
+    * browser, a proxy on the split-horizon remote path
+    * (`docs/pwa-remote-access.md`) — would hand an author completions for
+    * devices they no longer own, with no way to tell. `no-cache` does not
+    * forbid storing; it forbids REUSING without revalidating, which is exactly
+    * the contract we want: cheap when unchanged, never silently stale.
+    *
+    * **The ETag is for clients that revalidate — which today is none of them.**
+    * pkl is the primary consumer and it does no conditional requests at all:
+    * pkl-core 0.31.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
+    * handling anywhere (verified against the jar), so its module reader
+    * unconditionally GETs the full body and its only caching is the
+    * per-evaluator in-memory module cache, keyed by resolved URI, which never
+    * consults an HTTP validator. So the ETag is dead weight *for pkl* — it is
+    * here for the consumers that do revalidate: browser/editor JS fetching the
+    * dump, and any remote tooling that wants to ask "did this home's entity set
+    * change?" without pulling a ~450KB dump every time. Hashing that dump per
+    * request is trivial next to shipping it, and this route is hit at
+    * editor-session start, never on the live hot path.
+    *
+    * The ETag is a strong validator over the exact bytes served, so it is
+    * correct by construction: same text ⇒ same tag.
+    */
+  private def systemPklResponse(
+      text: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val etag = EntityTag(systemPklHash(text))
+    val fresh = req.headers
+      .get[`If-None-Match`]
+      .exists {
+        // A bare `If-None-Match: *` matches any existing representation.
+        case `If-None-Match`(None)       => true
+        case `If-None-Match`(Some(tags)) =>
+          tags.exists(t => t.tag == etag.tag)
+      }
+    val cacheHeaders =
+      (ETag(etag), `Cache-Control`(CacheDirective.`no-cache`()))
+    if (fresh) NotModified().map(_.putHeaders(cacheHeaders._1, cacheHeaders._2))
+    else
+      Ok(text).map(
+        _.withContentType(`Content-Type`(MediaType.text.plain))
+          .putHeaders(cacheHeaders._1, cacheHeaders._2)
+      )
+  }
+
+  /** Strong ETag payload: a hex SHA-256 of the served source text. Not a
+    * security boundary — just a stable content fingerprint — but SHA-256 keeps
+    * it collision-free in practice, so a changed dump can never reuse a tag.
+    */
+  private def systemPklHash(text: String): String = {
+    val digest = java.security.MessageDigest
+      .getInstance("SHA-256")
+      .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    digest.iterator.map(b => f"${b & 0xff}%02x").mkString
+  }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     renderers.get(slug) match {

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import cats.data.NonEmptyList
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import fh.view.model.{
@@ -18,6 +19,7 @@ import fh.view.testkit.DashboardBuilders.st
 import fs2.concurrent.{SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
+import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -215,6 +217,65 @@ class ServerSuite extends munit.CatsEffectSuite {
     assertEquals(dumpBody, "kitchen = 1")
     assertEquals(hassStatus, Status.Ok)
     assertEquals(missStatus, Status.NotFound)
+  }
+
+  test("/system/pkl revalidates: no-cache always, 304 only on a stale-free tag") {
+    // `dump.pkl` is live per-home data under a fixed URL, so the contract is
+    // "never reuse without asking": `no-cache` on every response (200 and 304
+    // alike — a 304 refreshes the directive), and a 304 only when the client's
+    // tag matches the CURRENT bytes. The re-serve under a changed dump is the
+    // point: a stale tag must NOT win, or an author gets completions for
+    // devices they no longer own.
+    val system = fh.view.build.SystemPkl(
+      hass = Some("// schema"),
+      dump = Some("kitchen = 1")
+    )
+    val noCache = `Cache-Control`(CacheDirective.`no-cache`())
+
+    val (ok, okTag, matched, stale) = (for {
+      store <- StateStore.inMemory(Map.empty)
+      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      server = new Server(
+        fake,
+        store,
+        Map("home" -> ref),
+        "home",
+        sessions,
+        Map.empty,
+        AssetCache.empty,
+        system
+      )
+      routes = server.routes.orNotFound
+      uri = Uri.unsafeFromString("/system/pkl/dump.pkl")
+      ok <- routes.run(Request[IO](Method.GET, uri))
+      okTag = ok.headers.get[ETag].map(_.tag)
+      // The client comes back with the tag it was given: unchanged -> 304.
+      matched <- routes.run(
+        Request[IO](Method.GET, uri)
+          .putHeaders(`If-None-Match`(okTag.map(NonEmptyList.one)))
+      )
+      // A tag the served bytes never had must be re-served in full, not 304'd.
+      stale <- routes.run(
+        Request[IO](Method.GET, uri)
+          .putHeaders(
+            `If-None-Match`(Some(NonEmptyList.one(EntityTag("stale-etag"))))
+          )
+      )
+    } yield (ok, okTag, matched, stale)).timeout(30.seconds).unsafeRunSync()
+
+    assertEquals(ok.status, Status.Ok)
+    assert(okTag.isDefined, clue = ok.headers)
+    assertEquals(ok.headers.get[`Cache-Control`], Some(noCache))
+
+    assertEquals(matched.status, Status.NotModified)
+    // The 304 must carry the directives too — a bare 304 would let a cache
+    // fall back to its own heuristics on the next hit.
+    assertEquals(matched.headers.get[`Cache-Control`], Some(noCache))
+    assertEquals(matched.headers.get[ETag].map(_.tag), okTag)
+
+    assertEquals(stale.status, Status.Ok)
   }
 
   test("patchElements collapses multi-line fragments to a single data line") {
