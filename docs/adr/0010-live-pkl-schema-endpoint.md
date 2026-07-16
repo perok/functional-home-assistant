@@ -582,7 +582,12 @@ per-dashboard errors in the endpoint response).
 - **The wire-format compatibility contract.** The price of lib/runtime
   decoupling: independently-shipping artifacts need, at minimum, the runtime
   rejecting output from a lib newer than it understands with a clear error — a
-  schema-version stamp checked in `Dashboard.validate`.
+  schema-version stamp checked in `Dashboard.validate`. Deliberately deferred
+  until the artifacts can actually drift in practice (the script installable
+  from `main`, lib and add-on shipping separately); the stamp's *shape* — a
+  dedicated wire-format version field vs. a lib-version string checked against
+  a supported range — wants a design chat first, and adding it is a wire-format
+  change (snapshot regeneration).
 - **Canonical host.** The endpoint literal is `http://localhost:8080/system/pkl/…`.
   Because the server matches by path, it only has to resolve for *external*
   consumers; unify it on the single canonical URL from the PWA split-horizon
@@ -595,9 +600,15 @@ per-dashboard errors in the endpoint response).
   right after an HA restart is exactly the event it exists to catch.
 - **`fh` script leftovers.** `init`/`pull`/`push` are implemented (the script
   in Track A); what remains:
-  - the file watcher's reconcile would clobber a pushed slug that shadows a
-    real entry on the next edit (pushed slugs are ephemeral and in-memory, so
-    a distinct slug simply survives until restart);
+  - the file watcher's reconcile clobbers a pushed slug that shadows a real
+    entry on the next edit (a distinct slug simply survives until restart).
+    **Decided: this behavior stays** — pushed slugs are ephemeral and
+    in-memory, so the reconcile outcome is always a file that exists on disk
+    (the HA entry or the user's own), which is the right authority. The only
+    real problem is the *surprise*: the preview reverts with no signal. The
+    follow-up is UX, not semantics — a small self-dismissing popup in the
+    dashboard, driven by a Datastar SSE event emitted only when a reconcile
+    repaints the viewed slug, telling the author a refresh happened;
   - Windows has no story beyond WSL/Git-Bash (the script is POSIX sh);
   - `push` renders with the *laptop's* pkl CLI version — a pkl release with a
     changed JSON renderer would surface as a push `400`; acceptable while the
