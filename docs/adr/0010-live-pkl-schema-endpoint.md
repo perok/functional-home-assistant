@@ -91,11 +91,14 @@ the default path and it needs no network story at all.
 — their entries and the manifests — evaluated **locally**, with completion.
 (Editing the instance's files in place is not a supported laptop mode; live
 editing on the instance is what `/edit` is for.) Then everything must resolve
-locally: `@fh-dashboard` from their checkout (or, under discussion, as a
-*versioned* package fetched from their own instance — see follow-ups), and the
-dump — the one thing only the instance knows — *re-materialized* from it. That
-is a **file fetch**, not an import: `GET /system/pkl/dump.pkl` → write it into
-`home/`. Their project then resolves exactly as the server's does.
+locally: `@fh-dashboard` from their checkout (or, checkout-free, as a
+*versioned* package fetched from their own instance via `/system/pkl/packages/`
+— works today), and the dump — the one thing only the instance knows —
+*re-materialized* from it. Today that is a **file fetch**, not an import:
+`GET /system/pkl/dump.pkl` → write it into `home/`. The decided end state makes
+it a package pin like everything else — a *content-versioned* dump package
+(see "resolved by content-derived versions") whose pin the `fh` CLI rewrites.
+Their project then resolves exactly as the server's does.
 
 **Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
 checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
@@ -126,20 +129,19 @@ replaces the push, and they stop being special: any user adds the dep next to
 This works on a pure-`/edit` instance: the server's resolver fetches real
 remote packages, honoring the manifest's own `http.rewrites` (see Track B).
 
-### Why the dump is never imported from the instance
+### The dump vs. checksums — resolved by content-derived versions
 
-The reason is **checksums, not transport**. Serving packages from the instance
+The tension is **checksums, not transport**. Serving packages from the instance
 over plain http is entirely possible — `HttpClient.addRewrite` retargets the
 `https:` outbound request a `package://` URI produces, and a rewrite to
 `http://…` reached a plaintext server in a spike. Transport is not the obstacle.
 
-The obstacle is that **a package is checksum-pinned by design**. Resolution
-records the zip's sha256 into `PklProject.deps.json` and verifies it on every
-later use. That is exactly right for a versioned library and exactly wrong for
-`dump.pkl`, which is rewritten on every start under an unchanged version: the
-pin either breaks immediately or has to be re-minted per fetch, at which point it
-is not a pin. **A live artifact and a checksummed package are opposites**, and no
-transport trick reconciles them.
+The obstacle is that **a package version is checksum-pinned by design**.
+Resolution records the sha256 into `PklProject.deps.json` and verifies it on
+every later use. That is exactly right for a versioned library and exactly
+wrong for a file rewritten on every start **under an unchanged version**: the
+pin either breaks immediately or has to be re-minted per fetch, at which point
+it is not a pin.
 
 Spiked (0.31.1), serving changed bytes under an unchanged version: the failure
 mode is not even a checksum error — it is **silent staleness**. The package
@@ -147,23 +149,40 @@ cache is keyed by `name@version` and wins over the network at every layer:
 eval with the old lockfile serves the old dump (expected), but so does a **full
 re-resolve** — `ProjectDependenciesResolver` satisfies the metadata lookup from
 the cache too, so the regenerated `deps.json` re-pins the OLD checksum without
-ever contacting the instance. Only deleting the cache entry *and* the lockfile
-sees the new bytes — a pull with strictly more steps, whose failure mode
-("device missing from completions") gives no error to notice.
+ever contacting the instance. Nor is re-pinning the escape (spiked): the
+manifest IS authoritative — a dependency's declared `checksums { sha256 = … }`
+is verified at resolve and written into the lockfile — but against a warm
+cache holding old bytes, a bumped pin under the same version **fails the
+resolve outright** (verified from the cache, zero requests, no refetch); only
+evicting the cache entry heals it, and every tool sharing the cache (pkl-lsp)
+errors until then.
 
-The module-import escape is closed separately: a dump fetched over http as a
-*module* cannot resolve its own `import "@fh-dashboard/hass.pkl"` (`Cannot import
-dependency because there is no project found`) — only a sibling `import
-"hass.pkl"` works there. So the dump text can serve the **package** world or the
-**http-module** world, never both. The package world wins: it is what third-party
-component packages need, and it keeps entry text free of host literals. `PklDump`
-therefore emits `import "@fh-dashboard/hass.pkl"`, and `/system/pkl/` is a
-**file-download API**: the client copies the dump into its own `@fh-home` package,
-where it is a plain local file with no checksum to satisfy. No cert, no pinning,
-plain http.
+**The resolution: derive the version from the content** —
+`package://fh.invalid/fh-home@1.0.0-g<hash-of-zip>`. The "live artifact"
+becomes a sequence of immutable snapshots: each version's bytes never change,
+so checksums stay honest by construction; a structural change mints a NEW
+cache entry (no eviction, no staleness, pkl-lsp coherent at every moment); an
+unchanged home re-derives the same version (the zip is deterministic). The
+laptop's `fh pull` then stops copying files: it fetches the current
+dump-package metadata and rewrites the `@fh-home` pin (`uri` + `checksums`
+together — integrity declared, not trust-on-first-use) in the laptop's
+manifest, and `PklBuild.staleLockfile` re-resolves from there. Unchanged home →
+same version → the bump is a no-op.
 
-That also gives the endpoint's `ETag` a real consumer at last: a CLI pull is a
-conditional `GET`, so an unchanged home costs a `304` instead of ~450KB.
+The package form also wins on module identity, where the alternatives lose: a
+dump fetched over http as a *module* cannot resolve its own
+`import "@fh-dashboard/hass.pkl"` (`Cannot import dependency because there is
+no project found`), and `modulepath:` is local evaluator configuration — the
+file pull with extra steps. A package's *metadata* declares its dependencies,
+so the dump package carries its `@fh-dashboard` pin and resolves `hass.pkl`
+onto the same cached artifact the entry's alias uses. `PklDump` keeps emitting
+`import "@fh-dashboard/hass.pkl"` unchanged.
+
+Until the CLI ships this (see follow-ups), `/system/pkl/` remains a
+**file-download API**: the client copies the dump into its own `@fh-home`
+package, where it is a plain local file with no checksum to satisfy. No cert,
+no pinning, plain http; the `ETag` makes an unchanged home a `304` instead of
+~450KB.
 
 ## Decision
 
@@ -191,7 +210,7 @@ laptop workspace with no repo checkout pins
 `evaluatorSettings.http.rewrites` line (`https://fh.invalid/` →
 `http://<home>:8080/system/pkl/packages/`), landing on the same sha256-pinned
 artifacts the instance runs — checksums stay honest because a package version
-is immutable (the dump, which is not, stays a pull; see above). The cache
+is immutable (the dump joins under a content-derived version; see above). The cache
 serves every version it holds, so a laptop pinned to an older lib than the
 instance still resolves. No cache headers: pkl fetches per resolve, and a
 proxy-cached zip would turn the dev-image drift case into a confusing
@@ -202,11 +221,11 @@ resolver + evaluator over a real socket against this route.
 route's consumer is the not-yet-built CLI pull.** pkl-lsp does not fetch it —
 `LspBridge` runs pkl-lsp server-side against on-disk paths (see Use cases) —
 and no `.pkl` file imports by URL since entries moved to the aliases. It is
-kept, rather than deleted, because a live artifact cannot be a package (the
-checksum argument above), so *fetching the file* is the only mechanism a remote
-author has for the dump. The packages route is different in kind: it IS a
-module source, consumed by pkl's own resolver — which is exactly why only the
-immutable, versioned lib is served through it.
+kept, rather than deleted, because until the content-versioned dump package
+ships (see above), *fetching the file* is the only mechanism a remote author
+has for the dump. The packages route is different in kind: it IS a module
+source, consumed by pkl's own resolver — which is why only immutable,
+versioned artifacts are served through it.
 
 **Caching: `no-cache` + an `ETag`, and `no-cache` is the load-bearing half.**
 `dump.pkl` is live per-home data under a URL that never changes, so anything that
@@ -499,9 +518,17 @@ normal one for shipped entries.
   restart — add a build-time force-rerun path (endpoint or signal that re-runs
   `prepareDumps` and re-evaluates entries).
 - **The `fh` CLI (`pull` / `push`).** The client half of two of the four use
-  cases; both server endpoints now exist.
-  - `pull`: conditional `GET /system/pkl/dump.pkl` (send `If-None-Match`, honour
-    the `304`) → write `home/dump.pkl`. Plain http, no cert, no checksums.
+  cases.
+  - `pull` (decided design — "resolved by content-derived versions" above): the
+    instance builds the dump into a package versioned by its content
+    (`fh-home@1.0.0-g<hash>`, deterministic zip) and seeds it into the same
+    persistent cache the packages route already serves from
+    (`SystemPkl.packageArtifact` is name-agnostic, so the route needs no
+    change). `pull` fetches the current dump-package metadata and rewrites the
+    laptop manifest's `@fh-home` pin, `uri` + `checksums` together; unchanged
+    home → same version → no-op. The instance-side package build + seed at
+    dump time is the missing server half. (The interim mechanism is the
+    conditional `GET /system/pkl/dump.pkl` file copy.)
   - `push`: evaluate locally, `POST` the evaluated JSON to
     `/system/push/:slug`. **Server side is done** (`Server.push`): the registry
     is a `Ref[Map[…]]` and the shared fan-out one multiplexed topic, so a push
@@ -515,27 +542,17 @@ normal one for shipped entries.
   declared, resolve-time-verified integrity check (spiked on 0.31.1: mismatch
   is a hard resolve failure; the sha pins the **metadata JSON's** bytes, which
   transitively pin the zip via `packageZipChecksums` — same artifact the
-  URI-embedded `::sha256:` form pins). `LibPackage.metadata` is deterministic,
-  so the sha is stable per version. Natural adopters: the `fh` CLI's pin bump
-  writes `uri` + `checksums` together, and the machine-owned `.fh/base.pkl`
-  (regenerated every boot from the cache it just seeded) could carry the sha
-  for its bundled-version default. The consumer-manifest *seed* should stay
-  checksum-free until the drift story is settled — a dev image that rebuilds
-  the lib under an unchanged version (today a WARNING + cache overwrite) would
-  turn into a boot-time resolve failure for a checksummed pin.
-- **A live-import scheme for the dump** (pkl threat model, "URI schemes").
-  `https:` and `modulepath:` are first-class **module** schemes with no package
-  cache and no checksum — precisely the semantics the dump needs and packages
-  forbid (the "live artifact vs. checksummed package are opposites" argument
-  above). A laptop entry could in principle import the dump straight off the
-  instance (`import "https://<host>/system/pkl/dump.pkl"`, allowlist-gated) and
-  always see the live registry, collapsing the `pull` step. The open question
-  is module identity: dependency notation (`@fh-dashboard/hass.pkl`) inside an
-  http-imported module has no project context, so the generated dump would have
-  to reach the schema another way (e.g. `PklDump` emitting an absolute
-  `package://…::sha256:…#/hass.pkl` import) AND land on the same cached
-  artifact the entry's alias resolves to — unspiked; the file pull stays until
-  that is verified.
+  URI-embedded `::sha256:` form pins; see the dump section for the
+  authoritative-manifest and stale-cache semantics). `LibPackage.metadata` is
+  deterministic, so the sha is stable per version. Natural adopters: the `fh`
+  CLI's pin bumps (both `@fh-dashboard` and the `@fh-home` pull) write `uri` +
+  `checksums` together, and the machine-owned `.fh/base.pkl` (regenerated
+  every boot from the cache it just seeded, so never in disagreement with it)
+  could carry the sha for its bundled-version default. The consumer-manifest
+  *seed* stays checksum-free: a dev image that rebuilds the lib under an
+  unchanged version (today a WARNING + cache overwrite) would turn a
+  checksummed seed pin into a boot-time resolve failure in a file bootstrap
+  may not rewrite.
 - **`/system/push` is unauthenticated (decided), and must be covered when auth
   lands.** It is a *write*, so the instinct is to gate it to HA-authenticated
   ingress. That gate is not currently expressible: `config.yaml` sets
