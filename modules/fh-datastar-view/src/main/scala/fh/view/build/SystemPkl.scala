@@ -39,6 +39,13 @@ trait SystemPkl {
     * a laptop pinned to an older lib than the instance still resolves.
     */
   def packageArtifact(file: String): Option[Array[Byte]] = None
+
+  /** The discovery document for `GET /system/pkl/packages` (no file name): the
+    * current version + metadata sha256 of the packages this home serves — what
+    * `fh pull` reads before rewriting the laptop's pins. `None` when this home
+    * cannot package (path-form workspace, or no dump yet).
+    */
+  def packagesIndex: Option[String] = None
 }
 
 object SystemPkl {
@@ -98,6 +105,8 @@ object SystemPkl {
           case "dump.pkl" => read(DashboardBuild.dumpPath(dashboardsDir))
           case _          => None
         }
+      override def packagesIndex: Option[String] =
+        DumpPackage.index(dashboardsDir)
       override def packageArtifact(file: String): Option[Array[Byte]] = {
         val (base, suffix) =
           if (file.endsWith(".zip")) (file.dropRight(4), ".zip")

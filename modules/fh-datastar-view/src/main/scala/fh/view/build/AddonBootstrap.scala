@@ -132,11 +132,7 @@ object AddonBootstrap {
   private def pinnedVersion(consumerManifest: os.Path): Option[String] =
     Option
       .when(os.exists(consumerManifest))(os.read(consumerManifest))
-      .flatMap(
-        s"""package://${LibPackage.Host}/${LibPackage.Name}@([^"]+)"""".r
-          .findFirstMatchIn(_)
-      )
-      .map(_.group(1))
+      .flatMap(LibPackage.pinnedVersion)
 
   /** A machine-owned file: written when absent or stale, never backed up (its
     * header says so, and nothing user-authored ever lives in it).

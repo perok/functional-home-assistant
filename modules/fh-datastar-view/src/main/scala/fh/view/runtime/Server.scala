@@ -118,6 +118,19 @@ class Server(
     // remote authors fetch these to resolve `import
     // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
     // hits this route (it resolves those imports via in-memory interception).
+    // The package-discovery index (before the `:name` route, which would
+    // otherwise swallow the 3-segment path as `name = "packages"`): current
+    // versions + metadata sha256 of the packages this home serves — what
+    // `fh pull` reads before rewriting the laptop's pins.
+    case GET -> Root / "system" / "pkl" / "packages" =>
+      systemPkl.packagesIndex match {
+        case Some(json) =>
+          Ok(json).map(
+            _.putHeaders(`Content-Type`(MediaType.application.json))
+          )
+        case None => NotFound()
+      }
+
     case req @ GET -> Root / "system" / "pkl" / name =>
       systemPkl.module(name) match {
         case Some(text) => systemPklResponse(text, req)

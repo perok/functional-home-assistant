@@ -35,7 +35,11 @@ object DashboardBuild {
           PklDump.render(dump),
           createFolders = true
         )
-      }
+        // The freshly-written dump, as a content-versioned package in the
+        // workspace cache — what a laptop's `fh pull` resolves (ADR 0010).
+        // A no-op on path-form workspaces and on an unchanged home.
+        DumpPackage.seedFromWorkspace(dashboardsDir)
+      }.flatMap(_.traverse_(IO.println))
     }
 
   /** Where the generated dump lives, relative to the dashboards dir: inside the

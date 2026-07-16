@@ -39,6 +39,24 @@ object LibPackage {
   def packageUri(version: String): String =
     s"package://$Host/$Name@$version"
 
+  /** The `package://…/fh-dashboard@<v>` pin found in manifest text, if any. */
+  def pinnedVersion(manifestText: String): Option[String] =
+    s"""package://$Host/$Name@([^"]+)"""".r
+      .findFirstMatchIn(manifestText)
+      .map(_.group(1))
+
+  /** The workspace's effective lib pin: the user's `PklProject` wins, the
+    * machine-owned `.fh/base.pkl` is the default — mirroring Pkl's own amends
+    * override order. `None` on a path-form workspace (the repo checkout), which
+    * has no package pin at all.
+    */
+  def effectivePin(dashboardsDir: os.Path): Option[String] =
+    List(dashboardsDir / "PklProject", dashboardsDir / ".fh" / "base.pkl")
+      .filter(os.exists)
+      .map(os.read(_))
+      .flatMap(pinnedVersion)
+      .headOption
+
   /** The lib's own version, from the `version = "…"` line of its manifest — the
     * ONE place the library version is declared (decoupled from the add-on
     * version by design: the authoring layer is where churn lives).
@@ -77,20 +95,29 @@ object LibPackage {
     * `import "@fh-dashboard/components.pkl"` resolves `components.pkl` at the
     * package base).
     */
-  def zipBytes(libDir: os.Path): Array[Byte] = {
-    val files = os
-      .walk(libDir)
-      .filter(os.isFile)
-      .filterNot(p => Excluded.contains(p.last))
-      .sortBy(_.relativeTo(libDir).toString)
+  def zipBytes(libDir: os.Path): Array[Byte] =
+    deterministicZip(
+      os.walk(libDir)
+        .filter(os.isFile)
+        .filterNot(p => Excluded.contains(p.last))
+        .map(f => f.relativeTo(libDir).toString -> os.read.bytes(f))
+    )
+
+  /** Sorted entries, fixed timestamps — same input, same bytes. Shared with the
+    * dump package ([[DumpPackage]]), whose *version* is derived from these
+    * bytes.
+    */
+  private[build] def deterministicZip(
+      entries: Seq[(String, Array[Byte])]
+  ): Array[Byte] = {
     val bos = new java.io.ByteArrayOutputStream()
     val zos = new ZipOutputStream(bos)
     try
-      files.foreach { f =>
-        val e = new ZipEntry(f.relativeTo(libDir).toString)
+      entries.sortBy(_._1).foreach { case (name, bytes) =>
+        val e = new ZipEntry(name)
         e.setTimeLocal(FixedTime)
         zos.putNextEntry(e)
-        zos.write(os.read.bytes(f))
+        zos.write(bytes)
         zos.closeEntry()
       }
     finally zos.close()

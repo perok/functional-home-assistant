@@ -198,8 +198,15 @@ object PklBuild {
   ): Boolean =
     !os.exists(depsJson) || {
       val lockTime = os.mtime(depsJson)
+      // `.fh/base.pkl` is the machine-owned half of the manifest amends chain
+      // (pins + rewrites live there too), so a tool rewriting it must take
+      // effect exactly like a manifest edit.
       os.walk(dashboardsDir, maxDepth = 2)
-        .exists(p => p.last == "PklProject" && os.mtime(p) > lockTime)
+        .exists(p =>
+          (p.last == "PklProject" ||
+            (p.last == "base.pkl" && (p / os.up).last == ".fh")) &&
+            os.mtime(p) > lockTime
+        )
     }
 
   /** The package cache for this workspace: the project's own
