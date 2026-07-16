@@ -244,6 +244,13 @@ on the workspace — pkl-lsp completion is the point of having one, and the
 `pkl` CLI evaluates it identically — but the script requires none of it.
 Laptop dependencies: scala-cli alone (it runs the script and fetches the
 pinned toolkit + pkl-core), which keeps the setup cross-platform for free.
+The script has its own suite, `scripts/fh.test.scala`, run by scala-cli's
+test command (`scala-cli test --server=false scripts/fh scripts/fh.test.scala`,
+a CI step): black-box subprocess tests — necessarily so, since referencing any
+member of a shebang script's wrapper object executes its whole body — covering
+everything the script does without an instance (help/usage, workspace-missing
+errors, the `update` sha-compare + dated backup); the instance-facing flows
+stay in `UseCaseSuite` against the real routes.
 The laptop workspace mirrors the add-on's ownership
 split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
 checksummed `@fh-home` pin — uri + checksums always written together),

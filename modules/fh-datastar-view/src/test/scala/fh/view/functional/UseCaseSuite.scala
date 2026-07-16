@@ -465,71 +465,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       }
   }
 
-  test("fh update: sha-compare against the repo copy, replace with a backup") {
-    // `update`'s remote is normally the GitHub raw URL of scripts/fh; the
-    // FH_SELF_URL override points it at a local stub serving a NEWER copy.
-    // First run replaces the file (dated backup kept — the user-file
-    // convention); second run is a no-op because local now matches remote.
-    assume(scalaCliOnPath, "scala-cli unavailable — skipping")
-    import org.http4s.dsl.io.*
-
-    val repoScript = os.pwd / "scripts" / "fh"
-    // A stable (non-temp) path so scala-cli's compile cache stays warm.
-    val work =
-      os.pwd / "modules" / "fh-datastar-view" / "target" / "fh-update-test"
-    os.remove.all(work)
-    os.makeDir.all(work)
-    val script = work / "fh"
-    os.copy(repoScript, script)
-    os.perms.set(script, "rwxr-xr-x")
-    val next = os.read(repoScript) + "\n// a newer revision\n"
-
-    def run(base: String): os.CommandResult =
-      os.proc("scala-cli", "shebang", "--server=false", script, "update")
-        .call(
-          cwd = work,
-          env = Map("FH_SELF_URL" -> s"$base/fh"),
-          check = false,
-          mergeErrIntoOut = true
-        )
-
-    EmberServerBuilder
-      .default[IO]
-      .withHost(host"127.0.0.1")
-      .withPort(port"0")
-      .withHttpApp(
-        HttpRoutes.of[IO] { case GET -> Root / "fh" => Ok(next) }.orNotFound
-      )
-      .withShutdownTimeout(0.seconds)
-      .build
-      .use { bound =>
-        val base = bound.baseUri.renderString.stripSuffix("/")
-        for {
-          first <- IO.blocking(run(base))
-          _ = assertEquals(first.exitCode, 0, clue = first.out.text())
-          _ = assert(
-            first.out.text().contains("updated"),
-            clue = first.out.text()
-          )
-          // Replaced in place (still executable), previous copy kept.
-          _ = assertEquals(os.read(script), next)
-          _ = assert(os.perms(script).toString.startsWith("rwx"))
-          backups = os.list(work).filter(_.last.startsWith("fh.backup."))
-          _ = assertEquals(backups.map(os.read(_)), Seq(os.read(repoScript)))
-
-          second <- IO.blocking(run(base))
-          _ = assertEquals(second.exitCode, 0, clue = second.out.text())
-          _ = assert(
-            second.out.text().contains("up to date"),
-            clue = second.out.text()
-          )
-          _ = assertEquals(
-            os.list(work).filter(_.last.startsWith("fh.backup.")),
-            backups
-          )
-        } yield ()
-      }
-  }
+  // The script's instance-free behavior (--help, workspace-missing errors,
+  // `fh update`'s sha-compare + dated backup) is covered by the script's OWN
+  // suite, scripts/fh.test.scala, run by scala-cli's test command:
+  //   scala-cli test --server=false scripts/fh scripts/fh.test.scala
+  // Here we keep only the flows that need the real instance backend.
 
   /** The fh script runs via scala-cli; skip its tests where that isn't
     * installed (it is a laptop tool, not an instance dependency).
