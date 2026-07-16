@@ -296,9 +296,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       }
   }
 
-  test("the fh script and its discovery index are served by the instance") {
-    // The script's distribution channel IS the instance; the `?format=sh`
-    // index is what lets it run on curl + pkl alone (no JSON parser).
+  test("the package-discovery index is served by the instance") {
+    // What `fh init`/`pull` read before rewriting the laptop's pins: current
+    // versions + metadata sha256 of both packages, as JSON.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
@@ -322,40 +322,18 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .use { ts =>
         val app = ts.server.routes.orNotFound
         for {
-          script <- app.run(Request[IO](Method.GET, uri"/system/fh"))
-          scriptBody <- script.body.through(fs2.text.utf8.decode).compile.string
-          sh <- app.run(
-            Request[IO](Method.GET, uri"/system/pkl/packages?format=sh")
-          )
-          shBody <- sh.body.through(fs2.text.utf8.decode).compile.string
           json <- app.run(Request[IO](Method.GET, uri"/system/pkl/packages"))
           jsonBody <- json.body.through(fs2.text.utf8.decode).compile.string
         } yield {
-          assertEquals(script.status, Status.Ok)
-          assert(scriptBody.contains("fh init"), clue = scriptBody.take(200))
-
-          assertEquals(sh.status, Status.Ok)
-          // Shell-sourceable and naming the same versions as the JSON form.
-          val vars = shBody.linesIterator
-            .map(_.split("=", 2))
-            .collect { case Array(k, v) =>
-              k -> v.stripPrefix("'").stripSuffix("'")
-            }
-            .toMap
+          assertEquals(json.status, Status.Ok)
           val doc = io.circe.parser
             .parse(jsonBody)
             .fold(err => fail(s"index not JSON: $err"), identity)
-          assertEquals(
-            vars.get("FH_HOME_VERSION"),
-            doc.hcursor.downField("fh-home").get[String]("version").toOption
-          )
-          assertEquals(
-            vars.get("FH_DASHBOARD_SHA256"),
-            doc.hcursor
-              .downField("fh-dashboard")
-              .get[String]("sha256")
-              .toOption
-          )
+          for (pkg <- List("fh-dashboard", "fh-home"); key <- List("version", "sha256"))
+            assert(
+              doc.hcursor.downField(pkg).get[String](key).isRight,
+              clue = s"$pkg.$key missing in $jsonBody"
+            )
         }
       }
   }
@@ -363,11 +341,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   test(
     "end user with the fh script: init, evaluate with stock pkl, push, pull"
   ) {
-    // THE laptop product test: the real shell script driving the real pkl CLI
-    // against the real routes over a real socket — our code appears only on
-    // the instance side. Skipped when a pkl binary cannot be obtained.
+    // THE laptop product test: the real fh script (scala-cli) driving the
+    // real pkl CLI against the real routes over a real socket — our code
+    // appears only on the instance side. Skipped when a pkl binary cannot be
+    // obtained or scala-cli is not installed.
     val pkl = obtainPklCli()
     assume(pkl.isDefined, "pkl CLI unavailable (offline?) — skipping")
+    assume(scalaCliOnPath, "scala-cli unavailable — skipping")
     val pklDir = pkl.get / os.up
 
     val root = os.temp.dir()
@@ -386,20 +366,22 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
     val laptop = root / "laptop"
     os.makeDir.all(laptop)
-    val script = laptop / "fh"
-    os.copy(
-      os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "scripts" / "fh",
-      script
-    )
+    // The checked-in script itself, run from its repo path so scala-cli's
+    // compile cache is keyed to a stable location (a per-test temp copy would
+    // cold-compile on every run). It operates on the cwd, so the laptop dir
+    // is still the workspace. `--server=false`: no bloop daemon in tests.
+    val script = os.pwd / "scripts" / "fh"
 
     def run(args: String*): os.CommandResult =
-      os.proc("sh" :: script.toString :: args.toList)
-        .call(
-          cwd = laptop,
-          env = Map("PATH" -> s"$pklDir:${sys.env.getOrElse("PATH", "")}"),
-          check = false,
-          mergeErrIntoOut = true
-        )
+      os.proc(
+        "scala-cli" :: "shebang" :: "--server=false" :: script.toString ::
+          args.toList
+      ).call(
+        cwd = laptop,
+        env = Map("PATH" -> s"$pklDir:${sys.env.getOrElse("PATH", "")}"),
+        check = false,
+        mergeErrIntoOut = true
+      )
 
     TestServer
       .resource(
@@ -476,6 +458,83 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         } yield ()
       }
   }
+
+  test("fh update: sha-compare against the repo copy, replace with a backup") {
+    // `update`'s remote is normally the GitHub raw URL of scripts/fh; the
+    // FH_SELF_URL override points it at a local stub serving a NEWER copy.
+    // First run replaces the file (dated backup kept — the user-file
+    // convention); second run is a no-op because local now matches remote.
+    assume(scalaCliOnPath, "scala-cli unavailable — skipping")
+    import org.http4s.dsl.io.*
+
+    val repoScript = os.pwd / "scripts" / "fh"
+    // A stable (non-temp) path so scala-cli's compile cache stays warm.
+    val work =
+      os.pwd / "modules" / "fh-datastar-view" / "target" / "fh-update-test"
+    os.remove.all(work)
+    os.makeDir.all(work)
+    val script = work / "fh"
+    os.copy(repoScript, script)
+    os.perms.set(script, "rwxr-xr-x")
+    val next = os.read(repoScript) + "\n// a newer revision\n"
+
+    def run(base: String): os.CommandResult =
+      os.proc("scala-cli", "shebang", "--server=false", script, "update")
+        .call(
+          cwd = work,
+          env = Map("FH_SELF_URL" -> s"$base/fh"),
+          check = false,
+          mergeErrIntoOut = true
+        )
+
+    EmberServerBuilder
+      .default[IO]
+      .withHost(host"127.0.0.1")
+      .withPort(port"0")
+      .withHttpApp(
+        HttpRoutes.of[IO] { case GET -> Root / "fh" => Ok(next) }.orNotFound
+      )
+      .withShutdownTimeout(0.seconds)
+      .build
+      .use { bound =>
+        val base = bound.baseUri.renderString.stripSuffix("/")
+        for {
+          first <- IO.blocking(run(base))
+          _ = assertEquals(first.exitCode, 0, clue = first.out.text())
+          _ = assert(
+            first.out.text().contains("updated"),
+            clue = first.out.text()
+          )
+          // Replaced in place (still executable), previous copy kept.
+          _ = assertEquals(os.read(script), next)
+          _ = assert(os.perms(script).toString.startsWith("rwx"))
+          backups = os.list(work).filter(_.last.startsWith("fh.backup."))
+          _ = assertEquals(backups.map(os.read(_)), Seq(os.read(repoScript)))
+
+          second <- IO.blocking(run(base))
+          _ = assertEquals(second.exitCode, 0, clue = second.out.text())
+          _ = assert(
+            second.out.text().contains("up to date"),
+            clue = second.out.text()
+          )
+          _ = assertEquals(
+            os.list(work).filter(_.last.startsWith("fh.backup.")),
+            backups
+          )
+        } yield ()
+      }
+  }
+
+  /** The fh script runs via scala-cli; skip its tests where that isn't
+    * installed (it is a laptop tool, not an instance dependency).
+    */
+  private def scalaCliOnPath: Boolean = sys.env
+    .getOrElse("PATH", "")
+    .split(java.io.File.pathSeparator)
+    .iterator
+    .filter(_.nonEmpty)
+    .map(dir => os.Path(dir, os.pwd) / "scala-cli")
+    .exists(p => os.exists(p) && os.isFile(p))
 
   /** The stock pkl CLI: from PATH, from the repo-local cache, or downloaded
     * once from the pkl release matching the pinned pkl-core version. `None`

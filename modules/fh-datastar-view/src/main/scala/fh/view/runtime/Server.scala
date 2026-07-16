@@ -123,27 +123,16 @@ class Server(
     // remote authors fetch these to resolve `import
     // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
     // hits this route (it resolves those imports via in-memory interception).
-    // The laptop companion script (`fh init`/`pull`/`push`): the instance IS
-    // its distribution channel — `curl -o fh http://<ha>:8080/system/fh`. The
-    // script itself needs only curl + the stock pkl CLI.
-    case GET -> Root / "system" / "fh" =>
-      Server.fhScript match {
-        case Some(text) => Ok(text)
-        case None       => NotFound()
-      }
+    // The laptop companion (the `fh` scala-cli script) is distributed from
+    // the GitHub repo (`scripts/fh`), not from the instance; it drives the
+    // routes below.
 
     // The package-discovery index (before the `:name` route, which would
     // otherwise swallow the 3-segment path as `name = "packages"`): current
     // versions + metadata sha256 of the packages this home serves — what
-    // `fh pull` reads before rewriting the laptop's pins. `?format=sh` renders
-    // it shell-sourceable so the script needs no JSON parser.
-    case GET -> Root / "system" / "pkl" / "packages" :? FormatParam(format) =>
+    // `fh pull` reads before rewriting the laptop's pins.
+    case GET -> Root / "system" / "pkl" / "packages" =>
       systemPkl.packagesIndex match {
-        case Some(json) if format.contains("sh") =>
-          Server.indexAsShell(json) match {
-            case Some(sh) => Ok(sh)
-            case None     => InternalServerError("malformed package index")
-          }
         case Some(json) =>
           Ok(json).map(
             _.putHeaders(`Content-Type`(MediaType.application.json))
@@ -1259,43 +1248,7 @@ class Server(
   }
 }
 
-/** `?format=…` on the package-discovery index (`sh` = shell-sourceable). */
-private object FormatParam
-    extends OptionalQueryParamDecoderMatcher[String]("format")
-
 object Server {
-
-  /** The `fh` companion script, from the jar's own resources — the instance is
-    * its distribution channel (`/system/fh`).
-    */
-  lazy val fhScript: Option[String] =
-    Option(getClass.getResourceAsStream("/scripts/fh")).map { in =>
-      try new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-      finally in.close()
-    }
-
-  /** The discovery index as shell variable assignments, so the `fh` script
-    * sources it with no JSON parser: `FH_DASHBOARD_VERSION='…'` etc. Values are
-    * versions and hex digests (never quotes), single-quoted anyway.
-    */
-  def indexAsShell(indexJson: String): Option[String] =
-    io.circe.parser
-      .parse(indexJson)
-      .toOption
-      .flatMap(_.asObject)
-      .map { obj =>
-        obj.toList
-          .flatMap { case (pkg, entry) =>
-            val prefix = pkg.replace('-', '_').toUpperCase
-            List("version", "sha256").flatMap { key =>
-              entry.hcursor
-                .get[String](key)
-                .toOption
-                .map(v => s"${prefix}_${key.toUpperCase}='$v'")
-            }
-          }
-          .mkString("", "\n", "\n")
-      }
 
   /** Build the server with the shared-patch topic and run the per-slug
     * publishers ([[Server.sharedPatchPublishers]]) for the life of the

@@ -86,7 +86,7 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed `home/dump.pkl` generation |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The add-on boot path (ADR 0010): `@fh-dashboard` packaged into a persistent cache + workspace seed/migration (dated backups, never delete user files) |
-| `fh/view/build/DumpPackage.scala`, `resources/scripts/fh` | The laptop story (ADR 0010): the dump as a content-versioned package (`fh-home@1.0.0-g<hash>`, seeded on every dump write) + the `fh` shell script (`init`/`pull`/`push`, served at `GET /system/fh`; needs only curl + the stock pkl CLI) |
+| `fh/view/build/DumpPackage.scala`, `scripts/fh` (repo root) | The laptop story (ADR 0010): the dump as a content-versioned package (`fh-home@1.0.0-g<hash>`, seeded on every dump write) + the `fh` scala-cli script (`init`/`pull`/`push`/`update`; Typelevel toolkit + decline, installed by curl from GitHub raw, `update` sha256-compares against the repo copy; needs scala-cli + the stock pkl CLI) |
 | `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
 | `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: temp-copy the workspace, re-eval all entries against the new dump, swap only if nothing that builds today breaks (old dump → `dump.pkl.backup.<date>`); driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button) |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |

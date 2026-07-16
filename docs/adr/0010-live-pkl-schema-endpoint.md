@@ -90,8 +90,9 @@ the default path and it needs no network story at all.
 **End user, local editor.** Their own workspace — their entries and manifests —
 evaluated **locally**, with completion. (Editing the instance's files in place
 is not a supported laptop mode; live editing on the instance is what `/edit` is
-for.) No checkout needed: the `fh` script (served by the instance itself,
-`curl -o fh http://<ha>:8080/system/fh`) wires a directory to the instance —
+for.) No checkout needed: the `fh` script (checked into the repo at
+`scripts/fh`, installed with one curl from GitHub raw) wires a directory to
+the instance —
 `fh init` writes the manifests, and BOTH names resolve as packages from the
 instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
 `@fh-home` as a *content-versioned* dump snapshot (see "resolved by
@@ -222,20 +223,24 @@ into a confusing stale-checksum failure. `UseCaseSuite` pins the flow end-to-end
 
 **`GET /system/pkl/packages`** (no artifact) is the discovery index: the
 current version + metadata sha256 of both packages — exactly what a pull pins.
-`?format=sh` renders it shell-sourceable, which is what lets the client be a
-script with no JSON parser.
 
-**`GET /system/fh`** serves that client: the `fh` script (`init` / `pull` /
-`push`), whose distribution channel is the instance itself
-(`curl -o fh http://<ha>:8080/system/fh && chmod +x fh`). It deliberately is a
-POSIX shell script and not a jar subcommand: after the content-versioned dump
-design, the laptop side is *only* fetch-and-write (`init`/`pull` = curl the
-index, write `.fh/base.pkl` + seed `PklProject`, `pkl project resolve`) plus
-one evaluation (`push` = `pkl eval -f json | curl POST /system/push/:slug`) —
-and the backend renders its wire JSON with pkl-core's own `ValueRenderers.json`,
-so the stock CLI's output matches by construction (the e2e test pushes
-pkl-CLI-rendered JSON through the real route). Laptop dependencies: curl + the
-single-file `pkl` binary. The laptop workspace mirrors the add-on's ownership
+Its client is the `fh` script (`init` / `pull` / `push` / `update`): a
+self-contained **scala-cli script** (Typelevel toolkit + decline) checked into
+the repo at `scripts/fh`, whose distribution channel is the GitHub repo itself
+(`curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh && chmod +x fh`).
+`fh update` re-fetches that URL and replaces the local copy when the sha256
+differs, keeping the previous copy as `fh.backup.<date>` (the user-file
+convention) — so the checked-in file on `main` is the single authoritative
+source and installed copies self-heal toward it. It is deliberately a script
+and not a jar subcommand: after the content-versioned dump design, the laptop
+side is *only* fetch-and-write (`init`/`pull` = fetch the index, write
+`.fh/base.pkl` + seed `PklProject`, `pkl project resolve`) plus one evaluation
+(`push` = `pkl eval -f json` POSTed to `/system/push/:slug`) — and the backend
+renders its wire JSON with pkl-core's own `ValueRenderers.json`, so the stock
+CLI's output matches by construction (the e2e test pushes pkl-CLI-rendered
+JSON through the real route). Laptop dependencies: scala-cli (which runs the
+script and fetches its pinned toolkit) + the single-file `pkl` binary. The
+laptop workspace mirrors the add-on's ownership
 split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
 checksummed `@fh-home` pin — uri + checksums always written together),
 `PklProject` the user's from `init` on (their `@fh-dashboard` pin; the base's

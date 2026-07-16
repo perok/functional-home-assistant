@@ -79,29 +79,30 @@ object DumpRefresh {
       dashboardsDir: os.Path,
       entries: List[(String, String)]
   ): IO[List[(String, String)]] =
-    IO.blocking(stageWorkspace(newDump, dashboardsDir)).bracket { staged =>
-      for {
-        results <- entries.traverse { case (slug, entry) =>
-          DashboardBuild
-            .reevaluate(staged, entry, Some(SystemPkl.fromDisk(staged)))
-            .attempt
-            .map(r => (slug, entry, r))
-        }
-        failed = results.collect { case (slug, entry, Left(err)) =>
-          (slug, entry, err.getMessage)
-        }
-        blocking <- failed.filterA { case (_, entry, _) =>
-          DashboardBuild
-            .reevaluate(
-              dashboardsDir,
-              entry,
-              Some(SystemPkl.fromDisk(dashboardsDir))
-            )
-            .attempt
-            .map(_.isRight)
-        }
-      } yield blocking.map { case (slug, _, err) => (slug, err) }
-    }(staged => IO.blocking(os.remove.all(staged / os.up)))
+    IO.blocking(stageWorkspace(newDump, dashboardsDir))
+      .bracket { staged =>
+        for {
+          results <- entries.traverse { case (slug, entry) =>
+            DashboardBuild
+              .reevaluate(staged, entry, Some(SystemPkl.fromDisk(staged)))
+              .attempt
+              .map(r => (slug, entry, r))
+          }
+          failed = results.collect { case (slug, entry, Left(err)) =>
+            (slug, entry, err.getMessage)
+          }
+          blocking <- failed.filterA { case (_, entry, _) =>
+            DashboardBuild
+              .reevaluate(
+                dashboardsDir,
+                entry,
+                Some(SystemPkl.fromDisk(dashboardsDir))
+              )
+              .attempt
+              .map(_.isRight)
+          }
+        } yield blocking.map { case (slug, _, err) => (slug, err) }
+      }(staged => IO.blocking(os.remove.all(staged / os.up)))
 
   /** A throwaway copy of the workspace with the new dump in place: everything
     * is copied (entries, `lib/` on a repo checkout, `.fh/`, manifests — an
