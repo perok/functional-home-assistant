@@ -483,6 +483,43 @@ The conservative superset (every `*.pkl` under the dir) remains as the fallback
 for an analysis that throws, which is now an unexpected path rather than the
 normal one for shipped entries.
 
+## Refreshing the dump while running
+
+`dump.pkl` is deliberately **outside** the watch set above: it changes when the
+*home* changes (the HA registry), not when an author edits — so it gets its own
+refresh path instead of a file watch. Both triggers funnel into one
+validate-then-swap flow (`fh.view.build.DumpRefresh`, serialized by a mutex in
+`ServerApp`); the source file watcher stays as-is and the two compose — a swap
+simply ends in the same `reloadEntries` hot-swap the watcher uses.
+
+**Triggers.**
+
+- **Registry events** (`ServerApp.watchRegistryEvents`): a raw WS subscription
+  (`HomeAssistantApi.rawEvents` — the typed `Event` decoder fits only
+  `state_changed`, so the subscription seam yields the undecoded `event` JSON)
+  to `entity/device/area/floor_registry_updated` plus `component_loaded`
+  (integrations set up at runtime; also the only signal for YAML-defined
+  entities without a `unique_id`, which never touch a registry). Debounced 5s —
+  registry changes come in bursts. Toggleable: add-on option `watch_registry`
+  (default on) → `FH_WATCH_REGISTRY`.
+- **On demand**: `POST /system/dump/refresh` (the `/edit` editor's
+  "refresh dump" button). Unauthenticated with the same rationale and caveat as
+  `/system/push` — when auth lands for the direct port it must cover this route.
+
+**The flow.** Fetch + render the dump; byte-identical → no-op. Otherwise the
+whole workspace is copied to a temp dir (lockfiles dropped so dependencies
+re-resolve; the package cache is not copied — the add-on's is an absolute path
+and a repo checkout binds `@fh-dashboard` locally), the new dump written there,
+and every entry evaluated against it. An entry failing under the new dump
+blocks the swap **only if it builds under the current one** — a dashboard the
+user has mid-edit must not veto registry changes forever. On green: the old
+dump is renamed to `dump.pkl.backup.<date>` (the shared backup convention —
+machine-regenerated, but a swap is destructive of live data an entry may still
+be pinned to, and the user asked for the trail), the new dump written, its
+content-versioned package seeded (`DumpPackage`), and the renderers hot-swap.
+On rejection nothing on disk moves and the server warns (log +
+per-dashboard errors in the endpoint response).
+
 ## Alternatives rejected
 
 - **Keep relative file imports for entries.** Works only in a checkout with a
@@ -535,11 +572,11 @@ normal one for shipped entries.
   consumers; unify it on the single canonical URL from the PWA split-horizon
   remote-access story (`docs/pwa-remote-access.md`), so a remote author points that
   one name at their home exactly as the PWA does.
-- **Force-rerun the dump.** `dump.pkl` is deliberately not watched (regenerated
-  from HA state, not hand-edited). There is no way today to make the server
-  re-fetch + re-render it on demand (e.g. after adding a device) short of a
-  restart — add a build-time force-rerun path (endpoint or signal that re-runs
-  `prepareDumps` and re-evaluates entries).
+- **WS reconnect.** The hand-written WS layer (`HAWSApiLowLevel`) never
+  reconnects, so an HA core restart silently kills every subscription — the
+  state feed *and* the registry watcher above — until the add-on restarts.
+  Pre-existing, but the registry watcher raises the stakes: a device added
+  right after an HA restart is exactly the event it exists to catch.
 - **`fh` script leftovers.** `init`/`pull`/`push` are implemented (the script
   in Track A); what remains:
   - the file watcher's reconcile would clobber a pushed slug that shadows a

@@ -1,5 +1,5 @@
 name: FH Dashboard
-version: "0.1.5"
+version: "0.1.6"
 slug: fh_dashboard
 description: Pkl-authored Datastar dashboards for Home Assistant
 url: https://github.com/perok/functional-home-assistant
@@ -33,5 +33,11 @@ map:
   - homeassistant_config:rw
 options:
   default_dashboard: ""
+  watch_registry: true
 schema:
   default_dashboard: str?
+  # Rebuild the typed entity dump automatically when the HA registry changes
+  # (device/entity/area/floor added, renamed or removed, integration loaded).
+  # The swap is validated first: it never lands if it would break a dashboard
+  # that builds today, and the previous dump is kept as a dated backup.
+  watch_registry: bool?

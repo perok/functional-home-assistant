@@ -10,7 +10,11 @@
 </head>
 <body>
   <div id="fh-editor">
-    <aside id="fh-files"><div class="fh-hd">Dashboards</div><ul id="fh-file-list"></ul></aside>
+    <aside id="fh-files">
+      <div class="fh-hd">Dashboards</div>
+      <ul id="fh-file-list"></ul>
+      <button id="fh-dump-refresh" title="Re-fetch the entity dump from Home Assistant; swaps in only if every dashboard still builds (old dump kept as a dated backup)">↻ refresh dump</button>
+    </aside>
     <main id="fh-main">
       <div id="fh-editor-host"></div>
       <div id="fh-status"><span id="fh-status-file"></span><span id="fh-status-msg"></span></div>

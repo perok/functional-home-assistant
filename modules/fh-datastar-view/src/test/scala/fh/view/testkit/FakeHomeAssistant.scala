@@ -31,7 +31,7 @@ final case class ServiceCall(
   *     events onto (the change feed the store's background fiber drains), and
   *   - [[callService]] records the call for later assertion.
   *
-  * The remaining twelve methods raise `NotImplementedError`: they are not on
+  * The remaining methods raise `NotImplementedError`: they are not on
   * the runtime hot path, so an unexpected call is a loud test failure rather
   * than a silent stub. This lets a test drive the WHOLE loop —
   * `StateStore.create` -> `Server` -> HTTP/SSE -> `callService` — against
@@ -119,6 +119,7 @@ final class FakeHomeAssistant private (
   def deviceAutomationActionCapabilities(action: Json) = na
   def getConfigWS = na
   def getServicesWS = na
+  def rawEvents(eventType: String) = naR
   def trigger(data: TriggerData*) = naR
   def getServices = na
   def templateFunc[Body: io.circe.Decoder](template: String) = na

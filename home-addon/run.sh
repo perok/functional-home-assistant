@@ -60,6 +60,10 @@ if [ -f /data/options.json ]; then
   if [ -n "$DEFAULT_DASHBOARD" ]; then
     export DEFAULT_DASHBOARD
   fi
+  # Registry-driven dump refresh toggle (on unless the option is set to false).
+  if [ "$(jq -r '.watch_registry' /data/options.json)" = "false" ]; then
+    export FH_WATCH_REGISTRY=false
+  fi
 fi
 
 exec java -XX:MaxRAMPercentage=75 -jar /opt/fh-dashboard.jar

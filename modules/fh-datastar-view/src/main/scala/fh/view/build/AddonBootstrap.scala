@@ -183,7 +183,11 @@ object AddonBootstrap {
       )
     } else writeMachineFile(path, content).map(l => s"$l (home/)")
 
-  private def backupPath(original: os.Path): os.Path = {
+  /** `name.backup.<ISO-date>` beside the original (`-HHmmss` appended on a
+    * same-day collision) — the one backup-naming convention every migration and
+    * tool shares ([[DumpRefresh]] uses it for the replaced dump).
+    */
+  private[build] def backupPath(original: os.Path): os.Path = {
     val date = LocalDateTime.now.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val simple = original / os.up / s"${original.last}.backup.$date"
     if (!os.exists(simple)) simple

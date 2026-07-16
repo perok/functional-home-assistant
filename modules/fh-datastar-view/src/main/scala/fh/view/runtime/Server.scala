@@ -102,7 +102,12 @@ class Server(
     // for pkl-lsp / the editor / remote authors. The empty default serves
     // nothing (404) — the server's own eval uses in-memory interception, not
     // this route.
-    systemPkl: SystemPkl = SystemPkl.empty
+    systemPkl: SystemPkl = SystemPkl.empty,
+    // The on-demand dump refresh behind `POST /system/dump/refresh`
+    // (fetch + validate-then-swap + renderer reload, wired by ServerApp —
+    // see fh.view.build.DumpRefresh). None (tests, BuildApp-less setups)
+    // makes the route a 404.
+    dumpRefresh: Option[IO[fh.view.build.DumpRefresh.Result]] = None
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -189,6 +194,23 @@ class Server(
     // lands for the direct port it must cover this route.
     case req @ POST -> Root / "system" / "push" / slug =>
       pushResponse(slug, req)
+
+    // Recreate the entity dump on demand (the /edit editor's "refresh dump"
+    // button): re-fetch from HA, validate every dashboard against the new dump
+    // in a staged copy, and swap it in only if nothing that builds today
+    // breaks — the replaced dump is kept as `dump.pkl.backup.<date>`. Same
+    // auth story as /system/push above: unauthenticated on a port documented
+    // as such; when auth lands for the direct port it must cover this route.
+    case POST -> Root / "system" / "dump" / "refresh" =>
+      dumpRefresh match {
+        case None         => NotFound()
+        case Some(action) =>
+          action.flatMap(result =>
+            Ok(Server.dumpRefreshJson(result).noSpaces).map(
+              _.putHeaders(`Content-Type`(MediaType.application.json))
+            )
+          )
+      }
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       renderers.get.flatMap { rs =>
@@ -1291,7 +1313,8 @@ object Server {
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
-      systemPkl: SystemPkl = SystemPkl.empty
+      systemPkl: SystemPkl = SystemPkl.empty,
+      dumpRefresh: Option[IO[fh.view.build.DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
       topic <- Topic[IO, (String, ServerSentEvent)].toResource
@@ -1306,10 +1329,38 @@ object Server {
         topic,
         supervisor,
         assets,
-        systemPkl
+        systemPkl,
+        dumpRefresh
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
+
+  /** The `POST /system/dump/refresh` response body — status plus what a caller
+    * (the /edit editor) shows the user: the backup name on a swap, the
+    * per-dashboard errors on a rejection.
+    */
+  def dumpRefreshJson(result: fh.view.build.DumpRefresh.Result): Json = {
+    import fh.view.build.DumpRefresh
+    result match {
+      case DumpRefresh.Unchanged =>
+        Json.obj("status" -> Json.fromString("unchanged"))
+      case DumpRefresh.Swapped(backup, _) =>
+        Json.obj(
+          "status" -> Json.fromString("swapped"),
+          "backup" -> backup.fold(Json.Null)(b => Json.fromString(b.last))
+        )
+      case DumpRefresh.Rejected(errors) =>
+        Json.obj(
+          "status" -> Json.fromString("rejected"),
+          "errors" -> Json.fromValues(errors.map { case (slug, err) =>
+            Json.obj(
+              "slug" -> Json.fromString(slug),
+              "error" -> Json.fromString(err)
+            )
+          })
+        )
+    }
+  }
 
   /** The largest fraction of a dynamic group's rendered members that may churn
     * (be added and/or removed by one state change) and still be patched

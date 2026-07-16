@@ -1,12 +1,13 @@
 package fh.view.runtime
 
-import cats.effect.{ExitCode, IO, IOApp}
-import cats.effect.std.Env
+import api.homeassistant.HomeAssistantApi
+import cats.effect.{ExitCode, IO, IOApp, Resource}
+import cats.effect.std.{Env, Mutex}
 import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.build.{DashboardBuild, SystemPkl}
+import fh.view.build.{DashboardBuild, DataDump, DumpRefresh, PklDump, SystemPkl}
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
@@ -122,6 +123,23 @@ object ServerApp extends IOApp {
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
         defaultSlug <- defaultSlugFrom(built.map(_._1)).toResource
+
+        // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
+        // dump and swap it in only if every currently-building dashboard still
+        // builds; on success the renderers hot-swap like a source edit. The
+        // mutex serializes the endpoint against the registry watcher.
+        refreshMutex <- Mutex[IO].toResource
+        refreshDump = refreshMutex.lock.surround(
+          refreshOnce(
+            api,
+            dashboardsDir,
+            entries,
+            rendererRefs,
+            importsRef,
+            systemPkl
+          )
+        )
+
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
         server <- Server.resource(
@@ -131,7 +149,8 @@ object ServerApp extends IOApp {
           defaultSlug,
           sessions,
           assets,
-          systemPkl
+          systemPkl,
+          dumpRefresh = Some(refreshDump)
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
@@ -146,6 +165,19 @@ object ServerApp extends IOApp {
           importsRef,
           systemPkl
         ).compile.drain.background
+
+        // Registry-driven dump refresh: HA's `*_registry_updated` events say
+        // the HOME changed (device/entity/area/floor added, renamed, removed)
+        // — exactly what the dump snapshots. Toggleable via the add-on's
+        // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
+        watchRegistry <- Env[IO]
+          .get("FH_WATCH_REGISTRY")
+          .map(v => !v.map(_.trim.toLowerCase).exists(RegistryWatchOff))
+          .toResource
+        _ <-
+          if (watchRegistry)
+            watchRegistryEvents(api, refreshDump).compile.drain.background.void
+          else Resource.unit[IO]
         _ <- EmberServerBuilder
           .default[IO]
           .withHost(bindHost)
@@ -268,39 +300,152 @@ object ServerApp extends IOApp {
           .events()
           .debounce(200.millis)
           .evalMap { _ =>
-            entries
-              .traverse { case (slug, entry) =>
-                buildEntry(dashboardsDir, slug, entry, system).attempt
-                  .map((slug, _))
-              }
-              .flatMap { results =>
-                val rebuilt = results.collect { case (slug, Right(r)) =>
-                  (slug, r)
-                }
-                val failed = results.collect { case (slug, Left(err)) =>
-                  (slug, err)
-                }
-                failed.traverse_ { case (slug, err) =>
-                  IO.println(
-                    s"Dashboard '$slug' reload failed (keeping previous): ${err.getMessage}"
-                  )
-                } *>
-                  rebuilt.traverse_ { case (slug, (renderer, _)) =>
-                    rendererRefs.get(slug).traverse_(_.set(renderer))
-                  } *>
-                  IO.whenA(rebuilt.nonEmpty)(
-                    importsRef.set(
-                      watchedSet(dashboardsDir, entries, rebuilt.map(_._2._2))
-                    ) *>
-                      IO.println(
-                        s"Dashboards reloaded (${rebuilt.map(_._1).mkString(", ")})"
-                      )
-                  )
-              }
+            reloadEntries(
+              dashboardsDir,
+              entries,
+              rendererRefs,
+              importsRef,
+              system
+            )
           }
 
       reload.concurrently(reconcile)
     }
+
+  /** Re-evaluate ALL entries against the on-disk sources + dump and hot-swap
+    * each renderer (per-entry: a failing entry logs and keeps its previous
+    * renderer). The body behind both the source watcher and the post-dump-swap
+    * reload ([[refreshOnce]] — the dump is deliberately not watched).
+    */
+  private def reloadEntries(
+      dashboardsDir: os.Path,
+      entries: List[(String, String)],
+      rendererRefs: Map[String, SignallingRef[IO, Renderer]],
+      importsRef: SignallingRef[IO, Set[Path]],
+      system: SystemPkl
+  ): IO[Unit] =
+    entries
+      .traverse { case (slug, entry) =>
+        buildEntry(dashboardsDir, slug, entry, system).attempt
+          .map((slug, _))
+      }
+      .flatMap { results =>
+        val rebuilt = results.collect { case (slug, Right(r)) =>
+          (slug, r)
+        }
+        val failed = results.collect { case (slug, Left(err)) =>
+          (slug, err)
+        }
+        failed.traverse_ { case (slug, err) =>
+          IO.println(
+            s"Dashboard '$slug' reload failed (keeping previous): ${err.getMessage}"
+          )
+        } *>
+          rebuilt.traverse_ { case (slug, (renderer, _)) =>
+            rendererRefs.get(slug).traverse_(_.set(renderer))
+          } *>
+          IO.whenA(rebuilt.nonEmpty)(
+            importsRef.set(
+              watchedSet(dashboardsDir, entries, rebuilt.map(_._2._2))
+            ) *>
+              IO.println(
+                s"Dashboards reloaded (${rebuilt.map(_._1).mkString(", ")})"
+              )
+          )
+      }
+
+  /** One full dump refresh: fetch + render the live dump, validate-then-swap
+    * ([[DumpRefresh.refresh]]), and on a swap hot-reload every renderer (the
+    * source watcher does not watch the dump). A rejection only warns — HA
+    * changed, but the dashboards keep building against the current dump until
+    * they're fixed and a refresh is retried.
+    */
+  private def refreshOnce(
+      api: HomeAssistantApi[IO],
+      dashboardsDir: os.Path,
+      entries: List[(String, String)],
+      rendererRefs: Map[String, SignallingRef[IO, Renderer]],
+      importsRef: SignallingRef[IO, Set[Path]],
+      system: SystemPkl
+  ): IO[DumpRefresh.Result] =
+    DataDump
+      .fetch(api)
+      .map(PklDump.render)
+      .flatMap(DumpRefresh.refresh(_, dashboardsDir, entries))
+      .flatTap {
+        case DumpRefresh.Unchanged =>
+          IO.println("dump refresh: home unchanged")
+        case DumpRefresh.Swapped(backup, seedLog) =>
+          seedLog.traverse_(IO.println) *>
+            IO.println(
+              "dump refreshed" +
+                backup.fold("")(b => s" (previous kept as ${b.last})")
+            ) *>
+            reloadEntries(
+              dashboardsDir,
+              entries,
+              rendererRefs,
+              importsRef,
+              system
+            )
+        case DumpRefresh.Rejected(errors) =>
+          IO.println(
+            "WARNING: dump refresh rejected — the new dump breaks dashboards " +
+              "that build today; keeping the current dump:"
+          ) *>
+            errors.traverse_ { case (slug, err) =>
+              IO.println(s"  '$slug': $err")
+            }
+      }
+
+  /** The HA event types that signal the dump's inputs changed: the registries
+    * behind `{entities, areas, floors}` (devices ride along because a device
+    * add/remove always touches the entity registry too, but a rename can fire
+    * only the device event), plus `component_loaded` — an integration set up at
+    * runtime, which also covers YAML-defined entities that never get a registry
+    * entry (no `unique_id`) and so fire no registry event. The startup burst of
+    * `component_loaded`s is absorbed by the debounce + the refresh being a
+    * no-op on a byte-identical dump.
+    */
+  private val DumpEvents = List(
+    "entity_registry_updated",
+    "device_registry_updated",
+    "area_registry_updated",
+    "floor_registry_updated",
+    "component_loaded"
+  )
+
+  /** `FH_WATCH_REGISTRY` values that turn the registry watcher off. */
+  private val RegistryWatchOff = Set("false", "0", "off", "no")
+
+  /** Registry changes come in bursts (adding one integration fires dozens of
+    * `entity_registry_updated` events), so wait for quiet before refreshing. A
+    * failed refresh (an HA hiccup mid-fetch) logs and keeps listening.
+    */
+  private def watchRegistryEvents(
+      api: HomeAssistantApi[IO],
+      refresh: IO[DumpRefresh.Result]
+  ): Stream[IO, Unit] =
+    Stream
+      .emits(DumpEvents)
+      .map { eventType =>
+        Stream
+          .resource(api.rawEvents(eventType))
+          .flatMap(queue => Stream.repeatEval(queue.take))
+      }
+      .parJoinUnbounded
+      .debounce(RegistryQuiet)
+      .evalMap { _ =>
+        refresh.attempt.flatMap {
+          case Left(err) =>
+            IO.println(
+              s"registry-driven dump refresh failed: ${err.getMessage}"
+            )
+          case Right(_) => IO.unit
+        }
+      }
+
+  private val RegistryQuiet = 5.seconds
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 
