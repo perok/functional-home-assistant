@@ -78,13 +78,15 @@ class DumpPackageSuite extends munit.FunSuite {
   test("a changed dump mints a NEW version; the old snapshot stays") {
     val (ws, cache) = stage()
     val _ = DumpPackage.seedFromWorkspace(ws)
-    val before = os.list(cache / "package-2" / LibPackage.Host)
+    val before = os
+      .list(cache / "package-2" / LibPackage.Host)
       .filter(_.last.startsWith("fh-home@"))
 
     os.write.append(DashboardBuild.dumpPath(ws), "\n// a new device\n")
     val log = DumpPackage.seedFromWorkspace(ws)
 
-    val after = os.list(cache / "package-2" / LibPackage.Host)
+    val after = os
+      .list(cache / "package-2" / LibPackage.Host)
       .filter(_.last.startsWith("fh-home@"))
     assertEquals(before.size, 1)
     assertEquals(after.size, 2, clue = after)

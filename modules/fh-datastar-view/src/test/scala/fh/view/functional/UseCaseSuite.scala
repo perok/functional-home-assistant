@@ -338,7 +338,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           // Shell-sourceable and naming the same versions as the JSON form.
           val vars = shBody.linesIterator
             .map(_.split("=", 2))
-            .collect { case Array(k, v) => k -> v.stripPrefix("'").stripSuffix("'") }
+            .collect { case Array(k, v) =>
+              k -> v.stripPrefix("'").stripSuffix("'")
+            }
             .toMap
           val doc = io.circe.parser
             .parse(jsonBody)
@@ -458,7 +460,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           _ = assertEquals(pullRes.exitCode, 0, clue = pullRes.out.text())
           newPin = os.read(laptop / ".fh" / "base.pkl")
           _ = assertNotEquals(newPin, oldPin)
-          _ = assert(pullRes.out.text().contains("->"), clue = pullRes.out.text())
+          _ = assert(
+            pullRes.out.text().contains("->"),
+            clue = pullRes.out.text()
+          )
 
           // And the workspace still evaluates against the new snapshot.
           eval2 <- IO.blocking(
@@ -492,17 +497,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         platformAsset.flatMap { asset =>
           val url =
             s"https://github.com/apple/pkl/releases/download/$version/$asset"
-          scala.util
-            .Try {
-              os.makeDir.all(cached / os.up)
-              val tmp = cached / os.up / s"${cached.last}.part"
-              os.proc("curl", "-fsSL", "-o", tmp.toString, url)
-                .call(timeout = 120000)
-              os.perms.set(tmp, "rwxr-xr-x")
-              os.move.over(tmp, cached)
-              cached
-            }
-            .toOption
+          scala.util.Try {
+            os.makeDir.all(cached / os.up)
+            val tmp = cached / os.up / s"${cached.last}.part"
+            os.proc("curl", "-fsSL", "-o", tmp.toString, url)
+              .call(timeout = 120000)
+            os.perms.set(tmp, "rwxr-xr-x")
+            os.move.over(tmp, cached)
+            cached
+          }.toOption
         }
     }
   }
@@ -564,7 +567,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .setModuleCacheDir(laptopCache.toNIO)
       .applyFromProject(Project.loadFromPath((laptop / "PklProject").toNIO))
       .build()
-    try evaluator.evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO)).getProperties
+    try
+      evaluator
+        .evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO))
+        .getProperties
     finally evaluator.close()
   }
 

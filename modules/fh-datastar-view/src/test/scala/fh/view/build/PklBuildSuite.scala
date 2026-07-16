@@ -195,7 +195,9 @@ class PklBuildSuite extends munit.FunSuite {
     val metadata =
       s"""{"name":"thirdparty","packageUri":"package://fh.invalid/thirdparty@1.0.0",
          |"version":"1.0.0","packageZipUrl":"https://fh.invalid/thirdparty@1.0.0.zip",
-         |"packageZipChecksums":{"sha256":"${LibPackage.sha256(zip)}"},"dependencies":{}}""".stripMargin
+         |"packageZipChecksums":{"sha256":"${LibPackage.sha256(
+          zip
+        )}"},"dependencies":{}}""".stripMargin
     val server = com.sun.net.httpserver.HttpServer
       .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
     server.createContext(
@@ -223,7 +225,11 @@ class PklBuildSuite extends munit.FunSuite {
     * `evaluatorSettings.http.rewrites` — exactly how a real workspace maps
     * `fh.invalid` at a real host (the documented air-gap mechanism).
     */
-  private def stageThirdParty(tmp: os.Path, port: Int, version: String): Unit = {
+  private def stageThirdParty(
+      tmp: os.Path,
+      port: Int,
+      version: String
+  ): Unit = {
     copyLib(tmp, "hass.pkl")
     writeThirdPartyManifest(tmp, port, version)
     os.write.over(

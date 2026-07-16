@@ -7,9 +7,9 @@ import fh.view.testkit.{HouseFixture, PklFixture}
   * library reaches evaluation as a *pre-cached package*, never as files in the
   * user's workspace — and upgrades reconcile instead of freezing at install.
   *
-  * The frozen-lib bug shipped precisely because the old seed-layout test
-  * pinned the LAYOUT and nothing pinned the UPGRADE semantics; the migration
-  * and drift tests here are that missing pin.
+  * The frozen-lib bug shipped precisely because the old seed-layout test pinned
+  * the LAYOUT and nothing pinned the UPGRADE semantics; the migration and drift
+  * tests here are that missing pin.
   */
 class AddonBootstrapSuite extends munit.FunSuite {
 
@@ -44,7 +44,10 @@ class AddonBootstrapSuite extends munit.FunSuite {
     // the bundled-version default.
     val consumer = os.read(box.ws / "PklProject")
     assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
-    assert(consumer.contains(LibPackage.packageUri(libVersion)), clue = consumer)
+    assert(
+      consumer.contains(LibPackage.packageUri(libVersion)),
+      clue = consumer
+    )
     val base = os.read(box.ws / ".fh" / "base.pkl")
     assert(base.contains(box.cache.toString), clue = base)
     assert(base.contains(LibPackage.packageUri(libVersion)), clue = base)
@@ -140,7 +143,9 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assertEquals(backups.size, 1, clue = os.list(box.ws))
 
     // Both old-form manifests were recognized, backed up, and rewritten.
-    assert(os.read(box.ws / "PklProject").contains(LibPackage.packageUri(libVersion)))
+    assert(
+      os.read(box.ws / "PklProject").contains(LibPackage.packageUri(libVersion))
+    )
     assert(
       os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")),
       clue = os.list(box.ws)
@@ -184,7 +189,10 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write.over(
       box.ws / "PklProject",
       os.read(box.ws / "PklProject")
-        .replace(LibPackage.packageUri(libVersion), LibPackage.packageUri("9.9.9"))
+        .replace(
+          LibPackage.packageUri(libVersion),
+          LibPackage.packageUri("9.9.9")
+        )
     )
     val bumped = os.read(box.ws / "PklProject")
 
