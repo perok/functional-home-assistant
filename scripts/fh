@@ -1,6 +1,9 @@
 #!/usr/bin/env -S scala-cli shebang
 //> using scala 3.7.4
+//> using jvm 17
 //> using toolkit typelevel:0.1.29
+//> using dep org.pkl-lang:pkl-core:0.31.1
+//> using dep org.slf4j:slf4j-nop:1.7.36
 
 // fh — the laptop companion of the FH Dashboard add-on (ADR 0010).
 //
@@ -9,7 +12,10 @@
 // your home's typed entity dump as an immutable content-versioned snapshot —
 // and pkl resolves them from the instance through the manifest's own http
 // rewrite. This script only writes those pins and keeps the lockfile in step;
-// evaluation and completion are stock pkl tooling.
+// resolution and evaluation run in-process on pkl-core (the same library —
+// and for push the same ValueRenderers.json call — the instance itself uses).
+// Stock pkl tooling still works on the workspace (pkl-lsp completion, the
+// pkl CLI) but nothing here requires it.
 //
 // This file lives in the GitHub repo — that is its distribution channel:
 //
@@ -18,7 +24,7 @@
 // `fh update` re-fetches that URL and replaces this copy when the sha256
 // differs (the previous copy is kept as fh.backup.<date>).
 //
-// Dependencies: scala-cli (runs this file), pkl (https://pkl-lang.org).
+// Dependencies: scala-cli (runs this file and fetches everything else).
 
 import cats.effect.IO
 import cats.syntax.all.*
@@ -45,17 +51,6 @@ val selfUrl = sys.env.getOrElse(
   "https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh"
 )
 
-def need(bin: String, why: String): IO[Unit] = IO.blocking {
-  val found = sys.env
-    .getOrElse("PATH", "")
-    .split(java.io.File.pathSeparator)
-    .iterator
-    .filter(_.nonEmpty)
-    .map(dir => Paths.get(dir).resolve(bin))
-    .exists(p => Files.isRegularFile(p) && Files.isExecutable(p))
-  if !found then throw Die(s"$bin is required ($why)")
-}
-
 def sha256(bytes: Array[Byte]): String =
   java.security.MessageDigest
     .getInstance("SHA-256")
@@ -63,22 +58,68 @@ def sha256(bytes: Array[Byte]): String =
     .map("%02x".format(_))
     .mkString
 
-/** Run a command inheriting stdio; Die on a nonzero exit. */
-def exec(cmd: String*): IO[Unit] = IO.blocking {
-  val exit = new ProcessBuilder(cmd*).inheritIO().start().waitFor()
-  if exit != 0 then throw Die(s"`${cmd.mkString(" ")}` failed (exit $exit)")
+// ---------------------------------------------------------------- pkl-core
+// The workspace's own settings, applied by hand: the script knows the
+// instance URL and wrote `.fh/base.pkl` itself, so it builds the same
+// rewrite + cache the manifest declares rather than depending on how
+// pkl-core surfaces evaluatorSettings.
+
+val cacheDir = Paths.get(".fh/cache").toAbsolutePath
+
+def pklHttp(url: String): org.pkl.core.http.HttpClient =
+  org.pkl.core.http.HttpClient
+    .builder()
+    .addRewrite(
+      java.net.URI.create("https://fh.invalid/"),
+      java.net.URI.create(s"$url/system/pkl/packages/")
+    )
+    .build()
+
+def loadProject(): org.pkl.core.project.Project =
+  val manifest = Paths.get("PklProject")
+  if !Files.exists(manifest) then
+    throw Die("no PklProject here — run: fh init <instance-url>")
+  org.pkl.core.project.Project.loadFromPath(manifest)
+
+/** `pkl project resolve`, in-process: resolve the manifest's dependencies
+  * from the instance (packages land in `.fh/cache`) and write the lockfile.
+  */
+def resolveDeps(url: String): IO[Unit] = IO.blocking {
+  import org.pkl.core.SecurityManagers
+  import org.pkl.core.packages.PackageResolver
+  import org.pkl.core.project.ProjectDependenciesResolver
+  val resolver = new ProjectDependenciesResolver(
+    loadProject(),
+    PackageResolver.getInstance(
+      SecurityManagers.defaultManager,
+      pklHttp(url),
+      cacheDir
+    ),
+    new java.io.PrintWriter(System.err)
+  )
+  val out = new java.io.FileOutputStream("PklProject.deps.json")
+  try resolver.resolve().writeTo(out)
+  finally out.close()
 }
 
-/** Run a command capturing stdout (stderr passes through); Die(msg) on a
-  * nonzero exit.
+/** `pkl eval -f json`, in-process: evaluate an entry against the project and
+  * render it with pkl-core's own `ValueRenderers.json` — the exact call the
+  * instance's backend uses, so the pushed JSON matches by construction.
   */
-def execCapture(msg: String)(cmd: String*): IO[Array[Byte]] = IO.blocking {
-  val p = new ProcessBuilder(cmd*)
-    .redirectError(ProcessBuilder.Redirect.INHERIT)
-    .start()
-  val out = p.getInputStream.readAllBytes()
-  if p.waitFor() != 0 then throw Die(msg)
-  out
+def evalJson(url: String, entry: String): IO[String] = IO.blocking {
+  import org.pkl.core.{EvaluatorBuilder, ModuleSource, ValueRenderers}
+  val evaluator = EvaluatorBuilder
+    .preconfigured()
+    .setHttpClient(pklHttp(url))
+    .setModuleCacheDir(cacheDir)
+    .applyFromProject(loadProject())
+    .build()
+  try
+    val module = evaluator.evaluate(ModuleSource.path(Paths.get(entry)))
+    val writer = new java.io.StringWriter
+    ValueRenderers.json(writer, "  ", true).renderDocument(module)
+    writer.toString
+  finally evaluator.close()
 }
 
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =
@@ -202,13 +243,13 @@ def seedConsumer(idx: PkgIndex): IO[Unit] = IO.blocking {
 }
 
 def cmdInit(rawUrl: String): IO[Unit] =
-  need("pkl", "the pkl CLI, https://pkl-lang.org") *> withClient { client =>
+  withClient { client =>
     val url = rawUrl.stripSuffix("/")
     for
       idx <- fetchIndex(client, url)
       _ <- writeBase(url, idx)
       _ <- seedConsumer(idx)
-      _ <- exec("pkl", "project", "resolve")
+      _ <- resolveDeps(url)
       _ <- IO.println(
         s"wired to $url (@fh-dashboard ${idx.dashboardVersion}, @fh-home ${idx.homeVersion})"
       )
@@ -219,13 +260,13 @@ def cmdInit(rawUrl: String): IO[Unit] =
   }
 
 def cmdPull: IO[Unit] =
-  need("pkl", "the pkl CLI, https://pkl-lang.org") *> withClient { client =>
+  withClient { client =>
     for
       url <- instanceUrl
       old <- pinnedHomeVersion
       idx <- fetchIndex(client, url)
       _ <- writeBase(url, idx)
-      _ <- exec("pkl", "project", "resolve")
+      _ <- resolveDeps(url)
       _ <-
         if old.contains(idx.homeVersion) then
           IO.println(s"up to date (@fh-home ${idx.homeVersion})")
@@ -235,25 +276,15 @@ def cmdPull: IO[Unit] =
   }
 
 def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
-  need("pkl", "the pkl CLI, https://pkl-lang.org") *> withClient { client =>
+  withClient { client =>
     val slug =
       slugOpt.getOrElse(Paths.get(entry).getFileName.toString.stripSuffix(".pkl"))
-    val failed =
-      "push failed — the entry may not build, or the instance rejected it"
     for
       url <- instanceUrl
-      // The instance validates the payload (unknown cards come back as a 400
-      // naming them), so a broken entry fails HERE, on the wire, not silently
-      // on a screen.
-      json <- execCapture(failed)(
-        "pkl",
-        "eval",
-        "--project-dir",
-        ".",
-        "-f",
-        "json",
-        entry
-      )
+      // A broken entry fails HERE (pkl-core raises with the authoring error),
+      // and the instance validates the payload too (unknown cards come back
+      // as a 400 naming them) — never silently on a screen.
+      json <- evalJson(url, entry)
       uri <- Uri
         .fromString(s"$url/system/push/$slug")
         .fold(_ => die(s"not a valid url: $url"), IO.pure)
@@ -262,7 +293,9 @@ def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
           .withEntity(json)
           .withContentType(`Content-Type`(MediaType.application.json))
       )
-      _ <- IO.raiseWhen(!status.isSuccess)(Die(failed))
+      _ <- IO.raiseWhen(!status.isSuccess)(
+        Die(s"push failed — the instance rejected it ($status)")
+      )
       _ <- IO.println(
         s"pushed: $url/d/$slug (ephemeral — gone when the instance restarts)"
       )
@@ -357,6 +390,9 @@ command.parse(args.toIndexedSeq) match
   case Right(io) =>
     import cats.effect.unsafe.implicits.global
     io.attempt.unsafeRunSync() match
-      case Right(())     => ()
-      case Left(Die(m))  => System.err.println(s"fh: $m"); sys.exit(1)
-      case Left(e)       => System.err.println(s"fh: $e"); sys.exit(1)
+      case Right(())    => ()
+      case Left(Die(m)) => System.err.println(s"fh: $m"); sys.exit(1)
+      case Left(e: org.pkl.core.PklException) =>
+        // Authoring errors: pkl's own message is the useful part.
+        System.err.println(s"fh: ${e.getMessage}"); sys.exit(1)
+      case Left(e) => System.err.println(s"fh: $e"); sys.exit(1)

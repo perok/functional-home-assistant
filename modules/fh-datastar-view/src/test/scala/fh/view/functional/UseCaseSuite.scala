@@ -36,6 +36,10 @@ import scala.concurrent.duration.*
   */
 class UseCaseSuite extends munit.CatsEffectSuite {
 
+  // The fh-script tests shell out to scala-cli, whose first run compiles the
+  // script (and fetches its pinned deps) — far beyond munit's 30s default.
+  override def munitIOTimeout: scala.concurrent.duration.Duration = 10.minutes
+
   private val dashboards =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
 
@@ -341,10 +345,12 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   test(
     "end user with the fh script: init, evaluate with stock pkl, push, pull"
   ) {
-    // THE laptop product test: the real fh script (scala-cli) driving the
-    // real pkl CLI against the real routes over a real socket — our code
-    // appears only on the instance side. Skipped when a pkl binary cannot be
-    // obtained or scala-cli is not installed.
+    // THE laptop product test: the real fh script (scala-cli, pkl-core
+    // in-process) against the real routes over a real socket — our code
+    // appears only on the instance side. The stock pkl CLI still drives the
+    // authoring loop (eval with completion-grade tooling is the laptop
+    // story), so this is skipped when a pkl binary cannot be obtained or
+    // scala-cli is not installed.
     val pkl = obtainPklCli()
     assume(pkl.isDefined, "pkl CLI unavailable (offline?) — skipping")
     assume(scalaCliOnPath, "scala-cli unavailable — skipping")

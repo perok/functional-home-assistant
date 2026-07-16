@@ -96,11 +96,12 @@ the instance —
 `fh init` writes the manifests, and BOTH names resolve as packages from the
 instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
 `@fh-home` as a *content-versioned* dump snapshot (see "resolved by
-content-derived versions") that `fh pull` re-pins. From there everything is
-stock pkl tooling: `pkl project resolve`, `pkl eval`, pkl-lsp — their project
-resolves exactly as the server's does, offline once cached. `UseCaseSuite`
-drives the real script + real pkl CLI end-to-end. (A git copy of a full
-checkout still works identically via path-form manifests.)
+content-derived versions") that `fh pull` re-pins. Resolution and push
+evaluation run inside the script (in-process pkl-core); the workspace is a
+plain pkl project, so stock tooling — pkl-lsp completion, the `pkl` CLI —
+works on it identically, offline once cached. `UseCaseSuite` drives the real
+script + the real pkl CLI end-to-end. (A git copy of a full checkout still
+works identically via path-form manifests.)
 
 **Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
 checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
@@ -234,13 +235,16 @@ convention) — so the checked-in file on `main` is the single authoritative
 source and installed copies self-heal toward it. It is deliberately a script
 and not a jar subcommand: after the content-versioned dump design, the laptop
 side is *only* fetch-and-write (`init`/`pull` = fetch the index, write
-`.fh/base.pkl` + seed `PklProject`, `pkl project resolve`) plus one evaluation
-(`push` = `pkl eval -f json` POSTed to `/system/push/:slug`) — and the backend
-renders its wire JSON with pkl-core's own `ValueRenderers.json`, so the stock
-CLI's output matches by construction (the e2e test pushes pkl-CLI-rendered
-JSON through the real route). Laptop dependencies: scala-cli (which runs the
-script and fetches its pinned toolkit) + the single-file `pkl` binary. The
-laptop workspace mirrors the add-on's ownership
+`.fh/base.pkl` + seed `PklProject`, resolve dependencies) plus one evaluation
+(`push`). Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
+then `ValueRenderers.json` — the *same call* the instance's backend renders
+its wire JSON with, so pushed JSON matches by construction; the e2e test
+drives the real script through the real route). Stock pkl tooling still works
+on the workspace — pkl-lsp completion is the point of having one, and the
+`pkl` CLI evaluates it identically — but the script requires none of it.
+Laptop dependencies: scala-cli alone (it runs the script and fetches the
+pinned toolkit + pkl-core), which keeps the setup cross-platform for free.
+The laptop workspace mirrors the add-on's ownership
 split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
 checksummed `@fh-home` pin — uri + checksums always written together),
 `PklProject` the user's from `init` on (their `@fh-dashboard` pin; the base's
