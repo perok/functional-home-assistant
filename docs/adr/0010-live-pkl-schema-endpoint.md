@@ -82,7 +82,8 @@ invariant the whole design hangs on:
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
-`PklProject`, so pkl-lsp finds it with no extra configuration) and the
+`.fh/base.pkl` the user's `PklProject` amends, so pkl-lsp finds it with no
+extra configuration) and the
 freshly-written `home/dump.pkl`, through the project. Nothing is fetched. This is
 the default path and it needs no network story at all.
 
@@ -318,16 +319,31 @@ does, idempotently:
    Spiked (0.31.1): a warm cache satisfies BOTH `ProjectDependenciesResolver`
    and evaluation against `HttpClient.dummyClient()` — fresh and offline
    installs resolve with no network and no interception.
-2. **Generate the manifests** when absent: a consumer `PklProject` pinning the
-   bundled lib version and declaring `moduleCacheDir` (so pkl-lsp and any pkl
-   tool resolve from the same cache), and a `home/PklProject` for `@fh-home`.
-   Once written they are the **user's files**: a customized manifest is never
-   rewritten. Only the recognizable *old-form* manifests (the copy-if-empty
-   era's `import("./lib/PklProject")`) are migrated — backed up first.
+2. **Generate the manifests**, split machine-owned from user-owned along an
+   `amends` chain (spike-verified on 0.31.1: a `PklProject` can amend a local
+   base module; the child inherits `dependencies` and `evaluatorSettings`, and
+   its own mapping entries override the base's):
+   - `.fh/base.pkl` — **machine-owned, refreshed every start**: `moduleCacheDir`
+     (so pkl-lsp and any pkl tool resolve from the same cache), the `@fh-home`
+     binding, and a *default* `@fh-dashboard` pin at the bundled version.
+     Add-on internals can change here without merge heuristics or backups.
+   - `PklProject` — seeded once (`amends ".fh/base.pkl"` + the pin at the
+     then-bundled version), then the **user's file, never rewritten**. The
+     user's pin overrides the base's default — so it is the ONE place the pin
+     lives; deleting the entry opts into tracking the bundled version.
+     Third-party packages are declared here.
+   - `home/PklProject` — **machine-owned** like the `dump.pkl` beside it,
+     regenerated every start with its `@fh-dashboard` pin synced (textually)
+     from the user's manifest, killing the two-place-pin-bump footgun that the
+     module-identity constraint would otherwise turn into a type error.
 3. **Migrate old installs**: a workspace-resident `lib/` is renamed to
    `lib.backup.<date>` (anything user-visible we remove or replace is renamed to
-   a dated backup, **never deleted**), old-form manifests are backed up and
-   regenerated, and the lockfile is deleted.
+   a dated backup, **never deleted**); any machine-era consumer manifest
+   (recognized by amending `pkl:Project` directly — both the copy-if-empty
+   path-form and the interim single-file package form) is backed up and
+   rewritten to the amends-the-base shape, **preserving a pin it carried**; a
+   pre-machine-form `home/PklProject` gets one dated backup on the way over;
+   and the lockfiles are deleted.
 4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
    manifests, no lib) only into a workspace with no top-level `*.pkl`.
 
@@ -338,9 +354,10 @@ outright), so the pin in the manifest is always what evaluates.
 The decoupling is the point: a **runtime** upgrade never moves the user's pin —
 the new image seeds its bundled lib version into the cache *alongside* the old
 one, and the user's dashboards keep evaluating against the version they pinned.
-A **lib** upgrade is the user's deliberate pin bump (`/edit` today, a future
-`fh sync`). Pin-in-user-file is then correct semantics rather than a stranding
-hazard, and the instance and the laptop become symmetric: the same
+A **lib** upgrade is the user's deliberate pin bump — one line in *their*
+`PklProject` (`/edit` today, a future `fh sync`); the home manifest follows at
+the next start. Pin-in-user-file is then correct semantics rather than a
+stranding hazard, and the instance and the laptop become symmetric: the same
 `package://fh.invalid/fh-dashboard@<v>` pin resolves from the local cache on the
 instance and over an `http.rewrites` mapping toward `/system/pkl/packages/` on
 a laptop (below). What the split demands in exchange
@@ -350,7 +367,8 @@ artifacts — see follow-ups.
 `AddonBootstrapSuite` pins this whole contract: lib-free workspace, offline
 evaluation from the pre-seeded cache, module identity under the package form
 (the dump's remote-dep `@fh-dashboard` and the consumer's land on ONE cached
-artifact), dated-backup migration, quiet second boot, loud drift.
+artifact), dated-backup migration, pin-bump sync into the home manifest, quiet
+second boot, loud drift.
 
 ## The load-bearing constraint: module identity
 

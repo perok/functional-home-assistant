@@ -33,16 +33,21 @@ class AddonBootstrapSuite extends munit.FunSuite {
   test("first boot: seeds a lib-free workspace that evaluates offline") {
     val (box, _) = boot()
 
-    // The user's dir holds only user files: entries + the two manifests. No
-    // lib/ — that was the littering the package form exists to remove.
+    // The user's dir holds only user files: entries + the manifests. No lib/ —
+    // that was the littering the package form exists to remove.
     assert(!os.exists(box.ws / "lib"), clue = os.list(box.ws))
     assert(os.exists(box.ws / "dashboard.pkl"))
 
-    // The manifests pin the BUNDLED lib version as a package, and point every
-    // pkl tool (the server, pkl-lsp) at the same persistent cache.
+    // Ownership splits along the amends chain: the user's PklProject amends
+    // the machine-owned .fh/base.pkl and holds the pin; the base points every
+    // pkl tool (the server, pkl-lsp) at the same persistent cache and carries
+    // the bundled-version default.
     val consumer = os.read(box.ws / "PklProject")
+    assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
     assert(consumer.contains(LibPackage.packageUri(libVersion)), clue = consumer)
-    assert(consumer.contains(box.cache.toString), clue = consumer)
+    val base = os.read(box.ws / ".fh" / "base.pkl")
+    assert(base.contains(box.cache.toString), clue = base)
+    assert(base.contains(LibPackage.packageUri(libVersion)), clue = base)
     assert(
       os.read(box.ws / "home" / "PklProject")
         .contains(LibPackage.packageUri(libVersion))
@@ -169,6 +174,66 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
+  }
+
+  test("a pin bump in the user's manifest syncs the home manifest on boot") {
+    // The user's PklProject is the ONE place the pin lives; the machine-owned
+    // home manifest follows it (module identity: the dump and the entries must
+    // reach the schema through the same cached artifact).
+    val (box, _) = boot()
+    os.write.over(
+      box.ws / "PklProject",
+      os.read(box.ws / "PklProject")
+        .replace(LibPackage.packageUri(libVersion), LibPackage.packageUri("9.9.9"))
+    )
+    val bumped = os.read(box.ws / "PklProject")
+
+    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+
+    assertEquals(os.read(box.ws / "PklProject"), bumped)
+    assert(
+      os.read(box.ws / "home" / "PklProject")
+        .contains(LibPackage.packageUri("9.9.9"))
+    )
+    // Machine-owned files never leave backups behind — that noise is reserved
+    // for files the user might have authored.
+    assert(!os.list(box.ws / "home").exists(_.last.contains(".backup.")))
+    assert(log.nonEmpty, clue = log)
+  }
+
+  test("the interim single-file package form migrates, preserving its pin") {
+    // The form the first package-form bootstrap generated: one PklProject
+    // amending pkl:Project directly, cache dir and pin inline. A user may have
+    // bumped its pin — migration to the amends-the-base shape keeps it.
+    val root = os.temp.dir()
+    val box = Box(root / "fh-dashboards", root / "pkl-cache")
+    os.makeDir.all(box.ws / "home")
+    os.write(
+      box.ws / "PklProject",
+      s"""amends "pkl:Project"
+         |evaluatorSettings { moduleCacheDir = "${box.cache}" }
+         |dependencies {
+         |  ["fh-dashboard"] { uri = "${LibPackage.packageUri("0.0.9")}" }
+         |  ["fh-home"] = import("./home/PklProject")
+         |}
+         |""".stripMargin
+    )
+    os.write(box.ws / "mine.pkl", "// the user's own entry\n")
+
+    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+
+    val consumer = os.read(box.ws / "PklProject")
+    assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
+    assert(consumer.contains(LibPackage.packageUri("0.0.9")), clue = consumer)
+    assert(
+      os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")),
+      clue = os.list(box.ws)
+    )
+    assert(
+      os.read(box.ws / "home" / "PklProject")
+        .contains(LibPackage.packageUri("0.0.9"))
+    )
+    assert(log.exists(_.contains("migrated")), clue = log)
   }
 
   test("second boot is quiet: no new backups, no re-seeding, cache untouched") {
