@@ -509,6 +509,33 @@ normal one for shipped entries.
     wrinkle: the file watcher's reconcile would clobber a pushed slug that
     shadows a real entry on the next edit (pushed slugs are ephemeral and
     in-memory, so a distinct slug simply survives until restart).
+- **Manifest-level checksum pinning** (pkl threat model, "package integrity").
+  A dependency in `PklProject` can declare its own pin — `checksums { sha256 =
+  "…" }` next to `uri` — upgrading the lockfile's trust-on-first-use to a
+  declared, resolve-time-verified integrity check (spiked on 0.31.1: mismatch
+  is a hard resolve failure; the sha pins the **metadata JSON's** bytes, which
+  transitively pin the zip via `packageZipChecksums` — same artifact the
+  URI-embedded `::sha256:` form pins). `LibPackage.metadata` is deterministic,
+  so the sha is stable per version. Natural adopters: the `fh` CLI's pin bump
+  writes `uri` + `checksums` together, and the machine-owned `.fh/base.pkl`
+  (regenerated every boot from the cache it just seeded) could carry the sha
+  for its bundled-version default. The consumer-manifest *seed* should stay
+  checksum-free until the drift story is settled — a dev image that rebuilds
+  the lib under an unchanged version (today a WARNING + cache overwrite) would
+  turn into a boot-time resolve failure for a checksummed pin.
+- **A live-import scheme for the dump** (pkl threat model, "URI schemes").
+  `https:` and `modulepath:` are first-class **module** schemes with no package
+  cache and no checksum — precisely the semantics the dump needs and packages
+  forbid (the "live artifact vs. checksummed package are opposites" argument
+  above). A laptop entry could in principle import the dump straight off the
+  instance (`import "https://<host>/system/pkl/dump.pkl"`, allowlist-gated) and
+  always see the live registry, collapsing the `pull` step. The open question
+  is module identity: dependency notation (`@fh-dashboard/hass.pkl`) inside an
+  http-imported module has no project context, so the generated dump would have
+  to reach the schema another way (e.g. `PklDump` emitting an absolute
+  `package://…::sha256:…#/hass.pkl` import) AND land on the same cached
+  artifact the entry's alias resolves to — unspiked; the file pull stays until
+  that is verified.
 - **`/system/push` is unauthenticated (decided), and must be covered when auth
   lands.** It is a *write*, so the instinct is to gate it to HA-authenticated
   ingress. That gate is not currently expressible: `config.yaml` sets
