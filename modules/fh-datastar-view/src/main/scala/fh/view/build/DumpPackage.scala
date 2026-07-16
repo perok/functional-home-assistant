@@ -43,7 +43,9 @@ object DumpPackage {
       libMetadataSha256: String
   ): Artifacts = {
     val zip =
-      LibPackage.deterministicZip(List("dump.pkl" -> dumpText.getBytes("UTF-8")))
+      LibPackage.deterministicZip(
+        List("dump.pkl" -> dumpText.getBytes("UTF-8"))
+      )
     val zipSha = LibPackage.sha256(zip)
     val version = "1.0.0-g" + LibPackage
       .sha256(s"$zipSha $libVersion $libMetadataSha256".getBytes("UTF-8"))
@@ -73,8 +75,8 @@ object DumpPackage {
   def cacheEntryDir(cacheDir: os.Path, version: String): os.Path =
     cacheDir / "package-2" / LibPackage.Host / s"$Name@$version"
 
-  /** What the workspace's current dump packages to, when it can package at
-    * all: needs the effective `@fh-dashboard` pin, that pin's metadata in the
+  /** What the workspace's current dump packages to, when it can package at all:
+    * needs the effective `@fh-dashboard` pin, that pin's metadata in the
     * workspace cache (the dump's metadata declares it as a checksummed
     * dependency), and a written dump. `None` on a path-form workspace (repo
     * checkout — no pin, and a laptop pulls from an add-on, not from a dev

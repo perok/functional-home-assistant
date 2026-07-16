@@ -62,3 +62,4 @@ modules/fh-datastar-view/editor-src/node_modules/
 
 # generated editor bundle (built by CI / 'npm run build' in editor-src; not committed)
 modules/fh-datastar-view/src/main/resources/editor/vendor.js
+.pkl-cli/

@@ -87,18 +87,19 @@ extra configuration) and the
 freshly-written `home/dump.pkl`, through the project. Nothing is fetched. This is
 the default path and it needs no network story at all.
 
-**End user, local editor.** Has **a git copy of the setup**: their own workspace
-— their entries and the manifests — evaluated **locally**, with completion.
-(Editing the instance's files in place is not a supported laptop mode; live
-editing on the instance is what `/edit` is for.) Then everything must resolve
-locally: `@fh-dashboard` from their checkout (or, checkout-free, as a
-*versioned* package fetched from their own instance via `/system/pkl/packages/`
-— works today), and the dump — the one thing only the instance knows —
-*re-materialized* from it. Today that is a **file fetch**, not an import:
-`GET /system/pkl/dump.pkl` → write it into `home/`. The decided end state makes
-it a package pin like everything else — a *content-versioned* dump package
-(see "resolved by content-derived versions") whose pin the `fh` CLI rewrites.
-Their project then resolves exactly as the server's does.
+**End user, local editor.** Their own workspace — their entries and manifests —
+evaluated **locally**, with completion. (Editing the instance's files in place
+is not a supported laptop mode; live editing on the instance is what `/edit` is
+for.) No checkout needed: the `fh` script (served by the instance itself,
+`curl -o fh http://<ha>:8080/system/fh`) wires a directory to the instance —
+`fh init` writes the manifests, and BOTH names resolve as packages from the
+instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
+`@fh-home` as a *content-versioned* dump snapshot (see "resolved by
+content-derived versions") that `fh pull` re-pins. From there everything is
+stock pkl tooling: `pkl project resolve`, `pkl eval`, pkl-lsp — their project
+resolves exactly as the server's does, offline once cached. `UseCaseSuite`
+drives the real script + real pkl CLI end-to-end. (A git copy of a full
+checkout still works identically via path-form manifests.)
 
 **Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
 checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
@@ -178,11 +179,11 @@ so the dump package carries its `@fh-dashboard` pin and resolves `hass.pkl`
 onto the same cached artifact the entry's alias uses. `PklDump` keeps emitting
 `import "@fh-dashboard/hass.pkl"` unchanged.
 
-Until the CLI ships this (see follow-ups), `/system/pkl/` remains a
-**file-download API**: the client copies the dump into its own `@fh-home`
-package, where it is a plain local file with no checksum to satisfy. No cert,
-no pinning, plain http; the `ETag` makes an unchanged home a `304` instead of
-~450KB.
+This is implemented end to end: `DumpPackage` builds + seeds the snapshot on
+every dump write, and the `fh` script's `init`/`pull` write the pins (see Track
+A). The `/system/pkl/` **file-download API** stays alongside it — the dump as
+plain text for humans and debugging, with the `ETag` making an unchanged home a
+`304` — but the packaged pin is the supported laptop mechanism.
 
 ## Decision
 
@@ -201,31 +202,53 @@ it over http anymore: the schema travels inside the lib package below, and the
 dump's `@fh-dashboard/hass.pkl` import resolves against the puller's own pin.)
 
 **`GET /system/pkl/packages/<name>@<version>[.zip]`** serves the instance's
-resolved lib packages: the metadata JSON at the bare name, the module zip at
+resolved packages: the metadata JSON at the bare name, the module zip at
 `.zip` — exactly pkl's remote-package protocol, straight from the same
 persistent cache the instance evaluates from (`SystemPkl.packageArtifact`; the
-artifact name is shape-checked so it can never index outside the cache). A
+artifact name is shape-checked so it can never index outside the cache, and the
+route is name-agnostic — the lib AND the dump snapshots travel through it). A
 laptop workspace with no repo checkout pins
 `package://fh.invalid/fh-dashboard@<v>` and maps it here with one
 `evaluatorSettings.http.rewrites` line (`https://fh.invalid/` →
 `http://<home>:8080/system/pkl/packages/`), landing on the same sha256-pinned
 artifacts the instance runs — checksums stay honest because a package version
-is immutable (the dump joins under a content-derived version; see above). The cache
-serves every version it holds, so a laptop pinned to an older lib than the
-instance still resolves. No cache headers: pkl fetches per resolve, and a
-proxy-cached zip would turn the dev-image drift case into a confusing
-stale-checksum failure. `UseCaseSuite` pins the flow end-to-end — pkl's real
-resolver + evaluator over a real socket against this route.
+is immutable (the dump joins under a content-derived version; see above:
+`DumpPackage` builds + seeds `fh-home@1.0.0-g<hash>` into the cache on every
+dump write). The cache serves every version it holds, so a laptop pinned to an
+older lib — or an older dump snapshot — still resolves. No cache headers: pkl
+fetches per resolve, and a proxy-cached zip would turn the dev-image drift case
+into a confusing stale-checksum failure. `UseCaseSuite` pins the flow end-to-end
+— pkl's real resolver + evaluator over a real socket against this route.
 
-**The `.pkl` routes are a file-download API, not a module source, and the dump
-route's consumer is the not-yet-built CLI pull.** pkl-lsp does not fetch it —
-`LspBridge` runs pkl-lsp server-side against on-disk paths (see Use cases) —
-and no `.pkl` file imports by URL since entries moved to the aliases. It is
-kept, rather than deleted, because until the content-versioned dump package
-ships (see above), *fetching the file* is the only mechanism a remote author
-has for the dump. The packages route is different in kind: it IS a module
-source, consumed by pkl's own resolver — which is why only immutable,
-versioned artifacts are served through it.
+**`GET /system/pkl/packages`** (no artifact) is the discovery index: the
+current version + metadata sha256 of both packages — exactly what a pull pins.
+`?format=sh` renders it shell-sourceable, which is what lets the client be a
+script with no JSON parser.
+
+**`GET /system/fh`** serves that client: the `fh` script (`init` / `pull` /
+`push`), whose distribution channel is the instance itself
+(`curl -o fh http://<ha>:8080/system/fh && chmod +x fh`). It deliberately is a
+POSIX shell script and not a jar subcommand: after the content-versioned dump
+design, the laptop side is *only* fetch-and-write (`init`/`pull` = curl the
+index, write `.fh/base.pkl` + seed `PklProject`, `pkl project resolve`) plus
+one evaluation (`push` = `pkl eval -f json | curl POST /system/push/:slug`) —
+and the backend renders its wire JSON with pkl-core's own `ValueRenderers.json`,
+so the stock CLI's output matches by construction (the e2e test pushes
+pkl-CLI-rendered JSON through the real route). Laptop dependencies: curl + the
+single-file `pkl` binary. The laptop workspace mirrors the add-on's ownership
+split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
+checksummed `@fh-home` pin — uri + checksums always written together),
+`PklProject` the user's from `init` on (their `@fh-dashboard` pin; the base's
+`@fh-dashboard` default is deliberately checksum-free, since a user override
+would inherit a stale checksum from the amended-over default).
+
+**The `.pkl` routes are a file-download API, not a module source.** pkl-lsp
+does not fetch them — `LspBridge` runs pkl-lsp server-side against on-disk
+paths (see Use cases) — and no `.pkl` file imports by URL since entries moved
+to the aliases. The dump route stays for humans and debugging (the packaged
+snapshot is the supported laptop mechanism). The packages route is different in
+kind: it IS a module source, consumed by pkl's own resolver — which is why only
+immutable, versioned artifacts are served through it.
 
 **Caching: `no-cache` + an `ETag`, and `no-cache` is the load-bearing half.**
 `dump.pkl` is live per-home data under a URL that never changes, so anything that
@@ -517,25 +540,18 @@ normal one for shipped entries.
   re-fetch + re-render it on demand (e.g. after adding a device) short of a
   restart — add a build-time force-rerun path (endpoint or signal that re-runs
   `prepareDumps` and re-evaluates entries).
-- **The `fh` CLI (`pull` / `push`).** The client half of two of the four use
-  cases.
-  - `pull` (decided design — "resolved by content-derived versions" above): the
-    instance builds the dump into a package versioned by its content
-    (`fh-home@1.0.0-g<hash>`, deterministic zip) and seeds it into the same
-    persistent cache the packages route already serves from
-    (`SystemPkl.packageArtifact` is name-agnostic, so the route needs no
-    change). `pull` fetches the current dump-package metadata and rewrites the
-    laptop manifest's `@fh-home` pin, `uri` + `checksums` together; unchanged
-    home → same version → no-op. The instance-side package build + seed at
-    dump time is the missing server half. (The interim mechanism is the
-    conditional `GET /system/pkl/dump.pkl` file copy.)
-  - `push`: evaluate locally, `POST` the evaluated JSON to
-    `/system/push/:slug`. **Server side is done** (`Server.push`): the registry
-    is a `Ref[Map[…]]` and the shared fan-out one multiplexed topic, so a push
-    mints a NEW slug at runtime — no seeded `preview` entry needed. Remaining
-    wrinkle: the file watcher's reconcile would clobber a pushed slug that
-    shadows a real entry on the next edit (pushed slugs are ephemeral and
-    in-memory, so a distinct slug simply survives until restart).
+- **`fh` script leftovers.** `init`/`pull`/`push` are implemented (the script
+  in Track A); what remains:
+  - the file watcher's reconcile would clobber a pushed slug that shadows a
+    real entry on the next edit (pushed slugs are ephemeral and in-memory, so
+    a distinct slug simply survives until restart);
+  - Windows has no story beyond WSL/Git-Bash (the script is POSIX sh);
+  - `push` renders with the *laptop's* pkl CLI version — a pkl release with a
+    changed JSON renderer would surface as a push `400`; acceptable while the
+    server validates, worth a version note in the script if it ever bites.
+  - `Server.push` internals, for the record: the registry is a `Ref[Map[…]]`
+    and the shared fan-out one multiplexed topic, so a push mints a NEW slug
+    at runtime — no seeded `preview` entry needed.
 - **Manifest-level checksum pinning** (pkl threat model, "package integrity").
   A dependency in `PklProject` can declare its own pin — `checksums { sha256 =
   "…" }` next to `uri` — upgrading the lockfile's trust-on-first-use to a
@@ -544,15 +560,15 @@ normal one for shipped entries.
   transitively pin the zip via `packageZipChecksums` — same artifact the
   URI-embedded `::sha256:` form pins; see the dump section for the
   authoritative-manifest and stale-cache semantics). `LibPackage.metadata` is
-  deterministic, so the sha is stable per version. Natural adopters: the `fh`
-  CLI's pin bumps (both `@fh-dashboard` and the `@fh-home` pull) write `uri` +
-  `checksums` together, and the machine-owned `.fh/base.pkl` (regenerated
-  every boot from the cache it just seeded, so never in disagreement with it)
-  could carry the sha for its bundled-version default. The consumer-manifest
-  *seed* stays checksum-free: a dev image that rebuilds the lib under an
-  unchanged version (today a WARNING + cache overwrite) would turn a
-  checksummed seed pin into a boot-time resolve failure in a file bootstrap
-  may not rewrite.
+  deterministic, so the sha is stable per version. Adopted for `@fh-home`: the
+  `fh` script writes its `uri` + `checksums` together on every `init`/`pull`.
+  Deliberately NOT adopted for `@fh-dashboard` anywhere: a user's pin override
+  in `PklProject` would *inherit* a stale checksum from the amended-over base
+  default (Mapping amend merges the value object), and on the add-on a dev
+  image that rebuilds the lib under an unchanged version (today a WARNING +
+  cache overwrite) would turn a checksummed pin into a boot-time resolve
+  failure in a file bootstrap may not rewrite — so the lockfile pins the lib
+  instead.
 - **`/system/push` is unauthenticated (decided), and must be covered when auth
   lands.** It is a *write*, so the instinct is to gate it to HA-authenticated
   ingress. That gate is not currently expressible: `config.yaml` sets

@@ -1,0 +1,160 @@
+#!/usr/bin/env sh
+# fh — the laptop companion of the FH Dashboard add-on (ADR 0010).
+#
+# A workspace on your laptop never imports from the instance: it PINS the
+# instance's packages — @fh-dashboard, the authoring library, and @fh-home,
+# your home's typed entity dump as an immutable content-versioned snapshot —
+# and pkl resolves them from the instance through the manifest's own http
+# rewrite. This script only writes those pins and keeps the lockfile in step;
+# evaluation and completion are stock pkl tooling.
+#
+# Get it from your instance:  curl -o fh http://<ha>:8080/system/fh && chmod +x fh
+# Dependencies: curl, pkl (https://pkl-lang.org — the single-file CLI).
+set -eu
+
+BASE=".fh/base.pkl"
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  fh init <instance-url>       make this directory a dashboards workspace wired
+                               to your instance (the add-on's direct port, e.g.
+                               http://homeassistant.local:8080)
+  fh pull                      re-pin @fh-home to the instance's current entity
+                               dump (run after adding/renaming devices)
+  fh push <entry.pkl> [slug]   evaluate locally and install on the instance
+                               under /d/<slug> (ephemeral: gone on its restart)
+EOF
+  exit 1
+}
+
+die() { echo "fh: $*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required ($2)"; }
+
+instance_url() {
+  [ -f "$BASE" ] || die "not an fh workspace (no $BASE) — run: fh init <instance-url>"
+  sed -n 's|.*= *"\(.*\)/system/pkl/packages/".*|\1|p' "$BASE" | head -n 1
+}
+
+# Sets FH_DASHBOARD_VERSION/_SHA256 and FH_HOME_VERSION/_SHA256 from the
+# instance's discovery index (the shell-sourceable rendering of
+# /system/pkl/packages).
+fetch_index() {
+  index=$(curl -fsS "$1/system/pkl/packages?format=sh") ||
+    die "$1/system/pkl/packages did not answer — is that the add-on's direct port, and has it finished starting?"
+  eval "$index"
+}
+
+# Machine-managed; rewritten whole by init/pull. The @fh-home pin carries its
+# checksum (uri + checksums written together — declared integrity, never
+# trust-on-first-use). @fh-dashboard deliberately carries none here: a user
+# override in PklProject would inherit a stale checksum from the amended-over
+# default, so the lockfile pins the lib instead.
+write_base() { # $1 = instance url
+  mkdir -p .fh
+  cat > "$BASE" <<EOF
+/// Machine-managed — rewritten by \`fh init\` / \`fh pull\`; do not edit.
+///
+/// Wires this workspace to the Home Assistant instance at $1:
+/// both packages resolve from it through the rewrite below (and stay cached
+/// in .fh/cache for offline work).
+///
+///   @fh-dashboard  the instance's authoring library. The version here is the
+///                  instance's current one; the pin in your PklProject
+///                  overrides it.
+///   @fh-home       YOUR home's typed entity dump, an immutable
+///                  content-versioned snapshot. \`fh pull\` re-pins it.
+amends "pkl:Project"
+
+evaluatorSettings {
+  moduleCacheDir = ".fh/cache"
+  http {
+    rewrites {
+      ["https://fh.invalid/"] = "$1/system/pkl/packages/"
+    }
+  }
+}
+
+dependencies {
+  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@$FH_DASHBOARD_VERSION" }
+  ["fh-home"] {
+    uri = "package://fh.invalid/fh-home@$FH_HOME_VERSION"
+    checksums { sha256 = "$FH_HOME_SHA256" }
+  }
+}
+EOF
+}
+
+seed_consumer() {
+  [ -f PklProject ] && return 0
+  cat > PklProject <<EOF
+/// Your dashboards project. Seeded by \`fh init\`; from then on it is yours —
+/// fh never rewrites it. (The machine half — instance URL, cache, the @fh-home
+/// pin — lives in .fh/base.pkl, which this file amends; fh regenerates that
+/// one freely.)
+///
+/// The pin below names the @fh-dashboard library version your dashboards build
+/// against; bump it deliberately. Deleting the entry tracks whatever the
+/// instance currently ships. Third-party card packages are declared here too.
+amends ".fh/base.pkl"
+
+dependencies {
+  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@$FH_DASHBOARD_VERSION" }
+}
+EOF
+}
+
+cmd_init() {
+  [ $# -eq 1 ] || usage
+  need curl "to reach the instance"
+  need pkl "the pkl CLI, https://pkl-lang.org"
+  url="${1%/}"
+  fetch_index "$url"
+  write_base "$url"
+  seed_consumer
+  pkl project resolve
+  echo "wired to $url (@fh-dashboard $FH_DASHBOARD_VERSION, @fh-home $FH_HOME_VERSION)"
+  echo "add *.pkl entries — completion and evaluation resolve from the instance"
+}
+
+cmd_pull() {
+  need curl "to reach the instance"
+  need pkl "the pkl CLI, https://pkl-lang.org"
+  url=$(instance_url)
+  old=$(sed -n 's|.*fh-home@\([^"]*\)".*|\1|p' "$BASE" | head -n 1)
+  fetch_index "$url"
+  write_base "$url"
+  pkl project resolve
+  if [ "$old" = "$FH_HOME_VERSION" ]; then
+    echo "up to date (@fh-home $FH_HOME_VERSION)"
+  else
+    echo "@fh-home ${old:-(none)} -> $FH_HOME_VERSION"
+  fi
+}
+
+cmd_push() {
+  [ $# -ge 1 ] || usage
+  need curl "to reach the instance"
+  need pkl "the pkl CLI, https://pkl-lang.org"
+  entry="$1"
+  slug="${2:-$(basename "$entry" .pkl)}"
+  url=$(instance_url)
+  # The instance validates the payload (unknown cards come back as a 400 naming
+  # them), so a broken entry fails HERE, on the wire, not silently on a screen.
+  pkl eval --project-dir . -f json "$entry" |
+    curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- \
+      "$url/system/push/$slug" >/dev/null ||
+    die "push failed — the entry may not build, or the instance rejected it"
+  echo "pushed: $url/d/$slug (ephemeral — gone when the instance restarts)"
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"
+shift
+case "$cmd" in
+  init) cmd_init "$@" ;;
+  pull) cmd_pull "$@" ;;
+  push) cmd_push "$@" ;;
+  *) usage ;;
+esac

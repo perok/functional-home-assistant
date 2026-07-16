@@ -6,6 +6,7 @@ import com.comcast.ip4s.{host, port}
 import fh.view.build.{
   AddonBootstrap,
   DashboardBuild,
+  DumpPackage,
   LibPackage,
   PklDump,
   SourceEval,
@@ -293,6 +294,231 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           )
         }
       }
+  }
+
+  test("the fh script and its discovery index are served by the instance") {
+    // The script's distribution channel IS the instance; the `?format=sh`
+    // index is what lets it run on curl + pkl alone (no JSON parser).
+    val root = os.temp.dir()
+    val instance = root / "fh-dashboards"
+    val _ = AddonBootstrap.run(
+      instance,
+      bundledLib = dashboards / "lib",
+      seedDir = os.pwd / "home-addon" / "dashboards-seed",
+      cacheDir = root / "pkl-cache"
+    )
+    os.write(
+      instance / "home" / "dump.pkl",
+      PklDump.render(HouseFixture.transformedDump)
+    )
+    val _ = DumpPackage.seedFromWorkspace(instance)
+
+    TestServer
+      .resource(
+        PklFixture.buildDashboard("home", entryNeedingDump),
+        Nil,
+        SystemPkl.fromDisk(instance)
+      )
+      .use { ts =>
+        val app = ts.server.routes.orNotFound
+        for {
+          script <- app.run(Request[IO](Method.GET, uri"/system/fh"))
+          scriptBody <- script.body.through(fs2.text.utf8.decode).compile.string
+          sh <- app.run(
+            Request[IO](Method.GET, uri"/system/pkl/packages?format=sh")
+          )
+          shBody <- sh.body.through(fs2.text.utf8.decode).compile.string
+          json <- app.run(Request[IO](Method.GET, uri"/system/pkl/packages"))
+          jsonBody <- json.body.through(fs2.text.utf8.decode).compile.string
+        } yield {
+          assertEquals(script.status, Status.Ok)
+          assert(scriptBody.contains("fh init"), clue = scriptBody.take(200))
+
+          assertEquals(sh.status, Status.Ok)
+          // Shell-sourceable and naming the same versions as the JSON form.
+          val vars = shBody.linesIterator
+            .map(_.split("=", 2))
+            .collect { case Array(k, v) => k -> v.stripPrefix("'").stripSuffix("'") }
+            .toMap
+          val doc = io.circe.parser
+            .parse(jsonBody)
+            .fold(err => fail(s"index not JSON: $err"), identity)
+          assertEquals(
+            vars.get("FH_HOME_VERSION"),
+            doc.hcursor.downField("fh-home").get[String]("version").toOption
+          )
+          assertEquals(
+            vars.get("FH_DASHBOARD_SHA256"),
+            doc.hcursor
+              .downField("fh-dashboard")
+              .get[String]("sha256")
+              .toOption
+          )
+        }
+      }
+  }
+
+  test(
+    "end user with the fh script: init, evaluate with stock pkl, push, pull"
+  ) {
+    // THE laptop product test: the real shell script driving the real pkl CLI
+    // against the real routes over a real socket — our code appears only on
+    // the instance side. Skipped when a pkl binary cannot be obtained.
+    val pkl = obtainPklCli()
+    assume(pkl.isDefined, "pkl CLI unavailable (offline?) — skipping")
+    val pklDir = pkl.get / os.up
+
+    val root = os.temp.dir()
+    val instance = root / "fh-dashboards"
+    val _ = AddonBootstrap.run(
+      instance,
+      bundledLib = dashboards / "lib",
+      seedDir = os.pwd / "home-addon" / "dashboards-seed",
+      cacheDir = root / "pkl-cache"
+    )
+    os.write(
+      instance / "home" / "dump.pkl",
+      PklDump.render(HouseFixture.transformedDump)
+    )
+    val _ = DumpPackage.seedFromWorkspace(instance)
+
+    val laptop = root / "laptop"
+    os.makeDir.all(laptop)
+    val script = laptop / "fh"
+    os.copy(
+      os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "scripts" / "fh",
+      script
+    )
+
+    def run(args: String*): os.CommandResult =
+      os.proc("sh" :: script.toString :: args.toList)
+        .call(
+          cwd = laptop,
+          env = Map("PATH" -> s"$pklDir:${sys.env.getOrElse("PATH", "")}"),
+          check = false,
+          mergeErrIntoOut = true
+        )
+
+    TestServer
+      .resource(
+        PklFixture.buildDashboard("home", entryNeedingDump),
+        List(HouseFixture.kitchenLight),
+        SystemPkl.fromDisk(instance)
+      )
+      .flatMap { ts =>
+        EmberServerBuilder
+          .default[IO]
+          .withHost(host"127.0.0.1")
+          .withPort(port"0")
+          .withHttpApp(ts.server.routes.orNotFound)
+          .withShutdownTimeout(0.seconds)
+          .build
+          .map(bound => (ts, bound.baseUri.renderString))
+      }
+      .use { case (ts, base) =>
+        for {
+          // init: manifests written, lockfile resolved, packages cached.
+          initRes <- IO.blocking(run("init", base))
+          _ = assertEquals(initRes.exitCode, 0, clue = initRes.out.text())
+          _ = assert(os.exists(laptop / ".fh" / "base.pkl"))
+          _ = assert(os.exists(laptop / "PklProject.deps.json"))
+
+          // The whole authoring loop is stock pkl from here: evaluation
+          // resolves both packages (lib + content-versioned dump) offline
+          // from the just-seeded .fh/cache.
+          _ <- IO.blocking(os.write(laptop / "mine.pkl", entryNeedingDump))
+          eval1 <- IO.blocking(
+            os.proc(
+              (pkl.get.toString :: "eval" :: "--project-dir" :: "." ::
+                "-f" :: "json" :: "mine.pkl" :: Nil)
+            ).call(cwd = laptop, check = false, mergeErrIntoOut = true)
+          )
+          _ = assertEquals(eval1.exitCode, 0, clue = eval1.out.text())
+          _ = assert(eval1.out.text().contains("\"card\""))
+
+          // push: pkl-rendered JSON crosses the wire and installs live — the
+          // renderer-parity claim (our backend uses pkl's own ValueRenderers)
+          // is load-bearing exactly here.
+          pushRes <- IO.blocking(run("push", "mine.pkl", "preview"))
+          _ = assertEquals(pushRes.exitCode, 0, clue = pushRes.out.text())
+          pushed <- ts.server.routes.orNotFound
+            .run(Request[IO](Method.GET, uri"/d/preview"))
+          _ = assertEquals(pushed.status, Status.Ok)
+
+          // The home changes; the instance seeds a NEW snapshot; pull re-pins.
+          oldPin = os.read(laptop / ".fh" / "base.pkl")
+          _ <- IO.blocking {
+            os.write.append(
+              instance / "home" / "dump.pkl",
+              "\n// a new device appeared\n"
+            )
+            DumpPackage.seedFromWorkspace(instance)
+          }
+          pullRes <- IO.blocking(run("pull"))
+          _ = assertEquals(pullRes.exitCode, 0, clue = pullRes.out.text())
+          newPin = os.read(laptop / ".fh" / "base.pkl")
+          _ = assertNotEquals(newPin, oldPin)
+          _ = assert(pullRes.out.text().contains("->"), clue = pullRes.out.text())
+
+          // And the workspace still evaluates against the new snapshot.
+          eval2 <- IO.blocking(
+            os.proc(
+              (pkl.get.toString :: "eval" :: "--project-dir" :: "." ::
+                "-f" :: "json" :: "mine.pkl" :: Nil)
+            ).call(cwd = laptop, check = false, mergeErrIntoOut = true)
+          )
+          _ = assertEquals(eval2.exitCode, 0, clue = eval2.out.text())
+        } yield ()
+      }
+  }
+
+  /** The stock pkl CLI: from PATH, from the repo-local cache, or downloaded
+    * once from the pkl release matching the pinned pkl-core version. `None`
+    * (test skipped) when unobtainable — e.g. offline, or an unmapped platform.
+    */
+  private def obtainPklCli(): Option[os.Path] = {
+    val version = "0.31.1"
+    val fromPath = sys.env
+      .getOrElse("PATH", "")
+      .split(java.io.File.pathSeparator)
+      .iterator
+      .map(dir => os.Path(dir, os.pwd) / "pkl")
+      .find(p => os.exists(p) && os.isFile(p))
+    fromPath.orElse {
+      // Named exactly `pkl`: the script locates it with `command -v pkl`.
+      val cached = os.pwd / ".pkl-cli" / version / "pkl"
+      if (os.exists(cached)) Some(cached)
+      else
+        platformAsset.flatMap { asset =>
+          val url =
+            s"https://github.com/apple/pkl/releases/download/$version/$asset"
+          scala.util
+            .Try {
+              os.makeDir.all(cached / os.up)
+              val tmp = cached / os.up / s"${cached.last}.part"
+              os.proc("curl", "-fsSL", "-o", tmp.toString, url)
+                .call(timeout = 120000)
+              os.perms.set(tmp, "rwxr-xr-x")
+              os.move.over(tmp, cached)
+              cached
+            }
+            .toOption
+        }
+    }
+  }
+
+  private def platformAsset: Option[String] = {
+    val osName = sys.props.getOrElse("os.name", "").toLowerCase
+    val arch = sys.props.getOrElse("os.arch", "").toLowerCase
+    (osName, arch) match {
+      case (n, "amd64" | "x86_64") if n.contains("linux") =>
+        Some("pkl-linux-amd64")
+      case (n, "aarch64") if n.contains("linux") => Some("pkl-linux-aarch64")
+      case (n, "aarch64") if n.contains("mac")   => Some("pkl-macos-aarch64")
+      case (n, "amd64" | "x86_64") if n.contains("mac") =>
+        Some("pkl-macos-amd64")
+      case _ => None
+    }
   }
 
   /** What a laptop's pkl tooling does, minus the manifest-declared rewrite
