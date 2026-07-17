@@ -1,4 +1,4 @@
-#!/usr/bin/env -S scala-cli shebang
+#!/usr/bin/env -S scala -cli shebang
 
 //> using scala 3.7.4
 //> using jvm 17
@@ -34,8 +34,8 @@ import cats.Show
 
 import scala.util.chaining.scalaUtilChainingOps
 import cats.effect.{ExitCode, IO}
-import cats.effect.std._
-import cats.syntax.all._
+import cats.effect.std.*
+import cats.syntax.all.*
 import com.monovore.decline.Opts
 import com.monovore.decline.effect.CommandIOApp
 import io.circe.Decoder
@@ -49,10 +49,13 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, Paths}
 import net.harawata.appdirs.*
 
+import scala.util.Using
+
 val appdirs = AppDirsFactory.getInstance()
 
 /** A user-facing failure: printed as `fh: <msg>`, exit 1, no stack trace. */
 case class Die(msg: String) extends RuntimeException(msg)
+
 object Die {
   given Show[Die] = Show.show(err =>
     s"${err.msg}${
@@ -124,9 +127,10 @@ def resolveDeps(url: String): IO[Unit] = IO.blocking {
     ),
     new java.io.PrintWriter(System.err)
   )
-  val out = new java.io.FileOutputStream("PklProject.deps.json")
-  try resolver.resolve().writeTo(out)
-  finally out.close()
+
+  Using(new java.io.FileOutputStream("PklProject.deps.json"))(out =>
+    resolver.resolve().writeTo(out)
+  ).get
 }
 
 /** `pkl eval -f json`, in-process: evaluate an entry against the project and
@@ -135,18 +139,19 @@ def resolveDeps(url: String): IO[Unit] = IO.blocking {
   */
 def evalJson(url: String, entry: String): IO[String] = IO.blocking {
   import org.pkl.core.{EvaluatorBuilder, ModuleSource, ValueRenderers}
-  val evaluator = EvaluatorBuilder
-    .preconfigured()
-    .setHttpClient(pklHttp(url))
-    .setModuleCacheDir(cacheDir)
-    .applyFromProject(loadProject())
-    .build()
-  try
+  Using(
+    EvaluatorBuilder
+      .preconfigured()
+      .setHttpClient(pklHttp(url))
+      .setModuleCacheDir(cacheDir)
+      .applyFromProject(loadProject())
+      .build()
+  ) { evaluator =>
     val module = evaluator.evaluate(ModuleSource.path(Paths.get(entry)))
     val writer = new java.io.StringWriter
     ValueRenderers.json(writer, "  ", true).renderDocument(module)
     writer.toString
-  finally evaluator.close()
+  }.get
 }
 
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =
@@ -184,8 +189,10 @@ case class PkgIndex(
     homeVersion: String,
     homeSha256: String
 )
+
 object PkgIndex {
   given EntityDecoder[IO, PkgIndex] = jsonOf[IO, PkgIndex]
+
   given Decoder[PkgIndex] = Decoder.instance(c =>
     (
       c.downField("fh-dashboard").get[String]("version"),
@@ -280,22 +287,19 @@ def seedConsumer(idx: PkgIndex): IO[Unit] = IO.blocking {
     )
 }
 
-def cmdInit(rawUrl: String): IO[Unit] =
-  withClient { client =>
-    val url = rawUrl.stripSuffix("/")
-    for
-      idx <- fetchIndex(client, url)
-      _ <- writeBase(url, idx)
-      _ <- seedConsumer(idx)
-      _ <- resolveDeps(url)
-      _ <- IO.println(
-        s"wired to $url (@fh-dashboard ${idx.dashboardVersion}, @fh-home ${idx.homeVersion})"
+def cmdInit(rawUrl: String): IO[Unit] = {
+  val url = rawUrl.stripSuffix("/")
+
+  withClient(client => fetchIndex(client, url)).flatMap(idx =>
+    writeBase(url, idx) >>
+      seedConsumer(idx) >>
+      resolveDeps(url) >>
+      IO.println(
+        s"""wired to $url (@fh-dashboard ${idx.dashboardVersion}, @fh-home ${idx.homeVersion})
+           |add *.pkl entries — completion and evaluation resolve from the instance|""".stripMargin
       )
-      _ <- IO.println(
-        "add *.pkl entries — completion and evaluation resolve from the instance"
-      )
-    yield ()
-  }
+  )
+}
 
 def cmdPull: IO[Unit] =
   withClient { client =>
