@@ -5,7 +5,7 @@
 // `using toolkit` directive — the typelevel toolkit's test scope IS weaver
 // from 0.2.0 on). Run from scripts/:
 //
-//   SCALA_TEST_MODE=true scala-cli test .
+//   scala-cli test .
 //
 // Referencing any fh member executes the whole wrapper body, so the script
 // gates its dispatcher behind SCALA_TEST_MODE (env or system property — the

@@ -78,8 +78,6 @@ jobs:
           # SCALA_TEST_MODE; no instance needed) — also compile-checks the
           # script itself.
           - name: Test fh script
-            env:
-              SCALA_TEST_MODE: true
             working-directory: scripts
             run: scala-cli test .
 
