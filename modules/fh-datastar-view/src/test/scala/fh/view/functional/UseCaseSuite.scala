@@ -36,10 +36,6 @@ import scala.concurrent.duration.*
   */
 class UseCaseSuite extends munit.CatsEffectSuite {
 
-  // The fh-script tests shell out to scala-cli, whose first run compiles the
-  // script (and fetches its pinned deps) — far beyond munit's 30s default.
-  override def munitIOTimeout: scala.concurrent.duration.Duration = 10.minutes
-
   private val dashboards =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
 
@@ -346,19 +342,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   }
 
   test(
-    "end user with the fh script: init, evaluate with stock pkl, push, pull"
+    "fh script interface: the @fh-home package the pins point at is served"
   ) {
-    // THE laptop product test: the real fh script (scala-cli, pkl-core
-    // in-process) against the real routes over a real socket — our code
-    // appears only on the instance side. The stock pkl CLI still drives the
-    // authoring loop (eval with completion-grade tooling is the laptop
-    // story), so this is skipped when a pkl binary cannot be obtained or
-    // scala-cli is not installed.
-    val pkl = obtainPklCli()
-    assume(pkl.isDefined, "pkl CLI unavailable (offline?) — skipping")
-    assume(scalaCliOnPath, "scala-cli unavailable — skipping")
-    val pklDir = pkl.get / os.up
-
+    // The server-side half of `fh init`/`pull`, driven at the interface the
+    // script consumes and no further (the script's own logic has its own
+    // suite, scripts/fh.test.scala; no subprocesses here): the discovery
+    // index names the current @fh-home version, that version's metadata +
+    // zip artifacts are fetchable, and when the home changes and the
+    // instance re-seeds, the index moves to a NEW content version whose
+    // artifacts are served too — which is exactly what `pull` re-pins to.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
@@ -373,73 +365,33 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     )
     val _ = DumpPackage.seedFromWorkspace(instance)
 
-    val laptop = root / "laptop"
-    os.makeDir.all(laptop)
-    // The checked-in script itself, run from its repo path so scala-cli's
-    // compile cache is keyed to a stable location (a per-test temp copy would
-    // cold-compile on every run). It operates on the cwd, so the laptop dir
-    // is still the workspace. `--server=false`: no bloop daemon in tests.
-    val script = os.pwd / "scripts" / "fh.sc"
-
-    def run(args: String*): os.CommandResult =
-      os.proc(
-        "scala-cli" :: "shebang" :: "--server=false" :: script.toString ::
-          args.toList
-      ).call(
-        cwd = laptop,
-        env = Map("PATH" -> s"$pklDir:${sys.env.getOrElse("PATH", "")}"),
-        check = false,
-        mergeErrIntoOut = true
-      )
-
     TestServer
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
-        List(HouseFixture.kitchenLight),
+        Nil,
         SystemPkl.fromDisk(instance)
       )
-      .flatMap { ts =>
-        EmberServerBuilder
-          .default[IO]
-          .withHost(host"127.0.0.1")
-          .withPort(port"0")
-          .withHttpApp(ts.server.routes.orNotFound)
-          .withShutdownTimeout(0.seconds)
-          .build
-          .map(bound => (ts, bound.baseUri.renderString))
-      }
-      .use { case (ts, base) =>
+      .use { ts =>
+        val app = ts.server.routes.orNotFound
+        val get = (path: String) =>
+          app.run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
+
+        // What fetchIndex in the script reads before rewriting the pins.
+        val homeVersion = for {
+          idx <- get("/system/pkl/packages")
+          body <- idx.body.through(fs2.text.utf8.decode).compile.string
+        } yield io.circe.parser
+          .parse(body)
+          .flatMap(_.hcursor.downField("fh-home").get[String]("version"))
+          .fold(err => fail(s"unusable index: $err in $body"), identity)
+
         for {
-          // init: manifests written, lockfile resolved, packages cached.
-          initRes <- IO.blocking(run("init", base))
-          _ = assertEquals(initRes.exitCode, 0, clue = initRes.out.text())
-          _ = assert(os.exists(laptop / ".fh" / "base.pkl"))
-          _ = assert(os.exists(laptop / "PklProject.deps.json"))
+          v1 <- homeVersion
+          meta <- get(s"/system/pkl/packages/fh-home@$v1")
+          zip <- get(s"/system/pkl/packages/fh-home@$v1.zip")
 
-          // The whole authoring loop is stock pkl from here: evaluation
-          // resolves both packages (lib + content-versioned dump) offline
-          // from the just-seeded .fh/cache.
-          _ <- IO.blocking(os.write(laptop / "mine.pkl", entryNeedingDump))
-          eval1 <- IO.blocking(
-            os.proc(
-              (pkl.get.toString :: "eval" :: "--project-dir" :: "." ::
-                "-f" :: "json" :: "mine.pkl" :: Nil)
-            ).call(cwd = laptop, check = false, mergeErrIntoOut = true)
-          )
-          _ = assertEquals(eval1.exitCode, 0, clue = eval1.out.text())
-          _ = assert(eval1.out.text().contains("\"card\""))
-
-          // push: pkl-rendered JSON crosses the wire and installs live — the
-          // renderer-parity claim (our backend uses pkl's own ValueRenderers)
-          // is load-bearing exactly here.
-          pushRes <- IO.blocking(run("push", "mine.pkl", "preview"))
-          _ = assertEquals(pushRes.exitCode, 0, clue = pushRes.out.text())
-          pushed <- ts.server.routes.orNotFound
-            .run(Request[IO](Method.GET, uri"/d/preview"))
-          _ = assertEquals(pushed.status, Status.Ok)
-
-          // The home changes; the instance seeds a NEW snapshot; pull re-pins.
-          oldPin = os.read(laptop / ".fh" / "base.pkl")
+          // The home changes; the instance seeds a NEW snapshot. This is the
+          // state `fh pull` finds and re-pins from.
           _ <- IO.blocking {
             os.write.append(
               instance / "home" / "dump.pkl",
@@ -447,90 +399,22 @@ class UseCaseSuite extends munit.CatsEffectSuite {
             )
             DumpPackage.seedFromWorkspace(instance)
           }
-          pullRes <- IO.blocking(run("pull"))
-          _ = assertEquals(pullRes.exitCode, 0, clue = pullRes.out.text())
-          newPin = os.read(laptop / ".fh" / "base.pkl")
-          _ = assertNotEquals(newPin, oldPin)
-          _ = assert(
-            pullRes.out.text().contains("->"),
-            clue = pullRes.out.text()
-          )
-
-          // And the workspace still evaluates against the new snapshot.
-          eval2 <- IO.blocking(
-            os.proc(
-              (pkl.get.toString :: "eval" :: "--project-dir" :: "." ::
-                "-f" :: "json" :: "mine.pkl" :: Nil)
-            ).call(cwd = laptop, check = false, mergeErrIntoOut = true)
-          )
-          _ = assertEquals(eval2.exitCode, 0, clue = eval2.out.text())
-        } yield ()
+          v2 <- homeVersion
+          meta2 <- get(s"/system/pkl/packages/fh-home@$v2")
+        } yield {
+          assertEquals(meta.status, Status.Ok)
+          assertEquals(zip.status, Status.Ok)
+          assertNotEquals(v2, v1)
+          assertEquals(meta2.status, Status.Ok)
+        }
       }
   }
 
-  // The script's instance-free behavior (--help, workspace-missing errors,
-  // `fh update`'s sha-compare + dated backup) is covered by the script's OWN
-  // suite, scripts/fh.test.scala, run by scala-cli's test command:
-  //   scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala
-  // Here we keep only the flows that need the real instance backend.
-
-  /** The fh script runs via scala-cli; skip its tests where that isn't
-    * installed (it is a laptop tool, not an instance dependency).
-    */
-  private def scalaCliOnPath: Boolean = sys.env
-    .getOrElse("PATH", "")
-    .split(java.io.File.pathSeparator)
-    .iterator
-    .filter(_.nonEmpty)
-    .map(dir => os.Path(dir, os.pwd) / "scala-cli")
-    .exists(p => os.exists(p) && os.isFile(p))
-
-  /** The stock pkl CLI: from PATH, from the repo-local cache, or downloaded
-    * once from the pkl release matching the pinned pkl-core version. `None`
-    * (test skipped) when unobtainable — e.g. offline, or an unmapped platform.
-    */
-  private def obtainPklCli(): Option[os.Path] = {
-    val version = "0.31.1"
-    val fromPath = sys.env
-      .getOrElse("PATH", "")
-      .split(java.io.File.pathSeparator)
-      .iterator
-      .map(dir => os.Path(dir, os.pwd) / "pkl")
-      .find(p => os.exists(p) && os.isFile(p))
-    fromPath.orElse {
-      // Named exactly `pkl`: the script locates it with `command -v pkl`.
-      val cached = os.pwd / ".pkl-cli" / version / "pkl"
-      if (os.exists(cached)) Some(cached)
-      else
-        platformAsset.flatMap { asset =>
-          val url =
-            s"https://github.com/apple/pkl/releases/download/$version/$asset"
-          scala.util.Try {
-            os.makeDir.all(cached / os.up)
-            val tmp = cached / os.up / s"${cached.last}.part"
-            os.proc("curl", "-fsSL", "-o", tmp.toString, url)
-              .call(timeout = 120000)
-            os.perms.set(tmp, "rwxr-xr-x")
-            os.move.over(tmp, cached)
-            cached
-          }.toOption
-        }
-    }
-  }
-
-  private def platformAsset: Option[String] = {
-    val osName = sys.props.getOrElse("os.name", "").toLowerCase
-    val arch = sys.props.getOrElse("os.arch", "").toLowerCase
-    (osName, arch) match {
-      case (n, "amd64" | "x86_64") if n.contains("linux") =>
-        Some("pkl-linux-amd64")
-      case (n, "aarch64") if n.contains("linux") => Some("pkl-linux-aarch64")
-      case (n, "aarch64") if n.contains("mac")   => Some("pkl-macos-aarch64")
-      case (n, "amd64" | "x86_64") if n.contains("mac") =>
-        Some("pkl-macos-amd64")
-      case _ => None
-    }
-  }
+  // The script's own behavior (workspace-missing errors, `fh update`'s
+  // sha-compare + dated backup) is covered by the script's OWN suite,
+  // scripts/fh.test.scala, run in-process by scala-cli's test command:
+  //   cd scripts && SCALA_TEST_MODE=true scala-cli test .
+  // Here we keep only the server side of the interface the script drives.
 
   /** What a laptop's pkl tooling does, minus the manifest-declared rewrite
     * sugar: an HttpClient rewriting `https://fh.invalid/` to the instance's

@@ -238,19 +238,21 @@ side is *only* fetch-and-write (`init`/`pull` = fetch the index, write
 `.fh/base.pkl` + seed `PklProject`, resolve dependencies) plus one evaluation
 (`push`). Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
 then `ValueRenderers.json` — the *same call* the instance's backend renders
-its wire JSON with, so pushed JSON matches by construction; the e2e test
-drives the real script through the real route). Stock pkl tooling still works
+its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the
 `pkl` CLI evaluates it identically — but the script requires none of it.
 Laptop dependencies: scala-cli alone (it runs the script and fetches the
 pinned toolkit + pkl-core), which keeps the setup cross-platform for free.
-The script has its own suite, `scripts/fh.test.scala`, run by scala-cli's
-test command (`scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala`,
-a CI step): black-box subprocess tests — necessarily so, since referencing any
-member of a shebang script's wrapper object executes its whole body — covering
-everything the script does without an instance (help/usage, workspace-missing
-errors, the `update` sha-compare + dated backup); the instance-facing flows
-stay in `UseCaseSuite` against the real routes.
+The script has its own suite, `scripts/fh.test.scala` (weaver), run by
+scala-cli's test command (`cd scripts && SCALA_TEST_MODE=true scala-cli test .`,
+a CI step): the tests call the script's functions directly through the `fh`
+script-wrapper namespace — referencing any member executes the wrapper body,
+so the dispatcher is gated behind `SCALA_TEST_MODE` (env var or system
+property) — covering what the script does without an instance
+(workspace-missing errors, the `update` sha-compare + dated backup;
+the decline wiring itself is not tested). `UseCaseSuite` covers the server
+side of the interface the script drives (the discovery index, the `@fh-home`
+artifacts a pull re-pins to, push) without spawning any subprocess.
 The laptop workspace mirrors the add-on's ownership
 split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
 checksummed `@fh-home` pin — uri + checksums always written together),

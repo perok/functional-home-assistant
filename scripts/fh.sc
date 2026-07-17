@@ -1,4 +1,4 @@
-#!/usr/bin/env -S scala shebang
+#!/usr/bin/env -S scala-cli shebang
 
 //> using scala 3.7.4
 //> using jvm 17
@@ -29,9 +29,10 @@
 //
 // Dependencies: scala-cli (runs this file and fetches everything else).
 
-import cats.effect.IO
+import cats.effect.{ExitCode, IO}
 import cats.syntax.all.*
 import com.monovore.decline.{Command, Opts}
+import com.monovore.decline.effect.CommandIOApp
 import org.http4s.{MediaType, Method, Request, Uri}
 import org.http4s.client.Client
 import org.http4s.ember.client.EmberClientBuilder
@@ -85,8 +86,8 @@ def loadProject(): org.pkl.core.project.Project =
     throw Die("no PklProject here — run: fh init <instance-url>")
   org.pkl.core.project.Project.loadFromPath(manifest)
 
-/** `pkl project resolve`, in-process: resolve the manifest's dependencies
-  * from the instance (packages land in `.fh/cache`) and write the lockfile.
+/** `pkl project resolve`, in-process: resolve the manifest's dependencies from
+  * the instance (packages land in `.fh/cache`) and write the lockfile.
   */
 def resolveDeps(url: String): IO[Unit] = IO.blocking {
   import org.pkl.core.SecurityManagers
@@ -129,18 +130,22 @@ def evalJson(url: String, entry: String): IO[String] = IO.blocking {
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =
   EmberClientBuilder.default[IO].build.use(f)
 
-/** The instance this workspace is wired to, read back from the rewrite line
-  * in the machine-managed base manifest.
+/** The instance this workspace is wired to, read back from the rewrite line in
+  * the machine-managed base manifest.
   */
 def instanceUrl: IO[String] = IO.blocking {
   if !Files.exists(basePkl) then
-    throw Die(s"not an fh workspace (no $basePkl) — run: fh init <instance-url>")
+    throw Die(
+      s"not an fh workspace (no $basePkl) — run: fh init <instance-url>"
+    )
   val rewrite = """.*= *"(.*)/system/pkl/packages/".*""".r
   Files
     .readAllLines(basePkl)
     .toArray(Array.empty[String])
     .collectFirst { case rewrite(url) => url }
-    .getOrElse(throw Die(s"no instance url in $basePkl — re-run: fh init <instance-url>"))
+    .getOrElse(
+      throw Die(s"no instance url in $basePkl — re-run: fh init <instance-url>")
+    )
 }
 
 /** The @fh-home version currently pinned, if any (for the pull message). */
@@ -275,14 +280,18 @@ def cmdPull: IO[Unit] =
         if old.contains(idx.homeVersion) then
           IO.println(s"up to date (@fh-home ${idx.homeVersion})")
         else
-          IO.println(s"@fh-home ${old.getOrElse("(none)")} -> ${idx.homeVersion}")
+          IO.println(
+            s"@fh-home ${old.getOrElse("(none)")} -> ${idx.homeVersion}"
+          )
     yield ()
   }
 
 def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
   withClient { client =>
     val slug =
-      slugOpt.getOrElse(Paths.get(entry).getFileName.toString.stripSuffix(".pkl"))
+      slugOpt.getOrElse(
+        Paths.get(entry).getFileName.toString.stripSuffix(".pkl")
+      )
     for
       url <- instanceUrl
       // A broken entry fails HERE (pkl-core raises with the authoring error),
@@ -306,16 +315,20 @@ def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
     yield ()
   }
 
-/** Replace this file with the repo's copy when the checksums differ. The
-  * previous copy survives as a dated backup next to it.
+/** Replace `self` (this file, at the real call site) with the copy at `from`
+  * when the checksums differ. The previous copy survives as a dated backup next
+  * to it. Parameterized so the test suite can drive it against a copy + a stub
+  * URL in-process instead of rewriting the checked-in script.
   */
-def cmdUpdate: IO[Unit] = withClient { client =>
-  val self = Paths.get(scriptPath).toAbsolutePath
+def cmdUpdate(
+    self: Path = Paths.get(scriptPath).toAbsolutePath,
+    from: String = selfUrl
+): IO[Unit] = withClient { client =>
   for
     remote <- client
-      .expect[String](selfUrl)
+      .expect[String](from)
       .map(_.getBytes(UTF_8))
-      .adaptError { case _ => Die(s"could not fetch $selfUrl") }
+      .adaptError { case _ => Die(s"could not fetch $from") }
     local <- IO.blocking(Files.readAllBytes(self))
     (localSha, remoteSha) = (sha256(local), sha256(remote))
     _ <-
@@ -326,7 +339,11 @@ def cmdUpdate: IO[Unit] = withClient { client =>
           val backup = backupPath(self)
           // Copy (not move) so the original keeps its executable bit when
           // rewritten in place.
-          Files.copy(self, backup, java.nio.file.StandardCopyOption.COPY_ATTRIBUTES)
+          Files.copy(
+            self,
+            backup,
+            java.nio.file.StandardCopyOption.COPY_ATTRIBUTES
+          )
           Files.write(self, remote)
           backup
         }.flatMap { backup =>
@@ -337,11 +354,12 @@ def cmdUpdate: IO[Unit] = withClient { client =>
   yield ()
 }
 
-/** `<name>.backup.<date>`, disambiguated with a time suffix on collision —
-  * the same convention the add-on uses for replaced user files.
+/** `<name>.backup.<date>`, disambiguated with a time suffix on collision — the
+  * same convention the add-on uses for replaced user files.
   */
 def backupPath(of: Path): Path = {
-  val dated = of.resolveSibling(s"${of.getFileName}.backup.${java.time.LocalDate.now}")
+  val dated =
+    of.resolveSibling(s"${of.getFileName}.backup.${java.time.LocalDate.now}")
   if !Files.exists(dated) then dated
   else
     of.resolveSibling(
@@ -349,54 +367,68 @@ def backupPath(of: Path): Path = {
     )
 }
 
-val command = Command(
-  name = "fh",
-  header = "The laptop companion of the FH Dashboard add-on: wire a local " +
-    "dashboards workspace to your Home Assistant instance; authoring itself " +
-    "is stock pkl tooling."
-)(
-  Opts
-    .subcommand(
-      "init",
-      "Make this directory a dashboards workspace wired to your instance " +
-        "(the add-on's direct port, e.g. http://homeassistant.local:8080)."
-    )(Opts.argument[String]("instance-url").map(cmdInit))
-    .orElse(
-      Opts.subcommand(
-        "pull",
-        "Re-pin @fh-home to the instance's current entity dump (run after " +
-          "adding/renaming devices)."
-      )(Opts(cmdPull))
+val opts: Opts[IO[ExitCode]] = Opts
+  .subcommand(
+    "init",
+    "Make this directory a dashboards workspace wired to your instance " +
+      "(the add-on's direct port, e.g. http://homeassistant.local:8080)."
+  )(Opts.argument[String]("instance-url").map(cmdInit(_).as(ExitCode.Success)))
+  .orElse(
+    Opts.subcommand(
+      "pull",
+      "Re-pin @fh-home to the instance's current entity dump (run after " +
+        "adding/renaming devices)."
+    )(Opts(cmdPull.as(ExitCode.Success)))
+  )
+  .orElse(
+    Opts.subcommand(
+      "push",
+      "Evaluate an entry locally and install it on the instance under " +
+        "/d/<slug> (ephemeral: gone on its restart)."
+    )(
+      (Opts.argument[String]("entry.pkl"), Opts.argument[String]("slug").orNone)
+        .mapN(cmdPush)
+        .map(_.as(ExitCode.Success))
     )
-    .orElse(
-      Opts.subcommand(
-        "push",
-        "Evaluate an entry locally and install it on the instance under " +
-          "/d/<slug> (ephemeral: gone on its restart)."
-      )(
-        (Opts.argument[String]("entry.pkl"), Opts.argument[String]("slug").orNone)
-          .mapN(cmdPush)
-      )
-    )
-    .orElse(
-      Opts.subcommand(
-        "update",
-        "Replace this script when the copy in the GitHub repo differs " +
-          "(sha256 compare; the old copy is kept as a dated backup)."
-      )(Opts(cmdUpdate))
-    )
-)
+  )
+  .orElse(
+    Opts.subcommand(
+      "update",
+      "Replace this script when the copy in the GitHub repo differs " +
+        "(sha256 compare; the old copy is kept as a dated backup)."
+    )(Opts(cmdUpdate().as(ExitCode.Success)))
+  )
 
-command.parse(args.toIndexedSeq) match
-  case Left(help) =>
-    System.err.println(help)
-    sys.exit(if help.errors.isEmpty then 0 else 1)
-  case Right(io) =>
-    import cats.effect.unsafe.implicits.global
-    io.attempt.unsafeRunSync() match
-      case Right(())    => ()
-      case Left(Die(m)) => System.err.println(s"fh: $m"); sys.exit(1)
-      case Left(e: org.pkl.core.PklException) =>
-        // Authoring errors: pkl's own message is the useful part.
-        System.err.println(s"fh: ${e.getMessage}"); sys.exit(1)
-      case Left(e) => System.err.println(s"fh: $e"); sys.exit(1)
+object Fh
+    extends CommandIOApp(
+      name = "fh",
+      header =
+        "The laptop companion of the FH Dashboard add-on: wire a local " +
+          "dashboards workspace to your Home Assistant instance; authoring itself " +
+          "is stock pkl tooling.",
+      version = "0.0.1"
+    ) {
+  // Failures render as `fh: <msg>`, exit 1, no stack trace (Die's contract);
+  // for pkl authoring errors, pkl's own message is the useful part.
+  override def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith {
+    case Die(m) => IO.blocking(System.err.println(s"fh: $m")).as(ExitCode.Error)
+    case e: org.pkl.core.PklException =>
+      IO.blocking(System.err.println(s"fh: ${e.getMessage}")).as(ExitCode.Error)
+    case e => IO.blocking(System.err.println(s"fh: $e")).as(ExitCode.Error)
+  })
+}
+
+// The test gate: the suite references this script's members, which executes
+// this wrapper body — the gate keeps that from parsing the test JVM's argv.
+// Checked in BOTH env and props: the env var is how `scala-cli test` is
+// invoked, the property is what the suite itself can set (a JVM cannot set
+// its own env), so either form works.
+def testMode: Boolean =
+  sys.env
+    .get("SCALA_TEST_MODE")
+    .orElse(sys.props.get("SCALA_TEST_MODE"))
+    .contains("true")
+
+if (!testMode) {
+  Fh.main(args)
+}

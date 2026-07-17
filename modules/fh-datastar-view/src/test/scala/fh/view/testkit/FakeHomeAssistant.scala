@@ -31,11 +31,11 @@ final case class ServiceCall(
   *     events onto (the change feed the store's background fiber drains), and
   *   - [[callService]] records the call for later assertion.
   *
-  * The remaining methods raise `NotImplementedError`: they are not on
-  * the runtime hot path, so an unexpected call is a loud test failure rather
-  * than a silent stub. This lets a test drive the WHOLE loop —
-  * `StateStore.create` -> `Server` -> HTTP/SSE -> `callService` — against
-  * static, in-repo state with a scripted timeline, and no live HA.
+  * The remaining methods raise `NotImplementedError`: they are not on the
+  * runtime hot path, so an unexpected call is a loud test failure rather than a
+  * silent stub. This lets a test drive the WHOLE loop — `StateStore.create` ->
+  * `Server` -> HTTP/SSE -> `callService` — against static, in-repo state with a
+  * scripted timeline, and no live HA.
   */
 final class FakeHomeAssistant private (
     stateRef: Ref[IO, Map[String, FixtureEntity]],
