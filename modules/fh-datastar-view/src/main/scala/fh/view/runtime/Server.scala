@@ -124,7 +124,7 @@ class Server(
     // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
     // hits this route (it resolves those imports via in-memory interception).
     // The laptop companion (the `fh` scala-cli script) is distributed from
-    // the GitHub repo (`scripts/fh`), not from the instance; it drives the
+    // the GitHub repo (`scripts/fh.sc`), not from the instance; it drives the
     // routes below.
 
     // The package-discovery index (before the `:name` route, which would

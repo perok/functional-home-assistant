@@ -91,7 +91,7 @@ the default path and it needs no network story at all.
 evaluated **locally**, with completion. (Editing the instance's files in place
 is not a supported laptop mode; live editing on the instance is what `/edit` is
 for.) No checkout needed: the `fh` script (checked into the repo at
-`scripts/fh`, installed with one curl from GitHub raw) wires a directory to
+`scripts/fh.sc`, installed with one curl from GitHub raw) wires a directory to
 the instance —
 `fh init` writes the manifests, and BOTH names resolve as packages from the
 instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
@@ -227,8 +227,8 @@ current version + metadata sha256 of both packages — exactly what a pull pins.
 
 Its client is the `fh` script (`init` / `pull` / `push` / `update`): a
 self-contained **scala-cli script** (Typelevel toolkit + decline) checked into
-the repo at `scripts/fh`, whose distribution channel is the GitHub repo itself
-(`curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh && chmod +x fh`).
+the repo at `scripts/fh.sc`, whose distribution channel is the GitHub repo itself
+(`curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh.sc && chmod +x fh`).
 `fh update` re-fetches that URL and replaces the local copy when the sha256
 differs, keeping the previous copy as `fh.backup.<date>` (the user-file
 convention) — so the checked-in file on `main` is the single authoritative
@@ -245,7 +245,7 @@ on the workspace — pkl-lsp completion is the point of having one, and the
 Laptop dependencies: scala-cli alone (it runs the script and fetches the
 pinned toolkit + pkl-core), which keeps the setup cross-platform for free.
 The script has its own suite, `scripts/fh.test.scala`, run by scala-cli's
-test command (`scala-cli test --server=false scripts/fh scripts/fh.test.scala`,
+test command (`scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala`,
 a CI step): black-box subprocess tests — necessarily so, since referencing any
 member of a shebang script's wrapper object executes its whole body — covering
 everything the script does without an instance (help/usage, workspace-missing

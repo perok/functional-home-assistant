@@ -78,7 +78,7 @@ jobs:
           # The fh laptop script's own suite (black-box; no instance needed) —
           # also compile-checks the script itself.
           - name: Test fh script
-            run: scala-cli test --server=false scripts/fh scripts/fh.test.scala
+            run: scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6

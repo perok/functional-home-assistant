@@ -1,7 +1,8 @@
 // Tests for the fh script itself, run by scala-cli's own test command
-// (toolkit-test rides in on the script's `using toolkit` directive):
+// (weaver-test rides in on the script's `using toolkit` directive — the
+// typelevel toolkit's test scope IS weaver from 0.2.0 on):
 //
-//   scala-cli test --server=false scripts/fh scripts/fh.test.scala
+//   scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala
 //
 // Black-box on purpose: fh is a shebang script, and referencing ANY member of
 // its wrapper object lazily executes the whole body (command.parse + sys.exit
@@ -9,29 +10,29 @@
 // subprocess, exactly as a user does. The instance-facing flows (init, push,
 // pull against the real routes) live in UseCaseSuite, which has the backend
 // to talk to; here we cover everything the script does WITHOUT an instance.
+//
+// No timeout override needed: weaver imposes no default per-test timeout
+// (verified in weaver-core sources), so the script's cold compile on first
+// spawn can take as long as it takes.
 
 import cats.effect.IO
-import munit.CatsEffectSuite
+import weaver.*
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.attribute.PosixFilePermissions
 import java.nio.file.{Files, Path}
-import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-class FhScriptSuite extends CatsEffectSuite:
-
-  // The script cold-compiles on first spawn; generous ceiling for CI.
-  override def munitIOTimeout: Duration = 10.minutes
+object FhScriptSuite extends SimpleIOSuite:
 
   /** The checked-in script, whether the suite is invoked from the repo root or
     * from scripts/. A stable path keeps scala-cli's compile cache warm.
     */
   private val script: Path =
-    List(Path.of("scripts/fh"), Path.of("fh"))
+    List(Path.of("scripts/fh.sc"), Path.of("fh.sc"))
       .map(_.toAbsolutePath)
       .find(Files.isRegularFile(_))
-      .getOrElse(fail("scripts/fh not found — run from the repo root"))
+      .getOrElse(sys.error("scripts/fh.sc not found — run from the repo root"))
 
   private def runFh(
       at: Path,
@@ -52,19 +53,27 @@ class FhScriptSuite extends CatsEffectSuite:
 
   private val emptyDir = IO.blocking(Files.createTempDirectory("fh-test-"))
 
+  /** Exit-code check that shows the process output on failure (the weaver
+    * `clue` of a passing sub-expectation is not rendered, so a plain
+    * `expect(code == n)` would leave a wrong exit code unexplained).
+    */
+  private def exits(expected: Int)(code: Int, out: String): Expectations =
+    if code == expected then success
+    else failure(s"exit $code (wanted $expected): $out")
+
   test("--help lists the subcommands and exits 0") {
     emptyDir.flatMap(runFh(script, _, Map.empty, "--help")).map { (code, out) =>
-      assertEquals(code, 0, clue = out)
-      List("init", "pull", "push", "update")
-        .foreach(sub => assert(out.contains(sub), clue = out))
+      exits(0)(code, out) and
+        forEach(List("init", "pull", "push", "update"))(sub =>
+          expect(clue(out).contains(clue(sub)))
+        )
     }
   }
 
   test("an unknown subcommand fails with usage") {
     emptyDir.flatMap(runFh(script, _, Map.empty, "frobnicate")).map {
       (code, out) =>
-        assertEquals(code, 1, clue = out)
-        assert(out.contains("Usage"), clue = out)
+        exits(1)(code, out) and expect(clue(out).contains("Usage"))
     }
   }
 
@@ -72,10 +81,11 @@ class FhScriptSuite extends CatsEffectSuite:
     // The script resolves .fh/base.pkl against its cwd; an empty temp dir is
     // exactly the lost-user case the message is for.
     emptyDir.flatMap(runFh(script, _, Map.empty, "pull")).map { (code, out) =>
-      assertEquals(code, 1, clue = out)
-      assert(out.contains("not an fh workspace"), clue = out)
-      assert(out.contains("fh init"), clue = out)
-      assert(!out.contains("at fh"), clue = out) // Die prints no stack trace
+      exits(1)(code, out) and expect.all(
+        clue(out).contains("not an fh workspace"),
+        out.contains("fh init"),
+        !out.contains("at fh") // Die prints no stack trace
+      )
     }
   }
 
@@ -105,6 +115,15 @@ class FhScriptSuite extends CatsEffectSuite:
       server
     })(server => IO.blocking(server.stop(0)))
 
+    def listBackups: IO[List[Path]] = IO.blocking(
+      Files
+        .list(work)
+        .iterator()
+        .asScala
+        .toList
+        .filter(_.getFileName.toString.startsWith("fh.backup."))
+    )
+
     stub.use { server =>
       val env = Map(
         "FH_SELF_URL" -> s"http://127.0.0.1:${server.getAddress.getPort}/fh"
@@ -130,37 +149,20 @@ class FhScriptSuite extends CatsEffectSuite:
 
         first <- runFh(copy, work, env, "update")
         (code1, out1) = first
-        _ = assertEquals(code1, 0, clue = out1)
-        _ = assert(out1.contains("updated"), clue = out1)
-        // Replaced in place (still executable), previous copy kept.
-        _ = assert(Files.readAllBytes(copy).sameElements(next))
-        _ = assert(Files.isExecutable(copy))
-        backups <- IO.blocking(
-          Files
-            .list(work)
-            .iterator()
-            .asScala
-            .toList
-            .filter(_.getFileName.toString.startsWith("fh.backup."))
-        )
-        _ = assertEquals(
-          backups.map(Files.readString(_)),
-          List(Files.readString(script))
-        )
+        backups <- listBackups
 
         second <- runFh(copy, work, env, "update")
         (code2, out2) = second
-        _ = assertEquals(code2, 0, clue = out2)
-        _ = assert(out2.contains("up to date"), clue = out2)
-        after <- IO.blocking(
-          Files
-            .list(work)
-            .iterator()
-            .asScala
-            .toList
-            .filter(_.getFileName.toString.startsWith("fh.backup."))
-        )
-        _ = assertEquals(after, backups)
-      yield ()
+        after <- listBackups
+      yield exits(0)(code1, out1) and exits(0)(code2, out2) and expect.all(
+        clue(out1).contains("updated"),
+        // Replaced in place (still executable), previous copy kept.
+        Files.readAllBytes(copy).sameElements(next),
+        Files.isExecutable(copy),
+        clue(out2).contains("up to date")
+      ) and expect.same(
+        List(Files.readString(script)),
+        backups.map(Files.readString(_))
+      ) and expect.same(backups, after)
     }
   }

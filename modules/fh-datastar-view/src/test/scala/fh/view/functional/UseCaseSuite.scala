@@ -333,7 +333,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           val doc = io.circe.parser
             .parse(jsonBody)
             .fold(err => fail(s"index not JSON: $err"), identity)
-          for (pkg <- List("fh-dashboard", "fh-home"); key <- List("version", "sha256"))
+          for (
+            pkg <- List("fh-dashboard", "fh-home");
+            key <- List("version", "sha256")
+          )
             assert(
               doc.hcursor.downField(pkg).get[String](key).isRight,
               clue = s"$pkg.$key missing in $jsonBody"
@@ -376,7 +379,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // compile cache is keyed to a stable location (a per-test temp copy would
     // cold-compile on every run). It operates on the cwd, so the laptop dir
     // is still the workspace. `--server=false`: no bloop daemon in tests.
-    val script = os.pwd / "scripts" / "fh"
+    val script = os.pwd / "scripts" / "fh.sc"
 
     def run(args: String*): os.CommandResult =
       os.proc(
@@ -468,7 +471,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   // The script's instance-free behavior (--help, workspace-missing errors,
   // `fh update`'s sha-compare + dated backup) is covered by the script's OWN
   // suite, scripts/fh.test.scala, run by scala-cli's test command:
-  //   scala-cli test --server=false scripts/fh scripts/fh.test.scala
+  //   scala-cli test --server=false scripts/fh.sc scripts/fh.test.scala
   // Here we keep only the flows that need the real instance backend.
 
   /** The fh script runs via scala-cli; skip its tests where that isn't

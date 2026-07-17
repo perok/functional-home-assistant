@@ -1,9 +1,12 @@
-#!/usr/bin/env -S scala-cli shebang
+#!/usr/bin/env -S scala shebang
+
 //> using scala 3.7.4
 //> using jvm 17
-//> using toolkit typelevel:0.1.29
+//> using toolkit typelevel:0.2.0
 //> using dep org.pkl-lang:pkl-core:0.31.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
+
+// TODO use @main
 
 // fh — the laptop companion of the FH Dashboard add-on (ADR 0010).
 //
@@ -19,7 +22,7 @@
 //
 // This file lives in the GitHub repo — that is its distribution channel:
 //
-//   curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh && chmod +x fh
+//   curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh.sc && chmod +x fh
 //
 // `fh update` re-fetches that URL and replaces this copy when the sha256
 // differs (the previous copy is kept as fh.backup.<date>).
@@ -48,7 +51,7 @@ val basePkl = Paths.get(".fh/base.pkl")
   */
 val selfUrl = sys.env.getOrElse(
   "FH_SELF_URL",
-  "https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh"
+  "https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh.sc"
 )
 
 def sha256(bytes: Array[Byte]): String =
@@ -64,6 +67,7 @@ def sha256(bytes: Array[Byte]): String =
 // rewrite + cache the manifest declares rather than depending on how
 // pkl-core surfaces evaluatorSettings.
 
+// XDG config dirs
 val cacheDir = Paths.get(".fh/cache").toAbsolutePath
 
 def pklHttp(url: String): org.pkl.core.http.HttpClient =
