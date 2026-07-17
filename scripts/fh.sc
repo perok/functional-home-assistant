@@ -5,6 +5,7 @@
 //> using toolkit typelevel:0.2.0
 //> using dep org.pkl-lang:pkl-core:0.31.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
+//> using dep net.harawata:appdirs:1.5.0
 
 // TODO use @main
 
@@ -29,23 +30,43 @@
 //
 // Dependencies: scala-cli (runs this file and fetches everything else).
 
+import cats.Show
+
+import scala.util.chaining.scalaUtilChainingOps
 import cats.effect.{ExitCode, IO}
-import cats.syntax.all.*
-import com.monovore.decline.{Command, Opts}
+import cats.effect.std._
+import cats.syntax.all._
+import com.monovore.decline.Opts
 import com.monovore.decline.effect.CommandIOApp
-import org.http4s.{MediaType, Method, Request, Uri}
+import io.circe.Decoder
+import org.http4s.{EntityDecoder, MediaType, Method, Request, Uri}
+import org.http4s.circe.jsonOf
 import org.http4s.client.Client
 import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.headers.`Content-Type`
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, Paths}
+import net.harawata.appdirs.*
+
+val appdirs = AppDirsFactory.getInstance()
 
 /** A user-facing failure: printed as `fh: <msg>`, exit 1, no stack trace. */
-final case class Die(msg: String) extends RuntimeException(msg)
+case class Die(msg: String) extends RuntimeException(msg)
+object Die {
+  given Show[Die] = Show.show(err =>
+    s"${err.msg}${
+        if (err.getSuppressed.length > 0) then
+          err.getSuppressed.map(_.getMessage).mkString("\n Internal error: ", ",\n", "")
+        else ""
+      }"
+  )
+}
+
 def die(msg: String): IO[Nothing] = IO.raiseError(Die(msg))
 
-val basePkl = Paths.get(".fh/base.pkl")
+val basePkl =
+  Paths.get(s"${appdirs.getUserConfigDir("fh", "0.0.1", "perok")}/base.pkl")
 
 /** Where `update` fetches the authoritative copy of this script from (the
   * checked-in file on the repo's main branch). Env-overridable for tests.
@@ -69,7 +90,8 @@ def sha256(bytes: Array[Byte]): String =
 // pkl-core surfaces evaluatorSettings.
 
 // XDG config dirs
-val cacheDir = Paths.get(".fh/cache").toAbsolutePath
+val cacheDir =
+  Paths.get(appdirs.getUserCacheDir("fh", "0.0.1", "perok")).toAbsolutePath
 
 def pklHttp(url: String): org.pkl.core.http.HttpClient =
   org.pkl.core.http.HttpClient
@@ -157,33 +179,40 @@ def pinnedHomeVersion: IO[Option[String]] = IO.blocking {
     .collectFirst { case pin(v) => v }
 }
 
-final case class PkgIndex(
+case class PkgIndex(
     dashboardVersion: String,
     homeVersion: String,
     homeSha256: String
 )
+object PkgIndex {
+  given EntityDecoder[IO, PkgIndex] = jsonOf[IO, PkgIndex]
+  given Decoder[PkgIndex] = Decoder.instance(c =>
+    (
+      c.downField("fh-dashboard").get[String]("version"),
+      c.downField("fh-home").get[String]("version"),
+      c.downField("fh-home").get[String]("sha256")
+    ).mapN(PkgIndex.apply)
+  )
+}
 
 /** The instance's package-discovery index (`/system/pkl/packages`): current
   * versions + metadata sha256 of the packages this home serves.
   */
 def fetchIndex(client: Client[IO], url: String): IO[PkgIndex] =
   client
-    .expect[io.circe.Json](s"$url/system/pkl/packages")(using
-      org.http4s.circe.jsonDecoder
-    )
-    .adaptError { case _ =>
-      Die(
-        s"$url/system/pkl/packages did not answer — is that the add-on's direct port, and has it finished starting?"
-      )
-    }
-    .flatMap { json =>
-      val c = json.hcursor
-      (
-        c.downField("fh-dashboard").get[String]("version").toOption,
-        c.downField("fh-home").get[String]("version").toOption,
-        c.downField("fh-home").get[String]("sha256").toOption
-      ).mapN(PkgIndex.apply)
-        .fold(die("malformed package index"))(IO.pure)
+    .expectOr[PkgIndex](s"$url/system/pkl/packages")(errResponse => {
+      errResponse.bodyText.compile.string.map(body => {
+        Die(
+          s"$url/system/pkl/packages answered ${errResponse.status}: ${body}"
+        )
+
+      })
+    })
+    .adaptError {
+      case err if !err.isInstanceOf[Die] =>
+        Die(
+          s"$url/system/pkl/packages did not answer — is that the add-on's direct port, and has it finished starting?"
+        ).tap(_.addSuppressed(err))
     }
 
 /** Machine-managed; rewritten whole by init/pull. The @fh-home pin carries its
@@ -410,12 +439,14 @@ object Fh
     ) {
   // Failures render as `fh: <msg>`, exit 1, no stack trace (Die's contract);
   // for pkl authoring errors, pkl's own message is the useful part.
-  override def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith {
-    case Die(m) => IO.blocking(System.err.println(s"fh: $m")).as(ExitCode.Error)
+  def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith {
+    case err @ Die(m) =>
+      Console[IO].errorln(s"fh: ${err.show}")
     case e: org.pkl.core.PklException =>
-      IO.blocking(System.err.println(s"fh: ${e.getMessage}")).as(ExitCode.Error)
-    case e => IO.blocking(System.err.println(s"fh: $e")).as(ExitCode.Error)
-  })
+      Console[IO].errorln(s"fh: ${e.getMessage}")
+    case e =>
+      Console[IO].errorln(s"fh: $e")
+  }.as(ExitCode.Error))
 }
 
 // The test gate: the suite references this script's members, which executes

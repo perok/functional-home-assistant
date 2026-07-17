@@ -133,17 +133,17 @@ class Server(
     // `fh pull` reads before rewriting the laptop's pins.
     case GET -> Root / "system" / "pkl" / "packages" =>
       systemPkl.packagesIndex match {
-        case Some(json) =>
+        case Right(json) =>
           Ok(json).map(
             _.putHeaders(`Content-Type`(MediaType.application.json))
           )
-        case None => NotFound()
+        case Left(reason) => NotFound(reason)
       }
 
     case req @ GET -> Root / "system" / "pkl" / name =>
       systemPkl.module(name) match {
-        case Some(text) => systemPklResponse(text, req)
-        case None       => NotFound()
+        case Right(text)  => systemPklResponse(text, req)
+        case Left(reason) => NotFound(reason)
       }
 
     // The instance's resolved lib packages (ADR 0010): the metadata JSON at
@@ -157,12 +157,12 @@ class Server(
     // under an unchanged version) into a confusing stale-checksum failure.
     case GET -> Root / "system" / "pkl" / "packages" / file =>
       systemPkl.packageArtifact(file) match {
-        case Some(bytes) =>
+        case Right(bytes) =>
           val mediaType =
             if (file.endsWith(".zip")) MediaType.application.zip
             else MediaType.application.json
           Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
-        case None => NotFound()
+        case Left(reason) => NotFound(reason)
       }
 
     // Edit-mode node inspection ("debug this node"): the live entity state of

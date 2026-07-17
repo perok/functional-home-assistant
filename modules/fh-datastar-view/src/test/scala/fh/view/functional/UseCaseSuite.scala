@@ -228,7 +228,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val laptopCache = root / "laptop-cache"
 
     // A malformed artifact name must never index into the filesystem.
-    assertEquals(SystemPkl.fromDisk(instance).packageArtifact(".."), None)
+    assert(SystemPkl.fromDisk(instance).packageArtifact("..").isLeft)
 
     TestServer
       .resource(

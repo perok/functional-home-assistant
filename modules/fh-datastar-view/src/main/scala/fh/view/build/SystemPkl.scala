@@ -24,31 +24,42 @@ import java.util.Optional
   */
 trait SystemPkl {
 
-  /** Source text for a served module by file name (e.g. `"hass.pkl"`), or
-    * `None` when the name is not one this home serves.
+  /** Source text for a served module by file name (e.g. `"hass.pkl"`), or a
+    * `Left` reason (surfaced in the route's error body) when the name is not
+    * one this home serves.
     */
-  def module(name: String): Option[String]
+  def module(name: String): Either[SystemPkl.ErrorString, String]
 
   /** A resolved-package artifact by cache file name — the metadata JSON for
-    * `"<name>@<version>"`, the module zip for `"<name>@<version>.zip"` — or
-    * `None` when this home's package cache has no such artifact. Backs the
-    * `/system/pkl/packages/` route (ADR 0010): a laptop workspace without a
+    * `"<name>@<version>"`, the module zip for `"<name>@<version>.zip"` — or a
+    * `Left` reason when this home's package cache has no such artifact. Backs
+    * the `/system/pkl/packages/` route (ADR 0010): a laptop workspace without a
     * repo checkout points `package://fh.invalid/…` at it with one
     * `http.rewrites` line and resolves the SAME artifacts the instance
     * evaluates (same sha256 pin). Serves whatever versions the cache holds, so
     * a laptop pinned to an older lib than the instance still resolves.
     */
-  def packageArtifact(file: String): Option[Array[Byte]] = None
+  def packageArtifact(
+      file: String
+  ): Either[SystemPkl.ErrorString, Array[Byte]] =
+    Left("this home serves no packages")
 
   /** The discovery document for `GET /system/pkl/packages` (no file name): the
     * current version + metadata sha256 of the packages this home serves — what
-    * `fh pull` reads before rewriting the laptop's pins. `None` when this home
+    * `fh pull` reads before rewriting the laptop's pins. `Left` when this home
     * cannot package (path-form workspace, or no dump yet).
     */
-  def packagesIndex: Option[String] = None
+  def packagesIndex: Either[SystemPkl.ErrorString, String] =
+    Left("this home has no packages to serve (no dump yet)")
 }
 
 object SystemPkl {
+
+  /** A human-readable reason a lookup could not be served, returned as the
+    * `Left` of every [[SystemPkl]] result so the HTTP route can put it in the
+    * error response body (rather than a bare 404).
+    */
+  type ErrorString = String
 
   /** The URL path prefix under which the live home serves its Pkl artifacts. */
   val Prefix: String = "/system/pkl/"
@@ -71,16 +82,14 @@ object SystemPkl {
   /** Build a provider from the static schema text and a (dynamic) dump text.
     * Both are by-name so the dump can be re-read from a live `Ref` per call.
     */
-  def apply(hass: => Option[String], dump: => Option[String]): SystemPkl =
-    (name: String) =>
-      name match {
-        case "hass.pkl" => hass
-        case "dump.pkl" => dump
-        case _          => None
-      }
+  def apply(hass: => Option[String], dump: => Option[String]): SystemPkl = {
+    case "hass.pkl" => hass.toRight("hass.pkl is not available")
+    case "dump.pkl" => dump.toRight("dump.pkl is not available")
+    case name       => Left(s"no module named '$name'")
+  }
 
-  /** Serves nothing (every lookup is `None` → the route 404s, the factory falls
-    * through). The default for callers that don't wire a live home.
+  /** Serves nothing (every lookup is a `Left` → the route errors, the factory
+    * falls through). The default for callers that don't wire a live home.
     */
   val empty: SystemPkl = apply(None, None)
 
@@ -99,27 +108,41 @@ object SystemPkl {
     // Computed once: the manifest's `moduleCacheDir` does not move at runtime.
     val cache = PklBuild.workspaceCacheDir(dashboardsDir)
     new SystemPkl {
-      def module(name: String): Option[String] =
+      def module(name: String): Either[ErrorString, String] =
         name match {
-          case "hass.pkl" => read(dashboardsDir / "lib" / "hass.pkl")
-          case "dump.pkl" => read(DashboardBuild.dumpPath(dashboardsDir))
-          case _          => None
+          case "hass.pkl" =>
+            read(dashboardsDir / "lib" / "hass.pkl").toRight(
+              "hass.pkl is not served here (no lib/ in this workspace) — " +
+                "resolve the schema via the packages route"
+            )
+          case "dump.pkl" =>
+            read(DashboardBuild.dumpPath(dashboardsDir))
+              .toRight("no dump.pkl yet — this home has not been built")
+          case _ => Left(s"no module named '$name'")
         }
-      override def packagesIndex: Option[String] =
-        DumpPackage.index(dashboardsDir)
-      override def packageArtifact(file: String): Option[Array[Byte]] = {
+      override def packagesIndex: Either[ErrorString, String] =
+        DumpPackage
+          .index(dashboardsDir)
+          .toRight("this home has no packages to serve (no dump yet)")
+      override def packageArtifact(
+          file: String
+      ): Either[ErrorString, Array[Byte]] = {
         val (base, suffix) =
           if (file.endsWith(".zip")) (file.dropRight(4), ".zip")
           else (file, ".json")
         // `base` is one path segment (the router splits on `/`), but reject
         // anything outside the artifact-name shape regardless — this indexes
         // into the filesystem.
-        Option
-          .when(ArtifactBase.matches(base)) {
+        if (!ArtifactBase.matches(base)) Left(s"invalid artifact name: $file")
+        else {
+          val path =
             cache / "package-2" / LibPackage.Host / base / s"$base$suffix"
-          }
-          .filter(os.exists)
-          .map(os.read.bytes)
+          Either.cond(
+            os.exists(path),
+            os.read.bytes(path),
+            s"no such artifact: $file"
+          )
+        }
       }
     }
   }
@@ -152,7 +175,7 @@ object SystemPkl {
     */
   final class Factory(system: SystemPkl) extends ModuleKeyFactory {
     def create(uri: URI): Optional[ModuleKey] =
-      moduleName(uri).flatMap(system.module) match {
+      moduleName(uri).flatMap(system.module(_).toOption) match {
         case Some(text) => Optional.of(new Key(uri, text))
         case None       => Optional.empty()
       }
