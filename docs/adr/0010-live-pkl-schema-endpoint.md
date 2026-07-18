@@ -341,14 +341,14 @@ The split is what makes the publish story true rather than aspirational: with th
 dump inside `@fh-dashboard`, publishing would have forced it out at exactly the
 moment the schema became remote — the riskiest possible time to discover the
 identity constraint above. Splitting now costs one manifest and proves the
-arrangement works while everything is still local. `home/dump.pkl` also must not
-sit at the dashboards top level, where `discoverEntries` would scan it as an
-entry (`DashboardBuild.DumpPath` owns the location).
+arrangement works, and the dump lives only as a package — never a top-level
+`*.pkl` that `discoverEntries` would scan as an entry.
 
 `PklBuild.resolveProjectDeps` resolves the mapping **in-process**, writes the
 `PklProject.deps.json` lockfile (gitignored; re-resolved whenever a `PklProject`
 outdates it), and `EvaluatorBuilder.applyFromProject` makes the aliases resolve
-to the local `lib/` and `home/`. The network is touched only for a REMOTE
+to their cache packages (`@fh-dashboard`, `@fh-home`) offline. The network is
+touched only for a REMOTE
 dependency not already in the package cache: local deps read files, a cached
 remote version satisfies the resolver without a request (the client is lazy and
 is never built then — offline build/test paths and add-on boots keep working),
@@ -428,10 +428,9 @@ does, idempotently:
      first, then `pins.json`).
 3. **Migrate old installs**: a workspace-resident `lib/` is renamed to
    `lib.backup.<date>` (anything user-visible we remove or replace is renamed to
-   a dated backup, **never deleted**); a pre-package `home/PklProject` or loose
-   `home/dump.pkl` is backed up; the lockfiles are deleted. A machine-era consumer
-   manifest is NOT rewritten (write-once) — its `./lib` dep dangles once `lib/`
-   moves, and deleting it opts into a fresh package-form re-seed.
+   a dated backup, **never deleted**); the lockfile is deleted. A machine-era
+   consumer manifest is NOT rewritten (write-once) — its `./lib` dep dangles once
+   `lib/` moves, and deleting it opts into a fresh package-form re-seed.
 4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
    manifests, no lib) only into a workspace with no top-level `*.pkl`.
 

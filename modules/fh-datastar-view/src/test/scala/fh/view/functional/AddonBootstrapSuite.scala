@@ -119,12 +119,11 @@ class AddonBootstrapSuite extends munit.FunSuite {
     "upgrade: lib/ litter is backed up; the user's manifest is left untouched"
   ) {
     // An existing install: the old seeding copied lib/ into the workspace and
-    // wrote a machine-era consumer plus a loose home dump. Under write-once the
-    // consumer is the user's — never rewritten — while the lib/ litter and the
-    // pre-package home dump are backed up (never deleted).
+    // wrote a machine-era consumer. Under write-once the consumer is the user's
+    // — never rewritten — while the lib/ litter is backed up (never deleted).
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    os.makeDir.all(box.ws / "home")
+    os.makeDir.all(box.ws)
     os.copy(bundledLib, box.ws / "lib")
     val oldConsumer =
       """amends "pkl:Project"
@@ -133,22 +132,17 @@ class AddonBootstrapSuite extends munit.FunSuite {
         |}
         |""".stripMargin
     os.write(box.ws / "PklProject", oldConsumer)
-    os.write(box.ws / "home" / "dump.pkl", "// old dump\n")
     os.write(box.ws / "PklProject.deps.json", """{"stale": true}""")
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
     val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
 
-    // lib/ and the loose home dump leave as dated backups, never deleted.
+    // lib/ leaves as a dated backup, never deleted.
     assert(!os.exists(box.ws / "lib"))
     assertEquals(
       os.list(box.ws).count(_.last.startsWith("lib.backup.")),
       1,
       clue = os.list(box.ws)
-    )
-    assert(
-      os.list(box.ws / "home").exists(_.last.startsWith("dump.pkl.backup.")),
-      clue = os.list(box.ws / "home")
     )
 
     // Write-once: the user's consumer + entry are untouched, no consumer backup;

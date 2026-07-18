@@ -13,8 +13,8 @@ import java.time.format.DateTimeFormatter
   * `package://fh.invalid/fh-dashboard@<version>` — so the user's dir holds only
   * user files, a runtime upgrade never touches the user's pin (the old version
   * keeps resolving from the cache), and a LIB upgrade is the user's deliberate
-  * pin bump. Pre-package-form installs are migrated: their seeded `lib/` copy
-  * and manifests are renamed to dated backups, never deleted.
+  * pin bump. A pre-package-form install's seeded `lib/` copy is renamed to a
+  * dated backup, never deleted.
   *
   * `@fh-home` is a package too: the dump is a content-versioned cache package
   * (`fh-home@1.0.0-g<hash>`, [[DumpPackage]]), NOT a loose `home/dump.pkl`.
@@ -96,20 +96,6 @@ object AddonBootstrap {
     if (!os.exists(dashboardsDir / "PklProject"))
       os.write(dashboardsDir / "PklProject", consumerManifest)
 
-    // The dump is no longer a loose file in a `home/` package — it's a cache
-    // package pinned by `.fh/pins.json` (ADR 0010). Migrate any pre-package
-    // `home/` remnants (an old machine-owned manifest, the loose dump) to dated
-    // backups — never delete user-visible files.
-    List(
-      dashboardsDir / "home" / "PklProject",
-      dashboardsDir / "home" / "dump.pkl"
-    ).filter(os.exists).foreach { p =>
-      val target = backupPath(p)
-      os.move(p, target)
-      log += s"migrated: home/${p.last} is no longer a workspace file " +
-        s"(moved to home/${target.last})"
-    }
-
     // Starter entries only when the user has none at all — entries are the
     // user's files from the moment they exist.
     val hasEntries = os
@@ -123,14 +109,12 @@ object AddonBootstrap {
       log += s"seeded starter dashboards: ${seeded.mkString(", ")}"
     }
 
-    // The lockfiles are generated artifacts; `PklBuild.staleLockfile` would
-    // catch consumer-manifest edits by mtime, but a refreshed base or home
-    // manifest doesn't move the consumer's mtime. Delete — resolution is
-    // offline-cheap against the warm cache.
-    List(
-      dashboardsDir / "PklProject.deps.json",
-      dashboardsDir / "home" / "PklProject.deps.json"
-    ).foreach(p => if (os.exists(p)) os.remove(p))
+    // The lockfile is a generated artifact; `PklBuild.staleLockfile` would
+    // catch consumer-manifest edits by mtime, but a refreshed base manifest
+    // doesn't move the consumer's mtime. Delete — resolution is offline-cheap
+    // against the warm cache.
+    if (os.exists(dashboardsDir / "PklProject.deps.json"))
+      os.remove(dashboardsDir / "PklProject.deps.json")
 
     log.result()
   }

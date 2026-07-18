@@ -28,8 +28,9 @@ object ServerApp extends IOApp {
   // Last-resort fallback when `DASHBOARDS_DIR` is unset (build.sbt sets it for
   // `dashboardServe` — an absolute repo-root path; `run.sh` sets it on the
   // add-on). A local scratch dir, NOT the resources dir, so a dev run bootstraps
-  // a real package-form workspace (its own `home/`, `.fh/`, dated backups)
-  // without ever writing into the checked-in `src/main/resources/dashboards`.
+  // a real package-form workspace (its `.fh/` pins, seeded entries, dated
+  // backups) without ever writing into the checked-in
+  // `src/main/resources/dashboards`.
   private val defaultDashboardsDir = "dashboard-local-dev"
   // The `lib/` and starter entries a dev run treats as "bundled" — the same
   // resources the add-on image bakes in, here read straight from the repo. The
@@ -468,11 +469,11 @@ object ServerApp extends IOApp {
   /** Bring the workspace to a package-form state the server can evaluate, on
     * EVERY start — add-on or local dev — so the two never diverge (ADR 0010).
     * [[fh.view.build.AddonBootstrap]] packages the bundled library into the
-    * persistent cache and seeds/migrates the user's workspace (its `home/`,
-    * `.fh/base.pkl` pin, starter entries), so `@fh-dashboard` always resolves
-    * from the cache as `package://fh.invalid/fh-dashboard@<v>` and the live
-    * home always serves `/system/pkl/packages` (what `fh init`/`pull`/`push`
-    * read).
+    * persistent cache and seeds/migrates the user's workspace (its
+    * `.fh/base.pkl` + `pins.json`, starter entries), so `@fh-dashboard` always
+    * resolves from the cache as `package://fh.invalid/fh-dashboard@<v>` and the
+    * live home always serves `/system/pkl/packages` (what
+    * `fh init`/`pull`/`push` read).
     *
     * The three inputs come from `run.sh` on the add-on; a local `sbt
     * dashboardServe` has none set and falls back to the repo's own resources —
