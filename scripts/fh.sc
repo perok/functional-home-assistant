@@ -1,4 +1,4 @@
-#!/usr/bin/env -S scala -cli shebang
+#!/usr/bin/env -S scala-cli shebang
 
 //> using scala 3.7.4
 //> using jvm 17
