@@ -198,13 +198,16 @@ object PklBuild {
   ): Boolean =
     !os.exists(depsJson) || {
       val lockTime = os.mtime(depsJson)
-      // `.fh/base.pkl` is the machine-owned half of the manifest amends chain
-      // (pins + rewrites live there too), so a tool rewriting it must take
-      // effect exactly like a manifest edit.
+      // `.fh/base.pkl` is the machine-owned half of the manifest amends chain,
+      // and `.fh/pins.json` holds the `@fh-dashboard`/`@fh-home` pins the static
+      // base.pkl reads — a tool rewriting either (`DumpPackage.seedFromText`
+      // moves the home pin on every dump change) must take effect exactly like a
+      // manifest edit.
       os.walk(dashboardsDir, maxDepth = 2)
         .exists(p =>
           (p.last == "PklProject" ||
-            (p.last == "base.pkl" && (p / os.up).last == ".fh")) &&
+            ((p.last == "base.pkl" || p.last == "pins.json") &&
+              (p / os.up).last == ".fh")) &&
             os.mtime(p) > lockTime
         )
     }

@@ -55,37 +55,43 @@ A dashboard entry pulls in two fh-owned Pkl artifacts:
 
 - **`lib/hass.pkl`** — the hand-written HA domain schema (entity/area/floor
   classes). Static; ships with the module.
-- **`home/dump.pkl`** — the *typed* dump of THIS home's live entities/areas/floors
-  (`PklDump.render(DataDump.fetch(...))`), regenerated from the live instance.
-  Gitignored; per-home; changes as the home changes. It lives in its own package
-  (`@fh-home`) because its lifecycle is the opposite of the library's — see Track B.
+- **`@fh-home/dump.pkl`** — the *typed* dump of THIS home's live
+  entities/areas/floors (`PklDump.render(DataDump.fetch(...))`), regenerated from
+  the live instance. Per-home; changes as the home changes. It is a
+  content-versioned cache package (`@fh-home`, `DumpPackage`) — never a loose file
+  on disk — because its lifecycle is the opposite of the library's — see Track B.
 
 ## Use cases
 
-Four consumers. They differ only in **where `lib/` comes from** and **who writes
-`home/dump.pkl`** — never in how an entry resolves anything. That is the
-invariant the whole design hangs on:
+Four consumers. They differ only in **where the `@fh-dashboard` cache is seeded
+from** and **who seeds the `@fh-home` dump** — never in how an entry resolves
+anything (one mode: both are cache packages). That is the invariant the whole
+design hangs on:
 
 > **Evaluation always runs against a fully-local project**: a consumer
 > `PklProject` binding `@fh-dashboard` and `@fh-home` to packages on the same
 > machine as the evaluator. A running instance is something you **sync from** and
 > **push to** — never something you **import from**.
 
-| | evaluates on | `@fh-dashboard` is | `home/dump.pkl` written by | today |
+Both aliases resolve **one way everywhere — a cache package** (no path-form);
+personas differ only in **where the cache is seeded from** and **who seeds the
+`@fh-home` dump**:
+
+| | evaluates on | `@fh-dashboard` cache seeded from | `@fh-home` dump package seeded by | today |
 |---|---|---|---|---|
-| **End user, `/edit`** | the HA server | the bundled lib, as a version-pinned package from the persistent cache | `prepareDumps`, at startup | works |
-| **End user, local editor** | their laptop (git copy, or no checkout at all) | their checkout's `lib/`, or the same versioned package fetched from the instance (`/system/pkl/packages/`) | a CLI pull from the instance | works (a `pull` CLI would remove the manual steps) |
-| **Repo developer** | laptop, local server | the repo's `lib/`, live-edited | `prepareDumps` vs a dev HA | works |
-| **Component developer** | their laptop | repo `lib/` + their own components | a CLI pull from the instance | server side works; needs the CLI |
+| **End user, `/edit`** | the HA server | the bundled lib (persistent cache) | `prepareDumps`, at startup | works |
+| **End user, local editor** | their laptop (no checkout needed) | the versioned package fetched from the instance (`/system/pkl/packages/`) | `fh pull` re-pins from the instance | works |
+| **Repo developer** | laptop, local server | the repo's `lib/`, seeded on start/`fh push` | `prepareDumps` vs a dev HA | works |
+| **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
 **End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
 `.fh/base.pkl` the user's `PklProject` amends, so pkl-lsp finds it with no
-extra configuration) and the
-freshly-written `home/dump.pkl`, through the project. Nothing is fetched. This is
-the default path and it needs no network story at all.
+extra configuration) and the freshly-seeded `@fh-home` dump package, through the
+project. Nothing is fetched. This is the default path and it needs no network
+story at all.
 
 **End user, local editor.** Their own workspace — their entries and manifests —
 evaluated **locally**, with completion. (Editing the instance's files in place
@@ -100,8 +106,7 @@ content-derived versions") that `fh pull` re-pins. Resolution and push
 evaluation run inside the script (in-process pkl-core); the workspace is a
 plain pkl project, so stock tooling — pkl-lsp completion, the `pkl` CLI —
 works on it identically, offline once cached. `UseCaseSuite` drives the real
-script + the real pkl CLI end-to-end. (A git copy of a full checkout still
-works identically via path-form manifests.)
+script + the real pkl CLI end-to-end.
 
 **Repo developer.** Runs a local server (`sbt dashboardServe`) that bootstraps
 the **same package-form workspace the add-on does** — there is no separate "dev
@@ -109,16 +114,16 @@ mode" and no meaningful difference from the deployed add-on. The bundled library
 is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
 cross-platform cache (the appdirs data dir the `fh` script also uses), the
 workspace is a local scratch dir (`dashboard-local-dev`, gitignored), and
-`prepareDumps` fills `home/dump.pkl` from a dev HA. So a local instance is a
+`prepareDumps` seeds the dump package from a dev HA. So a local instance is a
 **first-class `fh` target**: `fh init`/`pull`/`push` work against it exactly as
 against the add-on. Iterating on the library is `fh push` (or a restart, which
 re-seeds the edited lib) — the same path any other author uses — NOT a
 live-editable workspace `lib/`: the running instance always reads the library
-from the bundled resources, never a mutable copy in the workspace. (Path-form
-manifests — `@fh-dashboard` bound as a local `import("./lib/PklProject")` — are
-still how the offline build phase, `BuildApp`, and the test harness resolve the
-library and how a stock-tooling checkout evaluates locally; they are simply no
-longer a *server* mode.)
+from the bundled resources, never a mutable copy in the workspace. There is a
+**single resolution mode**: `BuildApp` and the test harness bootstrap the same
+package-form workspace (seeding the dump via `DumpPackage.seedFromText`), so
+path-form was retired entirely — the repo `lib/` is bundled-lib SOURCE, not a
+`./lib` local dependency.
 
 **Component developer.** Writes their own cards locally and a local entry that
 imports both them and `@fh-home/dump.pkl`. Their instance cannot evaluate that
@@ -206,15 +211,15 @@ Two complementary mechanisms, one for each consumer class.
 ### Track A — the `/system/pkl/:name` HTTP endpoint (the instance's mirror)
 
 `Server` serves `GET /system/pkl/dump.pkl` as `text/plain` from a `SystemPkl`
-provider (`SystemPkl.fromDisk(dashboardsDir)` reads `home/dump.pkl`;
-`prepareDumps` has already written the live dump). This is the live,
-always-in-sync mirror of the dump *that* running home is authoritative for, so a
-client can copy it locally instead of working against a checkout's stale file.
-`hass.pkl` is **not** served as a standalone module: the running workspace is
-always package-form (no workspace `lib/`), the schema travels inside the
-`@fh-dashboard` lib package below, and the dump's `@fh-dashboard/hass.pkl` import
-resolves against the puller's own pin — so that name returns a reason pointing at
-the packages route, not a file. Any other unknown name is a 404 too.
+provider (`SystemPkl.fromDisk(dashboardsDir)` extracts `dump.pkl` from the
+currently PINNED `@fh-home` package zip in the cache — there is no loose
+`home/dump.pkl`). This is the live, always-in-sync mirror of the dump *that*
+running home is authoritative for, for humans and debugging; the supported laptop
+CONSUMPTION is the package pull below. `hass.pkl` is **not** served as a
+standalone module: the schema travels inside the `@fh-dashboard` lib package, and
+the dump's `@fh-dashboard/hass.pkl` import resolves against the puller's own pin —
+so that name returns a reason pointing at the packages route, not a file. Any
+other unknown name is a 404 too.
 
 **`GET /system/pkl/packages/<name>@<version>[.zip]`** serves the instance's
 resolved packages: the metadata JSON at the bare name, the module zip at
@@ -306,17 +311,20 @@ sibling; the evaluator's allowlist admits `http:` when this factory is present.
 ### Track B — the `@fh-dashboard` / `@fh-home` aliases (the authoring surface)
 
 Entries do **not** import the library by http URL or relative path. There are two
-Pkl **packages**, split by lifecycle, and the entries' directory is a **consumer
-project** (`dashboards/PklProject`) mapping both aliases:
+Pkl **packages**, split by lifecycle; the workspace's `PklProject` (amending the
+machine-owned `.fh/base.pkl`) is the **consumer project** binding both aliases as
+**cache packages** (one resolution mode — no `./lib`/`./home` local deps):
 
-- **`@fh-dashboard` → `./lib`** (`lib/PklProject`, name `fh-dashboard`) — the
-  shared authoring library: schema, card classes, themes, tokens, entry base.
-  Versionable; one day publishable to a registry.
-- **`@fh-home` → `./home`** (`home/PklProject`, name `fh-home`) — THIS home's
-  live data: just the generated `dump.pkl`. Per-home, regenerated from the live
-  instance, and **never publishable** — decoupling the dump from the live home is
-  precisely what this whole ADR exists to avoid. It depends on `@fh-dashboard`
-  for the schema.
+- **`@fh-dashboard`** (`lib/PklProject`, name `fh-dashboard`) — the shared
+  authoring library: schema, card classes, themes, tokens, entry base, packaged
+  into the cache by `LibPackage`. Versionable; one day publishable to a registry.
+- **`@fh-home`** (name `fh-home`) — THIS home's live data: the generated
+  `dump.pkl`, as a **content-versioned cache package** `fh-home@1.0.0-g<hash>`
+  (`DumpPackage`), NOT a `./home` folder. Per-home, regenerated from the live
+  instance, and **never publishable**. Its package metadata depends on
+  `@fh-dashboard` for the schema; the consumer's `.fh/base.pkl` binds it by
+  reading the `.fh/pins.json` pin. There is one resolution mode: both aliases
+  are cache packages everywhere (server, `BuildApp`, tests) — no path-form.
 
 An entry reads:
 
@@ -359,16 +367,14 @@ alias.** `components.pkl` → `import "hass.pkl"`, `entry.pkl` →
 package member cannot reference its own package by alias — and need not, since the
 relative import already lands on the package base. `dump.pkl` is the other case:
 it is a member of `@fh-home` reaching into a *different* package, so it writes
-`import "@fh-dashboard/hass.pkl"` — declared as a dependency in `home/PklProject`,
-and resolving to the same base `components.pkl`'s relative import does.
+`import "@fh-dashboard/hass.pkl"` — declared as a dependency in the dump package's
+own metadata (`DumpPackage`), and resolving to the same base `components.pkl`'s
+relative import does.
 
-The day `lib/` is published to a registry, only the consumer `PklProject` mapping
-flips (`["fh-dashboard"] = "package://…/fh-dashboard@1.0.0"`); entries do not
-change, and neither does the dump's alias import. "Published + local fallback" is
-this *resolution mapping*, chosen per project — not runtime failover. The add-on
-workspace already lives on the package side of that flip (below); the repo
-checkout keeps the local-path mapping, which is what makes the repo developer's
-live-edit watch set work.
+The day `lib/` is published to a registry, only the `@fh-dashboard` pin changes
+(`package://pkg.pkl-lang.org/…` instead of `package://fh.invalid/…`); entries do
+not change, and neither does the dump's alias import — because both are already
+cache packages resolved through the pin, there is no local-vs-remote flip to make.
 
 ### The add-on workspace — the lib as a decoupled, version-pinned package
 
@@ -396,27 +402,33 @@ does, idempotently:
    `amends` chain (spike-verified on 0.31.1: a `PklProject` can amend a local
    base module; the child inherits `dependencies` and `evaluatorSettings`, and
    its own mapping entries override the base's):
-   - `.fh/base.pkl` — **machine-owned, refreshed every start**: `moduleCacheDir`
-     (so pkl-lsp and any pkl tool resolve from the same cache), the `@fh-home`
-     binding, and a *default* `@fh-dashboard` pin at the bundled version.
-     Add-on internals can change here without merge heuristics or backups.
-   - `PklProject` — seeded once (`amends ".fh/base.pkl"` + the pin at the
-     then-bundled version), then the **user's file, never rewritten**. The
-     user's pin overrides the base's default — so it is the ONE place the pin
-     lives; deleting the entry opts into tracking the bundled version.
-     Third-party packages are declared here.
-   - `home/PklProject` — **machine-owned** like the `dump.pkl` beside it,
-     regenerated every start with its `@fh-dashboard` pin synced (textually)
-     from the user's manifest, killing the two-place-pin-bump footgun that the
-     module-identity constraint would otherwise turn into a type error.
+   - `.fh/base.pkl` — **machine-owned, STATIC**: `moduleCacheDir` (so pkl-lsp and
+     any pkl tool resolve from the same cache) and BOTH alias bindings, each
+     reading its pin from the sibling `.fh/pins.json` via `pkl:json` (a single
+     `local class Pins { dashboardUri; homeUri; homeSha256 }` + one
+     `(new json.Parser {}).parse(read("pins.json")).toTyped(Pins)`). This file
+     never changes per-dump; it is rewritten only when the template changes
+     across add-on versions.
+   - `.fh/pins.json` — **machine-owned** `{ dashboardUri, homeUri, homeSha256 }`,
+     the ONE file rewritten as pins move (both pins are DATA here, so a future
+     lib bump or dump pull is the same file-rewrite mechanism): `dashboardUri` set
+     to the bundled lib version every start, the home fields by
+     `DumpPackage.seedFromText` per dump (a placeholder until the first dump).
+     Read-modify-write, so the two writers never clobber each other. `@fh-home` is
+     a content-versioned cache package (`fh-home@1.0.0-g<hash>`), not a `home/`
+     folder — no loose `home/dump.pkl`, no `home/PklProject`.
+   - `PklProject` — written ONCE when absent, then the **user's file, never
+     touched** (no migrate-rewrite). It amends `.fh/base.pkl` and carries NO
+     `dependencies` block of its own, so the workspace tracks the bundled lib
+     version; the user may add a block to pin a version or declare third-party
+     packages (that override wins for module identity — `effectivePin` reads it
+     first, then `pins.json`).
 3. **Migrate old installs**: a workspace-resident `lib/` is renamed to
    `lib.backup.<date>` (anything user-visible we remove or replace is renamed to
-   a dated backup, **never deleted**); any machine-era consumer manifest
-   (recognized by amending `pkl:Project` directly — both the copy-if-empty
-   path-form and the interim single-file package form) is backed up and
-   rewritten to the amends-the-base shape, **preserving a pin it carried**; a
-   pre-machine-form `home/PklProject` gets one dated backup on the way over;
-   and the lockfiles are deleted.
+   a dated backup, **never deleted**); a pre-package `home/PklProject` or loose
+   `home/dump.pkl` is backed up; the lockfiles are deleted. A machine-era consumer
+   manifest is NOT rewritten (write-once) — its `./lib` dep dangles once `lib/`
+   moves, and deleting it opts into a fresh package-form re-seed.
 4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
    manifests, no lib) only into a workspace with no top-level `*.pkl`.
 
@@ -424,24 +436,25 @@ does, idempotently:
 whenever a `PklProject` is newer than the lockfile (and boot deletes it
 outright), so the pin in the manifest is always what evaluates.
 
-The decoupling is the point: a **runtime** upgrade never moves the user's pin —
-the new image seeds its bundled lib version into the cache *alongside* the old
-one, and the user's dashboards keep evaluating against the version they pinned.
-A **lib** upgrade is the user's deliberate pin bump — one line in *their*
-`PklProject` (`/edit` today, a future `fh sync`); the home manifest follows at
-the next start. Pin-in-user-file is then correct semantics rather than a
-stranding hazard, and the instance and the laptop become symmetric: the same
+The decoupling is the point. By default the user's `PklProject` carries no pin,
+so it tracks the bundled lib version (`pins.json`'s `dashboardUri`, refreshed each
+start) — a runtime upgrade moves it, and the old version stays cached alongside
+the new. To *freeze* against a version — so an upgrade never moves it — the user
+adds a `dependencies` block to *their* `PklProject` (`/edit` today, a future
+`fh sync`); that override wins, and the dump package follows it (`effectivePin`
+reads the user override first, then `pins.json`, keeping module identity). The
+instance and the laptop are symmetric: the same
 `package://fh.invalid/fh-dashboard@<v>` pin resolves from the local cache on the
-instance and over an `http.rewrites` mapping toward `/system/pkl/packages/` on
-a laptop (below). What the split demands in exchange
-is a wire-format **compatibility contract** between independently-shipping
-artifacts — see follow-ups.
+instance and over an `http.rewrites` mapping toward `/system/pkl/packages/` on a
+laptop (below). What the split demands in exchange is a wire-format
+**compatibility contract** between independently-shipping artifacts — see
+follow-ups.
 
 `AddonBootstrapSuite` pins this whole contract: lib-free workspace, offline
 evaluation from the pre-seeded cache, module identity under the package form
-(the dump's remote-dep `@fh-dashboard` and the consumer's land on ONE cached
-artifact), dated-backup migration, pin-bump sync into the home manifest, quiet
-second boot, loud drift.
+(the dump package's `@fh-dashboard` dep and the entry's alias land on ONE cached
+artifact), the JSON pin in a static base.pkl, write-once consumer + dated-backup
+litter migration, quiet second boot, loud drift.
 
 ## The load-bearing constraint: module identity
 
@@ -486,33 +499,29 @@ is exactly the shape row 3 above proves is sensitive.
 
 ## The watch set
 
-`PklBuild.importSet` computes the file-watch set from `Analyzer.importGraph`, and
-**the `@fh-dashboard` alias resolves there too** — so the set is precise, with no
-`lib/` special-casing anywhere.
-
-Two of the `Analyzer` constructor's slots do it: the `moduleCacheDir` and the
-`DeclaredDependencies` (`project.getDependencies` — the same `resolveProjectDeps`
-output the evaluator gets). With those supplied and the `projectpackage`/`pkg`
-factories registered, an `import "@fh-dashboard/components.pkl"` analyzes as
-`projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl` and — because
-`@fh-dashboard` is a **local** dependency — `graph.resolvedImports` maps it
-straight back to the real `file:…/lib/components.pkl`. The existing `file:` filter
-then picks up exactly the library modules the entry imports, and nothing else.
+`PklBuild.importSet` computes the file-watch set from `Analyzer.importGraph` and
+keeps only `file:` modules under the workspace. Under the single package-form
+mode, `@fh-dashboard` and `@fh-home` are **cache packages**: an
+`import "@fh-dashboard/components.pkl"` analyzes as a `package://…` /
+`projectpackage://…` URI backed by the cache — NOT a `file:` path under the
+workspace — so the `file:` filter drops it. The set is therefore **the entry
+itself plus any loose (non-package) imports** it makes, and nothing else.
 (Verified on pkl-core 0.31.1; `PklBuildSuite` pins it with a probe that imports
-`@fh-dashboard/hass.pkl` and asserts an unimported sibling stays *out* of the set
-— the assertion that separates "precise" from the superset, since the superset
-contains the aliased module too and would pass vacuously.)
+`@fh-dashboard/hass.pkl` and asserts the import set is exactly the probe — the
+aliased lib module is excluded — while a separate probe with a plain
+`import "lib/helper.pkl"` shows loose file imports ARE tracked, and an unimported
+sibling stays out.)
 
-So editing a card class or the schema hot-reloads every entry that imports it, by
-the ordinary import mechanism. `ServerApp.watchedSet` is just
-`imports ++ entry files`; the earlier explicit "add every `*.pkl` under `lib/`"
-is gone, and with it the "local-dev only toggle" that add was meant to seam —
-watching follows imports, so a deployed add-on whose library never changes simply
-never fires a reload.
-
-The conservative superset (every `*.pkl` under the dir) remains as the fallback
-for an analysis that throws, which is now an unexpected path rather than the
-normal one for shipped entries.
+**Consequence: the library is immutable per version and does NOT hot-reload.**
+Editing a card class or the schema takes effect only after the cache is re-seeded
+— a server restart (`LibPackage.seedCache` overwrites on byte change) or a
+`fh push`. This is the deliberate cost of one resolution mode: the running server
+is a stable renderer of a versioned library, not a live-edit host for it. Only
+entries (and their loose imports) hot-reload; a deployed add-on whose library
+never changes simply never fires a lib reload — which is now the norm, not a
+special case. `ServerApp.watchedSet` is `imports ++ entry files`; the conservative
+superset (every `*.pkl` under the dir) remains as the fallback for an analysis
+that throws.
 
 ## Refreshing the dump while running
 
@@ -537,19 +546,19 @@ simply ends in the same `reloadEntries` hot-swap the watcher uses.
   "refresh dump" button). Unauthenticated with the same rationale and caveat as
   `/system/push` — when auth lands for the direct port it must cover this route.
 
-**The flow.** Fetch + render the dump; byte-identical → no-op. Otherwise the
-whole workspace is copied to a temp dir (lockfiles dropped so dependencies
-re-resolve; the package cache is not copied — the add-on's is an absolute path
-and a repo checkout binds `@fh-dashboard` locally), the new dump written there,
-and every entry evaluated against it. An entry failing under the new dump
-blocks the swap **only if it builds under the current one** — a dashboard the
-user has mid-edit must not veto registry changes forever. On green: the old
-dump is renamed to `dump.pkl.backup.<date>` (the shared backup convention —
-machine-regenerated, but a swap is destructive of live data an entry may still
-be pinned to, and the user asked for the trail), the new dump written, its
-content-versioned package seeded (`DumpPackage`), and the renderers hot-swap.
-On rejection nothing on disk moves and the server warns (log +
-per-dashboard errors in the endpoint response).
+**The flow.** Fetch + render the dump; its content-version equals the pinned
+one → no-op (no file compare — same content is the same `fh-home@…-g<hash>`).
+Otherwise the whole workspace is copied to a temp dir (lockfiles dropped so
+dependencies re-resolve; the package cache is not copied — `moduleCacheDir` is an
+absolute path shared with the real workspace), the new dump **seeded there as its
+package** with the staged pin moved to it, and every entry evaluated against it.
+An entry failing under the new dump blocks the swap **only if it builds under the
+current one** — a dashboard the user has mid-edit must not veto registry changes
+forever. On green the real `.fh/pins.json` moves to the new snapshot and the
+renderers hot-swap; the **previous immutable package version stays in the cache**
+— the snapshot itself is the trail (still resolvable for any laptop pinned to
+it), so there is no dated backup file. On rejection nothing moves and the server
+warns (log + per-dashboard errors in the endpoint response).
 
 ## Alternatives rejected
 

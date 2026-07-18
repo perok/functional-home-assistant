@@ -45,17 +45,20 @@ object LibPackage {
       .findFirstMatchIn(manifestText)
       .map(_.group(1))
 
-  /** The workspace's effective lib pin: the user's `PklProject` wins, the
-    * machine-owned `.fh/base.pkl` is the default — mirroring Pkl's own amends
-    * override order. `None` on a path-form workspace (the repo checkout), which
-    * has no package pin at all.
+  /** The workspace's effective lib pin — the version the ENTRY resolves
+    * `@fh-dashboard` to, which the dump package must declare to keep module
+    * identity. The user's `PklProject` override wins (they may add a
+    * `dependencies` block that shadows the base default); otherwise the
+    * machine-owned pin in `.fh/pins.json` (which `.fh/base.pkl` reads) governs.
+    * `None` on a workspace with neither (not a bootstrapped package-form one).
     */
   def effectivePin(dashboardsDir: os.Path): Option[String] =
-    List(dashboardsDir / "PklProject", dashboardsDir / ".fh" / "base.pkl")
-      .filter(os.exists)
-      .map(os.read(_))
+    Option
+      .when(os.exists(dashboardsDir / "PklProject"))(
+        os.read(dashboardsDir / "PklProject")
+      )
       .flatMap(pinnedVersion)
-      .headOption
+      .orElse(Pins.dashboardVersion(dashboardsDir))
 
   /** The lib's own version, from the `version = "…"` line of its manifest — the
     * ONE place the library version is declared (decoupled from the add-on

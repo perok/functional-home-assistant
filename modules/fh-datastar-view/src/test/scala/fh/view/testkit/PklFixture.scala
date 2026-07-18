@@ -43,27 +43,12 @@ object PklFixture {
       |  chrome = ""
       |}""".stripMargin
 
-  /** The real Pkl library modules, as shipped under the resources dir. `os.pwd`
-    * in the test JVM is the repo root (mirroring `PklBuildSuite`).
-    */
-  private val dashboardsDir =
-    os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
-
-  /** Every lib module an entry that `amends "lib/entry.pkl"` needs. */
-  private val libModules =
-    List(
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-
-  /** Stage the lib + a `home/dump.pkl` rendered from `dump`, write
-    * `entrySource` as `<slug>.pkl`, and evaluate it. Throws with the pipeline's
-    * error text if evaluation fails — so a broken fixture fails loudly at the
-    * call site.
+  /** Bootstrap a package-form workspace (the ONE resolution mode, ADR 0010)
+    * with the `dump` seeded as the `@fh-home` cache package, write
+    * `entrySource` as `<slug>.pkl`, and evaluate it. The entry resolves
+    * `@fh-dashboard`/`@fh-home` from the cache exactly as the live server does.
+    * Throws with the pipeline's error text if evaluation fails — so a broken
+    * fixture fails loudly at the call site.
     */
   def eval(
       slug: String,
@@ -71,21 +56,7 @@ object PklFixture {
       dump: Json = HouseFixture.transformedDump
   ): Built = {
     val tmp = os.temp.dir()
-    os.makeDir.all(tmp / "lib")
-    libModules.foreach(n =>
-      os.copy.into(dashboardsDir / "lib" / n, tmp / "lib")
-    )
-    // Stage both Pkl packages + the consumer project, so an entry resolves the
-    // aliases exactly as the live server does (ADR 0010, Track B): the
-    // `@fh-dashboard` manifest in `lib/`, the `@fh-home` manifest in `home/`
-    // (with the generated dump inside it, where `prepareDumps` writes it), and
-    // the consumer `PklProject` mapping both. `PklBuild` resolves the
-    // (network-free, local) lockfile in-process.
-    os.makeDir.all(tmp / "home")
-    os.write(DashboardBuild.dumpPath(tmp), PklDump.render(dump))
-    os.copy.into(dashboardsDir / "lib" / "PklProject", tmp / "lib")
-    os.copy.into(dashboardsDir / "home" / "PklProject", tmp / "home")
-    os.copy.into(dashboardsDir / "PklProject", tmp)
+    PklWorkspace.bootstrap(tmp, PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
     os.write(tmp / entryFile, entrySource)

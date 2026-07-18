@@ -4,9 +4,11 @@ import fh.view.testkit.{FixtureEntity, HouseFixture}
 import io.circe.Json
 
 /** Validate-then-swap for the regenerated dump ([[DumpRefresh]]): a changed
-  * home swaps in only when every dashboard that builds today still builds, the
-  * replaced dump is kept as a dated backup, and a rejected swap leaves the
-  * workspace untouched.
+  * home swaps in only when every dashboard that builds today still builds. In
+  * package terms (ADR 0010, no loose `home/dump.pkl`): the swap moves the
+  * `.fh/pins.json` pin to the new content-versioned snapshot, the PREVIOUS
+  * version stays in the cache as the trail, and a rejected swap leaves the pin
+  * untouched.
   */
 class DumpRefreshSuite extends munit.CatsEffectSuite {
 
@@ -41,57 +43,71 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
   private val currentDump = dumpText(HouseFixture.all)
 
   /** A package-form workspace (the add-on shape) with one dump-referencing
-    * entry and the fixture dump written — the state after a boot's
-    * `prepareDumps`. The entry is written BEFORE bootstrap so the starter
-    * dashboards are not seeded (one entry keeps the evals fast and the
-    * assertions specific).
+    * entry and the fixture dump seeded as its `@fh-home` package — the state
+    * after a boot's `prepareDumps`. The entry is written BEFORE bootstrap so
+    * the starter dashboards are not seeded (one entry keeps the evals fast and
+    * the assertions specific).
     */
   private def stage(): os.Path = {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     os.write(ws / "dash.pkl", kitchenEntry, createFolders = true)
     val _ = AddonBootstrap.run(ws, bundledLib, seedDir, root / "pkl-cache")
-    os.write(DashboardBuild.dumpPath(ws), currentDump, createFolders = true)
-    val _ = DumpPackage.seedFromWorkspace(ws)
+    val _ = DumpPackage.seedFromText(ws, currentDump)
     ws
   }
 
   private val entries = List("dash" -> "dash.pkl")
 
-  private def backups(ws: os.Path): Seq[os.Path] =
-    os.list(ws / "home").filter(_.last.startsWith("dump.pkl.backup."))
+  private def cacheOf(ws: os.Path): os.Path = ws / os.up / "pkl-cache"
+  private def homeVersions(ws: os.Path): Set[String] =
+    os.list(cacheOf(ws) / "package-2" / LibPackage.Host)
+      .filter(_.last.startsWith("fh-home@"))
+      .map(_.last)
+      .toSet
 
   test("a byte-identical dump is a no-op") {
     val ws = stage()
+    val before = DumpPackage.pinnedVersion(ws)
     DumpRefresh.refresh(currentDump, ws, entries).map { result =>
       assertEquals(result, DumpRefresh.Unchanged)
-      assertEquals(os.read(DashboardBuild.dumpPath(ws)), currentDump)
-      assertEquals(backups(ws), Seq.empty)
+      assertEquals(DumpPackage.pinnedVersion(ws), before)
     }
   }
 
-  test("a green change swaps in, keeping the old dump as a dated backup") {
+  test("a green change swaps the pin; the old snapshot stays in the cache") {
     val ws = stage()
+    val before = DumpPackage.pinnedVersion(ws).getOrElse(fail("no initial pin"))
     // The TV leaves the home — no dashboard references it, so all stay green.
     val next = dumpText(HouseFixture.all.filterNot(_ == HouseFixture.tv))
     DumpRefresh.refresh(next, ws, entries).map {
-      case DumpRefresh.Swapped(backup, seedLog) =>
-        assertEquals(os.read(DashboardBuild.dumpPath(ws)), next)
-        // The replaced dump was renamed, not deleted, and keeps its bytes.
-        val kept = backup.getOrElse(fail("no backup of the previous dump"))
-        assertEquals(backups(ws), Seq(kept))
-        assertEquals(os.read(kept), currentDump)
-        // The new snapshot was packaged (a laptop pull sees the new version).
+      case DumpRefresh.Swapped(version, seedLog) =>
+        assertNotEquals(version, before)
+        assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
+        // The previous snapshot is untouched — a laptop pinned to it keeps
+        // resolving.
         assert(
-          seedLog.exists(_.contains("seeded dump package")),
+          homeVersions(ws).contains(s"fh-home@$before"),
+          clue = homeVersions(ws)
+        )
+        // The package was already seeded into the shared cache during
+        // validation, so the swap's log just records the pin move.
+        assert(
+          seedLog.exists(_.contains("pinned @fh-home")),
           clue = seedLog
+        )
+        // Both snapshots now live in the cache.
+        assert(
+          homeVersions(ws).contains(s"fh-home@$version"),
+          clue = homeVersions(ws)
         )
       case other => fail(s"expected Swapped, got $other")
     }
   }
 
-  test("a dump that breaks a building dashboard is rejected; nothing moves") {
+  test("a dump that breaks a building dashboard is rejected; the pin holds") {
     val ws = stage()
+    val before = DumpPackage.pinnedVersion(ws)
     val next =
       dumpText(HouseFixture.all.filterNot(_ == HouseFixture.kitchenLight))
     DumpRefresh.refresh(next, ws, entries).map {
@@ -101,9 +117,8 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
           errors.head._2.contains("light_kitchen"),
           clue = errors.head._2
         )
-        // The workspace is untouched: current dump still in place, no backup.
-        assertEquals(os.read(DashboardBuild.dumpPath(ws)), currentDump)
-        assertEquals(backups(ws), Seq.empty)
+        // The pin is untouched: still the current snapshot.
+        assertEquals(DumpPackage.pinnedVersion(ws), before)
       case other => fail(s"expected Rejected, got $other")
     }
   }
@@ -121,8 +136,8 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     val next = dumpText(HouseFixture.all.filterNot(_ == HouseFixture.tv))
     val both = entries :+ ("broken" -> "broken.pkl")
     DumpRefresh.refresh(next, ws, both).map {
-      case DumpRefresh.Swapped(_, _) =>
-        assertEquals(os.read(DashboardBuild.dumpPath(ws)), next)
+      case DumpRefresh.Swapped(version, _) =>
+        assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
       case other => fail(s"expected Swapped, got $other")
     }
   }

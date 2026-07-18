@@ -16,43 +16,24 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump ONCE and write it into the `@fh-home` package
-    * ([[DumpPath]]), so an entry's `import "@fh-home/dump.pkl"` resolves. This
-    * is the build phase's job: it owns fetching + writing the dump, and the
-    * runtime ([[fh.view.runtime.ServerApp]]) calls through here rather than
-    * reaching into [[DataDump]]/[[PklDump]] directly — the runtime writes the
-    * dump once for all entries, then [[reevaluate]]s each against the on-disk
-    * copy.
+  /** Fetch the live entity dump ONCE and seed it as the `@fh-home` content-
+    * versioned package ([[DumpPackage.seedFromText]]), so an entry's
+    * `import "@fh-home/dump.pkl"` resolves from the workspace cache. There is
+    * no loose `home/dump.pkl` on disk (ADR 0010): the dump is only ever a
+    * package, pinned via `.fh/pins.json`. This is the build phase's job — it
+    * owns fetching + packaging the dump — and the runtime
+    * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
+    * into [[DataDump]]/[[PklDump]] directly: it seeds the dump once for all
+    * entries, then [[reevaluate]]s each against the cached package.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path
   ): IO[Unit] =
     DataDump.fetch(api).flatMap { dump =>
-      IO.blocking {
-        os.write.over(
-          dumpPath(dashboardsDir),
-          PklDump.render(dump),
-          createFolders = true
-        )
-        // The freshly-written dump, as a content-versioned package in the
-        // workspace cache — what a laptop's `fh pull` resolves (ADR 0010).
-        // A no-op on path-form workspaces and on an unchanged home.
-        DumpPackage.seedFromWorkspace(dashboardsDir)
-      }.flatMap(_.traverse_(IO.println))
+      IO.blocking(DumpPackage.seedFromText(dashboardsDir, PklDump.render(dump)))
+        .flatMap(_.traverse_(IO.println))
     }
-
-  /** Where the generated dump lives, relative to the dashboards dir: inside the
-    * `@fh-home` package rather than beside the shared library.
-    *
-    * The dump is per-home live data and can never ship inside a published
-    * `@fh-dashboard`, so it gets its own package with its own lifecycle (ADR
-    * 0010). It also must NOT sit at the dashboards-dir top level, where
-    * `ServerApp.discoverEntries` would scan it as an entry.
-    */
-  val DumpPath: os.RelPath = os.RelPath("home") / "dump.pkl"
-
-  def dumpPath(dashboardsDir: os.Path): os.Path = dashboardsDir / DumpPath
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
     * JSON + the set of files read (entry + transitive imports).

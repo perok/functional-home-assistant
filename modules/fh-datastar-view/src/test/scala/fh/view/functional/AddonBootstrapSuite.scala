@@ -1,6 +1,12 @@
 package fh.view.functional
 
-import fh.view.build.{AddonBootstrap, LibPackage, PklDump, SourceEval}
+import fh.view.build.{
+  AddonBootstrap,
+  DumpPackage,
+  LibPackage,
+  PklDump,
+  SourceEval
+}
 import fh.view.testkit.{HouseFixture, PklFixture}
 
 /** The add-on boot contract (ADR 0010, "the add-on workspace"): the bundled
@@ -38,48 +44,56 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(!os.exists(box.ws / "lib"), clue = os.list(box.ws))
     assert(os.exists(box.ws / "dashboard.pkl"))
 
-    // Ownership splits along the amends chain: the user's PklProject amends
-    // the machine-owned .fh/base.pkl and holds the pin; the base points every
-    // pkl tool (the server, pkl-lsp) at the same persistent cache and carries
-    // the bundled-version default.
+    // Ownership splits along the amends chain: the user's PklProject amends the
+    // machine-owned .fh/base.pkl and is seeded WITHOUT a dependencies block (no
+    // pin of its own — it tracks the base default). The base points every pkl
+    // tool at the persistent cache and reads both pins from pins.json.
     val consumer = os.read(box.ws / "PklProject")
     assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
+    // No ACTIVE dependencies block (the docstring shows a commented example, but
+    // no uncommented pin) — the workspace tracks the base default.
     assert(
-      consumer.contains(LibPackage.packageUri(libVersion)),
+      !consumer.linesIterator.exists(_.trim == "dependencies {"),
       clue = consumer
     )
     val base = os.read(box.ws / ".fh" / "base.pkl")
     assert(base.contains(box.cache.toString), clue = base)
-    assert(base.contains(LibPackage.packageUri(libVersion)), clue = base)
-    assert(
-      os.read(box.ws / "home" / "PklProject")
-        .contains(LibPackage.packageUri(libVersion))
-    )
+    assert(base.contains("read(\"pins.json\")"), clue = base)
+    // Both pins are DATA in pins.json: the lib pin at the bundled version, the
+    // home pin a placeholder until the first dump. There is no `home/` folder.
+    val pins = os.read(box.ws / ".fh" / "pins.json")
+    assert(pins.contains(LibPackage.packageUri(libVersion)), clue = pins)
+    assert(!os.exists(box.ws / "home"), clue = os.list(box.ws))
 
     // The cache entry is exactly the resolved-package layout pkl expects.
     val entry = LibPackage.cacheEntryDir(box.cache, libVersion)
     assert(os.exists(entry / s"fh-dashboard@$libVersion.zip"))
     assert(os.exists(entry / s"fh-dashboard@$libVersion.json"))
 
-    // And the starter EVALUATES, fully offline (PklBuild's resolver uses a
-    // dummy http client — the warm cache is the only possible source), before
-    // `prepareDumps` has ever run — so with the `@fh-home` package still empty.
+    // Seed a dump (what `prepareDumps` does at startup, moving the pin off the
+    // placeholder), then the starter EVALUATES fully offline — PklBuild's
+    // resolver uses a dummy http client, so the warm cache is the only source.
+    val _ =
+      DumpPackage.seedFromText(
+        box.ws,
+        PklDump.render(HouseFixture.transformedDump)
+      )
     val result = SourceEval.eval(box.ws, "dashboard.pkl")
     assert(result.isRight, clue = result)
   }
 
   test("a dump-importing entry typechecks against the packaged schema") {
-    // The module-identity constraint under the package form: the dump's
-    // `import "@fh-dashboard/hass.pkl"` (via home/PklProject's REMOTE dep) and
-    // the entry's `@fh-dashboard/components.pkl` (via the consumer's) must
-    // land on ONE cached artifact, or passing `dump.entities.*` into a card
-    // factory is a Pkl type error. This is the packaged twin of ADR 0010's
-    // identity table.
+    // The module-identity constraint under the package form: the dump package's
+    // declared `@fh-dashboard` dependency and the entry's
+    // `@fh-dashboard/components.pkl` must land on ONE cached artifact, or passing
+    // `dump.entities.*` into a card factory is a Pkl type error. This is the
+    // packaged twin of ADR 0010's identity table.
     val (box, _) = boot()
-    os.write(
-      box.ws / "home" / "dump.pkl",
-      PklDump.render(HouseFixture.transformedDump)
-    )
+    val _ =
+      DumpPackage.seedFromText(
+        box.ws,
+        PklDump.render(HouseFixture.transformedDump)
+      )
     os.write(
       box.ws / "mine.pkl",
       s"""amends "@fh-dashboard/entry.pkl"
@@ -101,71 +115,61 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
   }
 
-  test("upgrade from the copy-if-empty layout migrates with dated backups") {
-    // Stage what an existing install looks like: the old seeding copied lib/
-    // INTO the workspace, wrote path-form manifests, and a lockfile pinned it
-    // all at install time. The user has an entry of their own.
+  test(
+    "upgrade: lib/ litter is backed up; the user's manifest is left untouched"
+  ) {
+    // An existing install: the old seeding copied lib/ into the workspace and
+    // wrote a machine-era consumer plus a loose home dump. Under write-once the
+    // consumer is the user's — never rewritten — while the lib/ litter and the
+    // pre-package home dump are backed up (never deleted).
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
     os.makeDir.all(box.ws / "home")
     os.copy(bundledLib, box.ws / "lib")
-    os.write(
-      box.ws / "PklProject",
+    val oldConsumer =
       """amends "pkl:Project"
         |dependencies {
         |  ["fh-dashboard"] = import("./lib/PklProject")
-        |  ["fh-home"] = import("./home/PklProject")
         |}
         |""".stripMargin
-    )
-    os.write(
-      box.ws / "home" / "PklProject",
-      """amends "pkl:Project"
-        |package {
-        |  name = "fh-home"
-        |  baseUri = "package://fh.invalid/fh-home"
-        |  version = "1.0.0"
-        |  packageZipUrl = "https://fh.invalid/fh-home@\(version).zip"
-        |}
-        |dependencies {
-        |  ["fh-dashboard"] = import("../lib/PklProject")
-        |}
-        |""".stripMargin
-    )
+    os.write(box.ws / "PklProject", oldConsumer)
+    os.write(box.ws / "home" / "dump.pkl", "// old dump\n")
     os.write(box.ws / "PklProject.deps.json", """{"stale": true}""")
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
     val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
 
-    // lib/ left the workspace — as a rename, never a delete (backup rule).
+    // lib/ and the loose home dump leave as dated backups, never deleted.
     assert(!os.exists(box.ws / "lib"))
-    val backups = os.list(box.ws).filter(_.last.startsWith("lib.backup."))
-    assertEquals(backups.size, 1, clue = os.list(box.ws))
-
-    // Both old-form manifests were recognized, backed up, and rewritten.
-    assert(
-      os.read(box.ws / "PklProject").contains(LibPackage.packageUri(libVersion))
-    )
-    assert(
-      os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")),
+    assertEquals(
+      os.list(box.ws).count(_.last.startsWith("lib.backup.")),
+      1,
       clue = os.list(box.ws)
     )
     assert(
-      os.list(box.ws / "home").exists(_.last.startsWith("PklProject.backup.")),
+      os.list(box.ws / "home").exists(_.last.startsWith("dump.pkl.backup.")),
       clue = os.list(box.ws / "home")
     )
 
-    // The user's entry is untouched; the stale lockfile is gone; no starter
-    // seeding happened (the user HAS entries).
+    // Write-once: the user's consumer + entry are untouched, no consumer backup;
+    // the stale lockfile is gone; no starter seeding (the user HAS an entry).
+    assertEquals(os.read(box.ws / "PklProject"), oldConsumer)
+    assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
     assertEquals(os.read(box.ws / "mine.pkl"), "// the user's own entry\n")
     assert(!os.exists(box.ws / "PklProject.deps.json"))
     assert(!os.exists(box.ws / "dashboard.pkl"))
     assert(log.exists(_.contains("migrated")), clue = log)
 
-    // And the migrated workspace evaluates — the whole point of the exercise.
+    // Recovery: the old consumer's `./lib` dep now dangles (lib/ moved).
+    // Deleting it opts into a fresh, package-form re-seed — then it evaluates.
+    os.remove(box.ws / "PklProject")
+    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val _ = DumpPackage.seedFromText(
+      box.ws,
+      PklDump.render(HouseFixture.transformedDump)
+    )
     os.write.over(box.ws / "mine.pkl", os.read(seedDir / "dashboard.pkl"))
-    val result = SourceEval.eval(box.ws, "mine.pkl")
-    assert(result.isRight, clue = result)
+    assert(SourceEval.eval(box.ws, "mine.pkl").isRight)
   }
 
   test("a user-customized manifest is never rewritten") {
@@ -179,69 +183,6 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
-  }
-
-  test("a pin bump in the user's manifest syncs the home manifest on boot") {
-    // The user's PklProject is the ONE place the pin lives; the machine-owned
-    // home manifest follows it (module identity: the dump and the entries must
-    // reach the schema through the same cached artifact).
-    val (box, _) = boot()
-    os.write.over(
-      box.ws / "PklProject",
-      os.read(box.ws / "PklProject")
-        .replace(
-          LibPackage.packageUri(libVersion),
-          LibPackage.packageUri("9.9.9")
-        )
-    )
-    val bumped = os.read(box.ws / "PklProject")
-
-    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
-
-    assertEquals(os.read(box.ws / "PklProject"), bumped)
-    assert(
-      os.read(box.ws / "home" / "PklProject")
-        .contains(LibPackage.packageUri("9.9.9"))
-    )
-    // Machine-owned files never leave backups behind — that noise is reserved
-    // for files the user might have authored.
-    assert(!os.list(box.ws / "home").exists(_.last.contains(".backup.")))
-    assert(log.nonEmpty, clue = log)
-  }
-
-  test("the interim single-file package form migrates, preserving its pin") {
-    // The form the first package-form bootstrap generated: one PklProject
-    // amending pkl:Project directly, cache dir and pin inline. A user may have
-    // bumped its pin — migration to the amends-the-base shape keeps it.
-    val root = os.temp.dir()
-    val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    os.makeDir.all(box.ws / "home")
-    os.write(
-      box.ws / "PklProject",
-      s"""amends "pkl:Project"
-         |evaluatorSettings { moduleCacheDir = "${box.cache}" }
-         |dependencies {
-         |  ["fh-dashboard"] { uri = "${LibPackage.packageUri("0.0.9")}" }
-         |  ["fh-home"] = import("./home/PklProject")
-         |}
-         |""".stripMargin
-    )
-    os.write(box.ws / "mine.pkl", "// the user's own entry\n")
-
-    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
-
-    val consumer = os.read(box.ws / "PklProject")
-    assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
-    assert(consumer.contains(LibPackage.packageUri("0.0.9")), clue = consumer)
-    assert(
-      os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")),
-      clue = os.list(box.ws)
-    )
-    assert(
-      os.read(box.ws / "home" / "PklProject")
-        .contains(LibPackage.packageUri("0.0.9"))
-    )
-    assert(log.exists(_.contains("migrated")), clue = log)
   }
 
   test("second boot is quiet: no new backups, no re-seeding, cache untouched") {

@@ -16,23 +16,27 @@ import java.time.format.DateTimeFormatter
   * pin bump. Pre-package-form installs are migrated: their seeded `lib/` copy
   * and manifests are renamed to dated backups, never deleted.
   *
-  * The manifests split machine-owned from user-owned along an `amends` chain
+  * `@fh-home` is a package too: the dump is a content-versioned cache package
+  * (`fh-home@1.0.0-g<hash>`, [[DumpPackage]]), NOT a loose `home/dump.pkl`.
+  * There is no `home/` folder in the workspace. Both pins are DATA in
+  * `.fh/pins.json` ([[Pins]]); the static `.fh/base.pkl` just `read`s them.
+  *
+  * The files split machine-owned from user-owned along an `amends` chain
   * (spike-verified on 0.31.1: a PklProject can amend a local base module, the
   * child inherits its `dependencies` and `evaluatorSettings` and its own
   * mapping entries override the base's):
   *
-  *   - `.fh/base.pkl` — machine-owned, refreshed every start: the cache
-  *     location, the `@fh-home` binding, and a *default* `@fh-dashboard` pin at
-  *     the bundled version. Add-on internals can change here without touching
-  *     anything the user wrote.
-  *   - `PklProject` — the user's from first boot, never rewritten: it amends
-  *     the base and holds the user's pin (seeded at the then-bundled version;
-  *     the override wins, so add-on upgrades never move it — deleting the entry
-  *     opts into tracking the bundled version) plus any third-party packages.
-  *   - `home/PklProject` — machine-owned like the `dump.pkl` beside it,
-  *     regenerated every start with its `@fh-dashboard` pin synced from the
-  *     user's manifest (the dump and the entries must resolve the schema to ONE
-  *     cached artifact or card factories are type errors).
+  *   - `.fh/base.pkl` — machine-owned, STATIC: the cache location and both
+  *     alias bindings, each reading its pin from `pins.json` via `pkl:json`.
+  *     Rewritten only when this template changes across add-on versions.
+  *   - `.fh/pins.json` — machine-owned `{ dashboardUri, homeUri, homeSha256 }`,
+  *     the ONE file rewritten as pins move: `dashboardUri` set to the bundled
+  *     lib version every start, the home fields by [[DumpPackage.seedFromText]]
+  *     per dump (a placeholder until the first dump).
+  *   - `PklProject` — the user's, written ONCE when absent and never touched.
+  *     It amends the base; with no `dependencies` block of its own the
+  *     workspace tracks the bundled lib version, and the user may add a block
+  *     to pin a version or declare third-party packages.
   *
   * Idempotent; called on every start, before anything evaluates. Pure
   * side-effecting file work — the caller wraps it in `IO.blocking` and prints
@@ -62,7 +66,6 @@ object AddonBootstrap {
 
     log ++= LibPackage.seedCache(bundledLib, cacheDir)
     os.makeDir.all(dashboardsDir)
-    os.makeDir.all(dashboardsDir / "home")
 
     // A pre-package-form workspace carries the old seeded lib copy — frozen at
     // install time by the old copy-if-empty seeding, which is the bug this
@@ -75,30 +78,37 @@ object AddonBootstrap {
 
     log ++= writeMachineFile(
       dashboardsDir / ".fh" / "base.pkl",
-      baseManifest(bundledVersion, cacheDir)
+      baseManifest(cacheDir)
     )
 
-    // The consumer manifest is the user's from the moment it exists. Any
-    // machine-era form (it amends "pkl:Project" directly — both the original
-    // path-form and the interim single-file package form did) is migrated to
-    // the amends-the-base shape with a dated backup, so nothing a user added
-    // to one is lost, just relocated — and a pin the old form carried is
-    // carried over, not reset to the bundled version.
-    val preMigrationPin = pinnedVersion(dashboardsDir / "PklProject")
-    log ++= migrateOrSeedConsumer(
-      dashboardsDir / "PklProject",
-      consumerManifest(preMigrationPin.getOrElse(bundledVersion))
-    )
+    // The static base.pkl `read`s `.fh/pins.json`. Set the `@fh-dashboard` pin to
+    // the bundled version (so the workspace tracks add-on upgrades), and seed the
+    // `@fh-home` placeholder if this workspace has never packaged a dump — so the
+    // `read` resolves for the `Project.loadFromPath` that precedes the first
+    // `prepareDumps`, which then moves the home pin. Machine data; never backed
+    // up. A prior real dump pin survives (read-modify-write preserves it).
+    Pins.seedBootstrap(dashboardsDir, LibPackage.packageUri(bundledVersion))
 
-    // The home manifest is machine-owned (like the dump.pkl beside it), its
-    // pin synced from wherever the user's manifest points. Read it textually —
-    // evaluating the project here would need the home manifest to exist first.
-    val pin = pinnedVersion(dashboardsDir / "PklProject")
-      .getOrElse(bundledVersion)
-    log ++= writeHomeManifest(
+    // The consumer manifest is the user's file: written ONCE, only when absent,
+    // then never touched. It amends `.fh/base.pkl`, which supplies the
+    // `@fh-dashboard` default — so with no `dependencies` block of its own a
+    // fresh workspace tracks the bundled version until the user adds a pin here.
+    if (!os.exists(dashboardsDir / "PklProject"))
+      os.write(dashboardsDir / "PklProject", consumerManifest)
+
+    // The dump is no longer a loose file in a `home/` package — it's a cache
+    // package pinned by `.fh/pins.json` (ADR 0010). Migrate any pre-package
+    // `home/` remnants (an old machine-owned manifest, the loose dump) to dated
+    // backups — never delete user-visible files.
+    List(
       dashboardsDir / "home" / "PklProject",
-      homeManifest(pin)
-    )
+      dashboardsDir / "home" / "dump.pkl"
+    ).filter(os.exists).foreach { p =>
+      val target = backupPath(p)
+      os.move(p, target)
+      log += s"migrated: home/${p.last} is no longer a workspace file " +
+        s"(moved to home/${target.last})"
+    }
 
     // Starter entries only when the user has none at all — entries are the
     // user's files from the moment they exist.
@@ -125,15 +135,6 @@ object AddonBootstrap {
     log.result()
   }
 
-  /** The user's effective `@fh-dashboard` pin, read textually from their
-    * manifest (absent when they deleted the entry to track the bundled
-    * version).
-    */
-  private def pinnedVersion(consumerManifest: os.Path): Option[String] =
-    Option
-      .when(os.exists(consumerManifest))(os.read(consumerManifest))
-      .flatMap(LibPackage.pinnedVersion)
-
   /** A machine-owned file: written when absent or stale, never backed up (its
     * header says so, and nothing user-authored ever lives in it).
     */
@@ -145,43 +146,6 @@ object AddonBootstrap {
       os.write.over(path, content)
       if (existed) List(s"refreshed ${path.last}") else Nil
     }
-
-  private def migrateOrSeedConsumer(
-      path: os.Path,
-      content: String
-  ): List[String] =
-    if (!os.exists(path)) {
-      os.write(path, content)
-      Nil
-    } else if (os.read(path).contains("amends \"pkl:Project\"")) {
-      val target = backupPath(path)
-      os.move(path, target)
-      os.write(path, content)
-      List(
-        s"migrated: ${path.last} rewritten to amend .fh/base.pkl " +
-          s"(previous version kept as ${target.last} — re-add any dependencies " +
-          "you had declared there)"
-      )
-    } else Nil
-
-  /** The home manifest predates its machine-owned status (the interim package
-    * form seeded it once and then treated it as the user's) — a legacy form
-    * gets one dated backup on the way over; from then on it is overwritten
-    * freely, like the dump.
-    */
-  private def writeHomeManifest(
-      path: os.Path,
-      content: String
-  ): List[String] =
-    if (os.exists(path) && !os.read(path).contains(MachineOwnedMarker)) {
-      val target = backupPath(path)
-      os.move(path, target)
-      os.write(path, content)
-      List(
-        s"migrated: home/${path.last} is machine-managed now " +
-          s"(previous version kept as ${target.last})"
-      )
-    } else writeMachineFile(path, content).map(l => s"$l (home/)")
 
   /** `name.backup.<ISO-date>` beside the original (`-HHmmss` appended on a
     * same-day collision) — the one backup-naming convention every migration and
@@ -200,7 +164,7 @@ object AddonBootstrap {
   private val MachineOwnedMarker =
     "Machine-managed — regenerated at every add-on start"
 
-  private def baseManifest(version: String, cacheDir: os.Path): String =
+  private def baseManifest(cacheDir: os.Path): String =
     s"""/// $MachineOwnedMarker; do not edit.
        |///
        |/// Your customizations belong in the `PklProject` that amends this file.
@@ -209,76 +173,58 @@ object AddonBootstrap {
        |/// pkl-lsp) and the two names your dashboards import —
        |///
        |///   @fh-dashboard  the authoring library that ships with the add-on — cards,
-       |///                  the Home Assistant schema, themes. The version here is the
-       |///                  add-on's bundled one; the pin in your PklProject overrides
-       |///                  it, so add-on upgrades never move what your dashboards
-       |///                  build against.
-       |///   @fh-home       YOUR home: the `home/dump.pkl` typed entity dump, rebuilt
-       |///                  from your live Home Assistant registry on every start.
+       |///                  the Home Assistant schema, themes. Its version tracks the
+       |///                  add-on's bundled one unless you pin it in your PklProject.
+       |///   @fh-home       YOUR home: a content-versioned package of the typed
+       |///                  entity dump, rebuilt from your live Home Assistant
+       |///                  registry.
+       |///
+       |/// Both pins are DATA in the sibling `pins.json`, rewritten by the add-on
+       |/// (the lib version at each start, the dump snapshot whenever the home
+       |/// changes); this file just reads them, so it never changes per-dump.
        |amends "pkl:Project"
+       |import "pkl:json"
+       |
+       |local class Pins { dashboardUri: String; homeUri: String; homeSha256: String }
+       |local pins: Pins = (new json.Parser {})
+       |  .parse(read("pins.json"))
+       |  .toTyped(Pins)
        |
        |evaluatorSettings {
        |  moduleCacheDir = "@CACHE@"
        |}
        |
        |dependencies {
-       |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
-       |  ["fh-home"] = import("../home/PklProject")
+       |  ["fh-dashboard"] { uri = pins.dashboardUri }
+       |  ["fh-home"] {
+       |    uri = pins.homeUri
+       |    checksums { sha256 = pins.homeSha256 }
+       |  }
        |}
        |""".stripMargin
       .replace("@CACHE@", cacheDir.toString)
-      .replace("@V@", version)
 
-  private def consumerManifest(version: String): String =
-    """/// Your dashboards project. Seeded on first start; from then on it is yours —
-      |/// the add-on never rewrites it. (The add-on's own wiring lives in
-      |/// `.fh/base.pkl`, which this file amends; that one is regenerated at every
-      |/// start.)
+  private def consumerManifest: String =
+    """/// Your dashboards project. Written ONCE, when this workspace is first
+      |/// seeded, and never touched again — it is yours. (The add-on's own wiring
+      |/// lives in `.fh/base.pkl`, which this file amends; that one is regenerated
+      |/// at every start.)
       |///
-      |/// The pin below names the @fh-dashboard library version your dashboards
-      |/// build against:
+      |/// Entries in this directory import the library and this home's dump:
       |///
       |///   amends "@fh-dashboard/entry.pkl"
       |///   import "@fh-dashboard/components.pkl" as c
       |///   import "@fh-home/dump.pkl" as dump
       |///
-      |/// Upgrading the add-on does NOT move the pin — bump it yourself when you
-      |/// want the new library (the old version keeps working from the cache).
-      |/// Deleting the entry makes your dashboards track whatever version the
-      |/// add-on bundles.
+      |/// By default your dashboards track the @fh-dashboard version the add-on
+      |/// bundles. To PIN a specific version — so an add-on upgrade never moves
+      |/// what you build against — or to add a third-party card package, add a
+      |/// `dependencies` block that overrides the base default, e.g.:
       |///
-      |/// Third-party card packages are declared here too, next to @fh-dashboard.
+      |///   dependencies {
+      |///     ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@1.0.0" }
+      |///     // ["their-cards"] { uri = "package://pkg.pkl-lang.org/.../1.0.0" }
+      |///   }
       |amends ".fh/base.pkl"
-      |
-      |dependencies {
-      |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
-      |}
-      |""".stripMargin.replace("@V@", version)
-
-  private def homeManifest(version: String): String =
-    s"""/// $MachineOwnedMarker; do not edit.
-       |///
-       |/// Your home's data package — what `@fh-home` points at. The add-on
-       |/// regenerates `dump.pkl` beside this file on every start, typed against
-       |/// your live Home Assistant registry, so `dump.entities.<name>` is a real,
-       |/// checked reference to a real device. Import it as:
-       |///
-       |///   import "@fh-home/dump.pkl" as dump
-       |///
-       |/// The @fh-dashboard pin here is synced from your main PklProject at every
-       |/// start (the dump reaches the schema through it — same package, same
-       |/// types).
-       |amends "pkl:Project"
-       |
-       |package {
-       |  name = "fh-home"
-       |  baseUri = "package://fh.invalid/fh-home"
-       |  version = "1.0.0"
-       |  packageZipUrl = "https://fh.invalid/fh-home@\\(version).zip"
-       |}
-       |
-       |dependencies {
-       |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
-       |}
-       |""".stripMargin.replace("@V@", version)
+      |""".stripMargin
 }

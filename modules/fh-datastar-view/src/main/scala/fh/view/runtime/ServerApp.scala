@@ -403,12 +403,9 @@ object ServerApp extends IOApp {
       .flatTap {
         case DumpRefresh.Unchanged =>
           IO.println("dump refresh: home unchanged")
-        case DumpRefresh.Swapped(backup, seedLog) =>
+        case DumpRefresh.Swapped(version, seedLog) =>
           seedLog.traverse_(IO.println) *>
-            IO.println(
-              "dump refreshed" +
-                backup.fold("")(b => s" (previous kept as ${b.last})")
-            ) *>
+            IO.println(s"dump refreshed -> $version") *>
             reloadEntries(
               dashboardsDir,
               entries,

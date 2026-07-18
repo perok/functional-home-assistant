@@ -4,9 +4,10 @@ import fh.view.testkit.HouseFixture
 import io.circe.parser.parse
 
 /** The content-versioned dump package (ADR 0010, "resolved by content-derived
-  * versions"): the instance packages every dump it writes, immutably per
-  * version, into the same cache the packages route serves — the server half of
-  * `fh pull`.
+  * versions"): the instance packages every dump it renders — immutably per
+  * version — into the same cache the packages route serves and its own eval
+  * resolves `@fh-home` from, and records the pin in `.fh/pins.json`. There is
+  * no loose `home/dump.pkl`.
   */
 class DumpPackageSuite extends munit.FunSuite {
 
@@ -15,36 +16,38 @@ class DumpPackageSuite extends munit.FunSuite {
   private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
   private val libVersion = LibPackage.version(bundledLib)
 
-  /** A package-form workspace with a written dump — the state right after
-    * `prepareDumps` on an add-on.
+  private val dump = PklDump.render(HouseFixture.transformedDump)
+
+  /** A bootstrapped package-form workspace (lib package seeded, static base.pkl
+    * + placeholder pin) — the state right before the first `prepareDumps`.
     */
   private def stage(): (os.Path, os.Path) = {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(ws, bundledLib, seedDir, root / "pkl-cache")
-    os.write(
-      DashboardBuild.dumpPath(ws),
-      PklDump.render(HouseFixture.transformedDump),
-      createFolders = true
-    )
-    (ws, root / "pkl-cache")
+    val cache = root / "pkl-cache"
+    val _ = AddonBootstrap.run(ws, bundledLib, seedDir, cache)
+    (ws, cache)
   }
 
-  test("seeding writes an immutable, dependency-carrying package entry") {
-    val (ws, cache) = stage()
-    val log = DumpPackage.seedFromWorkspace(ws)
-    assert(log.exists(_.contains("seeded dump package")), clue = log)
-
-    val libMetaSha = LibPackage.sha256(
+  private def libMetaSha(cache: os.Path): String =
+    LibPackage.sha256(
       os.read.bytes(
         LibPackage.cacheEntryDir(cache, libVersion) /
           s"fh-dashboard@$libVersion.json"
       )
     )
-    val version = DumpPackage
-      .build(os.read(DashboardBuild.dumpPath(ws)), libVersion, libMetaSha)
-      .version
+
+  test("seeding writes an immutable, dependency-carrying package + pin") {
+    val (ws, cache) = stage()
+    val log = DumpPackage.seedFromText(ws, dump)
+    assert(log.exists(_.contains("seeded dump package")), clue = log)
+    assert(log.exists(_.contains("pinned @fh-home")), clue = log)
+
+    val version = DumpPackage.build(dump, libVersion, libMetaSha(cache)).version
     assert(version.startsWith("1.0.0-g"), clue = version)
+
+    // The pin file names this version.
+    assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
 
     val entry = DumpPackage.cacheEntryDir(cache, version)
     val meta = parse(os.read(entry / s"fh-home@$version.json"))
@@ -60,7 +63,7 @@ class DumpPackageSuite extends munit.FunSuite {
     )
     assertEquals(
       dep.downField("checksums").get[String]("sha256").toOption,
-      Some(libMetaSha)
+      Some(libMetaSha(cache))
     )
     // And the zip checksum in the metadata matches the seeded zip.
     assertEquals(
@@ -71,19 +74,18 @@ class DumpPackageSuite extends munit.FunSuite {
       Some(LibPackage.sha256(os.read.bytes(entry / s"fh-home@$version.zip")))
     )
 
-    // Idempotent: same dump, same version, nothing to do.
-    assertEquals(DumpPackage.seedFromWorkspace(ws), Nil)
+    // Idempotent: same dump, same version, nothing to seed and no pin to move.
+    assertEquals(DumpPackage.seedFromText(ws, dump), Nil)
   }
 
   test("a changed dump mints a NEW version; the old snapshot stays") {
     val (ws, cache) = stage()
-    val _ = DumpPackage.seedFromWorkspace(ws)
+    val _ = DumpPackage.seedFromText(ws, dump)
     val before = os
       .list(cache / "package-2" / LibPackage.Host)
       .filter(_.last.startsWith("fh-home@"))
 
-    os.write.append(DashboardBuild.dumpPath(ws), "\n// a new device\n")
-    val log = DumpPackage.seedFromWorkspace(ws)
+    val log = DumpPackage.seedFromText(ws, dump + "\n// a new device\n")
 
     val after = os
       .list(cache / "package-2" / LibPackage.Host)
@@ -100,16 +102,16 @@ class DumpPackageSuite extends munit.FunSuite {
     // A lib pin bump under an unchanged dump must mint a new version — the
     // metadata (which carries the dependency) is immutable per version, or a
     // laptop cache holding the old bytes is stranded (the spike-9 trap).
-    val dump = "// same dump\n"
-    val a = DumpPackage.build(dump, "0.1.0", "a" * 64)
-    val b = DumpPackage.build(dump, "0.2.0", "b" * 64)
+    val d = "// same dump\n"
+    val a = DumpPackage.build(d, "0.1.0", "a" * 64)
+    val b = DumpPackage.build(d, "0.2.0", "b" * 64)
     assertNotEquals(a.version, b.version)
     assertEquals(a.sha256, b.sha256) // same zip — only the identity moved
   }
 
   test("the discovery index names exactly what a pull would pin") {
     val (ws, cache) = stage()
-    val _ = DumpPackage.seedFromWorkspace(ws)
+    val _ = DumpPackage.seedFromText(ws, dump)
     val index = DumpPackage
       .index(ws)
       .map(parse(_).fold(err => fail(s"index not JSON: $err"), identity))
@@ -148,9 +150,9 @@ class DumpPackageSuite extends munit.FunSuite {
     )
   }
 
-  test("a path-form workspace neither seeds nor indexes") {
-    // The repo checkout: no package pin, laptops pull from an add-on instance,
-    // never from a dev checkout.
+  test("a workspace with no @fh-dashboard pin neither seeds nor indexes") {
+    // The None guard: without a package pin (and its metadata in the cache) a
+    // workspace cannot build the dependency-carrying dump package.
     val ws = os.temp.dir()
     os.write(
       ws / "PklProject",
@@ -160,12 +162,7 @@ class DumpPackageSuite extends munit.FunSuite {
         |}
         |""".stripMargin
     )
-    os.write(
-      DashboardBuild.dumpPath(ws),
-      "// dump\n",
-      createFolders = true
-    )
-    assertEquals(DumpPackage.seedFromWorkspace(ws), Nil)
+    assertEquals(DumpPackage.seedFromText(ws, "// dump\n"), Nil)
     assertEquals(DumpPackage.index(ws), None)
   }
 }

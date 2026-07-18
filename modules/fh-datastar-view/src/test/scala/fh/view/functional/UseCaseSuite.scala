@@ -39,23 +39,30 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   private val dashboards =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
 
-  /** Stage a dashboards workspace the way every persona has one: the library,
-    * both package manifests, the consumer project. `withDump = false` is the
-    * laptop before a pull — the `@fh-home` package exists but is empty, which
-    * is also the state a freshly-seeded add-on starts in.
+  /** Stage a package-form dashboards workspace the way every persona has one
+    * (the ONE resolution mode, ADR 0010): the real `AddonBootstrap` seeds the
+    * lib package into a cache, writes the static base.pkl + consumer project +
+    * a placeholder `@fh-home` pin. `withDump = true` seeds the dump package and
+    * moves the pin; `withDump = false` is the laptop before a pull — `@fh-home`
+    * is the unresolvable placeholder, which is also how a freshly-seeded add-on
+    * starts.
     */
   private def stageWorkspace(withDump: Boolean): os.Path = {
-    val dir = os.temp.dir()
-    os.copy(dashboards / "lib", dir / "lib")
-    os.makeDir.all(dir / "home")
-    os.copy.into(dashboards / "home" / "PklProject", dir / "home")
-    os.copy.into(dashboards / "PklProject", dir)
-    if (withDump)
-      os.write(
-        dir / "home" / "dump.pkl",
+    val root = os.temp.dir()
+    val ws = root / "fh-dashboards"
+    val _ = AddonBootstrap.run(
+      ws,
+      bundledLib = dashboards / "lib",
+      seedDir = os.temp.dir(), // empty: never seed the demo entries into a test
+      cacheDir = root / "pkl-cache"
+    )
+    if (withDump) {
+      val _ = DumpPackage.seedFromText(
+        ws,
         PklDump.render(HouseFixture.transformedDump)
       )
-    dir
+    }
+    ws
   }
 
   /** An entry that can only build if the live dump resolved: it names a real
@@ -88,16 +95,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // nothing here is fetched.
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = fh.view.build.AddonBootstrap.run(
+    val _ = AddonBootstrap.run(
       ws,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache"
     )
-    os.write(
-      ws / "home" / "dump.pkl",
-      PklDump.render(HouseFixture.transformedDump)
-    )
+    val _ =
+      DumpPackage.seedFromText(ws, PklDump.render(HouseFixture.transformedDump))
     os.write(ws / "mine.pkl", entryNeedingDump)
 
     val result = SourceEval.eval(ws, "mine.pkl")
@@ -107,22 +112,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   // ---------------------------------------------------------------- persona 2
 
   test(
-    "end user on a local editor: pulling the dump makes their project resolve"
+    "end user on a local editor: the instance serves its dump as text (ETag 304)"
   ) {
-    // The instance: a home with a live dump, serving it over /system/pkl.
+    // The human/debug download of the live dump, extracted from the currently
+    // pinned `@fh-home` package (there is no loose `home/dump.pkl`). The actual
+    // laptop CONSUMPTION is the package pull below; this route is for reading the
+    // dump text and for tooling asking "did the home change?" cheaply — an
+    // unchanged home is a 304, the endpoint's only ETag consumer.
     val instance = stageWorkspace(withDump = true)
-
-    // The laptop: their copy of the workspace — lib, manifests, their entry —
-    // with NO dump, because a dump is per-home live data that is never checked
-    // in. This is the whole reason the endpoint exists.
-    val laptop = stageWorkspace(withDump = false)
-    os.write(laptop / "mine.pkl", entryNeedingDump)
-
-    // Before pulling it CANNOT build. This is what stops the post-pull assertion
-    // from passing vacuously: stage a dump anyway and the test proves nothing
-    // about what the endpoint served.
-    val before = SourceEval.eval(laptop, "mine.pkl")
-    assert(before.isLeft, clue = s"expected an unresolvable dump, got: $before")
 
     val uri = uri"/system/pkl/dump.pkl"
     TestServer
@@ -134,18 +131,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .use { ts =>
         val app = ts.server.routes.orNotFound
         for {
-          // The pull: fetch the instance's dump and write it into the @fh-home
-          // package. That is the CLI's entire job — a file copy, not an import.
           pulled <- app.run(Request[IO](Method.GET, uri))
           body <- pulled.body.through(fs2.text.utf8.decode).compile.string
-          _ <- IO.blocking(os.write.over(laptop / "home" / "dump.pkl", body))
-
-          // Now the same entry builds, against the live home, having imported
-          // nothing over the wire.
-          after = SourceEval.eval(laptop, "mine.pkl")
-
-          // A pull is a conditional GET, so an unchanged home costs a 304 rather
-          // than the whole dump. This is the endpoint's only ETag consumer.
           tag = pulled.headers.get[ETag].map(_.tag)
           second <- app.run(
             Request[IO](Method.GET, uri)
@@ -153,17 +140,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           )
         } yield {
           assertEquals(pulled.status, Status.Ok)
-          assert(after.isRight, clue = after)
-
-          // The served text reaches its schema BY ALIAS, which resolves only
-          // because it landed inside a project. That is precisely why the
-          // endpoint is a download API and not a module source: fetched as a
-          // module this same text cannot resolve @fh-dashboard at all.
+          // The served text is the typed dump — it reaches its schema by alias.
           assert(
             body.contains("""import "@fh-dashboard/hass.pkl""""),
             clue = body.take(200)
           )
-
           assert(tag.isDefined, clue = pulled.headers)
           assertEquals(second.status, Status.NotModified)
         }
@@ -171,58 +152,55 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   }
 
   test(
-    "end user on a local editor, no checkout: the instance's lib arrives as a package"
+    "end user on a local editor, no checkout: both packages arrive from the instance"
   ) {
-    // The complement of the pull test above: there the laptop had the lib (a
-    // git copy) and lacked the dump; here it has NEITHER lib nor checkout —
-    // only a `package://fh.invalid/fh-dashboard@<v>` pin and one rewrite
-    // toward the instance's `/system/pkl/packages/` route. This is the whole
-    // laptop story for a user who never cloned the repo, and it is
+    // The laptop with NEITHER lib nor checkout — only two
+    // `package://fh.invalid/…` pins (`@fh-dashboard` AND `@fh-home`) and one
+    // rewrite toward the instance's `/system/pkl/packages/` route. This is the
+    // whole laptop story for a user who never cloned the repo, and it is
     // deliberately end-to-end: pkl's REAL package resolver over a REAL socket,
     // so any drift in the metadata shape, the zip layout, or the route breaks
     // here and not on someone's laptop.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
+    val instanceCache = root / "pkl-cache"
     val _ = AddonBootstrap.run(
       instance,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
-      cacheDir = root / "pkl-cache"
+      cacheDir = instanceCache
     )
+    val _ =
+      DumpPackage.seedFromText(
+        instance,
+        PklDump.render(HouseFixture.transformedDump)
+      )
     val v = LibPackage.version(dashboards / "lib")
     val artifacts = LibPackage.build(dashboards / "lib")
+    val homeV =
+      DumpPackage.pinnedVersion(instance).getOrElse(fail("instance not pinned"))
+    val homeSha = LibPackage.sha256(
+      os.read.bytes(
+        DumpPackage.cacheEntryDir(instanceCache, homeV) /
+          s"fh-home@$homeV.json"
+      )
+    )
 
-    // The laptop workspace: the pin, the @fh-home package with an
-    // already-pulled dump (the pull itself is the previous test), an entry.
-    // Templated via .replace — `\(version)` must reach Pkl verbatim.
+    // The laptop workspace: just the two package pins (uri + the @fh-home
+    // checksum a pull writes) — no lib, no home/ dir, no dump file.
     val laptop = root / "laptop"
-    os.makeDir.all(laptop / "home")
+    os.makeDir.all(laptop)
     os.write(
       laptop / "PklProject",
-      """amends "pkl:Project"
-        |dependencies {
-        |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
-        |  ["fh-home"] = import("./home/PklProject")
-        |}
-        |""".stripMargin.replace("@V@", v)
-    )
-    os.write(
-      laptop / "home" / "PklProject",
-      """amends "pkl:Project"
-        |package {
-        |  name = "fh-home"
-        |  baseUri = "package://fh.invalid/fh-home"
-        |  version = "1.0.0"
-        |  packageZipUrl = "https://fh.invalid/fh-home@\(version).zip"
-        |}
-        |dependencies {
-        |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@@V@" }
-        |}
-        |""".stripMargin.replace("@V@", v)
-    )
-    os.write(
-      laptop / "home" / "dump.pkl",
-      PklDump.render(HouseFixture.transformedDump)
+      s"""amends "pkl:Project"
+         |dependencies {
+         |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@$v" }
+         |  ["fh-home"] {
+         |    uri = "package://fh.invalid/fh-home@$homeV"
+         |    checksums { sha256 = "$homeSha" }
+         |  }
+         |}
+         |""".stripMargin
     )
     os.write(laptop / "mine.pkl", entryNeedingDump)
     val laptopCache = root / "laptop-cache"
@@ -307,11 +285,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache"
     )
-    os.write(
-      instance / "home" / "dump.pkl",
-      PklDump.render(HouseFixture.transformedDump)
-    )
-    val _ = DumpPackage.seedFromWorkspace(instance)
+    val _ =
+      DumpPackage.seedFromText(
+        instance,
+        PklDump.render(HouseFixture.transformedDump)
+      )
 
     TestServer
       .resource(
@@ -359,11 +337,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache"
     )
-    os.write(
-      instance / "home" / "dump.pkl",
-      PklDump.render(HouseFixture.transformedDump)
-    )
-    val _ = DumpPackage.seedFromWorkspace(instance)
+    val _ =
+      DumpPackage.seedFromText(
+        instance,
+        PklDump.render(HouseFixture.transformedDump)
+      )
 
     TestServer
       .resource(
@@ -393,11 +371,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           // The home changes; the instance seeds a NEW snapshot. This is the
           // state `fh pull` finds and re-pins from.
           _ <- IO.blocking {
-            os.write.append(
-              instance / "home" / "dump.pkl",
-              "\n// a new device appeared\n"
+            DumpPackage.seedFromText(
+              instance,
+              PklDump.render(HouseFixture.transformedDump) +
+                "\n// a new device appeared\n"
             )
-            DumpPackage.seedFromWorkspace(instance)
           }
           v2 <- homeVersion
           meta2 <- get(s"/system/pkl/packages/fh-home@$v2")
@@ -468,11 +446,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
   // ---------------------------------------------------------------- persona 3
 
-  test("repo developer: a library edit reaches every entry that imports it") {
-    // Live reload is driven by the import set, so the property that matters is
-    // that an entry's imports name the REAL lib files behind @fh-dashboard. If
-    // they stayed opaque projectpackage: URIs, editing a card class or the
-    // schema would silently stop reloading.
+  test(
+    "repo developer: lib + dump are cache packages, excluded from the watch set"
+  ) {
+    // The single package-form resolution mode (ADR 0010): `@fh-dashboard` and
+    // `@fh-home` are cache packages, so their modules resolve to `package://…`
+    // URIs — not `file:` paths — and are filtered out of the import/watch set.
+    // The library is immutable per version: editing `lib/` does not hot-reload
+    // (a restart re-seeds the cache), so only the entry itself (and any loose
+    // imports) is watched. Iterating on `lib/` is a restart or `fh push`.
     val dir = stageWorkspace(withDump = true)
     os.write(dir / "dashboard.pkl", entryNeedingDump)
 
@@ -480,9 +462,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .eval(dir, "dashboard.pkl")
       .fold(err => fail(s"eval failed: $err"), _.imports)
 
-    assert(imports.contains(dir / "lib" / "components.pkl"), clue = imports)
-    assert(imports.contains(dir / "lib" / "hass.pkl"), clue = imports)
-    assert(imports.contains(dir / "home" / "dump.pkl"), clue = imports)
+    assertEquals(imports, Set(dir / "dashboard.pkl"), clue = imports)
   }
 
   // ---------------------------------------------------------------- persona 4

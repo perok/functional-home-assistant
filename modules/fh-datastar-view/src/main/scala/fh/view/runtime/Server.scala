@@ -186,10 +186,11 @@ class Server(
 
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
-    // in a staged copy, and swap it in only if nothing that builds today
-    // breaks — the replaced dump is kept as `dump.pkl.backup.<date>`. Same
-    // auth story as /system/push above: unauthenticated on a port documented
-    // as such; when auth lands for the direct port it must cover this route.
+    // package in a staged copy, and swap the `@fh-home` pin only if nothing that
+    // builds today breaks — the previous immutable package version stays in the
+    // cache as the trail (no dated backup file). Same auth story as /system/push
+    // above: unauthenticated on a port documented as such; when auth lands for
+    // the direct port it must cover this route.
     case POST -> Root / "system" / "dump" / "refresh" =>
       dumpRefresh match {
         case None         => NotFound()
@@ -1297,10 +1298,10 @@ object Server {
     result match {
       case DumpRefresh.Unchanged =>
         Json.obj("status" -> Json.fromString("unchanged"))
-      case DumpRefresh.Swapped(backup, _) =>
+      case DumpRefresh.Swapped(version, _) =>
         Json.obj(
           "status" -> Json.fromString("swapped"),
-          "backup" -> backup.fold(Json.Null)(b => Json.fromString(b.last))
+          "version" -> Json.fromString(version)
         )
       case DumpRefresh.Rejected(errors) =>
         Json.obj(

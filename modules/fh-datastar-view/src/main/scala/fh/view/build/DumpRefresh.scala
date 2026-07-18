@@ -3,9 +3,9 @@ package fh.view.build
 import cats.effect.IO
 import cats.syntax.all.*
 
-/** Replace the on-disk `home/dump.pkl` with a freshly-rendered one — but only
-  * after proving the new dump doesn't break any dashboard (ADR 0010, "force-
-  * rerun the dump").
+/** Re-seed the `@fh-home` dump package from a freshly-rendered dump — but only
+  * after proving the new dump doesn't break any dashboard (ADR 0010,
+  * "refreshing the dump while running").
   *
   * The dump is deliberately NOT watched by the live-reload watcher: it changes
   * when the HOME changes (a device added or renamed in the HA registry), not
@@ -17,29 +17,31 @@ import cats.syntax.all.*
   *   - the on-demand `POST /system/dump/refresh` endpoint (the /edit editor's
   *     "refresh dump" button).
   *
-  * Validate-then-swap: the whole workspace is copied to a temp dir, the new
-  * dump written THERE, and every entry re-evaluated against it. An entry that
-  * fails with the new dump blocks the swap only if it still builds with the
-  * CURRENT dump — an entry that is already broken (a user mid-edit, a startup
-  * skip) must not veto a registry change forever. Only on green does the real
-  * workspace change: the old dump is kept as `dump.pkl.backup.<date>` (the
-  * shared convention — user-visible files are renamed, never deleted), the new
-  * one written, and its content-versioned package seeded. The caller then
-  * re-evaluates the live renderers; on a rejection it warns and nothing on disk
-  * has moved.
+  * Validate-then-swap, in package terms (there is no loose `home/dump.pkl`):
+  * the new dump's CONTENT-VERSION is compared to the pinned one — equal means
+  * an unchanged home, nothing to do. Otherwise the whole workspace is copied to
+  * a temp dir, the new dump seeded there as its package (into the shared cache,
+  * with the staged pin moved to it), and every entry re-evaluated against it.
+  * An entry that fails with the new dump blocks the swap only if it still
+  * builds with the CURRENT dump — an entry already broken (a user mid-edit, a
+  * startup skip) must not veto a registry change forever. On green the real pin
+  * moves (`.fh/pins.json`), the caller re-evaluates the live renderers, and the
+  * PREVIOUS package version stays in the cache — the immutable snapshot IS the
+  * trail (still resolvable for any laptop pinned to it), so there is no dated
+  * backup file. On rejection nothing moves and the server warns.
   */
 object DumpRefresh {
 
   sealed trait Result
 
-  /** The rendered dump is byte-identical to the on-disk one — nothing to do. */
+  /** The rendered dump's content-version equals the pinned one — nothing to do.
+    */
   case object Unchanged extends Result
 
-  /** Swapped in: the previous dump lives on at `backup` (`None` only when there
-    * was no dump to back up), `seedLog` is [[DumpPackage.seedFromWorkspace]]'s
-    * action log for the new snapshot.
+  /** Swapped in: `version` is the new `@fh-home` snapshot now pinned, `seedLog`
+    * is [[DumpPackage.seedFromText]]'s action log for it.
     */
-  final case class Swapped(backup: Option[os.Path], seedLog: List[String])
+  final case class Swapped(version: String, seedLog: List[String])
       extends Result
 
   /** The new dump breaks dashboards that build today; the workspace is
@@ -50,29 +52,32 @@ object DumpRefresh {
   /** Validate `newDump` (the rendered `dump.pkl` text) against every entry and
     * swap it in if green. `entries` is `(slug, entryFilename)` — the same list
     * `ServerApp.discoverEntries` feeds the renderers. Serialize calls (the
-    * caller holds a mutex): two concurrent refreshes would race on the backup
-    * and the temp validation.
+    * caller holds a mutex): two concurrent refreshes would race on the staged
+    * validation and the pin move.
     */
   def refresh(
       newDump: String,
       dashboardsDir: os.Path,
       entries: List[(String, String)]
-  ): IO[Result] = {
-    val dumpFile = DashboardBuild.dumpPath(dashboardsDir)
-    IO.blocking(os.exists(dumpFile) && os.read(dumpFile) == newDump).flatMap {
-      case true  => IO.pure(Unchanged)
-      case false =>
+  ): IO[Result] =
+    IO.blocking(
+      (
+        DumpPackage.versionFor(dashboardsDir, newDump),
+        DumpPackage.pinnedVersion(dashboardsDir)
+      )
+    ).flatMap {
+      case (Some(nv), Some(pv)) if nv == pv => IO.pure(Unchanged)
+      case _                                =>
         newlyBroken(newDump, dashboardsDir, entries).flatMap {
           case Nil    => IO.blocking(swap(newDump, dashboardsDir))
           case errors => IO.pure(Rejected(errors))
         }
     }
-  }
 
   /** The entries the new dump would break: evaluate everything in a temp copy
-    * of the workspace carrying the new dump, then re-check each failure against
-    * the real workspace (current dump) — a failure in both is pre-existing and
-    * doesn't block.
+    * of the workspace carrying the new dump package, then re-check each failure
+    * against the real workspace (current dump) — a failure in both is
+    * pre-existing and doesn't block.
     */
   private def newlyBroken(
       newDump: String,
@@ -104,13 +109,14 @@ object DumpRefresh {
         } yield blocking.map { case (slug, _, err) => (slug, err) }
       }(staged => IO.blocking(os.remove.all(staged / os.up)))
 
-  /** A throwaway copy of the workspace with the new dump in place: everything
-    * is copied (entries, `lib/` on a repo checkout, `.fh/`, manifests — an
-    * import can reach any of it), the lockfiles are dropped so dependencies
-    * re-resolve against the copy (`AddonBootstrap` does the same at boot), and
-    * the new dump overwrites `home/dump.pkl`. The package cache needs no
-    * copying: the add-on's is an absolute path (`/data/pkl-cache`) and a repo
-    * checkout binds `@fh-dashboard` to `./lib` locally.
+  /** A throwaway copy of the workspace resolving the NEW dump: everything is
+    * copied (entries, `.fh/`, manifests — an import can reach any of it), the
+    * lockfiles are dropped so dependencies re-resolve against the copy
+    * (`AddonBootstrap` does the same at boot), and the new dump is seeded as
+    * its `@fh-home` package with the staged pin moved to it. The package cache
+    * itself is not copied — `moduleCacheDir` is an absolute path shared with
+    * the real workspace, so seeding here makes the new (immutable, additive)
+    * version available to both.
     */
   private def stageWorkspace(
       newDump: String,
@@ -121,26 +127,17 @@ object DumpRefresh {
     os.walk(staged, maxDepth = 2)
       .filter(_.last == "PklProject.deps.json")
       .foreach(os.remove)
-    os.write.over(
-      DashboardBuild.dumpPath(staged),
-      newDump,
-      createFolders = true
-    )
+    val _ = DumpPackage.seedFromText(staged, newDump)
     staged
   }
 
-  /** Green: back up the current dump (dated, never deleted), write the new one,
-    * and seed its content-versioned package (same post-write step as
-    * [[DashboardBuild.prepareDumps]]).
+  /** Green: seed the new dump package and move the real pin to it. No dump file
+    * is written and no dated backup is kept — the previous immutable package
+    * version stays in the cache (the trail).
     */
   private def swap(newDump: String, dashboardsDir: os.Path): Result = {
-    val dumpFile = DashboardBuild.dumpPath(dashboardsDir)
-    val backup = Option.when(os.exists(dumpFile)) {
-      val target = AddonBootstrap.backupPath(dumpFile)
-      os.move(dumpFile, target)
-      target
-    }
-    os.write.over(dumpFile, newDump, createFolders = true)
-    Swapped(backup, DumpPackage.seedFromWorkspace(dashboardsDir))
+    val seedLog = DumpPackage.seedFromText(dashboardsDir, newDump)
+    val version = DumpPackage.versionFor(dashboardsDir, newDump).getOrElse("?")
+    Swapped(version, seedLog)
   }
 }

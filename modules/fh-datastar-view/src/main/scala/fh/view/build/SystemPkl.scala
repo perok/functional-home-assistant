@@ -98,12 +98,13 @@ object SystemPkl {
   val empty: SystemPkl = apply(None, None)
 
   /** Serve the artifacts straight off a live (package-form) workspace: the
-    * `@fh-home` dump ([[DashboardBuild.dumpPath]] — `home/dump.pkl`, written by
-    * `prepareDumps`) as the `dump.pkl` module, and the resolved package
+    * `@fh-home` dump as the `dump.pkl` module — extracted from the currently
+    * PINNED dump package in the cache (there is no loose `home/dump.pkl`; the
+    * dump is only ever a package, ADR 0010) — and the resolved package
     * artifacts from this workspace's package cache
     * (`PklBuild.workspaceCacheDir` — the same cache the server evaluates from,
-    * seeded by `AddonBootstrap` on every start; ADR 0010). Reads are by-name
-    * (per lookup), so `dump.pkl` reflects the latest write without any cache to
+    * seeded by `DumpPackage` on every dump render). Reads are by-name (per
+    * lookup), so `dump.pkl` reflects the latest pin without any cache to
     * invalidate.
     *
     * The schema (`hass.pkl`) is NOT a standalone module here: it lives inside
@@ -112,15 +113,21 @@ object SystemPkl {
     * name gets a `Left` pointing there.
     */
   def fromDisk(dashboardsDir: os.Path): SystemPkl = {
-    def read(p: os.Path): Option[String] = Option.when(os.exists(p))(os.read(p))
     // Computed once: the manifest's `moduleCacheDir` does not move at runtime.
     val cache = PklBuild.workspaceCacheDir(dashboardsDir)
     new SystemPkl {
       def module(name: String): Either[ErrorString, String] =
         name match {
           case "dump.pkl" =>
-            read(DashboardBuild.dumpPath(dashboardsDir))
-              .toRight("no dump.pkl yet — this home has not been built")
+            DumpPackage.pinnedVersion(dashboardsDir) match {
+              case None =>
+                Left("no dump yet — this home has not been built")
+              case Some(version) =>
+                val zip = DumpPackage.cacheEntryDir(cache, version) /
+                  s"${DumpPackage.Name}@$version.zip"
+                readZipEntry(zip, "dump.pkl")
+                  .toRight(s"dump package $version is not in the cache")
+            }
           case "hass.pkl" =>
             Left(
               "hass.pkl is not a standalone module — it ships inside the " +
@@ -162,6 +169,26 @@ object SystemPkl {
       }
     }
   }
+
+  /** Extract one entry's text from a zip (the `dump.pkl` module out of the
+    * pinned `@fh-home` package). `None` when the zip or the entry is absent.
+    */
+  private def readZipEntry(
+      zipPath: os.Path,
+      entryName: String
+  ): Option[String] =
+    Option
+      .when(os.exists(zipPath)) {
+        val zf = new java.util.zip.ZipFile(zipPath.toIO)
+        try
+          Option(zf.getEntry(entryName)).map { e =>
+            val is = zf.getInputStream(e)
+            try new String(is.readAllBytes(), "UTF-8")
+            finally is.close()
+          }
+        finally zf.close()
+      }
+      .flatten
 
   /** `<name>@<version>` as it appears in the cache layout — conservative
     * charset, no separators, so it can never escape the cache dir.
