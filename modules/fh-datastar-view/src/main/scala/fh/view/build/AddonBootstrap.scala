@@ -1,8 +1,5 @@
 package fh.view.build
 
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-
 /** Add-on boot: bring the user's dashboards workspace to a state the server can
   * evaluate, without ever owning the user's files (ADR 0010, "the add-on
   * workspace").
@@ -13,8 +10,8 @@ import java.time.format.DateTimeFormatter
   * `package://fh.invalid/fh-dashboard@<version>` — so the user's dir holds only
   * user files, a runtime upgrade never touches the user's pin (the old version
   * keeps resolving from the cache), and a LIB upgrade is the user's deliberate
-  * pin bump. A pre-package-form install's seeded `lib/` copy is renamed to a
-  * dated backup, never deleted.
+  * pin bump. Nothing the user authored is ever moved or overwritten; the only
+  * overwrite-with-backup is the machine-owned `.fh/pins.json` ([[Pins]]).
   *
   * `@fh-home` is a package too: the dump is a content-versioned cache package
   * (`fh-home@1.0.0-g<hash>`, [[DumpPackage]]), NOT a loose `home/dump.pkl`.
@@ -66,15 +63,6 @@ object AddonBootstrap {
 
     log ++= LibPackage.seedCache(bundledLib, cacheDir)
     os.makeDir.all(dashboardsDir)
-
-    // A pre-package-form workspace carries the old seeded lib copy — frozen at
-    // install time by the old copy-if-empty seeding, which is the bug this
-    // whole bootstrap replaces. The backup preserves any local edits.
-    if (os.exists(dashboardsDir / "lib")) {
-      val target = backupPath(dashboardsDir / "lib")
-      os.move(dashboardsDir / "lib", target)
-      log += s"migrated: lib/ no longer lives in the workspace (moved to ${target.last})"
-    }
 
     log ++= writeMachineFile(
       dashboardsDir / ".fh" / "base.pkl",
@@ -130,20 +118,6 @@ object AddonBootstrap {
       os.write.over(path, content)
       if (existed) List(s"refreshed ${path.last}") else Nil
     }
-
-  /** `name.backup.<ISO-date>` beside the original (`-HHmmss` appended on a
-    * same-day collision) — the one backup-naming convention every migration and
-    * tool shares ([[DumpRefresh]] uses it for the replaced dump).
-    */
-  private[build] def backupPath(original: os.Path): os.Path = {
-    val date = LocalDateTime.now.format(DateTimeFormatter.ISO_LOCAL_DATE)
-    val simple = original / os.up / s"${original.last}.backup.$date"
-    if (!os.exists(simple)) simple
-    else {
-      val time = LocalDateTime.now.format(DateTimeFormatter.ofPattern("HHmmss"))
-      original / os.up / s"${original.last}.backup.$date-$time"
-    }
-  }
 
   private val MachineOwnedMarker =
     "Machine-managed — regenerated at every add-on start"

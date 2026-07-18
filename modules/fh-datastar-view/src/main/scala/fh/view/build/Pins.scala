@@ -14,12 +14,23 @@ import io.circe.Json
   * `dashboardUri` is written by [[AddonBootstrap]] at the bundled lib version
   * on every start; `homeUri`/`homeSha256` by [[DumpPackage.seedFromText]] per
   * dump (a placeholder until the first dump). Both writers read-modify-write,
-  * so neither clobbers the other's key.
+  * so neither clobbers the other's key. Every real change first rolls the prior
+  * file into a single `.fh/pins.json.backup` ([[backupPath]]) — the only
+  * overwrite-with-backup the bootstrap keeps.
   */
 object Pins {
 
   def path(dashboardsDir: os.Path): os.Path =
     dashboardsDir / ".fh" / "pins.json"
+
+  /** A SINGLE rolling backup of the previous `pins.json`, refreshed on every
+    * real pin change ([[writeData]]) so a bad overwrite is one step from
+    * recovery. Deliberately not a dated, accumulating trail: this is machine
+    * data rewritten on every dump refresh, so dated backups would grow without
+    * bound.
+    */
+  def backupPath(dashboardsDir: os.Path): os.Path =
+    dashboardsDir / ".fh" / "pins.json.backup"
 
   /** The `@fh-home` placeholder version written before the first dump, so
     * base.pkl's `read` resolves for the `Project.loadFromPath` that precedes
@@ -84,14 +95,20 @@ object Pins {
   private def writeData(dashboardsDir: os.Path, d: Data): Boolean =
     if (read(dashboardsDir).contains(d)) false
     else {
-      os.makeDir.all(path(dashboardsDir) / os.up)
-      os.write.over(path(dashboardsDir), json(d))
+      val file = path(dashboardsDir)
+      os.makeDir.all(file / os.up)
+      // Keep the previous pin recoverable: roll the existing file into the
+      // single `.backup` before overwriting (only on a real change — a no-op
+      // write returned above, so we never churn the backup).
+      if (os.exists(file)) os.copy.over(file, backupPath(dashboardsDir))
+      os.write.over(file, json(d))
       true
     }
 
   /** Bootstrap: set `dashboardUri` to the bundled lib version (refreshed every
     * start), preserving any already-pinned dump — or seeding the placeholder
-    * dump on a fresh workspace. Machine data; not logged, never backed up.
+    * dump on a fresh workspace. Machine data, not logged; a real change (a lib
+    * bump) rolls the prior file into `.backup` like any other write.
     */
   def seedBootstrap(dashboardsDir: os.Path, dashboardUri: String): Unit = {
     val (hu, hs) =

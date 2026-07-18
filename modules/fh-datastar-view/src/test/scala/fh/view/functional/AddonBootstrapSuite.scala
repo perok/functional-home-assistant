@@ -115,12 +115,13 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(result.isRight, clue = result)
   }
 
-  test(
-    "upgrade: lib/ litter is backed up; the user's manifest is left untouched"
-  ) {
-    // An existing install: the old seeding copied lib/ into the workspace and
-    // wrote a machine-era consumer. Under write-once the consumer is the user's
-    // — never rewritten — while the lib/ litter is backed up (never deleted).
+  test("upgrade: user files are left untouched; delete-to-reseed recovers") {
+    // A pre-package-form install: the old seeding copied lib/ into the workspace
+    // and wrote a machine-era consumer. We no longer migrate — nothing the user
+    // authored is moved or overwritten — so lib/ and the consumer stay put (that
+    // consumer keeps resolving path-form against its own lib/). Only the
+    // generated lockfile is removed. To adopt the package-form wiring the user
+    // deletes the consumer, opting into a fresh re-seed.
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
     os.makeDir.all(box.ws)
@@ -135,27 +136,20 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write(box.ws / "PklProject.deps.json", """{"stale": true}""")
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
-    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
 
-    // lib/ leaves as a dated backup, never deleted.
-    assert(!os.exists(box.ws / "lib"))
-    assertEquals(
-      os.list(box.ws).count(_.last.startsWith("lib.backup.")),
-      1,
-      clue = os.list(box.ws)
-    )
-
-    // Write-once: the user's consumer + entry are untouched, no consumer backup;
-    // the stale lockfile is gone; no starter seeding (the user HAS an entry).
+    // Nothing user-authored is touched: lib/, the consumer + entry all stay, and
+    // no backup is made. The stale lockfile IS removed (generated artifact), and
+    // there is no starter seeding (the user HAS an entry).
+    assert(os.exists(box.ws / "lib"))
+    assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
     assertEquals(os.read(box.ws / "PklProject"), oldConsumer)
-    assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
     assertEquals(os.read(box.ws / "mine.pkl"), "// the user's own entry\n")
     assert(!os.exists(box.ws / "PklProject.deps.json"))
     assert(!os.exists(box.ws / "dashboard.pkl"))
-    assert(log.exists(_.contains("migrated")), clue = log)
 
-    // Recovery: the old consumer's `./lib` dep now dangles (lib/ moved).
-    // Deleting it opts into a fresh, package-form re-seed — then it evaluates.
+    // Recovery: deleting the machine-era consumer opts into a fresh, package-form
+    // re-seed — then it evaluates.
     os.remove(box.ws / "PklProject")
     val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
     val _ = DumpPackage.seedFromText(
