@@ -52,7 +52,13 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     os.write(ws / "dash.pkl", kitchenEntry, createFolders = true)
-    val _ = AddonBootstrap.run(ws, bundledLib, seedDir, root / "pkl-cache")
+    val _ = AddonBootstrap.run(
+      ws,
+      bundledLib,
+      seedDir,
+      root / "pkl-cache",
+      loopbackUrl = "http://127.0.0.1:8080"
+    )
     val _ = DumpPackage.seedFromText(ws, currentDump)
     ws
   }

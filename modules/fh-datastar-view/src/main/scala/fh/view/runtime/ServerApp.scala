@@ -38,15 +38,11 @@ object ServerApp extends IOApp {
   private val bundledResourcesDir = "src/main/resources/dashboards"
 
   // Persistent pkl package cache for a dev run: the cross-platform user data
-  // dir, via the SAME lib + app coordinates the `fh` script uses (appdirs,
-  // `fh`/`perok`), so a local instance and the laptop `fh` land in one place
-  // (`~/.local/share/fh/…/pkl-cache` on Linux). The data dir (not the cache
-  // dir) because the seeded package artifacts are what laptops pin against —
-  // an OS cache sweep must not break resolution. The add-on overrides it to
-  // its persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
+  // dir (`~/.local/share/fh/…/pkl-cache` on Linux), shared with `BuildApp` and
+  // the laptop `fh` via one appdirs helper. The add-on overrides it to its
+  // persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
   private def defaultCacheDir: String =
-    s"${net.harawata.appdirs.AppDirsFactory.getInstance
-        .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
+    fh.view.build.AddonBootstrap.defaultCacheDir
 
   def run(args: List[String]): IO[ExitCode] =
     for {
@@ -491,10 +487,21 @@ object ServerApp extends IOApp {
       )
       seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
       cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+      // This instance's own URL, written into `.fh/machine.json` as the
+      // `http.rewrites` target. Loopback + the bind PORT: inert here (packages
+      // resolve from the cache), it only matters if the workspace is copied — a
+      // laptop's `fh init` overwrites it with the real instance URL.
+      port <- Env[IO].get("PORT").map(_.getOrElse("8080"))
       _ <- IO
         .blocking(
           fh.view.build.AddonBootstrap
-            .run(dashboardsDir, bundledLib, seedDir, cacheDir)
+            .run(
+              dashboardsDir,
+              bundledLib,
+              seedDir,
+              cacheDir,
+              loopbackUrl = s"http://127.0.0.1:$port"
+            )
         )
         .flatMap(_.traverse_(IO.println))
     } yield ()

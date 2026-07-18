@@ -27,12 +27,14 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
   private val libVersion = LibPackage.version(bundledLib)
 
+  private val LoopbackUrl = "http://127.0.0.1:8080"
+
   private case class Box(ws: os.Path, cache: os.Path)
 
   private def boot(): (Box, List[String]) = {
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     (box, log)
   }
 
@@ -46,8 +48,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
     // Ownership splits along the amends chain: the user's PklProject amends the
     // machine-owned .fh/base.pkl and is seeded WITHOUT a dependencies block (no
-    // pin of its own — it tracks the base default). The base points every pkl
-    // tool at the persistent cache and reads both pins from pins.json.
+    // pin of its own — it tracks the base default).
     val consumer = os.read(box.ws / "PklProject")
     assert(consumer.contains("amends \".fh/base.pkl\""), clue = consumer)
     // No ACTIVE dependencies block (the docstring shows a commented example, but
@@ -56,14 +57,26 @@ class AddonBootstrapSuite extends munit.FunSuite {
       !consumer.linesIterator.exists(_.trim == "dependencies {"),
       clue = consumer
     )
+    // base.pkl is machine-AGNOSTIC: no path, no URL — it READS both from json
+    // siblings (machine.json for the cache + rewrite, pins.json for the pins).
     val base = os.read(box.ws / ".fh" / "base.pkl")
-    assert(base.contains(box.cache.toString), clue = base)
+    assert(base.contains("read(\"machine.json\")"), clue = base)
     assert(base.contains("read(\"pins.json\")"), clue = base)
+    assert(base.contains("machine.instanceUrl + \"/system/pkl/packages/\""), clue = base)
+    assert(!base.contains(box.cache.toString), clue = base)
+    // The per-machine values live in machine.json: THIS instance's cache path +
+    // its own loopback URL (inert here, a cache hit; copy-usable elsewhere).
+    val machine = os.read(box.ws / ".fh" / "machine.json")
+    assert(machine.contains(box.cache.toString), clue = machine)
+    assert(machine.contains(LoopbackUrl), clue = machine)
     // Both pins are DATA in pins.json: the lib pin at the bundled version, the
     // home pin a placeholder until the first dump. There is no `home/` folder.
     val pins = os.read(box.ws / ".fh" / "pins.json")
     assert(pins.contains(LibPackage.packageUri(libVersion)), clue = pins)
     assert(!os.exists(box.ws / "home"), clue = os.list(box.ws))
+    // A default .gitignore excludes the per-machine + generated files.
+    val gitignore = os.read(box.ws / ".gitignore")
+    assert(gitignore.contains(".fh/machine.json"), clue = gitignore)
 
     // The cache entry is exactly the resolved-package layout pkl expects.
     val entry = LibPackage.cacheEntryDir(box.cache, libVersion)
@@ -136,7 +149,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write(box.ws / "PklProject.deps.json", """{"stale": true}""")
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
-    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
 
     // Nothing user-authored is touched: lib/, the consumer + entry all stay, and
     // no backup is made. The stale lockfile IS removed (generated artifact), and
@@ -151,7 +164,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     // Recovery: deleting the machine-era consumer opts into a fresh, package-form
     // re-seed — then it evaluates.
     os.remove(box.ws / "PklProject")
-    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     val _ = DumpPackage.seedFromText(
       box.ws,
       PklDump.render(HouseFixture.transformedDump)
@@ -167,7 +180,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
         "\n// user added a third-party card package here\n"
     os.write.over(box.ws / "PklProject", customized)
 
-    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val _ = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
@@ -179,7 +192,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
       LibPackage.cacheEntryDir(box.cache, libVersion) /
         s"fh-dashboard@$libVersion.zip"
     val mtime = os.mtime(zipPath)
-    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache)
+    val log = AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     assert(log.isEmpty, clue = log)
     assertEquals(os.mtime(zipPath), mtime)
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
@@ -194,10 +207,10 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val editableLib = root / "lib"
     os.copy(bundledLib, editableLib)
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    val _ = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache)
+    val _ = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
 
     os.write.append(editableLib / "tokens.pkl", "\n// drifted\n")
-    val log = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache)
+    val log = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
 
     assert(log.exists(_.contains("WARNING")), clue = log)
     val zip = LibPackage.cacheEntryDir(box.cache, libVersion) /

@@ -222,6 +222,40 @@ class ServerSuite extends munit.CatsEffectSuite {
     assertEquals(missStatus, Status.NotFound)
   }
 
+  test("/system/pkl serves the byte-identical workspace scaffold to `fh init`") {
+    // The static, machine-agnostic files a laptop fetches verbatim — served off
+    // the shared AddonBootstrap constants, independent of any home data (so the
+    // default empty SystemPkl is fine).
+    val (base, consumer, gitignore) = (for {
+      store <- StateStore.inMemory(Map.empty)
+      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(fake, store, Map("home" -> ref), "home", sessions)
+        .use { server =>
+          val routes = server.routes.orNotFound
+          val get = (p: String) =>
+            routes
+              .run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
+              .flatMap(r =>
+                r.body.through(fs2.text.utf8.decode).compile.string
+                  .map((r.status, _))
+              )
+          for {
+            b <- get("/system/pkl/base.pkl")
+            c <- get("/system/pkl/PklProject")
+            g <- get("/system/pkl/gitignore")
+          } yield (b, c, g)
+        }
+    } yield out).timeout(30.seconds).unsafeRunSync()
+
+    assertEquals(base._1, Status.Ok)
+    assertEquals(base._2, fh.view.build.AddonBootstrap.BaseManifest)
+    assertEquals(consumer._2, fh.view.build.AddonBootstrap.ConsumerManifest)
+    assertEquals(gitignore._2, fh.view.build.AddonBootstrap.GitignoreTemplate)
+  }
+
   test(
     "/system/pkl revalidates: no-cache always, 304 only on a stale-free tag"
   ) {

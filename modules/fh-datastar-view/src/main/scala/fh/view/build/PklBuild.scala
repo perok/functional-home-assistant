@@ -179,17 +179,20 @@ object PklBuild {
         )
     }
 
-  /** The package cache for this workspace: the project's own
-    * `evaluatorSettings.moduleCacheDir` when declared (the add-on workspace
-    * points it at persistent storage, and pkl-lsp honors the same setting), a
-    * workspace-local `.pkl-cache` otherwise. Used identically by the resolver,
-    * the evaluator and the analyzer — a remote dep resolves offline as long as
-    * its version is already IN this cache (pre-seeded by `LibPackage`).
-    */
-  /** [[cacheDir]] for callers without a loaded project (the `/system/pkl/
-    * packages/` route's provider): load the workspace's `PklProject` if there
-    * is one — a manifest that fails to load falls back to the default, since
-    * the caller is serving reads, not evaluating.
+  /** The package cache for this workspace, taken from the loaded project's
+    * `evaluatorSettings.moduleCacheDir` — which the static `.fh/base.pkl`
+    * always declares (reading it from `.fh/machine.json`; the add-on points it
+    * at persistent storage and pkl-lsp honors the same setting). Used
+    * identically by the resolver, the evaluator and the analyzer — a remote dep
+    * resolves offline as long as its version is already IN this cache
+    * (pre-seeded by `LibPackage`).
+    *
+    * A loaded `PklProject` that declares NO `moduleCacheDir` is a HARD ERROR:
+    * in this design every workspace's `base.pkl` supplies it, so its absence
+    * means an un-bootstrapped / corrupt workspace — better a loud failure than
+    * a silent stray `.pkl-cache`. Only the projectless plain-eval path (no
+    * `PklProject` at all, hence no package deps) falls back to a
+    * workspace-local `.pkl-cache`.
     */
   private[build] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
     val projectFile = dashboardsDir / "PklProject"
@@ -205,14 +208,25 @@ object PklBuild {
       dashboardsDir: os.Path,
       project: Option[Project]
   ): os.Path =
-    project
-      .flatMap(p => Option(p.getEvaluatorSettings.moduleCacheDir()))
-      .map { p =>
-        // pkl resolves a relative moduleCacheDir against the project dir.
-        if (p.isAbsolute) os.Path(p)
-        else dashboardsDir / os.RelPath(p.toString)
-      }
-      .getOrElse(dashboardsDir / ".pkl-cache")
+    project match {
+      case Some(p) =>
+        Option(p.getEvaluatorSettings.moduleCacheDir())
+          .map { path =>
+            // pkl resolves a relative moduleCacheDir against the project dir.
+            if (path.isAbsolute) os.Path(path)
+            else dashboardsDir / os.RelPath(path.toString)
+          }
+          .getOrElse(
+            sys.error(
+              s"${dashboardsDir / ".fh" / "base.pkl"} declares no moduleCacheDir " +
+                "— the workspace is not bootstrapped; run `fh init` or restart " +
+                "the add-on"
+            )
+          )
+      // No PklProject at all: the plain-eval path has no package deps, so a
+      // workspace-local cache location is enough.
+      case None => dashboardsDir / ".pkl-cache"
+    }
 
   /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
     *

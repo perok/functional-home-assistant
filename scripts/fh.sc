@@ -15,11 +15,16 @@
 // instance's packages — @fh-dashboard, the authoring library, and @fh-home,
 // your home's typed entity dump as an immutable content-versioned snapshot —
 // and pkl resolves them from the instance through the manifest's own http
-// rewrite. This script only writes those pins and keeps the lockfile in step;
-// resolution and evaluation run in-process on pkl-core (the same library —
-// and for push the same ValueRenderers.json call — the instance itself uses).
-// Stock pkl tooling still works on the workspace (pkl-lsp completion, the
-// pkl CLI) but nothing here requires it.
+// rewrite. `fh init` fetches the instance's byte-identical scaffold
+// (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim and writes the two
+// per-machine files this laptop needs — `.fh/machine.json` (its cache dir +
+// the instance URL) and `.fh/pins.json` (the version pins); `fh pull` re-pins
+// @fh-home. Because the scaffold matches the server's exactly, you can keep the
+// workspace in git and use the same files on both sides (only `.fh/machine.json`
+// differs, and it is gitignored). Resolution and evaluation run in-process on
+// pkl-core (the same library — and for push the same ValueRenderers.json call —
+// the instance itself uses). Stock pkl tooling still works on the workspace
+// (pkl-lsp completion, the pkl CLI) but nothing here requires it.
 //
 // This file lives in the GitHub repo — that is its distribution channel:
 //
@@ -38,7 +43,7 @@ import cats.effect.std.*
 import cats.syntax.all.*
 import com.monovore.decline.Opts
 import com.monovore.decline.effect.CommandIOApp
-import io.circe.Decoder
+import io.circe.{Decoder, Json}
 import org.http4s.{EntityDecoder, MediaType, Method, Request, Uri}
 import org.http4s.circe.jsonOf
 import org.http4s.client.Client
@@ -68,8 +73,12 @@ object Die {
 
 def die(msg: String): IO[Nothing] = IO.raiseError(Die(msg))
 
-val basePkl =
-  Paths.get(s"${appdirs.getUserConfigDir("fh", "0.0.1", "perok")}/base.pkl")
+// The workspace scaffold + per-machine data all live under `.fh/` in the CWD —
+// the same layout the add-on writes, so the committed files (`.fh/base.pkl`,
+// `PklProject`) are byte-identical to the instance's and a git copy Just Works.
+val basePkl = Paths.get(".fh/base.pkl")
+val machineJson = Paths.get(".fh/machine.json")
+val pinsJson = Paths.get(".fh/pins.json")
 
 /** Where `update` fetches the authoritative copy of this script from (the
   * checked-in file on the repo's main branch). Env-overridable for tests.
@@ -88,13 +97,18 @@ def sha256(bytes: Array[Byte]): String =
 
 // ---------------------------------------------------------------- pkl-core
 // The workspace's own settings, applied by hand: the script knows the
-// instance URL and wrote `.fh/base.pkl` itself, so it builds the same
-// rewrite + cache the manifest declares rather than depending on how
-// pkl-core surfaces evaluatorSettings.
+// instance URL (from `.fh/machine.json`) and builds the same rewrite + cache
+// the manifest declares rather than depending on how pkl-core surfaces
+// evaluatorSettings.
 
-// XDG config dirs
+// The package cache: the cross-platform user DATA dir under the SAME appdirs
+// coordinates the add-on / BuildApp use, so a local instance and this script
+// land in one cache. This absolute path is what `fh init` writes into
+// `.fh/machine.json` as `cacheDir` (base.pkl's `moduleCacheDir`).
 val cacheDir =
-  Paths.get(appdirs.getUserCacheDir("fh", "0.0.1", "perok")).toAbsolutePath
+  Paths
+    .get(s"${appdirs.getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache")
+    .toAbsolutePath
 
 def pklHttp(url: String): org.pkl.core.http.HttpClient =
   org.pkl.core.http.HttpClient
@@ -157,31 +171,37 @@ def evalJson(url: String, entry: String): IO[String] = IO.blocking {
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =
   EmberClientBuilder.default[IO].build.use(f)
 
-/** The instance this workspace is wired to, read back from the rewrite line in
-  * the machine-managed base manifest.
+/** Read one string field out of a `.fh` json machine file. These are flat,
+  * machine-generated `{ "k": "v" }` files, so a regex is enough (and avoids a
+  * circe-parser dependency the toolkit doesn't bundle).
+  */
+def jsonField(file: Path, field: String): Option[String] =
+  Option
+    .when(Files.exists(file))(new String(Files.readAllBytes(file), UTF_8))
+    .flatMap(s =>
+      s""""$field"\\s*:\\s*"([^"]*)"""".r.findFirstMatchIn(s).map(_.group(1))
+    )
+
+/** The instance this workspace is wired to, read from `.fh/machine.json`
+  * (`instanceUrl`) — the per-machine file `fh init` writes and `base.pkl`'s
+  * rewrite reads.
   */
 def instanceUrl: IO[String] = IO.blocking {
-  if !Files.exists(basePkl) then
+  if !Files.exists(machineJson) then
     throw Die(
-      s"not an fh workspace (no $basePkl) — run: fh init <instance-url>"
+      s"not an fh workspace (no $machineJson) — run: fh init <instance-url>"
     )
-  val rewrite = """.*= *"(.*)/system/pkl/packages/".*""".r
-  Files
-    .readAllLines(basePkl)
-    .toArray(Array.empty[String])
-    .collectFirst { case rewrite(url) => url }
-    .getOrElse(
-      throw Die(s"no instance url in $basePkl — re-run: fh init <instance-url>")
-    )
+  jsonField(machineJson, "instanceUrl").getOrElse(
+    throw Die(s"no instanceUrl in $machineJson — re-run: fh init <instance-url>")
+  )
 }
 
-/** The @fh-home version currently pinned, if any (for the pull message). */
+/** The @fh-home version currently pinned, if any (for the pull message) — read
+  * from `.fh/pins.json`'s `homeUri`.
+  */
 def pinnedHomeVersion: IO[Option[String]] = IO.blocking {
-  val pin = """.*fh-home@([^"]*)".*""".r
-  Files
-    .readAllLines(basePkl)
-    .toArray(Array.empty[String])
-    .collectFirst { case pin(v) => v }
+  jsonField(pinsJson, "homeUri")
+    .flatMap("""fh-home@(.+)$""".r.unanchored.findFirstMatchIn(_).map(_.group(1)))
 }
 
 case class PkgIndex(
@@ -222,83 +242,91 @@ def fetchIndex(client: Client[IO], url: String): IO[PkgIndex] =
         ).tap(_.addSuppressed(err))
     }
 
-/** Machine-managed; rewritten whole by init/pull. The @fh-home pin carries its
-  * checksum (uri + checksums written together — declared integrity, never
-  * trust-on-first-use). @fh-dashboard deliberately carries none here: a user
-  * override in PklProject would inherit a stale checksum from the amended-over
-  * default, so the lockfile pins the lib instead.
+/** Fetch one served scaffold file from the instance (`/system/pkl/<name>`).
+  * These are the machine-AGNOSTIC, byte-identical files the instance generates;
+  * `fh` writes them verbatim, so the committed scaffold matches the server's.
   */
-def writeBase(url: String, idx: PkgIndex): IO[Unit] = IO.blocking {
-  Files.createDirectories(basePkl.getParent)
+def fetchScaffold(client: Client[IO], url: String, name: String): IO[String] =
+  client
+    .expect[String](s"$url/system/pkl/$name")
+    .adaptError {
+      case err if !err.isInstanceOf[Die] =>
+        Die(s"could not fetch $url/system/pkl/$name").tap(_.addSuppressed(err))
+    }
+
+/** Write the served scaffold: `.fh/base.pkl` verbatim (machine-agnostic, always
+  * refreshed), and `PklProject` / `.gitignore` only when absent (the user's from
+  * the moment they exist).
+  */
+def writeScaffold(client: Client[IO], url: String): IO[Unit] =
+  for {
+    base <- fetchScaffold(client, url, "base.pkl")
+    consumer <- fetchScaffold(client, url, "PklProject")
+    gitignore <- fetchScaffold(client, url, "gitignore")
+    _ <- IO.blocking {
+      Files.createDirectories(basePkl.getParent)
+      Files.write(basePkl, base.getBytes(UTF_8))
+      val proj = Paths.get("PklProject")
+      if !Files.exists(proj) then Files.write(proj, consumer.getBytes(UTF_8))
+      val gi = Paths.get(".gitignore")
+      if !Files.exists(gi) then Files.write(gi, gitignore.getBytes(UTF_8))
+    }
+  } yield ()
+
+/** The per-machine `{ cacheDir, instanceUrl }` that `base.pkl` reads — this
+  * laptop's own cache and the instance URL. Gitignored; never committed.
+  */
+def writeMachine(url: String): IO[Unit] = IO.blocking {
+  Files.createDirectories(machineJson.getParent)
   Files.write(
-    basePkl,
-    s"""/// Machine-managed — rewritten by `fh init` / `fh pull`; do not edit.
-       |///
-       |/// Wires this workspace to the Home Assistant instance at $url:
-       |/// both packages resolve from it through the rewrite below (and stay cached
-       |/// in .fh/cache for offline work).
-       |///
-       |///   @fh-dashboard  the instance's authoring library. The version here is the
-       |///                  instance's current one; the pin in your PklProject
-       |///                  overrides it.
-       |///   @fh-home       YOUR home's typed entity dump, an immutable
-       |///                  content-versioned snapshot. `fh pull` re-pins it.
-       |amends "pkl:Project"
-       |
-       |evaluatorSettings {
-       |  moduleCacheDir = ".fh/cache"
-       |  http {
-       |    rewrites {
-       |      ["https://fh.invalid/"] = "$url/system/pkl/packages/"
-       |    }
-       |  }
-       |}
-       |
-       |dependencies {
-       |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@${idx.dashboardVersion}" }
-       |  ["fh-home"] {
-       |    uri = "package://fh.invalid/fh-home@${idx.homeVersion}"
-       |    checksums { sha256 = "${idx.homeSha256}" }
-       |  }
-       |}
-       |""".stripMargin.getBytes(UTF_8)
+    machineJson,
+    (Json
+      .obj(
+        "cacheDir" -> Json.fromString(cacheDir.toString),
+        "instanceUrl" -> Json.fromString(url)
+      )
+      .spaces2 + "\n").getBytes(UTF_8)
   )
 }
 
-def seedConsumer(idx: PkgIndex): IO[Unit] = IO.blocking {
-  val consumer = Paths.get("PklProject")
-  if !Files.exists(consumer) then
-    Files.write(
-      consumer,
-      s"""/// Your dashboards project. Seeded by `fh init`; from then on it is yours —
-         |/// fh never rewrites it. (The machine half — instance URL, cache, the @fh-home
-         |/// pin — lives in .fh/base.pkl, which this file amends; fh regenerates that
-         |/// one freely.)
-         |///
-         |/// The pin below names the @fh-dashboard library version your dashboards build
-         |/// against; bump it deliberately. Deleting the entry tracks whatever the
-         |/// instance currently ships. Third-party card packages are declared here too.
-         |amends ".fh/base.pkl"
-         |
-         |dependencies {
-         |  ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@${idx.dashboardVersion}" }
-         |}
-         |""".stripMargin.getBytes(UTF_8)
-    )
+/** The version pins `base.pkl` reads. The @fh-home pin carries its checksum
+  * (declared integrity, never trust-on-first-use). Same shape the add-on's
+  * `Pins.Data` writes, so init and the server agree.
+  */
+def writePins(idx: PkgIndex): IO[Unit] = IO.blocking {
+  Files.createDirectories(pinsJson.getParent)
+  Files.write(
+    pinsJson,
+    (Json
+      .obj(
+        "dashboardUri" -> Json.fromString(
+          s"package://fh.invalid/fh-dashboard@${idx.dashboardVersion}"
+        ),
+        "homeUri" -> Json.fromString(
+          s"package://fh.invalid/fh-home@${idx.homeVersion}"
+        ),
+        "homeSha256" -> Json.fromString(idx.homeSha256)
+      )
+      .spaces2 + "\n").getBytes(UTF_8)
+  )
 }
 
 def cmdInit(rawUrl: String): IO[Unit] = {
   val url = rawUrl.stripSuffix("/")
 
-  withClient(client => fetchIndex(client, url)).flatMap(idx =>
-    writeBase(url, idx) >>
-      seedConsumer(idx) >>
-      resolveDeps(url) >>
-      IO.println(
+  withClient { client =>
+    for
+      idx <- fetchIndex(client, url)
+      _ <- writeScaffold(client, url)
+      _ <- writeMachine(url)
+      _ <- writePins(idx)
+      _ <- resolveDeps(url)
+      _ <- IO.println(
         s"""wired to $url (@fh-dashboard ${idx.dashboardVersion}, @fh-home ${idx.homeVersion})
            |add *.pkl entries — completion and evaluation resolve from the instance|""".stripMargin
       )
-  )
+    yield ()
+  }
 }
 
 def cmdPull: IO[Unit] =
@@ -307,7 +335,7 @@ def cmdPull: IO[Unit] =
       url <- instanceUrl
       old <- pinnedHomeVersion
       idx <- fetchIndex(client, url)
-      _ <- writeBase(url, idx)
+      _ <- writePins(idx)
       _ <- resolveDeps(url)
       _ <-
         if old.contains(idx.homeVersion) then

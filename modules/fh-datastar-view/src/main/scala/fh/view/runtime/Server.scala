@@ -140,6 +140,20 @@ class Server(
         case Left(reason) => NotFound(reason)
       }
 
+    // The workspace scaffold a laptop's `fh init` fetches and writes verbatim:
+    // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
+    // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
+    // instance URL). Before the `:name` catch-all so these exact names win.
+    case GET -> Root / "system" / "pkl" / "base.pkl" =>
+      Ok(fh.view.build.AddonBootstrap.BaseManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "PklProject" =>
+      Ok(fh.view.build.AddonBootstrap.ConsumerManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "gitignore" =>
+      Ok(fh.view.build.AddonBootstrap.GitignoreTemplate)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+
     case req @ GET -> Root / "system" / "pkl" / name =>
       systemPkl.module(name) match {
         case Right(text)  => systemPklResponse(text, req)

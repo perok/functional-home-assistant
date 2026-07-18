@@ -54,7 +54,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       ws,
       bundledLib = dashboards / "lib",
       seedDir = os.temp.dir(), // empty: never seed the demo entries into a test
-      cacheDir = root / "pkl-cache"
+      cacheDir = root / "pkl-cache",
+      loopbackUrl = "http://127.0.0.1:8080"
     )
     if (withDump) {
       val _ = DumpPackage.seedFromText(
@@ -99,7 +100,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       ws,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
-      cacheDir = root / "pkl-cache"
+      cacheDir = root / "pkl-cache",
+      loopbackUrl = "http://127.0.0.1:8080"
     )
     val _ =
       DumpPackage.seedFromText(ws, PklDump.render(HouseFixture.transformedDump))
@@ -168,7 +170,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       instance,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
-      cacheDir = instanceCache
+      cacheDir = instanceCache,
+      loopbackUrl = "http://127.0.0.1:8080"
     )
     val _ =
       DumpPackage.seedFromText(
@@ -283,7 +286,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       instance,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
-      cacheDir = root / "pkl-cache"
+      cacheDir = root / "pkl-cache",
+      loopbackUrl = "http://127.0.0.1:8080"
     )
     val _ =
       DumpPackage.seedFromText(
@@ -335,7 +339,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       instance,
       bundledLib = dashboards / "lib",
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
-      cacheDir = root / "pkl-cache"
+      cacheDir = root / "pkl-cache",
+      loopbackUrl = "http://127.0.0.1:8080"
     )
     val _ =
       DumpPackage.seedFromText(

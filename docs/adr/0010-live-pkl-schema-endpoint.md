@@ -91,9 +91,9 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
-`.fh/base.pkl` the user's `PklProject` amends, so pkl-lsp finds it with no
-extra configuration) and the freshly-seeded `@fh-home` dump package, through the
-project. Nothing is fetched. This is the default path and it needs no network
+`.fh/base.pkl` the user's `PklProject` amends, which reads it from the sibling
+`.fh/machine.json`, so pkl-lsp finds it with no extra configuration) and the
+freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
 story at all.
 
 **End user, local editor.** Their own workspace — their entries and manifests —
@@ -102,7 +102,8 @@ is not a supported laptop mode; live editing on the instance is what `/edit` is
 for.) No checkout needed: the `fh` script (checked into the repo at
 `scripts/fh.sc`, installed with one curl from GitHub raw) wires a directory to
 the instance —
-`fh init` writes the manifests, and BOTH names resolve as packages from the
+`fh init` fetches the instance's byte-identical scaffold and writes this laptop's
+`.fh/machine.json` + `.fh/pins.json`, and BOTH names resolve as packages from the
 instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
 `@fh-home` as a *content-versioned* dump snapshot (see "resolved by
 content-derived versions") that `fh pull` re-pins. Resolution and push
@@ -255,9 +256,12 @@ differs, keeping the previous copy as `fh.backup.<date>` (the user-file
 convention) — so the checked-in file on `main` is the single authoritative
 source and installed copies self-heal toward it. It is deliberately a script
 and not a jar subcommand: after the content-versioned dump design, the laptop
-side is *only* fetch-and-write (`init`/`pull` = fetch the index, write
-`.fh/base.pkl` + seed `PklProject`, resolve dependencies) plus one evaluation
-(`push`). Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
+side is *only* fetch-and-write. `init` fetches the instance's byte-identical
+scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
+`/system/pkl/{base.pkl,PklProject,gitignore}` and writes the two per-machine
+files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
+URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
+just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
 then `ValueRenderers.json` — the *same call* the instance's backend renders
 its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the
@@ -274,12 +278,13 @@ property) — covering what the script does without an instance
 the decline wiring itself is not tested). `UseCaseSuite` covers the server
 side of the interface the script drives (the discovery index, the `@fh-home`
 artifacts a pull re-pins to, push) without spawning any subprocess.
-The laptop workspace mirrors the add-on's ownership
-split: `.fh/base.pkl` machine-owned (instance URL rewrite, `.fh/cache`, the
-checksummed `@fh-home` pin — uri + checksums always written together),
-`PklProject` the user's from `init` on (their `@fh-dashboard` pin; the base's
-`@fh-dashboard` default is deliberately checksum-free, since a user override
-would inherit a stale checksum from the amended-over default).
+The laptop workspace is IDENTICAL to the add-on's, by construction (the scaffold
+is served, not re-templated): `.fh/base.pkl` byte-identical and machine-agnostic,
+`PklProject` and `.gitignore` the same, the `@fh-home` pin (uri + checksum) in
+`.fh/pins.json`. The only per-machine file is `.fh/machine.json` (this laptop's
+cache dir + the instance URL the rewrite targets), which is gitignored — so a user
+can keep the workspace in git and use the same files on the laptop and the
+instance, differing only in that one ignored file.
 
 **The `.pkl` routes are a file-download API, not a module source.** pkl-lsp
 does not fetch them — `LspBridge` runs pkl-lsp server-side against on-disk
@@ -405,17 +410,26 @@ does, idempotently:
    `amends` chain (spike-verified on 0.31.1: a `PklProject` can amend a local
    base module; the child inherits `dependencies` and `evaluatorSettings`, and
    its own mapping entries override the base's):
-   - `.fh/base.pkl` — **machine-owned, STATIC**: `moduleCacheDir` (so pkl-lsp and
-     any pkl tool resolve from the same cache) and BOTH alias bindings, each
-     reading its pin from the sibling `.fh/pins.json` via `pkl:json` (a single
-     `local class Pins { dashboardUri; homeUri; homeSha256 }` + one
-     `(new json.Parser {}).parse(read("pins.json")).toTyped(Pins)`). This file
-     never changes per-dump; it is rewritten only when the template changes
-     across add-on versions.
+   - `.fh/base.pkl` — **machine-owned, STATIC and machine-AGNOSTIC**: it carries
+     no path and no URL. `moduleCacheDir` and the `http.rewrites` target are read
+     from the sibling `.fh/machine.json`, and both alias pins from `.fh/pins.json`
+     — all via `pkl:json` (`local class Machine { cacheDir; instanceUrl }` +
+     `local class Pins { … }`, each a
+     `(new json.Parser {}).parse(read("…")).toTyped(…)`). Because it holds nothing
+     per-machine it is **byte-identical everywhere** — the exact bytes the
+     instance serves to a laptop's `fh init` over `/system/pkl/base.pkl`. Rewritten
+     only when the template changes across add-on versions.
+   - `.fh/machine.json` — **machine-owned** `{ cacheDir, instanceUrl }`, the
+     per-machine values, refreshed each start. This instance fills it with the
+     persistent cache path + its own loopback URL (inert here — packages are cache
+     hits — but it makes the workspace copy-usable); a laptop's `fh init` fills its
+     own cache + the real instance URL. **Never committed** (the seeded
+     `.gitignore` excludes it) — it is the ONLY file that differs between the
+     instance and a git copy of the same workspace.
    - `.fh/pins.json` — **machine-owned** `{ dashboardUri, homeUri, homeSha256 }`,
-     the ONE file rewritten as pins move (both pins are DATA here, so a future
-     lib bump or dump pull is the same file-rewrite mechanism): `dashboardUri` set
-     to the bundled lib version every start, the home fields by
+     the file rewritten as pins move (both pins are DATA here, so a lib bump or
+     dump pull is the same file-rewrite mechanism): `dashboardUri` set to the
+     bundled lib version every start, the home fields by
      `DumpPackage.seedFromText` per dump (a placeholder until the first dump).
      Read-modify-write, so the two writers never clobber each other. `@fh-home` is
      a content-versioned cache package (`fh-home@1.0.0-g<hash>`), not a `home/`
@@ -426,6 +440,10 @@ does, idempotently:
      version; the user may add a block to pin a version or declare third-party
      packages (that override wins for module identity — `effectivePin` reads it
      first, then `pins.json`).
+   - `.gitignore` — seeded once so a user may keep the workspace in git: it
+     commits the byte-identical scaffold (`base.pkl`, `PklProject`, entries,
+     `pins.json`) and excludes the per-machine + generated files
+     (`.fh/machine.json`, caches, the lockfile, `pins.json` backups).
 3. **Leave old installs alone**: nothing the user authored is moved or
    overwritten — a workspace-resident pre-package `lib/` and a machine-era
    consumer manifest (write-once) both stay put (that consumer keeps resolving

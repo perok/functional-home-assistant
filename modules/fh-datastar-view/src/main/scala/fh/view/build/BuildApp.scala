@@ -29,12 +29,6 @@ object BuildApp extends IOApp {
   private val defaultDashboardJson = "dashboard.json"
   private val defaultDashboardEntry = "dashboard.pkl"
 
-  // The SAME appdirs coordinates the `fh` script + `ServerApp` use, so a local
-  // build resolves the same cache a local serve does.
-  private def defaultCacheDir: String =
-    s"${net.harawata.appdirs.AppDirsFactory.getInstance
-        .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
-
   def run(args: List[String]): IO[ExitCode] =
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
@@ -50,10 +44,21 @@ object BuildApp extends IOApp {
       // `prepareDumps`, which seeds the live dump package and moves the home pin.
       bundledLib <- pathFromEnv("FH_BUNDLED_LIB", s"$bundledResourcesDir/lib")
       seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
-      cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+      cacheDir <- pathFromEnv(
+        "FH_PKL_CACHE_DIR",
+        AddonBootstrap.defaultCacheDir
+      )
       _ <- IO
         .blocking(
-          AddonBootstrap.run(dashboardsDir, bundledLib, seedDir, cacheDir)
+          // The build phase runs no server; the rewrite URL is inert (resolution
+          // is cache-only), so a loopback default is fine in `machine.json`.
+          AddonBootstrap.run(
+            dashboardsDir,
+            bundledLib,
+            seedDir,
+            cacheDir,
+            loopbackUrl = "http://127.0.0.1:8080"
+          )
         )
         .flatMap(_.traverse_(IO.println))
 

@@ -25,7 +25,13 @@ class DumpPackageSuite extends munit.FunSuite {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     val cache = root / "pkl-cache"
-    val _ = AddonBootstrap.run(ws, bundledLib, seedDir, cache)
+    val _ = AddonBootstrap.run(
+      ws,
+      bundledLib,
+      seedDir,
+      cache,
+      loopbackUrl = "http://127.0.0.1:8080"
+    )
     (ws, cache)
   }
 

@@ -33,7 +33,13 @@ object PklWorkspace {
     os.makeDir.all(tmp)
     val cache = os.temp.dir()
     // Empty seed dir: never seed the demo entries into a test workspace.
-    val _ = AddonBootstrap.run(tmp, resourcesLib, os.temp.dir(), cache)
+    val _ = AddonBootstrap.run(
+      tmp,
+      resourcesLib,
+      os.temp.dir(),
+      cache,
+      loopbackUrl = "http://127.0.0.1:8080"
+    )
     val _ = DumpPackage.seedFromText(tmp, dumpText)
     cache
   }
