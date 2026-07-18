@@ -2,19 +2,19 @@ package fh.view.build
 
 import io.circe.Json
 
-/** The machine-owned `.fh/pins.json` — the ONE data file the static `.fh/base.pkl`
-  * reads (via `pkl:json`) to bind BOTH aliases (ADR 0010). Moving every pin here
-  * makes bumping the lib or pulling the dump a plain file rewrite, never a
-  * Pkl-source edit — the same mechanism for both, and the seam a future
-  * `fh sync`/`pull` writes through.
+/** The machine-owned `.fh/pins.json` — the ONE data file the static
+  * `.fh/base.pkl` reads (via `pkl:json`) to bind BOTH aliases (ADR 0010).
+  * Moving every pin here makes bumping the lib or pulling the dump a plain file
+  * rewrite, never a Pkl-source edit — the same mechanism for both, and the seam
+  * a future `fh sync`/`pull` writes through.
   *
   * Flat shape, so base.pkl needs no nested classes or optionals:
-  * {{{ { "dashboardUri", "homeUri", "homeSha256" } }}}
+  * {{{{ "dashboardUri", "homeUri", "homeSha256" }}}}
   *
-  * `dashboardUri` is written by [[AddonBootstrap]] at the bundled lib version on
-  * every start; `homeUri`/`homeSha256` by [[DumpPackage.seedFromText]] per dump
-  * (a placeholder until the first dump). Both writers read-modify-write, so
-  * neither clobbers the other's key.
+  * `dashboardUri` is written by [[AddonBootstrap]] at the bundled lib version
+  * on every start; `homeUri`/`homeSha256` by [[DumpPackage.seedFromText]] per
+  * dump (a placeholder until the first dump). Both writers read-modify-write,
+  * so neither clobbers the other's key.
   */
 object Pins {
 
@@ -22,7 +22,8 @@ object Pins {
     dashboardsDir / ".fh" / "pins.json"
 
   /** The `@fh-home` placeholder version written before the first dump, so
-    * base.pkl's `read` resolves for the `Project.loadFromPath` that precedes it.
+    * base.pkl's `read` resolves for the `Project.loadFromPath` that precedes
+    * it.
     */
   val PlaceholderHomeVersion = "0.0.0-unresolved"
 
@@ -94,7 +95,9 @@ object Pins {
     */
   def seedBootstrap(dashboardsDir: os.Path, dashboardUri: String): Unit = {
     val (hu, hs) =
-      read(dashboardsDir).map(d => (d.homeUri, d.homeSha256)).getOrElse(placeholderHome)
+      read(dashboardsDir)
+        .map(d => (d.homeUri, d.homeSha256))
+        .getOrElse(placeholderHome)
     val _ = writeData(dashboardsDir, Data(dashboardUri, hu, hs))
   }
 

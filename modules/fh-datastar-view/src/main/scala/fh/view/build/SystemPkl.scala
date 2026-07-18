@@ -1,16 +1,5 @@
 package fh.view.build
 
-import org.pkl.core.SecurityManager as PklSecurityManager
-import org.pkl.core.module.{
-  ModuleKey,
-  ModuleKeyFactory,
-  ResolvedModuleKey,
-  ResolvedModuleKeys
-}
-
-import java.net.URI
-import java.util.Optional
-
 /** Serves a live home's fh-owned Pkl artifacts over `/system/pkl/…`: the
   * per-home dump (`dump.pkl`) as a module, and the resolved package artifacts
   * (`@fh-dashboard`, `@fh-home`) the packages route hands to laptops. The
@@ -19,12 +8,12 @@ import java.util.Optional
   * at the packages route. (The in-memory [[apply]] provider still answers
   * `hass.pkl`/`dump.pkl` by name — it backs unit tests, not a live home.)
   *
-  * ONE source of truth for two consumers: the `/system/pkl/` HTTP route (for
-  * the `fh` script / pkl-lsp / the `/edit` editor / remote authors, which fetch
-  * for real) and the in-server import interception ([[SystemPkl.Factory]]).
-  * Because the server resolves its own `http://…/system/pkl/…` imports from
-  * memory, it never HTTP-fetches from itself — no bootstrap cycle, and the
-  * offline build/test paths keep working. See ADR 0010.
+  * This is a pure SERVING surface for external consumers: the `fh` script,
+  * pkl-lsp, the `/edit` editor, remote authors — that fetch `/system/pkl/…` for
+  * real. The server's OWN eval never imports over http (entries + the dump
+  * resolve `@fh-dashboard`/`@fh-home` offline from the seeded cache packages),
+  * so there is no self-import cycle to break and nothing intercepts its
+  * imports. See ADR 0010.
   */
 trait SystemPkl {
 
@@ -64,24 +53,6 @@ object SystemPkl {
     * error response body (rather than a bare 404).
     */
   type ErrorString = String
-
-  /** The URL path prefix under which the live home serves its Pkl artifacts. */
-  val Prefix: String = "/system/pkl/"
-
-  /** The served module file name for a `…/system/pkl/<name>` http(s) URI, if it
-    * is one (e.g. `http://home/system/pkl/dump.pkl` → `"dump.pkl"`). `None` for
-    * any other URI, so [[Factory]] falls through to the normal factories.
-    */
-  def moduleName(uri: URI): Option[String] = {
-    val scheme = uri.getScheme
-    val path = uri.getPath
-    if (
-      (scheme == "http" || scheme == "https") && path != null && path
-        .startsWith(Prefix)
-    )
-      Some(path.substring(Prefix.length)).filter(_.nonEmpty)
-    else None
-  }
 
   /** Build a provider from the static schema text and a (dynamic) dump text.
     * Both are by-name so the dump can be re-read from a live `Ref` per call.
@@ -195,32 +166,4 @@ object SystemPkl {
     */
   private val ArtifactBase =
     """[A-Za-z0-9][A-Za-z0-9._+-]*@[A-Za-z0-9][A-Za-z0-9._+-]*""".r
-
-  /** An in-memory [[ModuleKey]] backing an intercepted `/system/pkl/…` URI.
-    * `hasHierarchicalUris = true` lets a relative `import "hass.pkl"` inside
-    * the served `dump.pkl` resolve to the sibling `…/system/pkl/hass.pkl`,
-    * which [[Factory]] intercepts too.
-    */
-  private final class Key(uri: URI, text: String) extends ModuleKey {
-    def getUri: URI = uri
-    def resolve(sm: PklSecurityManager): ResolvedModuleKey =
-      ResolvedModuleKeys.virtual(this, uri, text, true)
-    def hasHierarchicalUris: Boolean = true
-    def isGlobbable: Boolean = false
-    override def isLocal: Boolean = false
-    override def isCached: Boolean = true
-  }
-
-  /** A [[ModuleKeyFactory]] that intercepts `/system/pkl/` http(s) imports,
-    * serving them from `system` in memory. Register it AHEAD of the built-in
-    * `http` factory. An unrecognized name under the prefix falls through
-    * (empty) so the real http factory can still fetch/404 it.
-    */
-  final class Factory(system: SystemPkl) extends ModuleKeyFactory {
-    def create(uri: URI): Optional[ModuleKey] =
-      moduleName(uri).flatMap(system.module(_).toOption) match {
-        case Some(text) => Optional.of(new Key(uri, text))
-        case None       => Optional.empty()
-      }
-  }
 }

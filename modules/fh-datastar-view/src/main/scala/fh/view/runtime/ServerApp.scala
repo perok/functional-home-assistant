@@ -90,18 +90,16 @@ object ServerApp extends IOApp {
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
         // server's OWN eval never imports over http: entries resolve
-        // `@fh-dashboard`/`@fh-home` from the seeded cache packages (Track B),
-        // so this provider backs only the route. It is still threaded into the
-        // eval path as a harmless fallback for any residual http import.
-        // `prepareDumps` above wrote `home/dump.pkl`; reads are by-name off
-        // disk, reflecting the latest dump.
+        // `@fh-dashboard`/`@fh-home` from the seeded cache packages, so this
+        // provider backs ONLY the route, not evaluation. Reads are by-name off
+        // the pinned package in the cache, reflecting the latest dump.
         systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Per-entry: a broken dashboard (e.g. a bad user edit before a
         // restart) is logged and skipped, not a crash loop; only zero
         // buildable dashboards is fatal.
         built <- entries
           .traverse { case (slug, entry) =>
-            buildEntry(dashboardsDir, slug, entry, systemPkl).attempt.flatMap {
+            buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
               case Right(r)  => IO.pure(Some((slug, r)))
               case Left(err) =>
                 IO.println(
@@ -163,8 +161,7 @@ object ServerApp extends IOApp {
             dashboardsDir,
             entries,
             rendererRefs,
-            importsRef,
-            systemPkl
+            importsRef
           )
         )
 
@@ -190,8 +187,7 @@ object ServerApp extends IOApp {
           dashboardsDir,
           entries,
           rendererRefs,
-          importsRef,
-          systemPkl
+          importsRef
         ).compile.drain.background
 
         // Registry-driven dump refresh: HA's `*_registry_updated` events say
@@ -256,10 +252,9 @@ object ServerApp extends IOApp {
   private def buildEntry(
       dashboardsDir: os.Path,
       slug: String,
-      entry: String,
-      system: SystemPkl
+      entry: String
   ): IO[(Renderer, Set[os.Path])] =
-    DashboardBuild.reevaluate(dashboardsDir, entry, Some(system)).map {
+    DashboardBuild.reevaluate(dashboardsDir, entry).map {
       case (dash, imports) =>
         Renderer.create(dash.copy(slug = slug)) -> imports
     }
@@ -267,11 +262,12 @@ object ServerApp extends IOApp {
   /** The set of files to watch: every entry's transitive imports plus the entry
     * files themselves (so a brand-new import or a top-level edit is caught).
     *
-    * The `lib/` authoring library needs no special handling: `@fh-dashboard` is
-    * a LOCAL project dependency, so `PklBuild.importSet` resolves those
-    * `projectpackage:` imports back to their real paths under `lib/` and they
-    * arrive here as ordinary `file:` imports. Editing a card class or the
-    * schema hot-reloads every entry that imports it.
+    * The `lib/` authoring library and the `@fh-home` dump are cache-backed
+    * PACKAGES (ADR 0010), so `PklBuild.importSet` filters their `package:`
+    * imports out of the `file:` watch set — they are immutable per version and
+    * not hot-reloaded (a lib edit needs a restart / re-seed; a dump change goes
+    * through `DumpRefresh`). So the watched files are entries + their loose
+    * `file:` imports only.
     */
   private def watchedSet(
       dashboardsDir: os.Path,
@@ -300,8 +296,7 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       rendererRefs: Map[String, SignallingRef[IO, Renderer]],
-      importsRef: SignallingRef[IO, Set[Path]],
-      system: SystemPkl
+      importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] =
     Stream.resource(Watcher.default[IO]).flatMap { watcher =>
       val reconcile =
@@ -332,8 +327,7 @@ object ServerApp extends IOApp {
               dashboardsDir,
               entries,
               rendererRefs,
-              importsRef,
-              system
+              importsRef
             )
           }
 
@@ -349,12 +343,11 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       rendererRefs: Map[String, SignallingRef[IO, Renderer]],
-      importsRef: SignallingRef[IO, Set[Path]],
-      system: SystemPkl
+      importsRef: SignallingRef[IO, Set[Path]]
   ): IO[Unit] =
     entries
       .traverse { case (slug, entry) =>
-        buildEntry(dashboardsDir, slug, entry, system).attempt
+        buildEntry(dashboardsDir, slug, entry).attempt
           .map((slug, _))
       }
       .flatMap { results =>
@@ -393,8 +386,7 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       rendererRefs: Map[String, SignallingRef[IO, Renderer]],
-      importsRef: SignallingRef[IO, Set[Path]],
-      system: SystemPkl
+      importsRef: SignallingRef[IO, Set[Path]]
   ): IO[DumpRefresh.Result] =
     DataDump
       .fetch(api)
@@ -410,8 +402,7 @@ object ServerApp extends IOApp {
               dashboardsDir,
               entries,
               rendererRefs,
-              importsRef,
-              system
+              importsRef
             )
         case DumpRefresh.Rejected(errors) =>
           IO.println(

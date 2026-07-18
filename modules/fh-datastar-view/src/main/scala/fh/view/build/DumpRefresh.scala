@@ -89,7 +89,7 @@ object DumpRefresh {
         for {
           results <- entries.traverse { case (slug, entry) =>
             DashboardBuild
-              .reevaluate(staged, entry, Some(SystemPkl.fromDisk(staged)))
+              .reevaluate(staged, entry)
               .attempt
               .map(r => (slug, entry, r))
           }
@@ -98,11 +98,7 @@ object DumpRefresh {
           }
           blocking <- failed.filterA { case (_, entry, _) =>
             DashboardBuild
-              .reevaluate(
-                dashboardsDir,
-                entry,
-                Some(SystemPkl.fromDisk(dashboardsDir))
-              )
+              .reevaluate(dashboardsDir, entry)
               .attempt
               .map(_.isRight)
           }

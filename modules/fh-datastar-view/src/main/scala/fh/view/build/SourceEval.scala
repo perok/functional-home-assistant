@@ -24,11 +24,10 @@ object SourceEval {
     */
   def eval(
       dashboardsDir: os.Path,
-      entryFile: String,
-      system: Option[SystemPkl] = None
+      entryFile: String
   ): Either[String, Result] =
     if (entryFile.endsWith(".pkl"))
-      PklBuild.eval(dashboardsDir, entryFile, system)
+      PklBuild.eval(dashboardsDir, entryFile)
     else Left(s"unsupported dashboard source (expected .pkl): $entryFile")
 
   /** Best-effort locator from a (post-evaluation) string literal back to where

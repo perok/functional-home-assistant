@@ -11,14 +11,17 @@ memory.
 
 Both mechanisms were spike-verified on **pkl-core 0.31.1** (no version bump):
 
-- **Interception (A):** a `ModuleKeyFactory` registered ahead of
-  `ModuleKeyFactories.http` returns `ResolvedModuleKeys.virtual(...)` for a
-  `…/system/pkl/…` URI with no server running; `hasHierarchicalUris = true` makes
-  the nested `import "hass.pkl"` resolve through the same factory. The only gate is
-  the module allowlist (`setAllowedModules([… "http:" …])`). **Now vestigial** —
-  nothing imports over http (see Use cases), and the served dump's own
-  `@fh-dashboard` import could not resolve that way regardless. Retained as a
-  fallback; a candidate for deletion.
+- **Interception (A) — removed.** It was a `ModuleKeyFactory` registered ahead of
+  `ModuleKeyFactories.http` that returned `ResolvedModuleKeys.virtual(...)` for a
+  `…/system/pkl/…` URI in memory, so the server never HTTP-fetched from itself. It
+  existed only to break a self-import cycle that no longer exists: once the dump
+  imports `@fh-dashboard/hass.pkl` by alias and entries use the `@fh-dashboard` /
+  `@fh-home` aliases (Track B, package-form everywhere), **no Pkl source imports
+  over http at all**, so the factory never matched. Deleted along with the
+  `http:`-widened allowlist and the `system: Option[SystemPkl]` parameter that
+  threaded it through the eval path. The `/system/pkl/*` routes remain, but purely
+  as a *serving* surface for external consumers (below) — the server does not
+  intercept its own imports.
 - **Package URLs + rewrites (spiked end-to-end):** `package://` maps to an
   `https:` outbound request (`package://fh.local/x@1.0.0` →
   `GET https://fh.local/x@1.0.0`), but `HttpClient.Builder.addRewrite(from, to)`
@@ -299,14 +302,14 @@ JS, remote tooling asking "did this home's entity set change?" without pulling a
 ~450KB dump. Hashing per request is trivial next to serving the body, and this
 route is hit at editor-session start, never on the live hot path.
 
-A custom `org.pkl.core.module.ModuleKeyFactory` (`SystemPkl.Factory`) can
-intercept `…/system/pkl/…` URIs **by path** (host-agnostic) and resolve them from
-the same `SystemPkl` provider via `ResolvedModuleKeys.virtual` — pure in-memory,
-no socket — so the server never HTTP-fetches from itself. It is still threaded
-onto the eval path as a **fallback** for any residual http import, but the
-shipped entries no longer take it (Track B). `hasHierarchicalUris = true` lets a
-served `dump.pkl`'s own `import "hass.pkl"` resolve to its `…/system/pkl/hass.pkl`
-sibling; the evaluator's allowlist admits `http:` when this factory is present.
+The `/system/pkl/*` routes are a pure **serving** surface (`SystemPkl.fromDisk`):
+the dump module + the resolved package artifacts, for external consumers that
+fetch for real. The server's own eval never touches them — entries and the dump
+resolve `@fh-dashboard`/`@fh-home` offline from the seeded cache packages
+(Track B), so there is no self-import cycle and nothing intercepts the server's
+imports. (An earlier design registered a `ModuleKeyFactory` ahead of the http
+factory to serve these URIs in memory; it is gone — see "Interception (A) —
+removed" above.)
 
 ### Track B — the `@fh-dashboard` / `@fh-home` aliases (the authoring surface)
 
@@ -568,9 +571,10 @@ warns (log + per-dashboard errors in the endpoint response).
   `@fh-dashboard`-imported `c` would be two `components` URIs). `@fh-dashboard`
   gives one uniform, relocatable text.
 - **Import the library over the http URL (Track A) from entries.** The prototype
-  did this; it works, but embeds a host literal in every entry and puts the
-  interception factory on the hot eval path. `@fh-dashboard` is the cleaner
-  authoring surface. It is also now a dead end: an http-served module cannot
+  did this; it works, but embeds a host literal in every entry and would keep an
+  http-import-interception factory alive on the eval path (the very thing removing
+  Track B let us delete). `@fh-dashboard` is the cleaner authoring surface. It is
+  also now a dead end: an http-served module cannot
   resolve an `@alias` at all (no enclosing project), so a library reached this way
   could never itself use the aliases.
 - **Point `@fh-home` at the instance as a package (`package://<home>/…`).**
@@ -587,7 +591,8 @@ warns (log + per-dashboard errors in the endpoint response).
   so it fails standalone, and in the best case resolves to the identical URI a
   relative import already yields. Relative is strictly better.
 - **Fetch from self over the socket at startup.** A bootstrap cycle (HTTP server
-  not yet up) and a pointless loopback; both in-process resolvers avoid it.
+  not yet up) and a pointless loopback; the in-process package resolver (offline
+  from the seeded cache) avoids it — which is why nothing imports over http.
 - **A published `hass.pkl`/`dump.pkl` package.** Decouples the schema+dump from the
   *live* home — the whole point is that they track the running instance, which is
   why they are served (Track A) and mapped locally (Track B), not versioned.

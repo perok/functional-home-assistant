@@ -17,7 +17,6 @@ import org.pkl.core.{
 }
 
 import java.io.{FileOutputStream, PrintWriter, StringWriter}
-import java.util.regex.Pattern
 
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
@@ -44,14 +43,13 @@ object PklBuild {
     */
   def eval(
       dashboardsDir: os.Path,
-      entryFile: String,
-      system: Option[SystemPkl] = None
+      entryFile: String
   ): Either[String, SourceEval.Result] = {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val project = resolveProjectDeps(dashboardsDir)
       val evaluator =
-        buildEvaluator(system, project, cacheDir(dashboardsDir, project))
+        buildEvaluator(project, cacheDir(dashboardsDir, project))
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
@@ -60,7 +58,7 @@ object PklBuild {
       parser.parse(writer.toString).left.map(_.message).map { json =>
         SourceEval.Result(
           json,
-          importSet(dashboardsDir, entry, system, project)
+          importSet(dashboardsDir, entry, project)
         )
       }
     } catch {
@@ -68,43 +66,18 @@ object PklBuild {
     }
   }
 
-  /** The module allowlist for the intercepting evaluator. Overriding the
-    * preconfigured allowlist means we must re-list every scheme entries use;
-    * `http:` is the addition (`preconfigured()` allows `https:` but not plain
-    * `http:`, and the `/system/pkl/` endpoint is plain http — decided in the
-    * plan). Interception matches by path and never touches the socket, but the
-    * allowlist gate is applied to the URI scheme regardless.
-    */
-  private val AllowedModules: java.util.List[Pattern] =
-    List(
-      "repl:",
-      "file:",
-      "modulepath:",
-      "https:",
-      "http:",
-      "pkl:",
-      "package:",
-      "projectpackage:"
-    ).map(Pattern.compile).asJava
-
   /** The evaluator for one eval.
     *
-    *   1. When the dashboards dir is a Pkl project (has a `PklProject`),
-    *      `project` is its loaded form and we `applyFromProject` so entries can
-    *      import the `lib/` library through the `@fh-dashboard` alias (ADR
-    *      0010, Track B). Plain relative-import evals — most unit probes, no
-    *      `PklProject` — pass `None` and behave exactly as
-    *      `Evaluator.preconfigured()`.
-    *   2. When a [[SystemPkl]] is supplied, we PREPEND its intercept factory to
-    *      the (now possibly project-derived) factory list so it wins over the
-    *      built-in `http` factory, and widen the allowlist to admit `http:` —
-    *      this keeps any residual `http://…/system/pkl/…` import resolvable and
-    *      backs the public route's provider. Order matters: `applyFromProject`
-    *      first, then read `getModuleKeyFactories` so the project's factories
-    *      are preserved (verified composing on pkl-core 0.31.1).
+    * When the dashboards dir is a Pkl project (has a `PklProject`), `project`
+    * is its loaded form and we `applyFromProject` so entries can import the
+    * `lib/` library through the `@fh-dashboard` alias and the dump through
+    * `@fh-home` (ADR 0010) — both resolved offline from the seeded cache
+    * packages. Plain relative-import evals — most unit probes, no `PklProject`
+    * — pass `None` and behave exactly as `Evaluator.preconfigured()`. No Pkl
+    * source imports over http, so the preconfigured allowlist (which already
+    * admits `package:`/`projectpackage:`) needs no widening.
     */
   private def buildEvaluator(
-      system: Option[SystemPkl],
       project: Option[Project],
       cache: os.Path
   ): Evaluator = {
@@ -115,12 +88,6 @@ object PklBuild {
     // `preconfigured()`'s `~/.pkl/cache`. Set after `applyFromProject` so it
     // wins even when the project declares no `moduleCacheDir` of its own.
     builder.setModuleCacheDir(cache.toNIO)
-    system.foreach { sys =>
-      val factories =
-        (new SystemPkl.Factory(sys) ::
-          builder.getModuleKeyFactories.asScala.toList).asJava
-      builder.setModuleKeyFactories(factories).setAllowedModules(AllowedModules)
-    }
     builder.build()
   }
 
@@ -272,43 +239,27 @@ object PklBuild {
     *
     * That precision is why `ServerApp.watchedSet` does NOT need to bulk-add
     * `lib/`: an entry that imports a card class watches that card class, and a
-    * library module nobody imports is correctly not watched.
-    *
-    * The `SystemPkl` factory + http-admitting security manager below keep any
-    * residual `http://…/system/pkl/…` import analyzable rather than throwing.
+    * library module nobody imports is correctly not watched. Lib/dump arrive as
+    * cache-backed `package:` imports and are filtered out of the `file:` set —
+    * they are immutable per version, not hot-reloaded.
     */
   private def importSet(
       dashboardsDir: os.Path,
       entry: os.Path,
-      system: Option[SystemPkl],
       project: Option[Project]
   ): Set[os.Path] = {
-    val baseFactories =
+    val factories =
       List(
         ModuleKeyFactories.standardLibrary,
         ModuleKeyFactories.file,
         ModuleKeyFactories.projectpackage,
         ModuleKeyFactories.pkg
       )
-    val factories = system match {
-      case Some(sys) => new SystemPkl.Factory(sys) :: baseFactories
-      case None      => baseFactories
-    }
-    val securityManager = system match {
-      case None    => SecurityManagers.defaultManager
-      case Some(_) =>
-        SecurityManagers.standard(
-          AllowedModules,
-          SecurityManagers.defaultAllowedResources,
-          SecurityManagers.defaultTrustLevels,
-          null
-        )
-    }
     val precise = Try {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
-        securityManager,
+        SecurityManagers.defaultManager,
         factories.asJava,
         cacheDir(dashboardsDir, project).toNIO,
         project.map(_.getDependencies).orNull,
