@@ -432,9 +432,10 @@ does, idempotently:
    path-form against its own `lib/`); only the generated lockfile is deleted. To
    adopt the package-form wiring the user deletes the consumer, opting into a
    fresh re-seed. The one overwrite-with-backup anywhere in the bootstrap is the
-   machine-owned `.fh/pins.json`: a real pin change first rolls the prior file
-   into a SINGLE `.fh/pins.json.backup` (not a dated, accumulating trail — the
-   dump refresh rewrites the pin constantly).
+   machine-owned `.fh/pins.json`: a real pin change first copies the prior file
+   to a dated `.fh/pins.json.backup.<stamp>`, pruned to the newest 50 — the dump
+   refresh rewrites the pin constantly, so the trail is capped rather than
+   unbounded.
 4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
    manifests, no lib) only into a workspace with no top-level `*.pkl`.
 
@@ -461,7 +462,8 @@ evaluation from the pre-seeded cache, module identity under the package form
 (the dump package's `@fh-dashboard` dep and the entry's alias land on ONE cached
 artifact), the JSON pin in a static base.pkl, write-once consumer, old installs
 left untouched (delete-to-reseed recovery), quiet second boot, loud drift.
-`PinsSuite` pins the rolling `.fh/pins.json.backup` on a real pin change.
+`PinsSuite` pins the dated `.fh/pins.json.backup.<stamp>` trail — a backup on a
+real pin change, none on a no-op, capped at the newest 50.
 
 ## The load-bearing constraint: module identity
 
