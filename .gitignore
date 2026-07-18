@@ -15,6 +15,13 @@ modules/fh-datastar-view/src/main/resources/dashboards/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/lib/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/home/PklProject.deps.json
 modules/fh-datastar-view/src/main/resources/dashboards/.pkl-cache/
+# Local `sbt dashboardServe` workspace (ADR 0010): the package-form dir a dev
+# run bootstraps — its own home/, .fh/, seeded entries, dated backups, and
+# .pkl-cache — the exact shape the add-on writes under /homeassistant, kept out
+# of the repo. Both the repo-root dir and the module-relative default (the
+# forked run cwd is the module base) are build products.
+dashboard-local-dev/
+modules/fh-datastar-view/dashboard-local-dev/
 
 .semanticdb
 

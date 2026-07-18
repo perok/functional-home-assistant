@@ -11,15 +11,19 @@ import org.pkl.core.module.{
 import java.net.URI
 import java.util.Optional
 
-/** Serves the two fh-owned Pkl artifacts — the static domain schema
-  * (`hass.pkl`) and the live per-home dump (`dump.pkl`) — as source text keyed
-  * by their served module name.
+/** Serves a live home's fh-owned Pkl artifacts over `/system/pkl/…`: the
+  * per-home dump (`dump.pkl`) as a module, and the resolved package artifacts
+  * (`@fh-dashboard`, `@fh-home`) the packages route hands to laptops. The
+  * domain schema (`hass.pkl`) is NOT a standalone module on a live server — it
+  * ships inside the `@fh-dashboard` package, so [[fromDisk]] directs that name
+  * at the packages route. (The in-memory [[apply]] provider still answers
+  * `hass.pkl`/`dump.pkl` by name — it backs unit tests, not a live home.)
   *
   * ONE source of truth for two consumers: the `/system/pkl/` HTTP route (for
-  * pkl-lsp / the `/edit` editor / remote authors, which fetch for real) and the
-  * in-server import interception ([[SystemPkl.Factory]], for the server's own
-  * eval). Because the server resolves its own `http://…/system/pkl/…` imports
-  * from memory, it never HTTP-fetches from itself — no bootstrap cycle, and the
+  * the `fh` script / pkl-lsp / the `/edit` editor / remote authors, which fetch
+  * for real) and the in-server import interception ([[SystemPkl.Factory]]).
+  * Because the server resolves its own `http://…/system/pkl/…` imports from
+  * memory, it never HTTP-fetches from itself — no bootstrap cycle, and the
   * offline build/test paths keep working. See ADR 0010.
   */
 trait SystemPkl {
@@ -47,10 +51,10 @@ trait SystemPkl {
   /** The discovery document for `GET /system/pkl/packages` (no file name): the
     * current version + metadata sha256 of the packages this home serves — what
     * `fh pull` reads before rewriting the laptop's pins. `Left` when this home
-    * cannot package (path-form workspace, or no dump yet).
+    * cannot package (the in-memory provider serves modules only, not packages).
     */
   def packagesIndex: Either[SystemPkl.ErrorString, String] =
-    Left("this home has no packages to serve (no dump yet)")
+    Left("this home serves no packages")
 }
 
 object SystemPkl {
@@ -93,15 +97,19 @@ object SystemPkl {
     */
   val empty: SystemPkl = apply(None, None)
 
-  /** Serve the artifacts straight off disk: the schema from the `@fh-dashboard`
-    * library (`lib/hass.pkl` — present in the repo layout; a package-form
-    * add-on workspace has no `lib/`, so that name 404s there and the packages
-    * route is the replacement), the dump from the `@fh-home` package
-    * ([[DashboardBuild.DumpPath]]), and package artifacts from this workspace's
-    * package cache (`PklBuild.workspaceCacheDir` — the same cache the server
-    * evaluates from, pre-seeded by `LibPackage` on the add-on). Reads are
-    * by-name (per lookup), so `dump.pkl` reflects the latest
-    * `DashboardBuild.prepareDumps` write without any cache to invalidate.
+  /** Serve the artifacts straight off a live (package-form) workspace: the
+    * `@fh-home` dump ([[DashboardBuild.dumpPath]] — `home/dump.pkl`, written by
+    * `prepareDumps`) as the `dump.pkl` module, and the resolved package
+    * artifacts from this workspace's package cache
+    * (`PklBuild.workspaceCacheDir` — the same cache the server evaluates from,
+    * seeded by `AddonBootstrap` on every start; ADR 0010). Reads are by-name
+    * (per lookup), so `dump.pkl` reflects the latest write without any cache to
+    * invalidate.
+    *
+    * The schema (`hass.pkl`) is NOT a standalone module here: it lives inside
+    * the `@fh-dashboard` package, so consumers (the `fh` script, pkl-lsp)
+    * resolve it through the packages route, never `/system/pkl/hass.pkl`. That
+    * name gets a `Left` pointing there.
     */
   def fromDisk(dashboardsDir: os.Path): SystemPkl = {
     def read(p: os.Path): Option[String] = Option.when(os.exists(p))(os.read(p))
@@ -110,20 +118,28 @@ object SystemPkl {
     new SystemPkl {
       def module(name: String): Either[ErrorString, String] =
         name match {
-          case "hass.pkl" =>
-            read(dashboardsDir / "lib" / "hass.pkl").toRight(
-              "hass.pkl is not served here (no lib/ in this workspace) — " +
-                "resolve the schema via the packages route"
-            )
           case "dump.pkl" =>
             read(DashboardBuild.dumpPath(dashboardsDir))
               .toRight("no dump.pkl yet — this home has not been built")
+          case "hass.pkl" =>
+            Left(
+              "hass.pkl is not a standalone module — it ships inside the " +
+                "@fh-dashboard package; resolve it via the packages route"
+            )
           case _ => Left(s"no module named '$name'")
         }
+      // On a live server this is `Some` by construction — `bootstrap` seeds the
+      // lib package and `prepareDumps` writes the dump before any route serves,
+      // both inside the startup Resource. A `Left` here is therefore an internal
+      // invariant break (a fromDisk provider pointed at an un-bootstrapped
+      // workspace), not a state a correctly-started home can reach.
       override def packagesIndex: Either[ErrorString, String] =
         DumpPackage
           .index(dashboardsDir)
-          .toRight("this home has no packages to serve (no dump yet)")
+          .toRight(
+            "internal: package index unavailable — this workspace was not " +
+              "bootstrapped (no lib package seeded / no dump written)"
+          )
       override def packageArtifact(
           file: String
       ): Either[ErrorString, Array[Byte]] = {

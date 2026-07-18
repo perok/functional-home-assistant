@@ -23,13 +23,40 @@ import fs2.io.file.{Watcher, Path}
   */
 object ServerApp extends IOApp {
 
-  // Relative to the module directory (the forked `run` working dir).
-  private val defaultDashboardsDir = "src/main/resources/dashboards"
+  // All relative to the module directory (the forked `run` working dir).
+  //
+  // Last-resort fallback when `DASHBOARDS_DIR` is unset (build.sbt sets it for
+  // `dashboardServe` — an absolute repo-root path; `run.sh` sets it on the
+  // add-on). A local scratch dir, NOT the resources dir, so a dev run bootstraps
+  // a real package-form workspace (its own `home/`, `.fh/`, dated backups)
+  // without ever writing into the checked-in `src/main/resources/dashboards`.
+  private val defaultDashboardsDir = "dashboard-local-dev"
+  // The `lib/` and starter entries a dev run treats as "bundled" — the same
+  // resources the add-on image bakes in, here read straight from the repo. The
+  // add-on overrides these three via `run.sh` env.
+  private val bundledResourcesDir = "src/main/resources/dashboards"
+
+  // Persistent pkl package cache for a dev run: the cross-platform user data
+  // dir, via the SAME lib + app coordinates the `fh` script uses (appdirs,
+  // `fh`/`perok`), so a local instance and the laptop `fh` land in one place
+  // (`~/.local/share/fh/…/pkl-cache` on Linux). The data dir (not the cache
+  // dir) because the seeded package artifacts are what laptops pin against —
+  // an OS cache sweep must not break resolution. The add-on overrides it to
+  // its persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
+  private def defaultCacheDir: String =
+    s"${net.harawata.appdirs.AppDirsFactory.getInstance
+        .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
 
   def run(args: List[String]): IO[ExitCode] =
     for {
-      dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
-      _ <- bootstrapIfAddon(dashboardsDir)
+      // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` env > default.
+      // Both the add-on and a local `dashboardServe` set the env (the dev run
+      // via the project's `run / envVars`, an absolute repo-root path); the arg
+      // stays as a manual override.
+      dashboardsDir <- args.headOption
+        .map(p => IO.pure(os.Path(p, os.pwd)))
+        .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
+      _ <- bootstrap(dashboardsDir)
       // Loopback by default: /sse/action/* drives HA with the server's token
       // and no auth, so LAN exposure is opt-in (HOST=0.0.0.0).
       bindHost <- Env[IO]
@@ -43,8 +70,9 @@ object ServerApp extends IOApp {
 
       _ <- (for {
         api <- FHApi.fromEnv
-        // Every top-level `*.pkl` in the dir is a dashboard;
-        // slug = filename sans ext (Pkl library modules live in `lib/`).
+        // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
+        // sans ext. The library is not in the workspace — it resolves through
+        // the `@fh-dashboard` package (seeded into the cache by `bootstrap`).
         entries <- discoverEntries(dashboardsDir).toResource
         _ <- IO
           .raiseWhen(entries.isEmpty)(
@@ -52,21 +80,21 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        // Write the live dump once (so `import "lib/dump.pkl"` resolves) via
-        // the build phase, then re-evaluate every entry against the on-disk
+        // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves)
+        // via the build phase, then re-evaluate every entry against the on-disk
         // dump. The runtime calls through `DashboardBuild`, never
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
         _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
-        // Serves the fh-owned Pkl artifacts (`hass.pkl`/`dump.pkl`) over the
-        // public `/system/pkl/*` route for external tooling — pkl-lsp, remote
-        // authors — that fetch the schema/dump for real (ADR 0010). The
-        // server's OWN eval no longer imports over http: entries import the
-        // library through the `@fh-dashboard` package alias (Track B), resolved
-        // from `lib/` in-process, so this provider backs only the route. It is
-        // still threaded into the eval path as a harmless fallback for any
-        // residual http import. `prepareDumps` above wrote the live
-        // `lib/dump.pkl`; reads are by-name off disk, reflecting the dump.
+        // Serves this home's `dump.pkl` and its resolved package artifacts over
+        // the public `/system/pkl/*` route for external tooling — the `fh`
+        // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
+        // server's OWN eval never imports over http: entries resolve
+        // `@fh-dashboard`/`@fh-home` from the seeded cache packages (Track B),
+        // so this provider backs only the route. It is still threaded into the
+        // eval path as a harmless fallback for any residual http import.
+        // `prepareDumps` above wrote `home/dump.pkl`; reads are by-name off
+        // disk, reflecting the latest dump.
         systemPkl = SystemPkl.fromDisk(dashboardsDir)
         // Per-entry: a broken dashboard (e.g. a bad user edit before a
         // restart) is logged and skipped, not a crash loop; only zero
@@ -449,35 +477,38 @@ object ServerApp extends IOApp {
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 
-  /** Add-on boot only (`FH_BUNDLED_LIB` set by `run.sh`): package the bundled
-    * library into the persistent cache and seed/migrate the user's workspace
-    * ([[fh.view.build.AddonBootstrap]]) before anything discovers or evaluates
-    * entries. A dev/repo run has no bundled lib and skips this entirely — the
-    * repo workspace maps `@fh-dashboard` to `./lib` as a local dep.
+  /** Bring the workspace to a package-form state the server can evaluate, on
+    * EVERY start — add-on or local dev — so the two never diverge (ADR 0010).
+    * [[fh.view.build.AddonBootstrap]] packages the bundled library into the
+    * persistent cache and seeds/migrates the user's workspace (its `home/`,
+    * `.fh/base.pkl` pin, starter entries), so `@fh-dashboard` always resolves
+    * from the cache as `package://fh.invalid/fh-dashboard@<v>` and the live
+    * home always serves `/system/pkl/packages` (what `fh init`/`pull`/`push`
+    * read).
+    *
+    * The three inputs come from `run.sh` on the add-on; a local `sbt
+    * dashboardServe` has none set and falls back to the repo's own resources —
+    * the `lib/` and starter entries the image would bake in are read straight
+    * from `src/main/resources/dashboards`, and the cache lives beside the local
+    * workspace. So a dev run reads `lib/` from the bundled resources exactly as
+    * the add-on does; iterating on library Pkl is `fh push` against the running
+    * instance, never a mutable workspace `lib/`.
     */
-  private def bootstrapIfAddon(dashboardsDir: os.Path): IO[Unit] =
-    Env[IO].get("FH_BUNDLED_LIB").flatMap {
-      case None      => IO.unit
-      case Some(lib) =>
-        (Env[IO].get("FH_SEED_DIR"), Env[IO].get("FH_PKL_CACHE_DIR")).tupled
-          .flatMap {
-            case (Some(seed), Some(cache)) =>
-              IO.blocking(
-                fh.view.build.AddonBootstrap.run(
-                  dashboardsDir,
-                  bundledLib = os.Path(lib, os.pwd),
-                  seedDir = os.Path(seed, os.pwd),
-                  cacheDir = os.Path(cache, os.pwd)
-                )
-              ).flatMap(_.traverse_(IO.println))
-            case _ =>
-              IO.raiseError(
-                new RuntimeException(
-                  "FH_BUNDLED_LIB is set but FH_SEED_DIR / FH_PKL_CACHE_DIR are not — all three come from run.sh"
-                )
-              )
-          }
-    }
+  private def bootstrap(dashboardsDir: os.Path): IO[Unit] =
+    for {
+      bundledLib <- pathFromEnv(
+        "FH_BUNDLED_LIB",
+        s"$bundledResourcesDir/lib"
+      )
+      seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
+      cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+      _ <- IO
+        .blocking(
+          fh.view.build.AddonBootstrap
+            .run(dashboardsDir, bundledLib, seedDir, cacheDir)
+        )
+        .flatMap(_.traverse_(IO.println))
+    } yield ()
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]

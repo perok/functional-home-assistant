@@ -103,10 +103,22 @@ works on it identically, offline once cached. `UseCaseSuite` drives the real
 script + the real pkl CLI end-to-end. (A git copy of a full checkout still
 works identically via path-form manifests.)
 
-**Repo developer.** Runs a local server with `DASHBOARDS_DIR` pointed at the
-checkout; `prepareDumps` fills `home/dump.pkl` from a dev HA, and the watcher
-live-reloads edits to `components.pkl`/themes because the precise import set
-resolves `@fh-dashboard` back to those files.
+**Repo developer.** Runs a local server (`sbt dashboardServe`) that bootstraps
+the **same package-form workspace the add-on does** — there is no separate "dev
+mode" and no meaningful difference from the deployed add-on. The bundled library
+is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
+cross-platform cache (the appdirs data dir the `fh` script also uses), the
+workspace is a local scratch dir (`dashboard-local-dev`, gitignored), and
+`prepareDumps` fills `home/dump.pkl` from a dev HA. So a local instance is a
+**first-class `fh` target**: `fh init`/`pull`/`push` work against it exactly as
+against the add-on. Iterating on the library is `fh push` (or a restart, which
+re-seeds the edited lib) — the same path any other author uses — NOT a
+live-editable workspace `lib/`: the running instance always reads the library
+from the bundled resources, never a mutable copy in the workspace. (Path-form
+manifests — `@fh-dashboard` bound as a local `import("./lib/PklProject")` — are
+still how the offline build phase, `BuildApp`, and the test harness resolve the
+library and how a stock-tooling checkout evaluates locally; they are simply no
+longer a *server* mode.)
 
 **Component developer.** Writes their own cards locally and a local entry that
 imports both them and `@fh-home/dump.pkl`. Their instance cannot evaluate that
@@ -193,15 +205,16 @@ Two complementary mechanisms, one for each consumer class.
 
 ### Track A — the `/system/pkl/:name` HTTP endpoint (the instance's mirror)
 
-`Server` serves `GET /system/pkl/{hass,dump}.pkl` as `text/plain` from a
-`SystemPkl` provider (`SystemPkl.fromDisk(dashboardsDir)` reads `lib/hass.pkl`
-and `home/dump.pkl`; `prepareDumps` has already written the live dump).
-An unknown name is a 404. This is the live, always-in-sync mirror of what *that*
-running home is authoritative for, so a client can copy it locally instead of
-working against a checkout's stale file. (On a package-form add-on workspace
-there is no `lib/`, so `hass.pkl` 404s there — harmless, because nothing needs
-it over http anymore: the schema travels inside the lib package below, and the
-dump's `@fh-dashboard/hass.pkl` import resolves against the puller's own pin.)
+`Server` serves `GET /system/pkl/dump.pkl` as `text/plain` from a `SystemPkl`
+provider (`SystemPkl.fromDisk(dashboardsDir)` reads `home/dump.pkl`;
+`prepareDumps` has already written the live dump). This is the live,
+always-in-sync mirror of the dump *that* running home is authoritative for, so a
+client can copy it locally instead of working against a checkout's stale file.
+`hass.pkl` is **not** served as a standalone module: the running workspace is
+always package-form (no workspace `lib/`), the schema travels inside the
+`@fh-dashboard` lib package below, and the dump's `@fh-dashboard/hass.pkl` import
+resolves against the puller's own pin — so that name returns a reason pointing at
+the packages route, not a file. Any other unknown name is a 404 too.
 
 **`GET /system/pkl/packages/<name>@<version>[.zip]`** serves the instance's
 resolved packages: the metadata JSON at the bare name, the module zip at

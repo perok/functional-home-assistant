@@ -78,9 +78,12 @@ object DumpPackage {
   /** What the workspace's current dump packages to, when it can package at all:
     * needs the effective `@fh-dashboard` pin, that pin's metadata in the
     * workspace cache (the dump's metadata declares it as a checksummed
-    * dependency), and a written dump. `None` on a path-form workspace (repo
-    * checkout — no pin, and a laptop pulls from an add-on, not from a dev
-    * checkout) or before `prepareDumps` has run.
+    * dependency), and a written dump. A live server (add-on OR local `sbt
+    * dashboardServe`) always has all three — `bootstrap` seeds the pin +
+    * metadata, `prepareDumps` writes the dump — so this is `Some` there. `None`
+    * only on a workspace that never packages: a path-form checkout
+    * (`@fh-dashboard` bound as a local dep, no pin — the build/test resolution
+    * form, not a server), or before `prepareDumps` has run.
     */
   private def current(dashboardsDir: os.Path): Option[Artifacts] = {
     val dumpFile = DashboardBuild.dumpPath(dashboardsDir)
