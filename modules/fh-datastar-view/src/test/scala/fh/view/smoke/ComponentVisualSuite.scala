@@ -60,7 +60,16 @@ class ComponentVisualSuite extends SmokeSuite {
           "article.card",
           new Page.LocatorOptions().setHas(page.locator("input[type=range]"))
         )
-        VisualSnapshot.check("slider", sliderCard.screenshot())
+        // Looser budget: the native range-input's value-fill edge lands a few
+        // pixels left or right depending on the Chromium build (a full-height
+        // column costs ~0.11% each; CI drifts up to ~4px from the baseline).
+        // 0.7% tolerates ~6px of edge drift while still failing on any real
+        // color/layout change.
+        VisualSnapshot.check(
+          "slider",
+          sliderCard.screenshot(),
+          maxDiffRatio = 0.007
+        )
       }
     }
   }

@@ -77,9 +77,15 @@ object VisualSnapshot {
   /** Compare `actual` PNG bytes against the checked-in `name.png`. With the
     * update gate on, (re)writes the resource file; otherwise runs the
     * perceptual diff, dropping the before/after pair into [[failureDir]] on
-    * mismatch for review.
+    * mismatch for review. `maxDiffRatio` loosens the default budget for the
+    * rare snapshot with a known environment-dependent band (the slider's
+    * value-fill edge); everything else stays on [[MaxDiffRatio]].
     */
-  def check(name: String, actual: Array[Byte]): Unit = {
+  def check(
+      name: String,
+      actual: Array[Byte],
+      maxDiffRatio: Double = MaxDiffRatio
+  ): Unit = {
     val file = snapshotDir / s"$name.png"
     if (updating) {
       os.makeDir.all(snapshotDir)
@@ -124,11 +130,11 @@ object VisualSnapshot {
       val actualCrop = actualImg.getSubimage(0, 0, w, h)
       val total = w * h
       val diff = Pixelmatch.diffPixels(expectedCrop, actualCrop, Threshold)
-      val budget = math.floor(total * MaxDiffRatio).toInt
+      val budget = math.floor(total * maxDiffRatio).toInt
       if (diff > budget) {
         fail(
           f"$diff differing pixels of $total (${diff.toDouble / total * 100}%.3f%%), " +
-            f"over the ${MaxDiffRatio * 100}%.1f%% budget"
+            f"over the ${maxDiffRatio * 100}%.1f%% budget"
         )
       }
     }
