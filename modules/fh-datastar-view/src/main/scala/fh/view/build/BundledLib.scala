@@ -10,8 +10,8 @@ import scala.jdk.CollectionConverters.*
   *
   * Emits the same `(zip-relative-name, bytes)` entries [[LibPackage.build]]
   * consumes, so the content version is BYTE-identical whether built from here
-  * or from a directory (a test's repo `lib/`) — dev `sbt dashboardServe` and the
-  * assembled jar therefore seed the exact same `@fh-dashboard@<v>`.
+  * or from a directory (a test's repo `lib/`) — dev `sbt dashboardServe` and
+  * the assembled jar therefore seed the exact same `@fh-dashboard@<v>`.
   */
 object BundledLib {
 
@@ -22,11 +22,14 @@ object BundledLib {
 
   /** Every module under `dashboards/lib/` as `(name, bytes)` — `name` relative
     * to the lib root (matching a dir walk's `relativeTo`), including
-    * `PklProject` (LibPackage reads its `version` and excludes it from the zip).
+    * `PklProject` (LibPackage reads its `version` and excludes it from the
+    * zip).
     */
   def entries(): Seq[(String, Array[Byte])] = {
     val cl =
-      Option(getClass.getClassLoader).getOrElse(ClassLoader.getSystemClassLoader)
+      Option(getClass.getClassLoader).getOrElse(
+        ClassLoader.getSystemClassLoader
+      )
     // Anchor on a file that always exists; its URL tells us dir vs jar.
     val marker = Option(cl.getResource(s"$LibResourcePrefix/PklProject"))
       .getOrElse(

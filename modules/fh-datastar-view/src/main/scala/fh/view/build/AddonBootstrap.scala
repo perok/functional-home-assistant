@@ -9,12 +9,12 @@ import io.circe.Json
   * The library is NOT copied into the workspace. The bundled lib — streamed
   * from the running jar's own resources ([[BundledLib]]) — is packaged by
   * [[LibPackage]] into the persistent package cache, and the workspace depends
-  * on it as
-  * `package://fh.invalid/fh-dashboard@<version>` — so the user's dir holds only
-  * user files, a runtime upgrade never touches the user's pin (the old version
-  * keeps resolving from the cache), and a LIB upgrade is the user's deliberate
-  * pin bump. Nothing the user authored is ever moved or overwritten; the only
-  * overwrite-with-backup is the machine-owned `.fh/pins.json` ([[Pins]]).
+  * on it as `package://fh.invalid/fh-dashboard@<version>` — so the user's dir
+  * holds only user files, a runtime upgrade never touches the user's pin (the
+  * old version keeps resolving from the cache), and a LIB upgrade is the user's
+  * deliberate pin bump. Nothing the user authored is ever moved or overwritten;
+  * the only overwrite-with-backup is the machine-owned `.fh/pins.json`
+  * ([[Pins]]).
   *
   * `@fh-home` is a package too: the dump is a content-versioned cache package
   * (`fh-home@1.0.0-g<hash>`, [[DumpPackage]]), NOT a loose `home/dump.pkl`.
