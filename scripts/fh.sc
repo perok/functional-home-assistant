@@ -211,7 +211,9 @@ def instanceUrl: IO[String] = IO.blocking {
       s"not an fh workspace (no $machineJson) — run: fh init <instance-url>"
     )
   jsonField(machineJson, "instanceUrl").getOrElse(
-    throw Die(s"no instanceUrl in $machineJson — re-run: fh init <instance-url>")
+    throw Die(
+      s"no instanceUrl in $machineJson — re-run: fh init <instance-url>"
+    )
   )
 }
 
@@ -220,7 +222,9 @@ def instanceUrl: IO[String] = IO.blocking {
   */
 def pinnedHomeVersion: IO[Option[String]] = IO.blocking {
   jsonField(pinsJson, "homeUri")
-    .flatMap("""fh-home@(.+)$""".r.unanchored.findFirstMatchIn(_).map(_.group(1)))
+    .flatMap(
+      """fh-home@(.+)$""".r.unanchored.findFirstMatchIn(_).map(_.group(1))
+    )
 }
 
 case class PkgIndex(
@@ -274,8 +278,8 @@ def fetchScaffold(client: Client[IO], url: String, name: String): IO[String] =
     }
 
 /** Write the served scaffold: `.fh/base.pkl` verbatim (machine-agnostic, always
-  * refreshed), and `PklProject` / `.gitignore` only when absent (the user's from
-  * the moment they exist).
+  * refreshed), and `PklProject` / `.gitignore` only when absent (the user's
+  * from the moment they exist).
   */
 def writeScaffold(client: Client[IO], url: String): IO[Unit] =
   for {
@@ -559,9 +563,9 @@ object Fh
   // for pkl authoring errors, pkl's own message is the useful part.
   def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith { e =>
     val msg = e match
-      case err @ Die(_) => err.show
+      case err @ Die(_)                 => err.show
       case e: org.pkl.core.PklException => e.getMessage
-      case e => e.toString
+      case e                            => e.toString
     Console[IO].errorln(s"fh: $msg").as(ExitCode.Error)
   })
 }

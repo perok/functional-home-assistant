@@ -222,7 +222,9 @@ class ServerSuite extends munit.CatsEffectSuite {
     assertEquals(missStatus, Status.NotFound)
   }
 
-  test("/system/pkl serves the byte-identical workspace scaffold to `fh init`") {
+  test(
+    "/system/pkl serves the byte-identical workspace scaffold to `fh init`"
+  ) {
     // The static, machine-agnostic files a laptop fetches verbatim — served off
     // the shared AddonBootstrap constants, independent of any home data (so the
     // default empty SystemPkl is fine).
@@ -239,7 +241,10 @@ class ServerSuite extends munit.CatsEffectSuite {
             routes
               .run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
               .flatMap(r =>
-                r.body.through(fs2.text.utf8.decode).compile.string
+                r.body
+                  .through(fs2.text.utf8.decode)
+                  .compile
+                  .string
                   .map((r.status, _))
               )
           for {

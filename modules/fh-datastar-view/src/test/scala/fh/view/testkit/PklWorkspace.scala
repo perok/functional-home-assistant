@@ -2,9 +2,9 @@ package fh.view.testkit
 
 import fh.view.build.{AddonBootstrap, DumpPackage}
 
-/** Stage a **package-form** workspace for tests — the ONE resolution mode
-  * (ADR 0010). Reuses the production [[AddonBootstrap]] so a suite exercises
-  * exactly what the server does: the real `lib/` is seeded as a cache package
+/** Stage a **package-form** workspace for tests — the ONE resolution mode (ADR
+  * 0010). Reuses the production [[AddonBootstrap]] so a suite exercises exactly
+  * what the server does: the real `lib/` is seeded as a cache package
   * (`@fh-dashboard`), a static `.fh/base.pkl` + consumer `PklProject` bind the
   * aliases, and a dump package (`@fh-home`) is seeded so `@fh-home` always
   * resolves. There is no loose `home/dump.pkl` and no path-form.
@@ -21,10 +21,10 @@ object PklWorkspace {
   val resourcesLib: os.Path = resourcesDashboards / "lib"
 
   /** Bootstrap `tmp` to a package-form workspace and seed `dumpText` as the
-    * `@fh-home` package. `dumpText` content is irrelevant unless a probe imports
-    * and USES `@fh-home/dump.pkl` (then pass the real rendered dump); the default
-    * just makes `@fh-home` resolvable. Returns the (isolated, absolute) cache
-    * dir the workspace's `moduleCacheDir` points at.
+    * `@fh-home` package. `dumpText` content is irrelevant unless a probe
+    * imports and USES `@fh-home/dump.pkl` (then pass the real rendered dump);
+    * the default just makes `@fh-home` resolvable. Returns the (isolated,
+    * absolute) cache dir the workspace's `moduleCacheDir` points at.
     */
   def bootstrap(
       tmp: os.Path,
