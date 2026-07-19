@@ -3,16 +3,16 @@
 // cards (default value, live expr override, tap), a domain-checked slider,
 // and cross-dashboard navigation back to the jsonnet default.
 //
-// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; the entry
-// sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
+// `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; the
+// entry sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
 // the live HA registry) when the server or build runs — like `dump.libsonnet`
 // on the jsonnet track. (Plain `//` comments here: a doc comment would attach
 // to the first import, which Pkl rejects — entries have no `module` clause.)
 
-amends "lib/entry.pkl"
+amends "@fh-dashboard/entry.pkl"
 
-import "lib/components.pkl" as c
-import "lib/dump.pkl" as dump
+import "@fh-dashboard/components.pkl" as c
+import "@fh-home/dump.pkl" as dump
 
 // Registered popup surfaces: opened by an `openPopup("detail")` tap and
 // rendered/streamed only while open. Amending the key into existence builds a

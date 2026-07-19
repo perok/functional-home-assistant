@@ -8,6 +8,9 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; backgr
 #fh-file-list li:hover { background: #2a2d2e }
 #fh-file-list li.active { background: #37373d; color: #fff }
 #fh-file-list li.lib { color: #9aa; padding-left: 20px }
+#fh-dump-refresh { display: block; width: calc(100% - 20px); margin: 10px; padding: 5px 8px; font-size: 12px; color: #ccc; background: #2a2d2e; border: 1px solid #444; border-radius: 3px; cursor: pointer }
+#fh-dump-refresh:hover { background: #37373d }
+#fh-dump-refresh:disabled { opacity: .5; cursor: default }
 #fh-main { display: flex; flex-direction: column; min-width: 0 }
 #fh-editor-host { flex: 1; min-height: 0; overflow: hidden }
 #fh-editor-host .cm-editor { height: 100% }

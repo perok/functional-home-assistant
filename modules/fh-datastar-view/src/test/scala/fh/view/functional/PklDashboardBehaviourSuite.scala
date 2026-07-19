@@ -20,14 +20,15 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
 
   /** A minimal real entry over two fixture entities: a numeric sensor (whose
     * `entityCard` value auto-appends the unit) and the kitchen light. Authored
-    * exactly as a hand-written dashboard would be — `amends "lib/entry.pkl"`,
-    * referencing entities by their generated dump keys.
+    * exactly as a hand-written dashboard would be — `amends
+    * "@fh-dashboard/entry.pkl"`, referencing entities by their generated dump
+    * keys.
     */
   private val entrySource =
-    s"""amends "lib/entry.pkl"
+    s"""amends "@fh-dashboard/entry.pkl"
        |
-       |import "lib/components.pkl" as c
-       |import "lib/dump.pkl" as dump
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
        |
        |title = "Fixture Home"
        |

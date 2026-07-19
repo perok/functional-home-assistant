@@ -313,11 +313,7 @@ object HAWSApiLowLevel {
                           .as(q)
                       )
                       .nested
-                      .map { r =>
-                        // TODO handle better
-                        val rr = r.parsedPayload.fold(throw _, identity)
-                        msg.f(rr)
-                      }
+                      .map(msg.decodeMessage)
                       .value
                   )(_ => idQueue.unsetKey(id))
                 }

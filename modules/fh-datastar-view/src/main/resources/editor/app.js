@@ -136,6 +136,29 @@ addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save() }
 })
 
+// --- dump refresh ------------------------------------------------------------
+// On-demand `POST system/dump/refresh`: re-fetch the entity dump from HA;
+// the server swaps it in only if every dashboard still builds (validate-then-
+// swap; the old dump is kept as a dated backup). Result lands in the status bar.
+const dumpBtn = document.getElementById("fh-dump-refresh")
+dumpBtn.addEventListener("click", async () => {
+  dumpBtn.disabled = true
+  setMsg("refreshing dump…")
+  try {
+    const res = await fetch(cfg.basePath + "system/dump/refresh", { method: "POST" })
+    if (!res.ok) { setMsg("dump refresh -> " + res.status); return }
+    const r = await res.json()
+    if (r.status === "unchanged") setMsg("dump refresh: home unchanged")
+    else if (r.status === "swapped") setMsg("dump refreshed ✓" + (r.backup ? " (old kept as " + r.backup + ")" : ""))
+    else if (r.status === "rejected") setMsg("dump refresh rejected: " + r.errors.map((e) => e.slug + ": " + e.error).join(" | "))
+    else setMsg("dump refresh: unexpected response")
+  } catch (e) {
+    setMsg("dump refresh failed: " + e.message)
+  } finally {
+    dumpBtn.disabled = false
+  }
+})
+
 // --- preview ---------------------------------------------------------------
 const previewSel = document.getElementById("fh-preview-slug")
 const previewFrame = document.getElementById("fh-preview-frame")

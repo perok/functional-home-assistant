@@ -84,13 +84,17 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 |---|---|
 | `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
-| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed `lib/dump.pkl` generation |
+| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed dump generation (rendered to text, packaged — never written as a loose file) |
+| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path (ADR 0010): `@fh-dashboard` packaged into a persistent cache + workspace seed (write-once user files, NEVER moved/overwritten — old `lib/`/consumer left alone, delete-to-reseed to adopt package-form; the only overwrite-with-backup is a dated `.fh/pins.json.backup.<stamp>`, capped at the newest 50, via [[Pins]]). Runs on EVERY start — add-on AND local `sbt dashboardServe` (repo resources as the bundled lib, appdirs cache, workspace `dashboard-local-dev`). **One resolution mode — package-form, everywhere** (server, `BuildApp`, tests): `@fh-dashboard` AND `@fh-home` are cache packages resolved offline via `moduleCacheDir`; there is NO path-form and NO `home/` folder. The workspace scaffold is BYTE-IDENTICAL everywhere — a STATIC, machine-agnostic `.fh/base.pkl` (reads `moduleCacheDir` + the `http.rewrites` target from `.fh/machine.json`, and both pins from `.fh/pins.json`, all via `pkl:json`) + a user `PklProject` + `.gitignore`; the instance SERVES these to a laptop's `fh init` over `/system/pkl/{base.pkl,PklProject,gitignore}` (no two copies). The two per-machine values (cache dir + instance URL) live in a gitignored `.fh/machine.json` — the ONLY file that differs between the instance and a git copy. A loaded `PklProject` with no `moduleCacheDir` is a HARD ERROR (`PklBuild.cacheDir`), never a silent fallback |
+| `fh/view/build/DumpPackage.scala`, `scripts/fh` (repo root) | The dump as a content-versioned package (`fh-home@1.0.0-g<hash>`; the lib is content-versioned the same way — `fh-dashboard@<base>-g<hash>`, base from `lib/PklProject`, hash-suffix to be dropped for normal version bumps once the lib stabilizes), the ONLY form it takes anywhere: `seedFromText` builds+seeds it into the cache and rewrites `.fh/pins.json` on every dump render (server startup + `DumpRefresh`). Consumed by the instance's own eval AND laptops (via `/system/pkl/packages`). Plus the `fh` scala-cli script (`init` fetches the served scaffold verbatim + writes this laptop's `.fh/machine.json` + `.fh/pins.json`; `pull` re-pins `@fh-home`; `push`; `init-lsp-fix` writes the rewrite to `~/.pkl/settings.pkl` (the pkl CLI ignores a project's `http.rewrites` in `project resolve <dir>` mode — how IntelliJ syncs); `update`; Typelevel toolkit + decline + in-process pkl-core, installed by curl from GitHub raw, `update` sha256-compares against the repo copy; needs only scala-cli). Its own suite `scripts/fh.test.scala` (weaver) runs via `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the script gates its dispatcher behind `SCALA_TEST_MODE`. Also a CI step |
 | `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
+| `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: unchanged ⟺ same content-version; else temp-copy the workspace, seed the new dump package there, re-eval all entries, swap the `.fh/pins.json` pin only if nothing that builds today breaks. No loose file, no dated backup — the previous immutable cache version IS the trail. Driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button) |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` + the reusable `layoutCss` for the `fh-` layout classes) and the theme-author guide; implementations are the `theme-*.pkl` siblings |
 | `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes |
 | `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
+| `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
 | `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
@@ -100,7 +104,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 + action POSTs).
 
 - **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
-  `../ha-frontend/script.sh`), writes the typed `lib/dump.pkl` next to the entries, then evaluates
+  `../ha-frontend/script.sh`), seeds the typed dump as the `@fh-home` content-versioned cache package
+  (`DumpPackage.seedFromText` — no loose file), then evaluates
   the entry `.pkl` **in-process via pkl-core** (`PklBuild`, through the `SourceEval` seam) into the
   `{ cards, card }` model — a shared library of named cards (Mustache templates) plus a
   **recursive layout tree** (`card` = its root) of component nodes that reference cards by name.
@@ -124,7 +129,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
   children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (top-level
-  `*.pkl` entries + `lib/*.pkl`); `lib/dump.pkl` and `dashboard.json` are generated + gitignored.
+  `*.pkl` entries + `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
+  `dashboard.json` is generated + gitignored.
   The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
   (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
   they must not be extended.
@@ -159,8 +165,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the `theme-beer.pkl` implementation, `tokens.pkl`, the entry
   scaffold `entry.pkl`); top-level `*.pkl` files are entries that `amends "lib/entry.pkl"` and set
   only `card` (+ optional `title`/`surfaces`/`theme`). Slug = filename; `ServerApp.discoverEntries`
-  scans `*.pkl` only. `lib/dump.pkl` is a TYPED dump generated by `PklDump` from the live fetch
-  (gitignored). Feature surface: containers (grid/row/column) + the layout-cell builders
+  scans top-level `*.pkl` only. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
+  fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/slider,
   expr/exprOf,
   serviceTap/navigate, tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a

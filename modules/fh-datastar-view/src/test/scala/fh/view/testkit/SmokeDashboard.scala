@@ -36,10 +36,10 @@ object SmokeDashboard {
       |}""".stripMargin
 
   private val entrySource =
-    s"""amends "lib/entry.pkl"
+    s"""amends "@fh-dashboard/entry.pkl"
        |
-       |import "lib/components.pkl" as c
-       |import "lib/dump.pkl" as dump
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
        |
        |title = "Smoke House"
        |

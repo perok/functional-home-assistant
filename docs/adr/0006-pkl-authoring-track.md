@@ -101,8 +101,33 @@ extended. Once the hand-port completes they are deleted.
    emits into node JSON — the emitted top-level `cards` is identical to the
    old hand-maintained mapping, so the backend contract is untouched.
    Registration is automatic: a new card is one class, and forgetting the
-   `cardDef` is an eval-time error naming the class. Entries do not repeat the
-   `cards = c.cards` line — they `amends "lib/entry.pkl"`, the base scaffold
+   `cardDef` is an eval-time error naming the class.
+
+   The reflection runs over **a list of modules** (`c.cardsOf(mods)`), not just
+   the library's own, so a card class defined OUTSIDE the library reaches the
+   registry too — the component-developer story (ADR 0010, persona 4). An entry
+   names its extra modules via `componentModules`:
+
+   ```pkl
+   import "mycards.pkl" as mine
+   componentModules { mine }
+   ```
+
+   That registration is explicit because **Pkl cannot infer it**:
+   `reflect.Module.imports` yields import URIs as plain `String`s and Pkl has no
+   reflect-by-string, so the import graph cannot be walked to find card classes
+   (verified on 0.31.1). Two consequences worth knowing:
+
+   - A component must live in **its own module**. Classes in an amending module
+     (every entry) require `local`, and `local` classes are invisible to
+     reflect — so a card class written inline in an entry silently never
+     registers. Late binding of `module` itself works fine; the `local` rule is
+     what blocks it.
+   - Two modules claiming one card name is a Pkl error (`Duplicate definition of
+     member`), so a third-party module cannot shadow a library card.
+
+   Entries do not repeat the
+   registry line — they `amends "lib/entry.pkl"`, the base scaffold
    that sets it (decision 9).
 8. **Dynamic groups: Mapping branches + render lambdas.** A dynamic group is an
    amendable `DynamicGroup` (extends `LayoutNode`, `kind = "dynamic"`) whose
@@ -133,10 +158,11 @@ extended. Once the hand-port completes they are deleted.
    lambdas won because a branch is a function of the matched entity and composes
    unchanged if cases ever grow from leaves to subtrees.
 9. **Entries `amends "lib/entry.pkl"`.** `lib/entry.pkl` is the base module
-   every entry amends: it carries the reflected card registry (`cards = c.cards`)
-   and the shared `theme`, and declares the fields an entry fills — a required
-   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces` (and a
-   `theme` override). So an entry opens with `amends "lib/entry.pkl"` and sets
+   every entry amends: it carries the reflected card registry
+   (`cards = c.cardsOf(componentModules.toList())`) and the shared `theme`, and
+   declares the fields an entry fills — a required
+   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`,
+   `componentModules` (decision 7) and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
    only `card`. Because `card` has no default, an entry that forgets it fails
    with "Tried to read property `card` but its value is undefined" whose caret
    points at `lib/entry.pkl` (Pkl reports a missing required property at the

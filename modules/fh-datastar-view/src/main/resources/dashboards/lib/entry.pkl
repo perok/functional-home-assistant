@@ -20,8 +20,28 @@ module entry
 import "components.pkl" as c
 import "theme-beer.pkl" as themeMod
 
-/// The reflected card registry (each card class's template + slots).
-cards = c.cards
+/// The component modules whose card classes this dashboard can use. The
+/// authoring library is always here; ADD a module to use cards it defines:
+///
+///   import "@fh-dashboard/components.pkl" as c
+///   import "mycards.pkl" as mine
+///   componentModules { mine }
+///   card = (c.column) { children { mine.gauge(...) } }
+///
+/// Why this is explicit rather than inferred from your imports: Pkl reflection
+/// exposes an import only as a URI string and cannot turn one back into a
+/// module, so the library has no way to find your cards unless you name them.
+/// Forgetting to register a module you use is a "card not found" from
+/// `Dashboard.validate` at build time, not a broken dashboard at runtime.
+///
+/// Your cards must live in their own module (not inline in this entry): classes
+/// in an amending module need `local`, and `local` classes are invisible to
+/// reflection, so an inline card class would never register.
+hidden componentModules: Listing<Module> = new { c }
+
+/// The reflected card registry (each card class's template + slots), collected
+/// from [[componentModules]]. Two modules claiming one card name is an error.
+cards = c.cardsOf(componentModules.toList())
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a

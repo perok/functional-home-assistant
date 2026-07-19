@@ -16,36 +16,45 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump ONCE and write it next to the dashboard sources
-    * (so `import "lib/dump.pkl"` resolves). This is the build phase's job: it
-    * owns fetching + writing the dump, and the runtime
+  /** Fetch the live entity dump ONCE and seed it as the `@fh-home` content-
+    * versioned package ([[DumpPackage.seedFromText]]), so an entry's
+    * `import "@fh-home/dump.pkl"` resolves from the workspace cache. There is
+    * no loose `home/dump.pkl` on disk (ADR 0010): the dump is only ever a
+    * package, pinned via `.fh/pins.json`. This is the build phase's job — it
+    * owns fetching + packaging the dump — and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dump once
-    * for all entries, then [[reevaluate]]s each against the on-disk copy.
+    * into [[DataDump]]/[[PklDump]] directly: it seeds the dump once for all
+    * entries, then [[reevaluate]]s each against the cached package.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
-      dashboardsDir: os.Path
+      dashboardsDir: os.Path,
+      bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[Unit] =
     DataDump.fetch(api).flatMap { dump =>
-      IO.blocking {
-        os.write.over(
-          dashboardsDir / "lib" / "dump.pkl",
-          PklDump.render(dump),
-          createFolders = true
-        )
-      }
+      IO.blocking(
+        DumpPackage
+          .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
+      ).flatMap(_.traverse_(IO.println))
     }
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
     * JSON + the set of files read (entry + transitive imports).
+    *
+    * `bundledLib` is the boot's bundled `@fh-dashboard` artifacts, needed only
+    * to seed the VERY FIRST dump on a fresh workspace (no pins yet) — see
+    * [[DumpPackage.seedFromText]].
     */
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[SourceEval.Result] =
-    prepareDumps(api, dashboardsDir) *> evalSource(dashboardsDir, entry)
+    prepareDumps(api, dashboardsDir, bundledLib) *> evalSource(
+      dashboardsDir,
+      entry
+    )
 
   /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
     *
@@ -286,9 +295,13 @@ object DashboardBuild {
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[(Dashboard, Set[os.Path])] =
-    prepareDumps(api, dashboardsDir) *> evalAndDecode(dashboardsDir, entry)
+    prepareDumps(api, dashboardsDir, bundledLib) *> evalAndDecode(
+      dashboardsDir,
+      entry
+    )
 
   /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
     * dump rewrite) — used by live reload when only the dashboard sources

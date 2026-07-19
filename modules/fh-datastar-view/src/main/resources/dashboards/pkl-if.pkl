@@ -7,15 +7,15 @@
 // no updates; toggling the condition entity swaps the branch live in every
 // open client.
 //
-// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; this entry
-// sets only `card` (its branches become hoisted surfaces at build time).
+// `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; this
+// entry sets only `card` (its branches become hoisted surfaces at build time).
 // (Plain `//` comments: a doc comment would attach to the first import, which
 // Pkl rejects — entries have no `module` clause to absorb it.)
 
-amends "lib/entry.pkl"
+amends "@fh-dashboard/entry.pkl"
 
-import "lib/components.pkl" as c
-import "lib/dump.pkl" as dump
+import "@fh-dashboard/components.pkl" as c
+import "@fh-home/dump.pkl" as dump
 
 card = (c.column) {
   children {

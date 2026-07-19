@@ -36,10 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # scala-cli runs the fh script's own test suite below.
       - uses: coursier/cache-action@v8
       - uses: coursier/setup-action@v3
         with:
-          apps: scalafmt
+          apps: scalafmt scala-cli
 
       - uses: actions/setup-java@v4
         with:
@@ -81,6 +82,15 @@ jobs:
 
           - name: Test
             run: sbt 'fh-datastar-view/testFull'
+
+          # The fh laptop script's own suite (in-process, gated on
+          # SCALA_TEST_MODE; no instance needed) — also compile-checks the
+          # script itself.
+          - name: Test fh script
+            working-directory: scripts
+            # --server=false: no Bloop daemon — its 30s startup handshake
+            # times out under CPU contention with the parallel sbt step.
+            run: scala-cli test . --server=false
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6

@@ -25,6 +25,10 @@ addCommandAlias(
   "fh-datastar-view/runMain fh.view.build.BuildApp"
 )
 addCommandAlias(
+  // The workspace dir comes from `DASHBOARDS_DIR` (set to an absolute
+  // repo-root path in the project's `run / envVars` above). A local run
+  // bootstraps a package-form workspace there — its own home/, .fh/, seeded
+  // entries, .pkl-cache — gitignored, exactly the shape the add-on writes.
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
@@ -136,10 +140,13 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    // run / envVars := Map(
-    //  "SERVER" -> (`home-codegen` / haUrl).value,
-    //  "SECRET" -> secretToken
-    // ),
+    // DASHBOARDS_DIR for a local `dashboardServe` / `run`: an ABSOLUTE path (via
+    // the `baseDirectory` helper) to the repo-root dev workspace, so the forked
+    // run — whose cwd is the module base — always lands on ONE stable,
+    // gitignored location regardless of cwd. The add-on sets this itself;
+    // ServerApp's optional CLI arg still overrides it.
+    run / envVars += "DASHBOARDS_DIR" ->
+      ((ThisBuild / baseDirectory).value / "dashboard-local-dev-server").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
@@ -176,6 +183,10 @@ lazy val `fh-datastar-view` = project
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
       "org.pkl-lang" % "pkl-parser" % "0.31.1",
+      // Cross-platform user dirs (XDG / AppData / ~/Library) — the SAME lib +
+      // app coordinates the `fh` script uses, so a local `sbt dashboardServe`
+      // and the laptop `fh` resolve the same data dir (ADR 0010).
+      "net.harawata" % "appdirs" % "1.5.0",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)

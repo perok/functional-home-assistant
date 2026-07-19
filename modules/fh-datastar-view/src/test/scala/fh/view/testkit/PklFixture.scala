@@ -8,9 +8,10 @@ import io.circe.Json
   * authoring pipeline — the Tier-A path (ADR 0009): `.pkl` -> `SourceEval.eval`
   * -> `DashboardBuild.hoistInlineSurfaces` -> decode. It stages a temp dir
   * exactly as `PklBuildSuite` does (the real `lib` modules copied in, a
-  * generated `lib/dump.pkl` beside them), so no live HA is touched; the dump is
-  * supplied by the caller (typically [[HouseFixture.transformedDump]], so the
-  * dashboard and the served state come from one source).
+  * generated `home/dump.pkl` in the @fh-home package), so no live HA is
+  * touched; the dump is supplied by the caller (typically
+  * [[HouseFixture.transformedDump]], so the dashboard and the served state come
+  * from one source).
   *
   * This is the seam a functional test uses to serve a Pkl-authored dashboard,
   * and the same builder `PklBuildSuite` uses to exercise the build pipeline
@@ -28,7 +29,9 @@ object PklFixture {
 
   /** A trivial theme an entry can set to keep BeerCSS (and all CSS) out of the
     * build: every [[fh.view.model.Theme]] field is empty. Paste into a fixture
-    * entry as `theme = <this>` after `import "lib/theme.pkl" as th`.
+    * entry as `theme = <this>` after `import "@fh-dashboard/theme.pkl" as th`
+    * (the alias keeps `th.Theme` the SAME module identity the base module's
+    * `theme` property expects — a plain file import would be a distinct URI).
     */
   val dummyTheme: String =
     """new th.Theme {
@@ -40,26 +43,12 @@ object PklFixture {
       |  chrome = ""
       |}""".stripMargin
 
-  /** The real Pkl library modules, as shipped under the resources dir. `os.pwd`
-    * in the test JVM is the repo root (mirroring `PklBuildSuite`).
-    */
-  private val dashboardsDir =
-    os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
-
-  /** Every lib module an entry that `amends "lib/entry.pkl"` needs. */
-  private val libModules =
-    List(
-      "hass.pkl",
-      "components.pkl",
-      "theme.pkl",
-      "theme-beer.pkl",
-      "tokens.pkl",
-      "entry.pkl"
-    )
-
-  /** Stage the lib + a `lib/dump.pkl` rendered from `dump`, write `entrySource`
-    * as `<slug>.pkl`, and evaluate it. Throws with the pipeline's error text if
-    * evaluation fails — so a broken fixture fails loudly at the call site.
+  /** Bootstrap a package-form workspace (the ONE resolution mode, ADR 0010)
+    * with the `dump` seeded as the `@fh-home` cache package, write
+    * `entrySource` as `<slug>.pkl`, and evaluate it. The entry resolves
+    * `@fh-dashboard`/`@fh-home` from the cache exactly as the live server does.
+    * Throws with the pipeline's error text if evaluation fails — so a broken
+    * fixture fails loudly at the call site.
     */
   def eval(
       slug: String,
@@ -67,11 +56,7 @@ object PklFixture {
       dump: Json = HouseFixture.transformedDump
   ): Built = {
     val tmp = os.temp.dir()
-    os.makeDir.all(tmp / "lib")
-    libModules.foreach(n =>
-      os.copy.into(dashboardsDir / "lib" / n, tmp / "lib")
-    )
-    os.write(tmp / "lib" / "dump.pkl", PklDump.render(dump))
+    PklWorkspace.bootstrap(tmp, PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
     os.write(tmp / entryFile, entrySource)

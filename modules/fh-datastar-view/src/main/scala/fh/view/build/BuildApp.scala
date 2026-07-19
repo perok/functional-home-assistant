@@ -2,23 +2,30 @@ package fh.view.build
 
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Env
+import cats.syntax.all.*
 import fh.api.FHApi
 
 /** Build phase entry point.
   *
-  * Connects to Home Assistant, evaluates the dashboard Pkl entry into a
+  * Bootstraps a **package-form** workspace exactly as the server does
+  * ([[AddonBootstrap]]) — there is a single resolution mode (ADR 0010): the lib
+  * and the dump are both cache packages, resolved offline via `moduleCacheDir`.
+  * Then it connects to Home Assistant, evaluates the dashboard Pkl entry into a
   * `dashboard.json` artifact (validating it decodes into the runtime model
   * along the way), and writes it. Run via `fh-datastar-view/run` (or the
   * `dashboardBuild` alias) with `SERVER`/`SECRET` set.
   *
   * The artifact is for inspection/CI; the runtime
   * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
-  * not need it.
+  * not need it. Paths default to the same gitignored scratch workspace + shared
+  * appdirs cache the local `sbt dashboardServe` uses, so the two share one
+  * bootstrapped workspace.
   */
 object BuildApp extends IOApp {
 
   // Paths are relative to the module directory (the forked `run` working dir).
-  private val defaultDashboardsDir = "src/main/resources/dashboards"
+  private val defaultDashboardsDir = "dashboard-local-dev"
+  private val bundledResourcesDir = "src/main/resources/dashboards"
   private val defaultDashboardJson = "dashboard.json"
   private val defaultDashboardEntry = "dashboard.pkl"
 
@@ -31,13 +38,37 @@ object BuildApp extends IOApp {
         .get("DASHBOARD_ENTRY")
         .map(_.getOrElse(defaultDashboardEntry))
 
+      // Bring the workspace to a package-form state (lib package in the cache,
+      // static base.pkl, seeded entries) before anything evaluates — but NO
+      // `pins.json` on a fresh workspace: `evaluate` runs `prepareDumps`, which
+      // seeds the live dump package and writes the real pins in one step. The
+      // bundled lib artifacts are threaded down so that first dump can pin its
+      // `@fh-dashboard` dependency before any pins exist. The lib is the running
+      // jar's own classpath resources ([[BundledLib]]) — no `lib/` path.
+      seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
+      cacheDir <- pathFromEnv(
+        "FH_PKL_CACHE_DIR",
+        AddonBootstrap.defaultCacheDir
+      )
+      bundled <- IO.blocking(BundledLib.artifacts())
+      _ <- IO
+        .blocking(
+          // The build phase runs no server; the rewrite URL is inert (resolution
+          // is cache-only), so a loopback default is fine in `machine.json`.
+          AddonBootstrap.run(
+            dashboardsDir,
+            bundled,
+            seedDir,
+            cacheDir,
+            loopbackUrl = "http://127.0.0.1:8080"
+          )
+        )
+        .flatMap(_.traverse_(IO.println))
+
       result <- FHApi.fromEnv.use(
-        DashboardBuild.evaluate(_, dashboardsDir, entry)
+        DashboardBuild.evaluate(_, dashboardsDir, entry, Some(bundled))
       )
       dashboardJson = result.value
-      _ <- IO.println(
-        s"Wrote entity dump to ${dashboardsDir / "lib" / "dump.pkl"}"
-      )
 
       // Validate it decodes into the runtime model before writing it.
       _ <- DashboardBuild.decode(dashboardJson)
