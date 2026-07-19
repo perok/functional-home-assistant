@@ -19,11 +19,16 @@ import java.util.zip.{ZipEntry, ZipOutputStream}
   *     to laptop workspaces (the metadata at `fh-dashboard@<v>`, the zip at
   *     `fh-dashboard@<v>.zip` — [[SystemPkl.packageArtifact]]).
   *
-  * The zip is **deterministic** (sorted entries, fixed timestamps): an
-  * unchanged lib yields byte-identical artifacts across image builds, so a
-  * sha256 difference under an unchanged version IS the release-discipline
-  * violation detector — packages are immutable per version, and serving changed
-  * bytes under an old version breaks laptop checksum pins.
+  * The zip is **deterministic** (sorted entries, fixed timestamps), and the
+  * version is **content-derived** like the dump's ([[DumpPackage]]):
+  * `<base>-g<hash>`, where `<base>` comes from `lib/PklProject`'s `version`
+  * line and the hash is of the zip bytes. An unchanged lib re-derives the same
+  * version (cache hit everywhere); a changed lib mints a NEW immutable cache
+  * entry, so no cache — the instance's, a laptop's, or pkl's default
+  * `~/.pkl/cache` — can ever hold stale bytes under a current name. Old
+  * versions stay resolvable from the cache. When the lib stabilizes, the plan
+  * is to decouple this: drop the hash suffix and bump the base version normally
+  * per release.
   */
 object LibPackage {
 
@@ -39,38 +44,48 @@ object LibPackage {
   def packageUri(version: String): String =
     s"package://$Host/$Name@$version"
 
-  /** The `package://…/fh-dashboard@<v>` pin found in manifest text, if any. */
-  def pinnedVersion(manifestText: String): Option[String] =
-    s"""package://$Host/$Name@([^"]+)"""".r
-      .findFirstMatchIn(manifestText)
-      .map(_.group(1))
-
   /** The workspace's effective lib pin — the version the ENTRY resolves
     * `@fh-dashboard` to, which the dump package must declare to keep module
-    * identity. The user's `PklProject` override wins (they may add a
-    * `dependencies` block that shadows the base default); otherwise the
-    * machine-owned pin in `.fh/pins.json` (which `.fh/base.pkl` reads) governs.
-    * `None` on a workspace with neither (not a bootstrapped package-form one).
+    * identity. Read off the LOADED pkl project's declared dependencies
+    * (spike-verified on 0.31.1: `getDependencies.getRemoteDependencies`), so
+    * pkl itself applies the amends chain — a user override in `PklProject`
+    * shadows the base default, otherwise the machine pin `base.pkl` read from
+    * `.fh/pins.json` comes through. (An earlier text-regex scan of the manifest
+    * matched the pin EXAMPLE in the seeded doc header — exactly the class of
+    * bug delegating to the real parser removes.) `None` when the workspace has
+    * no loadable `PklProject` with an `fh-dashboard` dependency (not a
+    * bootstrapped package-form workspace).
     */
   def effectivePin(dashboardsDir: os.Path): Option[String] =
-    Option
-      .when(os.exists(dashboardsDir / "PklProject"))(
-        os.read(dashboardsDir / "PklProject")
+    scala.util
+      .Try(
+        org.pkl.core.project.Project
+          .loadFromPath((dashboardsDir / "PklProject").toNIO)
       )
-      .flatMap(pinnedVersion)
-      .orElse(Pins.dashboardVersion(dashboardsDir))
+      .toOption
+      .flatMap(p => Option(p.getDependencies.getRemoteDependencies.get(Name)))
+      .map(_.getPackageUri.toString)
+      .flatMap(uri =>
+        s"$Name@(.+)$$".r.unanchored.findFirstMatchIn(uri).map(_.group(1))
+      )
 
-  /** The lib's own version, from the `version = "…"` line of its manifest — the
-    * ONE place the library version is declared (decoupled from the add-on
-    * version by design: the authoring layer is where churn lives).
+  /** The lib's BASE version, from the `version = "…"` line of its manifest —
+    * the ONE place a human-declared version lives (decoupled from the add-on
+    * version by design: the authoring layer is where churn lives). The
+    * effective package version appends the content hash ([[build]]).
     */
-  def version(libDir: os.Path): String = {
+  private def baseVersion(libDir: os.Path): String = {
     val manifest = libDir / "PklProject"
     """version\s*=\s*"([^"]+)"""".r
       .findFirstMatchIn(os.read(manifest))
       .map(_.group(1))
       .getOrElse(sys.error(s"no version = \"…\" line in $manifest"))
   }
+
+  /** The lib's effective, content-derived package version
+    * (`<base>-g<zip-hash>`). Deterministic — same lib bytes, same version.
+    */
+  def version(libDir: os.Path): String = build(libDir).version
 
   /** The built artifact pair for one lib version. */
   final case class Artifacts(
@@ -91,7 +106,8 @@ object LibPackage {
   def build(libDir: os.Path): Artifacts = {
     val zip = zipBytes(libDir)
     val sha = sha256(zip)
-    Artifacts(version(libDir), zip, sha, metadata(version(libDir), sha))
+    val version = s"${baseVersion(libDir)}-g${sha.take(12)}"
+    Artifacts(version, zip, sha, metadata(version, sha))
   }
 
   /** Deterministic zip of the library modules, zip-root relative (an
@@ -160,36 +176,26 @@ object LibPackage {
   def cacheEntryDir(cacheDir: os.Path, version: String): os.Path =
     cacheDir / "package-2" / Host / s"$Name@$version"
 
-  /** Write the artifacts into pkl's package-cache layout. Idempotent when the
-    * cached zip is byte-identical; a sha difference under the same version is
-    * reported loudly and OVERWRITTEN — the instance must run the lib it ships,
-    * but any laptop that pinned the old checksum will now fail its verify,
-    * which is the visible symptom of a lib change without a version bump.
-    * Returns a human-readable action log.
+  /** Write the artifacts into pkl's package-cache layout. Idempotent: the
+    * content-derived version names the bytes, so an existing cache entry is
+    * never rewritten and old versions stay (a workspace pinned to an older lib
+    * keeps resolving). Returns a human-readable action log.
     */
   def seedCache(libDir: os.Path, cacheDir: os.Path): List[String] = {
     val artifacts = build(libDir)
     val dir = cacheEntryDir(cacheDir, artifacts.version)
     val zipPath = dir / s"$Name@${artifacts.version}.zip"
-    val jsonPath = dir / s"$Name@${artifacts.version}.json"
-    val existingSha =
-      Option.when(os.exists(zipPath))(sha256(os.read.bytes(zipPath)))
-    existingSha match {
-      case Some(sha) if sha == artifacts.sha256 => Nil
-      case other                                =>
-        os.makeDir.all(dir)
-        os.write.over(zipPath, artifacts.zip)
-        os.write.over(jsonPath, artifacts.metadataJson)
-        val what = other match {
-          case Some(oldSha) =>
-            s"WARNING: lib bytes changed under unchanged version ${artifacts.version} " +
-              s"(cached $oldSha -> ${artifacts.sha256}); overwriting the cache entry. " +
-              "Packages are immutable per version — bump lib/PklProject's version " +
-              "(laptops that pinned the old checksum will fail resolution until they re-pin)"
-          case None =>
-            s"seeded package cache: ${packageUri(artifacts.version)} (sha256 ${artifacts.sha256.take(12)}…)"
-        }
-        List(what)
+    if (os.exists(zipPath)) Nil
+    else {
+      os.makeDir.all(dir)
+      os.write.over(zipPath, artifacts.zip)
+      os.write.over(
+        dir / s"$Name@${artifacts.version}.json",
+        artifacts.metadataJson
+      )
+      List(
+        s"seeded package cache: ${packageUri(artifacts.version)} (sha256 ${artifacts.sha256.take(12)}…)"
+      )
     }
   }
 }

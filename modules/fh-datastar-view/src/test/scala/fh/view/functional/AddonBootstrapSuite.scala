@@ -4,6 +4,7 @@ import fh.view.build.{
   AddonBootstrap,
   DumpPackage,
   LibPackage,
+  Pins,
   PklDump,
   SourceEval
 }
@@ -198,26 +199,36 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
   }
 
-  test("lib drift under an unchanged version overwrites the cache, loudly") {
-    // The release-discipline violation: lib bytes change, version doesn't
-    // (e.g. a dev image rebuild). The instance must run what it ships — the
-    // cache entry is overwritten — but the log names the violation, because
-    // any laptop that pinned the old checksum will now fail resolution.
+  test("a changed lib mints a NEW content version; the old entry survives") {
+    // Content-derived versions make drift-under-an-unchanged-version
+    // impossible: changed lib bytes hash to a new version, the bootstrap seeds
+    // a fresh immutable cache entry and moves the pins.json dashboardUri to
+    // it, and the previous entry stays resolvable for anything pinned to it.
     val root = os.temp.dir()
     val editableLib = root / "lib"
     os.copy(bundledLib, editableLib)
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
+    val v1 = LibPackage.version(editableLib)
     val _ = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
 
-    os.write.append(editableLib / "tokens.pkl", "\n// drifted\n")
+    os.write.append(editableLib / "tokens.pkl", "\n// changed\n")
+    val v2 = LibPackage.version(editableLib)
     val log = AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
 
-    assert(log.exists(_.contains("WARNING")), clue = log)
-    val zip = LibPackage.cacheEntryDir(box.cache, libVersion) /
-      s"fh-dashboard@$libVersion.zip"
+    assertNotEquals(v1, v2)
+    assert(log.exists(_.contains(s"fh-dashboard@$v2")), clue = log)
+    for (v <- List(v1, v2)) {
+      val entry = LibPackage.cacheEntryDir(box.cache, v)
+      assert(os.exists(entry / s"fh-dashboard@$v.zip"), clue = v)
+    }
     assertEquals(
-      LibPackage.sha256(os.read.bytes(zip)),
+      LibPackage.sha256(
+        os.read.bytes(
+          LibPackage.cacheEntryDir(box.cache, v2) / s"fh-dashboard@$v2.zip"
+        )
+      ),
       LibPackage.sha256(LibPackage.zipBytes(editableLib))
     )
+    assertEquals(Pins.dashboardVersion(box.ws), Some(v2))
   }
 }

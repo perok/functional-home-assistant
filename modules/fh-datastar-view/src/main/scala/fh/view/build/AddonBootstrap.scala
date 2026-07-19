@@ -271,7 +271,7 @@ object AddonBootstrap {
       |/// `dependencies` block that overrides the base default, e.g.:
       |///
       |///   dependencies {
-      |///     ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@1.0.0" }
+      |///     ["fh-dashboard"] { uri = "package://fh.invalid/fh-dashboard@1.0.0-g0123456789ab" }
       |///     // ["their-cards"] { uri = "package://pkg.pkl-lang.org/.../1.0.0" }
       |///   }
       |amends ".fh/base.pkl"

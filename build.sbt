@@ -146,7 +146,7 @@ lazy val `fh-datastar-view` = project
     // gitignored location regardless of cwd. The add-on sets this itself;
     // ServerApp's optional CLI arg still overrides it.
     run / envVars += "DASHBOARDS_DIR" ->
-      ((ThisBuild / baseDirectory).value / "dashboard-local-dev").toString,
+      ((ThisBuild / baseDirectory).value / "dashboard-local-dev-server").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),

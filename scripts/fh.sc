@@ -96,10 +96,13 @@ def sha256(bytes: Array[Byte]): String =
     .mkString
 
 // ---------------------------------------------------------------- pkl-core
-// The workspace's own settings, applied by hand: the script knows the
-// instance URL (from `.fh/machine.json`) and builds the same rewrite + cache
-// the manifest declares rather than depending on how pkl-core surfaces
-// evaluatorSettings.
+// The workspace manifest (`.fh/base.pkl`, reading `.fh/machine.json`) is the
+// single source of the cache dir + the fh.invalid rewrite. Evaluation gets
+// both through `applyFromProject`; only the dependency RESOLVER needs them
+// wired by hand, because `PackageResolver` is a lower-level API where the
+// caller owns the http client — so it reads the SAME
+// `evaluatorSettings.http.rewrites` off the loaded project (what the pkl CLI
+// does internally), never a second hand-built copy.
 
 // The package cache: the cross-platform user DATA dir under the SAME appdirs
 // coordinates the add-on / BuildApp use, so a local instance and this script
@@ -110,34 +113,51 @@ val cacheDir =
     .get(s"${appdirs.getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache")
     .toAbsolutePath
 
-def pklHttp(url: String): org.pkl.core.http.HttpClient =
-  org.pkl.core.http.HttpClient
-    .builder()
-    .addRewrite(
-      java.net.URI.create("https://fh.invalid/"),
-      java.net.URI.create(s"$url/system/pkl/packages/")
-    )
-    .build()
-
 def loadProject(): org.pkl.core.project.Project =
   val manifest = Paths.get("PklProject")
   if !Files.exists(manifest) then
     throw Die("no PklProject here — run: fh init <instance-url>")
   org.pkl.core.project.Project.loadFromPath(manifest)
 
-/** `pkl project resolve`, in-process: resolve the manifest's dependencies from
-  * the instance (packages land in `.fh/cache`) and write the lockfile.
+/** The resolver's http client, from the manifest's own
+  * `evaluatorSettings.http.rewrites` (the same read `PklBuild` does on the
+  * instance). A manifest without the block yields a plain client — resolution
+  * then dials `fh.invalid` literally and fails with pkl's own message.
   */
-def resolveDeps(url: String): IO[Unit] = IO.blocking {
+def projectHttpClient(
+    project: org.pkl.core.project.Project
+): org.pkl.core.http.HttpClient =
+  org.pkl.core.http.HttpClient
+    .builder()
+    .tap { builder =>
+      Option(project.getEvaluatorSettings)
+        .flatMap(s => Option(s.http()))
+        .flatMap(h => Option(h.rewrites()))
+        .foreach(builder.setRewrites)
+    }
+    .build()
+
+/** `pkl project resolve`, in-process: resolve the manifest's dependencies from
+  * the instance (packages land in the machine.json cache) and write the
+  * lockfile. Client and cache both come off the loaded project, so what the
+  * manifest declares is what resolution uses.
+  */
+def resolveDeps(): IO[Unit] = IO.blocking {
   import org.pkl.core.SecurityManagers
   import org.pkl.core.packages.PackageResolver
   import org.pkl.core.project.ProjectDependenciesResolver
+  val project = loadProject()
+  val cache = Option(project.getEvaluatorSettings.moduleCacheDir()).getOrElse(
+    throw Die(
+      s"$basePkl declares no moduleCacheDir — re-run: fh init <instance-url>"
+    )
+  )
   val resolver = new ProjectDependenciesResolver(
-    loadProject(),
+    project,
     PackageResolver.getInstance(
       SecurityManagers.defaultManager,
-      pklHttp(url),
-      cacheDir
+      projectHttpClient(project),
+      cache
     ),
     new java.io.PrintWriter(System.err)
   )
@@ -150,14 +170,14 @@ def resolveDeps(url: String): IO[Unit] = IO.blocking {
 /** `pkl eval -f json`, in-process: evaluate an entry against the project and
   * render it with pkl-core's own `ValueRenderers.json` — the exact call the
   * instance's backend uses, so the pushed JSON matches by construction.
+  * `applyFromProject` carries the manifest's `evaluatorSettings` (cache dir,
+  * http rewrites — spike-verified on 0.31.1), so nothing is wired by hand.
   */
-def evalJson(url: String, entry: String): IO[String] = IO.blocking {
+def evalJson(entry: String): IO[String] = IO.blocking {
   import org.pkl.core.{EvaluatorBuilder, ModuleSource, ValueRenderers}
   Using(
     EvaluatorBuilder
       .preconfigured()
-      .setHttpClient(pklHttp(url))
-      .setModuleCacheDir(cacheDir)
       .applyFromProject(loadProject())
       .build()
   ) { evaluator =>
@@ -320,7 +340,7 @@ def cmdInit(rawUrl: String): IO[Unit] = {
       _ <- writeScaffold(client, url)
       _ <- writeMachine(url)
       _ <- writePins(idx)
-      _ <- resolveDeps(url)
+      _ <- resolveDeps()
       _ <- IO.println(
         s"""wired to $url (@fh-dashboard ${idx.dashboardVersion}, @fh-home ${idx.homeVersion})
            |add *.pkl entries — completion and evaluation resolve from the instance|""".stripMargin
@@ -336,7 +356,7 @@ def cmdPull: IO[Unit] =
       old <- pinnedHomeVersion
       idx <- fetchIndex(client, url)
       _ <- writePins(idx)
-      _ <- resolveDeps(url)
+      _ <- resolveDeps()
       _ <-
         if old.contains(idx.homeVersion) then
           IO.println(s"up to date (@fh-home ${idx.homeVersion})")
@@ -358,7 +378,7 @@ def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
       // A broken entry fails HERE (pkl-core raises with the authoring error),
       // and the instance validates the payload too (unknown cards come back
       // as a 400 naming them) — never silently on a screen.
-      json <- evalJson(url, entry)
+      json <- evalJson(entry)
       uri <- Uri
         .fromString(s"$url/system/push/$slug")
         .fold(_ => die(s"not a valid url: $url"), IO.pure)
@@ -428,6 +448,65 @@ def backupPath(of: Path): Path = {
     )
 }
 
+/** Where the pkl CLI reads OS-user-level settings from (`~/.pkl/settings.pkl`,
+  * the documented location).
+  */
+def pklUserSettings: Path =
+  Paths.get(System.getProperty("user.home"), ".pkl", "settings.pkl")
+
+/** The user-level settings `init-lsp-fix` installs: the workspace's own
+  * fh.invalid rewrite, lifted to `~/.pkl/settings.pkl`. Needed because the pkl
+  * CLI applies a project's `evaluatorSettings.http.rewrites` only when invoked
+  * FROM the project directory — `pkl project resolve <dir>` from elsewhere
+  * (exactly how the IntelliJ plugin syncs) ignores them and dials `fh.invalid`
+  * literally. User-level settings apply in both modes (verified on pkl 0.31.0).
+  */
+def lspFixContent(url: String): String =
+  s"""amends "pkl:settings"
+     |// Written by `fh init-lsp-fix` — lets `pkl project resolve <dir>` (how
+     |// IntelliJ/pkl-lsp sync a workspace) resolve package://fh.invalid/...
+     |// from the instance; the CLI ignores the project's own http.rewrites in
+     |// that invocation mode. Re-run the command after re-wiring to a
+     |// different instance.
+     |http {
+     |  rewrites {
+     |    ["https://fh.invalid/"] = "$url/system/pkl/packages/"
+     |  }
+     |}
+     |""".stripMargin
+
+/** Write [[lspFixContent]] to `settings`: no-op when already current, dated
+  * backup first when a different file exists (the user-file convention — it is
+  * the user's global pkl config, never silently replaced).
+  */
+def writeLspFix(settings: Path, rawUrl: String): IO[Unit] = IO.blocking {
+  val url = rawUrl.stripSuffix("/")
+  val content = lspFixContent(url)
+  val existing =
+    Option.when(Files.exists(settings))(Files.readString(settings))
+  if existing.contains(content) then
+    println(s"up to date ($settings already has the $url rewrite)")
+  else
+    existing.foreach { _ =>
+      val backup = backupPath(settings)
+      Files.copy(
+        settings,
+        backup,
+        java.nio.file.StandardCopyOption.COPY_ATTRIBUTES
+      )
+      println(s"previous settings kept as ${backup.getFileName}")
+    }
+    Files.createDirectories(settings.getParent)
+    Files.write(settings, content.getBytes(UTF_8))
+    println(
+      s"wrote $settings — `pkl project resolve` and IntelliJ/pkl-lsp sync " +
+        s"now reach this workspace's packages via $url (instance must be up)"
+    )
+}
+
+def cmdInitLspFix(settings: Path = pklUserSettings): IO[Unit] =
+  instanceUrl.flatMap(writeLspFix(settings, _))
+
 val opts: Opts[IO[ExitCode]] = Opts
   .subcommand(
     "init",
@@ -451,6 +530,14 @@ val opts: Opts[IO[ExitCode]] = Opts
         .mapN(cmdPush)
         .map(_.as(ExitCode.Success))
     )
+  )
+  .orElse(
+    Opts.subcommand(
+      "init-lsp-fix",
+      "Write ~/.pkl/settings.pkl with this workspace's fh.invalid rewrite, " +
+        "so IntelliJ / the pkl CLI resolve packages when invoked from outside " +
+        "the workspace (dated backup of any existing settings)."
+    )(Opts(cmdInitLspFix().as(ExitCode.Success)))
   )
   .orElse(
     Opts.subcommand(

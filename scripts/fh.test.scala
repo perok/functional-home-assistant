@@ -57,6 +57,44 @@ object FhScriptSuite extends SimpleIOSuite:
     }
   }
 
+  test("writeLspFix: writes, no-ops when current, backs up a foreign file") {
+    // The three states of ~/.pkl/settings.pkl: absent (write), already ours
+    // (no-op, no backup), someone else's (dated backup, then write) — the
+    // user-file convention, since it is the user's global pkl config.
+    val url = "http://ha.local:8080"
+    def backups(dir: Path): List[Path] = Files
+      .list(dir)
+      .iterator()
+      .asScala
+      .toList
+      .filter(_.getFileName.toString.startsWith("settings.pkl.backup."))
+    emptyDir.flatMap { dir =>
+      val settings = dir.resolve("settings.pkl")
+      for
+        _ <- fh.writeLspFix(settings, url)
+        afterWrite = Files.readString(settings)
+        _ <- fh.writeLspFix(settings, url)
+        noopBackups = backups(dir)
+        _ <- IO.blocking(
+          Files.write(settings, "// the user's own settings\n".getBytes(UTF_8))
+        )
+        _ <- fh.writeLspFix(settings, s"$url/") // trailing slash normalized
+        replacedBackups = backups(dir)
+      yield expect.all(
+        clue(afterWrite).contains(
+          s"""["https://fh.invalid/"] = "$url/system/pkl/packages/""""
+        ),
+        afterWrite.startsWith("amends \"pkl:settings\""),
+        noopBackups.isEmpty,
+        replacedBackups.size == 1,
+        Files
+          .readString(replacedBackups.head)
+          .contains("the user's own settings"),
+        Files.readString(settings) == afterWrite
+      )
+    }
+  }
+
   test("update: sha-compare against the remote copy, replace with a backup") {
     // cmdUpdate is parameterized (self path + source URL) precisely so this
     // can run in-process against a copy and a local stub, not the real script

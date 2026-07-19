@@ -107,10 +107,18 @@ the instance —
 instance via `/system/pkl/packages/`: `@fh-dashboard` at the user's pin, and
 `@fh-home` as a *content-versioned* dump snapshot (see "resolved by
 content-derived versions") that `fh pull` re-pins. Resolution and push
-evaluation run inside the script (in-process pkl-core); the workspace is a
-plain pkl project, so stock tooling — pkl-lsp completion, the `pkl` CLI —
-works on it identically, offline once cached. `UseCaseSuite` drives the real
-script + the real pkl CLI end-to-end.
+evaluation run inside the script (in-process pkl-core, which honors the
+manifest's own `evaluatorSettings` — `applyFromProject` for eval, the same
+settings read by hand for the lower-level `PackageResolver`); the workspace is
+a plain pkl project, so stock tooling — pkl-lsp completion, the `pkl` CLI —
+works on it identically, offline once cached. One caveat (verified on pkl
+0.31.0): the CLI applies a project's `evaluatorSettings.http.rewrites` only
+when invoked FROM the project directory; `pkl project resolve <dir>` from
+elsewhere — exactly how the IntelliJ plugin syncs — ignores them and dials
+`fh.invalid` literally. `fh init-lsp-fix` writes the workspace's rewrite to
+the user-level `~/.pkl/settings.pkl` (honored in both modes; dated backup of
+any existing file), which fixes IDE sync as long as the instance is reachable.
+`UseCaseSuite` drives the real script + the real pkl CLI end-to-end.
 
 **Repo developer.** Runs a local server (`sbt dashboardServe`) that bootstraps
 the **same package-form workspace the add-on does** — there is no separate "dev
@@ -247,7 +255,8 @@ into a confusing stale-checksum failure. `UseCaseSuite` pins the flow end-to-end
 **`GET /system/pkl/packages`** (no artifact) is the discovery index: the
 current version + metadata sha256 of both packages — exactly what a pull pins.
 
-Its client is the `fh` script (`init` / `pull` / `push` / `update`): a
+Its client is the `fh` script (`init` / `pull` / `push` / `init-lsp-fix` /
+`update`): a
 self-contained **scala-cli script** (Typelevel toolkit + decline) checked into
 the repo at `scripts/fh.sc`, whose distribution channel is the GitHub repo itself
 (`curl -fsSLo fh https://raw.githubusercontent.com/perok/functional-home-assistant/main/scripts/fh.sc && chmod +x fh`).
@@ -399,10 +408,14 @@ does, idempotently:
 
 1. **Seed the cache** (`LibPackage`): packages the image's `/opt/fh/lib` into
    the two-file resolved-package layout
-   `<cache>/package-2/fh.invalid/fh-dashboard@<v>/fh-dashboard@<v>.{json,zip}`
-   (deterministic zip — sorted entries, fixed timestamps — so the sha256 doubles
-   as a drift detector; lib bytes changing under an unchanged version is logged
-   as a WARNING and overwritten, since the instance must run what it ships).
+   `<cache>/package-2/fh.invalid/fh-dashboard@<v>/fh-dashboard@<v>.{json,zip}`.
+   The zip is deterministic (sorted entries, fixed timestamps) and the version
+   is **content-derived** like the dump's — `<base>-g<zip-hash>`, base from
+   `lib/PklProject`'s `version` line — so a changed lib mints a NEW immutable
+   cache entry (and the bootstrap moves `pins.json`'s `dashboardUri` to it)
+   while old versions stay resolvable; no cache anywhere can hold stale bytes
+   under a current name. (Planned decoupling: once the lib stabilizes, drop
+   the hash suffix and bump the base version per release.)
    Spiked (0.31.1): a warm cache satisfies BOTH `ProjectDependenciesResolver`
    and evaluation against `HttpClient.dummyClient()` — fresh and offline
    installs resolve with no network and no interception.
@@ -541,7 +554,8 @@ sibling stays out.)
 
 **Consequence: the library is immutable per version and does NOT hot-reload.**
 Editing a card class or the schema takes effect only after the cache is re-seeded
-— a server restart (`LibPackage.seedCache` overwrites on byte change) or a
+— a server restart (`LibPackage.seedCache` seeds the changed lib under a new
+content-derived version and the bootstrap re-pins `dashboardUri` to it) or a
 `fh push`. This is the deliberate cost of one resolution mode: the running server
 is a stable renderer of a versioned library, not a live-edit host for it. Only
 entries (and their loose imports) hot-reload; a deployed add-on whose library
@@ -681,11 +695,10 @@ warns (log + per-dashboard errors in the endpoint response).
   `fh` script writes its `uri` + `checksums` together on every `init`/`pull`.
   Deliberately NOT adopted for `@fh-dashboard` anywhere: a user's pin override
   in `PklProject` would *inherit* a stale checksum from the amended-over base
-  default (Mapping amend merges the value object), and on the add-on a dev
-  image that rebuilds the lib under an unchanged version (today a WARNING +
-  cache overwrite) would turn a checksummed pin into a boot-time resolve
-  failure in a file bootstrap may not rewrite — so the lockfile pins the lib
-  instead.
+  default (Mapping amend merges the value object) — so the lockfile pins the
+  lib instead. (The other original reason — a dev image rebuilding the lib
+  under an unchanged version — is gone: the lib version is content-derived
+  now, so changed bytes always mean a new version.)
 - **`/system/push` is unauthenticated (decided), and must be covered when auth
   lands.** It is a *write*, so the instinct is to gate it to HA-authenticated
   ingress. That gate is not currently expressible: `config.yaml` sets
