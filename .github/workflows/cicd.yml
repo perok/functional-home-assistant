@@ -79,7 +79,9 @@ jobs:
           # script itself.
           - name: Test fh script
             working-directory: scripts
-            run: scala-cli test .
+            # --server=false: no Bloop daemon — its 30s startup handshake
+            # times out under CPU contention with the parallel sbt step.
+            run: scala-cli test . --server=false
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6
