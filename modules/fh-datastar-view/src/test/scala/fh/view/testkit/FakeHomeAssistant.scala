@@ -12,7 +12,7 @@ import io.circe.Json
 /** One recorded `call_service` invocation — what the dashboard sent back to HA
   * when a control was actuated.
   */
-final case class ServiceCall(
+case class ServiceCall(
     domain: String,
     service: String,
     entityId: String,

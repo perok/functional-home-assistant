@@ -17,7 +17,7 @@ import smithy4s.Document
   * "the live state the runtime serves" are derived from one declaration and
   * cannot drift.
   */
-final case class FixtureEntity(
+case class FixtureEntity(
     entityId: String,
     state: String,
     attributes: Map[String, Json] = Map.empty

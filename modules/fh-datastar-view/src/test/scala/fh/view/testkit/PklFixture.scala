@@ -25,7 +25,7 @@ object PklFixture {
     * precise transitive import set (what `Dashboard.validate` needs for its
     * literal locator).
     */
-  final case class Built(value: Json, imports: Set[os.Path])
+  case class Built(value: Json, imports: Set[os.Path])
 
   /** A trivial theme an entry can set to keep BeerCSS (and all CSS) out of the
     * build: every [[fh.view.model.Theme]] field is empty. Paste into a fixture

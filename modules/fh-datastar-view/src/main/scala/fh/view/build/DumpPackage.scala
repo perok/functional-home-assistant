@@ -37,7 +37,7 @@ object DumpPackage {
     * Replaces the anonymous `(version, metadataSha)` tuple that used to thread
     * through the seed/version/index paths.
     */
-  final case class LibPin(ref: PackageRef, metadataSha: String)
+  case class LibPin(ref: PackageRef, metadataSha: String)
 
   def packageUri(version: String): String =
     PackageRef(Name, version).uri

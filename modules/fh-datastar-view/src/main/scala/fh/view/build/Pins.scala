@@ -80,7 +80,7 @@ object Pins {
     */
   private val LegacyPlaceholderHome = "0.0.0-unresolved"
 
-  final case class Data(
+  case class Data(
       dashboardUri: String,
       homeUri: String,
       homeSha256: String

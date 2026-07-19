@@ -41,13 +41,13 @@ object DumpRefresh {
   /** Swapped in: `version` is the new `@fh-home` snapshot now pinned, `seedLog`
     * is [[DumpPackage.seedFromText]]'s action log for it.
     */
-  final case class Swapped(version: String, seedLog: List[String])
+  case class Swapped(version: String, seedLog: List[String])
       extends Result
 
   /** The new dump breaks dashboards that build today; the workspace is
     * untouched. `errors` is `slug -> eval error` for each newly-broken entry.
     */
-  final case class Rejected(errors: List[(String, String)]) extends Result
+  case class Rejected(errors: List[(String, String)]) extends Result
 
   /** Validate `newDump` (the rendered `dump.pkl` text) against every entry and
     * swap it in if green. `entries` is `(slug, entryFilename)` — the same list

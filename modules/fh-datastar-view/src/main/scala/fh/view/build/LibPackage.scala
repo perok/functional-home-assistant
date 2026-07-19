@@ -88,7 +88,7 @@ object LibPackage {
   /** The built artifact pair for one package version — shared shape with the
     * dump package ([[DumpPackage.build]] returns the same type).
     */
-  final case class Artifacts(
+  case class Artifacts(
       name: String,
       version: String,
       zip: Array[Byte],
