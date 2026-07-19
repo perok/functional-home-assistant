@@ -29,7 +29,7 @@ class DumpPackageSuite extends munit.FunSuite {
     val cache = root / "pkl-cache"
     val _ = AddonBootstrap.run(
       ws,
-      bundledLib,
+      bundled,
       seedDir,
       cache,
       loopbackUrl = "http://127.0.0.1:8080"

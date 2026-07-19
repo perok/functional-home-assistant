@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.build.{AddonBootstrap, DumpPackage}
+import fh.view.build.{AddonBootstrap, DumpPackage, LibPackage}
 
 /** Stage a **package-form** workspace for tests — the ONE resolution mode (ADR
   * 0010). Reuses the production [[AddonBootstrap]] so a suite exercises exactly
@@ -32,10 +32,13 @@ object PklWorkspace {
   ): os.Path = {
     os.makeDir.all(tmp)
     val cache = os.temp.dir()
+    // The bundled lib built from the repo dir (tests use the dir path; the
+    // server streams the same bytes from the jar via BundledLib).
+    val bundled = LibPackage.build(resourcesLib)
     // Empty seed dir: never seed the demo entries into a test workspace.
-    val (bundled, _) = AddonBootstrap.run(
+    val _ = AddonBootstrap.run(
       tmp,
-      resourcesLib,
+      bundled,
       os.temp.dir(),
       cache,
       loopbackUrl = "http://127.0.0.1:8080"

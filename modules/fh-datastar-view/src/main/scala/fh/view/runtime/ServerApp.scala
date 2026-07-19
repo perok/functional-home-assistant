@@ -9,6 +9,7 @@ import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
 import fh.view.build.{
   AddonBootstrap,
+  BundledLib,
   DashboardBuild,
   DataDump,
   DumpRefresh,
@@ -40,9 +41,10 @@ object ServerApp extends IOApp {
   // backups) without ever writing into the checked-in
   // `src/main/resources/dashboards`.
   private val defaultDashboardsDir = "dashboard-local-dev"
-  // The `lib/` and starter entries a dev run treats as "bundled" — the same
-  // resources the add-on image bakes in, here read straight from the repo. The
-  // add-on overrides these three via `run.sh` env.
+  // The starter ENTRIES a dev run seeds when a workspace has none — read
+  // straight from the repo resources (the add-on overrides via `FH_SEED_DIR`).
+  // The `lib/` is NOT here anymore: it is streamed from the running jar's own
+  // classpath resources ([[BundledLib]]), so nothing points at a `lib/` path.
   private val bundledResourcesDir = "src/main/resources/dashboards"
 
   // Persistent pkl package cache for a dev run: the cross-platform user data
@@ -493,10 +495,6 @@ object ServerApp extends IOApp {
     */
   private def bootstrap(dashboardsDir: os.Path): IO[LibPackage.Artifacts] =
     for {
-      bundledLib <- pathFromEnv(
-        "FH_BUNDLED_LIB",
-        s"$bundledResourcesDir/lib"
-      )
       seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
       cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
       // This instance's own URL, written into `.fh/machine.json` as the
@@ -504,21 +502,21 @@ object ServerApp extends IOApp {
       // resolve from the cache), it only matters if the workspace is copied — a
       // laptop's `fh init` overwrites it with the real instance URL.
       port <- Env[IO].get("PORT").map(_.getOrElse("8080"))
-      artifacts <- IO
+      // The lib is the running jar's own resources — nothing to locate on disk.
+      bundled <- IO.blocking(BundledLib.artifacts())
+      _ <- IO
         .blocking(
           AddonBootstrap
             .run(
               dashboardsDir,
-              bundledLib,
+              bundled,
               seedDir,
               cacheDir,
               loopbackUrl = s"http://127.0.0.1:$port"
             )
         )
-        .flatMap { case (artifacts, log) =>
-          log.traverse_(IO.println).as(artifacts)
-        }
-    } yield artifacts
+        .flatMap(_.traverse_(IO.println))
+    } yield bundled
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]

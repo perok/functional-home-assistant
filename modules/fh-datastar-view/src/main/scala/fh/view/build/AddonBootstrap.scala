@@ -6,9 +6,10 @@ import io.circe.Json
   * evaluate, without ever owning the user's files (ADR 0010, "the add-on
   * workspace").
   *
-  * The library is NOT copied into the workspace. The bundled `lib/` (baked into
-  * the image) is packaged by [[LibPackage]] into the persistent package cache,
-  * and the workspace depends on it as
+  * The library is NOT copied into the workspace. The bundled lib — streamed
+  * from the running jar's own resources ([[BundledLib]]) — is packaged by
+  * [[LibPackage]] into the persistent package cache, and the workspace depends
+  * on it as
   * `package://fh.invalid/fh-dashboard@<version>` — so the user's dir holds only
   * user files, a runtime upgrade never touches the user's pin (the old version
   * keeps resolving from the cache), and a LIB upgrade is the user's deliberate
@@ -67,14 +68,17 @@ import io.circe.Json
   * loadable. Nothing loads it in that window — evaluation, `/edit`, and pkl-lsp
   * all start AFTER `prepareDumps` seeds the dump and writes the real pins. The
   * first dump seed can't derive its `@fh-dashboard` pin from the (unloadable)
-  * project, so it is given the bundled lib artifacts this method returns.
+  * project, so the caller passes down the same `bundledLib` artifacts it handed
+  * here.
   */
 object AddonBootstrap {
 
   /** @param dashboardsDir
     *   the user's workspace (`/homeassistant/fh-dashboards`)
     * @param bundledLib
-    *   the image's library (`/opt/fh/lib`), read-only
+    *   the bundled `@fh-dashboard` artifacts — [[BundledLib.artifacts]]
+    *   streamed from the running jar in production, `LibPackage.build(dir)` in
+    *   tests
     * @param seedDir
     *   starter entries copied on first boot only
     * @param cacheDir
@@ -90,18 +94,15 @@ object AddonBootstrap {
     */
   def run(
       dashboardsDir: os.Path,
-      bundledLib: os.Path,
+      bundledLib: LibPackage.Artifacts,
       seedDir: os.Path,
       cacheDir: os.Path,
       loopbackUrl: String
-  ): (LibPackage.Artifacts, List[String]) = {
-    // Built once — the version (for the pin below) and the cache seed share the
-    // same deterministic zip.
-    val bundled = LibPackage.build(bundledLib)
-    val bundledVersion = bundled.version
+  ): List[String] = {
+    val bundledVersion = bundledLib.version
     val log = List.newBuilder[String]
 
-    log ++= LibPackage.seedCache(bundled, cacheDir)
+    log ++= LibPackage.seedCache(bundledLib, cacheDir)
     os.makeDir.all(dashboardsDir)
 
     // The static, machine-agnostic scaffold — byte-identical to what a laptop's
@@ -157,7 +158,7 @@ object AddonBootstrap {
     if (os.exists(dashboardsDir / "PklProject.deps.json"))
       os.remove(dashboardsDir / "PklProject.deps.json")
 
-    (bundled, log.result())
+    log.result()
   }
 
   /** The package cache dir from `.fh/machine.json` — the SAME value `base.pkl`

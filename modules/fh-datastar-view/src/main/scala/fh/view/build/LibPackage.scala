@@ -69,18 +69,20 @@ object LibPackage {
         s"$Name@(.+)$$".r.unanchored.findFirstMatchIn(uri).map(_.group(1))
       )
 
-  /** The lib's BASE version, from the `version = "…"` line of its manifest —
-    * the ONE place a human-declared version lives (decoupled from the add-on
-    * version by design: the authoring layer is where churn lives). The
-    * effective package version appends the content hash ([[build]]).
+  /** The lib's BASE version, from the `version = "…"` line of its `PklProject`
+    * text — the ONE place a human-declared version lives (decoupled from the
+    * add-on version by design: the authoring layer is where churn lives). The
+    * effective package version appends the content hash ([[build]]). Takes the
+    * manifest TEXT (not a path) so it works identically for a dir lib and the
+    * classpath-streamed one ([[BundledLib]]).
     */
-  private def baseVersion(libDir: os.Path): String = {
-    val manifest = libDir / "PklProject"
+  private def baseVersionFrom(manifest: String): String =
     """version\s*=\s*"([^"]+)"""".r
-      .findFirstMatchIn(os.read(manifest))
+      .findFirstMatchIn(manifest)
       .map(_.group(1))
-      .getOrElse(sys.error(s"no version = \"…\" line in $manifest"))
-  }
+      .getOrElse(
+        sys.error("no version = \"…\" line in the bundled lib PklProject")
+      )
 
   /** The lib's effective, content-derived package version
     * (`<base>-g<zip-hash>`). Deterministic — same lib bytes, same version.
@@ -113,12 +115,37 @@ object LibPackage {
   // timezone dependence a millis-based `setTime` would reintroduce.
   private val FixedTime = LocalDateTime.of(1980, 1, 1, 0, 0)
 
-  def build(libDir: os.Path): Artifacts = {
-    val zip = zipBytes(libDir)
+  /** Build from a directory of library modules (tests + the dir path). */
+  def build(libDir: os.Path): Artifacts = build(dirEntries(libDir))
+
+  /** Build from `(zip-relative-name, bytes)` entries — the shared primary, so a
+    * dir lib and the classpath-streamed one ([[BundledLib]]) mint the same
+    * content version from the same bytes. `entries` MUST include `PklProject`
+    * (its `version` line is the base version); it is excluded from the zip like
+    * any [[Excluded]] file.
+    */
+  def build(entries: Seq[(String, Array[Byte])]): Artifacts = {
+    val manifest = entries
+      .collectFirst {
+        case (name, bytes) if name == "PklProject" =>
+          new String(bytes, "UTF-8")
+      }
+      .getOrElse(sys.error("bundled lib entries have no PklProject"))
+    val zip = deterministicZip(
+      entries.filterNot { case (name, _) => Excluded.contains(name) }
+    )
     val sha = sha256(zip)
-    val version = s"${baseVersion(libDir)}-g${sha.take(12)}"
+    val version = s"${baseVersionFrom(manifest)}-g${sha.take(12)}"
     Artifacts(Name, version, zip, sha, metadata(version, sha))
   }
+
+  /** All files under `libDir` as `(relative-name, bytes)`, INCLUDING
+    * `PklProject` ([[build]] reads its version, then excludes it from the zip).
+    */
+  private def dirEntries(libDir: os.Path): Seq[(String, Array[Byte])] =
+    os.walk(libDir)
+      .filter(os.isFile)
+      .map(f => f.relativeTo(libDir).toString -> os.read.bytes(f))
 
   /** Deterministic zip of the library modules, zip-root relative (an
     * `import "@fh-dashboard/components.pkl"` resolves `components.pkl` at the
@@ -126,10 +153,7 @@ object LibPackage {
     */
   def zipBytes(libDir: os.Path): Array[Byte] =
     deterministicZip(
-      os.walk(libDir)
-        .filter(os.isFile)
-        .filterNot(p => Excluded.contains(p.last))
-        .map(f => f.relativeTo(libDir).toString -> os.read.bytes(f))
+      dirEntries(libDir).filterNot { case (name, _) => Excluded.contains(name) }
     )
 
   /** Sorted entries, fixed timestamps — same input, same bytes. Shared with the

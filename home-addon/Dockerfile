@@ -31,32 +31,24 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
-# Two artifacts for `AddonBootstrap` (run by the server at startup — run.sh
-# only exports the paths), split by who owns the files:
+# The starter ENTRIES for `AddonBootstrap` (run by the server at startup —
+# run.sh only exports the path). Copied into the user's
+# `/homeassistant/fh-dashboards` on first boot. The project manifests are NOT
+# files here — AddonBootstrap generates them against the bundled lib version,
+# and migrates pre-package-form installs with dated backups (never deleting
+# user-visible files).
 #
-#   /opt/fh/lib            the authoring library — fh's code, versioned by its
-#                          OWN `lib/PklProject` version, decoupled from the
-#                          add-on version (ADR 0010). Never copied into the
-#                          user's workspace: at boot it is packaged into the
-#                          persistent package cache (/data/pkl-cache) and the
-#                          user's manifests depend on it as
-#                          `package://fh.invalid/fh-dashboard@<version>`, so a
-#                          runtime upgrade never moves the user's pin.
-#   /opt/dashboards-seed   starter ENTRIES only, copied into the user's
-#                          `/homeassistant/fh-dashboards` on first boot. The
-#                          project manifests are NOT files here — AddonBootstrap
-#                          generates them against the bundled lib version, and
-#                          migrates pre-package-form installs with dated
-#                          backups (never deleting user-visible files).
+# The authoring LIBRARY is NOT copied here anymore: it rides inside the fat jar
+# as classpath resources and is streamed straight into the persistent package
+# cache at boot (BundledLib → the `@fh-dashboard` package, ADR 0010), so the jar
+# is the single source of the lib bytes and there is no `/opt/fh/lib` to keep in
+# sync with the code.
 #
-# Never shipped: the demo entries (they reference dev-instance entities), any
-# dump (the user's own live data, written into home/ at every start), and
+# Never shipped as seed: the demo entries (they reference dev-instance
+# entities), any dump (the user's own live data, packaged at every start), and
 # PklProject.deps.json (the generated lockfile, resolved in-process at boot).
 #
-# AddonBootstrapSuite pins this whole contract — seeding, offline evaluation
-# from the pre-seeded cache, upgrade migration — against these same two
-# directories.
-COPY modules/fh-datastar-view/src/main/resources/dashboards/lib /opt/fh/lib
+# AddonBootstrapSuite pins the seeding + offline-evaluation contract.
 COPY home-addon/dashboards-seed/ /opt/dashboards-seed/
 
 COPY home-addon/run.sh /run.sh

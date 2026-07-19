@@ -58,7 +58,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val ws = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
       ws,
-      bundledLib = dashboards / "lib",
+      bundledLib = bundled,
       seedDir = os.temp.dir(), // empty: never seed the demo entries into a test
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
@@ -105,7 +105,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val ws = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
       ws,
-      bundledLib = dashboards / "lib",
+      bundledLib = bundled,
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
@@ -179,7 +179,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val instanceCache = root / "pkl-cache"
     val _ = AddonBootstrap.run(
       instance,
-      bundledLib = dashboards / "lib",
+      bundledLib = bundled,
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = instanceCache,
       loopbackUrl = "http://127.0.0.1:8080"
@@ -296,7 +296,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val instance = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
       instance,
-      bundledLib = dashboards / "lib",
+      bundledLib = bundled,
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
@@ -350,7 +350,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val instance = root / "fh-dashboards"
     val _ = AddonBootstrap.run(
       instance,
-      bundledLib = dashboards / "lib",
+      bundledLib = bundled,
       seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"

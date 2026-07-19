@@ -48,10 +48,10 @@ export DASHBOARDS_DIR="$DASH_DIR"
 # editing, unlike the dashboards.
 export FH_ASSETS_DIR=/data/assets-cache
 
-# AddonBootstrap inputs (ADR 0010): the bundled lib is packaged into the
-# persistent pkl cache at boot; starter entries seed an empty workspace;
-# old copy-if-empty installs are migrated with dated backups.
-export FH_BUNDLED_LIB=/opt/fh/lib
+# AddonBootstrap inputs (ADR 0010): starter entries seed an empty workspace;
+# old copy-if-empty installs are migrated with dated backups. The authoring lib
+# is streamed from the jar's own resources (BundledLib) into the persistent pkl
+# cache at boot — no FH_BUNDLED_LIB path.
 export FH_SEED_DIR=/opt/dashboards-seed
 export FH_PKL_CACHE_DIR=/data/pkl-cache
 
