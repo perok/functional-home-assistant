@@ -26,7 +26,8 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
   private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
 
-  private val libVersion = LibPackage.version(bundledLib)
+  private val bundled = LibPackage.build(bundledLib)
+  private val libVersion = bundled.version
 
   private val LoopbackUrl = "http://127.0.0.1:8080"
 
@@ -35,7 +36,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
   private def boot(): (Box, List[String]) = {
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    val log =
+    val (_, log) =
       AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     (box, log)
   }
@@ -74,10 +75,12 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val machine = os.read(box.ws / ".fh" / "machine.json")
     assert(machine.contains(box.cache.toString), clue = machine)
     assert(machine.contains(LoopbackUrl), clue = machine)
-    // Both pins are DATA in pins.json: the lib pin at the bundled version, the
-    // home pin a placeholder until the first dump. There is no `home/` folder.
-    val pins = os.read(box.ws / ".fh" / "pins.json")
-    assert(pins.contains(LibPackage.packageUri(libVersion)), clue = pins)
+    // pins.json is real-or-nothing: a fresh workspace has NONE until the first
+    // dump writes all three keys at once. There is no placeholder, no `home/`.
+    assert(
+      !os.exists(box.ws / ".fh" / "pins.json"),
+      clue = os.list(box.ws / ".fh")
+    )
     assert(!os.exists(box.ws / "home"), clue = os.list(box.ws))
     // A default .gitignore excludes the per-machine + generated files.
     val gitignore = os.read(box.ws / ".gitignore")
@@ -88,13 +91,15 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(os.exists(entry / s"fh-dashboard@$libVersion.zip"))
     assert(os.exists(entry / s"fh-dashboard@$libVersion.json"))
 
-    // Seed a dump (what `prepareDumps` does at startup, moving the pin off the
-    // placeholder), then the starter EVALUATES fully offline — PklBuild's
-    // resolver uses a dummy http client, so the warm cache is the only source.
+    // Seed a dump (what `prepareDumps` does at startup — it mints pins.json with
+    // real values, given the bundled lib pin), then the starter EVALUATES fully
+    // offline — PklBuild's resolver uses a dummy http client, so the warm cache
+    // is the only source.
     val _ =
       DumpPackage.seedFromText(
         box.ws,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
     val result = SourceEval.eval(box.ws, "dashboard.pkl")
     assert(result.isRight, clue = result)
@@ -110,7 +115,8 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val _ =
       DumpPackage.seedFromText(
         box.ws,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
     os.write(
       box.ws / "mine.pkl",
@@ -174,7 +180,8 @@ class AddonBootstrapSuite extends munit.FunSuite {
       AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     val _ = DumpPackage.seedFromText(
       box.ws,
-      PklDump.render(HouseFixture.transformedDump)
+      PklDump.render(HouseFixture.transformedDump),
+      Some(bundled)
     )
     os.write.over(box.ws / "mine.pkl", os.read(seedDir / "dashboard.pkl"))
     assert(SourceEval.eval(box.ws, "mine.pkl").isRight)
@@ -200,7 +207,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
       LibPackage.cacheEntryDir(box.cache, libVersion) /
         s"fh-dashboard@$libVersion.zip"
     val mtime = os.mtime(zipPath)
-    val log =
+    val (_, log) =
       AddonBootstrap.run(box.ws, bundledLib, seedDir, box.cache, LoopbackUrl)
     assert(log.isEmpty, clue = log)
     assertEquals(os.mtime(zipPath), mtime)
@@ -217,12 +224,20 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.copy(bundledLib, editableLib)
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
     val v1 = LibPackage.version(editableLib)
-    val _ =
+    val (bundledV1, _) =
       AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
+    // Seed a dump so pins.json exists at v1 — only then does the bootstrap's
+    // dashboardUri refresh have a file to move (real-or-nothing pins).
+    val _ = DumpPackage.seedFromText(
+      box.ws,
+      PklDump.render(HouseFixture.transformedDump),
+      Some(bundledV1)
+    )
+    assertEquals(Pins.dashboardVersion(box.ws), Some(v1))
 
     os.write.append(editableLib / "tokens.pkl", "\n// changed\n")
     val v2 = LibPackage.version(editableLib)
-    val log =
+    val (_, log) =
       AddonBootstrap.run(box.ws, editableLib, seedDir, box.cache, LoopbackUrl)
 
     assertNotEquals(v1, v2)

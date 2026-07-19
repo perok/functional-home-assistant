@@ -14,12 +14,14 @@ class DumpPackageSuite extends munit.FunSuite {
   private val bundledLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
   private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
-  private val libVersion = LibPackage.version(bundledLib)
+  private val bundled = LibPackage.build(bundledLib)
+  private val libVersion = bundled.version
 
   private val dump = PklDump.render(HouseFixture.transformedDump)
 
-  /** A bootstrapped package-form workspace (lib package seeded, static base.pkl
-    * + placeholder pin) — the state right before the first `prepareDumps`.
+  /** A bootstrapped package-form workspace (lib package seeded, static
+    * base.pkl, NO pins.json yet) — the state right before the first
+    * `prepareDumps`.
     */
   private def stage(): (os.Path, os.Path) = {
     val root = os.temp.dir()
@@ -45,7 +47,7 @@ class DumpPackageSuite extends munit.FunSuite {
 
   test("seeding writes an immutable, dependency-carrying package + pin") {
     val (ws, cache) = stage()
-    val log = DumpPackage.seedFromText(ws, dump)
+    val log = DumpPackage.seedFromText(ws, dump, Some(bundled))
     assert(log.exists(_.contains("seeded dump package")), clue = log)
     assert(log.exists(_.contains("pinned @fh-home")), clue = log)
 
@@ -86,7 +88,7 @@ class DumpPackageSuite extends munit.FunSuite {
 
   test("a changed dump mints a NEW version; the old snapshot stays") {
     val (ws, cache) = stage()
-    val _ = DumpPackage.seedFromText(ws, dump)
+    val _ = DumpPackage.seedFromText(ws, dump, Some(bundled))
     val before = os
       .list(cache / "package-2" / LibPackage.Host)
       .filter(_.last.startsWith("fh-home@"))
@@ -117,7 +119,7 @@ class DumpPackageSuite extends munit.FunSuite {
 
   test("the discovery index names exactly what a pull would pin") {
     val (ws, cache) = stage()
-    val _ = DumpPackage.seedFromText(ws, dump)
+    val _ = DumpPackage.seedFromText(ws, dump, Some(bundled))
     val index = DumpPackage
       .index(ws)
       .map(parse(_).fold(err => fail(s"index not JSON: $err"), identity))

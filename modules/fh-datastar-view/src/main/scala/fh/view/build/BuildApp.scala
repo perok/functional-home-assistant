@@ -39,16 +39,18 @@ object BuildApp extends IOApp {
         .map(_.getOrElse(defaultDashboardEntry))
 
       // Bring the workspace to a package-form state (lib package in the cache,
-      // static base.pkl + `.fh/pins.json` with the lib pin + a placeholder dump
-      // pin, seeded entries) before anything evaluates — then `evaluate` runs
-      // `prepareDumps`, which seeds the live dump package and moves the home pin.
+      // static base.pkl, seeded entries) before anything evaluates — but NO
+      // `pins.json` on a fresh workspace: `evaluate` runs `prepareDumps`, which
+      // seeds the live dump package and writes the real pins in one step. The
+      // bundled lib artifacts are threaded down so that first dump can pin its
+      // `@fh-dashboard` dependency before any pins exist.
       bundledLib <- pathFromEnv("FH_BUNDLED_LIB", s"$bundledResourcesDir/lib")
       seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
       cacheDir <- pathFromEnv(
         "FH_PKL_CACHE_DIR",
         AddonBootstrap.defaultCacheDir
       )
-      _ <- IO
+      bundled <- IO
         .blocking(
           // The build phase runs no server; the rewrite URL is inert (resolution
           // is cache-only), so a loopback default is fine in `machine.json`.
@@ -60,10 +62,12 @@ object BuildApp extends IOApp {
             loopbackUrl = "http://127.0.0.1:8080"
           )
         )
-        .flatMap(_.traverse_(IO.println))
+        .flatMap { case (artifacts, log) =>
+          log.traverse_(IO.println).as(artifacts)
+        }
 
       result <- FHApi.fromEnv.use(
-        DashboardBuild.evaluate(_, dashboardsDir, entry)
+        DashboardBuild.evaluate(_, dashboardsDir, entry, Some(bundled))
       )
       dashboardJson = result.value
 

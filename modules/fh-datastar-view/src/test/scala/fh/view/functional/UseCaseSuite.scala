@@ -40,13 +40,18 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   private val dashboards =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
 
+  /** The bundled `@fh-dashboard` artifacts, needed to pin the FIRST dump on a
+    * fresh workspace (no pins.json yet) — see [[DumpPackage.seedFromText]].
+    */
+  private val bundled = LibPackage.build(dashboards / "lib")
+
   /** Stage a package-form dashboards workspace the way every persona has one
     * (the ONE resolution mode, ADR 0010): the real `AddonBootstrap` seeds the
-    * lib package into a cache, writes the static base.pkl + consumer project +
-    * a placeholder `@fh-home` pin. `withDump = true` seeds the dump package and
-    * moves the pin; `withDump = false` is the laptop before a pull — `@fh-home`
-    * is the unresolvable placeholder, which is also how a freshly-seeded add-on
-    * starts.
+    * lib package into a cache and writes the static base.pkl + consumer
+    * project. `withDump = true` seeds the dump package and writes the real
+    * pins; `withDump = false` is the laptop before a pull — no dump, so NO
+    * pins.json yet and `@fh-home` is unresolvable, which is also how a
+    * freshly-seeded add-on starts.
     */
   private def stageWorkspace(withDump: Boolean): os.Path = {
     val root = os.temp.dir()
@@ -61,7 +66,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     if (withDump) {
       val _ = DumpPackage.seedFromText(
         ws,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
     }
     ws
@@ -105,7 +111,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       loopbackUrl = "http://127.0.0.1:8080"
     )
     val _ =
-      DumpPackage.seedFromText(ws, PklDump.render(HouseFixture.transformedDump))
+      DumpPackage.seedFromText(
+        ws,
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
+      )
     os.write(ws / "mine.pkl", entryNeedingDump)
 
     val result = SourceEval.eval(ws, "mine.pkl")
@@ -177,7 +187,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ =
       DumpPackage.seedFromText(
         instance,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
     val v = LibPackage.version(dashboards / "lib")
     val artifacts = LibPackage.build(dashboards / "lib")
@@ -293,7 +304,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ =
       DumpPackage.seedFromText(
         instance,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
 
     TestServer
@@ -346,7 +358,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ =
       DumpPackage.seedFromText(
         instance,
-        PklDump.render(HouseFixture.transformedDump)
+        PklDump.render(HouseFixture.transformedDump),
+        Some(bundled)
       )
 
     TestServer

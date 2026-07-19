@@ -12,6 +12,7 @@ import fh.view.build.{
   DashboardBuild,
   DataDump,
   DumpRefresh,
+  LibPackage,
   PklDump,
   SystemPkl
 }
@@ -60,7 +61,10 @@ object ServerApp extends IOApp {
       dashboardsDir <- args.headOption
         .map(p => IO.pure(os.Path(p, os.pwd)))
         .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
-      _ <- bootstrap(dashboardsDir)
+      // The bundled `@fh-dashboard` artifacts this boot seeded — passed to the
+      // first `prepareDumps` so it can pin the dump's lib dependency before any
+      // `pins.json` exists (fresh workspace, first-boot ordering).
+      bundledLib <- bootstrap(dashboardsDir)
       // Loopback by default: /sse/action/* drives HA with the server's token
       // and no auth, so LAN exposure is opt-in (HOST=0.0.0.0).
       bindHost <- Env[IO]
@@ -89,7 +93,9 @@ object ServerApp extends IOApp {
         // dump. The runtime calls through `DashboardBuild`, never
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
-        _ <- DashboardBuild.prepareDumps(api, dashboardsDir).toResource
+        _ <- DashboardBuild
+          .prepareDumps(api, dashboardsDir, Some(bundledLib))
+          .toResource
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
@@ -485,7 +491,7 @@ object ServerApp extends IOApp {
     * the add-on does; iterating on library Pkl is `fh push` against the running
     * instance, never a mutable workspace `lib/`.
     */
-  private def bootstrap(dashboardsDir: os.Path): IO[Unit] =
+  private def bootstrap(dashboardsDir: os.Path): IO[LibPackage.Artifacts] =
     for {
       bundledLib <- pathFromEnv(
         "FH_BUNDLED_LIB",
@@ -498,7 +504,7 @@ object ServerApp extends IOApp {
       // resolve from the cache), it only matters if the workspace is copied — a
       // laptop's `fh init` overwrites it with the real instance URL.
       port <- Env[IO].get("PORT").map(_.getOrElse("8080"))
-      _ <- IO
+      artifacts <- IO
         .blocking(
           AddonBootstrap
             .run(
@@ -509,8 +515,10 @@ object ServerApp extends IOApp {
               loopbackUrl = s"http://127.0.0.1:$port"
             )
         )
-        .flatMap(_.traverse_(IO.println))
-    } yield ()
+        .flatMap { case (artifacts, log) =>
+          log.traverse_(IO.println).as(artifacts)
+        }
+    } yield artifacts
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]

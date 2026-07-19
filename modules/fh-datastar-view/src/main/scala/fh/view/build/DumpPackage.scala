@@ -73,23 +73,50 @@ object DumpPackage {
     *
     * Needs the effective `@fh-dashboard` pin and that pin's metadata in the
     * workspace cache (the dump's metadata declares it as a checksummed
-    * dependency). A live server (add-on OR local `sbt dashboardServe`) and a
-    * bootstrapped test/BuildApp workspace always have both. Idempotent: the
-    * version names the bytes, so an existing cache entry is never rewritten and
-    * old versions stay (a laptop pinned to an older snapshot keeps resolving);
-    * the pin file is only rewritten when the snapshot actually changes. Returns
-    * a human-readable action log.
+    * dependency, so the dump's `import "@fh-dashboard/hass.pkl"` lands on the
+    * same artifact the entry's alias uses — module identity, Spike 0). The pin
+    * is derived from the LOADED project ([[libPin]]) whenever it can be — a
+    * running server and a bootstrapped test workspace can. But the VERY FIRST
+    * dump on a fresh workspace runs BEFORE `pins.json` exists, so the project
+    * can't load (its base.pkl reads that file) and [[libPin]] is `None`; the
+    * caller then supplies `fallbackLib`, the bundled `@fh-dashboard` artifacts
+    * this boot already built ([[AddonBootstrap.run]]), and this first write
+    * mints `pins.json` with all three keys real. Once pins exist, later seeds
+    * (refresh) derive the pin from the project and the fallback is unused (a
+    * user override in `PklProject` is honored via mirroring, Spike 0).
+    *
+    * Idempotent: the version names the bytes, so an existing cache entry is
+    * never rewritten and old versions stay (a laptop pinned to an older
+    * snapshot keeps resolving); the pin file is only rewritten when the
+    * snapshot actually changes. `Nil` when the workspace can neither derive nor
+    * be given a pin. Returns a human-readable action log.
     */
-  def seedFromText(dashboardsDir: os.Path, dumpText: String): List[String] =
-    artifactsFor(dashboardsDir, dumpText) match {
-      case None            => Nil
-      case Some(artifacts) =>
+  def seedFromText(
+      dashboardsDir: os.Path,
+      dumpText: String,
+      fallbackLib: Option[LibPackage.Artifacts] = None
+  ): List[String] =
+    libPin(dashboardsDir)
+      .orElse(fallbackLib.map(a => (a.version, a.metadataSha256))) match {
+      case None                 => Nil
+      case Some((pin, metaSha)) =>
+        val artifacts = build(dumpText, pin, metaSha)
+        // The FIRST dump seeds into the real cache before pins.json exists, so
+        // the project can't be loaded to read `moduleCacheDir` — take it
+        // straight from `.fh/machine.json` ([[AddonBootstrap.machineCacheDir]]),
+        // the same value base.pkl forwards. (Post-first-boot the project path
+        // resolves the identical dir; the machine.json read just also works
+        // before pins land.)
+        val cache = AddonBootstrap
+          .machineCacheDir(dashboardsDir)
+          .getOrElse(PklBuild.workspaceCacheDir(dashboardsDir))
         LibPackage.seedEntry(
-          PklBuild.workspaceCacheDir(dashboardsDir),
+          cache,
           artifacts,
           s"seeded dump package: ${packageUri(artifacts.version)}"
         ) ++ Pins.writeHome(
           dashboardsDir,
+          LibPackage.packageUri(pin),
           packageUri(artifacts.version),
           artifacts.metadataSha256
         )
@@ -133,8 +160,8 @@ object DumpPackage {
     * `fh pull` writes into the laptop manifest (`uri` + `checksums` together).
     * The fh-home half is read straight from `.fh/pins.json` (the served
     * snapshot), the lib half from the effective pin + its cached metadata
-    * ([[libPin]]). `None` until a real dump has been pinned (bootstrap
-    * placeholder aside).
+    * ([[libPin]]). `None` until a real dump has been pinned (before the first
+    * dump there is no `pins.json` at all).
     */
   def index(dashboardsDir: os.Path): Option[String] =
     for {

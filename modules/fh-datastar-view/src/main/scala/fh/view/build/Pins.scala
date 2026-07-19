@@ -14,13 +14,18 @@ import java.time.format.DateTimeFormatter
   * Flat shape, so base.pkl needs no nested classes or optionals:
   * {{{{ "dashboardUri", "homeUri", "homeSha256" }}}}
   *
-  * `dashboardUri` is written by [[AddonBootstrap]] at the bundled lib version
-  * on every start; `homeUri`/`homeSha256` by [[DumpPackage.seedFromText]] per
-  * dump (a placeholder until the first dump). Both writers read-modify-write,
-  * so neither clobbers the other's key. Every real change first rolls the prior
-  * file into a dated `.fh/pins.json.backup.<stamp>` ([[backups]]) — the only
-  * overwrite-with-backup the bootstrap keeps — and prunes to the newest
-  * [[MaxBackups]] so the trail can't grow without bound.
+  * The file is written REAL-OR-NOT-AT-ALL: it comes into existence only with
+  * the first dump ([[DumpPackage.seedFromText]] → [[writeHome]]), which writes
+  * all three keys with real values at once. Before that first dump a fresh
+  * workspace has NO `pins.json` — never a partial or placeholder one (base.pkl
+  * can't load a `pins.json` missing the typed home fields, and nothing loads
+  * the project in that window; see [[AddonBootstrap]]). From then on
+  * [[seedBootstrap]] refreshes `dashboardUri` to the bundled lib version on
+  * every start and [[writeHome]] moves the home fields per dump; both
+  * read-modify-write, so neither clobbers the other's key. Every real change
+  * first rolls the prior file into a dated `.fh/pins.json.backup.<stamp>`
+  * ([[backups]]) — the only overwrite-with-backup the bootstrap keeps — and
+  * prunes to the newest [[MaxBackups]] so the trail can't grow without bound.
   */
 object Pins {
 
@@ -67,11 +72,13 @@ object Pins {
       .get
   }
 
-  /** The `@fh-home` placeholder version written before the first dump, so
-    * base.pkl's `read` resolves for the `Project.loadFromPath` that precedes
-    * it.
+  /** Legacy `@fh-home` version some pre-existing workspaces may still carry in
+    * `pins.json` from before the real-or-nothing rewrite. NO writer produces it
+    * anymore; kept only as the read-side shim in [[homeVersion]] so such a
+    * workspace reports "no dump yet" until its first successful dump render
+    * overwrites the pin. Remove once the add-on release has rolled.
     */
-  val PlaceholderHomeVersion = "0.0.0-unresolved"
+  private val LegacyPlaceholderHome = "0.0.0-unresolved"
 
   final case class Data(
       dashboardUri: String,
@@ -101,22 +108,17 @@ object Pins {
   def dashboardVersion(dashboardsDir: os.Path): Option[String] =
     read(dashboardsDir).flatMap(d => versionOf(d.dashboardUri, LibPackage.Name))
 
-  /** The pinned `@fh-home` version, or `None` while it is still the placeholder
-    * (no dump packaged yet).
+  /** The pinned `@fh-home` version, or `None` when there is no `pins.json` yet
+    * (no dump packaged) — or, for a legacy workspace, while it still carries
+    * the retired placeholder ([[LegacyPlaceholderHome]]).
     */
   def homeVersion(dashboardsDir: os.Path): Option[String] =
     read(dashboardsDir)
       .flatMap(d => versionOf(d.homeUri, DumpPackage.Name))
-      .filter(_ != PlaceholderHomeVersion)
+      .filter(_ != LegacyPlaceholderHome)
 
   def homeSha256(dashboardsDir: os.Path): Option[String] =
     read(dashboardsDir).map(_.homeSha256).filter(_.nonEmpty)
-
-  private def placeholderHome: (String, String) =
-    (
-      s"package://${LibPackage.Host}/${DumpPackage.Name}@$PlaceholderHomeVersion",
-      ""
-    )
 
   private def json(d: Data): String =
     Json
@@ -144,31 +146,32 @@ object Pins {
       true
     }
 
-  /** Bootstrap: set `dashboardUri` to the bundled lib version (refreshed every
-    * start), preserving any already-pinned dump — or seeding the placeholder
-    * dump on a fresh workspace. Machine data, not logged; a real change (a lib
-    * bump) rolls the prior file into a dated backup like any other write.
+  /** Bootstrap refresh: set `dashboardUri` to the bundled lib version,
+    * preserving the already-pinned dump — a NO-OP when there is no `pins.json`
+    * yet (a fresh workspace has no dump, so nothing to pin; the first
+    * [[writeHome]] creates the file with real values). This keeps `pins.json`
+    * real-or-absent, never partial. Machine data, not logged; a real change (a
+    * lib bump) rolls the prior file into a dated backup like any other write.
     */
-  def seedBootstrap(dashboardsDir: os.Path, dashboardUri: String): Unit = {
-    val (hu, hs) =
-      read(dashboardsDir)
-        .map(d => (d.homeUri, d.homeSha256))
-        .getOrElse(placeholderHome)
-    val _ = writeData(dashboardsDir, Data(dashboardUri, hu, hs))
-  }
+  def seedBootstrap(dashboardsDir: os.Path, dashboardUri: String): Unit =
+    read(dashboardsDir).foreach { d =>
+      val _ = writeData(dashboardsDir, d.copy(dashboardUri = dashboardUri))
+    }
 
-  /** Move the `@fh-home` pin to a new snapshot, preserving `dashboardUri`.
-    * Returns a one-line log when it actually changed.
+  /** Move the `@fh-home` pin to a new snapshot. On an EXISTING `pins.json` the
+    * current `dashboardUri` is preserved (the passed one is ignored); on the
+    * FIRST write (no file yet — the first dump on a fresh workspace) the passed
+    * `dashboardUri` seeds the lib pin, so the file is born with all three keys
+    * real. Returns a one-line log when it actually changed.
     */
   def writeHome(
       dashboardsDir: os.Path,
+      dashboardUri: String,
       homeUri: String,
       homeSha256: String
   ): List[String] = {
-    val dashboardUri = read(dashboardsDir)
-      .map(_.dashboardUri)
-      .getOrElse(s"package://${LibPackage.Host}/${LibPackage.Name}@0.0.0")
-    if (writeData(dashboardsDir, Data(dashboardUri, homeUri, homeSha256)))
+    val dash = read(dashboardsDir).map(_.dashboardUri).getOrElse(dashboardUri)
+    if (writeData(dashboardsDir, Data(dash, homeUri, homeSha256)))
       List(s"pinned @fh-home -> $homeUri")
     else Nil
   }

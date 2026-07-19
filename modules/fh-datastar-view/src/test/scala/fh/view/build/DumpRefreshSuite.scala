@@ -15,6 +15,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
   private val bundledLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
   private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
+  private val bundled = LibPackage.build(bundledLib)
 
   /** An entry pinned to a concrete dump entity — it builds while
     * `light.kitchen` is in the dump and breaks when it isn't.
@@ -59,7 +60,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
       root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
     )
-    val _ = DumpPackage.seedFromText(ws, currentDump)
+    val _ = DumpPackage.seedFromText(ws, currentDump, Some(bundled))
     ws
   }
 

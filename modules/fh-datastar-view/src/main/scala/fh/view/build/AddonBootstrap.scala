@@ -44,9 +44,11 @@ import io.circe.Json
   *     per-machine values, NEVER committed (the seeded `.gitignore` excludes
   *     it). Refreshed each start with this instance's cache + loopback URL.
   *   - `.fh/pins.json` — machine-owned `{ dashboardUri, homeUri, homeSha256 }`,
-  *     the file rewritten as pins move: `dashboardUri` set to the bundled lib
-  *     version every start, the home fields by [[DumpPackage.seedFromText]] per
-  *     dump (a placeholder until the first dump).
+  *     born real-or-not-at-all: it does NOT exist until the first dump
+  *     ([[DumpPackage.seedFromText]] writes all three keys at once). From then
+  *     on [[Pins.seedBootstrap]] refreshes `dashboardUri` to the bundled lib
+  *     version each start and the home fields move per dump. There is NO
+  *     placeholder pin — before the first dump there is no file.
   *   - `PklProject` — the user's, written ONCE when absent and never touched.
   *     It amends the base; with no `dependencies` block of its own the
   *     workspace tracks the bundled lib version, and the user may add a block
@@ -57,6 +59,15 @@ import io.circe.Json
   * Idempotent; called on every start, before anything evaluates. Pure
   * side-effecting file work — the caller wraps it in `IO.blocking` and prints
   * the returned action log.
+  *
+  * FIRST-BOOT ORDERING. This step deliberately does NOT create `pins.json`: on
+  * a fresh workspace it stays absent until the first dump is packaged. So
+  * between this bootstrap and the first `prepareDumps` there is a window where
+  * `base.pkl` exists but `pins.json` doesn't, and the project is therefore not
+  * loadable. Nothing loads it in that window — evaluation, `/edit`, and pkl-lsp
+  * all start AFTER `prepareDumps` seeds the dump and writes the real pins. The
+  * first dump seed can't derive its `@fh-dashboard` pin from the (unloadable)
+  * project, so it is given the bundled lib artifacts this method returns.
   */
 object AddonBootstrap {
 
@@ -83,7 +94,7 @@ object AddonBootstrap {
       seedDir: os.Path,
       cacheDir: os.Path,
       loopbackUrl: String
-  ): List[String] = {
+  ): (LibPackage.Artifacts, List[String]) = {
     // Built once — the version (for the pin below) and the cache seed share the
     // same deterministic zip.
     val bundled = LibPackage.build(bundledLib)
@@ -105,12 +116,12 @@ object AddonBootstrap {
       machineJson(cacheDir, loopbackUrl)
     )
 
-    // The static base.pkl `read`s `.fh/pins.json`. Set the `@fh-dashboard` pin to
-    // the bundled version (so the workspace tracks add-on upgrades), and seed the
-    // `@fh-home` placeholder if this workspace has never packaged a dump — so the
-    // `read` resolves for the `Project.loadFromPath` that precedes the first
-    // `prepareDumps`, which then moves the home pin. Machine data; never backed
-    // up. A prior real dump pin survives (read-modify-write preserves it).
+    // Refresh the `@fh-dashboard` pin to the bundled version (so the workspace
+    // tracks add-on upgrades) — but ONLY if `pins.json` already exists. On a
+    // fresh workspace it does not, and this is a no-op: pins.json is born with
+    // the first dump (`prepareDumps` → writeHome), all three keys real at once.
+    // There is no placeholder. A prior real dump pin survives (read-modify-write
+    // preserves the home fields). Machine data; never backed up on a lib bump.
     Pins.seedBootstrap(dashboardsDir, LibPackage.packageUri(bundledVersion))
 
     // The consumer manifest is the user's file: written ONCE, only when absent,
@@ -146,7 +157,23 @@ object AddonBootstrap {
     if (os.exists(dashboardsDir / "PklProject.deps.json"))
       os.remove(dashboardsDir / "PklProject.deps.json")
 
-    log.result()
+    (bundled, log.result())
+  }
+
+  /** The package cache dir from `.fh/machine.json` — the SAME value `base.pkl`
+    * forwards to `moduleCacheDir`, but readable WITHOUT a loadable project. The
+    * first dump seed runs before `pins.json` exists (so the project can't
+    * load), yet must write into the real cache; it reads the dir here rather
+    * than through the project ([[DumpPackage.seedFromText]]). `None` when there
+    * is no `machine.json` (an un-bootstrapped workspace).
+    */
+  def machineCacheDir(dashboardsDir: os.Path): Option[os.Path] = {
+    val file = dashboardsDir / ".fh" / "machine.json"
+    Option
+      .when(os.exists(file))(os.read(file))
+      .flatMap(io.circe.parser.parse(_).toOption)
+      .flatMap(_.hcursor.get[String]("cacheDir").toOption)
+      .map(os.Path(_))
   }
 
   /** The default package cache location — the cross-platform user DATA dir
