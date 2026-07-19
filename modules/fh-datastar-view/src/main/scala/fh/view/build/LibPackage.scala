@@ -32,17 +32,15 @@ import java.util.zip.{ZipEntry, ZipOutputStream}
   */
 object LibPackage {
 
-  /** The placeholder package host. RFC 2606 reserves `.invalid`; `.local` would
-    * be mDNS and real on an HA LAN. Never contacted by the add-on (the cache is
-    * pre-seeded); a laptop maps it to its own instance with one
-    * `evaluatorSettings.http.rewrites` line.
+  /** The placeholder package host — see [[PackageRef.Host]]. Kept as an alias
+    * so the (`package-2/<host>/…`) cache-layout call sites read locally.
     */
-  val Host = "fh.invalid"
+  val Host = PackageRef.Host
 
   val Name = "fh-dashboard"
 
   def packageUri(version: String): String =
-    s"package://$Host/$Name@$version"
+    PackageRef(Name, version).uri
 
   /** The workspace's effective lib pin — the version the ENTRY resolves
     * `@fh-dashboard` to, which the dump package must declare to keep module
@@ -65,9 +63,7 @@ object LibPackage {
       .toOption
       .flatMap(p => Option(p.getDependencies.getRemoteDependencies.get(Name)))
       .map(_.getPackageUri.toString)
-      .flatMap(uri =>
-        s"$Name@(.+)$$".r.unanchored.findFirstMatchIn(uri).map(_.group(1))
-      )
+      .flatMap(uri => PackageRef.parse(uri).map(_.version))
 
   /** The lib's BASE version, from the `version = "…"` line of its `PklProject`
     * text — the ONE place a human-declared version lives (decoupled from the
@@ -99,6 +95,12 @@ object LibPackage {
       sha256: String,
       metadataJson: String
   ) {
+
+    /** This artifact's package coordinate — the single source callers derive
+      * uris and cache file names from (instead of threading `(name, version)`
+      * pairs).
+      */
+    def ref: PackageRef = PackageRef(name, version)
 
     /** The sha of the METADATA JSON — what a manifest `checksums { sha256 }`
       * pins (it transitively pins the zip via `packageZipChecksums`).
@@ -135,7 +137,7 @@ object LibPackage {
       entries.filterNot { case (name, _) => Excluded.contains(name) }
     )
     val sha = sha256(zip)
-    val version = s"${baseVersionFrom(manifest)}-g${sha.take(12)}"
+    val version = PackageRef.contentVersion(baseVersionFrom(manifest), sha)
     Artifacts(Name, version, zip, sha, metadata(version, sha))
   }
 
@@ -198,13 +200,14 @@ object LibPackage {
       zipSha256: String,
       dependencies: Json
   ): String =
+    val ref = PackageRef(name, version)
     Json
       .obj(
         "name" -> Json.fromString(name),
-        "packageUri" -> Json.fromString(s"package://$Host/$name@$version"),
+        "packageUri" -> Json.fromString(ref.uri),
         "version" -> Json.fromString(version),
         "packageZipUrl" -> Json.fromString(
-          s"https://$Host/$name@$version.zip"
+          s"https://$Host/${ref.zipName}"
         ),
         "packageZipChecksums" -> Json.obj(
           "sha256" -> Json.fromString(zipSha256)
@@ -224,7 +227,7 @@ object LibPackage {
       name: String,
       version: String
   ): os.Path =
-    cacheDir / "package-2" / Host / s"$name@$version"
+    PackageRef(name, version).entryDir(cacheDir)
 
   /** Write built artifacts into pkl's package-cache layout. Idempotent: the
     * content-derived version names the bytes, so an existing cache entry is
@@ -236,16 +239,14 @@ object LibPackage {
       artifacts: Artifacts,
       logLine: => String
   ): List[String] = {
-    val dir = entryDir(cacheDir, artifacts.name, artifacts.version)
-    val zipPath = dir / s"${artifacts.name}@${artifacts.version}.zip"
+    val ref = artifacts.ref
+    val dir = ref.entryDir(cacheDir)
+    val zipPath = dir / ref.zipName
     if (os.exists(zipPath)) Nil
     else {
       os.makeDir.all(dir)
       os.write.over(zipPath, artifacts.zip)
-      os.write.over(
-        dir / s"${artifacts.name}@${artifacts.version}.json",
-        artifacts.metadataJson
-      )
+      os.write.over(dir / ref.jsonName, artifacts.metadataJson)
       List(logLine)
     }
   }

@@ -31,8 +31,16 @@ object DumpPackage {
 
   val Name = "fh-home"
 
+  /** A workspace's effective `@fh-dashboard` pin, parsed once: the resolved
+    * package coordinate plus the sha256 of that pin's cached metadata (what the
+    * dump's `dependencies` must declare to keep module identity, Spike 0).
+    * Replaces the anonymous `(version, metadataSha)` tuple that used to thread
+    * through the seed/version/index paths.
+    */
+  final case class LibPin(ref: PackageRef, metadataSha: String)
+
   def packageUri(version: String): String =
-    s"package://${LibPackage.Host}/$Name@$version"
+    PackageRef(Name, version).uri
 
   def build(
       dumpText: String,
@@ -44,9 +52,12 @@ object DumpPackage {
         List("dump.pkl" -> dumpText.getBytes("UTF-8"))
       )
     val zipSha = LibPackage.sha256(zip)
-    val version = "1.0.0-g" + LibPackage
-      .sha256(s"$zipSha $libVersion $libMetadataSha256".getBytes("UTF-8"))
-      .take(12)
+    val version = PackageRef.contentVersion(
+      "1.0.0",
+      LibPackage.sha256(
+        s"$zipSha $libVersion $libMetadataSha256".getBytes("UTF-8")
+      )
+    )
     val metadata = LibPackage.metadataJson(
       Name,
       version,
@@ -97,10 +108,10 @@ object DumpPackage {
       fallbackLib: Option[LibPackage.Artifacts] = None
   ): List[String] =
     libPin(dashboardsDir)
-      .orElse(fallbackLib.map(a => (a.version, a.metadataSha256))) match {
-      case None                 => Nil
-      case Some((pin, metaSha)) =>
-        val artifacts = build(dumpText, pin, metaSha)
+      .orElse(fallbackLib.map(a => LibPin(a.ref, a.metadataSha256))) match {
+      case None                          => Nil
+      case Some(LibPin(libRef, metaSha)) =>
+        val artifacts = build(dumpText, libRef.version, metaSha)
         // The FIRST dump seeds into the real cache before pins.json exists, so
         // the project can't be loaded to read `moduleCacheDir` — take it
         // straight from `.fh/machine.json` ([[AddonBootstrap.machineCacheDir]]),
@@ -116,7 +127,7 @@ object DumpPackage {
           s"seeded dump package: ${packageUri(artifacts.version)}"
         ) ++ Pins.writeHome(
           dashboardsDir,
-          LibPackage.packageUri(pin),
+          libRef.uri,
           packageUri(artifacts.version),
           artifacts.metadataSha256
         )
@@ -127,14 +138,14 @@ object DumpPackage {
     * when the workspace cannot package (no pin, or its metadata is not in the
     * cache yet).
     */
-  private def libPin(dashboardsDir: os.Path): Option[(String, String)] =
+  private def libPin(dashboardsDir: os.Path): Option[LibPin] =
     for {
       pin <- LibPackage.effectivePin(dashboardsDir)
+      ref = PackageRef(LibPackage.Name, pin)
       cache = PklBuild.workspaceCacheDir(dashboardsDir)
-      libMeta = LibPackage.cacheEntryDir(cache, pin) /
-        s"${LibPackage.Name}@$pin.json"
+      libMeta = ref.entryDir(cache) / ref.jsonName
       if os.exists(libMeta)
-    } yield (pin, LibPackage.sha256(os.read.bytes(libMeta)))
+    } yield LibPin(ref, LibPackage.sha256(os.read.bytes(libMeta)))
 
   /** Build the artifacts for `dumpText` in this workspace, or `None` when the
     * workspace cannot package ([[libPin]]).
@@ -143,9 +154,9 @@ object DumpPackage {
       dashboardsDir: os.Path,
       dumpText: String
   ): Option[LibPackage.Artifacts] =
-    libPin(dashboardsDir).map { case (pin, metaSha) =>
-      build(dumpText, pin, metaSha)
-    }
+    libPin(dashboardsDir).map(lp =>
+      build(dumpText, lp.ref.version, lp.metadataSha)
+    )
 
   /** The content-version of `dumpText` in this workspace (what [[seedFromText]]
     * would mint), or `None` when the workspace cannot package. Lets
@@ -167,12 +178,12 @@ object DumpPackage {
     for {
       homeVersion <- Pins.homeVersion(dashboardsDir)
       homeSha <- Pins.homeSha256(dashboardsDir)
-      (pin, libMetaSha) <- libPin(dashboardsDir)
+      lp <- libPin(dashboardsDir)
     } yield Json
       .obj(
         LibPackage.Name -> Json.obj(
-          "version" -> Json.fromString(pin),
-          "sha256" -> Json.fromString(libMetaSha)
+          "version" -> Json.fromString(lp.ref.version),
+          "sha256" -> Json.fromString(lp.metadataSha)
         ),
         Name -> Json.obj(
           "version" -> Json.fromString(homeVersion),

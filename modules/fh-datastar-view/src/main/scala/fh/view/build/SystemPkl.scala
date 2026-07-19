@@ -94,9 +94,8 @@ object SystemPkl {
               case None =>
                 Left("no dump yet — this home has not been built")
               case Some(version) =>
-                val zip = DumpPackage.cacheEntryDir(cache, version) /
-                  s"${DumpPackage.Name}@$version.zip"
-                readZipEntry(zip, "dump.pkl")
+                val ref = PackageRef(DumpPackage.Name, version)
+                readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
                   .toRight(s"dump package $version is not in the cache")
             }
           case "hass.pkl" =>
@@ -129,8 +128,7 @@ object SystemPkl {
         // into the filesystem.
         if (!ArtifactBase.matches(base)) Left(s"invalid artifact name: $file")
         else {
-          val path =
-            cache / "package-2" / LibPackage.Host / base / s"$base$suffix"
+          val path = PackageRef.entryDir(cache, base) / s"$base$suffix"
           Either.cond(
             os.exists(path),
             os.read.bytes(path),
