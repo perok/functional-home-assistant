@@ -84,10 +84,13 @@ object AddonBootstrap {
       cacheDir: os.Path,
       loopbackUrl: String
   ): List[String] = {
-    val bundledVersion = LibPackage.version(bundledLib)
+    // Built once — the version (for the pin below) and the cache seed share the
+    // same deterministic zip.
+    val bundled = LibPackage.build(bundledLib)
+    val bundledVersion = bundled.version
     val log = List.newBuilder[String]
 
-    log ++= LibPackage.seedCache(bundledLib, cacheDir)
+    log ++= LibPackage.seedCache(bundled, cacheDir)
     os.makeDir.all(dashboardsDir)
 
     // The static, machine-agnostic scaffold — byte-identical to what a laptop's

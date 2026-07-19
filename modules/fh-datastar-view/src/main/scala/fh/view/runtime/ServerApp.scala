@@ -7,7 +7,14 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
-import fh.view.build.{DashboardBuild, DataDump, DumpRefresh, PklDump, SystemPkl}
+import fh.view.build.{
+  AddonBootstrap,
+  DashboardBuild,
+  DataDump,
+  DumpRefresh,
+  PklDump,
+  SystemPkl
+}
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import org.http4s.ember.server.EmberServerBuilder
@@ -42,7 +49,7 @@ object ServerApp extends IOApp {
   // the laptop `fh` via one appdirs helper. The add-on overrides it to its
   // persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
   private def defaultCacheDir: String =
-    fh.view.build.AddonBootstrap.defaultCacheDir
+    AddonBootstrap.defaultCacheDir
 
   def run(args: List[String]): IO[ExitCode] =
     for {
@@ -464,12 +471,11 @@ object ServerApp extends IOApp {
 
   /** Bring the workspace to a package-form state the server can evaluate, on
     * EVERY start — add-on or local dev — so the two never diverge (ADR 0010).
-    * [[fh.view.build.AddonBootstrap]] packages the bundled library into the
-    * persistent cache and seeds/migrates the user's workspace (its
-    * `.fh/base.pkl` + `pins.json`, starter entries), so `@fh-dashboard` always
-    * resolves from the cache as `package://fh.invalid/fh-dashboard@<v>` and the
-    * live home always serves `/system/pkl/packages` (what
-    * `fh init`/`pull`/`push` read).
+    * [[AddonBootstrap]] packages the bundled library into the persistent cache
+    * and seeds/migrates the user's workspace (its `.fh/base.pkl` + `pins.json`,
+    * starter entries), so `@fh-dashboard` always resolves from the cache as
+    * `package://fh.invalid/fh-dashboard@<v>` and the live home always serves
+    * `/system/pkl/packages` (what `fh init`/`pull`/`push` read).
     *
     * The three inputs come from `run.sh` on the add-on; a local `sbt
     * dashboardServe` has none set and falls back to the repo's own resources —
@@ -494,7 +500,7 @@ object ServerApp extends IOApp {
       port <- Env[IO].get("PORT").map(_.getOrElse("8080"))
       _ <- IO
         .blocking(
-          fh.view.build.AddonBootstrap
+          AddonBootstrap
             .run(
               dashboardsDir,
               bundledLib,

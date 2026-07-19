@@ -74,22 +74,22 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
 
   test("a byte-identical dump is a no-op") {
     val ws = stage()
-    val before = DumpPackage.pinnedVersion(ws)
+    val before = Pins.homeVersion(ws)
     DumpRefresh.refresh(currentDump, ws, entries).map { result =>
       assertEquals(result, DumpRefresh.Unchanged)
-      assertEquals(DumpPackage.pinnedVersion(ws), before)
+      assertEquals(Pins.homeVersion(ws), before)
     }
   }
 
   test("a green change swaps the pin; the old snapshot stays in the cache") {
     val ws = stage()
-    val before = DumpPackage.pinnedVersion(ws).getOrElse(fail("no initial pin"))
+    val before = Pins.homeVersion(ws).getOrElse(fail("no initial pin"))
     // The TV leaves the home — no dashboard references it, so all stay green.
     val next = dumpText(HouseFixture.all.filterNot(_ == HouseFixture.tv))
     DumpRefresh.refresh(next, ws, entries).map {
       case DumpRefresh.Swapped(version, seedLog) =>
         assertNotEquals(version, before)
-        assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
+        assertEquals(Pins.homeVersion(ws), Some(version))
         // The previous snapshot is untouched — a laptop pinned to it keeps
         // resolving.
         assert(
@@ -113,7 +113,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
 
   test("a dump that breaks a building dashboard is rejected; the pin holds") {
     val ws = stage()
-    val before = DumpPackage.pinnedVersion(ws)
+    val before = Pins.homeVersion(ws)
     val next =
       dumpText(HouseFixture.all.filterNot(_ == HouseFixture.kitchenLight))
     DumpRefresh.refresh(next, ws, entries).map {
@@ -124,7 +124,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
           clue = errors.head._2
         )
         // The pin is untouched: still the current snapshot.
-        assertEquals(DumpPackage.pinnedVersion(ws), before)
+        assertEquals(Pins.homeVersion(ws), before)
       case other => fail(s"expected Rejected, got $other")
     }
   }
@@ -143,7 +143,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     val both = entries :+ ("broken" -> "broken.pkl")
     DumpRefresh.refresh(next, ws, both).map {
       case DumpRefresh.Swapped(version, _) =>
-        assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
+        assertEquals(Pins.homeVersion(ws), Some(version))
       case other => fail(s"expected Swapped, got $other")
     }
   }

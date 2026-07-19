@@ -87,13 +87,23 @@ object LibPackage {
     */
   def version(libDir: os.Path): String = build(libDir).version
 
-  /** The built artifact pair for one lib version. */
+  /** The built artifact pair for one package version — shared shape with the
+    * dump package ([[DumpPackage.build]] returns the same type).
+    */
   final case class Artifacts(
+      name: String,
       version: String,
       zip: Array[Byte],
       sha256: String,
       metadataJson: String
-  )
+  ) {
+
+    /** The sha of the METADATA JSON — what a manifest `checksums { sha256 }`
+      * pins (it transitively pins the zip via `packageZipChecksums`).
+      */
+    def metadataSha256: String =
+      LibPackage.sha256(metadataJson.getBytes("UTF-8"))
+  }
 
   // The manifest is not a module (its content rides in the metadata JSON);
   // lockfiles and caches are generated noise.
@@ -107,7 +117,7 @@ object LibPackage {
     val zip = zipBytes(libDir)
     val sha = sha256(zip)
     val version = s"${baseVersion(libDir)}-g${sha.take(12)}"
-    Artifacts(version, zip, sha, metadata(version, sha))
+    Artifacts(Name, version, zip, sha, metadata(version, sha))
   }
 
   /** Deterministic zip of the library modules, zip-root relative (an
@@ -150,23 +160,32 @@ object LibPackage {
       .map("%02x".format(_))
       .mkString
 
+  def metadata(version: String, zipSha256: String): String =
+    metadataJson(Name, version, zipSha256, dependencies = Json.obj())
+
   /** The package-metadata JSON pkl fetches for `package://…@version` — the
     * shape spike-verified on 0.31.1 (resolver reads `packageZipChecksums` into
-    * the lockfile pin).
+    * the lockfile pin). One template for BOTH served packages, so the wire
+    * format cannot drift between the lib and the dump.
     */
-  def metadata(version: String, zipSha256: String): String =
+  private[build] def metadataJson(
+      name: String,
+      version: String,
+      zipSha256: String,
+      dependencies: Json
+  ): String =
     Json
       .obj(
-        "name" -> Json.fromString(Name),
-        "packageUri" -> Json.fromString(packageUri(version)),
+        "name" -> Json.fromString(name),
+        "packageUri" -> Json.fromString(s"package://$Host/$name@$version"),
         "version" -> Json.fromString(version),
         "packageZipUrl" -> Json.fromString(
-          s"https://$Host/$Name@$version.zip"
+          s"https://$Host/$name@$version.zip"
         ),
         "packageZipChecksums" -> Json.obj(
           "sha256" -> Json.fromString(zipSha256)
         ),
-        "dependencies" -> Json.obj()
+        "dependencies" -> dependencies
       )
       .spaces2
 
@@ -174,28 +193,49 @@ object LibPackage {
     * cache-format tag, observed on 0.31.1).
     */
   def cacheEntryDir(cacheDir: os.Path, version: String): os.Path =
-    cacheDir / "package-2" / Host / s"$Name@$version"
+    entryDir(cacheDir, Name, version)
 
-  /** Write the artifacts into pkl's package-cache layout. Idempotent: the
+  private[build] def entryDir(
+      cacheDir: os.Path,
+      name: String,
+      version: String
+  ): os.Path =
+    cacheDir / "package-2" / Host / s"$name@$version"
+
+  /** Write built artifacts into pkl's package-cache layout. Idempotent: the
     * content-derived version names the bytes, so an existing cache entry is
-    * never rewritten and old versions stay (a workspace pinned to an older lib
-    * keeps resolving). Returns a human-readable action log.
+    * never rewritten and old versions stay (a workspace pinned to an older
+    * version keeps resolving). Returns a human-readable action log.
     */
-  def seedCache(libDir: os.Path, cacheDir: os.Path): List[String] = {
-    val artifacts = build(libDir)
-    val dir = cacheEntryDir(cacheDir, artifacts.version)
-    val zipPath = dir / s"$Name@${artifacts.version}.zip"
+  private[build] def seedEntry(
+      cacheDir: os.Path,
+      artifacts: Artifacts,
+      logLine: => String
+  ): List[String] = {
+    val dir = entryDir(cacheDir, artifacts.name, artifacts.version)
+    val zipPath = dir / s"${artifacts.name}@${artifacts.version}.zip"
     if (os.exists(zipPath)) Nil
     else {
       os.makeDir.all(dir)
       os.write.over(zipPath, artifacts.zip)
       os.write.over(
-        dir / s"$Name@${artifacts.version}.json",
+        dir / s"${artifacts.name}@${artifacts.version}.json",
         artifacts.metadataJson
       )
-      List(
-        s"seeded package cache: ${packageUri(artifacts.version)} (sha256 ${artifacts.sha256.take(12)}…)"
-      )
+      List(logLine)
     }
   }
+
+  /** [[seedEntry]] for the lib, from prebuilt artifacts (so a caller that
+    * already needed [[build]]'s version doesn't zip the lib twice).
+    */
+  def seedCache(artifacts: Artifacts, cacheDir: os.Path): List[String] =
+    seedEntry(
+      cacheDir,
+      artifacts,
+      s"seeded package cache: ${packageUri(artifacts.version)} (sha256 ${artifacts.sha256.take(12)}…)"
+    )
+
+  def seedCache(libDir: os.Path, cacheDir: os.Path): List[String] =
+    seedCache(build(libDir), cacheDir)
 }

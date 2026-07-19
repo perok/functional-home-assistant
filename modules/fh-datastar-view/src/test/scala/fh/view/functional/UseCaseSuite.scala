@@ -8,6 +8,7 @@ import fh.view.build.{
   DashboardBuild,
   DumpPackage,
   LibPackage,
+  Pins,
   PklDump,
   SourceEval,
   SystemPkl
@@ -181,7 +182,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val v = LibPackage.version(dashboards / "lib")
     val artifacts = LibPackage.build(dashboards / "lib")
     val homeV =
-      DumpPackage.pinnedVersion(instance).getOrElse(fail("instance not pinned"))
+      Pins.homeVersion(instance).getOrElse(fail("instance not pinned"))
     val homeSha = LibPackage.sha256(
       os.read.bytes(
         DumpPackage.cacheEntryDir(instanceCache, homeV) /

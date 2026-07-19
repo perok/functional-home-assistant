@@ -53,7 +53,7 @@ class DumpPackageSuite extends munit.FunSuite {
     assert(version.startsWith("1.0.0-g"), clue = version)
 
     // The pin file names this version.
-    assertEquals(DumpPackage.pinnedVersion(ws), Some(version))
+    assertEquals(Pins.homeVersion(ws), Some(version))
 
     val entry = DumpPackage.cacheEntryDir(cache, version)
     val meta = parse(os.read(entry / s"fh-home@$version.json"))

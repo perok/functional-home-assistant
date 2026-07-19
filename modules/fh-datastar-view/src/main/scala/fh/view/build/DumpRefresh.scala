@@ -63,13 +63,13 @@ object DumpRefresh {
     IO.blocking(
       (
         DumpPackage.versionFor(dashboardsDir, newDump),
-        DumpPackage.pinnedVersion(dashboardsDir)
+        Pins.homeVersion(dashboardsDir)
       )
     ).flatMap {
       case (Some(nv), Some(pv)) if nv == pv => IO.pure(Unchanged)
-      case _                                =>
+      case (newVersion, _)                  =>
         newlyBroken(newDump, dashboardsDir, entries).flatMap {
-          case Nil    => IO.blocking(swap(newDump, dashboardsDir))
+          case Nil    => IO.blocking(swap(newDump, dashboardsDir, newVersion))
           case errors => IO.pure(Rejected(errors))
         }
     }
@@ -129,11 +129,16 @@ object DumpRefresh {
 
   /** Green: seed the new dump package and move the real pin to it. No dump file
     * is written and no dated backup is kept — the previous immutable package
-    * version stays in the cache (the trail).
+    * version stays in the cache (the trail). `version` is the content-version
+    * [[refresh]] already computed for `newDump` (`None` only when the workspace
+    * cannot package, in which case seeding is a no-op too).
     */
-  private def swap(newDump: String, dashboardsDir: os.Path): Result = {
+  private def swap(
+      newDump: String,
+      dashboardsDir: os.Path,
+      version: Option[String]
+  ): Result = {
     val seedLog = DumpPackage.seedFromText(dashboardsDir, newDump)
-    val version = DumpPackage.versionFor(dashboardsDir, newDump).getOrElse("?")
-    Swapped(version, seedLog)
+    Swapped(version.getOrElse("?"), seedLog)
   }
 }

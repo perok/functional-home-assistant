@@ -5,7 +5,13 @@ import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
-import fh.view.build.{DashboardBuild, SystemPkl}
+import fh.view.build.{
+  AddonBootstrap,
+  DashboardBuild,
+  DumpRefresh,
+  LibPackage,
+  SystemPkl
+}
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{SignallingRef, Topic}
@@ -19,6 +25,8 @@ import org.http4s.headers.{
   ETag
 }
 import org.http4s.ServerSentEvent
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.concurrent.duration.*
 
@@ -100,14 +108,14 @@ class Server(
     assets: AssetCache = AssetCache.empty,
     // The live home's Pkl artifacts (schema + dump) served over `/system/pkl/`
     // for pkl-lsp / the editor / remote authors. The empty default serves
-    // nothing (404) — the server's own eval uses in-memory interception, not
-    // this route.
+    // nothing (404) — the server's own eval never hits this route (it resolves
+    // the packages offline from the seeded cache via `moduleCacheDir`).
     systemPkl: SystemPkl = SystemPkl.empty,
     // The on-demand dump refresh behind `POST /system/dump/refresh`
     // (fetch + validate-then-swap + renderer reload, wired by ServerApp —
-    // see fh.view.build.DumpRefresh). None (tests, BuildApp-less setups)
-    // makes the route a 404.
-    dumpRefresh: Option[IO[fh.view.build.DumpRefresh.Result]] = None
+    // see [[DumpRefresh]]). None (tests, BuildApp-less setups) makes the
+    // route a 404.
+    dumpRefresh: Option[IO[DumpRefresh.Result]] = None
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -119,13 +127,12 @@ class Server(
     case GET -> Root / "assets" / name => assets.serve(name)
 
     // The live home's Pkl artifacts — the domain schema + the freshly-rendered
-    // per-home dump — as source text. pkl-lsp (behind the `/edit` editor) and
-    // remote authors fetch these to resolve `import
-    // "http://<home>/system/pkl/{hass,dump}.pkl"`; the server's own eval never
-    // hits this route (it resolves those imports via in-memory interception).
-    // The laptop companion (the `fh` scala-cli script) is distributed from
-    // the GitHub repo (`scripts/fh.sc`), not from the instance; it drives the
-    // routes below.
+    // per-home dump — as source text for pkl-lsp (behind the `/edit` editor)
+    // and remote authors; the server's own eval never hits these routes (it
+    // resolves the packages offline from the seeded cache via
+    // `moduleCacheDir`). The laptop companion (the `fh` scala-cli script) is
+    // distributed from the GitHub repo (`scripts/fh.sc`), not from the
+    // instance; it drives the routes below.
 
     // The package-discovery index (before the `:name` route, which would
     // otherwise swallow the 3-segment path as `name = "packages"`): current
@@ -145,13 +152,13 @@ class Server(
     // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
     // instance URL). Before the `:name` catch-all so these exact names win.
     case GET -> Root / "system" / "pkl" / "base.pkl" =>
-      Ok(fh.view.build.AddonBootstrap.BaseManifest)
+      Ok(AddonBootstrap.BaseManifest)
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
     case GET -> Root / "system" / "pkl" / "PklProject" =>
-      Ok(fh.view.build.AddonBootstrap.ConsumerManifest)
+      Ok(AddonBootstrap.ConsumerManifest)
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
     case GET -> Root / "system" / "pkl" / "gitignore" =>
-      Ok(fh.view.build.AddonBootstrap.GitignoreTemplate)
+      Ok(AddonBootstrap.GitignoreTemplate)
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
 
     case req @ GET -> Root / "system" / "pkl" / name =>
@@ -1082,34 +1089,6 @@ class Server(
         }
     }
 
-  /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
-    * `ETag` (and a `304` for a matching `If-None-Match`).
-    *
-    * **`no-cache` is the load-bearing header, not the ETag.** `dump.pkl` is
-    * this home's LIVE entity dump: it is rewritten whenever the home's registry
-    * changes, under a URL that never changes. Anything that stores it — a
-    * browser, a proxy on the split-horizon remote path
-    * (`docs/pwa-remote-access.md`) — would hand an author completions for
-    * devices they no longer own, with no way to tell. `no-cache` does not
-    * forbid storing; it forbids REUSING without revalidating, which is exactly
-    * the contract we want: cheap when unchanged, never silently stale.
-    *
-    * **The ETag is for clients that revalidate — which today is none of them.**
-    * pkl is the primary consumer and it does no conditional requests at all:
-    * pkl-core 0.31.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
-    * handling anywhere (verified against the jar), so its module reader
-    * unconditionally GETs the full body and its only caching is the
-    * per-evaluator in-memory module cache, keyed by resolved URI, which never
-    * consults an HTTP validator. So the ETag is dead weight *for pkl* — it is
-    * here for the consumers that do revalidate: browser/editor JS fetching the
-    * dump, and any remote tooling that wants to ask "did this home's entity set
-    * change?" without pulling a ~450KB dump every time. Hashing that dump per
-    * request is trivial next to shipping it, and this route is hit at
-    * editor-session start, never on the live hot path.
-    *
-    * The ETag is a strong validator over the exact bytes served, so it is
-    * correct by construction: same text ⇒ same tag.
-    */
   /** Decode a pushed dashboard and install it live under `slug`.
     *
     * The body goes through the SAME [[DashboardBuild.decode]] as the server's
@@ -1138,11 +1117,40 @@ class Server(
             .handleErrorWith(err => BadRequest(err.getMessage))
       }
 
+  /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
+    * `ETag` (and a `304` for a matching `If-None-Match`).
+    *
+    * **`no-cache` is the load-bearing header, not the ETag.** `dump.pkl` is
+    * this home's LIVE entity dump: it is rewritten whenever the home's registry
+    * changes, under a URL that never changes. Anything that stores it — a
+    * browser, a proxy on the split-horizon remote path
+    * (`docs/pwa-remote-access.md`) — would hand an author completions for
+    * devices they no longer own, with no way to tell. `no-cache` does not
+    * forbid storing; it forbids REUSING without revalidating, which is exactly
+    * the contract we want: cheap when unchanged, never silently stale.
+    *
+    * **The ETag is for clients that revalidate — which today is none of them.**
+    * pkl is the primary consumer and it does no conditional requests at all:
+    * pkl-core 0.31.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
+    * handling anywhere (verified against the jar), so its module reader
+    * unconditionally GETs the full body and its only caching is the
+    * per-evaluator in-memory module cache, keyed by resolved URI, which never
+    * consults an HTTP validator. So the ETag is dead weight *for pkl* — it is
+    * here for the consumers that do revalidate: browser/editor JS fetching the
+    * dump, and any remote tooling that wants to ask "did this home's entity set
+    * change?" without pulling a ~450KB dump every time. Hashing that dump per
+    * request is trivial next to shipping it, and this route is hit at
+    * editor-session start, never on the live hot path.
+    *
+    * The ETag is a strong validator (hex SHA-256, [[LibPackage.sha256]]) over
+    * the exact bytes served, so it is correct by construction: same text ⇒ same
+    * tag.
+    */
   private def systemPklResponse(
       text: String,
       req: Request[IO]
   ): IO[Response[IO]] = {
-    val etag = EntityTag(systemPklHash(text))
+    val etag = EntityTag(LibPackage.sha256(text.getBytes(UTF_8)))
     val fresh = req.headers
       .get[`If-None-Match`]
       .exists {
@@ -1151,25 +1159,13 @@ class Server(
         case `If-None-Match`(Some(tags)) =>
           tags.exists(t => t.tag == etag.tag)
       }
-    val cacheHeaders =
-      (ETag(etag), `Cache-Control`(CacheDirective.`no-cache`()))
-    if (fresh) NotModified().map(_.putHeaders(cacheHeaders._1, cacheHeaders._2))
+    val cacheControl = `Cache-Control`(CacheDirective.`no-cache`())
+    if (fresh) NotModified().map(_.putHeaders(ETag(etag), cacheControl))
     else
       Ok(text).map(
         _.withContentType(`Content-Type`(MediaType.text.plain))
-          .putHeaders(cacheHeaders._1, cacheHeaders._2)
+          .putHeaders(ETag(etag), cacheControl)
       )
-  }
-
-  /** Strong ETag payload: a hex SHA-256 of the served source text. Not a
-    * security boundary — just a stable content fingerprint — but SHA-256 keeps
-    * it collision-free in practice, so a changed dump can never reuse a tag.
-    */
-  private def systemPklHash(text: String): String = {
-    val digest = java.security.MessageDigest
-      .getInstance("SHA-256")
-      .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-    digest.iterator.map(b => f"${b & 0xff}%02x").mkString
   }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
@@ -1282,7 +1278,7 @@ object Server {
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[fh.view.build.DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
       topic <- Topic[IO, (String, ServerSentEvent)].toResource
@@ -1307,8 +1303,7 @@ object Server {
     * (the /edit editor) shows the user: the backup name on a swap, the
     * per-dashboard errors on a rejection.
     */
-  def dumpRefreshJson(result: fh.view.build.DumpRefresh.Result): Json = {
-    import fh.view.build.DumpRefresh
+  def dumpRefreshJson(result: DumpRefresh.Result): Json = {
     result match {
       case DumpRefresh.Unchanged =>
         Json.obj("status" -> Json.fromString("unchanged"))

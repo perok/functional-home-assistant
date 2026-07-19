@@ -90,7 +90,7 @@ object SystemPkl {
       def module(name: String): Either[ErrorString, String] =
         name match {
           case "dump.pkl" =>
-            DumpPackage.pinnedVersion(dashboardsDir) match {
+            Pins.homeVersion(dashboardsDir) match {
               case None =>
                 Left("no dump yet — this home has not been built")
               case Some(version) =>

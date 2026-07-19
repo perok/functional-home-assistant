@@ -191,16 +191,15 @@ def evalJson(entry: String): IO[String] = IO.blocking {
 def withClient[A](f: Client[IO] => IO[A]): IO[A] =
   EmberClientBuilder.default[IO].build.use(f)
 
-/** Read one string field out of a `.fh` json machine file. These are flat,
-  * machine-generated `{ "k": "v" }` files, so a regex is enough (and avoids a
-  * circe-parser dependency the toolkit doesn't bundle).
+/** Read one string field out of a `.fh` json machine file, with a real JSON
+  * parse (circe-jawn rides in via http4s-circe, same as [[PkgIndex]]'s
+  * decoder).
   */
 def jsonField(file: Path, field: String): Option[String] =
   Option
     .when(Files.exists(file))(new String(Files.readAllBytes(file), UTF_8))
-    .flatMap(s =>
-      s""""$field"\\s*:\\s*"([^"]*)"""".r.findFirstMatchIn(s).map(_.group(1))
-    )
+    .flatMap(io.circe.jawn.parse(_).toOption)
+    .flatMap(_.hcursor.get[String](field).toOption)
 
 /** The instance this workspace is wired to, read from `.fh/machine.json`
   * (`instanceUrl`) — the per-machine file `fh init` writes and `base.pkl`'s
@@ -558,14 +557,13 @@ object Fh
     ) {
   // Failures render as `fh: <msg>`, exit 1, no stack trace (Die's contract);
   // for pkl authoring errors, pkl's own message is the useful part.
-  def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith {
-    case err @ Die(m) =>
-      Console[IO].errorln(s"fh: ${err.show}")
-    case e: org.pkl.core.PklException =>
-      Console[IO].errorln(s"fh: ${e.getMessage}")
-    case e =>
-      Console[IO].errorln(s"fh: $e")
-  }.as(ExitCode.Error))
+  def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith { e =>
+    val msg = e match
+      case err @ Die(_) => err.show
+      case e: org.pkl.core.PklException => e.getMessage
+      case e => e.toString
+    Console[IO].errorln(s"fh: $msg").as(ExitCode.Error)
+  })
 }
 
 // The test gate: the suite references this script's members, which executes

@@ -34,25 +34,11 @@ object DumpPackage {
   def packageUri(version: String): String =
     s"package://${LibPackage.Host}/$Name@$version"
 
-  final case class Artifacts(
-      version: String,
-      zip: Array[Byte],
-      sha256: String,
-      metadataJson: String
-  ) {
-
-    /** The sha of the METADATA JSON — what a manifest `checksums { sha256 }`
-      * pins (it transitively pins the zip via `packageZipChecksums`).
-      */
-    def metadataSha256: String =
-      LibPackage.sha256(metadataJson.getBytes("UTF-8"))
-  }
-
   def build(
       dumpText: String,
       libVersion: String,
       libMetadataSha256: String
-  ): Artifacts = {
+  ): LibPackage.Artifacts = {
     val zip =
       LibPackage.deterministicZip(
         List("dump.pkl" -> dumpText.getBytes("UTF-8"))
@@ -61,30 +47,24 @@ object DumpPackage {
     val version = "1.0.0-g" + LibPackage
       .sha256(s"$zipSha $libVersion $libMetadataSha256".getBytes("UTF-8"))
       .take(12)
-    val metadata = Json
-      .obj(
-        "name" -> Json.fromString(Name),
-        "packageUri" -> Json.fromString(packageUri(version)),
-        "version" -> Json.fromString(version),
-        "packageZipUrl" -> Json.fromString(
-          s"https://${LibPackage.Host}/$Name@$version.zip"
-        ),
-        "packageZipChecksums" -> Json.obj("sha256" -> Json.fromString(zipSha)),
-        "dependencies" -> Json.obj(
-          "fh-dashboard" -> Json.obj(
-            "uri" -> Json.fromString(LibPackage.packageUri(libVersion)),
-            "checksums" -> Json.obj(
-              "sha256" -> Json.fromString(libMetadataSha256)
-            )
+    val metadata = LibPackage.metadataJson(
+      Name,
+      version,
+      zipSha,
+      dependencies = Json.obj(
+        LibPackage.Name -> Json.obj(
+          "uri" -> Json.fromString(LibPackage.packageUri(libVersion)),
+          "checksums" -> Json.obj(
+            "sha256" -> Json.fromString(libMetadataSha256)
           )
         )
       )
-      .spaces2
-    Artifacts(version, zip, zipSha, metadata)
+    )
+    LibPackage.Artifacts(Name, version, zip, zipSha, metadata)
   }
 
   def cacheEntryDir(cacheDir: os.Path, version: String): os.Path =
-    cacheDir / "package-2" / LibPackage.Host / s"$Name@$version"
+    LibPackage.entryDir(cacheDir, Name, version)
 
   /** Build the current dump's package from the rendered dump TEXT (never a
     * loose file), seed it into the workspace cache, and move the `@fh-home` pin
@@ -104,42 +84,41 @@ object DumpPackage {
     artifactsFor(dashboardsDir, dumpText) match {
       case None            => Nil
       case Some(artifacts) =>
-        val cache = PklBuild.workspaceCacheDir(dashboardsDir)
-        val dir = cacheEntryDir(cache, artifacts.version)
-        val zipPath = dir / s"$Name@${artifacts.version}.zip"
-        val seedLog =
-          if (os.exists(zipPath)) Nil
-          else {
-            os.makeDir.all(dir)
-            os.write.over(zipPath, artifacts.zip)
-            os.write.over(
-              dir / s"$Name@${artifacts.version}.json",
-              artifacts.metadataJson
-            )
-            List(s"seeded dump package: ${packageUri(artifacts.version)}")
-          }
-        seedLog ++ Pins.writeHome(
+        LibPackage.seedEntry(
+          PklBuild.workspaceCacheDir(dashboardsDir),
+          artifacts,
+          s"seeded dump package: ${packageUri(artifacts.version)}"
+        ) ++ Pins.writeHome(
           dashboardsDir,
           packageUri(artifacts.version),
           artifacts.metadataSha256
         )
     }
 
-  /** Build the artifacts for `dumpText` in this workspace, or `None` when the
-    * workspace cannot package (no `@fh-dashboard` pin, or its metadata is not
-    * in the cache yet).
+  /** The workspace's effective `@fh-dashboard` pin plus the sha256 of that
+    * pin's cached metadata (what the dump's `dependencies` declare), or `None`
+    * when the workspace cannot package (no pin, or its metadata is not in the
+    * cache yet).
     */
-  private def artifactsFor(
-      dashboardsDir: os.Path,
-      dumpText: String
-  ): Option[Artifacts] =
+  private def libPin(dashboardsDir: os.Path): Option[(String, String)] =
     for {
       pin <- LibPackage.effectivePin(dashboardsDir)
       cache = PklBuild.workspaceCacheDir(dashboardsDir)
       libMeta = LibPackage.cacheEntryDir(cache, pin) /
         s"${LibPackage.Name}@$pin.json"
       if os.exists(libMeta)
-    } yield build(dumpText, pin, LibPackage.sha256(os.read.bytes(libMeta)))
+    } yield (pin, LibPackage.sha256(os.read.bytes(libMeta)))
+
+  /** Build the artifacts for `dumpText` in this workspace, or `None` when the
+    * workspace cannot package ([[libPin]]).
+    */
+  private def artifactsFor(
+      dashboardsDir: os.Path,
+      dumpText: String
+  ): Option[LibPackage.Artifacts] =
+    libPin(dashboardsDir).map { case (pin, metaSha) =>
+      build(dumpText, pin, metaSha)
+    }
 
   /** The content-version of `dumpText` in this workspace (what [[seedFromText]]
     * would mint), or `None` when the workspace cannot package. Lets
@@ -149,35 +128,24 @@ object DumpPackage {
   def versionFor(dashboardsDir: os.Path, dumpText: String): Option[String] =
     artifactsFor(dashboardsDir, dumpText).map(_.version)
 
-  /** The `@fh-home` version currently pinned in `.fh/pins.json`, if any (and
-    * not the bootstrap placeholder).
-    */
-  def pinnedVersion(dashboardsDir: os.Path): Option[String] =
-    Pins.homeVersion(dashboardsDir)
-
   /** The discovery document behind `GET /system/pkl/packages`: the current
     * version + metadata sha256 of both packages a laptop pins — exactly what
     * `fh pull` writes into the laptop manifest (`uri` + `checksums` together).
     * The fh-home half is read straight from `.fh/pins.json` (the served
-    * snapshot), the lib half from the effective pin + its cached metadata.
-    * `None` until a real dump has been pinned (bootstrap placeholder aside).
+    * snapshot), the lib half from the effective pin + its cached metadata
+    * ([[libPin]]). `None` until a real dump has been pinned (bootstrap
+    * placeholder aside).
     */
   def index(dashboardsDir: os.Path): Option[String] =
     for {
       homeVersion <- Pins.homeVersion(dashboardsDir)
       homeSha <- Pins.homeSha256(dashboardsDir)
-      pin <- LibPackage.effectivePin(dashboardsDir)
-      cache = PklBuild.workspaceCacheDir(dashboardsDir)
-      libMeta = LibPackage.cacheEntryDir(cache, pin) /
-        s"${LibPackage.Name}@$pin.json"
-      if os.exists(libMeta)
+      (pin, libMetaSha) <- libPin(dashboardsDir)
     } yield Json
       .obj(
         LibPackage.Name -> Json.obj(
           "version" -> Json.fromString(pin),
-          "sha256" -> Json.fromString(
-            LibPackage.sha256(os.read.bytes(libMeta))
-          )
+          "sha256" -> Json.fromString(libMetaSha)
         ),
         Name -> Json.obj(
           "version" -> Json.fromString(homeVersion),
