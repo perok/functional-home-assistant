@@ -182,7 +182,7 @@ lazy val `fh-datastar-view` = project
       "org.pkl-lang" % "pkl-core" % "0.31.1",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
-      "org.pkl-lang" % "pkl-parser" % "0.31.1",
+      "org.pkl-lang" % "pkl-parser" % "0.32.0",
       // Cross-platform user dirs (XDG / AppData / ~/Library) — the SAME lib +
       // app coordinates the `fh` script uses, so a local `sbt dashboardServe`
       // and the laptop `fh` resolve the same data dir (ADR 0010).
