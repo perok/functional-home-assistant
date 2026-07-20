@@ -120,8 +120,10 @@ class Server(
     // versions + metadata sha256 of the packages this home serves — what
     // `fh pull` reads before rewriting the laptop's pins.
     case GET -> Root / "system" / "pkl" / "packages" =>
-      serveEither(systemPkl.packagesIndex)(json =>
-        Ok(json).map(_.putHeaders(`Content-Type`(MediaType.application.json)))
+      guardSystemPkl(
+        systemPkl.packagesIndex.flatMap(json =>
+          Ok(json).map(_.putHeaders(`Content-Type`(MediaType.application.json)))
+        )
       )
 
     // The workspace scaffold a laptop's `fh init` fetches and writes verbatim:
@@ -139,7 +141,7 @@ class Server(
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
 
     case req @ GET -> Root / "system" / "pkl" / name =>
-      serveEither(systemPkl.module(name))(systemPklResponse(_, req))
+      guardSystemPkl(systemPkl.module(name).flatMap(systemPklResponse(_, req)))
 
     // The instance's resolved lib packages (ADR 0010): the metadata JSON at
     // `<name>@<version>`, the module zip at `<name>@<version>.zip` — exactly
@@ -151,12 +153,12 @@ class Server(
     // proxy-cached zip would turn the dev-image drift case (lib bytes changed
     // under an unchanged version) into a confusing stale-checksum failure.
     case GET -> Root / "system" / "pkl" / "packages" / file =>
-      serveEither(systemPkl.packageArtifact(file)) { bytes =>
+      guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
         val mediaType =
           if (file.endsWith(".zip")) MediaType.application.zip
           else MediaType.application.json
         Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
-      }
+      })
 
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
@@ -231,14 +233,18 @@ class Server(
       )
   }
 
-  /** Serve an `Either[String, A]`: `Left(reason)` → 404 with the reason as the
-    * body, `Right(a)` → `ok(a)`. The shared shape of the `/system/pkl/` routes,
-    * whose provider returns a `Left` reason for anything a home does not serve.
+  /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
+    * raise [[FHError]] for anything a home does not serve, mapped here to its
+    * `status + message` — locally, the same as [[pushResponse]], so these
+    * routes behave identically whether exercised through the app-level
+    * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
+    * bug and becomes a 500, same as there.
     */
-  private def serveEither[A](
-      e: Either[String, A]
-  )(ok: A => IO[Response[IO]]): IO[Response[IO]] =
-    e.fold(NotFound(_), ok)
+  private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
+    io.handleErrorWith {
+      case e: FHError => IO.pure(FHError.response(e))
+      case err        => InternalServerError(err.getMessage)
+    }
 
   /** The current renderer for `slug`, or `None` if no such dashboard is
     * registered. Reads through the registry `Ref`, so it sees slugs pushed

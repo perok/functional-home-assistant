@@ -217,9 +217,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     os.write(laptop / "mine.pkl", entryNeedingDump)
     val laptopCache = root / "laptop-cache"
 
-    // A malformed artifact name must never index into the filesystem.
-    assert(SystemPkl.fromDisk(instance).packageArtifact("..").isLeft)
-
     TestServer
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
@@ -261,7 +258,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           properties <- IO.blocking(
             resolveAndEvalOverHttp(laptop, laptopCache, base)
           )
+
+          // A malformed artifact name must never index into the filesystem.
+          badArtifact <- SystemPkl.fromDisk(instance).packageArtifact("..").attempt
         } yield {
+          assert(badArtifact.isLeft, clue = badArtifact)
           assertEquals(meta.status, Status.Ok)
           assertEquals(
             meta.headers.get[headers.`Content-Type`].map(_.mediaType),
