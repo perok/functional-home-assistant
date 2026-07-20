@@ -7,6 +7,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
+import fh.view.FHError
 import fh.view.build.{
   AddonBootstrap,
   BundledLib,
@@ -136,7 +137,7 @@ object ServerApp extends IOApp {
         entries <- discoverEntries(dashboardsDir).toResource
         _ <- IO
           .raiseWhen(entries.isEmpty)(
-            new RuntimeException(s"no *.pkl dashboards in $dashboardsDir")
+            FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
           )
           .toResource
 
@@ -173,7 +174,7 @@ object ServerApp extends IOApp {
           .toResource
         _ <- IO
           .raiseWhen(built.isEmpty)(
-            new RuntimeException(
+            FHError.internal(
               s"all *.pkl dashboards in $dashboardsDir failed to build"
             )
           )
@@ -264,7 +265,9 @@ object ServerApp extends IOApp {
           .withHost(config.bindHost)
           .withPort(config.bindPort)
           .withHttpWebSocketApp(wsb =>
-            (server.routes <+> editor.routes(wsb)).orNotFound
+            // Any FHError raised while serving becomes its status + message;
+            // anything else falls through to Ember's default 500.
+            FHError.handle((server.routes <+> editor.routes(wsb)).orNotFound)
           )
           .withShutdownTimeout(0.seconds)
           .build

@@ -3,6 +3,7 @@ package fh.view.build
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
 
@@ -266,7 +267,7 @@ object DashboardBuild {
       dashboard <- hoistInlineSurfaces(json)
         .as[Dashboard]
         .leftMap(err =>
-          new RuntimeException(s"dashboard is not a valid Dashboard: $err")
+          FHError.badCondition(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
       validated <- dashboard.validated(
@@ -274,10 +275,12 @@ object DashboardBuild {
       ) match {
         case Right(v)   => IO.pure(v)
         case Left(errs) =>
-          new RuntimeException(
-            s"dashboard failed validation (${errs.size} error(s)):\n" +
-              errs.mkString("\n")
-          ).raiseError[IO, Dashboard.Validated]
+          FHError
+            .badCondition(
+              s"dashboard failed validation (${errs.size} error(s)):\n" +
+                errs.mkString("\n")
+            )
+            .raiseError[IO, Dashboard.Validated]
       }
     } yield validated
 

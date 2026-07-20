@@ -12,6 +12,7 @@ import fh.view.build.{
   LibPackage,
   SystemPkl
 }
+import fh.view.FHError
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{SignallingRef, Topic}
@@ -746,7 +747,14 @@ class Server(
                 s"pushed ${v.dashboard.slug} (${v.dashboard.cards.size} cards)"
               )
             )
-            .handleErrorWith(err => BadRequest(err.getMessage))
+            // decode raises FHError.badCondition for a malformed/invalid
+            // dashboard (mapped to its 400 here since this route is also
+            // exercised without the app-level FHError.handle); a non-FHError
+            // is an unnamed bug and becomes a 500.
+            .handleErrorWith {
+              case e: FHError => IO.pure(FHError.response(e))
+              case err        => InternalServerError(err.getMessage)
+            }
       }
 
   /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
