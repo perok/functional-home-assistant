@@ -189,24 +189,28 @@ object HAWSApiLowLevel {
             ]]()
             .toResource
 
-          // Subscribe to all events and push them to listeners overview
+          // Route each message by id. A pending DEFERRED (a command awaiting its
+          // `result`) takes priority and is mutually exclusive with the queue:
+          // HA always sends a subscribe command's `result` ack BEFORE any of its
+          // events, so the ack completes the deferred (and is NOT enqueued),
+          // while every later event — no deferred left for that id — lands in
+          // the subscription's queue. This mutual exclusion is what lets a
+          // subscription register its queue BEFORE the ack (closing the
+          // first-event race) without the ack itself polluting the queue.
           // TODO errors in parsing before passing on the message can deadlock things
           _ <- topic.subscribeUnbounded
             .through(
               _.evalMap(command =>
-                (
-                  idQueue(command.id).get.flatMap {
-                    case Some(queue) => queue.offer(command)
-                    case None        => IO.unit
-                  },
-                  idDeferreds(command.id).get.flatMap {
-                    case Some(deferred) =>
-                      // There is only one deferred complete, so we can safely try to remove it
-                      idDeferreds.unsetKey(command.id) >>
-                        deferred.complete(command)
-                    case None => IO.unit
-                  }
-                ).parTupled
+                idDeferreds(command.id).get.flatMap {
+                  case Some(deferred) =>
+                    idDeferreds.unsetKey(command.id) >>
+                      deferred.complete(command).void
+                  case None =>
+                    idQueue(command.id).get.flatMap {
+                      case Some(queue) => queue.offer(command)
+                      case None        => IO.unit
+                    }
+                }
               )
             )
             .compile
@@ -275,7 +279,14 @@ object HAWSApiLowLevel {
           }
 
           def sendCommandWrapper[Response](
-              command: CommandPhase & CommandResponse[Response]
+              command: CommandPhase & CommandResponse[Response],
+              // Runs UNDER the id/send mutex, after the id is allocated and just
+              // before the frame goes out. A subscription uses it to register
+              // its receive queue for `id` before the subscribe frame is sent,
+              // so an event that HA pushes immediately after the `result` ack
+              // (render_template's single initial render) can't be lost in the
+              // gap between ack and registration.
+              beforeSend: Int => IO[Unit] = _ => IO.unit
           ): IO[(Int, Response)] =
             // error code=id_reuse
             // Mutex s around incrementer and send.
@@ -295,6 +306,7 @@ object HAWSApiLowLevel {
                     .flatMapN { (deferred, id) =>
                       //  TODO idDeffereds set as Resource
                       idDeferreds.setKeyValue(id, deferred) >>
+                        beforeSend(id) >>
                         sendCommandPhase(
                           id,
                           (command: CommandPhase).asJson
@@ -381,26 +393,27 @@ object HAWSApiLowLevel {
                 msg: CommandPhase & CommandResponse.AsStream[Result]
             ): Resource[IO, QueueSource[IO, Result]] =
               Resource
-                .make(
-                  sendCommandWrapper(msg).map(_._1)
-                )(id =>
-                  sendCommandWrapper(CommandPhase.unsubscribe_events(id)).void
-                )
-                .flatMap { id =>
-                  // TODO needs to happen before the sendCommand to ensure receiving everything
-                  //   sendCommandWrapper needs to accept an id
-                  Resource.make(
-                    Queue
-                      .unbounded[IO, WSCommandPhaseServerPayload]
-                      .flatMap(q =>
-                        idQueue
-                          .setKeyValue(id, q)
-                          .as(q)
-                      )
-                      .nested
-                      .map(msg.decodeMessage)
-                      .value
-                  )(_ => idQueue.unsetKey(id))
+                .eval(Queue.unbounded[IO, WSCommandPhaseServerPayload])
+                .flatMap { q =>
+                  Resource
+                    .make(
+                      // Register `q` for the subscription id BEFORE the subscribe
+                      // frame is sent (beforeSend runs under the send mutex), so
+                      // no event is lost between the `result` ack and queue
+                      // registration — the bug that made render_template one-shot
+                      // hang on its single initial event.
+                      sendCommandWrapper(
+                        msg,
+                        beforeSend = id => idQueue.setKeyValue(id, q)
+                      ).map(_._1)
+                    )(id =>
+                      sendCommandWrapper(CommandPhase.unsubscribe_events(id)).void
+                        .guarantee(idQueue.unsetKey(id))
+                    )
+                    .as(
+                      (q: QueueSource[IO, WSCommandPhaseServerPayload])
+                        .map(msg.decodeMessage)
+                    )
                 }
           }
         }
