@@ -42,11 +42,6 @@ object ServerApp extends IOApp {
   // backups) without ever writing into the checked-in
   // `src/main/resources/dashboards`.
   private val defaultDashboardsDir = "dashboard-local-dev"
-  // The starter ENTRIES a dev run seeds when a workspace has none — read
-  // straight from the repo resources (the add-on overrides via `FH_SEED_DIR`).
-  // The `lib/` is NOT here anymore: it is streamed from the running jar's own
-  // classpath resources ([[BundledLib]]), so nothing points at a `lib/` path.
-  private val bundledResourcesDir = "src/main/resources/dashboards"
 
   // Persistent pkl package cache for a dev run: the cross-platform user data
   // dir (`~/.local/share/fh/…/pkl-cache` on Linux), shared with `BuildApp` and
@@ -62,8 +57,6 @@ object ServerApp extends IOApp {
   private case class Config(
       // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` > default.
       dashboardsDir: os.Path,
-      // Starter entries seeded into an empty workspace (`FH_SEED_DIR`).
-      seedDir: os.Path,
       // Persistent pkl package cache (`FH_PKL_CACHE_DIR`).
       cacheDir: os.Path,
       // Local theme-asset cache (`FH_ASSETS_DIR`).
@@ -89,7 +82,6 @@ object ServerApp extends IOApp {
         dashboardsDir <- args.headOption
           .map(p => IO.pure(os.Path(p, os.pwd)))
           .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
-        seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
         cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
@@ -106,7 +98,6 @@ object ServerApp extends IOApp {
         pklLspJar <- Env[IO].get("PKL_LSP_JAR")
       } yield Config(
         dashboardsDir,
-        seedDir,
         cacheDir,
         assetsDir,
         bindHost,
@@ -535,13 +526,12 @@ object ServerApp extends IOApp {
     * `package://fh.invalid/fh-dashboard@<v>` and the live home always serves
     * `/system/pkl/packages` (what `fh init`/`pull`/`push` read).
     *
-    * The three inputs come from `run.sh` on the add-on; a local `sbt
-    * dashboardServe` has none set and falls back to the repo's own resources —
-    * the `lib/` and starter entries the image would bake in are read straight
-    * from `src/main/resources/dashboards`, and the cache lives beside the local
-    * workspace. So a dev run reads `lib/` from the bundled resources exactly as
-    * the add-on does; iterating on library Pkl is `fh push` against the running
-    * instance, never a mutable workspace `lib/`.
+    * The two path inputs come from `run.sh` on the add-on; a local `sbt
+    * dashboardServe` has neither set and falls back to a local scratch dir —
+    * the lib AND the starter entry are both read straight off the running jar's
+    * own resources ([[BundledLib]], [[AddonBootstrap.defaultDashboard]]), so a
+    * dev run seeds exactly what the add-on does; iterating on library Pkl is
+    * `fh push` against the running instance, never a mutable workspace `lib/`.
     */
   private def bootstrap(config: Config): IO[LibPackage.Artifacts] =
     for {
@@ -553,7 +543,6 @@ object ServerApp extends IOApp {
             .run(
               config.dashboardsDir,
               bundled,
-              config.seedDir,
               config.cacheDir,
               // This instance's own URL, written into `.fh/machine.json` as the
               // `http.rewrites` target. Loopback + the bind PORT: inert here

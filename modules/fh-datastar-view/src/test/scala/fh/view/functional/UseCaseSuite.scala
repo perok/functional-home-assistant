@@ -59,7 +59,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ = AddonBootstrap.run(
       ws,
       bundledLib = bundled,
-      seedDir = os.temp.dir(), // empty: never seed the demo entries into a test
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
     )
@@ -106,7 +105,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ = AddonBootstrap.run(
       ws,
       bundledLib = bundled,
-      seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
     )
@@ -180,7 +178,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ = AddonBootstrap.run(
       instance,
       bundledLib = bundled,
-      seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = instanceCache,
       loopbackUrl = "http://127.0.0.1:8080"
     )
@@ -297,7 +294,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ = AddonBootstrap.run(
       instance,
       bundledLib = bundled,
-      seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
     )
@@ -351,7 +347,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val _ = AddonBootstrap.run(
       instance,
       bundledLib = bundled,
-      seedDir = os.pwd / "home-addon" / "dashboards-seed",
       cacheDir = root / "pkl-cache",
       loopbackUrl = "http://127.0.0.1:8080"
     )
@@ -475,7 +470,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // (a restart re-seeds the cache), so only the entry itself (and any loose
     // imports) is watched. Iterating on `lib/` is a restart or `fh push`.
     val dir = stageWorkspace(withDump = true)
-    os.write(dir / "dashboard.pkl", entryNeedingDump)
+    // Bootstrap already seeded the starter `dashboard.pkl`; overwrite it with
+    // the entry this test needs.
+    os.write.over(dir / "dashboard.pkl", entryNeedingDump)
 
     val imports = SourceEval
       .eval(dir, "dashboard.pkl")

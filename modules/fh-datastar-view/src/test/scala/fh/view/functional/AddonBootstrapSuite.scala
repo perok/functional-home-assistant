@@ -24,8 +24,6 @@ class AddonBootstrapSuite extends munit.FunSuite {
   private val bundledLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
 
-  private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
-
   private val bundled = LibPackage.build(bundledLib)
   private val libVersion = bundled.version
 
@@ -37,7 +35,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
     val log =
-      AddonBootstrap.run(box.ws, bundled, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
     (box, log)
   }
 
@@ -161,7 +159,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
     val _ =
-      AddonBootstrap.run(box.ws, bundled, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
 
     // Nothing user-authored is touched: lib/, the consumer + entry all stay, and
     // no backup is made. The stale lockfile IS removed (generated artifact), and
@@ -177,13 +175,13 @@ class AddonBootstrapSuite extends munit.FunSuite {
     // re-seed — then it evaluates.
     os.remove(box.ws / "PklProject")
     val _ =
-      AddonBootstrap.run(box.ws, bundled, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
     val _ = DumpPackage.seedFromText(
       box.ws,
       PklDump.render(HouseFixture.transformedDump),
       Some(bundled)
     )
-    os.write.over(box.ws / "mine.pkl", os.read(seedDir / "dashboard.pkl"))
+    os.write.over(box.ws / "mine.pkl", AddonBootstrap.defaultDashboard)
     assert(SourceEval.eval(box.ws, "mine.pkl").isRight)
   }
 
@@ -195,7 +193,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write.over(box.ws / "PklProject", customized)
 
     val _ =
-      AddonBootstrap.run(box.ws, bundled, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
@@ -208,7 +206,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
         s"fh-dashboard@$libVersion.zip"
     val mtime = os.mtime(zipPath)
     val log =
-      AddonBootstrap.run(box.ws, bundled, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
     assert(log.isEmpty, clue = log)
     assertEquals(os.mtime(zipPath), mtime)
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
@@ -226,7 +224,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val v1 = LibPackage.version(editableLib)
     val bundledV1 = LibPackage.build(editableLib)
     val _ =
-      AddonBootstrap.run(box.ws, bundledV1, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundledV1, box.cache, LoopbackUrl)
     // Seed a dump so pins.json exists at v1 — only then does the bootstrap's
     // dashboardUri refresh have a file to move (real-or-nothing pins).
     val _ = DumpPackage.seedFromText(
@@ -240,7 +238,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val v2 = LibPackage.version(editableLib)
     val bundledV2 = LibPackage.build(editableLib)
     val log =
-      AddonBootstrap.run(box.ws, bundledV2, seedDir, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundledV2, box.cache, LoopbackUrl)
 
     assertNotEquals(v1, v2)
     assert(log.exists(_.contains(s"fh-dashboard@$v2")), clue = log)

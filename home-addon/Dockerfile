@@ -33,25 +33,17 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
-# The starter ENTRIES for `AddonBootstrap` (run by the server at startup —
-# run.sh only exports the path). Copied into the user's
-# `/homeassistant/fh-dashboards` on first boot. The project manifests are NOT
-# files here — AddonBootstrap generates them against the bundled lib version,
-# and migrates pre-package-form installs with dated backups (never deleting
-# user-visible files).
-#
-# The authoring LIBRARY is NOT copied here anymore: it rides inside the fat jar
-# as classpath resources and is streamed straight into the persistent package
-# cache at boot (BundledLib → the `@fh-dashboard` package, ADR 0010), so the jar
-# is the single source of the lib bytes and there is no `/opt/fh/lib` to keep in
-# sync with the code.
-#
-# Never shipped as seed: the demo entries (they reference dev-instance
-# entities), any dump (the user's own live data, packaged at every start), and
-# PklProject.deps.json (the generated lockfile, resolved in-process at boot).
+# The starter ENTRY and the authoring LIBRARY for `AddonBootstrap` (run by the
+# server at startup) both ride inside the fat jar as classpath resources
+# (BundledLib.artifacts / AddonBootstrap.defaultDashboard) and are streamed
+# straight into the persistent package cache / the user's workspace at boot —
+# so the jar is the single source of both, and there is no seed dir or
+# `/opt/fh/lib` COPY to keep in sync with the code. The project manifests
+# aren't files here either — AddonBootstrap generates them against the
+# bundled lib version, and migrates pre-package-form installs with dated
+# backups (never deleting user-visible files).
 #
 # AddonBootstrapSuite pins the seeding + offline-evaluation contract.
-COPY home-addon/dashboards-seed/ /opt/dashboards-seed/
 
 COPY home-addon/run.sh /run.sh
 RUN chmod +x /run.sh

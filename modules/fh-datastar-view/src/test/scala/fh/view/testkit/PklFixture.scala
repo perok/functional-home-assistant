@@ -59,7 +59,9 @@ object PklFixture {
     PklWorkspace.bootstrap(tmp, PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
-    os.write(tmp / entryFile, entrySource)
+    // .over: bootstrap may already have seeded a starter `dashboard.pkl` into
+    // the fresh workspace, which this overwrites when slug == "dashboard".
+    os.write.over(tmp / entryFile, entrySource)
 
     val result = SourceEval
       .eval(tmp, entryFile)

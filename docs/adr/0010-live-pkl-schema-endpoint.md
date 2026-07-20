@@ -402,9 +402,8 @@ is a stable renderer of the wire model), and the user's workspace depends on it
 as `package://fh.invalid/fh-dashboard@<version>`, resolved from a **persistent
 package cache** under `/data/pkl-cache` that survives image upgrades.
 
-`AddonBootstrap` (run by the server at startup when `FH_BUNDLED_LIB` /
-`FH_SEED_DIR` / `FH_PKL_CACHE_DIR` are set — `run.sh` only exports the paths)
-does, idempotently:
+`AddonBootstrap` (run by the server at startup when `FH_PKL_CACHE_DIR` is set —
+`run.sh` only exports the path) does, idempotently:
 
 1. **Seed the cache** (`LibPackage`): packages the image's `/opt/fh/lib` into
    the two-file resolved-package layout
@@ -467,8 +466,9 @@ does, idempotently:
    to a dated `.fh/pins.json.backup.<stamp>`, pruned to the newest 50 — the dump
    refresh rewrites the pin constantly, so the trail is capped rather than
    unbounded.
-4. **Seed starter entries** (`/opt/dashboards-seed`, entries only — no
-   manifests, no lib) only into a workspace with no top-level `*.pkl`.
+4. **Seed a starter entry** (`AddonBootstrap.defaultDashboard`, read straight
+   off the jar's own classpath resources like the lib — no seed directory)
+   only into a workspace with no top-level `*.pkl`.
 
 `PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
 whenever a `PklProject` is newer than the lockfile (and boot deletes it

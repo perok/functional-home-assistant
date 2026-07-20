@@ -25,7 +25,6 @@ object BuildApp extends IOApp {
 
   // Paths are relative to the module directory (the forked `run` working dir).
   private val defaultDashboardsDir = "dashboard-local-dev"
-  private val bundledResourcesDir = "src/main/resources/dashboards"
   private val defaultDashboardJson = "dashboard.json"
   private val defaultDashboardEntry = "dashboard.pkl"
 
@@ -43,9 +42,9 @@ object BuildApp extends IOApp {
       // `pins.json` on a fresh workspace: `evaluate` runs `prepareDumps`, which
       // seeds the live dump package and writes the real pins in one step. The
       // bundled lib artifacts are threaded down so that first dump can pin its
-      // `@fh-dashboard` dependency before any pins exist. The lib is the running
-      // jar's own classpath resources ([[BundledLib]]) — no `lib/` path.
-      seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
+      // `@fh-dashboard` dependency before any pins exist. The lib AND the
+      // starter entry are both the running jar's own classpath resources
+      // ([[BundledLib]], [[AddonBootstrap.defaultDashboard]]) — no seed path.
       cacheDir <- pathFromEnv(
         "FH_PKL_CACHE_DIR",
         AddonBootstrap.defaultCacheDir
@@ -58,7 +57,6 @@ object BuildApp extends IOApp {
           AddonBootstrap.run(
             dashboardsDir,
             bundled,
-            seedDir,
             cacheDir,
             loopbackUrl = "http://127.0.0.1:8080"
           )

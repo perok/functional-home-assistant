@@ -79,8 +79,6 @@ object AddonBootstrap {
     *   the bundled `@fh-dashboard` artifacts — [[BundledLib.artifacts]]
     *   streamed from the running jar in production, `LibPackage.build(dir)` in
     *   tests
-    * @param seedDir
-    *   starter entries copied on first boot only
     * @param cacheDir
     *   the persistent package cache (`/data/pkl-cache`) — written into
     *   `.fh/machine.json` as `cacheDir`, which the static `base.pkl` reads for
@@ -95,7 +93,6 @@ object AddonBootstrap {
   def run(
       dashboardsDir: os.Path,
       bundledLib: LibPackage.Artifacts,
-      seedDir: os.Path,
       cacheDir: os.Path,
       loopbackUrl: String
   ): List[String] = {
@@ -138,17 +135,16 @@ object AddonBootstrap {
     if (!os.exists(dashboardsDir / ".gitignore"))
       os.write(dashboardsDir / ".gitignore", GitignoreTemplate)
 
-    // Starter entries only when the user has none at all — entries are the
-    // user's files from the moment they exist.
+    // A starter entry only when the user has none at all — entries are the
+    // user's files from the moment they exist. Bundled straight into the jar's
+    // own resources, so there is no seed directory to keep in sync or copy
+    // into the image.
     val hasEntries = os
       .list(dashboardsDir)
       .exists(p => os.isFile(p) && p.last.endsWith(".pkl"))
     if (!hasEntries) {
-      val seeded = os
-        .list(seedDir)
-        .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-        .map { p => os.copy.into(p, dashboardsDir); p.last }
-      log += s"seeded starter dashboards: ${seeded.mkString(", ")}"
+      os.write(dashboardsDir / "dashboard.pkl", defaultDashboard)
+      log += "seeded starter dashboard: dashboard.pkl"
     }
 
     // The lockfile is a generated artifact; `PklBuild.staleLockfile` would
@@ -188,6 +184,27 @@ object AddonBootstrap {
   def defaultCacheDir: String =
     s"${net.harawata.appdirs.AppDirsFactory.getInstance
         .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
+
+  private val DefaultDashboardResource = "dashboards/dashboard_default.pkl"
+
+  /** The starter entry's text, read straight off the running jar's own
+    * classpath resources — the same [[BundledLib]] sourcing style, but for a
+    * single file rather than a whole directory. Public so tests can assert
+    * against the exact seeded content without a seed directory of their own.
+    */
+  def defaultDashboard: String = {
+    val cl = Option(getClass.getClassLoader).getOrElse(
+      ClassLoader.getSystemClassLoader
+    )
+    val is = Option(cl.getResourceAsStream(DefaultDashboardResource))
+      .getOrElse(
+        sys.error(
+          s"default dashboard not on the classpath ($DefaultDashboardResource missing)"
+        )
+      )
+    try new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    finally is.close()
+  }
 
   /** A machine-owned file: written when absent or stale, never backed up (its
     * header says so, and nothing user-authored ever lives in it).
