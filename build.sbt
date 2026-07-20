@@ -191,7 +191,7 @@ lazy val `fh-datastar-view` = project
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
       "com.dashjoin" % "jsonata" % "0.9.10",
-      "org.scalameta" %% "munit" % "1.3.3" % Test,
+      "org.scalameta" %% "munit" % "1.3.4" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test,
@@ -220,7 +220,7 @@ lazy val root = project
     commonSettings,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.3" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.4" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
