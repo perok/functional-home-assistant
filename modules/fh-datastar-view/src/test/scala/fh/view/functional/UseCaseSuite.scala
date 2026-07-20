@@ -260,7 +260,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           )
 
           // A malformed artifact name must never index into the filesystem.
-          badArtifact <- SystemPkl.fromDisk(instance).packageArtifact("..").attempt
+          badArtifact <- SystemPkl
+            .fromDisk(instance)
+            .packageArtifact("..")
+            .attempt
         } yield {
           assert(badArtifact.isLeft, clue = badArtifact)
           assertEquals(meta.status, Status.Ok)
