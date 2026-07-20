@@ -54,32 +54,82 @@ object ServerApp extends IOApp {
   private def defaultCacheDir: String =
     AddonBootstrap.defaultCacheDir
 
+  /** Everything the runtime reads from the environment, parsed once by
+    * [[Config.load]] at the boundary so the rest of `run` is a pure wiring
+    * table — no scattered `Env[IO].get`, no defaults re-stated per site.
+    */
+  private case class Config(
+      // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` > default.
+      dashboardsDir: os.Path,
+      // Starter entries seeded into an empty workspace (`FH_SEED_DIR`).
+      seedDir: os.Path,
+      // Persistent pkl package cache (`FH_PKL_CACHE_DIR`).
+      cacheDir: os.Path,
+      // Local theme-asset cache (`FH_ASSETS_DIR`).
+      assetsDir: os.Path,
+      // Bind address: loopback by default so LAN exposure is opt-in (`HOST`).
+      bindHost: Host,
+      bindPort: Port,
+      // The raw `PORT` string for the `.fh/machine.json` loopback URL — kept
+      // verbatim so a non-numeric PORT reproduces the prior behavior exactly
+      // (bindPort falls back to 8080, the URL echoes the raw value).
+      loopbackPort: String,
+      // `DEFAULT_DASHBOARD`: the preferred default slug, if it built.
+      defaultDashboard: Option[String],
+      // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
+      watchRegistry: Boolean,
+      // `PKL_LSP_JAR`: explicit pkl-lsp jar override (else cached/downloaded).
+      pklLspJar: Option[String]
+  )
+
+  private object Config {
+    def load(args: List[String]): IO[Config] =
+      for {
+        dashboardsDir <- args.headOption
+          .map(p => IO.pure(os.Path(p, os.pwd)))
+          .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
+        seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
+        cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+        assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
+        bindHost <- Env[IO]
+          .get("HOST")
+          .map(_.flatMap(Host.fromString).getOrElse(host"127.0.0.1"))
+        loopbackPort <- envOr("PORT", "8080")
+        bindPort = loopbackPort.toIntOption
+          .flatMap(Port.fromInt)
+          .getOrElse(port"8080")
+        defaultDashboard <- Env[IO].get("DEFAULT_DASHBOARD")
+        watchRegistry <- Env[IO]
+          .get("FH_WATCH_REGISTRY")
+          .map(v => !v.map(_.trim.toLowerCase).exists(RegistryWatchOff))
+        pklLspJar <- Env[IO].get("PKL_LSP_JAR")
+      } yield Config(
+        dashboardsDir,
+        seedDir,
+        cacheDir,
+        assetsDir,
+        bindHost,
+        bindPort,
+        loopbackPort,
+        defaultDashboard,
+        watchRegistry,
+        pklLspJar
+      )
+  }
+
   def run(args: List[String]): IO[ExitCode] =
     for {
-      // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` env > default.
-      // Both the add-on and a local `dashboardServe` set the env (the dev run
-      // via the project's `run / envVars`, an absolute repo-root path); the arg
-      // stays as a manual override.
-      dashboardsDir <- args.headOption
-        .map(p => IO.pure(os.Path(p, os.pwd)))
-        .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
+      // All environment configuration, parsed ONCE at the boundary; nothing
+      // downstream reads `Env[IO]` again (ADR-style: parse, don't validate).
+      config <- Config.load(args)
       // The bundled `@fh-dashboard` artifacts this boot seeded — passed to the
       // first `prepareDumps` so it can pin the dump's lib dependency before any
       // `pins.json` exists (fresh workspace, first-boot ordering).
-      bundledLib <- bootstrap(dashboardsDir)
-      // Loopback by default: /sse/action/* drives HA with the server's token
-      // and no auth, so LAN exposure is opt-in (HOST=0.0.0.0).
-      bindHost <- Env[IO]
-        .get("HOST")
-        .map(_.flatMap(Host.fromString).getOrElse(host"127.0.0.1"))
-      bindPort <- Env[IO]
-        .get("PORT")
-        .map(
-          _.flatMap(_.toIntOption).flatMap(Port.fromInt).getOrElse(port"8080")
-        )
+      bundledLib <- bootstrap(config)
 
       _ <- (for {
         api <- FHApi.fromEnv
+        dashboardsDir = config.dashboardsDir
         // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
         // sans ext. The library is not in the workspace — it resolves through
         // the `@fh-dashboard` package (seeded into the cache by `bootstrap`).
@@ -134,11 +184,10 @@ object ServerApp extends IOApp {
         // cold-cache fetch failure. Reuses the JDK http client idiom from
         // FHApi; URLs are collected from every built renderer's theme (a
         // live-reload that introduces NEW urls passes through until restart).
-        assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache").toResource
         httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
         assets <- AssetCache
           .build(
-            assetsDir,
+            config.assetsDir,
             Server.DatastarCdn :: built.flatMap { case (_, (renderer, _)) =>
               renderer.stylesheets ++ renderer.scripts
             },
@@ -160,7 +209,7 @@ object ServerApp extends IOApp {
 
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
-        defaultSlug <- defaultSlugFrom(built.map(_._1)).toResource
+        defaultSlug = defaultSlugFrom(config.defaultDashboard, built.map(_._1))
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
         // dump and swap it in only if every currently-building dashboard still
@@ -192,7 +241,7 @@ object ServerApp extends IOApp {
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
         // local highlighting still work).
-        pklLspJar <- resolvePklLspJar(httpClient).toResource
+        pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
         editor = new EditorRoutes(dashboardsDir, pklLspJar, defaultSlug)
 
         _ <- watchSources(
@@ -206,18 +255,14 @@ object ServerApp extends IOApp {
         // the HOME changed (device/entity/area/floor added, renamed, removed)
         // — exactly what the dump snapshots. Toggleable via the add-on's
         // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
-        watchRegistry <- Env[IO]
-          .get("FH_WATCH_REGISTRY")
-          .map(v => !v.map(_.trim.toLowerCase).exists(RegistryWatchOff))
-          .toResource
         _ <-
-          if (watchRegistry)
+          if (config.watchRegistry)
             watchRegistryEvents(api, refreshDump).compile.drain.background.void
           else Resource.unit[IO]
         _ <- EmberServerBuilder
           .default[IO]
-          .withHost(bindHost)
-          .withPort(bindPort)
+          .withHost(config.bindHost)
+          .withPort(config.bindPort)
           .withHttpWebSocketApp(wsb =>
             (server.routes <+> editor.routes(wsb)).orNotFound
           )
@@ -225,7 +270,7 @@ object ServerApp extends IOApp {
           .build
         _ <- IO
           .println(
-            s"Dashboards serving on http://$bindHost:$bindPort " +
+            s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
               s"(default '/$defaultSlug', all: ${entries.map(_._1).mkString(", ")})"
           )
           .toResource
@@ -247,16 +292,18 @@ object ServerApp extends IOApp {
         .toList
     }
 
-  /** Default dashboard: `DEFAULT_DASHBOARD` if present, else `dashboard`, else
-    * the first slug.
+  /** Default dashboard: the configured `DEFAULT_DASHBOARD` if it built, else
+    * `dashboard`, else the first slug. Pure — `configured` is already parsed
+    * from the environment into [[Config]].
     */
-  private def defaultSlugFrom(slugs: List[String]): IO[String] =
-    Env[IO].get("DEFAULT_DASHBOARD").map { configured =>
-      configured
-        .filter(slugs.contains)
-        .orElse(Option.when(slugs.contains("dashboard"))("dashboard"))
-        .getOrElse(slugs.head)
-    }
+  private def defaultSlugFrom(
+      configured: Option[String],
+      slugs: List[String]
+  ): String =
+    configured
+      .filter(slugs.contains)
+      .orElse(Option.when(slugs.contains("dashboard"))("dashboard"))
+      .getOrElse(slugs.head)
 
   /** Evaluate one entry against the on-disk dump and create its renderer,
     * forcing its slug to the filename-derived one (routing is by slug).
@@ -493,36 +540,37 @@ object ServerApp extends IOApp {
     * the add-on does; iterating on library Pkl is `fh push` against the running
     * instance, never a mutable workspace `lib/`.
     */
-  private def bootstrap(dashboardsDir: os.Path): IO[LibPackage.Artifacts] =
+  private def bootstrap(config: Config): IO[LibPackage.Artifacts] =
     for {
-      seedDir <- pathFromEnv("FH_SEED_DIR", bundledResourcesDir)
-      cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
-      // This instance's own URL, written into `.fh/machine.json` as the
-      // `http.rewrites` target. Loopback + the bind PORT: inert here (packages
-      // resolve from the cache), it only matters if the workspace is copied — a
-      // laptop's `fh init` overwrites it with the real instance URL.
-      port <- Env[IO].get("PORT").map(_.getOrElse("8080"))
       // The lib is the running jar's own resources — nothing to locate on disk.
       bundled <- IO.blocking(BundledLib.artifacts())
       _ <- IO
         .blocking(
           AddonBootstrap
             .run(
-              dashboardsDir,
+              config.dashboardsDir,
               bundled,
-              seedDir,
-              cacheDir,
-              loopbackUrl = s"http://127.0.0.1:$port"
+              config.seedDir,
+              config.cacheDir,
+              // This instance's own URL, written into `.fh/machine.json` as the
+              // `http.rewrites` target. Loopback + the bind PORT: inert here
+              // (packages resolve from the cache), it only matters if the
+              // workspace is copied — a laptop's `fh init` overwrites it with
+              // the real instance URL.
+              loopbackUrl = s"http://127.0.0.1:${config.loopbackPort}"
             )
         )
         .flatMap(_.traverse_(IO.println))
     } yield bundled
 
+  /** Read `name` from the environment, falling back to `default` when unset.
+    * The single place the `Env[IO].get(...).getOrElse(...)` idiom lives.
+    */
+  private def envOr(name: String, default: String): IO[String] =
+    Env[IO].get(name).map(_.getOrElse(default))
+
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
-    Env[IO]
-      .get(name)
-      .map(_.getOrElse(default))
-      .map(s => os.Path(s, os.pwd))
+    envOr(name, default).map(s => os.Path(s, os.pwd))
 
   private val PklLspVersion = "0.8.0"
   private val PklLspUrl =
@@ -535,9 +583,10 @@ object ServerApp extends IOApp {
     * editor + local highlighting still work — if it can't be obtained.
     */
   private def resolvePklLspJar(
-      client: java.net.http.HttpClient
+      client: java.net.http.HttpClient,
+      jarOverride: Option[String]
   ): IO[Option[os.Path]] =
-    Env[IO].get("PKL_LSP_JAR").flatMap {
+    jarOverride match {
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
