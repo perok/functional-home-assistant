@@ -1,5 +1,6 @@
 package fh.view.functional
 
+import api.homeassistant.HomeAssistantApi
 import fh.view.runtime.StateStore
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture}
 
@@ -15,7 +16,9 @@ class FixtureSeedSuite extends munit.CatsEffectSuite {
   test("StateStore seeded from the fake reproduces every fixture entity") {
     FakeHomeAssistant
       .create(HouseFixture.all)
-      .flatMap(fake => StateStore.create(fake).use(_.snapshot))
+      .flatMap(fake =>
+        StateStore.create(HomeAssistantApi.fromWs(fake)).use(_.snapshot)
+      )
       .timeout(30.seconds)
       .assertEquals(
         HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap

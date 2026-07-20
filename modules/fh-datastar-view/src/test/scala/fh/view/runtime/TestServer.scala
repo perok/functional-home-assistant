@@ -205,11 +205,12 @@ object TestServer {
       bound.baseUri
     )
 
-  /** A [[HaFeed.Connect]] that hands the supervisor the in-memory fake and
-    * never closes (`IO.never`) — so the real feed runs (facade, background
-    * seed, health signal) against a scripted HA and stays "connected" for the
-    * test's whole duration, no reconnect churn. A reconnect/`haDown` test that
-    * WANTS a drop supplies its own connect with a completable close instead.
+  /** A [[HaFeed.Connect]] that hands the supervisor the in-memory fake as the
+    * low-level WS connection and never closes (`IO.never`) — so the real feed
+    * runs (durable facade, background seed, health signal) against a scripted
+    * HA and stays "connected" for the test's whole duration, no reconnect
+    * churn. A reconnect/`haDown` test that WANTS a drop supplies its own connect
+    * with a completable close instead.
     */
   private def fakeConnect(fake: FakeHomeAssistant): HaFeed.Connect =
     Resource.pure((fake, IO.never[Unit]))

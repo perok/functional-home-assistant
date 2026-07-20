@@ -1,16 +1,14 @@
 package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.domain.*
-import api.homeassistant.ws.protocol.client.TriggerData
+import api.homeassistant.ws.HAWSApiLowLevel
+import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.Event
-import cats.effect.std.QueueSource
+import cats.effect.std.{Queue, QueueSource}
 import cats.effect.{IO, Resource}
+import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import ha.runtime.definitions.*
-import io.circe.{Decoder, Json}
-import perok.ha.{GetStatesData, ServiceDomain}
 import retry.*
 
 import scala.concurrent.duration.*
@@ -20,9 +18,7 @@ import scala.concurrent.duration.*
   * The upstream HA WebSocket used to silently freeze the whole dashboard on a
   * single dropped connection: `state_changed` events stopped arriving,
   * `call_service` hung forever on the dead socket, and nothing re-established
-  * the link — while the browser SSE stream stayed open, so from the user's side
-  * "the session just stops working after a while" with no recovery short of a
-  * restart. The connection now keeps itself alive with idle HA ping/pong and
+  * the link. The connection now keeps itself alive with idle HA ping/pong and
   * reports its own death via `awaitClosed`
   * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
   *
@@ -33,9 +29,13 @@ import scala.concurrent.duration.*
   * `awaitClosed`. When the connection dies it tears down and reconnects with
   * capped exponential backoff.
   *
-  *   - [[api]] is a stable facade that routes every call to the CURRENT live
-  *     connection, so callers (the Server's `call_service` handler) never see
-  *     the swap. A call made while disconnected fails fast rather than hanging.
+  *   - [[api]] is a stable facade built ONE level down, over the low-level WS
+  *     ([[HAWSApiLowLevel]]): [[HomeAssistantApi.fromWs]] regenerates the whole
+  *     API over a durable low-level facade that routes each call to the CURRENT
+  *     live connection. A COMMAND made while disconnected fails fast; a
+  *     SUBSCRIPTION is durable — it re-subscribes across reconnects, so a
+  *     long-lived external subscriber (the registry watcher) survives a drop
+  *     without re-subscribing itself.
   *   - [[store]] is the single [[StateStore]], seeded across reconnects.
   *   - [[healthy]] reports whether the upstream feed is currently live; the
   *     Server pushes it to the browser as the `haDown` signal, so the client
@@ -68,27 +68,32 @@ object HaFeed {
   private val MinBackoff: FiniteDuration = 1.second
   private val MaxBackoff: FiniteDuration = 30.seconds
 
-  /** A connection resource paired with its `awaitClosed` signal (an `IO[Unit]`
-    * that completes when the WebSocket has died) — exactly what
-    * `FHApi.fromEnvWithClose` yields. The connection owns keepalive and
-    * liveness detection (idle HA ping/pong); this supervisor just reacts to the
-    * close.
+  /** A LOW-LEVEL connection resource paired with its `awaitClosed` signal (an
+    * `IO[Unit]` that completes when the WebSocket has died) — exactly what
+    * `FHApi.lowLevelConnectWithClose` yields. The facade sits below
+    * [[HomeAssistantApi]] (over [[HAWSApiLowLevel]]) so subscriptions can be
+    * made durable in one place; the connection owns keepalive and liveness
+    * detection (idle HA ping/pong).
     */
-  type Connect = Resource[IO, (HomeAssistantApi[IO], IO[Unit])]
+  type Connect = Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])]
 
   /** Build the supervised feed. `connect` is re-`.use`d on every reconnect (a
     * fresh WebSocket + auth each time), so pass the full connection resource
-    * (`FHApi.fromEnvWithClose`), not an already-established connection.
+    * (`FHApi.lowLevelConnectWithClose`), not an already-established connection.
     */
   def resource(connect: Connect): Resource[IO, HaFeed] =
     for {
       currentRef <- SignallingRef[IO]
-        .of(Option.empty[HomeAssistantApi[IO]])
+        .of(Option.empty[HAWSApiLowLevel[IO]])
         .toResource
       healthyRef <- SignallingRef[IO].of(false).toResource
       store <- StateStore.empty.toResource
-      _ <- superviseLoop(connect, currentRef, healthyRef, store).background
-    } yield HaFeed(facade(currentRef), store, healthyRef)
+      // The stable API: a durable facade over the current low-level connection,
+      // rebuilt into the full API by `fromWs`. Consumers hold this one value
+      // across every reconnect.
+      api = HomeAssistantApi.fromWs(durableFacade(currentRef))
+      _ <- superviseLoop(connect, currentRef, healthyRef, store, api).background
+    } yield HaFeed(api, store, healthyRef)
 
   /** Reconnect forever with capped exponential backoff, expressed as a
     * cats-retry policy rather than a hand-rolled doubling `Ref`.
@@ -104,9 +109,10 @@ object HaFeed {
     */
   private def superviseLoop(
       connect: Connect,
-      currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
+      currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
-      store: StateStore
+      store: StateStore,
+      api: HomeAssistantApi[IO]
   ): IO[Unit] = {
     val policy = RetryPolicies.capDelay(
       MaxBackoff,
@@ -119,42 +125,52 @@ object HaFeed {
           s"[ha-feed] disconnected ($reason); reconnecting (attempt ${details.retriesSoFar + 1})"
         )
     }
-    retryingOnErrors(runConnection(connect, currentRef, healthyRef, store))(
+    retryingOnErrors(
+      runConnection(connect, currentRef, healthyRef, store, api)
+    )(
       policy = policy,
       errorHandler = logReconnect
     ).foreverM
   }
 
-  /** One connection's lifetime: subscribe to `state_changed`, re-seed the store
-    * (republishing whatever changed during the outage), publish liveness, then
-    * run the ingest pump raced against the connection's own `awaitClosed`. The
-    * connection reports its death (idle ping unanswered / receive loop ended),
-    * so when `awaitClosed` fires the block ends, the resource is released —
-    * which cancels the low-level fibers and closes the socket — and the
-    * supervisor reconnects. The `guarantee` marks the feed down and clears the
-    * current connection on EVERY end (clean or abnormal), so the facade fails
-    * fast and the disconnect banner trips during the reconnect gap.
+  /** One connection's lifetime: subscribe to `state_changed` on THIS connection
+    * (before seeding, so no change is missed in the snapshot gap), publish the
+    * connection as current — which is what makes [[api]] and every durable
+    * subscription route here and re-arm — re-seed the store (republishing
+    * whatever changed during the outage), publish liveness, then run the ingest
+    * pump raced against the connection's own `awaitClosed`. The `guarantee`
+    * marks the feed down and clears the current connection on EVERY end (clean
+    * or abnormal), so commands fail fast and the disconnect banner trips during
+    * the reconnect gap.
+    *
+    * The store's own `state_changed` stays PER-CONNECTION (re-created here each
+    * reconnect, with the reseed for catch-up) — that keeps its strict
+    * subscribe-before-seed guarantee. The durable facade is what carries
+    * LONG-LIVED external subscribers (the registry watcher) across reconnects.
     */
   private def runConnection(
       connect: Connect,
-      currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
+      currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
-      store: StateStore
+      store: StateStore,
+      api: HomeAssistantApi[IO]
   ): IO[Unit] =
     connect
-      .use { case (api, awaitClosed) =>
-        // Subscribe BEFORE seeding so no change is missed in the gap between the
-        // snapshot and the live stream; events buffer in the queue and the pump
-        // drains them after the seed.
-        api.event(Some("state_changed")).use { queue =>
-          currentRef.set(Some(api)) *>
-            store.reseed(api) *>
-            healthyRef.set(true) *>
-            IO.println(
-              "[ha-feed] connected; state re-seeded from Home Assistant"
-            ) *>
-            pump(queue, store).race(awaitClosed).void
-        }
+      .use { case (ll, awaitClosed) =>
+        // A throwaway high-level view of THIS connection, just to subscribe the
+        // store's state_changed stream before we seed.
+        HomeAssistantApi
+          .fromWs(ll)
+          .event(Some("state_changed"))
+          .use { queue =>
+            currentRef.set(Some(ll)) *>
+              store.reseed(api) *>
+              healthyRef.set(true) *>
+              IO.println(
+                "[ha-feed] connected; state re-seeded from Home Assistant"
+              ) *>
+              pump(queue, store).race(awaitClosed).void
+          }
       }
       .guarantee(healthyRef.set(false) *> currentRef.set(None))
 
@@ -165,64 +181,61 @@ object HaFeed {
   private def pump(queue: QueueSource[IO, Event], store: StateStore): IO[Unit] =
     Stream.repeatEval(queue.take).evalMap(store.applyEvent).compile.drain
 
-  /** A stable `HomeAssistantApi` that dispatches each call to whatever
-    * connection is live now. Calls issued while disconnected fail fast with a
-    * clear error instead of hanging on a dead socket.
+  /** A stable low-level WS that dispatches to whatever connection is live now.
+    *
+    *   - A COMMAND (`sendCommand`) issued while disconnected fails fast with a
+    *     clear error instead of hanging on a dead socket.
+    *   - A SUBSCRIPTION (`subscribeStream`) is DURABLE: it returns a stable
+    *     queue and re-subscribes on every connection generation (a `switchMap`
+    *     over the current-connection signal cancels the old subscription and
+    *     opens a new one), forwarding events into that queue. So a long-lived
+    *     subscriber survives a reconnect without re-subscribing itself. Events
+    *     during the disconnect gap are lost; a caller that needs catch-up (the
+    *     store) re-seeds on reconnect.
+    *
+    * `HomeAssistantApi.fromWs` regenerates the full API over this — so the
+    * whole high-level surface inherits fail-fast commands and durable
+    * subscriptions from one place, replacing the old hand-written 18-method
+    * facade.
     */
-  private def facade(
-      currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]]
-  ): HomeAssistantApi[IO] =
-    new HomeAssistantApi[IO] {
-      private val disconnected: IO[Nothing] =
+  private def durableFacade(
+      currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
+  ): HAWSApiLowLevel[IO] =
+    new HAWSApiLowLevel[IO] {
+      private def disconnected[A]: IO[A] =
         IO.raiseError(
           new RuntimeException("Home Assistant feed is disconnected")
         )
 
-      private def use[A](f: HomeAssistantApi[IO] => IO[A]): IO[A] =
-        currentRef.get.flatMap(_.fold(disconnected)(f))
+      def sendCommand[Response](
+          command: CommandPhase & CommandResponse.AsResult[Response]
+      ): IO[Response] =
+        currentRef.get.flatMap(
+          _.fold(disconnected[Response])(_.sendCommand(command))
+        )
 
-      private def useR[A](
-          f: HomeAssistantApi[IO] => Resource[IO, A]
-      ): Resource[IO, A] =
-        Resource
-          .eval(currentRef.get)
-          .flatMap(_.fold(Resource.eval(disconnected))(f))
+      def subscribeStream[Result](
+          msg: CommandPhase & CommandResponse.AsStream[Result]
+      ): Resource[IO, QueueSource[IO, Result]] =
+        Resource.eval(Queue.unbounded[IO, Result]).flatMap { out =>
+          val arm =
+            currentRef.discrete
+              .switchMap {
+                case None       => Stream.empty
+                case Some(conn) =>
+                  Stream
+                    .resource(conn.subscribeStream(msg))
+                    .flatMap(q => Stream.repeatEval(q.take))
+              }
+              .evalMap(out.offer)
+              .compile
+              .drain
+          Resource.make(arm.start)(_.cancel).as(out)
+        }
 
-      def configDeviceRegistryList: IO[Map[DeviceId, Device]] =
-        use(_.configDeviceRegistryList)
-      def configEntityRegistryList: IO[Map[EntityId, Entity]] =
-        use(_.configEntityRegistryList)
-      def configEntityRegistryGet(entityId: EntityId): IO[Json] =
-        use(_.configEntityRegistryGet(entityId))
-      def manifestList(): IO[List[Manifest]] = use(_.manifestList())
-      def configEntriesGet(
-          type_filter: List[String],
-          domain: Option[String]
-      ): IO[List[ConfigEntry]] = use(_.configEntriesGet(type_filter, domain))
-      def deviceAutomationTriggerList(
-          deviceId: DeviceId
-      ): IO[List[DeviceTrigger]] = use(_.deviceAutomationTriggerList(deviceId))
-      def deviceAutomationActionList(deviceId: DeviceId): IO[List[Json]] =
-        use(_.deviceAutomationActionList(deviceId))
-      def deviceAutomationActionCapabilities(action: Json): IO[Json] =
-        use(_.deviceAutomationActionCapabilities(action))
-      def getConfigWS: IO[Json] = use(_.getConfigWS)
-      def getServicesWS: IO[Json] = use(_.getServicesWS)
-      def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
-        useR(_.event(event))
-      def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
-        useR(_.rawEvents(eventType))
-      def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
-        useR(_.trigger(data*))
-      def callService(
-          domain: String,
-          service: String,
-          entityId: String,
-          serviceData: Json
-      ): IO[Json] = use(_.callService(domain, service, entityId, serviceData))
-      def getStates: IO[List[GetStatesData]] = use(_.getStates)
-      def getServices: IO[List[ServiceDomain]] = use(_.getServices)
-      def templateFunc[Body: Decoder](template: String): IO[Body] =
-        use(_.templateFunc[Body](template))
+      // The durable facade never itself "closes" — it outlives every
+      // connection, reconnecting under the hood. The per-connection close is
+      // observed by the supervisor via each `connect`'s own `awaitClosed`.
+      def awaitClosed: IO[Unit] = IO.never
     }
 }

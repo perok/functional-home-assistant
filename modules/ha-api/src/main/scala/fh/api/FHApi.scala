@@ -68,6 +68,17 @@ object FHApi {
   ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
     fromWithClose(env.server, env.secretToken, env.serverWs)
 
+  /** Like [[connectWithClose]] but yields the raw low-level WS connection
+    * (`HAWSApiLowLevel`) rather than the high-level [[HomeAssistantApi]]. The
+    * reconnecting supervisor ([[fh.view.runtime.HaFeed]]) fronts THIS with a
+    * durable facade and rebuilds the high-level API over it, so the whole API
+    * survives reconnects behind one seam.
+    */
+  def lowLevelConnectWithClose(
+      env: Env
+  ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
+    lowLevelWithClose(env.server, env.secretToken, env.serverWs)
+
   /** A config value: the process environment first (when set and non-empty),
     * then the discovered `.env`.
     */
@@ -131,6 +142,21 @@ object FHApi {
       secretToken: String,
       wsUriOverride: Option[Uri] = None
   ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    lowLevelWithClose(api, secretToken, wsUriOverride).map { case (ws, close) =>
+      (HomeAssistantApi.fromWs(ws), close)
+    }
+
+  /** The single WebSocket connection + its `awaitClosed`. WS-only: one
+    * connection backs the whole API (states, services, templates,
+    * subscriptions, `call_service`) — no REST client. [[fromWithClose]] wraps
+    * this in the high-level API; [[lowLevelConnectWithClose]] hands it raw to
+    * the reconnecting supervisor.
+    */
+  def lowLevelWithClose(
+      api: Uri,
+      secretToken: String,
+      wsUriOverride: Option[Uri] = None
+  ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
     for {
       wsUri <- wsUriOverride
         .fold(utils.haUriHttpToWS[IO](api))(IO.pure)
@@ -140,12 +166,10 @@ object FHApi {
       httpClient <- IO(HttpClient.newHttpClient()).toResource
       wsClient = JdkWSClient[IO](httpClient)
 
-      // WS-only: one connection backs the whole API (states, services,
-      // templates, subscriptions, call_service). No REST client.
       wsApi <- HAWSApiLowLevel(
         wsClient,
         wsUri,
         secretToken
       )
-    } yield (HomeAssistantApi.fromWs(wsApi), wsApi.awaitClosed)
+    } yield (wsApi, wsApi.awaitClosed)
 }

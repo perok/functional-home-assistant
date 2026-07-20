@@ -131,7 +131,7 @@ object ServerApp extends IOApp {
         // prep, dump refresh, registry watching — so there is no second,
         // unsupervised socket that silently dies on a drop. The feed connects in
         // the background; `feed.awaitHealthy` below gates the first use.
-        feed <- HaFeed.resource(FHApi.connectWithClose(haEnv))
+        feed <- HaFeed.resource(FHApi.lowLevelConnectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
         // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
         // sans ext. The library is not in the workspace — it resolves through
