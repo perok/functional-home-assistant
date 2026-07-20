@@ -11,9 +11,11 @@ FROM eclipse-temurin:21-alpine AS jre-build
 # Custom Java runtime: the module list is jdeps output for the assembled jar
 # (jdeps --multi-release 21 --print-module-deps --ignore-missing-deps
 # target/addon/fh-dashboard.jar) + jdk.crypto.ec, which jdeps cannot see
-# statically but TLS needs for the HTTPS theme-asset fetches.
+# statically but TLS needs for the HTTPS theme-asset fetches, + jdk.zipfs,
+# which jdeps likewise cannot see statically but pkl-core needs at runtime to
+# open its cached packages via a "jar:" NIO FileSystemProvider.
 RUN $JAVA_HOME/bin/jlink \
-         --add-modules java.base,java.compiler,java.management,java.naming,java.net.http,java.sql,jdk.unsupported,jdk.crypto.ec \
+         --add-modules java.base,java.compiler,java.management,java.naming,java.net.http,java.sql,jdk.unsupported,jdk.crypto.ec,jdk.zipfs \
          --strip-debug \
          --no-man-pages \
          --no-header-files \
