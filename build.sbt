@@ -179,7 +179,7 @@ lazy val `fh-datastar-view` = project
       // filesystem paths/IO for the build phase (was transitive via sjsonnet)
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
-      "org.pkl-lang" % "pkl-core" % "0.31.1",
+      "org.pkl-lang" % "pkl-core" % "0.32.0",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
       "org.pkl-lang" % "pkl-parser" % "0.31.1",
