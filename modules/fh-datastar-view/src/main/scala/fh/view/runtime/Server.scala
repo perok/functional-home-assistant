@@ -15,7 +15,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.model.Dashboard
 import fs2.Stream
-import fs2.concurrent.{SignallingRef, Topic}
+import fs2.concurrent.{Signal, SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -87,6 +87,11 @@ class Server(
     // are rewritten through it and `/assets/:name` serves from it. The empty
     // default (pass-through, no local assets) keeps tests ceremony-free.
     assets: AssetCache = AssetCache.empty,
+    // Whether the upstream Home Assistant feed is live ([[HaFeed.healthy]]). The
+    // SSE heartbeat only beats while this is true, so the client disconnect
+    // banner also lights up on an upstream freeze — not just a browser-side
+    // drop. Constant-`true` default keeps tests/standalone construction simple.
+    healthy: Signal[IO, Boolean] = Signal.constant(true),
     // The live home's Pkl artifacts (schema + dump) served over `/system/pkl/`
     // for pkl-lsp / the editor / remote authors. The empty default serves
     // nothing (404) — the server's own eval never hits this route (it resolves
@@ -396,13 +401,37 @@ class Server(
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
+      rendererOpt <- rendererFor(slug)
       // Seed the open set with this client's selected tab panels (from its
       // cookies), so the baked-inline tabs receive live updates from the first
       // paint. Warn on any off cookie value.
-      _ <- rendererFor(slug).flatMap(_.traverse_ { r =>
+      _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(r.selectedSurfaces(uiState))
-      })
+      }
+      // On (re)connect, repaint the body from the CURRENT snapshot. On first
+      // load this reconciles the tiny gap between the server-rendered page and
+      // the SSE opening; on a reconnect (Datastar re-runs `data-init`) it heals
+      // a DOM that went stale while the stream was down — the shared/per-session
+      // passes only stream FUTURE changes, so without this a reconnected client
+      // would show pre-drop values until each entity next ticks.
+      initialRepaint <- rendererOpt.traverse { r =>
+        stateStore.snapshot.map(st =>
+          Datastar.patch(
+            r.renderBody(st, uiState),
+            PatchMode.Inner,
+            Some("#dashboard")
+          )
+        )
+      }
+      // Home-Assistant-feed liveness, PUSHED from the server (it owns the
+      // `healthy` signal). This is concept 1 of the two disconnect concepts
+      // (see [[Server.page]]): the backend knows when it can't reach HA, so it
+      // emits the `haDown` signal directly rather than the client inferring it
+      // from a stalled beat. Concept 2 (browser<->server transport) stays
+      // client-side — only the browser can observe its own dropped SSE.
+      healthPatch = (h: Boolean) =>
+        Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers). The session's slug can change mid-connection
@@ -426,14 +455,27 @@ class Server(
         .flatMap(Stream.emits)
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState)
-      heartbeat = Stream
-        .awakeEvery[IO](15.seconds)
-        .as(ServerSentEvent(data = None, comment = Some("keep-alive")))
+      // Emit `haDown` on connect (the initial `discrete` value) and on every
+      // health transition.
+      haDown = healthy.discrete.changes.map(healthPatch)
+      // Periodic re-emit of the current health: keeps SSE traffic flowing so an
+      // idle connection isn't dropped by intermediaries, and self-heals a
+      // `haDown` patch that was ever missed. Datastar treats an unchanged signal
+      // as a no-op.
+      keepAlive = Stream
+        .awakeEvery[IO](Server.KeepAliveInterval)
+        .evalMap(_ => healthy.get.map(healthPatch))
 
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++
-        shared.merge(patches).merge(control).merge(reloads).merge(heartbeat))
+        Stream.emits(initialRepaint.toList) ++
+        shared
+          .merge(patches)
+          .merge(control)
+          .merge(reloads)
+          .merge(haDown)
+          .merge(keepAlive))
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
     } yield resp
@@ -884,6 +926,49 @@ class Server(
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
            |<script src="edit/overlay.js"></script>""".stripMargin
+    // Connection indicators. TWO distinct, separately-SOURCED failures:
+    //
+    //   1. UPSTREAM HA FEED down (this server can't reach Home Assistant). The
+    //      backend OWNS this fact (`healthy`), so it PUSHES the `haDown` signal
+    //      over SSE (see `sseStream`) — no client-side inference. The banner
+    //      just renders `data-show` off that signal.
+    //   2. SSE TRANSPORT down (browser can't reach this server). Only the client
+    //      can observe its own dropped stream, so this stays client-side.
+    //      Datastar dispatches a `datastar-sse` CustomEvent on `document` with
+    //      `detail.type` of `error`/`retrying`/`retries-failed` (trouble) or a
+    //      `datastar-*` patch type (a live message = transport alive). Datastar
+    //      auto-retries a dropped `@get` up to 10× with backoff, then gives up
+    //      (`retries-failed` — the stream is dead and needs a reload). The bridge
+    //      script mirrors that lifecycle into `window.__fhSse` (0 ok / 1 retrying
+    //      / 2 failed); a 1s interval lifts it into the `_sseDown` signal. It's
+    //      the one place that touches a Datastar internal, so it also listens for
+    //      a `datastar-fetch` alias defensively.
+    //
+    // Transport takes priority: a dead transport also freezes `haDown` updates,
+    // so the HA banner is gated on `!_sseDown`. Structure/behavior live here so
+    // the indicators always render and are theme-independent (documented
+    // primitives: `data-signals`, `data-on-interval`, `data-show`,
+    // `data-on:click`); the LOOK is theme-owned via `.fh-offline*` classes (each
+    // theme's `styles`, see lib/theme-*.pkl).
+    val connBridge =
+      """<script>
+        |window.__fhSse=0;(function(){function h(e){var t=e&&e.detail&&e.detail.type;if(!t)return;
+        |if(t==='retries-failed')window.__fhSse=2;else if(t==='retrying'||t==='error')window.__fhSse=1;
+        |else window.__fhSse=0;}document.addEventListener('datastar-sse',h);
+        |document.addEventListener('datastar-fetch',h);})();
+        |</script>""".stripMargin
+    // Datastar expressions read signals via `$name` (this pinned build, unlike
+    // some Datastar doc examples, requires the sigil even for a bare read).
+    val ha = "$" + Server.HaDownSignal
+    val connBanner =
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, _sseDown: false}"
+         |     data-on-interval="1000; $$_sse = (window.__fhSse || 0); $$_sseDown = $$_sse > 0">
+         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sseDown">
+         |    <span data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
+         |    <span data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+         |  </div>
+         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$ha && !$$_sseDown">Home Assistant unavailable — reconnecting…</div>
+         |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -895,8 +980,10 @@ class Server(
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
       )}"></script>
+       |$connBridge
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
+       |$connBanner
        |$body
        |$editAssets
        |</body>
@@ -923,6 +1010,7 @@ object Server {
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
+      healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
@@ -939,6 +1027,7 @@ object Server {
         topic,
         supervisor,
         assets,
+        healthy,
         systemPkl,
         dumpRefresh
       )
@@ -1022,6 +1111,20 @@ object Server {
     * action POST body (`connOf`) so a POST correlates to its stream.
     */
   val ConnSignal: String = "conn"
+
+  /** The Datastar signal name carrying upstream-HA liveness, PUSHED by the
+    * server (it owns `healthy`). `true` means the backend can't reach Home
+    * Assistant; the HA disconnect banner renders `data-show` off it (see
+    * [[Server.page]]). Concept 1 of the two disconnect concepts — the
+    * browser<->server transport (concept 2) is derived client-side instead.
+    */
+  val HaDownSignal: String = "haDown"
+
+  /** How often the SSE stream re-emits the current [[HaDownSignal]] value. This
+    * is a keepalive: it keeps traffic on an otherwise-idle connection so
+    * intermediaries don't drop it, and self-heals a missed `haDown` patch.
+    */
+  val KeepAliveInterval: FiniteDuration = 2.seconds
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across

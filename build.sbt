@@ -191,6 +191,9 @@ lazy val `fh-datastar-view` = project
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
       "com.dashjoin" % "jsonata" % "0.9.10",
+      // Capped exponential backoff for the self-healing HA feed reconnect
+      // (HaFeed.superviseLoop) as a RetryPolicy rather than a hand-rolled Ref.
+      "com.github.cb372" %% "cats-retry" % "4.0.0",
       "org.scalameta" %% "munit" % "1.3.3" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).

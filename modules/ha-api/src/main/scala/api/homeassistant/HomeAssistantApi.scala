@@ -14,46 +14,53 @@ import io.circe.{Decoder, Json}
 import perok.ha.{GetStatesData, HomeAssistantApiService, ServiceDomain}
 
 // TODO add caching of rest + json response. triggers and actions usually don't change
+//
+// The trait is effect-polymorphic in `F`: methods return `F[...]` /
+// `Resource[F, *]`, not a hardcoded `IO`. The only production instance is built
+// at `F = IO` ([[HomeAssistantApi.fromLowLevel]]) — consumers still work against
+// `HomeAssistantApi[IO]` — but honoring `F` keeps the type honest (a test double
+// or alternative interpreter can pick another effect) and confines the effect to
+// this "machinery" boundary.
 trait HomeAssistantApi[F[_]] {
 
   /** https://developers.home-assistant.io/docs/device_registry_index/
     * @return
     */
-  def configDeviceRegistryList: IO[Map[DeviceId, Device]]
+  def configDeviceRegistryList: F[Map[DeviceId, Device]]
 
   def configEntityRegistryList
-      : IO[Map[EntityId, Entity]] // Exposes entity_id and device_id
+      : F[Map[EntityId, Entity]] // Exposes entity_id and device_id
 
-  def configEntityRegistryGet(entityId: EntityId): IO[Json]
+  def configEntityRegistryGet(entityId: EntityId): F[Json]
 
   // Not interesting
-  def manifestList(): IO[List[Manifest]]
+  def manifestList(): F[List[Manifest]]
 
   def configEntriesGet(
       type_filter: List[String] = List.empty,
       domain: Option[String] = None
-  ): IO[List[ConfigEntry]]
+  ): F[List[ConfigEntry]]
 
-  def deviceAutomationTriggerList(deviceId: DeviceId): IO[List[DeviceTrigger]]
+  def deviceAutomationTriggerList(deviceId: DeviceId): F[List[DeviceTrigger]]
 
-  def deviceAutomationActionList(deviceId: DeviceId): IO[List[Json]]
+  def deviceAutomationActionList(deviceId: DeviceId): F[List[Json]]
 
-  def deviceAutomationActionCapabilities(action: Json): IO[Json]
+  def deviceAutomationActionCapabilities(action: Json): F[Json]
 
-  def getConfigWS: IO[Json]
+  def getConfigWS: F[Json]
 
-  def getServicesWS: IO[Json]
+  def getServicesWS: F[Json]
 
-  def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]]
+  def event(event: Option[String]): Resource[F, QueueSource[F, Event]]
 
   /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
     * Event payload shapes are event-type-specific (`entity_registry_updated`
     * carries `{action, entity_id}`, not a state), so no decoding is imposed
     * here — [[event]] is the typed `state_changed` special case.
     */
-  def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]]
+  def rawEvents(eventType: String): Resource[F, QueueSource[F, Json]]
 
-  def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]]
+  def trigger(data: TriggerData*): Resource[F, QueueSource[F, Json]]
 
   /** Call a Home Assistant service/action on an entity via the WebSocket API.
     * `serviceData` carries extra parameters (e.g. `{ "brightness": 128 }`).
@@ -63,14 +70,14 @@ trait HomeAssistantApi[F[_]] {
       service: String,
       entityId: String,
       serviceData: Json
-  ): IO[Json]
+  ): F[Json]
 
-  def getStates: IO[List[GetStatesData]]
+  def getStates: F[List[GetStatesData]]
 
-  def getServices: IO[List[ServiceDomain]]
+  def getServices: F[List[ServiceDomain]]
 
   // Assumes | to_json as the end
-  def templateFunc[Body: Decoder](template: String): IO[Body]
+  def templateFunc[Body: Decoder](template: String): F[Body]
 }
 
 object HomeAssistantApi {

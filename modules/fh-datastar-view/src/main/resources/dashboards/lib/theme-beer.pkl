@@ -220,6 +220,18 @@ class BeerTheme extends themeMod.Theme {
     dialog.popup{max-inline-size:min(90vw,32rem)}
     .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
       color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
+
+    /* Connection banners. Structure/behavior are emitted by the server shell
+       (Server.page); this owns the look. Shared layout, then a colour per failure
+       kind — SSE transport (MD3 error role, flips in dark mode) vs upstream HA
+       feed (warning amber) — so the two are visually distinct. A fixed bar
+       overlaying the top; `data-show` keeps them hidden while healthy. */
+    .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;text-align:center;
+      padding:.5rem 1rem;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+    .fh-offline-sse{background:var(--error,#ba1a1a);color:var(--on-error,#fff)}
+    .fh-offline-ha{background:var(--warning-color,#ffa600);color:#000}
+    .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
+      border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
     """
 }
 

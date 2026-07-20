@@ -20,7 +20,16 @@ object FHApi {
     * inherit `run / envVars`, so relying on the process env alone is brittle —
     * the `.env` fallback is deterministic.
     */
-  def fromEnv: Resource[IO, HomeAssistantApi[IO]] = for {
+  def fromEnv: Resource[IO, HomeAssistantApi[IO]] =
+    fromEnvWithClose.map(_._1)
+
+  /** Like [[fromEnv]], but also exposes the connection's `awaitClosed` (an
+    * `IO[Unit]` that completes when the underlying WebSocket has died). A
+    * caller that wants to reconnect races its work against it; callers that
+    * just need the API (codegen, one-shot builds) use [[fromEnv]] and ignore
+    * it.
+    */
+  def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] = for {
     server <- IO(lookup("SERVER"))
       .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
       .flatMap(s => IO(Uri.unsafeFromString(s)))
@@ -34,7 +43,7 @@ object FHApi {
     serverWs <- IO(lookup("SERVER_WS"))
       .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
       .toResource
-    result <- from(server, secretToken, serverWs)
+    result <- fromWithClose(server, secretToken, serverWs)
   } yield result
 
   /** A config value: the process environment first (when set and non-empty),
@@ -90,6 +99,16 @@ object FHApi {
       secretToken: String,
       wsUriOverride: Option[Uri] = None
   ): Resource[IO, HomeAssistantApi[IO]] =
+    fromWithClose(api, secretToken, wsUriOverride).map(_._1)
+
+  /** Like [[from]], but also returns the connection's `awaitClosed` signal (see
+    * [[fromEnvWithClose]]).
+    */
+  def fromWithClose(
+      api: Uri,
+      secretToken: String,
+      wsUriOverride: Option[Uri] = None
+  ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
     for {
       wsUri <- wsUriOverride
         .fold(utils.haUriHttpToWS[IO](api))(IO.pure)
@@ -112,5 +131,5 @@ object FHApi {
         wsUri,
         secretToken
       )
-    } yield HomeAssistantApi.fromLowLevel(wsApi, api)
+    } yield (HomeAssistantApi.fromLowLevel(wsApi, api), wsApi.awaitClosed)
 }

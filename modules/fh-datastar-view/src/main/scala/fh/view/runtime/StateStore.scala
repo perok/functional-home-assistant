@@ -4,6 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.protocol.server.Event
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
+import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.Topic
 import io.circe.Json
@@ -110,7 +111,7 @@ class StateStore private (
   /** Stream of state changes (entity + its previous/current value). */
   def changes: Stream[IO, StateChange] = topic.subscribe(64)
 
-  private def applyEvent(event: Event): IO[Unit] = {
+  private[runtime] def applyEvent(event: Event): IO[Unit] = {
     val entityId = event.data.entity_id
     val ns = event.data.new_state
     // The WS event carries the FULL attribute set, so we replace wholesale —
@@ -140,6 +141,21 @@ class StateStore private (
           )
       }
       .flatMap(_.fold(IO.unit)(change => topic.publish1(change).void))
+
+  /** Re-fetch the full snapshot from HA and fold it into the store.
+    *
+    * The reconnect-recovery path: after the [[HaFeed]] supervisor
+    * re-establishes a dropped connection, the store may have missed any number
+    * of changes. This replays a fresh `/api/states` snapshot through
+    * [[update]], which dedups unchanged entities (no churn) and publishes a
+    * [[StateChange]] only for entities that actually changed or newly appeared
+    * while we were away — so every connected browser catches up over its live
+    * SSE stream without any per-client timestamp tracking. Entities that
+    * VANISHED from HA during the outage are left in place (removal is rare and
+    * not what a reconnect must heal).
+    */
+  def reseed(api: HomeAssistantApi[IO]): IO[Unit] =
+    StateStore.seed(api).flatMap(_.values.toList.traverse_(update))
 
   /** Current number of `changes` subscribers, as a signal stream — a test seam
     * to await subscriptions deterministically (topic publishes reach only
@@ -173,6 +189,12 @@ object StateStore {
             .background
         }
     } yield store
+
+  /** An empty store with no live feed of its own. The [[HaFeed]] supervisor
+    * owns the lifecycle: it seeds this on connect and re-seeds ([[reseed]]) on
+    * every reconnect, so state survives across dropped upstream connections.
+    */
+  def empty: IO[StateStore] = inMemory(Map.empty)
 
   /** A store with no live feed — seeded with `initial` and driven by explicit
     * [[StateStore.update]] calls. The test seam behind [[create]].

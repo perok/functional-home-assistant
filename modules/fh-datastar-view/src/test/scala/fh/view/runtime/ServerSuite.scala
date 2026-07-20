@@ -198,8 +198,8 @@ class ServerSuite extends munit.CatsEffectSuite {
           Map("home" -> ref),
           "home",
           sessions,
-          AssetCache.empty,
-          system
+          assets = AssetCache.empty,
+          systemPkl = system
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -288,8 +288,8 @@ class ServerSuite extends munit.CatsEffectSuite {
           Map("home" -> ref),
           "home",
           sessions,
-          AssetCache.empty,
-          system
+          assets = AssetCache.empty,
+          systemPkl = system
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -327,6 +327,24 @@ class ServerSuite extends munit.CatsEffectSuite {
     assertEquals(matched.headers.get[ETag].map(_.tag), okTag)
 
     assertEquals(stale.status, Status.Ok)
+  }
+
+  test("page serves both connection indicators (SSE transport + HA feed)") {
+    pageHtml(titleDash("home", None)).map { html =>
+      // Concept 1: the server-pushed HA-down signal drives the HA banner.
+      assert(html.contains(Server.HaDownSignal), html)
+      // Concept 2: a client-side interval derives transport-down from __fhSse.
+      assert(html.contains("data-on-interval"), html)
+      // The bridge mirrors Datastar's connection-lifecycle events into a global.
+      assert(html.contains("window.__fhSse"), html)
+      assert(html.contains("datastar-sse"), html)
+      // Two DISTINCT messages, one per failure kind.
+      assert(html.contains("Reconnecting to the dashboard"), html)
+      assert(html.contains("Home Assistant unavailable"), html)
+      // Styled by theme-owned classes, not inline styles.
+      assert(html.contains("fh-offline-sse"), html)
+      assert(html.contains("fh-offline-ha"), html)
+    }
   }
 
   test("patchElements collapses multi-line fragments to a single data line") {
