@@ -331,9 +331,10 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   test("page serves both connection indicators (SSE transport + HA feed)") {
     pageHtml(titleDash("home", None)).map { html =>
-      // The watchdog interval reads the server heartbeat signal.
+      // Concept 1: the server-pushed HA-down signal drives the HA banner.
+      assert(html.contains(Server.HaDownSignal), html)
+      // Concept 2: a client-side interval derives transport-down from __fhSse.
       assert(html.contains("data-on-interval"), html)
-      assert(html.contains(Server.BeatSignal), html)
       // The bridge mirrors Datastar's connection-lifecycle events into a global.
       assert(html.contains("window.__fhSse"), html)
       assert(html.contains("datastar-sse"), html)

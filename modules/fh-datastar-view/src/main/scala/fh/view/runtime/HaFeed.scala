@@ -11,6 +11,7 @@ import fs2.concurrent.{Signal, SignallingRef}
 import ha.runtime.definitions.*
 import io.circe.{Decoder, Json}
 import perok.ha.{GetStatesData, ServiceDomain}
+import retry.*
 
 import scala.concurrent.duration.*
 
@@ -37,8 +38,9 @@ import scala.concurrent.duration.*
   *     the swap. A call made while disconnected fails fast rather than hanging.
   *   - [[store]] is the single [[StateStore]], seeded across reconnects.
   *   - [[healthy]] reports whether the upstream feed is currently live; the
-  *     Server's SSE heartbeat gates its beat on it, so the client disconnect
-  *     banner also reflects an upstream freeze, not just a browser-side drop.
+  *     Server pushes it to the browser as the `haDown` signal, so the client
+  *     disconnect banner reflects an upstream freeze, not just a browser-side
+  *     drop.
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
@@ -73,41 +75,40 @@ object HaFeed {
       _ <- superviseLoop(connect, currentRef, healthyRef, store).background
     } yield HaFeed(facade(currentRef), store, healthyRef)
 
-  /** Reconnect forever: run one connection to completion, mark the feed down,
-    * wait out the (escalating) backoff, and try again. A connection that seeds
-    * successfully resets the backoff, so a flapping link escalates while a
-    * long-lived one that later drops restarts from the minimum.
+  /** Reconnect forever with capped exponential backoff, expressed as a
+    * cats-retry policy rather than a hand-rolled doubling `Ref`.
+    *
+    * `runConnection` is one connection's whole lifetime: it either RETURNS (the
+    * socket closed cleanly) or RAISES (an abnormal drop — `awaitClosed` reports
+    * the cause). `retryingOnErrors` retries only on a raise, escalating the
+    * delay across CONSECUTIVE failed runs (a flapping link), and stops on a
+    * clean return; `.foreverM` then re-enters with a FRESH policy — so a
+    * long-lived connection that later closes cleanly restarts the backoff from
+    * the minimum, while rapid connect/fail churn escalates up to `MaxBackoff`.
+    * There is no retry limit, so it reconnects indefinitely.
     */
   private def superviseLoop(
       connect: Connect,
       currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
       store: StateStore
-  ): IO[Unit] =
-    SignallingRef[IO].of(MinBackoff).flatMap { backoffRef =>
-      runConnection(
-        connect,
-        currentRef,
-        healthyRef,
-        store,
-        backoffRef
-      ).attempt.flatMap { outcome =>
-        val reason = outcome match {
-          case Right(_)  => "connection closed"
-          case Left(err) => Option(err.getMessage).getOrElse(err.toString)
-        }
-        healthyRef.set(false) *>
-          currentRef.set(None) *>
-          backoffRef.get.flatMap { delay =>
-            val next = delay * 2
-            IO.println(
-              s"[ha-feed] disconnected ($reason); reconnecting in ${delay.toSeconds}s"
-            ) *>
-              IO.sleep(delay) *>
-              backoffRef.set(if (next < MaxBackoff) next else MaxBackoff)
-          }
-      }.foreverM
+  ): IO[Unit] = {
+    val policy = RetryPolicies.capDelay(
+      MaxBackoff,
+      RetryPolicies.exponentialBackoff[IO](MinBackoff)
+    )
+    val logReconnect = ResultHandler.retryOnAllErrors[IO, Unit] {
+      (err: Throwable, details: RetryDetails) =>
+        val reason = Option(err.getMessage).getOrElse(err.toString)
+        IO.println(
+          s"[ha-feed] disconnected ($reason); reconnecting (attempt ${details.retriesSoFar + 1})"
+        )
     }
+    retryingOnErrors(runConnection(connect, currentRef, healthyRef, store))(
+      policy = policy,
+      errorHandler = logReconnect
+    ).foreverM
+  }
 
   /** One connection's lifetime: subscribe to `state_changed`, re-seed the store
     * (republishing whatever changed during the outage), publish liveness, then
@@ -115,30 +116,32 @@ object HaFeed {
     * connection reports its death (idle ping unanswered / receive loop ended),
     * so when `awaitClosed` fires the block ends, the resource is released —
     * which cancels the low-level fibers and closes the socket — and the
-    * supervisor reconnects.
+    * supervisor reconnects. The `guarantee` marks the feed down and clears the
+    * current connection on EVERY end (clean or abnormal), so the facade fails
+    * fast and the disconnect banner trips during the reconnect gap.
     */
   private def runConnection(
       connect: Connect,
       currentRef: SignallingRef[IO, Option[HomeAssistantApi[IO]]],
       healthyRef: SignallingRef[IO, Boolean],
-      store: StateStore,
-      backoffRef: SignallingRef[IO, FiniteDuration]
+      store: StateStore
   ): IO[Unit] =
-    connect.use { case (api, awaitClosed) =>
-      // Subscribe BEFORE seeding so no change is missed in the gap between the
-      // snapshot and the live stream; events buffer in the queue and the pump
-      // drains them after the seed.
-      api.event(Some("state_changed")).use { queue =>
-        currentRef.set(Some(api)) *>
-          store.reseed(api) *>
-          backoffRef.set(MinBackoff) *>
-          healthyRef.set(true) *>
-          IO.println(
-            "[ha-feed] connected; state re-seeded from Home Assistant"
-          ) *>
-          pump(queue, store).race(awaitClosed).void
+    connect
+      .use { case (api, awaitClosed) =>
+        // Subscribe BEFORE seeding so no change is missed in the gap between the
+        // snapshot and the live stream; events buffer in the queue and the pump
+        // drains them after the seed.
+        api.event(Some("state_changed")).use { queue =>
+          currentRef.set(Some(api)) *>
+            store.reseed(api) *>
+            healthyRef.set(true) *>
+            IO.println(
+              "[ha-feed] connected; state re-seeded from Home Assistant"
+            ) *>
+            pump(queue, store).race(awaitClosed).void
+        }
       }
-    }
+      .guarantee(healthyRef.set(false) *> currentRef.set(None))
 
   /** Drain the live `state_changed` queue into the store. Blocks as long as the
     * connection lives; `runConnection` races it against `awaitClosed`, which is

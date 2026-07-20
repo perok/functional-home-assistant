@@ -424,13 +424,14 @@ class Server(
           )
         )
       }
-      // Per-connection heartbeat, doubling as the disconnect-detection beat: an
-      // incrementing `srvBeat` signal the client watches (see [[Server.page]]).
-      // It beats ONLY while the upstream feed is healthy, so a stalled beat —
-      // whether from a browser-side SSE drop or a dead HA feed — trips the
-      // client banner. A signal patch is also SSE traffic, so it keeps
-      // intermediaries from idling the connection out.
-      beatCounter <- Ref[IO].of(0L)
+      // Home-Assistant-feed liveness, PUSHED from the server (it owns the
+      // `healthy` signal). This is concept 1 of the two disconnect concepts
+      // (see [[Server.page]]): the backend knows when it can't reach HA, so it
+      // emits the `haDown` signal directly rather than the client inferring it
+      // from a stalled beat. Concept 2 (browser<->server transport) stays
+      // client-side — only the browser can observe its own dropped SSE.
+      healthPatch = (h: Boolean) =>
+        Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers). The session's slug can change mid-connection
@@ -454,24 +455,27 @@ class Server(
         .flatMap(Stream.emits)
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState)
-      heartbeat = Stream
-        .awakeEvery[IO](Server.BeatInterval)
-        .evalMap(_ => healthy.get)
-        .evalMapFilter {
-          case false => IO.pure(None)
-          case true  =>
-            beatCounter
-              .updateAndGet(_ + 1)
-              .map(n =>
-                Some(Datastar.patchSignals(s"""{"${Server.BeatSignal}":$n}"""))
-              )
-        }
+      // Emit `haDown` on connect (the initial `discrete` value) and on every
+      // health transition.
+      haDown = healthy.discrete.changes.map(healthPatch)
+      // Periodic re-emit of the current health: keeps SSE traffic flowing so an
+      // idle connection isn't dropped by intermediaries, and self-heals a
+      // `haDown` patch that was ever missed. Datastar treats an unchanged signal
+      // as a no-op.
+      keepAlive = Stream
+        .awakeEvery[IO](Server.KeepAliveInterval)
+        .evalMap(_ => healthy.get.map(healthPatch))
 
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++
         Stream.emits(initialRepaint.toList) ++
-        shared.merge(patches).merge(control).merge(reloads).merge(heartbeat))
+        shared
+          .merge(patches)
+          .merge(control)
+          .merge(reloads)
+          .merge(haDown)
+          .merge(keepAlive))
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
     } yield resp
@@ -922,29 +926,30 @@ class Server(
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
            |<script src="edit/overlay.js"></script>""".stripMargin
-    // Connection indicators. TWO distinct failures, presented separately:
+    // Connection indicators. TWO distinct, separately-SOURCED failures:
     //
-    //   1. SSE TRANSPORT down (browser can't reach this server). Detected from
-    //      Datastar's own connection-lifecycle events: the client dispatches a
-    //      `datastar-sse` CustomEvent on `document` with `detail.type` of
-    //      `error`/`retrying`/`retries-failed` (trouble) or a `datastar-*` patch
-    //      type (a live message = transport alive). Datastar auto-retries a
-    //      dropped `@get` up to 10× with backoff, then gives up (`retries-failed`
-    //      — the stream is dead and needs a reload). The tiny bridge script below
-    //      mirrors that lifecycle into `window.__fhSse` (0 ok / 1 retrying /
-    //      2 failed); it's the one place that touches a Datastar internal, so it
-    //      also listens for a `datastar-fetch` alias defensively.
-    //   2. UPSTREAM HA FEED down (this server can't reach Home Assistant). The
-    //      SSE is fine but state is frozen: the server's `srvBeat` heartbeat only
-    //      ticks while the HA feed is healthy (see `sseStream`), so stalled beats
-    //      *with a live transport* mean HA, not the browser.
+    //   1. UPSTREAM HA FEED down (this server can't reach Home Assistant). The
+    //      backend OWNS this fact (`healthy`), so it PUSHES the `haDown` signal
+    //      over SSE (see `sseStream`) — no client-side inference. The banner
+    //      just renders `data-show` off that signal.
+    //   2. SSE TRANSPORT down (browser can't reach this server). Only the client
+    //      can observe its own dropped stream, so this stays client-side.
+    //      Datastar dispatches a `datastar-sse` CustomEvent on `document` with
+    //      `detail.type` of `error`/`retrying`/`retries-failed` (trouble) or a
+    //      `datastar-*` patch type (a live message = transport alive). Datastar
+    //      auto-retries a dropped `@get` up to 10× with backoff, then gives up
+    //      (`retries-failed` — the stream is dead and needs a reload). The bridge
+    //      script mirrors that lifecycle into `window.__fhSse` (0 ok / 1 retrying
+    //      / 2 failed); a 1s interval lifts it into the `_sseDown` signal. It's
+    //      the one place that touches a Datastar internal, so it also listens for
+    //      a `datastar-fetch` alias defensively.
     //
-    // The interval derives both, giving the transport its priority (a dead
-    // transport also stalls the beats, so `_haDown` is gated on `!_sseDown`).
-    // Structure/behavior live here so the indicators always render and are
-    // theme-independent (documented primitives: `data-signals`,
-    // `data-on-interval`, `data-show`, `data-on:click`); the LOOK is theme-owned
-    // via `.fh-offline*` classes (each theme's `styles`, see lib/theme-*.pkl).
+    // Transport takes priority: a dead transport also freezes `haDown` updates,
+    // so the HA banner is gated on `!_sseDown`. Structure/behavior live here so
+    // the indicators always render and are theme-independent (documented
+    // primitives: `data-signals`, `data-on-interval`, `data-show`,
+    // `data-on:click`); the LOOK is theme-owned via `.fh-offline*` classes (each
+    // theme's `styles`, see lib/theme-*.pkl).
     val connBridge =
       """<script>
         |window.__fhSse=0;(function(){function h(e){var t=e&&e.detail&&e.detail.type;if(!t)return;
@@ -954,15 +959,15 @@ class Server(
         |</script>""".stripMargin
     // Datastar expressions read signals via `$name` (this pinned build, unlike
     // some Datastar doc examples, requires the sigil even for a bare read).
-    val beat = "$" + Server.BeatSignal
+    val ha = "$" + Server.HaDownSignal
     val connBanner =
-      s"""<div data-signals="{${Server.BeatSignal}: 0, _lastBeat: -1, _stale: 0, _sse: 0, _sseDown: false, _haDown: false}"
-         |     data-on-interval="1000; let _moved = ($beat !== $$_lastBeat); $$_lastBeat = $beat; $$_sse = (window.__fhSse || 0); $$_stale = _moved ? 0 : $$_stale + 1; $$_sseDown = $$_sse > 0; $$_haDown = ($$_stale >= 6) && !$$_sseDown">
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, _sseDown: false}"
+         |     data-on-interval="1000; $$_sse = (window.__fhSse || 0); $$_sseDown = $$_sse > 0">
          |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sseDown">
          |    <span data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
          |  </div>
-         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$$_haDown">Home Assistant unavailable — reconnecting…</div>
+         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$ha && !$$_sseDown">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
@@ -1107,18 +1112,19 @@ object Server {
     */
   val ConnSignal: String = "conn"
 
-  /** The Datastar signal name carrying the server heartbeat: a counter the SSE
-    * stream increments every [[BeatInterval]] while the upstream feed is
-    * healthy. The client watches it to detect a stalled connection (see
-    * [[Server.page]]); it must beat faster than the client's check window.
+  /** The Datastar signal name carrying upstream-HA liveness, PUSHED by the
+    * server (it owns `healthy`). `true` means the backend can't reach Home
+    * Assistant; the HA disconnect banner renders `data-show` off it (see
+    * [[Server.page]]). Concept 1 of the two disconnect concepts — the
+    * browser<->server transport (concept 2) is derived client-side instead.
     */
-  val BeatSignal: String = "srvBeat"
+  val HaDownSignal: String = "haDown"
 
-  /** How often the SSE stream emits a [[BeatSignal]] tick. Kept well under the
-    * client's disconnect check interval so a healthy connection always shows
-    * fresh beats.
+  /** How often the SSE stream re-emits the current [[HaDownSignal]] value. This
+    * is a keepalive: it keeps traffic on an otherwise-idle connection so
+    * intermediaries don't drop it, and self-heals a missed `haDown` patch.
     */
-  val BeatInterval: FiniteDuration = 2.seconds
+  val KeepAliveInterval: FiniteDuration = 2.seconds
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across
