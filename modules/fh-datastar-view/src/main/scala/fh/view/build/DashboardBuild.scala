@@ -258,7 +258,10 @@ object DashboardBuild {
     * `sources` (the entry + transitive imports) is used only to point invalid
     * transforms back at their source line; pass `Set.empty` when unavailable.
     */
-  def decode(json: Json, sources: Set[os.Path] = Set.empty): IO[Dashboard] =
+  def decode(
+      json: Json,
+      sources: Set[os.Path] = Set.empty
+  ): IO[Dashboard.Validated] =
     for {
       dashboard <- hoistInlineSurfaces(json)
         .as[Dashboard]
@@ -266,15 +269,17 @@ object DashboardBuild {
           new RuntimeException(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
-      _ <- dashboard.validate(SourceEval.literalLocator(sources)) match {
-        case Nil  => IO.unit
-        case errs =>
+      validated <- dashboard.validated(
+        SourceEval.literalLocator(sources)
+      ) match {
+        case Right(v)   => IO.pure(v)
+        case Left(errs) =>
           new RuntimeException(
             s"dashboard failed validation (${errs.size} error(s)):\n" +
               errs.mkString("\n")
-          ).raiseError[IO, Unit]
+          ).raiseError[IO, Dashboard.Validated]
       }
-    } yield dashboard
+    } yield validated
 
   /** Evaluate the on-disk sources and decode + validate into the runtime model,
     * returning the dashboard and the files it was built from (for watching).
@@ -283,21 +288,21 @@ object DashboardBuild {
   private def evalAndDecode(
       dashboardsDir: os.Path,
       entry: String
-  ): IO[(Dashboard, Set[os.Path])] =
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
     evalSource(dashboardsDir, entry).flatMap { r =>
       decode(r.value, r.imports).map(_ -> r.imports)
     }
 
   /** Fetch + write the dump, then evaluate + decode + validate in one step
-    * (in-memory; no artifact file). Returns the dashboard and the files it was
-    * built from (for watching).
+    * (in-memory; no artifact file). Returns the proven dashboard and the files
+    * it was built from (for watching).
     */
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entry: String,
       bundledLib: Option[LibPackage.Artifacts] = None
-  ): IO[(Dashboard, Set[os.Path])] =
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
     prepareDumps(api, dashboardsDir, bundledLib) *> evalAndDecode(
       dashboardsDir,
       entry
@@ -305,11 +310,11 @@ object DashboardBuild {
 
   /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
     * dump rewrite) — used by live reload when only the dashboard sources
-    * changed. Returns the dashboard + its current import set.
+    * changed. Returns the proven dashboard + its current import set.
     */
   def reevaluate(
       dashboardsDir: os.Path,
       entry: String
-  ): IO[(Dashboard, Set[os.Path])] =
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
     evalAndDecode(dashboardsDir, entry)
 }

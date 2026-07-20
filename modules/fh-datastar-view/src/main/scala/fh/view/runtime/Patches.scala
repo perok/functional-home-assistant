@@ -43,8 +43,8 @@ private[runtime] object Patches {
 
   /** A selection of what one [[StateChange]] touches, ready to [[diff]] against
     * a cache. Bundles the assembled `staticIds`/`dynamics`/`flips` with the
-    * render inputs (`change`/`states`/`before`/`uiState`) they are diffed with —
-    * replacing the nine-positional-argument call the two passes used to make.
+    * render inputs (`change`/`states`/`before`/`uiState`) they are diffed with
+    * — replacing the nine-positional-argument call the two passes used to make.
     */
   case class DiffRequest(
       staticIds: List[String],
@@ -271,8 +271,8 @@ private[runtime] object Patches {
   /** Patch one FLIPPED state-selected bake group: re-render its host node — the
     * bake owner, whose render bakes the newly-selected member against CURRENT
     * state ([[Renderer]]'s `resolveBake`) — morph it, and prune the group's
-    * cache entries: the host id plus every member's `s_<sid>__` node prefix. The
-    * same prune contract as [[repaintGroup]], and for the same reason:
+    * cache entries: the host id plus every member's `s_<sid>__` node prefix.
+    * The same prune contract as [[repaintGroup]], and for the same reason:
     * hidden-branch churn deliberately leaves member entries stale (the silence
     * guarantee), so a flip must drop them — otherwise a re-revealed node whose
     * HTML happens to equal its pre-flip entry would be suppressed while the
@@ -302,9 +302,9 @@ private[runtime] object Patches {
 
   /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
     * changed entity's single child and morphs it (unless a case change actually
-    * moved membership — then it falls through to the membership path). An add or
-    * remove diffs the group's rendered membership before vs. after and either
-    * patches the delta per-entity or repaints the whole group
+    * moved membership — then it falls through to the membership path). An add
+    * or remove diffs the group's rendered membership before vs. after and
+    * either patches the delta per-entity or repaints the whole group
     * ([[renderMembershipChange]]).
     */
   private def renderDynamicGroup(
@@ -355,12 +355,12 @@ private[runtime] object Patches {
   /** Apply a membership change to a dynamic group. When the churn (entities
     * added + removed) is a small enough fraction of the group's rendered size
     * ([[Server.MaxChurnFraction]]) AND the group is already established in the
-    * cache, patch the delta per-entity: a `remove` patch per departed member and
-    * an `insert` (`before` its successor in DOM order, or `append` into the
-    * group) per new member. Otherwise — heavy churn, an empty/last-member group,
-    * or a group not yet in the cache (post-reload) — repaint the whole group and
-    * prune its child cache entries, so a client re-establishes from a known
-    * base.
+    * cache, patch the delta per-entity: a `remove` patch per departed member
+    * and an `insert` (`before` its successor in DOM order, or `append` into the
+    * group) per new member. Otherwise — heavy churn, an empty/last-member
+    * group, or a group not yet in the cache (post-reload) — repaint the whole
+    * group and prune its child cache entries, so a client re-establishes from a
+    * known base.
     *
     * Idempotency: the per-entity path fires only for an ESTABLISHED group, so
     * the first membership change after a renderer reload (fresh cache) always

@@ -267,8 +267,8 @@ object ServerApp extends IOApp {
       entry: String
   ): IO[(Renderer, Set[os.Path])] =
     DashboardBuild.reevaluate(dashboardsDir, entry).map {
-      case (dash, imports) =>
-        Renderer.create(dash.copy(slug = slug)) -> imports
+      case (validated, imports) =>
+        Renderer.fromValidated(validated.withSlug(slug)) -> imports
     }
 
   /** The set of files to watch: every entry's transitive imports plus the entry

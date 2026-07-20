@@ -323,20 +323,21 @@ class Server(
     * instance to its on-disk dashboards, and the file watcher's next reconcile
     * reclaims a slug that shadows a real entry.
     */
-  def push(dashboard: Dashboard): IO[Unit] =
-    SignallingRef[IO].of(Renderer.create(dashboard)).flatMap { fresh =>
+  def push(validated: Dashboard.Validated): IO[Unit] =
+    SignallingRef[IO].of(Renderer.fromValidated(validated)).flatMap { fresh =>
+      val slug = validated.dashboard.slug
       renderers
         .modify { rs =>
-          rs.get(dashboard.slug) match {
+          rs.get(slug) match {
             case Some(existing) => (rs, Some(existing))
-            case None           => (rs + (dashboard.slug -> fresh), None)
+            case None           => (rs + (slug -> fresh), None)
           }
         }
         .flatMap {
-          case Some(existing) => existing.set(Renderer.create(dashboard))
+          case Some(existing) => existing.set(Renderer.fromValidated(validated))
           case None           =>
             supervisor
-              .supervise(publisherFor(dashboard.slug, fresh).compile.drain)
+              .supervise(publisherFor(slug, fresh).compile.drain)
               .void
         }
     }
@@ -738,9 +739,13 @@ class Server(
         case Right(json) =>
           DashboardBuild
             .decode(json)
-            .map(_.copy(slug = slug))
-            .flatMap(d => push(d).as(d))
-            .flatMap(d => Ok(s"pushed ${d.slug} (${d.cards.size} cards)"))
+            .map(_.withSlug(slug))
+            .flatMap(v => push(v).as(v))
+            .flatMap(v =>
+              Ok(
+                s"pushed ${v.dashboard.slug} (${v.dashboard.cards.size} cards)"
+              )
+            )
             .handleErrorWith(err => BadRequest(err.getMessage))
       }
 

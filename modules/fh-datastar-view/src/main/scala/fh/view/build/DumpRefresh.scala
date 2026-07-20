@@ -41,8 +41,7 @@ object DumpRefresh {
   /** Swapped in: `version` is the new `@fh-home` snapshot now pinned, `seedLog`
     * is [[DumpPackage.seedFromText]]'s action log for it.
     */
-  case class Swapped(version: String, seedLog: List[String])
-      extends Result
+  case class Swapped(version: String, seedLog: List[String]) extends Result
 
   /** The new dump breaks dashboards that build today; the workspace is
     * untouched. `errors` is `slug -> eval error` for each newly-broken entry.
