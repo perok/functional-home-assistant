@@ -11,13 +11,14 @@ import api.homeassistant.ws.protocol.server.Event
 import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
 import io.circe.{Decoder, Json}
-import perok.ha.{GetStatesData, HomeAssistantApiService, ServiceDomain}
+import perok.ha.{GetStatesData, Service, ServiceDomain}
+import smithy4s.{Document, Schema}
 
 // TODO add caching of rest + json response. triggers and actions usually don't change
 //
 // The trait is effect-polymorphic in `F`: methods return `F[...]` /
 // `Resource[F, *]`, not a hardcoded `IO`. The only production instance is built
-// at `F = IO` ([[HomeAssistantApi.fromLowLevel]]) — consumers still work against
+// at `F = IO` ([[HomeAssistantApi.fromWs]]) — consumers still work against
 // `HomeAssistantApi[IO]` — but honoring `F` keeps the type honest (a test double
 // or alternative interpreter can pick another effect) and confines the effect to
 // this "machinery" boundary.
@@ -81,9 +82,29 @@ trait HomeAssistantApi[F[_]] {
 }
 
 object HomeAssistantApi {
-  def fromLowLevel(
-      in: HAWSApiLowLevel[IO],
-      restApi: HomeAssistantApiService[IO]
+
+  /** Decode a WS JSON payload into a smithy4s type `A` via its schema, bridging
+    * circe -> smithy `Document` ([[api.DocumentJson.fromJson]]). This is how
+    * the WS-only API returns the same typed shapes the REST leg used to,
+    * without a second HTTP client on a second connection.
+    */
+  private def decodeVia[A](json: Json, schema: Schema[A]): IO[A] =
+    Document.Decoder
+      .fromSchema(schema)
+      .decode(DocumentJson.fromJson(json))
+      .leftMap(e =>
+        new Exception(s"WS response decode failed: ${e.getMessage}")
+      )
+      .liftTo[IO]
+
+  /** Build the unified API over a single Home Assistant WebSocket connection.
+    * Everything — states, services, templates, subscriptions, `call_service` —
+    * rides this one transport (HA's WS API is a superset of what this app used
+    * REST for), so the whole API has exactly one connection to supervise and
+    * one place for a reconnecting facade to sit.
+    */
+  def fromWs(
+      in: HAWSApiLowLevel[IO]
   ): HomeAssistantApi[IO] =
     new HomeAssistantApi[IO] {
       def configDeviceRegistryList: IO[Map[DeviceId, Device]] =
@@ -160,8 +181,11 @@ object HomeAssistantApi {
           )
         )
 
+      // WS `get_states` returns the same state representation REST `/api/states`
+      // did, so it decodes with the same schema.
       def getStates: IO[List[GetStatesData]] =
-        restApi.getStates().map(_.output)
+        in.sendCommand(`get_states`())
+          .flatMap(decodeVia(_, Schema.list(GetStatesData.schema)))
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
@@ -169,13 +193,30 @@ object HomeAssistantApi {
       def getServicesWS: IO[Json] =
         in.sendCommand(`get_services`())
 
+      // WS `get_services` is an OBJECT keyed by domain (`{domain: {service:
+      // ...}}`), where REST returned an ARRAY of `{domain, services}`; decode
+      // the object shape and re-key it into the same `List[ServiceDomain]`.
       def getServices: IO[List[ServiceDomain]] =
-        restApi.getServicesApi().map(_.output)
+        in.sendCommand(`get_services`())
+          .flatMap(
+            decodeVia(
+              _,
+              Schema
+                .map(Schema.string, Schema.map(Schema.string, Service.schema))
+            )
+          )
+          .map(_.toList.map { case (domain, services) =>
+            ServiceDomain(domain, services)
+          })
 
+      // `render_template` is a subscription: subscribe, take the single initial
+      // render, release (unsubscribe). HA returns structured results as parsed
+      // JSON (an array/object, not a JSON-encoded string), so the existing
+      // `| to_json` templates decode directly. The first-event race that would
+      // have dropped that lone render is fixed in `subscribeStream`.
       def templateFunc[Body: Decoder](template: String): IO[Body] =
-        restApi
-          .template(template)
-          .flatMap(_.output.decode(using DocumentJson.decoder).liftTo[IO])
+        in.subscribeStream(render_template(template))
+          .use(_.take)
           .flatMap(_.as[Body].liftTo[IO])
     }
 

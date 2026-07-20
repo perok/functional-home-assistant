@@ -27,6 +27,21 @@ object DocumentJson {
     }
   }
 
+  /** circe `Json` -> smithy `Document`, the reverse of [[decoder]]. Lets a WS
+    * JSON payload be decoded into a smithy4s type via its schema
+    * (`Document.Decoder.fromSchema`), so the WS API can return the same typed
+    * shapes the REST leg did — without a second HTTP client.
+    */
+  def fromJson(json: Json): Document =
+    json.fold(
+      DNull,
+      b => DBoolean(b),
+      n => DNumber(n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))),
+      s => DString(s),
+      arr => DArray(arr.map(fromJson)),
+      obj => DObject(obj.toMap.map { case (k, v) => k -> fromJson(v) })
+    )
+
 }
 
 // https://github.com/disneystreaming/smithy4s/discussions/558#discussioncomment-3987014

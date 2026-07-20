@@ -2,12 +2,11 @@ package fh.api
 
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
-import api.homeassistant.rest.restApi
 import cats.effect.IO
 import cats.effect.Resource
 import cats.syntax.all.*
 import org.http4s.Uri
-import org.http4s.jdkhttpclient.{JdkHttpClient, JdkWSClient}
+import org.http4s.jdkhttpclient.JdkWSClient
 
 import java.net.http.HttpClient
 
@@ -139,20 +138,14 @@ object FHApi {
 
       // TODO should be params that are independent of underlying implementation
       httpClient <- IO(HttpClient.newHttpClient()).toResource
-      client = JdkHttpClient[IO](httpClient)
-      // import org.http4s.ember.client.EmberClientBuilder
-      // client <- EmberClientBuilder.default[IO].build
       wsClient = JdkWSClient[IO](httpClient)
 
-      api <- restApi(
-        client,
-        api,
-        secretToken
-      )
+      // WS-only: one connection backs the whole API (states, services,
+      // templates, subscriptions, call_service). No REST client.
       wsApi <- HAWSApiLowLevel(
         wsClient,
         wsUri,
         secretToken
       )
-    } yield (HomeAssistantApi.fromLowLevel(wsApi, api), wsApi.awaitClosed)
+    } yield (HomeAssistantApi.fromWs(wsApi), wsApi.awaitClosed)
 }

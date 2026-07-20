@@ -407,7 +407,9 @@ object HAWSApiLowLevel {
                         beforeSend = id => idQueue.setKeyValue(id, q)
                       ).map(_._1)
                     )(id =>
-                      sendCommandWrapper(CommandPhase.unsubscribe_events(id)).void
+                      sendCommandWrapper(
+                        CommandPhase.unsubscribe_events(id)
+                      ).void
                         .guarantee(idQueue.unsetKey(id))
                     )
                     .as(

@@ -101,6 +101,30 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
+    // get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
+    // The WS equivalent of REST `/api/states`: the same state representation, so
+    // the result decodes with the same shape the REST leg used.
+    case class `get_states`()
+        extends CommandPhase
+        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+
+    // render_template https://developers.home-assistant.io/docs/api/websocket#render-a-template
+    // A SUBSCRIPTION, not a one-shot result: HA acks with `result`, then pushes
+    // `event` messages `{result, listeners}` — and re-pushes whenever a
+    // referenced entity changes. A one-shot caller subscribes, takes the first
+    // event's `result`, and releases (the generic `unsubscribe_events` cancels
+    // it). `report_errors` makes a template error arrive as an `error` event
+    // rather than silently sticking.
+    case class render_template(template: String, report_errors: Boolean = true)
+        extends CommandPhase
+        with CommandResponse.AsStream[Json] derives ConfiguredEncoder {
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
+        payload.payload.hcursor
+          .downField("event")
+          .get[Json]("result")
+          .fold(throw _, identity)
+    }
+
     //
     // Configs
     //
