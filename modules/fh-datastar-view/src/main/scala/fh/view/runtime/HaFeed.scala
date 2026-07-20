@@ -192,6 +192,8 @@ object HaFeed {
       def getServicesWS: IO[Json] = use(_.getServicesWS)
       def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
         useR(_.event(event))
+      def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
+        useR(_.rawEvents(eventType))
       def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
         useR(_.trigger(data*))
       def callService(

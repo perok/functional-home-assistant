@@ -1,7 +1,7 @@
 package api.homeassistant.ws.protocol
 
 import api.homeassistant.ws.domain.*
-import server.{Event, WSCommandPhaseServer}
+import server.WSCommandPhaseServer
 import api.homeassistant.ws.utils.defaults.given
 import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
 import io.circe.*
@@ -19,22 +19,38 @@ object client {
     // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
     trait AsStream[R] extends CommandResponse[Unit] {
       val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
-      val f: PartialFunction[WSCommandPhaseServer, R]
+
+      /** Turn one subscription message into the stream's element (throws on a
+        * malformed message, matching the transport's decode-or-throw style).
+        */
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): R
     }
     object AsStream {
-      trait AsEvent extends AsStream[Event] {
-        // TODO why not working? extends AsStream[Event]({ case event(_, event) => event })
-        val f: PartialFunction[WSCommandPhaseServer, Event] = {
-          case WSCommandPhaseServer.event(_, event) =>
-            event
-        }
+
+      /** The raw `event` object of the message, undecoded. The typed
+        * [[WSCommandPhaseServer]] enum decodes `event` into the
+        * `state_changed`-shaped [[Event]], but HA event payloads are
+        * event-type-specific (e.g. `*_registry_updated` carries
+        * `{action, …_id}`) — the raw form is the one that works for all of
+        * them; callers decode what they subscribed to.
+        */
+      trait AsRawEvent extends AsStream[Json] {
+        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
+          payload.payload.hcursor
+            .get[Json]("event")
+            .fold(throw _, identity)
       }
 
       trait AsTrigger extends AsStream[Json] {
-        val f: PartialFunction[WSCommandPhaseServer, Json] = {
-          case WSCommandPhaseServer.trigger(_, event) =>
-            event
-        }
+        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
+          payload.parsedPayload.fold(
+            throw _,
+            {
+              case WSCommandPhaseServer.trigger(_, event) => event
+              case other                                  =>
+                throw new Exception(s"expected a trigger message, got: $other")
+            }
+          )
       }
     }
 
@@ -157,9 +173,12 @@ object client {
 
     // https://developers.home-assistant.io/docs/api/websocket/#subscribe-to-events
     // https://data.home-assistant.io/docs/events
+    // Raw: event payload shapes are event-type-specific, so the stream yields
+    // the undecoded `event` object; `HomeAssistantApi.event` decodes the
+    // `state_changed` shape on top of it.
     case class subscribe_events(event_type: Option[String])
         extends CommandPhase
-        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
+        with CommandResponse.AsStream.AsRawEvent derives ConfiguredEncoder
 
     // TODO subscribe_entities https://community.home-assistant.io/t/terrible-performance-on-seemingly-most-android-tablets/760318/78?u=perok
 

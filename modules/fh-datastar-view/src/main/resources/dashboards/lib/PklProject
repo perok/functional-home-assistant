@@ -1,0 +1,21 @@
+/// The Pkl package that IS the `lib/` authoring library — the domain schema
+/// (`hass.pkl`), the card classes (`components.pkl`), the theme contract +
+/// implementations, tokens, and the entry base module. Entries depend on it
+/// under the alias `@fh-dashboard` (see the sibling consumer `PklProject`), so
+/// an entry writes `import "@fh-dashboard/components.pkl"` instead of embedding
+/// a file path or the `/system/pkl/` http URL (ADR 0010).
+///
+/// This is a *purely local* dependency: the monorepo's consumer `PklProject`
+/// maps `@fh-dashboard` to `./lib`, so `@fh-dashboard/...` resolves to these
+/// files with NO network and NO published registry (the resolve is in-process —
+/// `ProjectDependenciesResolver`, see `PklBuild.resolveProjectDeps`). The
+/// `baseUri`/`packageZipUrl` below are the identity a *published* package would
+/// carry; until then they are never fetched.
+amends "pkl:Project"
+
+package {
+  name = "fh-dashboard"
+  baseUri = "package://fh.invalid/fh-dashboard"
+  version = "1.0.0"
+  packageZipUrl = "https://fh.invalid/fh-dashboard@\(version).zip"
+}

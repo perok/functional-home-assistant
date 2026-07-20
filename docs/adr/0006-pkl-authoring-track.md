@@ -45,8 +45,8 @@ extended. Once the hand-port completes they are deleted.
    `output { renderer = ... }` block; it just *is* its data, and the omit-null
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
-   the `theme.pkl` contract + its `theme-beer.pkl` (default) / `theme-pico.pkl`
-   implementations, `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
+   the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
+   default and only shipped theme), `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
    `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
    entries. A directory convention separates the two (Pkl has one file
    extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
@@ -71,7 +71,16 @@ extended. Once the hand-port completes they are deleted.
    the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
    options applied by a **parenthesized amend** of the call result:
    `(c.entityCard(e)) { tap = ...; label = ... }` (the outer parens are
-   mandatory; the parens-free form is a parse error). `|>` is reserved for
+   mandatory; the parens-free form is a parse error). Each option is **also a
+   fluent builder method** on the card class, so options can instead chain
+   paren-free — `c.entityCard(e).tap(...).label(...)`: the method amends `this`
+   and returns the same class, and because slots are late-bound off the hidden
+   props the emitted node is **byte-identical** to the amend/`new` forms
+   (spike-verified on pkl-core 0.31.1; guarded by the builder-vs-amend identity
+   test + the wire snapshots). Methods and properties are separate namespaces, so
+   `function tap(t)` coexists with the `hidden tap` prop; the builder covers the
+   parameterized case `|>` mixins cannot (a mixin takes no arguments). `|>` is
+   reserved for
    **additions** — a mixin like `tappable` chains on the end
    (`c.entityCard(x) |> c.tappable`) — never construction (methods aren't
    first-class, so there is deliberately no `x |> c.entityCard`). Text leaves get
@@ -92,8 +101,33 @@ extended. Once the hand-port completes they are deleted.
    emits into node JSON — the emitted top-level `cards` is identical to the
    old hand-maintained mapping, so the backend contract is untouched.
    Registration is automatic: a new card is one class, and forgetting the
-   `cardDef` is an eval-time error naming the class. Entries do not repeat the
-   `cards = c.cards` line — they `amends "lib/entry.pkl"`, the base scaffold
+   `cardDef` is an eval-time error naming the class.
+
+   The reflection runs over **a list of modules** (`c.cardsOf(mods)`), not just
+   the library's own, so a card class defined OUTSIDE the library reaches the
+   registry too — the component-developer story (ADR 0010, persona 4). An entry
+   names its extra modules via `componentModules`:
+
+   ```pkl
+   import "mycards.pkl" as mine
+   componentModules { mine }
+   ```
+
+   That registration is explicit because **Pkl cannot infer it**:
+   `reflect.Module.imports` yields import URIs as plain `String`s and Pkl has no
+   reflect-by-string, so the import graph cannot be walked to find card classes
+   (verified on 0.31.1). Two consequences worth knowing:
+
+   - A component must live in **its own module**. Classes in an amending module
+     (every entry) require `local`, and `local` classes are invisible to
+     reflect — so a card class written inline in an entry silently never
+     registers. Late binding of `module` itself works fine; the `local` rule is
+     what blocks it.
+   - Two modules claiming one card name is a Pkl error (`Duplicate definition of
+     member`), so a third-party module cannot shadow a library card.
+
+   Entries do not repeat the
+   registry line — they `amends "lib/entry.pkl"`, the base scaffold
    that sets it (decision 9).
 8. **Dynamic groups: Mapping branches + render lambdas.** A dynamic group is an
    amendable `DynamicGroup` (extends `LayoutNode`, `kind = "dynamic"`) whose
@@ -124,10 +158,11 @@ extended. Once the hand-port completes they are deleted.
    lambdas won because a branch is a function of the matched entity and composes
    unchanged if cases ever grow from leaves to subtrees.
 9. **Entries `amends "lib/entry.pkl"`.** `lib/entry.pkl` is the base module
-   every entry amends: it carries the reflected card registry (`cards = c.cards`)
-   and the shared `theme`, and declares the fields an entry fills — a required
-   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces` (and a
-   `theme` override). So an entry opens with `amends "lib/entry.pkl"` and sets
+   every entry amends: it carries the reflected card registry
+   (`cards = c.cardsOf(componentModules.toList())`) and the shared `theme`, and
+   declares the fields an entry fills — a required
+   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`,
+   `componentModules` (decision 7) and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
    only `card`. Because `card` has no default, an entry that forgets it fails
    with "Tried to read property `card` but its value is undefined" whose caret
    points at `lib/entry.pkl` (Pkl reports a missing required property at the
@@ -139,8 +174,12 @@ extended. Once the hand-port completes they are deleted.
 
 Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 
-- Containers/sectionTitle/entityCard/button/slider; `expr`, and `exprOf`
-  multi-entity slots (0001/0004); `cssClass` slot on row/col.
+- Containers (grid/row/column)/sectionTitle/entityCard/button/slider; `expr`,
+  and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
+  grid/row/col; the layout-cell builders on the `LayoutNode` base —
+  `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
+  node-level `cell.classes` (the `fh-` layout contract; model + rationale in
+  ADR 0008).
 - `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
@@ -226,7 +265,10 @@ slot key remains `"class"`.
   that is imported, never rendered.
 - A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
   first: a bare `this` inside the `new {}` body rebinds to the freshly-built
-  object, not the receiver.
+  object, not the receiver. The same guard applies to a **self-amending builder
+  method** (`function tap(t) = let (self = this) (self) { tap = t }`): capture the
+  receiver before the amend body, and name the parameter differently from the
+  property it sets (a same-named param self-references in the amend).
 - **`const` is transitive**: a `const` property (or any reference from a class
   body) may only call `const` functions — so helpers reached that way are
   `const`/`const local` all the way down (why `cmp`, and thus `always`, are

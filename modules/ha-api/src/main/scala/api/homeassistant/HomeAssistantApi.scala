@@ -45,6 +45,14 @@ trait HomeAssistantApi[F[_]] {
   def getServicesWS: IO[Json]
 
   def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]]
+
+  /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
+    * Event payload shapes are event-type-specific (`entity_registry_updated`
+    * carries `{action, entity_id}`, not a state), so no decoding is imposed
+    * here — [[event]] is the typed `state_changed` special case.
+    */
+  def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]]
+
   def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]]
 
   /** Call a Home Assistant service/action on an entity via the WebSocket API.
@@ -119,7 +127,13 @@ object HomeAssistantApi {
         in.sendCommand(`device_automation/action/capabilities`(action))
 
       def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
+        // The raw stream decoded into the state_changed shape (the only event
+        // type this method has ever subscribed to).
         in.subscribeStream(subscribe_events(Some("state_changed")))
+          .map(_.map(json => json.as[Event].fold(throw _, identity)))
+
+      def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
+        in.subscribeStream(subscribe_events(Some(eventType)))
 
       def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
         in.subscribeStream(subscribe_trigger(data.toList))

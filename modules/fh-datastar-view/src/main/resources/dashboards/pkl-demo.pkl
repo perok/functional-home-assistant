@@ -3,16 +3,16 @@
 // cards (default value, live expr override, tap), a domain-checked slider,
 // and cross-dashboard navigation back to the jsonnet default.
 //
-// `amends "lib/entry.pkl"` supplies the `cards`/`theme` scaffold; the entry
-// sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
+// `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; the
+// entry sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
 // the live HA registry) when the server or build runs — like `dump.libsonnet`
 // on the jsonnet track. (Plain `//` comments here: a doc comment would attach
 // to the first import, which Pkl rejects — entries have no `module` clause.)
 
-amends "lib/entry.pkl"
+amends "@fh-dashboard/entry.pkl"
 
-import "lib/components.pkl" as c
-import "lib/dump.pkl" as dump
+import "@fh-dashboard/components.pkl" as c
+import "@fh-home/dump.pkl" as dump
 
 // Registered popup surfaces: opened by an `openPopup("detail")` tap and
 // rendered/streamed only while open. Amending the key into existence builds a
@@ -23,72 +23,93 @@ surfaces {
   ["detail"] {
     body {
       c.title("Power detail")
-      c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+      c.entityCard(dump.entities.sensor_ams_1a4e_q)
       c.button("Close", c.closePopup())
     }
   }
 }
 
 
-card = (c.column) {
+// The GRID is the default top-level container (HA "sections" feel): children
+// flow as rows, each cell spanning `columns(n)` of 12 (default 4 — a third,
+// HA's default card size); a partial row group-centers by default. Section
+// titles span the full width so they break the flow like HA section headings.
+// (`columns(n)`/`fullWidth()` are GRID-only — inside a row/column, cells
+// share/fill instead. See ADR 0008.)
+card = (c.grid) {
   children {
-    c.title("Pkl demo")
-
+    c.title("Pkl demo").fullWidth()
     // Default display: friendly_name label, $state + auto-appended unit.
-    c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
+    // No layout builder -> the default third-grid cell.
 
-    // Live value expression + explicit tap service: entity-first call, options
-    // amended onto the result (the outer parens are mandatory).
-    (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
-      value = c.expr(#"$round($number($state), 1) & " V""#)
-      tap = c.serviceTap("homeassistant/toggle")
+    (c.column) {
+      children {
+
+        c.entityCard(dump.entities.sensor_ams_1a4e_q)
+
+
+        // Live value expression + explicit tap service, BUILDER style: each option
+        // is a method that returns the card, so they chain paren-free (vs the
+        // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
+        // emitted node is byte-identical (the wire snapshot guards this).
+        c.entityCard(dump.entities.sensor_ams_1a4e_u1)
+          .value(c.expr(#"$round($number($state), 1) & " V""#))
+          .tap(c.serviceTap("homeassistant/toggle"))
+
+        // Domain-checked: only entities with a sliderSpec row (lights) compile.
+        // A slider wants room — span the full grid width.
+        (c.slider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
+      }
     }
 
-    // Domain-checked: only entities with a sliderSpec row (lights) compile.
-    c.slider(dump.entities.`light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang`)
 
     // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity, the
     // card chosen by the first matching branch (author order = dispatch order).
     // Each branch is a render lambda of the matched entity; the light branch is a
     // bare `c.slider` value (its action/key/min/max/position resolve per matched
     // light via the runtime $lookup($domain) config tier). `render` is the
-    // fallback: every other "on" entity, toggled on tap.
-    c.title("Active now")
-    new c.DynamicGroup {
+    // fallback: every other "on" entity, toggled on tap. The group root is
+    // itself a grid cell (fullWidth here); its members flow in the group's own
+    // 12-column grid, two-up by default.
+    c.title("Active now").fullWidth()
+    (new c.DynamicGroup {
       query = c.stateIs("on")
       branches {
         [c.domainIs("light")] = c.slider
       }
-      render = (e) -> (c.entityCard(e)) {
-        tap = c.toggleTap
-        label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
-      }
-    }
+      render = (e) -> c.entityCard(e)
+        .tap(c.toggleTap)
+        .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#))
+    }).fullWidth()
 
     // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
     // device_class:battery sensor under 20%, tracked live as batteries drain.
-    c.title("Low battery")
-    new c.DynamicGroup {
+    c.title("Low battery").fullWidth()
+    (new c.DynamicGroup {
       query = c.lowBattery(20)
-      render = (e) -> (c.entityCard(e)) {
-        label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
-        secondary = "device_class"
+      render = (e) -> c.entityCard(e)
+        .label(c.expr(#"$attr.friendly_name & " — " & $state & "%""#))
+        .secondary("device_class")
+    }).fullWidth()
+
+    // POPUPS. A COLUMN inside a grid cell: the three buttons stack vertically
+    // in one half-grid cell (a column is just another cell — containers nest
+    // freely in the grid). The first button opens the REGISTERED `detail`
+    // surface; the second opens an INLINE popup whose content the build-phase
+    // hoist lifts into a surface (keyed by this button's derived id + "_self").
+    c.title("Popups").fullWidth()
+    (c.row) {
+      children {
+        c.button("Power detail…", c.openPopup("detail"))
+        c.button("Quick info…", c.openPopupInline(new c.Column {
+          children {
+            c.title("Quick info")
+            c.entityCard(dump.entities.sensor_ams_1a4e_u1)
+            c.button("Close", c.closePopup())
+          }
+        }))
+        c.button("« Back to jsonnet", c.navigate("dashboard"))
       }
     }
-
-    // POPUPS. The first button opens the REGISTERED `detail` surface; the second
-    // opens an INLINE popup whose content the build-phase hoist lifts into a
-    // surface (keyed by this button's derived id + "_self").
-    c.title("Popups")
-    c.button("Power detail…", c.openPopup("detail"))
-    c.button("Quick info…", c.openPopupInline(new c.Column {
-      children {
-        c.title("Quick info")
-        c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-        c.button("Close", c.closePopup())
-      }
-    }))
-
-    c.button("« Back to jsonnet", c.navigate("dashboard"))
   }
 }

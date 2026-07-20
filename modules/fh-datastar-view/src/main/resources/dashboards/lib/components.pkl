@@ -13,6 +13,12 @@
 /// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
 module components
 
+// The domain schema, imported as a package-internal sibling. `dump.pkl` (which
+// is generated with the same relative `import "hass.pkl"`) resolves it to the
+// SAME module URI as this one, so the two share ONE set of hass types — the
+// load-bearing identity constraint (ADR 0010). Because entries pull both this
+// module AND `dump.pkl` through the `@fh-dashboard` package alias, each such
+// relative import resolves under the one package base, keeping that single URI.
 import "hass.pkl"
 import "pkl:reflect"
 
@@ -29,11 +35,47 @@ class Slot {
   reactive: Boolean = true
 }
 
+/// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
+/// classes the renderer puts on this node's `.fh-cell` wrapper. The class
+/// names are the theme-agnostic `fh-` layout contract (see lib/theme.pkl).
+/// Authors normally use the builder methods on [[LayoutNode]] (`columns`,
+/// `fullWidth`, `cellClass`) rather than writing one directly.
+class Cell {
+  classes: Listing<String> = new {}
+}
+
 /// The common supertype of every layout-tree node. `kind` is the circe
 /// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
 /// [[DynamicGroup]].
+///
+/// Every node is a CELL: the renderer wraps it in an id'd `.fh-cell` (the
+/// real flex/grid item), and the layout builders below put `fh-` contract
+/// classes on that wrapper. They follow HA's `grid_options` conventions —
+/// inside a [[Grid]] (12 columns), `columns(n)` is a card's width in grid
+/// columns (default 4, a third of the grid, like HA sections). No effect
+/// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
+/// builders return the base [[LayoutNode]] type, so chain them AFTER
+/// card-specific ones:
+/// `c.entityCard(e).tap(c.toggleTap).columns(3)`.
 abstract class LayoutNode {
   kind: String
+  /// Layout-cell classes for this node's wrapper. Null (dropped from the wire
+  /// JSON) until a layout builder adds one.
+  cell: Cell? = null
+  /// This cell spans `n` of the surrounding grid's 12 columns (HA
+  /// `grid_options.columns`). No effect outside a [[Grid]]/group.
+  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
+  /// Span the surrounding grid's full width (HA `columns: full`).
+  function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
+  /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
+  /// custom rule). Must be a plain class token — validated at build time.
+  function cellClass(cls: String): LayoutNode = addCellClass(cls)
+  // Shared appender: replace `cell` with a copy carrying one more class (the
+  // null default is never amended — amending a null Listing is an error).
+  function addCellClass(cls: String): LayoutNode =
+    let (self = this)
+    let (prev = if (self.cell != null) self.cell!!.classes else new Listing<String> {})
+      (self) { cell = new Cell { classes = (prev) { cls } } }
 }
 
 abstract class Node extends LayoutNode {
@@ -62,21 +104,54 @@ abstract class Node extends LayoutNode {
 class CardDef {
   template: String
   slots: Listing<String> = new {}
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell`
+  // layout/morph wrapper. Null (dropped by omitNullProperties, backend
+  // defaults TRUE) for every normal card; set `false` only for a card whose
+  // root must stay a direct child of a framework-structural parent (the
+  // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
+  // never a morph target; live-entity slots, cell params, and dynamic-case
+  // use are all build errors on it (Dashboard.validate).
+  wrapAsCell: Boolean? = null
 }
 
 /// An on-demand render subtree the build-phase hoist lifts into the top-level
 /// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
 /// authored directly (a top-level `surfaces` mapping); inline surfaces ride on a
 /// node's [[Node.inlineSurfaces]] and are hoisted, keyed `<node-id>_<localKey>`.
-/// `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen` drive first-paint baking (tabs
-/// — step 5); a plain popup leaves them null. `defaultOpen` is a nullable
-/// Boolean so omitNullProperties drops it and the decoder defaults it to false.
+/// `bakeInto`/`bakeAs`/`bakeIndex` drive first-paint baking (tabs, [[If]]
+/// branches); a plain popup leaves them null. `activation` is HOW the surface
+/// becomes visible — [[UserActivation]] or [[StateActivation]] — nullable so
+/// omitNullProperties drops it and the backend defaults to user activation,
+/// closed (a plain popup declares nothing).
 open class SurfaceDef {
   content: LayoutNode
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
-  defaultOpen: Boolean? = null
+  activation: (UserActivation|StateActivation)? = null
+}
+
+/// USER activation (mirrors fh.view.model.Activation.User): the surface is
+/// shown by a user action — a popup open, a tab click — so which member a
+/// client sees is per-session truth (uiState/cookie). `defaultOpen` bakes it
+/// from the first paint (a tab bar's first tab).
+class UserActivation {
+  kind: "user" = "user"
+  defaultOpen: Boolean = false
+}
+
+/// STATE activation (mirrors fh.view.model.Activation.State): the surface is
+/// shown while its quantified `condition` holds over live entity state — server
+/// truth, identical for every viewer (an [[If]] branch). A [[Predicate]] tests
+/// ONE entity, so the condition needs a `quantifier` over the whole state map:
+/// "any" = some entity matches (∃ — with an [[entityIs]] pin, the "entity X is
+/// in state Y" case), "none" = no entity matches (∄ — deliberately its own
+/// quantifier, NOT a `.not()` inside the condition, which would still quantify
+/// existentially), "all" = every entity matches (∀).
+class StateActivation {
+  kind: "state" = "state"
+  condition: Predicate
+  quantifier: "any"|"none"|"all" = "any"
 }
 
 /// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
@@ -240,6 +315,8 @@ class Row extends Node {
       ["class"] = cssClass!!
     }
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
 }
 
 /// Amendable base instance — `(c.row) { children { ... } }`. The parens are
@@ -263,9 +340,44 @@ class Column extends Node {
       ["class"] = cssClass!!
     }
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
 }
 /// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
 hidden column: Column = new Column {}
+
+/// 12-column grid container — the DEFAULT top-level container (the HA
+/// "sections" feel): children flow as rows, each cell spanning `columns(n)`
+/// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
+/// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
+/// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
+/// layout contract CSS lives in lib/theme.pkl.
+class Grid extends Node {
+  card = "fhgrid"
+  cardDef = new CardDef {
+    template = """
+      <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden cssClass: String? = null
+  /// Group-center the cells: a partial row is centered, a full row fills.
+  /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
+  hidden centered: Boolean = true
+  slots {
+    when (cssClass != null || !centered) {
+      ["class"] = new Listing<String> {
+        when (cssClass != null) { cssClass!! }
+        when (!centered) { "fh-start" }
+      }.toList().join(" ")
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
+  /// Toggle group-centering of the cells (see [[centered]] property).
+  function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
+}
+/// Amendable base instance — `(c.grid) { children { ... } }` (see [[row]]).
+hidden grid: Grid = new Grid {}
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
@@ -283,8 +395,8 @@ class SectionTitle extends Node {
 }
 
 /// Default entity icon per domain — Material Symbols names (the font ships
-/// with the BeerCSS theme; a theme without an icon font hides `header i`, see
-/// theme-pico.pkl). Resolved at RUNTIME via `$lookup($domain)` (the slider
+/// with the BeerCSS theme; a theme without an icon font should hide
+/// `.entity header i`). Resolved at RUNTIME via `$lookup($domain)` (the slider
 /// config's identity-slot mechanism), so dynamic-group ($self) cards get the
 /// matched entity's icon too; an unlisted domain yields "" and the template
 /// section renders nothing.
@@ -360,6 +472,21 @@ class EntityCard extends Node {
       ["onclick"] = tap!!.onclick
     }
   }
+  // ---- fluent config (builder style) ----
+  // Each option is ALSO a method: it amends `this` and returns the same class,
+  // so options chain paren-free — `c.entityCard(x).tap(c.toggleTap).label("Office")`
+  // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Methods
+  // and properties are separate namespaces, so `function tap` coexists with the
+  // `hidden tap` prop; late binding re-derives `slots` from the amended value, so
+  // the emitted node JSON is byte-identical to the amend form (see the
+  // builder-vs-amend identity test). `let (self = this)` captures the receiver
+  // before the amend body (where a bare `this` would rebind). The param is never
+  // named after the property it sets (that would self-reference in the amend).
+  function label(l: String|Expr): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|Expr): EntityCard = let (self = this) (self) { value = v }
+  function secondary(s: String|Expr): EntityCard = let (self = this) (self) { secondary = s }
+  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
+  function tap(t: Tap): EntityCard = let (self = this) (self) { tap = t }
 }
 
 /// Static entity card as a call (amend options in parens).
@@ -395,6 +522,10 @@ class Button extends Node {
     ["label"] = labelSlot(entity, label)
     ["onclick"] = (action ?? toggleTap).onclick
   }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
+  function label(l: String|Expr): Button = let (self = this) (self) { label = l }
+  function action(a: Tap): Button = let (self = this) (self) { action = a }
 }
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
@@ -409,6 +540,10 @@ class TabButton extends Node {
   cardDef = new CardDef {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
+    // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
+    // styling is the structural selector `.tabs > a` — so this is the one card
+    // that opts out of the universal `.fh-cell` wrapper.
+    wrapAsCell = false
   }
   hidden label: String
   hidden onclick: String
@@ -443,9 +578,10 @@ hidden popup: Popup = new Popup {}
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
 /// the bar buttons open them, seed the active-tab signal, and persist the active
 /// index to the `fhui_<id>` cookie the server reads on the GET so reload /
-/// navigate restore the tab flash-free. The first tab is `defaultOpen` (baked on
-/// first paint) — emitted `null` for the rest so omitNullProperties drops it and
-/// the decoder defaults `false`, matching jsonnet byte-for-byte.
+/// navigate restore the tab flash-free. The first tab is default-open (baked on
+/// first paint) via `UserActivation { defaultOpen = true }` — the rest emit no
+/// `activation` at all (null, dropped by omitNullProperties) and decode to the
+/// closed user default.
 class Tabs extends Node {
   card = "tabs"
   // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
@@ -483,7 +619,7 @@ class Tabs extends Node {
         bakeInto = NODE_ID
         bakeAs = "panel"
         bakeIndex = i
-        defaultOpen = if (i == 0) true else null
+        activation = if (i == 0) new UserActivation { defaultOpen = true } else null
       }
     }
   }
@@ -643,6 +779,14 @@ class Slider extends Node {
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }
+  // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
+  // overrides mirror the `hidden` props above; amending re-runs the three-tier
+  // `sliderConfig` resolution with the new value.
+  function label(l: String|Expr): Slider = let (self = this) (self) { label = l }
+  function action(a: String): Slider = let (self = this) (self) { action = a }
+  function key(k: String): Slider = let (self = this) (self) { key = k }
+  function min(m: Int): Slider = let (self = this) (self) { min = m }
+  function max(m: Int): Slider = let (self = this) (self) { max = m }
 }
 
 /// Value slider as a call (see [[Slider]] for the domain contract).
@@ -720,9 +864,10 @@ abstract class Predicate {
   function not(): PNot = let (l = this) new PNot { item = l }
 }
 
-/// `property <op> value`. `property` is one of `"domain"`, `"state"`, or
-/// `"attr:<name>"`; `value` is Any so a numeric threshold rides as a JSON
-/// number (unlike a slot literal, a query value is not stringified).
+/// `property <op> value`. `property` is one of `"domain"`, `"state"`,
+/// `"entity_id"`, or `"attr:<name>"`; `value` is Any so a numeric threshold
+/// rides as a JSON number (unlike a slot literal, a query value is not
+/// stringified).
 class Cmp extends Predicate {
   kind: "cmp" = "cmp"
   property: String
@@ -760,6 +905,10 @@ const always: Cmp = cmp("domain", "ne", "__never__")
 function domainIs(d: String): Cmp = cmp("domain", "eq", d)
 /// `state == s`, e.g. `stateIs("on")`.
 function stateIs(s: String): Cmp = cmp("state", "eq", s)
+/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — pins a condition to
+/// ONE entity, so an existentially quantified [[StateActivation]] ("any")
+/// reads "entity X is in state Y": `entityIs(...).and(stateIs("on"))`.
+function entityIs(id: String): Cmp = cmp("entity_id", "eq", id)
 /// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
 function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
 /// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
@@ -779,6 +928,9 @@ class Case {
   `when`: Predicate
   card: String
   slots: Mapping<String, Slot|String> = new {}
+  /// Layout-cell classes for each per-entity member wrapper this case renders
+  /// (copied from the render fn's node by [[caseOf]]).
+  cell: Cell? = null
 }
 
 // Build a [[Case]] from a predicate and a render fn: apply the fn to the
@@ -800,6 +952,8 @@ const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
           }
         }
       }
+      // The render fn's layout-cell classes apply to every member wrapper.
+      cell = node.cell
     }
 
 /// A runtime-resolved group: render one card PER live entity matching `query`.
@@ -823,13 +977,110 @@ class DynamicGroup extends LayoutNode {
   }
 }
 
+// ---- conditional sections (If/else via state-activated surfaces) ----
+// An If is NOT a new wire kind: it reuses the tabs machinery literally — a
+// host card with one bake hole + one inline surface per branch
+// (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
+// quantified condition over live entity state ([[StateActivation]]) instead of
+// the client cookie, so the choice is server truth, shared by every viewer.
+// Hidden-branch silence is structural: branch nodes live in surface indexes,
+// never the main reverse index, so the inactive branch is not rendered and
+// receives no updates.
+
+// Build a [[StateActivation]]. `p`/`q` are NOT named after the properties they
+// set (the amend-scoping gotcha — `condition = condition` inside the `new`
+// would self-recurse); `const local` because [[If.inlineSurfaces]] calls it
+// from the class body.
+const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): StateActivation =
+  new { condition = p; quantifier = q }
+
+/// A conditional section: the `then` cards are shown while the quantified
+/// `condition` holds over live entity state, the (optional) `else` cards while
+/// it does not. Built by [[iff]]/[[iffNone]]/[[iffAll]] — builder calls for
+/// single-card branches, the amend form for multi-card ones:
+///   c.iff(c.entityIs("light.x").and(c.stateIs("on")))
+///     .then(c.title("on")).`else`(c.title("off"))
+///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
+/// With no matching member (a condition that fails and no `else`) the host
+/// bakes empty; nesting an If inside `else` is the else-if story.
+class If extends Node {
+  card = "ifhost"
+  // The host is a bare wrapper with one `{{{branch}}}` bake hole (the selected
+  // member's rendered content, injected by the backend like the tabs
+  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no cookie.
+  cardDef = new CardDef {
+    template = #"<div id="{{id}}">{{{branch}}}</div>"#
+  }
+  hidden condition: Predicate
+  hidden quant: "any"|"none"|"all" = "any"
+  // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
+  // backticked for visual pairing (backticks are pure quoting, not identity).
+  hidden `then`: Listing<LayoutNode> = new {}
+  hidden `else`: Listing<LayoutNode> = new {}
+  // Each branch's cards hoisted into a Row-wrapped surface (like a tab panel).
+  // Selection is first-match in `bakeIndex` order: `then` is member 0 with the
+  // authored condition; `else` — present only when non-empty — is member 1
+  // with the always-true predicate. BOTH members carry the SAME `bakeAs`
+  // ("branch"): the backend reads a group's bake var off its first member.
+  inlineSurfaces = new Mapping {
+    ["then"] = new SurfaceDef {
+      content = new Row { children = `then` }
+      bakeInto = NODE_ID
+      bakeAs = "branch"
+      bakeIndex = 0
+      activation = stateActivation(condition, quant)
+    }
+    when (!`else`.isEmpty) {
+      ["else"] = new SurfaceDef {
+        content = new Row { children = `else` }
+        bakeInto = NODE_ID
+        bakeAs = "branch"
+        bakeIndex = 1
+        activation = stateActivation(always, "any")
+      }
+    }
+  }
+  /// Append card(s) to the `then` branch — one node, or `new Listing { ... }`
+  /// for several (a bare `new { ... }` argument cannot infer the Listing type;
+  /// multi-card branches read best in the amend form). Repeat calls append,
+  /// and the derived surfaces re-derive across chained calls (late binding).
+  function then(n: LayoutNode|Listing<LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
+  /// Append card(s) to the `else` branch — call sites backtick the reserved
+  /// word: `` .`else`(c.title("off")) ``.
+  function `else`(n: LayoutNode|Listing<LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
+}
+
+/// A conditional section as a call: `c.iff(p).then(...).`else`(...)` — shown
+/// while SOME entity matches `p` (quantifier "any"; pin one entity with
+/// [[entityIs]]). See [[If]] for the amend form.
+function iff(p: Predicate): If = new If { condition = p }
+/// [[iff]] with quantifier "none": shown while NO entity matches `p`.
+function iffNone(p: Predicate): If = new If { condition = p; quant = "none" }
+/// [[iff]] with quantifier "all": shown while EVERY entity matches `p`.
+function iffAll(p: Predicate): If = new If { condition = p; quant = "all" }
+
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
 // co-located with the logic; hidden, so it never emits into a node's JSON).
-// The registry below assembles `cardName -> CardDef` by reflecting over this
-// module's concrete [[Node]] subclasses — registration is automatic: a new
-// card is just a class. `reflect.Property.defaultValue` reads the evaluated
-// CLASS-LEVEL default, which is why a `cardDef` must be self-contained.
+// [[cardsOf]] assembles `cardName -> CardDef` by reflecting over the concrete
+// [[Node]] subclasses of the given modules — within a module, registration is
+// automatic: a new card is just a class. `reflect.Property.defaultValue` reads
+// the evaluated CLASS-LEVEL default, which is why a `cardDef` must be
+// self-contained.
+//
+// Why a LIST of modules rather than just this one: a card class defined outside
+// this library (a third-party component) has to reach the registry too, or the
+// backend has no template to render it with. Pkl cannot discover those on its
+// own — `reflect.Module.imports` yields import URIs as plain STRINGS, and Pkl
+// has no reflect-by-string, so there is no way to walk the import graph and
+// collect what it finds. The module VALUES must therefore be named, which is
+// what an entry's `componentModules` does (see `entry.pkl`).
+//
+// Note a component must live in its own module: classes in an AMENDING module
+// (every entry) require the `local` modifier, and `local` classes are invisible
+// to reflect — so a card class written inline in an entry can never register.
 
 const local nodeClass = reflect.Class(Node)
 
@@ -843,10 +1094,19 @@ const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
     if (v is CardDef) v
     else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
 
-cards: Mapping<String, CardDef> = new {
-  for (clsName, cls in reflect.Module(module).classes) {
-    when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
-      [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+/// The card registry for `mods` — every concrete [[Node]] subclass they define,
+/// keyed by its card name. Two modules claiming the SAME card name is a Pkl
+/// error ("Duplicate definition of member"), so a component module cannot
+/// silently shadow a library card.
+function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
+  for (m in mods) {
+    for (clsName, cls in reflect.Module(m).classes) {
+      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+      }
     }
   }
 }
+
+/// This library's own cards — the registry an entry gets by default.
+cards: Mapping<String, CardDef> = cardsOf(List(module))

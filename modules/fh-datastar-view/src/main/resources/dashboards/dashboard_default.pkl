@@ -1,0 +1,59 @@
+// The starter dashboard, seeded as `dashboard.pkl` into a workspace with no
+// entries of its own (add-on first boot or a fresh local `dashboard-local-dev`)
+// — from then on it is YOURS to edit (changes to existing files hot-reload; a
+// brand-new *.pkl entry needs a restart, see DOCS.md). Bundled straight into
+// the jar's own resources ([[AddonBootstrap]]), so there is no seed directory
+// to keep in sync or copy into the image.
+//
+// It references NO concrete entities: every section is a live query
+// (DynamicGroup) over whatever this Home Assistant instance has, so it renders
+// on any installation. For entity-specific cards, import the generated typed
+// dump (`import "@fh-home/dump.pkl" as dump`) and reference
+// `dump.entities.<your_entity>` — see the lib/ modules for the full card set.
+//
+// Two aliases, split by lifecycle (ADR 0010): `@fh-dashboard` is the shared
+// authoring library — a versioned PACKAGE (`package://fh.invalid/fh-dashboard@…`)
+// resolved from the persistent package cache, never files in this directory —
+// and `@fh-home` is YOUR home's generated dump. The sibling `PklProject`
+// (seeded at first boot, then yours) holds the @fh-dashboard pin; the
+// machine's own wiring lives in `.fh/base.pkl`, machine-managed.
+
+amends "@fh-dashboard/entry.pkl"
+
+import "@fh-dashboard/components.pkl" as c
+
+title = "Home"
+
+// The GRID is the default container (HA "sections" feel): full-width section
+// titles break the flow, and each dynamic group spans the grid while its
+// members flow two-up in the group's own 12-column grid (HA's default card
+// size). Size a card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl
+// for the fh- layout contract).
+card = (c.grid) {
+  children {
+    c.title("Lights").fullWidth()
+    (new c.DynamicGroup {
+      query = c.domainIs("light")
+      // Lights that are on get a brightness slider; the rest a toggle card.
+      branches {
+        [c.stateIs("on")] = c.slider
+      }
+      render = (e) -> (c.entityCard(e)) { tap = c.toggleTap }
+    }).fullWidth()
+
+    c.title("Switches").fullWidth()
+    (new c.DynamicGroup {
+      query = c.domainIs("switch")
+      render = (e) -> (c.entityCard(e)) { tap = c.toggleTap }
+    }).fullWidth()
+
+    c.title("Low battery").fullWidth()
+    (new c.DynamicGroup {
+      query = c.lowBattery(20)
+      render = (e) -> (c.entityCard(e)) {
+        label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
+        secondary = "device_class"
+      }
+    }).fullWidth()
+  }
+}

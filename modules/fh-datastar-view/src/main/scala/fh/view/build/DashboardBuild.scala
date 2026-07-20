@@ -3,6 +3,7 @@ package fh.view.build
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
 
@@ -16,36 +17,45 @@ import io.circe.{Json, JsonObject}
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump ONCE and write it next to the dashboard sources
-    * (so `import "lib/dump.pkl"` resolves). This is the build phase's job: it
-    * owns fetching + writing the dump, and the runtime
+  /** Fetch the live entity dump ONCE and seed it as the `@fh-home` content-
+    * versioned package ([[DumpPackage.seedFromText]]), so an entry's
+    * `import "@fh-home/dump.pkl"` resolves from the workspace cache. There is
+    * no loose `home/dump.pkl` on disk (ADR 0010): the dump is only ever a
+    * package, pinned via `.fh/pins.json`. This is the build phase's job — it
+    * owns fetching + packaging the dump — and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly — the runtime writes the dump once
-    * for all entries, then [[reevaluate]]s each against the on-disk copy.
+    * into [[DataDump]]/[[PklDump]] directly: it seeds the dump once for all
+    * entries, then [[reevaluate]]s each against the cached package.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
-      dashboardsDir: os.Path
+      dashboardsDir: os.Path,
+      bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[Unit] =
     DataDump.fetch(api).flatMap { dump =>
-      IO.blocking {
-        os.write.over(
-          dashboardsDir / "lib" / "dump.pkl",
-          PklDump.render(dump),
-          createFolders = true
-        )
-      }
+      IO.blocking(
+        DumpPackage
+          .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
+      ).flatMap(_.traverse_(IO.println))
     }
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
     * JSON + the set of files read (entry + transitive imports).
+    *
+    * `bundledLib` is the boot's bundled `@fh-dashboard` artifacts, needed only
+    * to seed the VERY FIRST dump on a fresh workspace (no pins yet) — see
+    * [[DumpPackage.seedFromText]].
     */
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
+      entry: String,
+      bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[SourceEval.Result] =
-    prepareDumps(api, dashboardsDir) *> evalSource(dashboardsDir, entry)
+    prepareDumps(api, dashboardsDir, bundledLib) *> evalSource(
+      dashboardsDir,
+      entry
+    )
 
   /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
     *
@@ -158,9 +168,13 @@ object DashboardBuild {
       obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
     )
 
-  // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/defaultOpen).
+  // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
   // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
   // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
+  // The retired flat `defaultOpen` is deliberately NOT lifted: its meaning moved
+  // into the `activation` object ({kind:"user", defaultOpen}), and an authoring
+  // layer still emitting the flat key is silently ignored (decoder default =
+  // user activation, whose no-cookie fallback is index 0 — the old semantics).
   private def surfaceOf(defObj: JsonObject): Json =
     Json.fromJsonObject(
       JsonObject.fromIterable(
@@ -169,7 +183,7 @@ object DashboardBuild {
             "bakeInto",
             "bakeAs",
             "bakeIndex",
-            "defaultOpen"
+            "activation"
           )
             .flatMap(k => defObj(k).map(k -> _))
       )
@@ -245,23 +259,30 @@ object DashboardBuild {
     * `sources` (the entry + transitive imports) is used only to point invalid
     * transforms back at their source line; pass `Set.empty` when unavailable.
     */
-  def decode(json: Json, sources: Set[os.Path] = Set.empty): IO[Dashboard] =
+  def decode(
+      json: Json,
+      sources: Set[os.Path] = Set.empty
+  ): IO[Dashboard.Validated] =
     for {
       dashboard <- hoistInlineSurfaces(json)
         .as[Dashboard]
         .leftMap(err =>
-          new RuntimeException(s"dashboard is not a valid Dashboard: $err")
+          FHError.badCondition(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
-      _ <- dashboard.validate(SourceEval.literalLocator(sources)) match {
-        case Nil => IO.unit
-        case errs =>
-          new RuntimeException(
-            s"dashboard failed validation (${errs.size} error(s)):\n" +
-              errs.mkString("\n")
-          ).raiseError[IO, Unit]
+      validated <- dashboard.validated(
+        SourceEval.literalLocator(sources)
+      ) match {
+        case Right(v)   => IO.pure(v)
+        case Left(errs) =>
+          FHError
+            .badCondition(
+              s"dashboard failed validation (${errs.size} error(s)):\n" +
+                errs.mkString("\n")
+            )
+            .raiseError[IO, Dashboard.Validated]
       }
-    } yield dashboard
+    } yield validated
 
   /** Evaluate the on-disk sources and decode + validate into the runtime model,
     * returning the dashboard and the files it was built from (for watching).
@@ -270,29 +291,33 @@ object DashboardBuild {
   private def evalAndDecode(
       dashboardsDir: os.Path,
       entry: String
-  ): IO[(Dashboard, Set[os.Path])] =
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
     evalSource(dashboardsDir, entry).flatMap { r =>
       decode(r.value, r.imports).map(_ -> r.imports)
     }
 
   /** Fetch + write the dump, then evaluate + decode + validate in one step
-    * (in-memory; no artifact file). Returns the dashboard and the files it was
-    * built from (for watching).
+    * (in-memory; no artifact file). Returns the proven dashboard and the files
+    * it was built from (for watching).
     */
   def build(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entry: String
-  ): IO[(Dashboard, Set[os.Path])] =
-    prepareDumps(api, dashboardsDir) *> evalAndDecode(dashboardsDir, entry)
+      entry: String,
+      bundledLib: Option[LibPackage.Artifacts] = None
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
+    prepareDumps(api, dashboardsDir, bundledLib) *> evalAndDecode(
+      dashboardsDir,
+      entry
+    )
 
   /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
     * dump rewrite) — used by live reload when only the dashboard sources
-    * changed. Returns the dashboard + its current import set.
+    * changed. Returns the proven dashboard + its current import set.
     */
   def reevaluate(
       dashboardsDir: os.Path,
       entry: String
-  ): IO[(Dashboard, Set[os.Path])] =
+  ): IO[(Dashboard.Validated, Set[os.Path])] =
     evalAndDecode(dashboardsDir, entry)
 }

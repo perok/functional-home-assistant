@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:*)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git stash *)",
+      "Bash(sbt scalafmt *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(timeout 120 sbt dashboardBuild)",
+      "Bash(sbt -batch 'fh-datastar-view/Test/compile')",
+      "Bash(sbt -batch 'fh-datastar-view/testFull')",
+      "Bash(sbt -batch dashboardBuild)",
+      "Bash(sbt -batch -error 'fh-datastar-view/testFull')",
+      "Bash(sbt -batch -error 'fh-datastar-view/scalafmt; fh-datastar-view/test:scalafmt')",
+      "Bash(sbt -batch -error 'fh-datastar-view/scalafmt; fh-datastar-view/Test/scalafmt')",
+      "Bash(timeout 150 sbt -batch -error 'dashboardBuild')",
+      "Bash(sbt 'dashboardBuild ; scalafmt')"
+    ]
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": false
+  }
+}

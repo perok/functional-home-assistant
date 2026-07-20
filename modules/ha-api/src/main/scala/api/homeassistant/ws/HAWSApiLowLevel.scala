@@ -83,7 +83,7 @@ object HAWSApiLowLevel {
             .flatMap { response =>
               validate.lift(response) match {
                 case Some(value) => value.pure[IO]
-                case None =>
+                case None        =>
                   IO.raiseError(new Exception(s"Wrong msg: $response"))
               }
             }
@@ -252,7 +252,7 @@ object HAWSApiLowLevel {
                 val idle = now - last
                 if (idle >= pingInterval)
                   sendPing.flatMap {
-                    case true => loop
+                    case true  => loop
                     case false =>
                       terminated
                         .complete(
@@ -398,11 +398,7 @@ object HAWSApiLowLevel {
                           .as(q)
                       )
                       .nested
-                      .map { r =>
-                        // TODO handle better
-                        val rr = r.parsedPayload.fold(throw _, identity)
-                        msg.f(rr)
-                      }
+                      .map(msg.decodeMessage)
                       .value
                   )(_ => idQueue.unsetKey(id))
                 }

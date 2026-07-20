@@ -10,6 +10,12 @@
   TODO lots of design stuff, like tabs, are added to themes.libsonnet, should some of that be injectable from the components themselves?
   TODO Parse AST of Pkl directly and use that to validate jsonata. Provide positional errors.
   TODO condital component to filter them out
+- (cd modules/fh-datastar-view/editor-src; npm install), do this from sbt
+- reload page on not component changes but layout 
+- BuildPhaseSuite: test based on request response caching json structure to make intention clearer
+- VisualSnapSHot: for ci dir for images, create tempdir used in GHA and use that for directory to save files
+- FixtureDashboard: base the structure on PKL instead of internal structure
+- assets-cache fallback to a temp directory or xdg config directory
 
 ---
 TODO document the API surface

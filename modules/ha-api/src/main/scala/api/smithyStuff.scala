@@ -18,7 +18,7 @@ object DocumentJson {
           case DString(value)  => Json.fromString(value)
           case DNull           => Json.Null
           case DArray(value)   => Json.fromValues(value.map(toJson))
-          case DObject(value) =>
+          case DObject(value)  =>
             val newMap = value.map { case (k, v) => k -> toJson(v) }
             Json.fromJsonObject(JsonObject.fromMap(newMap))
         }

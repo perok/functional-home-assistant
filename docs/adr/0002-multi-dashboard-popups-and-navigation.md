@@ -34,9 +34,12 @@ are unique within a dashboard and **not slug-prefixed**.
 ### Surfaces: lazily-activated subtrees
 
 A **surface** (`model.Surface`) is a named layout subtree registered in
-`Dashboard.surfaces`, rendered on demand and streamed only while a connection
-has it open. Its fields are `(content, bakeInto, bakeAs, bakeIndex,
-defaultOpen)`:
+`Dashboard.surfaces`, rendered on demand and streamed only while it is
+*active* — for a **user-activated** surface, while a connection has it open;
+for a **state-activated** one (an if/else branch — ADR 0007), while its
+condition over live entity state selects it. Its fields are `(content,
+bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
+`User(defaultOpen) | State(condition, quantifier)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
@@ -48,11 +51,14 @@ defaultOpen)`:
   `id="{{bakeInto}}_{{bakeAs}}"` host convention the `tabs` card template
   honours) and the theme's popup mount (`Dashboard.PopupHostId`, `#popups`)
   otherwise. The host is both the live-patch target and the eviction group.
-- **`bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`** drive first-paint baking:
+- **`bakeInto`/`bakeAs`/`bakeIndex`/`activation`** drive first-paint baking:
   the component whose id equals `bakeInto` receives the selected member's
-  rendered content under the template var `bakeAs`, so the default (or
-  cookie-restored — ADR 0005) panel is in the initial HTML with no round-trip
-  and no flash. Baked HTML and a later live switch are byte-identical.
+  rendered content under the template var `bakeAs`, so the selected panel is
+  in the initial HTML with no round-trip and no flash. How the member is
+  selected is the group's activation mode: user-activated groups take the
+  `defaultOpen` (or cookie-restored — ADR 0005) member; state-activated
+  groups take the first member whose condition holds (ADR 0007). Baked HTML
+  and a later live switch are byte-identical.
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
   they never collide with the main page.
 
@@ -92,8 +98,11 @@ so navigate just re-points the filter (a dropped-or-duplicate fragment around
 the navigate moment is harmless: navigate does a full body repaint, and
 Datastar morphs are idempotent). Only what truly differs per client stays in
 the per-session change loop with the session's own diff cache: each open
-surface's nodes (a closed surface is never rendered) and bake-group-owner
-nodes (their HTML bakes the client's cookie-selected member). On a live-reload
+surface's nodes (a closed surface is never rendered) and *user-activated*
+bake-group-owner nodes (their HTML bakes the client's cookie-selected
+member). *State-activated* groups and their active member ride the shared
+per-slug pass — their selection is server truth, identical for every viewer
+(ADR 0007). On a live-reload
 hot-swap the shared pass re-arms with the new renderer and a fresh per-slug
 cache; a change dropped in the brief swap window is repaired by the full body
 repaint every connection does on reload.

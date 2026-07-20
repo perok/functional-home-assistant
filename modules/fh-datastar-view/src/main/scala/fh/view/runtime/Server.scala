@@ -3,37 +3,33 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
+import cats.effect.std.Supervisor
 import cats.syntax.all.*
+import fh.view.build.{
+  AddonBootstrap,
+  DashboardBuild,
+  DumpRefresh,
+  LibPackage,
+  SystemPkl
+}
+import fh.view.FHError
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
-import org.http4s.headers.`Content-Type`
+import org.http4s.headers.{
+  `Cache-Control`,
+  `Content-Type`,
+  `If-None-Match`,
+  ETag
+}
 import org.http4s.ServerSentEvent
 
+import java.nio.charset.StandardCharsets.UTF_8
+
 import scala.concurrent.duration.*
-
-/** One DOM patch the diff pass wants to send, rendered to a Datastar SSE event
-  * at the edge ([[Patch.toSse]]). The diff no longer yields a uniform "HTML to
-  * morph" — a [[Remove]] carries no HTML — so the two diff passes speak this
-  * small ADT and only touch [[Datastar]] here.
-  *
-  *   - [[Morph]]: outer-morph an existing element (its `id` is inside `html`).
-  *   - [[Insert]]: add a new element with an explicit `mode`/`selector`
-  *     (`before` its DOM successor, or `append` into the group root).
-  *   - [[Remove]]: delete the element matching `selector` (no HTML).
-  */
-private enum Patch:
-  case Morph(html: String)
-  case Insert(html: String, mode: PatchMode, selector: String)
-  case Remove(selector: String)
-
-  def toSse: ServerSentEvent = this match
-    case Patch.Morph(html)             => Datastar.patchElements(html)
-    case Patch.Insert(html, mode, sel) => Datastar.patch(html, mode, Some(sel))
-    case Patch.Remove(sel)             => Datastar.remove(sel)
 
 /** HTTP surface for the dashboards.
   *
@@ -50,27 +46,43 @@ private enum Patch:
   *     patch it empty, for a close). The state lives in the connection's
   *     [[Session]]; the resulting patches ride the same SSE stream.
   *
-  * Live entity patches are split by what they depend on. Main-page nodes that
-  * don't own a bake group are a pure function of entity state, so they are
-  * rendered ONCE per slug by [[sharedPatchPublishers]] (one subscription to the
-  * state stream per dashboard, per-slug diff cache) and fanned out to every
-  * connection viewing that slug over `sharedTopics`. Only what truly differs
-  * per client stays per-session in [[changedPatches]]: open-surface nodes and
-  * bake-group-owner nodes (their HTML depends on the client's `uiState`).
-  * Construct via [[Server.resource]], which creates the topics and runs the
-  * publishers.
+  * Live entity patches are split by what they depend on. Main-page nodes whose
+  * HTML is a pure function of entity state — including STATE-selected bake
+  * groups (If/else hosts and their active branches, whose selection is server
+  * truth) — are rendered ONCE per slug by [[sharedPatchPublishers]] (one
+  * subscription to the state stream per dashboard, per-slug diff cache) and
+  * fanned out to every connection viewing that slug over `sharedTopic`. Only
+  * what truly differs per client stays per-session in [[changedPatches]]:
+  * open-surface nodes and USER bake-group-owner nodes (their HTML depends on
+  * the client's `uiState`), plus the state groups those pull in (nested in an
+  * open popup, or with a user owner in a branch). Construct via
+  * [[Server.resource]], which creates the topic and runs the publishers.
+  *
+  * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
+  * dashboard at runtime (ADR 0010), which is why the registry is a `Ref` and
+  * the shared fan-out is one multiplexed topic rather than a map of them.
   */
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
     // One hot-swappable renderer per dashboard slug (live reload swaps in place;
-    // `.discrete` drives a body repaint over SSE).
-    renderers: Map[String, SignallingRef[IO, Renderer]],
+    // `.discrete` drives a body repaint over SSE). A `Ref` because the slug set
+    // is not fixed at startup: `push` mints one at runtime (ADR 0010).
+    renderers: Ref[IO, Map[String, SignallingRef[IO, Renderer]]],
     defaultSlug: String,
     sessions: Sessions,
-    // Per-slug fan-out of the shared main-page patches (fed by
-    // `sharedPatchPublishers`; every connection viewing the slug subscribes).
-    sharedTopics: Map[String, Topic[IO, ServerSentEvent]],
+    // Fan-out of the shared main-page patches, fed by the per-slug publishers
+    // and tagged with the slug they came from; every connection subscribes ONCE
+    // and keeps only its current slug's events.
+    //
+    // Why one multiplexed topic rather than a topic per slug: a connection
+    // subscribes when it opens, so a per-slug map would freeze the slug set at
+    // connect time and a slug pushed later could never reach an open
+    // connection. Tagging is what lets `push` mint a slug at runtime.
+    sharedTopic: Topic[IO, (String, ServerSentEvent)],
+    // Starts the per-slug shared-patch publisher for a slug minted by `push`.
+    // Scoped to `Server.resource`, so those fibers die with the server.
+    supervisor: Supervisor[IO],
     // Local cache of the themes' external assets ([[AssetCache]]): page URLs
     // are rewritten through it and `/assets/:name` serves from it. The empty
     // default (pass-through, no local assets) keeps tests ceremony-free.
@@ -79,7 +91,17 @@ class Server(
     // SSE heartbeat only beats while this is true, so the client disconnect
     // banner also lights up on an upstream freeze — not just a browser-side
     // drop. Constant-`true` default keeps tests/standalone construction simple.
-    healthy: Signal[IO, Boolean] = Signal.constant(true)
+    healthy: Signal[IO, Boolean] = Signal.constant(true),
+    // The live home's Pkl artifacts (schema + dump) served over `/system/pkl/`
+    // for pkl-lsp / the editor / remote authors. The empty default serves
+    // nothing (404) — the server's own eval never hits this route (it resolves
+    // the packages offline from the seeded cache via `moduleCacheDir`).
+    systemPkl: SystemPkl = SystemPkl.empty,
+    // The on-demand dump refresh behind `POST /system/dump/refresh`
+    // (fetch + validate-then-swap + renderer reload, wired by ServerApp —
+    // see [[DumpRefresh]]). None (tests, BuildApp-less setups) makes the
+    // route a 404.
+    dumpRefresh: Option[IO[DumpRefresh.Result]] = None
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -90,14 +112,100 @@ class Server(
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
 
+    // The live home's Pkl artifacts — the domain schema + the freshly-rendered
+    // per-home dump — as source text for pkl-lsp (behind the `/edit` editor)
+    // and remote authors; the server's own eval never hits these routes (it
+    // resolves the packages offline from the seeded cache via
+    // `moduleCacheDir`). The laptop companion (the `fh` scala-cli script) is
+    // distributed from the GitHub repo (`scripts/fh.sc`), not from the
+    // instance; it drives the routes below.
+
+    // The package-discovery index (before the `:name` route, which would
+    // otherwise swallow the 3-segment path as `name = "packages"`): current
+    // versions + metadata sha256 of the packages this home serves — what
+    // `fh pull` reads before rewriting the laptop's pins.
+    case GET -> Root / "system" / "pkl" / "packages" =>
+      guardSystemPkl(
+        systemPkl.packagesIndex.flatMap(json =>
+          Ok(json).map(_.putHeaders(`Content-Type`(MediaType.application.json)))
+        )
+      )
+
+    // The workspace scaffold a laptop's `fh init` fetches and writes verbatim:
+    // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
+    // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
+    // instance URL). Before the `:name` catch-all so these exact names win.
+    case GET -> Root / "system" / "pkl" / "base.pkl" =>
+      Ok(AddonBootstrap.BaseManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "PklProject" =>
+      Ok(AddonBootstrap.ConsumerManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "gitignore" =>
+      Ok(AddonBootstrap.GitignoreTemplate)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+
+    case req @ GET -> Root / "system" / "pkl" / name =>
+      guardSystemPkl(systemPkl.module(name).flatMap(systemPklResponse(_, req)))
+
+    // The instance's resolved lib packages (ADR 0010): the metadata JSON at
+    // `<name>@<version>`, the module zip at `<name>@<version>.zip` — exactly
+    // pkl's remote-package protocol, so a laptop workspace resolves
+    // `package://fh.invalid/fh-dashboard@<v>` from this instance with one
+    // `http.rewrites` line (`https://fh.invalid/` → `http://<home>/system/pkl/
+    // packages/`), landing on the same sha256-pinned artifacts the instance
+    // itself evaluates. No cache headers: pkl fetches per resolve, and a
+    // proxy-cached zip would turn the dev-image drift case (lib bytes changed
+    // under an unchanged version) into a confusing stale-checksum failure.
+    case GET -> Root / "system" / "pkl" / "packages" / file =>
+      guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
+        val mediaType =
+          if (file.endsWith(".zip")) MediaType.application.zip
+          else MediaType.application.json
+        Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
+      })
+
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
     // dashboard injects when embedded in the editor preview (`?edit=1`).
     case GET -> Root / "edit" / "node" / slug / id / "debug" =>
       nodeDebug(slug, id)
 
+    // Install a pre-evaluated dashboard under `slug`, live (ADR 0010, persona
+    // 4). The body is the SAME `{cards, card}` wire JSON the Pkl layer emits —
+    // pushing simply skips that layer, which is why a component developer can
+    // ship cards this server has no source for.
+    //
+    // NOTE — unauthenticated, deliberately, matching the port it rides: the
+    // direct port is documented as unauthenticated and the server already
+    // drives Home Assistant with its own token, so anyone who can reach this
+    // can already control every device. It is nonetheless a WRITE: when auth
+    // lands for the direct port it must cover this route.
+    case req @ POST -> Root / "system" / "push" / slug =>
+      pushResponse(slug, req)
+
+    // Recreate the entity dump on demand (the /edit editor's "refresh dump"
+    // button): re-fetch from HA, validate every dashboard against the new dump
+    // package in a staged copy, and swap the `@fh-home` pin only if nothing that
+    // builds today breaks — the previous immutable package version stays in the
+    // cache as the trail (no dated backup file). Same auth story as /system/push
+    // above: unauthenticated on a port documented as such; when auth lands for
+    // the direct port it must cover this route.
+    case POST -> Root / "system" / "dump" / "refresh" =>
+      dumpRefresh match {
+        case None         => NotFound()
+        case Some(action) =>
+          action.flatMap(result =>
+            Ok(Server.dumpRefreshJson(result).noSpaces).map(
+              _.putHeaders(`Content-Type`(MediaType.application.json))
+            )
+          )
+      }
+
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
-      if (renderers.contains(slug)) sseStream(slug, req) else NotFound()
+      renderers.get.flatMap { rs =>
+        if (rs.contains(slug)) sseStream(slug, req) else NotFound()
+      }
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -130,19 +238,43 @@ class Server(
       )
   }
 
-  /** One background stream per slug feeding its shared topic: render each
-    * affected main-page fragment ONCE per state change and fan it out to every
-    * connection viewing the slug — instead of N viewers doing N identical
-    * renders. Only nodes whose HTML is a pure function of entity state qualify,
-    * so bake-group owners (uiState-dependent) are excluded and stay per-session
-    * ([[changedPatches]]).
+  /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
+    * raise [[FHError]] for anything a home does not serve, mapped here to its
+    * `status + message` — locally, the same as [[pushResponse]], so these
+    * routes behave identically whether exercised through the app-level
+    * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
+    * bug and becomes a 500, same as there.
+    */
+  private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
+    io.handleErrorWith {
+      case e: FHError => IO.pure(FHError.response(e))
+      case err        => InternalServerError(err.getMessage)
+    }
+
+  /** The current renderer for `slug`, or `None` if no such dashboard is
+    * registered. Reads through the registry `Ref`, so it sees slugs pushed
+    * after startup.
+    */
+  private def rendererFor(slug: String): IO[Option[Renderer]] =
+    renderers.get.flatMap(_.get(slug).traverse(_.get))
+
+  /** One background render/diff loop per slug: one subscription to the state
+    * stream, one diff cache, publishing slug-tagged patches to [[sharedTopic]]
+    * — so each affected main-page fragment is rendered ONCE per state change
+    * and fanned out to every connection viewing the slug, instead of N viewers
+    * doing N identical renders. Only nodes whose HTML is a pure function of
+    * entity state qualify: USER bake-group owners (uiState-dependent) are
+    * excluded and stay per-session ([[changedPatches]]); STATE-selected groups
+    * qualify and are handled here — selection flips and active-branch liveness
+    * included (see [[sharedPatches]]).
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
     * renderer and a FRESH per-slug diff cache. A change landing in the brief
     * switch window may be dropped — harmless, because every connection does a
     * full body repaint on reload ([[reloadRepaints]]).
     *
-    * Run by [[Server.resource]] (or a test) — the class only defines it.
+    * Started once per slug — at startup by [[Server.resource]], or on demand by
+    * [[push]] for a slug minted at runtime.
     *
     * FUTURE (ADR): under a burst of state_changed events (HA fires them
     * constantly), coalesce — debounce/batch the stream and re-render at most
@@ -151,33 +283,102 @@ class Server(
     * bound *how often*. (Fold this into the dynamic-groups ADR when the perf
     * model is settled.)
     */
-  def sharedPatchPublishers: Stream[IO, Nothing] =
-    sharedTopics.toList
-      .map { case (slug, topic) =>
-        val patches = renderers.get(slug) match {
-          case None => Stream.empty
-          case Some(ref) =>
-            ref.discrete.switchMap { renderer =>
-              Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap {
-                cache =>
-                  stateStore.changes
-                    .evalMap(sharedPatches(renderer, cache, _))
-                    .flatMap(Stream.emits)
-              }
-            }
+  private def publisherFor(
+      slug: String,
+      ref: SignallingRef[IO, Renderer]
+  ): Stream[IO, Nothing] =
+    ref.discrete
+      .switchMap { renderer =>
+        Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap { cache =>
+          stateStore.changes
+            .evalMap(sharedPatches(renderer, cache, _))
+            .flatMap(Stream.emits)
         }
-        patches.through(topic.publish)
       }
-      .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
+      .map(sse => (slug, sse))
+      .through(sharedTopic.publish)
+
+  /** Start every currently-registered slug's publisher. Slugs pushed later get
+    * theirs from [[push]] via the supervisor.
+    */
+  def sharedPatchPublishers: Stream[IO, Nothing] =
+    Stream
+      .eval(renderers.get)
+      .flatMap { rs =>
+        rs.toList
+          .map { case (slug, ref) => publisherFor(slug, ref) }
+          .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
+      }
+
+  /** Current number of subscribers on the shared-patch topic, as a signal
+    * stream — a test seam (mirroring [[StateStore.changeSubscribers]]) to await
+    * an SSE connection's shared subscription before emitting a change, since
+    * the topic only reaches already-subscribed consumers.
+    *
+    * Not per-slug: one multiplexed topic means one subscription per connection,
+    * whatever it is viewing.
+    */
+  private[runtime] def sharedSubscribers: Stream[IO, Int] =
+    sharedTopic.subscribers
+
+  /** Install `dashboard` under its slug, live, without evaluating any Pkl — the
+    * component-developer story (ADR 0010, persona 4): they author cards the
+    * server holds no source for, evaluate on their laptop, and push the RESULT.
+    * Viable only because the wire model is self-contained (every card carries
+    * its own template), so this needs nothing but the JSON.
+    *
+    * An EXISTING slug reuses its `SignallingRef` — setting it repaints open
+    * connections exactly as live reload does, which is the push/look/edit loop.
+    * A NEW slug also needs its publisher started, hence the supervisor.
+    *
+    * Ephemeral by design: this touches no file, so a restart returns the
+    * instance to its on-disk dashboards, and the file watcher's next reconcile
+    * reclaims a slug that shadows a real entry.
+    */
+  def push(validated: Dashboard.Validated): IO[Unit] =
+    SignallingRef[IO].of(Renderer.fromValidated(validated)).flatMap { fresh =>
+      val slug = validated.dashboard.slug
+      renderers
+        .modify { rs =>
+          rs.get(slug) match {
+            case Some(existing) => (rs, Some(existing))
+            case None           => (rs + (slug -> fresh), None)
+          }
+        }
+        .flatMap {
+          case Some(existing) => existing.set(Renderer.fromValidated(validated))
+          case None           =>
+            supervisor
+              .supervise(publisherFor(slug, fresh).compile.drain)
+              .void
+        }
+    }
 
   /** The shared per-slug render/diff for one state change: the affected
-    * main-page static components (reverse index, minus the bake-group owners)
-    * plus the query-affected dynamic groups, rendered against the current
-    * snapshot and diffed against the slug's shared cache. Returns the SSE
-    * patches — child-scoped for a dynamic member update, per-entity
-    * insert/remove for a small membership delta, a whole-group morph otherwise
-    * (see [[diffPatches]]). No `uiState`: by construction these nodes don't
-    * read it.
+    * main-page static components (reverse index, minus the USER bake-group
+    * owners), the query-affected dynamic groups, plus everything state-selected
+    * surfaces contribute — all rendered against the current snapshot and diffed
+    * against the slug's shared cache. Returns the SSE patches — child-scoped
+    * for a dynamic member update, per-entity insert/remove for a small
+    * membership delta, a whole-group morph otherwise (see [[diffPatches]]). No
+    * `uiState`: by construction these nodes don't read it.
+    *
+    * The state-selected extension (ADR 0002's shared/per-session split, cut by
+    * activation mode):
+    *
+    *   - '''Flips''': each state group whose selection this change moves
+    *     ([[Renderer.affectedStateGroups]], main-rooted; minus the session-only
+    *     ones, whose branch HTML bakes a cookie-selected member and therefore
+    *     rides [[changedPatches]]) gets its HOST re-rendered — [[Renderer]]'s
+    *     bake picks the newly-selected member against CURRENT state — morphed,
+    *     and its members' cache entries pruned ([[flipStateGroup]]).
+    *   - '''Active-member liveness''': for each surface in the main-rooted
+    *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
+    *     just-flipped subtrees — their host morph re-rendered them wholesale —
+    *     and session-only subtrees) patch its components binding the changed
+    *     entity plus its query-affected dynamics. Inactive members are never
+    *     consulted — that IS the hidden-branch no-updates guarantee, and it is
+    *     structural: their ids simply never enter the patch set.
     */
   private[runtime] def sharedPatches(
       renderer: Renderer,
@@ -185,233 +386,8 @@ class Server(
       change: StateChange
   ): IO[List[ServerSentEvent]] =
     stateStore.snapshot.flatMap { states =>
-      val staticIds =
-        renderer
-          .componentsFor(change.entityId)
-          .toList
-          .filterNot(renderer.bakeOwnerIds)
-      val dynamics = renderer.affectedDynamics(change)
-      cache.modify(
-        diffPatches(
-          renderer,
-          _,
-          staticIds,
-          dynamics,
-          change,
-          states,
-          beforeSnapshot(states, change),
-          Map.empty
-        )
-      )
-    }
-
-  /** The snapshot as it was BEFORE this change — the current snapshot with the
-    * changed entity rewound to its `previous` value (or dropped when it was
-    * newly seen). Lets a dynamic group compute its membership before vs. after
-    * from a single [[StateChange]], without the store tracking prior snapshots.
-    */
-  private def beforeSnapshot(
-      states: Map[String, EntityState],
-      change: StateChange
-  ): Map[String, EntityState] =
-    change.previous.fold(states - change.entityId)(p =>
-      states.updated(change.entityId, p)
-    )
-
-  /** Diff a set of static component ids + a set of affected dynamic groups
-    * against `cache`, returning the updated cache and the SSE patches to emit.
-    * The single diff contract shared by the per-slug ([[sharedPatches]]) and
-    * per-session ([[changedPatches]]) passes.
-    *
-    *   - Static components outer-morph when their HTML actually changed.
-    *   - A dynamic group with an [[DynamicDelta.InPlace]] member re-renders and
-    *     outer-morphs that ONE child; an add/remove is patched per-entity when
-    *     the churn is a small fraction of the group, else the whole group
-    *     repaints ([[renderDynamicGroup]] applies [[Server.MaxChurnFraction]]).
-    *   - A whole-group repaint prunes that group's child cache entries so the
-    *     next per-entity patch re-establishes from a known base.
-    *
-    * Pure (all rendering is pure over `states`); the caller wraps it in the
-    * cache Ref's `modify`.
-    */
-  private def diffPatches(
-      renderer: Renderer,
-      cache: Map[String, String],
-      staticIds: List[String],
-      dynamics: List[(String, DynamicDelta)],
-      change: StateChange,
-      states: Map[String, EntityState],
-      before: Map[String, EntityState],
-      uiState: Map[String, String]
-  ): (Map[String, String], List[ServerSentEvent]) = {
-    val rendered =
-      staticIds.flatMap(id =>
-        renderer.renderNodeById(id, states, uiState).map(id -> _)
-      )
-    val (cacheAfterStatic, staticPatches) =
-      rendered.foldLeft((cache, List.empty[Patch])) {
-        case ((c, acc), (id, html)) =>
-          if (c.get(id).contains(html)) (c, acc)
-          else (c.updated(id, html), acc :+ Patch.Morph(html))
-      }
-    val (finalCache, dynPatches) =
-      dynamics.foldLeft((cacheAfterStatic, List.empty[Patch])) {
-        case ((c, acc), (gid, delta)) =>
-          val (c2, ps) =
-            renderDynamicGroup(renderer, c, gid, delta, change, states, before)
-          (c2, acc ++ ps)
-      }
-    (finalCache, (staticPatches ++ dynPatches).map(_.toSse))
-  }
-
-  /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
-    * changed entity's single child and morphs it (unless a case change actually
-    * moved membership — then it falls through to the membership path). An add
-    * or remove diffs the group's rendered membership before vs. after and
-    * either patches the delta per-entity or repaints the whole group
-    * ([[renderMembershipChange]]).
-    */
-  private def renderDynamicGroup(
-      renderer: Renderer,
-      cache: Map[String, String],
-      gid: String,
-      delta: DynamicDelta,
-      change: StateChange,
-      states: Map[String, EntityState],
-      before: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) =
-    delta match {
-      case DynamicDelta.InPlace =>
-        // The query boundary was not crossed. Normally re-render just this
-        // entity's card; but a case that gained/lost this entity moves the
-        // rendered membership even at a fixed query match, so reconcile against
-        // the actual member lists and fall through if they differ.
-        val membersBefore = renderer.dynamicMembers(gid, before)
-        val membersAfter = renderer.dynamicMembers(gid, states)
-        if (membersBefore == membersAfter)
-          renderer.renderDynamicChild(gid, change.entityId, states) match {
-            case None => (cache, Nil) // not a current member — nothing to do
-            case Some(html) =>
-              val cid = renderer.dynamicChildId(gid, change.entityId)
-              if (cache.get(cid).contains(html)) (cache, Nil)
-              else (cache.updated(cid, html), List(Patch.Morph(html)))
-          }
-        else
-          renderMembershipChange(
-            renderer,
-            cache,
-            gid,
-            membersBefore,
-            membersAfter,
-            states
-          )
-      case DynamicDelta.Added | DynamicDelta.Removed =>
-        renderMembershipChange(
-          renderer,
-          cache,
-          gid,
-          renderer.dynamicMembers(gid, before),
-          renderer.dynamicMembers(gid, states),
-          states
-        )
-    }
-
-  /** Apply a membership change to a dynamic group. When the churn (entities
-    * added + removed) is a small enough fraction of the group's rendered size
-    * ([[Server.MaxChurnFraction]]) AND the group is already established in the
-    * cache, patch the delta per-entity: a `remove` patch per departed member
-    * and an `insert` (`before` its successor in DOM order, or `append` into the
-    * group) per new member. Otherwise — heavy churn, an empty/last-member
-    * group, or a group not yet in the cache (post-reload) — repaint the whole
-    * group and prune its child cache entries, so a client re-establishes from a
-    * known base.
-    *
-    * Idempotency: the per-entity path fires only for an ESTABLISHED group, so
-    * the first membership change after a renderer reload (fresh cache) always
-    * repaints; a `remove` of an already-absent id is a no-op (see
-    * [[Datastar.remove]]). Residual race: a client that missed an `insert` in
-    * the connect gap (subscribed to the shared topic just after the patch) will
-    * lack that child until the next whole-group repaint — an in-place morph
-    * can't heal an id absent from that client's DOM. Bounded and self-healing;
-    * whole-group repaints (heavy churn / reload) re-sync every client.
-    */
-  private def renderMembershipChange(
-      renderer: Renderer,
-      cache: Map[String, String],
-      gid: String,
-      membersBefore: List[String],
-      membersAfter: List[String],
-      states: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) = {
-    val beforeSet = membersBefore.toSet
-    val afterSet = membersAfter.toSet
-    val added = membersAfter.filterNot(beforeSet)
-    val removed = membersBefore.filterNot(afterSet)
-    val churn = added.size + removed.size
-    val shown = membersBefore.size
-    // Per-entity pays off only when the churn is a MINORITY of the group: at the
-    // boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
-    // is cheaper than juggling insert/remove patches. Strict `<` so exactly half
-    // repaints. `MaxChurnFraction` is tunable.
-    val perEntity = churn > 0 && churn < Server.MaxChurnFraction * shown
-    val established =
-      cache.contains(gid) || cache.keysIterator.exists(_.startsWith(gid + "_"))
-    if (!perEntity || !established) repaintGroup(renderer, cache, gid, states)
-    else {
-      val (afterRemoves, removePatches) =
-        removed.foldLeft((cache, List.empty[Patch])) { case ((c, acc), e) =>
-          val cid = renderer.dynamicChildId(gid, e)
-          (c - cid, acc :+ Patch.Remove("#" + cid))
-        }
-      val (afterAdds, addPatches) =
-        added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
-          case ((c, acc), e) =>
-            renderer.renderDynamicChild(gid, e, states) match {
-              case None => (c, acc) // defensive: not renderable, skip
-              case Some(html) =>
-                val cid = renderer.dynamicChildId(gid, e)
-                // Insert before the first EXISTING (pre-change) member sorting
-                // after this one; if none, append into the group root.
-                val patch = membersBefore.find(_.compareTo(e) > 0) match {
-                  case Some(succ) =>
-                    Patch.Insert(
-                      html,
-                      PatchMode.Before,
-                      "#" + renderer.dynamicChildId(gid, succ)
-                    )
-                  case None =>
-                    Patch.Insert(html, PatchMode.Append, "#" + gid)
-                }
-                (c.updated(cid, html), acc :+ patch)
-            }
-        }
-      // Drop the stale group-level cache entry: per-entity edits diverge the DOM
-      // from the last whole-group render, so a later repaint must always re-emit
-      // rather than diff against an entry that no longer describes the DOM.
-      (afterAdds - gid, removePatches ++ addPatches)
-    }
-  }
-
-  /** Repaint a whole dynamic group by id and prune its child cache entries (so
-    * the next per-entity patch re-establishes from a known base). Emits nothing
-    * when the group's HTML is unchanged (the defensive path).
-    */
-  private def repaintGroup(
-      renderer: Renderer,
-      cache: Map[String, String],
-      gid: String,
-      states: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) =
-    renderer.renderNodeById(gid, states) match {
-      case None => (cache, Nil)
-      case Some(html) =>
-        if (cache.get(gid).contains(html)) (cache, Nil)
-        else {
-          val pruned = cache.filterNot { case (k, _) =>
-            k == gid || k.startsWith(gid + "_")
-          }
-          (pruned.updated(gid, html), List(Patch.Morph(html)))
-        }
+      val req = Patches.plan(renderer, states, change, Patches.Scope.Shared)
+      cache.modify(Patches.diff(renderer, _, req))
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
@@ -425,7 +401,7 @@ class Server(
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
-      rendererOpt <- renderers.get(slug).traverse(_.get)
+      rendererOpt <- rendererFor(slug)
       // Seed the open set with this client's selected tab panels (from its
       // cookies), so the baked-inline tabs receive live updates from the first
       // paint. Warn on any off cookie value.
@@ -458,21 +434,21 @@ class Server(
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers). The session's slug can change mid-connection
-      // (navigate), so subscribe to EVERY slug's topic and keep only the
-      // current slug's events — dashboards are few. A dropped-or-duplicate
-      // fragment around the navigate moment is harmless: navigate does a full
-      // body repaint, and Datastar morphs are idempotent.
-      shared = sharedTopics.toList
-        .map { case (s, topic) =>
-          topic
-            .subscribe(64)
-            .evalFilter(_ => session.slug.get.map(_ == s))
-        }
-        .reduceOption(_.merge(_))
-        .getOrElse(Stream.empty)
-      // What truly differs per client: open-surface nodes and bake-group-owner
-      // nodes, re-rendered per state change with this session's uiState/open
-      // set and diffed against its own cache.
+      // (navigate), so keep only the current slug's events — the filter is read
+      // per event, not fixed at connect, so it follows a navigate. A
+      // dropped-or-duplicate fragment around the navigate moment is harmless:
+      // navigate does a full body repaint, and Datastar morphs are idempotent.
+      //
+      // One subscription to the multiplexed topic, so a slug that did not exist
+      // when this connection opened (pushed since) still reaches it.
+      shared = sharedTopic
+        .subscribe(64)
+        .evalFilter { case (s, _) => session.slug.get.map(_ == s) }
+        .map { case (_, sse) => sse }
+      // What truly differs per client: open-surface nodes and user
+      // bake-group-owner nodes (plus the state groups those pull in),
+      // re-rendered per state change with this session's uiState/open set and
+      // diffed against its own cache.
       patches = stateStore.changes
         .evalMap(changedPatches(session, _, uiState))
         .flatMap(Stream.emits)
@@ -483,7 +459,7 @@ class Server(
         .evalMap(_ => healthy.get)
         .evalMapFilter {
           case false => IO.pure(None)
-          case true =>
+          case true  =>
             beatCounter
               .updateAndGet(_ + 1)
               .map(n =>
@@ -504,12 +480,21 @@ class Server(
     * CURRENT dashboard: watch every renderer, but only repaint when the one
     * that reloaded is the one this connection is viewing now (it may have
     * navigated since connecting).
+    *
+    * The watched set is the registry as it stands when this connection opens. A
+    * slug pushed LATER is therefore not watched by this connection — it still
+    * receives that slug's shared entity patches (the topic is multiplexed) and
+    * renders it correctly on navigate, but a re-push of it would not repaint
+    * here until the page is reloaded. The push/look/edit loop is unaffected,
+    * since the slug exists before the developer opens it.
     */
   private def reloadRepaints(
       session: Session,
       uiState: Map[String, String]
   ): Stream[IO, ServerSentEvent] =
-    renderers.toList
+    Stream
+      .eval(renderers.get)
+      .flatMap(rs => Stream.emits(rs.toList))
       .map { case (s, ref) =>
         ref.discrete.drop(1).evalMapFilter { r =>
           session.slug.get.flatMap { cur =>
@@ -534,15 +519,27 @@ class Server(
           }
         }
       }
-      .reduceOption(_.merge(_))
-      .getOrElse(Stream.empty)
+      .parJoinUnbounded
 
   /** Re-render the nodes a changed entity drives that are truly per-connection
     * — for each open surface, that surface's components/dynamics, plus any
-    * main-page bake-group owner (its HTML bakes the client's cookie-selected
-    * member, so it can't be shared) — and emit only the fragments whose HTML
-    * actually changed (per-session diff). All other main-page nodes ride the
-    * shared per-slug pass ([[sharedPatchPublishers]]).
+    * main-page USER bake-group owner (its HTML bakes the client's
+    * cookie-selected member, so it can't be shared) — and emit only the
+    * fragments whose HTML actually changed (per-session diff). All other
+    * main-page nodes ride the shared per-slug pass ([[sharedPatchPublishers]]).
+    *
+    * State-selected surfaces are shared by default, but two shapes are
+    * per-session by nature and mirrored here (the counterpart of
+    * [[sharedPatches]]'s exclusions):
+    *
+    *   - a state group nested INSIDE an open surface (a popup only this session
+    *     has open) — per-session by containment: its flips and its active
+    *     member's liveness ride this session's diff cache;
+    *   - a [[Renderer.sessionOnlyStateGroups]] group (a user-selected owner
+    *     somewhere in a branch): its host morph bakes THIS session's
+    *     cookie-selected member, so its flips — and its active subtree's
+    *     liveness, which the shared pass skipped — render here with the
+    *     session's `uiState`.
     */
   private[runtime] def changedPatches(
       session: Session,
@@ -551,39 +548,19 @@ class Server(
   ): IO[List[ServerSentEvent]] =
     for {
       slug <- session.slug.get
-      renderer <- renderers.get(slug).traverse(_.get)
+      renderer <- rendererFor(slug)
       states <- stateStore.snapshot
       open <- session.open.get
       out <- renderer match {
         case None    => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
-          // Static components: main-page bake-group owners binding this entity
-          // (a dynamic group is never a bake owner, so main dynamics all belong
-          // to the shared pass), plus each open surface's components binding it.
-          val mainIds =
-            r.componentsFor(change.entityId).toList.filter(r.bakeOwnerIds)
-          val surfaceStaticIds = open.toList.flatMap(sid =>
-            r.surfaceComponentsFor(sid, change.entityId).toList
+          val req = Patches.plan(
+            r,
+            states,
+            change,
+            Patches.Scope.Session(open, uiState)
           )
-          val staticIds = (mainIds ++ surfaceStaticIds).distinct
-          // Dynamic groups this change can move the entity in/out of, per open
-          // surface (surface-namespaced ids never collide across surfaces).
-          val dynamics =
-            open.toList
-              .flatMap(sid => r.affectedSurfaceDynamics(sid, change))
-              .distinct
-          session.lastRendered.modify(
-            diffPatches(
-              r,
-              _,
-              staticIds,
-              dynamics,
-              change,
-              states,
-              beforeSnapshot(states, change),
-              uiState
-            )
-          )
+          session.lastRendered.modify(Patches.diff(r, _, req))
       }
     } yield out
 
@@ -598,7 +575,7 @@ class Server(
       uiState: Map[String, String]
   ): IO[Unit] =
     renderer.surface(id) match {
-      case None => IO.unit
+      case None       => IO.unit
       case Some(surf) =>
         swapHost(session, renderer, surf.hostId, Some(id), uiState)
     }
@@ -660,11 +637,10 @@ class Server(
       slug: String,
       uiState: Map[String, String]
   ): IO[Unit] =
-    renderers.get(slug) match {
-      case None => IO.unit
-      case Some(ref) =>
+    rendererFor(slug).flatMap {
+      case None           => IO.unit
+      case Some(renderer) =>
         for {
-          renderer <- ref.get
           states <- stateStore.snapshot
           _ <- session.slug.set(slug)
           _ <- warnAnomalies(renderer, uiState)
@@ -709,10 +685,10 @@ class Server(
         case None => BadRequest("""{"success":false,"error":"missing conn"}""")
         case Some(conn) =>
           sessions.get(conn).flatMap {
-            case None => NoContent() // stale/unknown connection
+            case None          => NoContent() // stale/unknown connection
             case Some(session) =>
               session.slug.get
-                .flatMap(slug => renderers.get(slug).traverse(_.get))
+                .flatMap(rendererFor)
                 .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
           }
       }
@@ -741,7 +717,7 @@ class Server(
       serviceData: Json
   ): IO[Response[IO]] =
     api.callService(domain, service, entityId, serviceData).attempt.flatMap {
-      case Right(_) => NoContent()
+      case Right(_)  => NoContent()
       case Left(err) =>
         BadRequest(
           Json
@@ -761,10 +737,10 @@ class Server(
     * Read-only; an unknown slug is a 404, an unknown/childless node is `[]`.
     */
   private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
-    renderers.get(slug) match {
-      case None => NotFound()
-      case Some(ref) =>
-        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+    rendererFor(slug).flatMap {
+      case None           => NotFound()
+      case Some(renderer) =>
+        stateStore.snapshot.flatMap { states =>
           val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
             states.get(e) match {
               case Some(st) =>
@@ -786,15 +762,105 @@ class Server(
         }
     }
 
+  /** Decode a pushed dashboard and install it live under `slug`.
+    *
+    * The body goes through the SAME [[DashboardBuild.decode]] as the server's
+    * own eval path, so a push is validated identically — an unknown card
+    * reference or an uncompilable slot transform is rejected rather than
+    * installed. That matters more here than on the eval path: the pushing
+    * developer has no server logs, so the failure has to come back on the wire.
+    * Hence 400 + the validation message, which is the CLI's error output.
+    *
+    * The slug comes from the URL, not the body: it is the address the developer
+    * asked for, and forcing it keeps `/d/<slug>` and the registry key in step
+    * (the same `copy(slug = ...)` the eval path applies at decode time).
+    */
+  private def pushResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
+    req.bodyText.compile.string
+      .map(io.circe.parser.parse)
+      .flatMap {
+        case Left(err) =>
+          BadRequest(s"push body is not JSON: ${err.getMessage}")
+        case Right(json) =>
+          DashboardBuild
+            .decode(json)
+            .map(_.withSlug(slug))
+            .flatMap(v => push(v).as(v))
+            .flatMap(v =>
+              Ok(
+                s"pushed ${v.dashboard.slug} (${v.dashboard.cards.size} cards)"
+              )
+            )
+            // decode raises FHError.badCondition for a malformed/invalid
+            // dashboard (mapped to its 400 here since this route is also
+            // exercised without the app-level FHError.handle); a non-FHError
+            // is an unnamed bug and becomes a 500.
+            .handleErrorWith {
+              case e: FHError => IO.pure(FHError.response(e))
+              case err        => InternalServerError(err.getMessage)
+            }
+      }
+
+  /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
+    * `ETag` (and a `304` for a matching `If-None-Match`).
+    *
+    * **`no-cache` is the load-bearing header, not the ETag.** `dump.pkl` is
+    * this home's LIVE entity dump: it is rewritten whenever the home's registry
+    * changes, under a URL that never changes. Anything that stores it — a
+    * browser, a proxy on the split-horizon remote path
+    * (`docs/pwa-remote-access.md`) — would hand an author completions for
+    * devices they no longer own, with no way to tell. `no-cache` does not
+    * forbid storing; it forbids REUSING without revalidating, which is exactly
+    * the contract we want: cheap when unchanged, never silently stale.
+    *
+    * **The ETag is for clients that revalidate — which today is none of them.**
+    * pkl is the primary consumer and it does no conditional requests at all:
+    * pkl-core 0.31.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
+    * handling anywhere (verified against the jar), so its module reader
+    * unconditionally GETs the full body and its only caching is the
+    * per-evaluator in-memory module cache, keyed by resolved URI, which never
+    * consults an HTTP validator. So the ETag is dead weight *for pkl* — it is
+    * here for the consumers that do revalidate: browser/editor JS fetching the
+    * dump, and any remote tooling that wants to ask "did this home's entity set
+    * change?" without pulling a ~450KB dump every time. Hashing that dump per
+    * request is trivial next to shipping it, and this route is hit at
+    * editor-session start, never on the live hot path.
+    *
+    * The ETag is a strong validator (hex SHA-256, [[LibPackage.sha256]]) over
+    * the exact bytes served, so it is correct by construction: same text ⇒ same
+    * tag.
+    */
+  private def systemPklResponse(
+      text: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val etag = EntityTag(LibPackage.sha256(text.getBytes(UTF_8)))
+    val fresh = req.headers
+      .get[`If-None-Match`]
+      .exists {
+        // A bare `If-None-Match: *` matches any existing representation.
+        case `If-None-Match`(None)       => true
+        case `If-None-Match`(Some(tags)) =>
+          tags.exists(t => t.tag == etag.tag)
+      }
+    val cacheControl = `Cache-Control`(CacheDirective.`no-cache`())
+    if (fresh) NotModified().map(_.putHeaders(ETag(etag), cacheControl))
+    else
+      Ok(text).map(
+        _.withContentType(`Content-Type`(MediaType.text.plain))
+          .putHeaders(ETag(etag), cacheControl)
+      )
+  }
+
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
-    renderers.get(slug) match {
-      case None => NotFound()
-      case Some(ref) =>
+    rendererFor(slug).flatMap {
+      case None           => NotFound()
+      case Some(renderer) =>
         val uiState = Server.uiStateOf(req)
         // The editor embeds the dashboard as `?edit=1`; that turns on the
         // per-node inspection overlay (Focus / Debug). Off for normal viewers.
         val editMode = req.uri.query.params.get("edit").contains("1")
-        (ref.get, stateStore.snapshot).flatMapN { (renderer, states) =>
+        stateStore.snapshot.flatMap { states =>
           warnAnomalies(renderer, uiState) *>
             Ok(
               page(
@@ -886,14 +952,17 @@ class Server(
         |else window.__fhSse=0;}document.addEventListener('datastar-sse',h);
         |document.addEventListener('datastar-fetch',h);})();
         |</script>""".stripMargin
+    // Datastar expressions read signals via `$name` (this pinned build, unlike
+    // some Datastar doc examples, requires the sigil even for a bare read).
+    val beat = "$" + Server.BeatSignal
     val connBanner =
       s"""<div data-signals="{${Server.BeatSignal}: 0, _lastBeat: -1, _stale: 0, _sse: 0, _sseDown: false, _haDown: false}"
-         |     data-on-interval="1000; _moved = (${Server.BeatSignal} !== _lastBeat); _lastBeat = ${Server.BeatSignal}; _sse = (window.__fhSse || 0); _stale = _moved ? 0 : _stale + 1; _sseDown = _sse > 0; _haDown = (_stale >= 6) && !_sseDown">
-         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="_sseDown">
-         |    <span data-show="_sse < 2">Reconnecting to the dashboard…</span>
-         |    <span data-show="_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+         |     data-on-interval="1000; let _moved = ($beat !== $$_lastBeat); $$_lastBeat = $beat; $$_sse = (window.__fhSse || 0); $$_stale = _moved ? 0 : $$_stale + 1; $$_sseDown = $$_sse > 0; $$_haDown = ($$_stale >= 6) && !$$_sseDown">
+         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sseDown">
+         |    <span data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
+         |    <span data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
          |  </div>
-         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="_haDown">Home Assistant unavailable — reconnecting…</div>
+         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$$_haDown">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
@@ -920,10 +989,14 @@ class Server(
 
 object Server {
 
-  /** Build the server with one shared-patch topic per slug and run the per-slug
+  /** Build the server with the shared-patch topic and run the per-slug
     * publishers ([[Server.sharedPatchPublishers]]) for the life of the
     * resource. The single construction point (ServerApp and tests) so the
     * shared fan-out is never accidentally left un-driven.
+    *
+    * `renderers` seeds the registry; it is not the final word — [[Server.push]]
+    * adds to it at runtime, and the supervisor here owns the publishers those
+    * pushed slugs start, so they end with the resource like the seeded ones.
     */
   def resource(
       api: HomeAssistantApi[IO],
@@ -932,25 +1005,55 @@ object Server {
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
-      healthy: Signal[IO, Boolean] = Signal.constant(true)
+      healthy: Signal[IO, Boolean] = Signal.constant(true),
+      systemPkl: SystemPkl = SystemPkl.empty,
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topics <- renderers.keySet.toList
-        .traverse(slug => Topic[IO, ServerSentEvent].tupleLeft(slug))
-        .map(_.toMap)
-        .toResource
+      topic <- Topic[IO, (String, ServerSentEvent)].toResource
+      registry <- Ref[IO].of(renderers).toResource
+      supervisor <- Supervisor[IO]
       server = new Server(
         api,
         stateStore,
-        renderers,
+        registry,
         defaultSlug,
         sessions,
-        topics,
+        topic,
+        supervisor,
         assets,
-        healthy
+        healthy,
+        systemPkl,
+        dumpRefresh
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
+
+  /** The `POST /system/dump/refresh` response body — status plus what a caller
+    * (the /edit editor) shows the user: the backup name on a swap, the
+    * per-dashboard errors on a rejection.
+    */
+  def dumpRefreshJson(result: DumpRefresh.Result): Json = {
+    result match {
+      case DumpRefresh.Unchanged =>
+        Json.obj("status" -> Json.fromString("unchanged"))
+      case DumpRefresh.Swapped(version, _) =>
+        Json.obj(
+          "status" -> Json.fromString("swapped"),
+          "version" -> Json.fromString(version)
+        )
+      case DumpRefresh.Rejected(errors) =>
+        Json.obj(
+          "status" -> Json.fromString("rejected"),
+          "errors" -> Json.fromValues(errors.map { case (slug, err) =>
+            Json.obj(
+              "slug" -> Json.fromString(slug),
+              "error" -> Json.fromString(err)
+            )
+          })
+        )
+    }
+  }
 
   /** The largest fraction of a dynamic group's rendered members that may churn
     * (be added and/or removed by one state change) and still be patched
