@@ -6,13 +6,13 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Covers the state-store dedup that backs reconnect recovery ([[HaFeed]]): when
-  * the supervisor re-seeds the store after a dropped connection, unchanged
-  * entities must NOT re-publish (no churn on every browser), while entities that
-  * changed or appeared during the outage MUST publish so connected clients catch
-  * up over their live SSE stream. Re-seeding is `snapshot |> update` per entity,
-  * so exercising [[StateStore.update]] directly validates that contract without
-  * standing up a fake REST endpoint.
+/** Covers the state-store dedup that backs reconnect recovery ([[HaFeed]]):
+  * when the supervisor re-seeds the store after a dropped connection, unchanged
+  * entities must NOT re-publish (no churn on every browser), while entities
+  * that changed or appeared during the outage MUST publish so connected clients
+  * catch up over their live SSE stream. Re-seeding is `snapshot |> update` per
+  * entity, so exercising [[StateStore.update]] directly validates that contract
+  * without standing up a fake REST endpoint.
   */
 class StateStoreSuite extends munit.FunSuite {
 
@@ -39,7 +39,9 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(changes.head.previous, None)
   }
 
-  test("re-seed publishes exactly the entities that changed while disconnected") {
+  test(
+    "re-seed publishes exactly the entities that changed while disconnected"
+  ) {
     val changes = (for {
       store <- StateStore.inMemory(
         Map("a" -> st("a", "1"), "b" -> attrs("b", "on", "brightness", "10"))
