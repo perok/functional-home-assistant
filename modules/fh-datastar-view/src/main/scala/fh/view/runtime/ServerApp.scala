@@ -225,7 +225,6 @@ object ServerApp extends IOApp {
         importsRef <- SignallingRef[IO]
           .of(watchedSet(dashboardsDir, entries, built.map(_._2._2)))
           .toResource
-        sessions <- Sessions.create.toResource
 
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
@@ -246,13 +245,14 @@ object ServerApp extends IOApp {
           )
         )
 
-        // Also runs the per-slug shared patch publishers in the background —
-        // the render-once fan-out every SSE connection subscribes to.
-        server <- Server.fromFeed(
+        // The live Server, assembled through the SHARED kernel `liveServer` (the
+        // same one the test harness funnels through, so the wiring can't drift).
+        // Also runs the per-slug shared patch publishers in the background — the
+        // render-once fan-out every SSE connection subscribes to.
+        server <- liveServer(
           feed,
           rendererRefs,
           defaultSlug,
-          sessions,
           assets,
           systemPkl,
           dumpRefresh = Some(refreshDump)
@@ -300,6 +300,55 @@ object ServerApp extends IOApp {
           .toResource
       } yield ()).useForever
     } yield ExitCode.Success
+
+  /** The runtime KERNEL both [[run]] (production) and the test harness
+    * (`TestServer`) funnel through, so the live-Server wiring cannot silently
+    * diverge: wait for the feed's first connect + seed (so the store is
+    * populated before anything serves), then build the Server from it via the
+    * single [[Server.fromFeed]] constructor.
+    *
+    * What stays with the caller is deliberate, not drift: the renderer SOURCE
+    * (production evaluates Pkl against the live dump; a test uses a fixed
+    * `Dashboard`) and the serving SHELL (asset cache, editor + Ember in
+    * production; in-memory routes or a bare Ember bind in tests). The feed
+    * itself is built by the caller because production needs `feed.api` to
+    * prepare the dump BEFORE any renderer exists — everything that makes a
+    * Server a Server lives here.
+    */
+  private[runtime] def liveServer(
+      feed: HaFeed,
+      renderers: Map[String, SignallingRef[IO, Renderer]],
+      defaultSlug: String,
+      assets: AssetCache = AssetCache.empty,
+      systemPkl: SystemPkl = SystemPkl.empty,
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+  ): Resource[IO, Server] =
+    for {
+      // The store must be seeded before the Server serves a page. Bounded, so a
+      // boot (or test) where the feed never seeds fails fast instead of hanging;
+      // in production this is already satisfied by the pre-dump gate, so it
+      // returns immediately.
+      _ <- feed.awaitHealthy
+        .timeoutTo(
+          HealthyBootTimeout,
+          IO.raiseError(
+            FHError.internal(
+              s"Home Assistant feed did not seed within $HealthyBootTimeout"
+            )
+          )
+        )
+        .toResource
+      sessions <- Sessions.create.toResource
+      server <- Server.fromFeed(
+        feed,
+        renderers,
+        defaultSlug,
+        sessions,
+        assets,
+        systemPkl,
+        dumpRefresh
+      )
+    } yield server
 
   /** `(slug, entryFilename)` for every top-level `*.pkl` in the dir,
     * slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library

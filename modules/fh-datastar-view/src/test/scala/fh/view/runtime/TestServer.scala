@@ -148,18 +148,16 @@ object TestServer {
       rendererRef <- SignallingRef[IO]
         .of(Renderer.create(dashboard))
         .toResource
-      sessions <- Sessions.create.toResource
-      server <- Server.fromFeed(
+      // Delegate the whole live-Server assembly (health gate, sessions,
+      // Server.fromFeed) to the SAME kernel production uses, so the harness
+      // can't drift from the app. Only the renderer source (a fixed dashboard)
+      // and the HA edge (a fake) are ours.
+      server <- ServerApp.liveServer(
         feed,
         Map(dashboard.slug -> rendererRef),
         dashboard.slug,
-        sessions,
         systemPkl = systemPkl
       )
-      // The feed seeds the store in the background; wait for the first seed so
-      // `page`/`emit` see a populated store (production gates dump prep the
-      // same way).
-      _ <- feed.awaitHealthy.toResource
     } yield new TestServer(fake, feed.store, server, dashboard.slug)
 
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
@@ -178,7 +176,6 @@ object TestServer {
       feed <- HaFeed.resource(fakeConnect(fake))
       renderer = Renderer.create(dashboard)
       rendererRef <- SignallingRef[IO].of(renderer).toResource
-      sessions <- Sessions.create.toResource
       httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
       assetsDir <- IO
         .blocking(os.temp.dir(prefix = "fh-smoke-assets"))
@@ -190,14 +187,12 @@ object TestServer {
           JdkHttpClient[IO](httpClient)
         )
         .toResource
-      server <- Server.fromFeed(
+      server <- ServerApp.liveServer(
         feed,
         Map(dashboard.slug -> rendererRef),
         dashboard.slug,
-        sessions,
         assets
       )
-      _ <- feed.awaitHealthy.toResource
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
