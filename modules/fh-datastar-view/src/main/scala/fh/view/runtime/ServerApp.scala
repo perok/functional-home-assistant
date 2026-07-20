@@ -120,7 +120,18 @@ object ServerApp extends IOApp {
       bundledLib <- bootstrap(config)
 
       _ <- (for {
-        api <- FHApi.fromEnv
+        // Resolve SERVER/SECRET ONCE, eagerly, so a missing credential crashes
+        // boot immediately — rather than being swallowed by the feed's
+        // background reconnect loop and mistaken for an unreachable HA (which
+        // would only surface as the awaitHealthy timeout below).
+        haEnv <- FHApi.resolveEnv.toResource
+        // ONE Home Assistant connection for the whole runtime: the self-healing
+        // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
+        // (`call_service` + state) AND the startup/occasional REST work — dump
+        // prep, dump refresh, registry watching — so there is no second,
+        // unsupervised socket that silently dies on a drop. The feed connects in
+        // the background; `feed.awaitHealthy` below gates the first use.
+        feed <- HaFeed.resource(FHApi.connectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
         // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
         // sans ext. The library is not in the workspace — it resolves through
@@ -132,13 +143,31 @@ object ServerApp extends IOApp {
           )
           .toResource
 
+        // Block until the feed has connected AND seeded once: dump prep issues a
+        // live template call through `feed.api`, which fails fast while
+        // disconnected. Credentials are already validated (haEnv above), so a
+        // timeout here means HA is configured but unreachable — bounded, so it
+        // fails with a clear boot error instead of hanging forever on the feed's
+        // infinite reconnect.
+        _ <- feed.awaitHealthy
+          .timeoutTo(
+            HealthyBootTimeout,
+            IO.raiseError(
+              FHError.internal(
+                s"Home Assistant not reachable within $HealthyBootTimeout " +
+                  "(SERVER is set but the instance did not answer — is it running?)"
+              )
+            )
+          )
+          .toResource
+
         // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves)
         // via the build phase, then re-evaluate every entry against the on-disk
         // dump. The runtime calls through `DashboardBuild`, never
         // `DataDump`/`PklDump` directly — build owns fetching + writing the
         // dump.
         _ <- DashboardBuild
-          .prepareDumps(api, dashboardsDir, Some(bundledLib))
+          .prepareDumps(feed.api, dashboardsDir, Some(bundledLib))
           .toResource
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
@@ -187,14 +216,6 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        // Self-healing live feed: supervises its OWN Home Assistant connection
-        // (re-`.use`s `FHApi.fromEnvWithClose` on drop, reacting to the
-        // connection's `awaitClosed`), keeps the store seeded across reconnects,
-        // and reports upstream health. Runtime `call_service` calls and live
-        // state both go through this, so a dropped HA WebSocket no longer
-        // freezes the dashboard until a restart. (The startup `api` above stays
-        // scoped to dump/asset prep.)
-        feed <- HaFeed.resource(FHApi.fromEnvWithClose)
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
             SignallingRef[IO].of(renderer).map(slug -> _)
@@ -217,7 +238,7 @@ object ServerApp extends IOApp {
         refreshMutex <- Mutex[IO].toResource
         refreshDump = refreshMutex.lock.surround(
           refreshOnce(
-            api,
+            feed.api,
             dashboardsDir,
             entries,
             rendererRefs,
@@ -227,14 +248,12 @@ object ServerApp extends IOApp {
 
         // Also runs the per-slug shared patch publishers in the background —
         // the render-once fan-out every SSE connection subscribes to.
-        server <- Server.resource(
-          feed.api,
-          feed.store,
+        server <- Server.fromFeed(
+          feed,
           rendererRefs,
           defaultSlug,
           sessions,
           assets,
-          feed.healthy,
           systemPkl,
           dumpRefresh = Some(refreshDump)
         )
@@ -257,7 +276,10 @@ object ServerApp extends IOApp {
         // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
         _ <-
           if (config.watchRegistry)
-            watchRegistryEvents(api, refreshDump).compile.drain.background.void
+            watchRegistryEvents(
+              feed.api,
+              refreshDump
+            ).compile.drain.background.void
           else Resource.unit[IO]
         _ <- EmberServerBuilder
           .default[IO]
@@ -523,6 +545,13 @@ object ServerApp extends IOApp {
       }
 
   private val RegistryQuiet = 5.seconds
+
+  /** How long boot waits for the feed to first connect + seed before giving up
+    * (see the `feed.awaitHealthy` gate). Generous, since an add-on may start
+    * just before Home Assistant core is ready, but bounded so a
+    * misconfiguration fails loudly instead of hanging.
+    */
+  private val HealthyBootTimeout = 60.seconds
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 

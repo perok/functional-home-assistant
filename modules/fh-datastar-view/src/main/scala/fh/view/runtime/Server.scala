@@ -1034,6 +1034,35 @@ object Server {
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
 
+  /** Build the server fed by a [[HaFeed]] — the SINGLE place that couples the
+    * two. A Server draws its `api`, its `store`, AND its health from one feed,
+    * so a caller cannot wire live state from the feed but forget to forward
+    * [[HaFeed.healthy]] (which would silently pin the `haDown` banner off — the
+    * exact drift this method exists to prevent). Both [[ServerApp]] and the
+    * test harness ([[TestServer]]) go through here, so tests exercise the real
+    * feed (facade, supervision, health signal) rather than a bypass.
+    */
+  def fromFeed(
+      feed: HaFeed,
+      renderers: Map[String, SignallingRef[IO, Renderer]],
+      defaultSlug: String,
+      sessions: Sessions,
+      assets: AssetCache = AssetCache.empty,
+      systemPkl: SystemPkl = SystemPkl.empty,
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+  ): Resource[IO, Server] =
+    resource(
+      feed.api,
+      feed.store,
+      renderers,
+      defaultSlug,
+      sessions,
+      assets,
+      feed.healthy,
+      systemPkl,
+      dumpRefresh
+    )
+
   /** The `POST /system/dump/refresh` response body — status plus what a caller
     * (the /edit editor) shows the user: the backup name on a swap, the
     * per-dashboard errors on a rejection.

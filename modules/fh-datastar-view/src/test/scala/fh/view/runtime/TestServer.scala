@@ -17,9 +17,13 @@ import org.http4s.jdkhttpclient.JdkHttpClient
 import scala.concurrent.duration.*
 
 /** A running dashboard wired exactly as `ServerApp` assembles it — the real
-  * [[StateStore]], [[Renderer]] and [[Server]] — but against a
-  * [[FakeHomeAssistant]] seeded from a static fixture. Tests drive it at the
-  * HTTP boundary and assert observable behaviour (rendered HTML, streamed SSE
+  * [[HaFeed]] (supervisor + facade + health signal), [[StateStore]],
+  * [[Renderer]] and [[Server]], coupled through [[Server.fromFeed]] just like
+  * production — but against a [[FakeHomeAssistant]] seeded from a static
+  * fixture, handed to the feed as a never-closing [[HaFeed.Connect]]
+  * ([[TestServer.fakeConnect]]). So the reconnect/facade/`haDown` machinery
+  * runs for real; only the HA socket is stubbed. Tests drive it at the HTTP
+  * boundary and assert observable behaviour (rendered HTML, streamed SSE
   * fragments, recorded service calls); the fake supplies the timeline via
   * [[FakeHomeAssistant.emit]].
   */
@@ -140,20 +144,23 @@ object TestServer {
   ): Resource[IO, TestServer] =
     for {
       fake <- FakeHomeAssistant.create(entities).toResource
-      store <- StateStore.create(fake)
+      feed <- HaFeed.resource(fakeConnect(fake))
       rendererRef <- SignallingRef[IO]
         .of(Renderer.create(dashboard))
         .toResource
       sessions <- Sessions.create.toResource
-      server <- Server.resource(
-        fake,
-        store,
+      server <- Server.fromFeed(
+        feed,
         Map(dashboard.slug -> rendererRef),
         dashboard.slug,
         sessions,
         systemPkl = systemPkl
       )
-    } yield new TestServer(fake, store, server, dashboard.slug)
+      // The feed seeds the store in the background; wait for the first seed so
+      // `page`/`emit` see a populated store (production gates dump prep the
+      // same way).
+      _ <- feed.awaitHealthy.toResource
+    } yield new TestServer(fake, feed.store, server, dashboard.slug)
 
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
     * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
@@ -168,7 +175,7 @@ object TestServer {
   ): Resource[IO, (TestServer, Uri)] =
     for {
       fake <- FakeHomeAssistant.create(entities).toResource
-      store <- StateStore.create(fake)
+      feed <- HaFeed.resource(fakeConnect(fake))
       renderer = Renderer.create(dashboard)
       rendererRef <- SignallingRef[IO].of(renderer).toResource
       sessions <- Sessions.create.toResource
@@ -183,14 +190,14 @@ object TestServer {
           JdkHttpClient[IO](httpClient)
         )
         .toResource
-      server <- Server.resource(
-        fake,
-        store,
+      server <- Server.fromFeed(
+        feed,
         Map(dashboard.slug -> rendererRef),
         dashboard.slug,
         sessions,
         assets
       )
+      _ <- feed.awaitHealthy.toResource
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
@@ -198,5 +205,17 @@ object TestServer {
         .withHttpApp(server.routes.orNotFound)
         .withShutdownTimeout(0.seconds)
         .build
-    } yield (new TestServer(fake, store, server, dashboard.slug), bound.baseUri)
+    } yield (
+      new TestServer(fake, feed.store, server, dashboard.slug),
+      bound.baseUri
+    )
+
+  /** A [[HaFeed.Connect]] that hands the supervisor the in-memory fake and
+    * never closes (`IO.never`) — so the real feed runs (facade, background
+    * seed, health signal) against a scripted HA and stays "connected" for the
+    * test's whole duration, no reconnect churn. A reconnect/`haDown` test that
+    * WANTS a drop supplies its own connect with a completable close instead.
+    */
+  private def fakeConnect(fake: FakeHomeAssistant): HaFeed.Connect =
+    Resource.pure((fake, IO.never[Unit]))
 }

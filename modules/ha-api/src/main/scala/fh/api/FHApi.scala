@@ -29,22 +29,45 @@ object FHApi {
     * just need the API (codegen, one-shot builds) use [[fromEnv]] and ignore
     * it.
     */
-  def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] = for {
-    server <- IO(lookup("SERVER"))
-      .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
-      .flatMap(s => IO(Uri.unsafeFromString(s)))
-      .toResource
-    secretToken <- IO(lookup("SECRET"))
-      .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
-      .toResource
-    // Optional WS endpoint override. The HA supervisor proxy exposes the
-    // websocket at ws://supervisor/core/websocket, not the /api/websocket
-    // path derived from SERVER.
-    serverWs <- IO(lookup("SERVER_WS"))
-      .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
-      .toResource
-    result <- fromWithClose(server, secretToken, serverWs)
-  } yield result
+  def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    resolveEnv.toResource.flatMap(connectWithClose)
+
+  /** The connection config resolved from `SERVER`/`SECRET`/`SERVER_WS` (env,
+    * then `.env`). `serverWs` is the optional WS endpoint override — the HA
+    * supervisor proxy exposes the websocket at
+    * `ws://supervisor/core/websocket`, not the `/api/websocket` path derived
+    * from `SERVER`.
+    */
+  final case class Env(server: Uri, secretToken: String, serverWs: Option[Uri])
+
+  /** Resolve + REQUIRE the connection config, failing FAST if `SERVER` or
+    * `SECRET` is missing. This is the misconfiguration boundary: a caller that
+    * hands the connection to a reconnecting supervisor ([[connectWithClose]] →
+    * [[fh.view.runtime.HaFeed]]) resolves ONCE here at boot, so a missing
+    * credential crashes immediately instead of being swallowed by the retry
+    * loop and mistaken for an unreachable-HA outage. (The socket connect that
+    * [[connectWithClose]] performs on each attempt IS the retryable part.)
+    */
+  def resolveEnv: IO[Env] =
+    for {
+      server <- IO(lookup("SERVER"))
+        .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
+        .flatMap(s => IO(Uri.unsafeFromString(s)))
+      secretToken <- IO(lookup("SECRET"))
+        .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
+      serverWs <- IO(lookup("SERVER_WS"))
+        .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
+    } yield Env(server, secretToken, serverWs)
+
+  /** The reconnectable connection for an already-resolved [[Env]] — the socket
+    * + auth only, which is what a supervisor re-`.use`s on each reconnect. Kept
+    * separate from [[resolveEnv]] so credential errors surface at boot, not on
+    * a background reconnect attempt.
+    */
+  def connectWithClose(
+      env: Env
+  ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    fromWithClose(env.server, env.secretToken, env.serverWs)
 
   /** A config value: the process environment first (when set and non-empty),
     * then the discovered `.env`.

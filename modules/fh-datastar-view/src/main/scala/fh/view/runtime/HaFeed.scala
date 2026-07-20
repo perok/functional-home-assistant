@@ -46,7 +46,22 @@ final case class HaFeed(
     api: HomeAssistantApi[IO],
     store: StateStore,
     healthy: Signal[IO, Boolean]
-)
+) {
+
+  /** Complete once the feed FIRST reports healthy — i.e. it has connected and
+    * seeded [[store]] from `/api/states` at least once. The feed connects in
+    * the background, so until this fires [[store]] is empty and [[api]] fails
+    * fast (the facade raises while disconnected). It is the gate before any use
+    * that assumes a live connection: startup dump prep on the server, and a
+    * test driving state through [[FakeHomeAssistant.emit]].
+    *
+    * `healthy` starts `false` and flips `true` after the first reseed, so this
+    * waits for that first `true` and returns (a later reconnect blip does not
+    * un-fire it).
+    */
+  def awaitHealthy: IO[Unit] =
+    healthy.discrete.find(identity).compile.drain
+}
 
 object HaFeed {
 
