@@ -156,7 +156,7 @@ jobs:
 
       # QEMU: the Dockerfile's jlink stage must execute under linux/arm64
       # during the multi-arch build.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: steps.ver.outputs.published == 'false'
       - uses: docker/setup-buildx-action@v3
         if: steps.ver.outputs.published == 'false'
