@@ -13,7 +13,7 @@ val commonSettings = Seq(
   //  ScalacOptions.fatalWarnings
   // ),
   libraryDependencies ++= Seq(
-    "org.typelevel" %% "cats-effect" % "3.7.0",
+    "org.typelevel" %% "cats-effect" % "3.7-4972921",
     "io.scalaland" %% "chimney" % "1.11.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
@@ -51,7 +51,7 @@ lazy val `ha-api` = project // todo add api layer here as well
     libraryDependencies ++= Seq(
       "com.disneystreaming.smithy4s" %% "smithy4s-core" % smithy4sVersion.value,
       "com.disneystreaming.smithy4s" %% "smithy4s-http4s" % smithy4sVersion.value,
-      "org.typelevel" %% "cats-effect" % "3.7.0"
+      "org.typelevel" %% "cats-effect" % "3.7-4972921"
     ),
     libraryDependencies ++= Seq(
       "io.circe" %% "circe-core" % "0.14.16",
