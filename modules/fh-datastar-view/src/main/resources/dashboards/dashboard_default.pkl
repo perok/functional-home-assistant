@@ -1,7 +1,9 @@
-// The FH Dashboard add-on's starter dashboard, seeded into the add-on config
-// dir on first start — from then on it is YOURS to edit (changes to existing
-// files hot-reload; a brand-new *.pkl entry needs an add-on restart, see
-// DOCS.md).
+// The starter dashboard, seeded as `dashboard.pkl` into a workspace with no
+// entries of its own (add-on first boot or a fresh local `dashboard-local-dev`)
+// — from then on it is YOURS to edit (changes to existing files hot-reload; a
+// brand-new *.pkl entry needs a restart, see DOCS.md). Bundled straight into
+// the jar's own resources ([[AddonBootstrap]]), so there is no seed directory
+// to keep in sync or copy into the image.
 //
 // It references NO concrete entities: every section is a live query
 // (DynamicGroup) over whatever this Home Assistant instance has, so it renders
@@ -11,10 +13,10 @@
 //
 // Two aliases, split by lifecycle (ADR 0010): `@fh-dashboard` is the shared
 // authoring library — a versioned PACKAGE (`package://fh.invalid/fh-dashboard@…`)
-// resolved from the add-on's persistent cache, never files in this directory —
+// resolved from the persistent package cache, never files in this directory —
 // and `@fh-home` is YOUR home's generated dump. The sibling `PklProject`
-// (seeded at first boot, then yours) holds the @fh-dashboard pin; the add-on's
-// own wiring lives in `.fh/base.pkl` and `home/PklProject`, both machine-managed.
+// (seeded at first boot, then yours) holds the @fh-dashboard pin; the
+// machine's own wiring lives in `.fh/base.pkl`, machine-managed.
 
 amends "@fh-dashboard/entry.pkl"
 

@@ -22,7 +22,7 @@ import org.http4s.ServerSentEvent
   *     fragments are diffed once per slug instead (`Server`'s shared patch
   *     pass), never here.
   */
-final case class Session(
+case class Session(
     slug: Ref[IO, String],
     open: Ref[IO, Set[String]],
     control: Queue[IO, ServerSentEvent],

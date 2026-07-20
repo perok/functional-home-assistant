@@ -80,7 +80,7 @@ object Pins {
     */
   private val LegacyPlaceholderHome = "0.0.0-unresolved"
 
-  final case class Data(
+  case class Data(
       dashboardUri: String,
       homeUri: String,
       homeSha256: String
@@ -102,7 +102,7 @@ object Pins {
     }
 
   private def versionOf(uri: String, name: String): Option[String] =
-    s"""$name@(.+)$$""".r.unanchored.findFirstMatchIn(uri).map(_.group(1))
+    PackageRef.parse(uri).filter(_.name == name).map(_.version)
 
   /** The pinned `@fh-dashboard` version (always real — bootstrap seeds it). */
   def dashboardVersion(dashboardsDir: os.Path): Option[String] =

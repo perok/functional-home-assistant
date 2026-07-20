@@ -980,6 +980,19 @@ object Renderer {
       Transforms.from(dashboard)
     )
 
+  /** Build a renderer from a PROVEN dashboard ([[Dashboard.Validated]]) — the
+    * production construction point (decode / reload / push all go through
+    * [[Dashboard.validated]] first). Uses the proof's pre-compiled transforms,
+    * so nothing is recompiled and the transform-setup invariant throw of
+    * [[Transforms.from]] is unreachable by type.
+    */
+  def fromValidated(v: Dashboard.Validated): Renderer =
+    new Renderer(
+      v.dashboard,
+      Templates.from(v.dashboard),
+      Transforms.fromValidated(v)
+    )
+
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.
   def surfacePrefix(surfaceId: String): String =

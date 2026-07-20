@@ -35,11 +35,9 @@ object PklWorkspace {
     // The bundled lib built from the repo dir (tests use the dir path; the
     // server streams the same bytes from the jar via BundledLib).
     val bundled = LibPackage.build(resourcesLib)
-    // Empty seed dir: never seed the demo entries into a test workspace.
     val _ = AddonBootstrap.run(
       tmp,
       bundled,
-      os.temp.dir(),
       cache,
       loopbackUrl = "http://127.0.0.1:8080"
     )

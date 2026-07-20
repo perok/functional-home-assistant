@@ -13,7 +13,6 @@ class DumpPackageSuite extends munit.FunSuite {
 
   private val bundledLib =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards" / "lib"
-  private val seedDir = os.pwd / "home-addon" / "dashboards-seed"
   private val bundled = LibPackage.build(bundledLib)
   private val libVersion = bundled.version
 
@@ -30,7 +29,6 @@ class DumpPackageSuite extends munit.FunSuite {
     val _ = AddonBootstrap.run(
       ws,
       bundled,
-      seedDir,
       cache,
       loopbackUrl = "http://127.0.0.1:8080"
     )

@@ -607,7 +607,61 @@ case class Dashboard(
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")
       }
 
+  /** Every distinct live-slot transform string in the layout and its surfaces
+    * (constant `literal` slots carry no transform and are excluded). These are
+    * exactly the expressions the renderer compiles — the single source for both
+    * [[validated]]'s compile and `Transforms.from`.
+    */
+  def transformStrings: List[String] =
+    def slotsOf(n: LayoutNode): List[SlotSource] = n match
+      case c: LayoutNode.Component =>
+        c.slots.values.toList ++ c.children.flatMap(slotsOf)
+      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
+    (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
+      .filter(_.literal.isEmpty)
+      .map(_.transform)
+      .distinct
+
+  /** Parse this dashboard into a [[Dashboard.Validated]] proof: the same checks
+    * as [[validate]], and — on success — the COMPILED transforms carried along,
+    * so validation is the one gate and the renderer never recompiles or defends
+    * against an uncompilable expression. `Left` carries the human-readable
+    * errors (always non-empty; it is exactly `validate`'s output). The default
+    * `locateTransform` keeps the model source-agnostic (see [[validate]]).
+    */
+  def validated(
+      locateTransform: String => Option[String] = _ => None
+  ): Either[List[String], Dashboard.Validated] =
+    validate(locateTransform) match
+      case Nil  => Right(Dashboard.Validated(this, compileTransforms))
+      case errs => Left(errs)
+
+  /** Compile every [[transformStrings]] expression. Total by contract: only
+    * [[validated]] calls it, and only after [[validate]] proved each
+    * compilable, so a `Left` from the parser cannot occur here (a bad one would
+    * have failed validation) and is silently dropped rather than defended
+    * against.
+    */
+  private def compileTransforms: Map[String, Transform.Compiled] =
+    transformStrings.flatMap(t => Transform.parse(t).toOption.map(t -> _)).toMap
+
 object Dashboard:
+  /** A dashboard PROVEN valid: every card reference resolves, every slot is
+    * satisfied, and every slot transform compiled (kept in `transforms`, so the
+    * renderer looks them up instead of recompiling or defending against a bad
+    * one). Constructed only by [[Dashboard.validated]] — the type is the proof.
+    */
+  case class Validated(
+      dashboard: Dashboard,
+      transforms: Map[String, Transform.Compiled]
+  ):
+    /** Re-slug the proven dashboard (the push/route path forces the slug from
+      * the URL). The transforms are unaffected by the slug, so the proof — and
+      * its compiled map — carries over unchanged.
+      */
+    def withSlug(slug: String): Validated =
+      copy(dashboard = dashboard.copy(slug = slug))
+
   /** The theme's popup overlay mount — the `<div id="popups">` a popup's
     * (dialog-wrapped) content is patched into (and cleared from on close). The
     * dialog itself is NOT here and NOT backend chrome: it is a plain `popup`

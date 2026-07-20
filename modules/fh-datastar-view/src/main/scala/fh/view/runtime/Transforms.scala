@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, LayoutNode, SlotSource, Transform}
+import fh.view.model.{Dashboard, Transform}
 
 /** The slot value-transform library, pre-compiled once at startup (never on the
   * hot path) — the JSONata counterpart to [[Templates]].
@@ -28,31 +28,30 @@ class Transforms private (
 
 object Transforms {
 
+  /** From a [[Dashboard.Validated]]: the transforms are ALREADY compiled (the
+    * proof carries them), so this is a total lookup table — no parse, no
+    * defensive throw. The production construction point
+    * ([[Renderer.fromValidated]]).
+    */
+  def fromValidated(v: Dashboard.Validated): Transforms =
+    new Transforms(v.transforms)
+
+  /** From a raw (unproven) dashboard — the convenience path for tests and
+    * [[Renderer.create]]. Compiles every [[Dashboard.transformStrings]]; a
+    * parse failure is an invariant breach ([[Dashboard.validate]] runs before
+    * any renderer is built in production), so it fails loudly here rather than
+    * mid render or by silently blanking a value.
+    */
   def from(dashboard: Dashboard): Transforms = {
-    def slotsOf(node: LayoutNode): List[SlotSource] = node match {
-      case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.children.flatMap(slotsOf)
-      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
-    }
-    // Surfaces (popups) carry their own slots — compile those too, else opening a
-    // popup would hit an uncompiled transform.
-    val allSlots =
-      slotsOf(dashboard.card) ++
-        dashboard.surfaces.values.flatMap(s => slotsOf(s.content))
-    val compiled = allSlots
-      .filter(_.literal.isEmpty) // constant literals carry no transform
-      .map(_.transform)
-      .distinct
-      .map { t =>
-        Transform.parse(t) match {
-          case Right(c)  => t -> c
-          case Left(err) =>
-            throw new IllegalStateException(
-              s"unvalidated transform reached transform setup: $t ($err)"
-            )
-        }
+    val compiled = dashboard.transformStrings.map { t =>
+      Transform.parse(t) match {
+        case Right(c)  => t -> c
+        case Left(err) =>
+          throw new IllegalStateException(
+            s"unvalidated transform reached transform setup: $t ($err)"
+          )
       }
-      .toMap
+    }.toMap
     new Transforms(compiled)
   }
 }

@@ -246,3 +246,57 @@ Intended as a Home Assistant add-on (`Dockerfile` + `entrypoint.sh`) that watche
 - The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
+
+## Design principles (apply when touching existing code, not just when writing new code)
+
+These come out of a whole-codebase FP simplification review and are still being applied
+incrementally (see the "FP simplification pass" plan in memory/`TODO.md` history) — treat them
+as standing review criteria, not a one-time cleanup that's now "done".
+
+- **Terminal errors are `FHError`, not threaded `Either`/`Option`/sentinel strings.**
+  `fh.view.FHError` (`modules/fh-datastar-view/.../fh/view/FHError.scala`) is a `RuntimeException`
+  carrying an HTTP status; `FHError.badCondition/notFound/unavailable/internal` pick the code at
+  the raise site, `FHError.handle` is the one app-level boundary that turns any raised `FHError`
+  into `status + message`. A condition is "terminal" — and belongs as a raised `FHError`, not a
+  `Left`/`None` the caller re-inspects — when there is genuinely no local recovery: a malformed
+  request, a resource that doesn't exist, a misconfigured/un-bootstrapped workspace. Routes that
+  are exercised directly in tests (without the app-level `FHError.handle` wrapping them) recover
+  locally with the same `case e: FHError => IO.pure(FHError.response(e))` shape (see
+  `Server.pushResponse`, `Server.guardSystemPkl`) so behavior is identical either way. When you
+  find an `Either[String, A]` / `Option[A]` return whose "empty" case is really "this can't be
+  served, ever" rather than a value the caller branches on, that's a refactor candidate — see
+  `fh.view.build.SystemPkl` (module/packageArtifact/packagesIndex) for the shape.
+- **Parse, don't validate.** Prefer producing a value that makes an illegal state
+  unrepresentable over re-validating the same precondition at every consumer. `Dashboard.Validated`
+  (produced only by `Dashboard.validate`, carrying already-compiled JSONata transforms) is the
+  model: `Renderer`/`Transforms` take the validated type instead of re-checking and throwing
+  "validate should have rejected this". Look for the same smell elsewhere: a `None`/`Left` that
+  really means "this workspace/value is unusable" and gets re-derived or re-thrown-defensively at
+  multiple call sites instead of being parsed once at the boundary into a type that carries the
+  proof.
+- **Functional core / imperative shell.** Keep pure logic (diffing, rendering, validation, AST
+  evaluation) separate from the `os.*`/`IO`/network shell, and prefer extracting pure logic out of
+  a class that's only reachable today via a full-boot test harness (e.g. `Server`'s pure diff core
+  in `Patches`) — that's usually the biggest testability win available. Mutation stays where
+  performance genuinely demands it (`Renderer.identityCache`, per-slug diff caches, jmustache Java
+  interop) — this is not a blanket "no mutable state" rule.
+- **Name recurring implicit concepts.** If the same shape (a `(String, String)` tuple, a
+  hand-rebuilt URI/path string, a re-derived precondition) shows up re-interpolated or re-checked
+  in several places (`PackageRef` in `fh.view.build` is the existing example — one value type now
+  owns the `package://…` URI, the cache-dir layout, and the version-parsing regex that used to be
+  duplicated ~5 places), that's a sign to name it as a real type rather than leaving it implicit.
+- **Types hold truth.** A signature should tell the whole story: avoid `Option[String]` whose
+  `None` meaning lives only in a doc comment, `List[String]` used as an ad-hoc log/protocol, or
+  functions with many same-typed positional args (extract a named `case class` request/config
+  instead — see `ServerApp.Config`, the `Patches.DiffRequest` shape).
+
+### Using `scalex` for Scala navigation
+
+This repo has the `scalex` skill available (a Scalameta-based code-intelligence CLI: `def`,
+`refs`, `impl`, `members`, `body`, `hierarchy`, `explain`, …). Prefer it over `grep`/`Grep` for
+Scala-symbol lookups — finding a definition, enumerating call sites before a rename/move, checking
+what implements a trait — since it understands Scala syntax (givens, extensions, companion
+objects) that plain text search misses or over-matches. It only indexes git-tracked `.scala`/
+`.java` files. **Do not invoke it unprompted** — use it when it's the right tool for a task already
+in progress (e.g. mid-refactor, checking call sites), not proactively at the start of unrelated
+work.
