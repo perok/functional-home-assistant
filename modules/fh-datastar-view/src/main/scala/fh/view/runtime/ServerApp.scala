@@ -133,42 +133,16 @@ object ServerApp extends IOApp {
         // the background; `feed.awaitHealthy` below gates the first use.
         feed <- HaFeed.resource(FHApi.lowLevelConnectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
-        // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
-        // sans ext. The library is not in the workspace — it resolves through
-        // the `@fh-dashboard` package (seeded into the cache by `bootstrap`).
-        entries <- discoverEntries(dashboardsDir).toResource
-        _ <- IO
-          .raiseWhen(entries.isEmpty)(
-            FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
-          )
-          .toResource
-
-        // Block until the feed has connected AND seeded once: dump prep issues a
-        // live template call through `feed.api`, which fails fast while
-        // disconnected. Credentials are already validated (haEnv above), so a
-        // timeout here means HA is configured but unreachable — bounded, so it
-        // fails with a clear boot error instead of hanging forever on the feed's
-        // infinite reconnect.
-        _ <- feed.awaitHealthy
-          .timeoutTo(
-            HealthyBootTimeout,
-            IO.raiseError(
-              FHError.internal(
-                s"Home Assistant not reachable within $HealthyBootTimeout " +
-                  "(SERVER is set but the instance did not answer — is it running?)"
-              )
-            )
-          )
-          .toResource
-
-        // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves)
-        // via the build phase, then re-evaluate every entry against the on-disk
-        // dump. The runtime calls through `DashboardBuild`, never
-        // `DataDump`/`PklDump` directly — build owns fetching + writing the
-        // dump.
-        _ <- DashboardBuild
-          .prepareDumps(feed.api, dashboardsDir, Some(bundledLib))
-          .toResource
+        // Discover, block for the first seed, seed the dump, and build every
+        // entry — the entry-to-renderer path shared with the test harness so it
+        // can't diverge. `bundledLib` pins the FIRST dump on a fresh workspace.
+        prepared <- prepareRenderers(
+          feed,
+          dashboardsDir,
+          Some(bundledLib)
+        ).toResource
+        entries = prepared.entries
+        built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
@@ -177,28 +151,6 @@ object ServerApp extends IOApp {
         // provider backs ONLY the route, not evaluation. Reads are by-name off
         // the pinned package in the cache, reflecting the latest dump.
         systemPkl = SystemPkl.fromDisk(dashboardsDir)
-        // Per-entry: a broken dashboard (e.g. a bad user edit before a
-        // restart) is logged and skipped, not a crash loop; only zero
-        // buildable dashboards is fatal.
-        built <- entries
-          .traverse { case (slug, entry) =>
-            buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
-              case Right(r)  => IO.pure(Some((slug, r)))
-              case Left(err) =>
-                IO.println(
-                  s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
-                ).as(None)
-            }
-          }
-          .map(_.flatten)
-          .toResource
-        _ <- IO
-          .raiseWhen(built.isEmpty)(
-            FHError.internal(
-              s"all *.pkl dashboards in $dashboardsDir failed to build"
-            )
-          )
-          .toResource
 
         // Cache the themes' external assets (CSS/JS/fonts) locally so the
         // dashboard serves them itself — offline-friendly, CDN fallback on a
@@ -300,6 +252,76 @@ object ServerApp extends IOApp {
           .toResource
       } yield ()).useForever
     } yield ExitCode.Success
+
+  /** Everything [[prepareRenderers]] hands back: the FULL discovered entry list
+    * (slug -> filename, including entries that failed to build — the reload /
+    * refresh machinery can still rebuild them after a fix) and the subset that
+    * actually built into a renderer (with its import set, for watching).
+    */
+  private[runtime] case class Prepared(
+      entries: List[(String, String)],
+      built: List[(String, (Renderer, Set[os.Path]))]
+  )
+
+  /** Discover, dump, and build every dashboard — the entry-to-renderer path
+    * that precedes serving, extracted so [[run]] (production) and the test
+    * harness (`TestServer.fromWorkspace`) share it and cannot diverge.
+    *
+    * Blocks on the feed's first connect + seed (so a live template call has a
+    * connection), seeds the `@fh-home` dump ONCE from the live API
+    * ([[DashboardBuild.prepareDumps]]), then builds each entry against it —
+    * skipping (logging, not crashing) an entry that fails, exactly as
+    * production tolerates one bad user edit. Fails only when the dir has no
+    * entries, or none of them build.
+    */
+  private[runtime] def prepareRenderers(
+      feed: HaFeed,
+      dashboardsDir: os.Path,
+      bundledLib: Option[LibPackage.Artifacts]
+  ): IO[Prepared] =
+    for {
+      // Every top-level `*.pkl` is a dashboard; slug = filename sans ext. The
+      // library resolves through the `@fh-dashboard` cache package, not the dir.
+      entries <- discoverEntries(dashboardsDir)
+      _ <- IO.raiseWhen(entries.isEmpty)(
+        FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
+      )
+      // Dump prep issues a live template call through `feed.api`, which fails
+      // fast while disconnected — so block until the feed has connected AND
+      // seeded once. Credentials are validated earlier (eager `resolveEnv`), so
+      // a timeout here means HA is configured but unreachable: a clear boot
+      // error, not a hang on the feed's infinite reconnect.
+      _ <- feed.awaitHealthy.timeoutTo(
+        HealthyBootTimeout,
+        IO.raiseError(
+          FHError.internal(
+            s"Home Assistant not reachable within $HealthyBootTimeout " +
+              "(SERVER is set but the instance did not answer — is it running?)"
+          )
+        )
+      )
+      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+      // the build phase, which owns fetching + packaging the dump.
+      _ <- DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
+      // Per-entry: a broken dashboard (a bad user edit before a restart) is
+      // logged and skipped, not a crash loop; only zero buildable is fatal.
+      built <- entries
+        .traverse { case (slug, entry) =>
+          buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
+            case Right(r)  => IO.pure(Some((slug, r)))
+            case Left(err) =>
+              IO.println(
+                s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
+              ).as(None)
+          }
+        }
+        .map(_.flatten)
+      _ <- IO.raiseWhen(built.isEmpty)(
+        FHError.internal(
+          s"all *.pkl dashboards in $dashboardsDir failed to build"
+        )
+      )
+    } yield Prepared(entries, built)
 
   /** The runtime KERNEL both [[run]] (production) and the test harness
     * (`TestServer`) funnel through, so the live-Server wiring cannot silently

@@ -4,11 +4,13 @@
 package fh.view.runtime
 
 import cats.effect.{IO, Resource}
+import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.build.SystemPkl
+import fh.view.build.{PklDump, SystemPkl}
 import fh.view.model.Dashboard
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklWorkspace}
 import fs2.concurrent.SignallingRef
+import io.circe.Json
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
@@ -160,6 +162,64 @@ object TestServer {
       )
     } yield new TestServer(fake, feed.store, server, dashboard.slug)
 
+  /** Wire a [[TestServer]] the way [[resource]] does — real feed, store, and
+    * Server — but from a Pkl ENTRY SOURCE evaluated through the genuine build
+    * path (`ServerApp.prepareRenderers`: discover -> `prepareDumps` ->
+    * `buildEntry`), not a pre-built [[Dashboard]]. This is the Tier-A capstone
+    * seam (ADR 0009): the Pkl authoring track and the runtime track meet with
+    * NOTHING stubbed but the HA socket.
+    *
+    * A package-form workspace is staged ([[PklWorkspace.bootstrap]]) with the
+    * `@fh-home` dump seeded from `entities`; `entrySource` is written as the
+    * one `<slug>.pkl` there (any starter entry the bootstrap left is removed so
+    * discovery finds exactly this one). The feed's own `prepareDumps` then
+    * RE-fetches that dump from the fake's `render_template` — the same fixtures
+    * `get_states` serves — so the dashboard is authored against, built from,
+    * and rendered with one source of state. `entities` must cover every entity
+    * the entry references (`dump.entities.<key>`); the whole set is also the
+    * fake's seed.
+    */
+  def fromWorkspace(
+      slug: String,
+      entrySource: String,
+      entities: List[FixtureEntity]
+  ): Resource[IO, TestServer] =
+    for {
+      tmp <- IO.blocking(os.temp.dir(prefix = "fh-workspace")).toResource
+      _ <- IO.blocking {
+        // Seed the workspace dump from the fixtures so `@fh-home` resolves;
+        // `prepareDumps` re-seeds an identical dump (the fake's raw dump
+        // transforms to exactly this), a clean no-op pin move.
+        val dumpJson = Json.obj(
+          "areas" -> Json.obj(),
+          "floors" -> Json.obj(),
+          "entities" -> Json.fromFields(entities.map(_.toDumpEntry))
+        )
+        val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dumpJson))
+        // Exactly one dashboard: drop any starter entry bootstrap seeded.
+        os.list(tmp)
+          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
+          .foreach(os.remove)
+        os.write.over(tmp / s"$slug.pkl", entrySource)
+      }.toResource
+      fake <- FakeHomeAssistant.create(entities).toResource
+      feed <- HaFeed.resource(fakeConnect(fake))
+      // The REAL entry-to-renderer path — the same one production's `run` uses.
+      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
+      rendererRefs <- prepared.built
+        .traverse { case (s, (renderer, _)) =>
+          SignallingRef[IO].of(renderer).map(s -> _)
+        }
+        .map(_.toMap)
+        .toResource
+      server <- ServerApp.liveServer(
+        feed,
+        rendererRefs,
+        slug,
+        systemPkl = SystemPkl.fromDisk(tmp)
+      )
+    } yield new TestServer(fake, feed.store, server, slug)
+
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
     * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
     * into a temp dir — and a real ember bind on an OS-assigned loopback port,
@@ -209,8 +269,8 @@ object TestServer {
     * low-level WS connection and never closes (`IO.never`) — so the real feed
     * runs (durable facade, background seed, health signal) against a scripted
     * HA and stays "connected" for the test's whole duration, no reconnect
-    * churn. A reconnect/`haDown` test that WANTS a drop supplies its own connect
-    * with a completable close instead.
+    * churn. A reconnect/`haDown` test that WANTS a drop supplies its own
+    * connect with a completable close instead.
     */
   private def fakeConnect(fake: FakeHomeAssistant): HaFeed.Connect =
     Resource.pure((fake, IO.never[Unit]))

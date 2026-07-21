@@ -542,7 +542,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
-        .resource(HomeAssistantApi.fromWs(fake), store, Map("dashboard" -> ref), "dashboard", sessions)
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
         .use { server =>
           for {
             renderer <- ref.get
@@ -730,7 +736,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
       patches <- Server
-        .resource(HomeAssistantApi.fromWs(fake), store, Map("dashboard" -> ref), "dashboard", sessions)
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
         .use { server =>
           for {
             session <- Session.create("dashboard")
@@ -1126,7 +1138,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       // still raises); the store is driven in-memory, so the empty seed is inert.
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
-        .resource(HomeAssistantApi.fromWs(fake), store, Map("dashboard" -> ref), "dashboard", sessions)
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
         .use { server =>
           for {
             renderer <- ref.get

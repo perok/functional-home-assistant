@@ -38,7 +38,11 @@ case class ServiceCall(
   *     startup),
   *   - `subscribeStream(subscribe_events state_changed)` hands back a live
   *     queue that [[emit]] pushes `state_changed` events onto (the change feed
-  *     the store's background fiber drains), and
+  *     the store's background fiber drains),
+  *   - `subscribeStream(render_template)` answers the boot dump fetch
+  *     (`DataDump.fetch`) with the raw dump derived from the same fixtures, so
+  *     a Tier-A dashboard can be built through the REAL `prepareDumps` path,
+  *     and
   *   - `sendCommand(call_service)` records the call for later assertion.
   *
   * Anything else raises `NotImplementedError`: not on the runtime hot path, so
@@ -100,7 +104,21 @@ final class FakeHomeAssistant private (
       case subscribe_events(Some(eventType)) =>
         // Both the store's state_changed feed and arbitrary rawEvents (the
         // registry watch) resolve to their persistent per-type queue.
-        Resource.eval(queueFor(eventType).map(_.asInstanceOf[QueueSource[IO, Result]]))
+        Resource.eval(
+          queueFor(eventType).map(_.asInstanceOf[QueueSource[IO, Result]])
+        )
+      case _: render_template =>
+        // `render_template` is HA's dump-fetch subscription; the runtime's
+        // `templateFunc` takes exactly ONE result and releases (`DataDump.fetch`
+        // at boot). Hand back a queue pre-loaded with the raw `{areas, floors,
+        // entities}` dump derived from the SAME seeded fixtures `get_states`
+        // serves — so a Tier-A dashboard authored against the dump and the live
+        // state it renders come from one source and cannot drift.
+        Resource.eval(
+          rawDump
+            .flatMap(dump => Queue.unbounded[IO, Json].flatTap(_.offer(dump)))
+            .map(_.asInstanceOf[QueueSource[IO, Result]])
+        )
       case _ => naR
     }
 
@@ -117,10 +135,30 @@ final class FakeHomeAssistant private (
     stateRef.get.map { current =>
       val list = current.values.toList.map(_.toGetStatesData)
       val doc =
-        Document.Encoder.fromSchema(Schema.list(GetStatesData.schema)).encode(list)
+        Document.Encoder
+          .fromSchema(Schema.list(GetStatesData.schema))
+          .encode(list)
       DocumentJson.decoder
         .decode(doc)
         .getOrElse(throw new IllegalStateException("fixture -> JSON failed"))
+    }
+
+  /** The fixture as one RAW `render_template` dump: the pre-transform
+    * `{areas, floors, entities}` shape `DataDump.fetch` receives (entities as a
+    * list of rows; no areas/floors, as the fixtures carry no `area_id`). Each
+    * row is [[FixtureEntity.toDumpEntry]]'s value — the same row
+    * `DataDump.transform` keys by `entity_id` — so `transform(rawDump)` is the
+    * `@fh-home` dump a Tier-A entry is authored against.
+    */
+  private def rawDump: IO[Json] =
+    stateRef.get.map { current =>
+      Json.obj(
+        "areas" -> Json.arr(),
+        "floors" -> Json.arr(),
+        "entities" -> Json.fromValues(
+          current.values.toList.map(_.toDumpEntry._2)
+        )
+      )
     }
 
   // --- Test-driving surface (not part of the trait) --------------------------
@@ -159,8 +197,8 @@ final class FakeHomeAssistant private (
       }
 
   /** Push a raw event of an arbitrary type onto its subscription queue — the
-    * registry-watch analogue of [[emit]], used to drive a durable
-    * `rawEvents` subscription (e.g. across a reconnect).
+    * registry-watch analogue of [[emit]], used to drive a durable `rawEvents`
+    * subscription (e.g. across a reconnect).
     */
   def pushRawEvent(eventType: String, payload: Json): IO[Unit] =
     queueFor(eventType).flatMap(_.offer(payload))

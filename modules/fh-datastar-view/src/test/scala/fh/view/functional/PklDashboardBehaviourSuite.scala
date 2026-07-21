@@ -1,22 +1,31 @@
 package fh.view.functional
 
-import fh.view.testkit.{HouseFixture, PklFixture, Scene}
+import cats.effect.IO
+import fh.view.runtime.TestServer
+import fh.view.testkit.{FixtureEntity, HouseFixture}
+
+import scala.concurrent.duration.*
 
 /** The Tier-A capstone (ADR 0009): the SAME end-to-end behaviour as
   * [[DashboardBehaviourSuite]], but the dashboard is a real Pkl entry evaluated
-  * through the genuine authoring pipeline (Pkl -> model -> renderer -> SSE)
-  * rather than a hand-built [[fh.view.model.Dashboard]]. It pins that the Pkl
-  * track and the runtime track meet: an entry authored against a
-  * [[HouseFixture]]-derived `lib/dump.pkl` renders and streams the live state
-  * the fake serves — with no live HA.
+  * through the GENUINE server build path — `TestServer.fromWorkspace` runs
+  * `ServerApp.prepareRenderers` (discover -> `prepareDumps` -> `buildEntry`)
+  * and `liveServer`, the exact sequence production's `run` uses. Nothing is
+  * stubbed but the HA socket: the dump is FETCHED from the fake's
+  * `render_template` (same fixtures `get_states` serves), so the Pkl track and
+  * the runtime track meet with no shortcut through a pre-built `Dashboard`.
   *
   * The entry is authored against `dump.entities.<key>` for the fixture
-  * entities; because the dump and the seeded state both derive from
-  * [[HouseFixture]], the two cannot drift. Both entities the entry references
-  * auto-seed through the [[Scene]] builder, exactly as the hand-built Tier-B
-  * dashboards do — the same reference-derived seeding across both tiers.
+  * entities; because the served dump and the seeded state both derive from the
+  * SAME [[FixtureEntity]] set, the two cannot drift.
   */
-class PklDashboardBehaviourSuite extends FunctionalSuite {
+class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
+
+  /** Every entity the entry references — also the fake's seed and the source of
+    * the dump it serves. One declaration feeds all three.
+    */
+  private val entities: List[FixtureEntity] =
+    List(HouseFixture.outsideTemp, HouseFixture.kitchenLight)
 
   /** A minimal real entry over two fixture entities: a numeric sensor (whose
     * `entityCard` value auto-appends the unit) and the kitchen light. Authored
@@ -41,11 +50,14 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
        |}
        |""".stripMargin
 
-  private val dashboard =
-    PklFixture.buildDashboard("fixture-home", entrySource)
+  private def withServer[A](f: TestServer => IO[A]): IO[A] =
+    TestServer
+      .fromWorkspace("fixture-home", entrySource, entities)
+      .use(f)
+      .timeout(60.seconds)
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    withServer(Scene.of(dashboard))(_.page).map { html =>
+    withServer(_.page).map { html =>
       // entityCard label = the live friendly_name; value = $state + unit.
       assert(html.contains("Outside Temperature"), clue = html)
       assert(html.contains("12.4"), clue = html)
@@ -57,7 +69,7 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a state change streams a fragment through the Pkl-built dashboard") {
-    withServer(Scene.of(dashboard)) { ts =>
+    withServer { ts =>
       ts.observePatch(
         marker = "13.1",
         trigger = ts.fake.emit(
