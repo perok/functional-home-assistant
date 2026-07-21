@@ -113,10 +113,16 @@ final class FakeHomeAssistant private (
         // at boot). Hand back a queue pre-loaded with the raw `{areas, floors,
         // entities}` dump derived from the SAME seeded fixtures `get_states`
         // serves — so a Tier-A dashboard authored against the dump and the live
-        // state it renders come from one source and cannot drift.
+        // state it renders come from one source and cannot drift. Encoded as a
+        // JSON STRING, exactly as real HA renders a `| tojson` template (the
+        // form `DataDump.parseIfString` must handle), so this path is faithful.
         Resource.eval(
           rawDump
-            .flatMap(dump => Queue.unbounded[IO, Json].flatTap(_.offer(dump)))
+            .flatMap(dump =>
+              Queue
+                .unbounded[IO, Json]
+                .flatTap(_.offer(Json.fromString(dump.noSpaces)))
+            )
             .map(_.asInstanceOf[QueueSource[IO, Result]])
         )
       case _ => naR

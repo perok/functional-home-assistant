@@ -210,10 +210,12 @@ object HomeAssistantApi {
           })
 
       // `render_template` is a subscription: subscribe, take the single initial
-      // render, release (unsubscribe). HA returns structured results as parsed
-      // JSON (an array/object, not a JSON-encoded string), so the existing
-      // `| to_json` templates decode directly. The first-event race that would
-      // have dropped that lone render is fixed in `subscribeStream`.
+      // render, release (unsubscribe). The first-event race that would have
+      // dropped that lone render is fixed in `subscribeStream`. NOTE: a
+      // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
+      // the filter output back), so `Body=Json` decodes to a `Json` string, not
+      // the structured value — a caller that wants the object parses it
+      // (`DataDump.parseIfString`).
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.take)

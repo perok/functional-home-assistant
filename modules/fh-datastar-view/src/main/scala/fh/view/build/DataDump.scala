@@ -2,6 +2,7 @@ package fh.view.build
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
+import cats.syntax.all.*
 import io.circe.{Json, JsonObject}
 
 /** Build-phase entity/area/floor dump.
@@ -63,9 +64,24 @@ object DataDump {
       |{{ {"areas": ns.areas, "floors": ns.floors, "entities": ns.result } | tojson }}
       |""".stripMargin
 
-  /** Fetch the raw dump and apply the id-keying transform. */
+  /** Fetch the raw dump and apply the id-keying transform.
+    *
+    * The template ends in `| tojson`, so Home Assistant renders the result as a
+    * JSON-encoded STRING, not a parsed object — `render_template` hands back
+    * that string verbatim. Parse it back before transforming (a value that
+    * already arrived structured passes through unchanged, so this is robust to
+    * either HA behaviour). Without this, `transform` sees a string, `asObject`
+    * is `None`, and every entity is silently dropped (an empty `@fh-home`
+    * dump).
+    */
   def fetch(api: HomeAssistantApi[IO]): IO[Json] =
-    api.templateFunc[Json](template).map(transform)
+    api.templateFunc[Json](template).flatMap(parseIfString).map(transform)
+
+  private def parseIfString(j: Json): IO[Json] =
+    j.asString match {
+      case Some(s) => io.circe.parser.parse(s).liftTo[IO]
+      case None    => IO.pure(j)
+    }
 
   /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
     * sanitized field (a valid identifier), so authors reference them by name.
