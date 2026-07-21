@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.protocol.server.Event
-import cats.effect.{IO, Resource}
+import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import fs2.Stream
@@ -171,33 +171,19 @@ object StateStore {
   def jsonToString(json: Json): String =
     if (json.isNull) "" else json.asString.getOrElse(json.noSpaces)
 
-  /** Build the store: take a full snapshot, then run a background fiber that
-    * keeps it current from the live `state_changed` stream.
-    */
-  def create(api: HomeAssistantApi[IO]): Resource[IO, StateStore] =
-    for {
-      initial <- seed(api).toResource
-      store <- inMemory(initial).toResource
-      _ <- api
-        .event(Some("state_changed"))
-        .flatMap { queue =>
-          Stream
-            .repeatEval(queue.take)
-            .evalMap(store.applyEvent)
-            .compile
-            .drain
-            .background
-        }
-    } yield store
-
-  /** An empty store with no live feed of its own. The [[HaFeed]] supervisor
-    * owns the lifecycle: it seeds this on connect and re-seeds ([[reseed]]) on
-    * every reconnect, so state survives across dropped upstream connections.
+  /** The store's ONLY constructor: an empty, passive sink with no feed of its
+    * own. It never subscribes `state_changed` itself — [[HaFeed]] is its single
+    * driver, seeding it on connect and re-seeding ([[reseed]]) on every
+    * reconnect, and draining the one live `state_changed` subscription into it
+    * via [[applyEvent]]. Keeping the subscription out of the store is what
+    * guarantees exactly one `state_changed` stream from Home Assistant no
+    * matter how many consumers read the fan-out ([[changes]]); a store that
+    * subscribed for itself would be a second stream waiting to happen.
     */
   def empty: IO[StateStore] = inMemory(Map.empty)
 
-  /** A store with no live feed — seeded with `initial` and driven by explicit
-    * [[StateStore.update]] calls. The test seam behind [[create]].
+  /** A store seeded with `initial` and driven by explicit [[StateStore.update]]
+    * calls — no feed. The test/seed seam behind [[empty]].
     */
   private[runtime] def inMemory(
       initial: Map[String, EntityState]
