@@ -3,9 +3,8 @@ package api.homeassistant.ws
 import cats.syntax.all.*
 import cats.effect.std.Console
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
-import api.homeassistant.ws.protocol.server.{WSCommandPhaseServerPayload}
-import cats.effect.kernel.Deferred
-import cats.effect.std.{MapRef, Mutex, QueueSource}
+import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
+import cats.effect.std.{MapRef, QueueSource, Queue}
 import cats.effect.{IO, Ref, Resource}
 import io.circe.syntax.*
 import fs2.Stream
@@ -24,7 +23,6 @@ import scala.concurrent.duration.*
 // TODO its high level
 trait HAWSApiLowLevel[F[_]] {
   // def receiveStream: Stream[F, WSCommandPhaseServer]
-  // TODO sendSync return Int id, deferred to receiveStream to get response for that id
   // TODO move WSCommandPhaseClient into just being a trait?
   // def send(in: WSCommandPhaseClient): F[Unit]
   // TODO subsctiveEvents(event_type = "state_changed")
@@ -54,8 +52,7 @@ object HAWSApiLowLevel {
 
   private case class Command(
       message: CommandPhase,
-      response: Deferred[IO, WSCommandPhaseServerPayload],
-      beforeSend: Int => IO[Unit] = _ => IO.unit
+      response: Queue[IO, WSCommandPhaseServerPayload]
   )
 
   extension (wsClient: WSConnectionHighLevel[IO])
@@ -164,14 +161,6 @@ object HAWSApiLowLevel {
             .flatMap(res => terminated.complete(res).void)
             .background
 
-          // Overview of listeners for one specific message
-          idDeferreds <- MapRef
-            .ofSingleImmutableMap[IO, Int, Deferred[
-              IO,
-              WSCommandPhaseServerPayload
-            ]]()
-            .toResource
-
           // Overview of listeners for specific ha subscriptions
           idQueue <- MapRef
             .ofSingleImmutableMap[IO, Int, Queue[
@@ -187,8 +176,7 @@ object HAWSApiLowLevel {
             .evalMap { msg =>
               for {
                 id <- incrementer
-                _ <- idDeferreds.setKeyValue(id, msg.response)
-                _ <- msg.beforeSend(id)
+                _ <- idQueue.setKeyValue(id, msg.response)
                 _ <- {
                   // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
                   val idJson = Json.obj(("id" -> Json.fromInt(id)))
@@ -216,18 +204,13 @@ object HAWSApiLowLevel {
           // subscription register its queue BEFORE the ack (closing the
           // first-event race) without the ack itself polluting the queue.
           // TODO errors in parsing before passing on the message can deadlock things
+          // TODO any point in keeping things here? the topic could just do this immediately?
           _ <- topic.subscribeUnbounded
             .through(
               _.evalMap(command =>
-                idDeferreds(command.id).get.flatMap {
-                  case Some(deferred) =>
-                    idDeferreds.unsetKey(command.id) >>
-                      deferred.complete(command).void
-                  case None =>
-                    idQueue(command.id).get.flatMap {
-                      case Some(queue) => queue.offer(command)
-                      case None        => IO.unit
-                    }
+                idQueue(command.id).get.flatMap {
+                  case Some(queue) => queue.offer(command)
+                  case None        => IO.unit
                 }
               )
             )
@@ -235,26 +218,26 @@ object HAWSApiLowLevel {
             .drain
             .background
 
-          _ = Stream.unit
           op = {
             def sendCommandWrapper[Response](
                 command: CommandPhase &
-                  CommandResponse.WithSingleResponse[Response],
-                // Runs UNDER the id/send queue, after the id is allocated and just
-                // before the frame goes out. A subscription uses it to register
-                // its receive queue for `id` before the subscribe frame is sent,
-                // so an event that HA pushes immediately after the `result` ack
-                // (render_template's single initial render) can't be lost in the
-                // gap between ack and registration.
-                beforeSend: Int => IO[Unit] = _ => IO.unit
+                  CommandResponse.WithSingleResponse[Response]
             ): IO[(Int, Response)] =
               for {
-                payloadDeferred <- IO.deferred[WSCommandPhaseServerPayload]
+                payloadQueue <- Queue.unbounded[IO, WSCommandPhaseServerPayload]
                 _ <- messageQueue.offer(
-                  Command(command, payloadDeferred, beforeSend)
+                  Command(command, payloadQueue)
                 )
 
-                payload <- payloadDeferred.get
+                payload <- payloadQueue.take
+
+                // Streamed requests will do cleanup in resource finalizers
+                _ <- command match {
+                  case _: CommandResponse.AsStream[?] =>
+                    IO.unit
+                  case _ =>
+                    idQueue.unsetKey(payload.id)
+                }
 
                 output <- command
                   .decodeMessage(payload)
@@ -289,13 +272,11 @@ object HAWSApiLowLevel {
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
               ): Resource[IO, QueueSource[IO, Result]] = for {
-                q <- Resource
-                  .eval(Queue.unbounded[IO, WSCommandPhaseServerPayload])
-
                 id <- sendCommandWrapper(
-                  msg,
-                  beforeSend = id => idQueue.setKeyValue(id, q)
+                  msg
                 ).map(_._1).toResource
+
+                q <- idQueue(id).get.toResource.map(_.get)
 
                 _ <- Resource.onFinalize(
                   sendCommandWrapper(

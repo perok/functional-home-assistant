@@ -51,6 +51,7 @@ object server {
     override def getMessage = s"code=$code\n$message"
   }
 
+  // TODO rename Envelope
   case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
     lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
       payload.as[WSCommandPhaseServer]
@@ -62,6 +63,8 @@ object server {
         .map(id => WSCommandPhaseServerPayload(id, cursor.top.get))
     }
   }
+
+  // TODO EnvelopeType
   enum WSCommandPhaseServer derives ConfiguredDecoder {
     case result(
         success: Boolean,
