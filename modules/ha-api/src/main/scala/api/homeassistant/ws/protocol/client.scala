@@ -1,30 +1,36 @@
 package api.homeassistant.ws.protocol
 
+import cats.effect.IO
+import api.DocumentJson
 import api.homeassistant.ws.domain.*
-import server.WSCommandPhaseServer
+import server.{WSCommandPhaseServer, WSHAError}
 import api.homeassistant.ws.utils.defaults.given
 import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
 import io.circe.*
-import io.circe.derivation.{Configuration, ConfiguredEncoder}
+import io.circe.derivation.ConfiguredEncoder
 import io.circe.syntax.*
+import cats.syntax.all.*
+import perok.ha.{GetStatesData, ServiceDomain, ServicesData}
 
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
-  sealed trait CommandResponse[R] {
-    val resultDecoder: Decoder[R]
-  }
+  sealed trait CommandResponse[R]
+
   object CommandResponse {
 
-    // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
-    trait AsStream[R] extends CommandResponse[Unit] {
-      val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
-
-      /** Turn one subscription message into the stream's element (throws on a
-        * malformed message, matching the transport's decode-or-throw style).
-        */
-      def decodeMessage(payload: server.WSCommandPhaseServerPayload): R
+    trait WithSingleResponse[R] extends CommandResponse[R] {
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R]
     }
+
+    // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
+    trait AsStream[R] extends AsResult[Unit] {
+      // val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
+      def decodeStreamMessage(
+          payload: server.WSCommandPhaseServerPayload
+      ): IO[R]
+    }
+
     object AsStream {
 
       /** The raw `event` object of the message, undecoded. The typed
@@ -35,27 +41,80 @@ object client {
         * them; callers decode what they subscribed to.
         */
       trait AsRawEvent extends AsStream[Json] {
-        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
-          payload.payload.hcursor
-            .get[Json]("event")
-            .fold(throw _, identity)
+        def decodeStreamMessage(
+            payload: server.WSCommandPhaseServerPayload
+        ): IO[Json] =
+          payload.parsedPayload.liftTo[IO].flatMap {
+            case WSCommandPhaseServer.event(event) => IO.pure(event)
+            case other                             =>
+              IO.raiseError(
+                new Exception(s"expected a event message, got: $other")
+              )
+          }
       }
 
       trait AsTrigger extends AsStream[Json] {
-        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
-          payload.parsedPayload.fold(
-            throw _,
-            {
-              case WSCommandPhaseServer.trigger(_, event) => event
-              case other                                  =>
-                throw new Exception(s"expected a trigger message, got: $other")
-            }
-          )
+        def decodeStreamMessage(
+            payload: server.WSCommandPhaseServerPayload
+        ): IO[Json] =
+          payload.parsedPayload.liftTo[IO].flatMap {
+            case WSCommandPhaseServer.trigger(event) => IO.pure(event)
+            case other                               =>
+              IO.raiseError(
+                new Exception(s"expected a trigger message, got: $other")
+              )
+          }
       }
     }
 
     trait AsResult[R](using val resultDecoder: Decoder[R])
         extends CommandResponse[R]
+        with WithSingleResponse[R] {
+
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R] =
+        payload.parsedPayload.liftTo[IO].flatMap {
+          case WSCommandPhaseServer.result(
+                true,
+                result,
+                _
+              ) =>
+            given Decoder[R] = resultDecoder
+
+            result
+              // Empty result for subscription messages as Ack. Decode those to None, which the decoder for the message must expect.
+              .getOrElse(Json.Null)
+              .as[R]
+              .liftTo[IO]
+          case WSCommandPhaseServer.result(
+                false,
+                _,
+                error
+              ) =>
+            IO.raiseError[R](
+              error
+                .flatMap(json => json.as[WSHAError].toOption)
+                .getOrElse(
+                  new Exception(
+                    s"Result parsing failed. Error:\n$error"
+                  )
+                )
+            )
+          case other =>
+            throw new Exception(s"expected a trigger message, got: $other")
+        }
+
+    }
+
+    trait AsPong extends CommandResponse[Unit] with WithSingleResponse[Unit] {
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[Unit] =
+        payload.parsedPayload.liftTo[IO].flatMap {
+          case WSCommandPhaseServer.pong() => IO.unit
+          case other                       =>
+            IO.raiseError(
+              new Exception(s"expected a trigger message, got: $other")
+            )
+        }
+    }
   }
 
   sealed trait CommandPhase derives ConfiguredEncoder
@@ -72,6 +131,9 @@ object client {
     //
     // Stuff
     //
+
+    case class ping() extends CommandPhase with CommandResponse.AsPong
+        derives ConfiguredEncoder
 
     // call_service https://developers.home-assistant.io/docs/api/websocket#calling-a-service-action
     // service_data carries arbitrary parameters (e.g. brightness); target is the
@@ -96,18 +158,38 @@ object client {
 
     // TODO ping https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L574 for heartbeats
 
+    private val getServiceDecoder = Decoder.instance(cursor =>
+      DocumentJson
+        .fromJson2(cursor.value)(using ServicesData.schema)
+        .leftMap(err => DecodingFailure.fromThrowable(err, List.empty))
+        .map(_.value)
+    )
     // get_services https://developers.home-assistant.io/docs/api/websocket#fetching-service-actions
     case class `get_services`()
         extends CommandPhase
-        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[List[ServiceDomain]](using
+          getServiceDecoder
+        ) derives ConfiguredEncoder
 
     // get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
     // The WS equivalent of REST `/api/states`: the same state representation, so
     // the result decodes with the same shape the REST leg used.
+    private val getStatesDecoder = Decoder.instance(cursor =>
+      DocumentJson
+        .fromJson2(cursor.value)(using
+          smithy4s.Schema.list(GetStatesData.schema)
+        )
+        .leftMap(err => DecodingFailure.fromThrowable(err, List.empty))
+    )
+
     case class `get_states`()
         extends CommandPhase
-        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[List[GetStatesData]](using
+          getStatesDecoder
+        ) derives ConfiguredEncoder
 
+    // TODO make better
+    // https://github.com/home-assistant/core/blob/42f9a4f5aac3ee9de6ee0210d6581a8b7e4b3b15/homeassistant/components/websocket_api/commands.py#L748
     // render_template https://developers.home-assistant.io/docs/api/websocket#render-a-template
     // A SUBSCRIPTION, not a one-shot result: HA acks with `result`, then pushes
     // `event` messages `{result, listeners}` — and re-pushes whenever a
@@ -117,13 +199,7 @@ object client {
     // rather than silently sticking.
     case class render_template(template: String, report_errors: Boolean = true)
         extends CommandPhase
-        with CommandResponse.AsStream[Json] derives ConfiguredEncoder {
-      def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
-        payload.payload.hcursor
-          .downField("event")
-          .get[Json]("result")
-          .fold(throw _, identity)
-    }
+        with CommandResponse.AsStream.AsRawEvent derives ConfiguredEncoder
 
     //
     // Configs

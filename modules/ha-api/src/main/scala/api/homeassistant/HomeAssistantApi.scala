@@ -1,6 +1,5 @@
 package api.homeassistant
 
-import api.DocumentJson
 import api.homeassistant.ws.HAWSApiLowLevel
 import cats.syntax.all.*
 import api.homeassistant.ws.protocol.client.CommandPhase.*
@@ -11,8 +10,7 @@ import api.homeassistant.ws.protocol.server.Event
 import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
 import io.circe.{Decoder, Json}
-import perok.ha.{GetStatesData, Service, ServiceDomain}
-import smithy4s.{Document, Schema}
+import perok.ha.{GetStatesData, ServiceDomain}
 
 // TODO add caching of rest + json response. triggers and actions usually don't change
 //
@@ -50,7 +48,7 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
-  def getServicesWS: F[Json]
+  // def getServicesWS: F[Json]
 
   def event(event: Option[String]): Resource[F, QueueSource[F, Event]]
 
@@ -82,20 +80,6 @@ trait HomeAssistantApi[F[_]] {
 }
 
 object HomeAssistantApi {
-
-  /** Decode a WS JSON payload into a smithy4s type `A` via its schema, bridging
-    * circe -> smithy `Document` ([[api.DocumentJson.fromJson]]). This is how
-    * the WS-only API returns the same typed shapes the REST leg used to,
-    * without a second HTTP client on a second connection.
-    */
-  private def decodeVia[A](json: Json, schema: Schema[A]): IO[A] =
-    Document.Decoder
-      .fromSchema(schema)
-      .decode(DocumentJson.fromJson(json))
-      .leftMap(e =>
-        new Exception(s"WS response decode failed: ${e.getMessage}")
-      )
-      .liftTo[IO]
 
   /** Build the unified API over a single Home Assistant WebSocket connection.
     * Everything — states, services, templates, subscriptions, `call_service` —
@@ -158,6 +142,7 @@ object HomeAssistantApi {
         // The raw stream decoded into the state_changed shape (the only event
         // type this method has ever subscribed to).
         in.subscribeStream(subscribe_events(Some("state_changed")))
+          // TODO Stream instead of queue?
           .map(_.map(json => json.as[Event].fold(throw _, identity)))
 
       def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
@@ -185,29 +170,15 @@ object HomeAssistantApi {
       // did, so it decodes with the same schema.
       def getStates: IO[List[GetStatesData]] =
         in.sendCommand(`get_states`())
-          .flatMap(decodeVia(_, Schema.list(GetStatesData.schema)))
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
-
-      def getServicesWS: IO[Json] =
-        in.sendCommand(`get_services`())
 
       // WS `get_services` is an OBJECT keyed by domain (`{domain: {service:
       // ...}}`), where REST returned an ARRAY of `{domain, services}`; decode
       // the object shape and re-key it into the same `List[ServiceDomain]`.
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())
-          .flatMap(
-            decodeVia(
-              _,
-              Schema
-                .map(Schema.string, Schema.map(Schema.string, Service.schema))
-            )
-          )
-          .map(_.toList.map { case (domain, services) =>
-            ServiceDomain(domain, services)
-          })
 
       // `render_template` is a subscription: subscribe, take the single initial
       // render, release (unsubscribe). The first-event race that would have
@@ -219,7 +190,7 @@ object HomeAssistantApi {
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.take)
-          .flatMap(_.as[Body].liftTo[IO])
+          .flatMap(_.hcursor.downField("result").as[Body].liftTo[IO])
     }
 
   extension (service: HomeAssistantApi[IO])

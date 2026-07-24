@@ -77,7 +77,7 @@ final class FakeHomeAssistant private (
   // --- The WS commands the runtime uses, with real behaviour -----------------
 
   def sendCommand[Response](
-      command: CommandPhase & CommandResponse.AsResult[Response]
+      command: CommandPhase & CommandResponse.WithSingleResponse[Response]
   ): IO[Response] =
     command match {
       case _: `get_states` =>

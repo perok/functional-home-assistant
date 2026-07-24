@@ -1,6 +1,7 @@
 package api
 
 import cats.effect.*
+import cats.syntax.all.*
 
 object DocumentJson {
   // https://github.com/disneystreaming/smithy4s/discussions/954
@@ -9,6 +10,8 @@ object DocumentJson {
   import io.circe.{Json, JsonObject}
   import smithy4s.codecs.PayloadError
 
+  // TODO StateStore.docTojson
+  @deprecated
   val decoder: Document.Decoder[Json] = new Document.Decoder[Json] {
     def decode(document: Document): Either[PayloadError, Json] = {
       def toJson(d: Document): Json = {
@@ -27,20 +30,48 @@ object DocumentJson {
     }
   }
 
+  private lazy val decoders = {
+    // Instead of Json.read due to max arity default setting
+    import smithy4s.json.Json
+    Json.payloadCodecs
+      .withJsoniterCodecCompiler(Json.jsoniter.withMaxArity(99999))
+      .decoders
+  }
+
+  def fromJson2[A: smithy4s.Schema](json: Json): Either[Throwable, A] = {
+    import smithy4s.Blob
+    import io.circe.Printer
+
+    decoders
+      .fromSchema(implicitly[smithy4s.Schema[A]])
+      .decode(
+        Blob.view(
+          Printer.noSpaces.printToByteBuffer(json)
+        )
+      )
+      .leftMap(err =>
+        new Throwable(
+          s"Decoding circe json to smithy failed: ${json.noSpaces.take(50)}",
+          err
+        )
+      )
+  }
+
+  // JsonCodec
   /** circe `Json` -> smithy `Document`, the reverse of [[decoder]]. Lets a WS
     * JSON payload be decoded into a smithy4s type via its schema
     * (`Document.Decoder.fromSchema`), so the WS API can return the same typed
     * shapes the REST leg did — without a second HTTP client.
     */
-  def fromJson(json: Json): Document =
-    json.fold(
-      DNull,
-      b => DBoolean(b),
-      n => DNumber(n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))),
-      s => DString(s),
-      arr => DArray(arr.map(fromJson)),
-      obj => DObject(obj.toMap.map { case (k, v) => k -> fromJson(v) })
-    )
+  // def fromJson(json: Json): Document =
+  //  json.fold(
+  //    DNull,
+  //    b => DBoolean(b),
+  //    n => DNumber(n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))),
+  //    s => DString(s),
+  //    arr => DArray(arr.map(fromJson)),
+  //    obj => DObject(obj.toMap.map { case (k, v) => k -> fromJson(v) })
+  //  )
 
 }
 

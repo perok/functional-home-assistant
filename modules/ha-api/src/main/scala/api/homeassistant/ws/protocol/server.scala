@@ -64,13 +64,14 @@ object server {
   }
   enum WSCommandPhaseServer derives ConfiguredDecoder {
     case result(
-        id: Int,
         success: Boolean,
         result: Option[Json],
         error: Option[Json]
     )
-    case event(id: Int, event: Event)
+    // TODO Event must be without more type info..
+    case event(event: Json)
     // TODO trigger is still keyed by "event"
-    case trigger(id: Int, event: Json)
+    case trigger(event: Json)
+    case pong()
   }
 }

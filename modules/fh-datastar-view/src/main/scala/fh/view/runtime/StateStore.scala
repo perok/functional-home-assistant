@@ -217,6 +217,9 @@ object StateStore {
       }.toMap
     }
 
-  private def docToJson(d: smithy4s.Document): Json =
-    api.DocumentJson.decoder.decode(d).toOption.getOrElse(Json.Null)
+  private def docToJson(d: smithy4s.Document): Json = {
+    io.circe.parser
+      .parse(smithy4s.json.Json.writeDocumentAsBlob(d).toUTF8String)
+      .fold(throw _, identity)
+  }
 }

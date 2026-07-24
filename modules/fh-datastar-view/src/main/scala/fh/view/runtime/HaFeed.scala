@@ -122,7 +122,7 @@ object HaFeed {
       (err: Throwable, details: RetryDetails) =>
         val reason = Option(err.getMessage).getOrElse(err.toString)
         IO.println(
-          s"[ha-feed] disconnected ($reason); reconnecting (attempt ${details.retriesSoFar + 1})"
+          s"[ha-feed] disconnected (${err.getClass.getName} $reason); reconnecting (attempt ${details.retriesSoFar + 1})"
         )
     }
     retryingOnErrors(
@@ -208,7 +208,7 @@ object HaFeed {
         )
 
       def sendCommand[Response](
-          command: CommandPhase & CommandResponse.AsResult[Response]
+          command: CommandPhase & CommandResponse.WithSingleResponse[Response]
       ): IO[Response] =
         currentRef.get.flatMap(
           _.fold(disconnected[Response])(_.sendCommand(command))
