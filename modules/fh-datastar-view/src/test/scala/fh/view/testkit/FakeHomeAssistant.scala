@@ -1,6 +1,5 @@
 package fh.view.testkit
 
-import api.DocumentJson
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.client.CommandPhase.*
@@ -10,8 +9,6 @@ import cats.effect.std.{Queue, QueueSource}
 import cats.effect.kernel.Ref
 import io.circe.Json
 import io.circe.syntax.*
-import perok.ha.GetStatesData
-import smithy4s.{Document, Schema}
 
 /** One recorded `call_service` invocation — what the dashboard sent back to HA
   * when a control was actuated.
@@ -81,7 +78,12 @@ final class FakeHomeAssistant private (
   ): IO[Response] =
     command match {
       case _: `get_states` =>
-        statesJson.asInstanceOf[IO[Response]]
+        // `get_states` is typed `List[GetStatesData]` at the command, so hand
+        // back the fixtures already in that shape — the same value the real
+        // decode would produce.
+        stateRef.get
+          .map(_.values.toList.map(_.toGetStatesData))
+          .asInstanceOf[IO[Response]]
       case cs: `call_service` =>
         calls
           .update(
@@ -108,20 +110,19 @@ final class FakeHomeAssistant private (
           queueFor(eventType).map(_.asInstanceOf[QueueSource[IO, Result]])
         )
       case _: render_template =>
-        // `render_template` is HA's dump-fetch subscription; the runtime's
-        // `templateFunc` takes exactly ONE result and releases (`DataDump.fetch`
-        // at boot). Hand back a queue pre-loaded with the raw `{areas, floors,
-        // entities}` dump derived from the SAME seeded fixtures `get_states`
-        // serves — so a Tier-A dashboard authored against the dump and the live
-        // state it renders come from one source and cannot drift. Encoded as a
-        // JSON STRING, exactly as real HA renders a `| tojson` template (the
-        // form `DataDump.parseIfString` must handle), so this path is faithful.
+        // HA's render_template pushes `event` frames `{result, listeners}`;
+        // `templateFunc` takes the first and reads `.result`. A `| tojson`
+        // template renders `result` to a JSON STRING (which `DataDump.parseIfString`
+        // reparses), so wrap the dump the same way real HA does. Derived from the
+        // SAME fixtures `get_states` serves, so dump and live state can't drift.
         Resource.eval(
           rawDump
             .flatMap(dump =>
               Queue
                 .unbounded[IO, Json]
-                .flatTap(_.offer(Json.fromString(dump.noSpaces)))
+                .flatTap(
+                  _.offer(Json.obj("result" -> Json.fromString(dump.noSpaces)))
+                )
             )
             .map(_.asInstanceOf[QueueSource[IO, Result]])
         )
@@ -132,22 +133,6 @@ final class FakeHomeAssistant private (
   // supplies the supervisor's `awaitClosed`; this is only here to satisfy the
   // trait.
   def awaitClosed: IO[Unit] = IO.never
-
-  /** The fixture as one `get_states` JSON payload: the fixtures rendered to
-    * `GetStatesData` and back through the same smithy schema the runtime
-    * decodes with, so it round-trips exactly.
-    */
-  private def statesJson: IO[Json] =
-    stateRef.get.map { current =>
-      val list = current.values.toList.map(_.toGetStatesData)
-      val doc =
-        Document.Encoder
-          .fromSchema(Schema.list(GetStatesData.schema))
-          .encode(list)
-      DocumentJson.decoder
-        .decode(doc)
-        .getOrElse(throw new IllegalStateException("fixture -> JSON failed"))
-    }
 
   /** The fixture as one RAW `render_template` dump: the pre-transform
     * `{areas, floors, entities}` shape `DataDump.fetch` receives (entities as a

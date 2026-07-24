@@ -20,13 +20,10 @@ import org.http4s.client.websocket.{
 
 import scala.concurrent.duration.*
 
-// TODO its high level
+/** The single WebSocket seam `HomeAssistantApi` is built on. Routes frames by
+  * id only; each command owns its codec, so this layer stays codec-agnostic.
+  */
 trait HAWSApiLowLevel[F[_]] {
-  // def receiveStream: Stream[F, WSCommandPhaseServer]
-  // TODO move WSCommandPhaseClient into just being a trait?
-  // def send(in: WSCommandPhaseClient): F[Unit]
-  // TODO subsctiveEvents(event_type = "state_changed")
-  // def subscribeStateChanged: Resource[IO, QueueSource[IO, WSCommandPhaseServer]]
 
   def sendCommand[Response](
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
@@ -144,9 +141,6 @@ object HAWSApiLowLevel {
           // ping: a live stream keeps this fresh so no ping is ever sent.
           lastActivity <- IO.monotonic.flatMap(Ref[IO].of).toResource
 
-          // Receives all messages. All can listen
-          // TODO worth skipping this and go right to defered and queue?
-          //  Means that we accept loosing messages that are not subscribed in any way
           topic <- Topic[IO, WSCommandPhaseServerPayload].toResource
           _ <- ha
             .receiveStreamDecode[WSCommandPhaseServerPayload]
@@ -161,7 +155,8 @@ object HAWSApiLowLevel {
             .flatMap(res => terminated.complete(res).void)
             .background
 
-          // Overview of listeners for specific ha subscriptions
+          // id -> waiting-queue for every in-flight command (single responses
+          // and subscriptions alike).
           idQueue <- MapRef
             .ofSingleImmutableMap[IO, Int, Queue[
               IO,
@@ -169,10 +164,11 @@ object HAWSApiLowLevel {
             ]]()
             .toResource
 
+          // One drain fiber, so id allocation + registration + send stay linear
+          // (HA rejects reused ids).
           messageQueue <- Queue.bounded[IO, Command](10).toResource
           _ <- Stream
             .fromQueueUnterminated(messageQueue)
-            // It always has to send the id's linearly.
             .evalMap { msg =>
               for {
                 id <- incrementer
@@ -195,16 +191,9 @@ object HAWSApiLowLevel {
             .drain
             .background
 
-          // Route each message by id. A pending DEFERRED (a command awaiting its
-          // `result`) takes priority and is mutually exclusive with the queue:
-          // HA always sends a subscribe command's `result` ack BEFORE any of its
-          // events, so the ack completes the deferred (and is NOT enqueued),
-          // while every later event — no deferred left for that id — lands in
-          // the subscription's queue. This mutual exclusion is what lets a
-          // subscription register its queue BEFORE the ack (closing the
-          // first-event race) without the ack itself polluting the queue.
+          // Registration precedes the send, so the queue always exists when HA
+          // answers — ack and later events land in order, no first-event race.
           // TODO errors in parsing before passing on the message can deadlock things
-          // TODO any point in keeping things here? the topic could just do this immediately?
           _ <- topic.subscribeUnbounded
             .through(
               _.evalMap(command =>
@@ -258,17 +247,6 @@ object HAWSApiLowLevel {
               ): IO[Response] =
                 sendCommandWrapper(command).map(_._2)
 
-              //
-              // todo https://developers.home-assistant.io/docs/api/websocket#fire-an-event
-
-              // todo https://developers.home-assistant.io/docs/api/websocket#subscribe-to-trigger
-
-              // https://developers.home-assistant.io/docs/api/websocket#subscribe-to-events
-              // TODO event type
-              //
-              // TODO [info] Receiving: {"type":"event","event":{"event_type":"state_changed","data":{"entity_id":"sensor.ams_1a4e_daycost","old_state":{"entity_id":"sensor.ams_1a4e_daycost","state":"113.37","attributes":{"unit_of_measurement":"NOK","device_class":"monetary","friendly_name":"AMS reader Current day cost"},"last_changed":"2025-01-19T21:06:13.631582+00:00","last_reported":"2025-01-19T21:06:13.631582+00:00","last_updated":"2025-01-19T21:06:13.631582+00:00","context":{"id":"01JJ066DZZHGND4KT787YF4F0M","parent_id":null,"user_id":null}},"new_state":{"entity_id":"sensor.ams_1a4e_daycost","state":"113.38","attributes":{"unit_of_measurement":"NOK","device_class":"monetary","friendly_name":"AMS reader Current day cost"},"last_changed":"2025-01-19T21:06:16.124989+00:00","last_reported":"2025-01-19T21:06:16.124989+00:00","last_updated":"2025-01-19T21:06:16.124989+00:00","context":{"id":"01JJ066GDWGK26020G3AKHHVAZ","parent_id":null,"user_id":null}}},"origin":"LOCAL","time_fired":"2025-01-19T21:06:16.124989+00:00","context":{"id":"01JJ066GDWGK26020G3AKHHVAZ","parent_id":null,"user_id":null}},"id":2}
-              //   type: trigger
-              //   etc
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
               ): Resource[IO, QueueSource[IO, Result]] = for {
@@ -297,14 +275,9 @@ object HAWSApiLowLevel {
             }
           }
 
-          // TODO use the actual API instead of hardcoding
-          // https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
-          // Idle keepalive: when no frame has arrived for `pingInterval`, send a
-          // `ping` (through the shared id/mutex so ids stay monotonic) and wait
-          // for the matching `pong` — which the dispatch above routes back to
-          // this deferred by id. A missed pong means the socket is dead: mark
-          // the connection terminated so `awaitClosed` fires. Live traffic keeps
-          // `lastActivity` fresh, so a busy connection is never pinged.
+          // Idle keepalive: ping only after `pingInterval` of silence; a missed
+          // pong marks the connection dead so `awaitClosed` fires. Live traffic
+          // refreshes `lastActivity`, so a busy connection is never pinged.
           _ <- {
             val ping: IO[Boolean] =
               op.sendCommand[Unit](CommandPhase.ping())

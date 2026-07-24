@@ -51,7 +51,9 @@ object server {
     override def getMessage = s"code=$code\n$message"
   }
 
-  // TODO rename Envelope
+  /** A received frame: the `id` the transport routes on, plus the raw payload.
+    * The body is decoded lazily by the command, never by the transport.
+    */
   case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
     lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
       payload.as[WSCommandPhaseServer]
@@ -64,16 +66,16 @@ object server {
     }
   }
 
-  // TODO EnvelopeType
+  /** The typed body of a server frame (the id lives on the envelope above). */
   enum WSCommandPhaseServer derives ConfiguredDecoder {
     case result(
         success: Boolean,
         result: Option[Json],
         error: Option[Json]
     )
-    // TODO Event must be without more type info..
+    // Raw `event`-field JSON: payload shapes are type-specific, so the
+    // subscriber decodes what it asked for.
     case event(event: Json)
-    // TODO trigger is still keyed by "event"
     case trigger(event: Json)
     case pong()
   }

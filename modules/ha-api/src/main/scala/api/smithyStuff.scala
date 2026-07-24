@@ -4,40 +4,20 @@ import cats.effect.*
 import cats.syntax.all.*
 
 object DocumentJson {
-  // https://github.com/disneystreaming/smithy4s/discussions/954
-  import smithy4s.Document
-  import smithy4s.Document.*
-  import io.circe.{Json, JsonObject}
-  import smithy4s.codecs.PayloadError
-
-  // TODO StateStore.docTojson
-  @deprecated
-  val decoder: Document.Decoder[Json] = new Document.Decoder[Json] {
-    def decode(document: Document): Either[PayloadError, Json] = {
-      def toJson(d: Document): Json = {
-        d match {
-          case DNumber(value)  => Json.fromBigDecimal(value)
-          case DBoolean(value) => Json.fromBoolean(value)
-          case DString(value)  => Json.fromString(value)
-          case DNull           => Json.Null
-          case DArray(value)   => Json.fromValues(value.map(toJson))
-          case DObject(value)  =>
-            val newMap = value.map { case (k, v) => k -> toJson(v) }
-            Json.fromJsonObject(JsonObject.fromMap(newMap))
-        }
-      }
-      Right(toJson(document))
-    }
-  }
+  import io.circe.Json
 
   private lazy val decoders = {
-    // Instead of Json.read due to max arity default setting
+    // Raised max arity because HA's get_states/get_services blobs exceed the
+    // jsoniter default.
     import smithy4s.json.Json
     Json.payloadCodecs
       .withJsoniterCodecCompiler(Json.jsoniter.withMaxArity(99999))
       .decoders
   }
 
+  /** Decode circe JSON into a smithy4s type via its schema — how a command's
+    * result decoder plugs smithy types into the circe-typed protocol.
+    */
   def fromJson2[A: smithy4s.Schema](json: Json): Either[Throwable, A] = {
     import smithy4s.Blob
     import io.circe.Printer
@@ -56,22 +36,6 @@ object DocumentJson {
         )
       )
   }
-
-  // JsonCodec
-  /** circe `Json` -> smithy `Document`, the reverse of [[decoder]]. Lets a WS
-    * JSON payload be decoded into a smithy4s type via its schema
-    * (`Document.Decoder.fromSchema`), so the WS API can return the same typed
-    * shapes the REST leg did — without a second HTTP client.
-    */
-  // def fromJson(json: Json): Document =
-  //  json.fold(
-  //    DNull,
-  //    b => DBoolean(b),
-  //    n => DNumber(n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))),
-  //    s => DString(s),
-  //    arr => DArray(arr.map(fromJson)),
-  //    obj => DObject(obj.toMap.map { case (k, v) => k -> fromJson(v) })
-  //  )
 
 }
 

@@ -48,8 +48,6 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
-  // def getServicesWS: F[Json]
-
   def event(event: Option[String]): Resource[F, QueueSource[F, Event]]
 
   /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
@@ -166,17 +164,12 @@ object HomeAssistantApi {
           )
         )
 
-      // WS `get_states` returns the same state representation REST `/api/states`
-      // did, so it decodes with the same schema.
       def getStates: IO[List[GetStatesData]] =
         in.sendCommand(`get_states`())
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
 
-      // WS `get_services` is an OBJECT keyed by domain (`{domain: {service:
-      // ...}}`), where REST returned an ARRAY of `{domain, services}`; decode
-      // the object shape and re-key it into the same `List[ServiceDomain]`.
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())
 

@@ -103,10 +103,9 @@ object FixtureEntity {
   private val Epoch = "1970-01-01T00:00:00+00:00"
   private val emptyContext = ResultContext("test", None, None)
 
-  /** Convert a circe [[Json]] to a smithy4s [[Document]] — the inverse of
-    * `api.DocumentJson.decoder`. Numbers go through `BigDecimal`, matching that
-    * decoder's `DNumber -> Json.fromBigDecimal`, so a value survives the
-    * fixture -> `GetStatesData` -> seed round-trip.
+  /** Convert a circe [[Json]] to a smithy4s [[Document]] for building
+    * `GetStatesData` fixtures. Numbers go through `BigDecimal` so a value
+    * survives the fixture -> `GetStatesData` -> seed round-trip.
     */
   def jsonToDocument(j: Json): Document =
     j.fold(

@@ -15,15 +15,21 @@ import perok.ha.{GetStatesData, ServiceDomain, ServicesData}
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
+  /** What a command expects back. A pure marker; decoding lives on the subtypes
+    * so the transport stays codec-agnostic (routes by id, calls the command's
+    * own decoder).
+    */
   sealed trait CommandResponse[R]
 
   object CommandResponse {
 
+    /** Decodes its own server frame into the typed `R`. */
     trait WithSingleResponse[R] extends CommandResponse[R] {
       def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R]
     }
 
-    // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
+    // An HA subscription: the `result` ack (AsResult[Unit]) plus a per-event
+    // stream decoder; `unsubscribe_events` cancels it.
     trait AsStream[R] extends AsResult[Unit] {
       def decodeStreamMessage(
           payload: server.WSCommandPhaseServerPayload
@@ -66,6 +72,10 @@ object client {
       }
     }
 
+    /** A one-shot `result`, decoded via a circe [[Decoder]]; raises HA's
+      * [[WSHAError]] on a failure frame. `get_states`/`get_services` plug a
+      * smithy-schema decoder in here, so `R` is the final typed value.
+      */
     trait AsResult[R](using val resultDecoder: Decoder[R])
         extends CommandResponse[R]
         with WithSingleResponse[R] {
@@ -80,7 +90,8 @@ object client {
             given Decoder[R] = resultDecoder
 
             result
-              // Empty result for subscription messages as Ack. Decode those to None, which the decoder for the message must expect.
+              // A bare success ack carries no `result`; decode `null`, which a
+              // `Unit` result (a subscribe ack) expects.
               .getOrElse(Json.Null)
               .as[R]
               .liftTo[IO]
@@ -99,7 +110,9 @@ object client {
                 )
             )
           case other =>
-            throw new Exception(s"expected a trigger message, got: $other")
+            IO.raiseError(
+              new Exception(s"expected a result message, got: $other")
+            )
         }
 
     }
@@ -110,7 +123,7 @@ object client {
           case WSCommandPhaseServer.pong() => IO.unit
           case other                       =>
             IO.raiseError(
-              new Exception(s"expected a trigger message, got: $other")
+              new Exception(s"expected a pong message, got: $other")
             )
         }
     }
@@ -127,10 +140,8 @@ object client {
       */
     case class CallServiceTarget(entity_id: String) derives ConfiguredEncoder
 
-    //
-    // Stuff
-    //
-
+    // Idle-keepalive heartbeat; HA answers with a `pong` frame (see AsPong).
+    // https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
     case class ping() extends CommandPhase with CommandResponse.AsPong
         derives ConfiguredEncoder
 
@@ -145,18 +156,14 @@ object client {
     ) extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
-    // TODO get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
-
-    // TODO get_config https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L515
-    // alt av devices og services og whatnot ligger under det
+    // get_config https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L515
     case class `get_config`()
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
     // TODO supported_features https://github.com/home-assistant/core/blob/f5fd49d8cb710c95cde30fc5071c20af351760b4/homeassistant/components/websocket_api/commands.py#L906
 
-    // TODO ping https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L574 for heartbeats
-
+    // Decodes HA's `{domain: {service: ...}}` via the smithy schema.
     private val getServiceDecoder = Decoder.instance(cursor =>
       DocumentJson
         .fromJson2(cursor.value)(using ServicesData.schema)
@@ -187,8 +194,6 @@ object client {
           getStatesDecoder
         ) derives ConfiguredEncoder
 
-    // TODO make better
-    // https://github.com/home-assistant/core/blob/42f9a4f5aac3ee9de6ee0210d6581a8b7e4b3b15/homeassistant/components/websocket_api/commands.py#L748
     // render_template https://developers.home-assistant.io/docs/api/websocket#render-a-template
     // A SUBSCRIPTION, not a one-shot result: HA acks with `result`, then pushes
     // `event` messages `{result, listeners}` — and re-pushes whenever a
