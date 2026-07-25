@@ -105,7 +105,6 @@ object HAWSApiLowLevel {
       pingInterval: FiniteDuration = 30.seconds,
       pingTimeout: FiniteDuration = 10.seconds
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
-    import fs2.concurrent.Topic
     import cats.effect.std.Queue
 
     // TODO coalesce https://github.com/home-assistant/developers.home-assistant/pull/2128/files
@@ -141,20 +140,6 @@ object HAWSApiLowLevel {
           // Monotonic timestamp of the last frame received. Drives the idle
           // ping: a live stream keeps this fresh so no ping is ever sent.
           lastActivity <- IO.monotonic.flatMap(Ref[IO].of).toResource
-
-          topic <- Topic[IO, WSCommandPhaseServerPayload].toResource
-          _ <- ha
-            .receiveStreamDecode[WSCommandPhaseServerPayload]
-            .evalTap(_ => IO.monotonic.flatMap(lastActivity.set))
-            .through(topic.publish)
-            .compile
-            .drain
-            // The receive loop only ends when the socket closes (or a frame
-            // fails to decode). Either way the connection is done: report it so
-            // the holder reconnects instead of hanging on a dead socket.
-            .attempt
-            .flatMap(res => terminated.complete(res).void)
-            .background
 
           // id -> waiting-queue for every in-flight command (single responses
           // and subscriptions alike).
@@ -196,26 +181,31 @@ object HAWSApiLowLevel {
           // Registration precedes the send, so the queue always exists when HA
           // answers — ack and later events land in order, no first-event race.
           // TODO errors in parsing before passing on the message can deadlock things
-          _ <- topic.subscribeUnbounded
-            .through(
-              _.evalMap(command =>
-                idQueue(command.id).get.flatMap {
-                  case Some(queue) => queue.offer(command)
-                  case None        => IO.unit
-                }
-              )
-            )
+          _ <- ha
+            .receiveStreamDecode[WSCommandPhaseServerPayload]
+            .evalTap { command =>
+              idQueue(command.id).get.flatMap {
+                case Some(queue) => queue.offer(command)
+                case None        =>
+                  Console[IO].errorln(
+                    s"Received message, but not receivers: $command"
+                  )
+              } >>
+                IO.monotonic.flatMap(lastActivity.set)
+            }
             .compile
             .drain
+            // The receive loop only ends when the socket closes (or a frame
+            // fails to decode). Either way the connection is done: report it so
+            // the holder reconnects instead of hanging on a dead socket.
+            .attempt
+            .flatMap(res => terminated.complete(res).void)
             .background
 
           op = {
             new HAWSApiLowLevel[IO] {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
-
-              def receiveStream: Stream[IO, WSCommandPhaseServerPayload] =
-                topic.subscribeUnbounded
 
               // This is bottom. singleresponse reads the first, then the stream variant reads the others sends that
               def subscribeStream1[Result](
