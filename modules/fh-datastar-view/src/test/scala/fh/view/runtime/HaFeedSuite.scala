@@ -31,11 +31,13 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         } yield (fake, d.get) // awaitClosed completes cleanly when we fire `d`
       )
       out <- HaFeed.resource(connect).use { feed =>
-        feed.api.rawEvents("test_registry").use { q =>
+        // Acquire subscribes; the stream is read at the end, since the durable
+        // side buffers — so an event is attributable to the connection that was
+        // live when it was pushed.
+        feed.api.rawEvents("test_registry").use { events =>
           for {
             _ <- feed.awaitHealthy
             _ <- fake.pushRawEvent("test_registry", Json.fromString("one"))
-            got1 <- q.take.timeout(5.seconds)
             // Drop the live connection cleanly -> supervisor reconnects (a
             // second `connect` use), and the durable subscription re-arms.
             _ <- closeRef.get.flatMap(_.get.complete(()))
@@ -43,13 +45,13 @@ class HaFeedSuite extends munit.CatsEffectSuite {
             // Pushed AFTER the drop: only a durable (re-subscribing) stream
             // still delivers it.
             _ <- fake.pushRawEvent("test_registry", Json.fromString("two"))
-            got2 <- q.take.timeout(5.seconds)
-          } yield (got1, got2)
+            got <- events.take(2).compile.toList.timeout(5.seconds)
+          } yield got
         }
       }
     } yield assertEquals(
       out,
-      (Json.fromString("one"), Json.fromString("two"))
+      List(Json.fromString("one"), Json.fromString("two"))
     )).timeout(30.seconds)
   }
 }

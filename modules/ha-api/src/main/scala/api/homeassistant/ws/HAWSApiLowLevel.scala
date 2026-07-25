@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import cats.effect.std.Console
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
-import cats.effect.std.{MapRef, Queue, QueueSource}
+import cats.effect.std.{MapRef, Queue}
 import cats.effect.{Deferred, IO, Ref, Resource}
 import io.circe.syntax.*
 import fs2.{Stream, Pull}
@@ -29,9 +29,14 @@ trait HAWSApiLowLevel[F[_]] {
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
   ): IO[Response]
 
+  /** Subscribe, yielding the decoded event stream. The Resource ACQUIRE
+    * registers the id and sends the command, so events are being captured from
+    * the moment `use` begins — a caller may subscribe before doing work whose
+    * events it must not miss. Release unsubscribes.
+    */
   def subscribeStream[Result](
       msg: CommandPhase & CommandResponse.AsStream[Result]
-  ): Resource[IO, QueueSource[IO, Result]]
+  ): Resource[IO, Stream[IO, Result]]
 
   /** Completes when this connection is no longer usable — the receive stream
     * ended (socket closed) or a keepalive ping went unanswered — raising with
@@ -207,11 +212,16 @@ object HAWSApiLowLevel {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
 
-              // This is bottom. singleresponse reads the first, then the stream variant reads the others sends that
-              def subscribeStream1[Result](
-                  msg: CommandPhase & CommandResponse[Result]
-              ): Stream[IO, WSCommandPhaseServerPayload] = {
-                val sendMessage = for {
+              /** Send `msg` and route its response frames to a fresh queue.
+                * Acquire allocates the id, registers the route and sends;
+                * release runs the command's own unsubscribe (if any) and drops
+                * the route. Undecoded — each caller applies the command's own
+                * codec.
+                */
+              private def open(
+                  msg: CommandPhase & CommandResponse[?]
+              ): Resource[IO, Stream[IO, WSCommandPhaseServerPayload]] = {
+                val send = for {
                   payloadQueue <- Queue
                     .unbounded[IO, WSCommandPhaseServerPayload]
                   idDeferred <- IO.deferred[Int]
@@ -221,52 +231,43 @@ object HAWSApiLowLevel {
                   id <- idDeferred.get
                 } yield (payloadQueue, id)
 
-                Stream
-                  .resource(
-                    Resource.make(sendMessage) { (_, id) =>
-                      val finalizationIO = msg match {
-                        case finalizer: CommandResponse.WithFinalization[?] =>
-                          sendCommand(finalizer.finalizationMessage(id))
-                        case _ => IO.unit
-                      }
-
-                      finalizationIO
-                        .guarantee(idQueue.unsetKey(id))
-                        .void
+                Resource
+                  .make(send) { (_, id) =>
+                    val finalizationIO = msg match {
+                      case finalizer: CommandResponse.WithFinalization[?] =>
+                        sendCommand(finalizer.finalizationMessage(id))
+                      case _ => IO.unit
                     }
-                  )
-                  .map(_._1)
-                  .flatMap(Stream.fromQueueUnterminated(_))
+
+                    finalizationIO.guarantee(idQueue.unsetKey(id)).void
+                  }
+                  // Dequeues in batches, so a burst of frames reaches the
+                  // consumer as one chunk.
+                  .map((q, _) => Stream.fromQueueUnterminated(q))
               }
 
               def sendCommand[Response](
                   command: CommandPhase &
                     CommandResponse.WithSingleResponse[Response]
               ): IO[Response] =
-                subscribeStream1(command)
-                  .take(1)
-                  .compile
-                  .lastOrError
+                open(command)
+                  .use(_.head.compile.lastOrError)
                   .flatMap(command.decodeMessage)
 
-              // TODO a variant that is just a Stream
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
-              ): Resource[IO, QueueSource[IO, Result]] =
-                Queue.unbounded[IO, Result].toResource.flatMap { q =>
-                  subscribeStream1(msg).pull.uncons1
+              ): Resource[IO, Stream[IO, Result]] =
+                open(msg).map { frames =>
+                  // The first frame is the subscribe ack (decoded to surface an
+                  // HA error); everything after it is an event.
+                  frames.pull.uncons1
                     .flatMap {
-                      case Some((head, tail)) =>
-                        Pull.eval(msg.decodeMessage(head)) >> tail.pull.echo
+                      case Some((ack, events)) =>
+                        Pull.eval(msg.decodeMessage(ack)) >> events.pull.echo
                       case None => Pull.done
                     }
                     .stream
-                    .evalMap(msg.decodeStreamMessage)
-                    .evalMap(q.offer)
-                    .compile
-                    .drain
-                    .background
-                    .as(q)
+                    .evalMapChunk(msg.decodeStreamMessage)
                 }
             }
           }

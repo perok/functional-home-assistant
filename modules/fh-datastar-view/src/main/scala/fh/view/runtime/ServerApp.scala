@@ -599,9 +599,7 @@ object ServerApp extends IOApp {
     Stream
       .emits(DumpEvents)
       .map { eventType =>
-        Stream
-          .resource(api.rawEvents(eventType))
-          .flatMap(queue => Stream.repeatEval(queue.take))
+        Stream.resource(api.rawEvents(eventType)).flatten
       }
       .parJoinUnbounded
       .debounce(RegistryQuiet)

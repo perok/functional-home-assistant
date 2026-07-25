@@ -5,8 +5,9 @@ import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.client.CommandPhase.*
 import api.homeassistant.ws.protocol.server.{Event, ResultContext}
 import cats.effect.{IO, Resource}
-import cats.effect.std.{Queue, QueueSource}
+import cats.effect.std.Queue
 import cats.effect.kernel.Ref
+import fs2.Stream
 import io.circe.Json
 import io.circe.syntax.*
 
@@ -104,13 +105,17 @@ final class FakeHomeAssistant private (
 
   def subscribeStream[Result](
       msg: CommandPhase & CommandResponse.AsStream[Result]
-  ): Resource[IO, QueueSource[IO, Result]] =
+  ): Resource[IO, Stream[IO, Result]] =
     msg match {
       case subscribe_events(Some(eventType)) =>
         // Both the store's state_changed feed and arbitrary rawEvents (the
         // registry watch) resolve to their persistent per-type queue.
         Resource.eval(
-          queueFor(eventType).map(_.asInstanceOf[QueueSource[IO, Result]])
+          queueFor(eventType).map(q =>
+            Stream
+              .fromQueueUnterminated(q)
+              .asInstanceOf[Stream[IO, Result]]
+          )
         )
       case _: render_template =>
         // HA's render_template pushes `event` frames `{result, listeners}`;
@@ -119,15 +124,12 @@ final class FakeHomeAssistant private (
         // reparses), so wrap the dump the same way real HA does. Derived from the
         // SAME fixtures `get_states` serves, so dump and live state can't drift.
         Resource.eval(
-          rawDump
-            .flatMap(dump =>
-              Queue
-                .unbounded[IO, Json]
-                .flatTap(
-                  _.offer(Json.obj("result" -> Json.fromString(dump.noSpaces)))
-                )
-            )
-            .map(_.asInstanceOf[QueueSource[IO, Result]])
+          rawDump.map(dump =>
+            Stream
+              .emit(Json.obj("result" -> Json.fromString(dump.noSpaces)))
+              .covary[IO]
+              .asInstanceOf[Stream[IO, Result]]
+          )
         )
       case _ => naR
     }

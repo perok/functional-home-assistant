@@ -4,7 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.Event
-import cats.effect.std.{Queue, QueueSource}
+import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
 import fs2.Stream
@@ -157,33 +157,33 @@ object HaFeed {
         HomeAssistantApi
           .fromWs(ll)
           .event(Some("state_changed"))
-          .use { queue =>
+          .use { events =>
             connection.set(Some(ll)) *>
               store.reseed(api) *>
               seeded.complete(()).void *>
               IO.println(
                 "[ha-feed] connected; state re-seeded from Home Assistant"
               ) *>
-              pump(queue, store).race(awaitClosed).void
+              pump(events, store).race(awaitClosed).void
           }
       }
       .guarantee(connection.set(None))
 
-  /** Drain the live `state_changed` queue into the store. Blocks as long as the
+  /** Drain the live `state_changed` stream into the store. Blocks as long as the
     * connection lives; `runConnection` races it against `awaitClosed`, which is
     * what ends the connection scope on death.
     */
-  private def pump(queue: QueueSource[IO, Event], store: StateStore): IO[Unit] =
-    Stream.repeatEval(queue.take).evalMap(store.applyEvent).compile.drain
+  private def pump(events: Stream[IO, Event], store: StateStore): IO[Unit] =
+    events.evalMap(store.applyEvent).compile.drain
 
   /** A stable low-level WS that dispatches to whatever connection is live now.
     *
     *   - A COMMAND (`sendCommand`) issued while disconnected fails fast with a
     *     clear error instead of hanging on a dead socket.
     *   - A SUBSCRIPTION (`subscribeStream`) is DURABLE: it returns a stable
-    *     queue and re-subscribes on every connection generation (a `switchMap`
+    *     stream and re-subscribes on every connection generation (a `switchMap`
     *     over the current-connection signal cancels the old subscription and
-    *     opens a new one), forwarding events into that queue. So a long-lived
+    *     opens a new one), forwarding events into it. So a long-lived
     *     subscriber survives a reconnect without re-subscribing itself. Events
     *     during the disconnect gap are lost; a caller that needs catch-up (the
     *     store) re-seeds on reconnect.
@@ -211,21 +211,25 @@ object HaFeed {
 
       def subscribeStream[Result](
           msg: CommandPhase & CommandResponse.AsStream[Result]
-      ): Resource[IO, QueueSource[IO, Result]] =
+      ): Resource[IO, Stream[IO, Result]] =
+        // The queue is what makes the subscription durable: it is the stable
+        // read side, so a re-arm swaps the upstream connection underneath a
+        // consumer that never sees the seam (and events buffer while the
+        // consumer is between pulls).
         Resource.eval(Queue.unbounded[IO, Result]).flatMap { out =>
           val arm =
             currentRef.discrete
               .switchMap {
                 case None       => Stream.empty
                 case Some(conn) =>
-                  Stream
-                    .resource(conn.subscribeStream(msg))
-                    .flatMap(q => Stream.repeatEval(q.take))
+                  Stream.resource(conn.subscribeStream(msg)).flatten
               }
               .evalMap(out.offer)
               .compile
               .drain
-          Resource.make(arm.start)(_.cancel).as(out)
+          Resource
+            .make(arm.start)(_.cancel)
+            .as(Stream.fromQueueUnterminated(out))
         }
 
       // The durable facade never itself "closes" — it outlives every

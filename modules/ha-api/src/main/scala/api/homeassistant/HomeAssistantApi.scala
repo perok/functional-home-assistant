@@ -7,8 +7,8 @@ import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
 import ha.runtime.definitions.*
 import api.homeassistant.ws.protocol.server.Event
-import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
+import fs2.Stream
 import io.circe.{Decoder, Json}
 import perok.ha.{GetStatesData, ServiceDomain}
 
@@ -48,16 +48,16 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
-  def event(event: Option[String]): Resource[F, QueueSource[F, Event]]
+  def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
   /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
     * Event payload shapes are event-type-specific (`entity_registry_updated`
     * carries `{action, entity_id}`, not a state), so no decoding is imposed
     * here — [[event]] is the typed `state_changed` special case.
     */
-  def rawEvents(eventType: String): Resource[F, QueueSource[F, Json]]
+  def rawEvents(eventType: String): Resource[F, Stream[F, Json]]
 
-  def trigger(data: TriggerData*): Resource[F, QueueSource[F, Json]]
+  def trigger(data: TriggerData*): Resource[F, Stream[F, Json]]
 
   /** Call a Home Assistant service/action on an entity via the WebSocket API.
     * `serviceData` carries extra parameters (e.g. `{ "brightness": 128 }`).
@@ -136,17 +136,17 @@ object HomeAssistantApi {
       def deviceAutomationActionCapabilities(action: Json): IO[Json] =
         in.sendCommand(`device_automation/action/capabilities`(action))
 
-      def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
+      def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
         // The raw stream decoded into the state_changed shape (the only event
-        // type this method has ever subscribed to).
+        // type this method has ever subscribed to). `evalMapChunk` keeps the
+        // burst chunking the transport hands us.
         in.subscribeStream(subscribe_events(Some("state_changed")))
-          // TODO Stream instead of queue?
-          .map(_.map(json => json.as[Event].fold(throw _, identity)))
+          .map(_.evalMapChunk(_.as[Event].liftTo[IO]))
 
-      def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
+      def rawEvents(eventType: String): Resource[IO, Stream[IO, Json]] =
         in.subscribeStream(subscribe_events(Some(eventType)))
 
-      def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
+      def trigger(data: TriggerData*): Resource[IO, Stream[IO, Json]] =
         in.subscribeStream(subscribe_trigger(data.toList))
 
       def callService(
@@ -182,7 +182,7 @@ object HomeAssistantApi {
       // (`DataDump.parseIfString`).
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
-          .use(_.take)
+          .use(_.head.compile.lastOrError)
           .flatMap(_.hcursor.downField("result").as[Body].liftTo[IO])
     }
 
