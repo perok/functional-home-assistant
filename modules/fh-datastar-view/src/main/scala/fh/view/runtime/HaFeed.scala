@@ -130,7 +130,8 @@ object HaFeed {
   }
 
   /** One connection's lifetime: subscribe to `state_changed` on THIS connection
-    * (before seeding, so no change is missed in the snapshot gap), publish the
+    * (and WAIT for HA to accept it, so the snapshot below cannot be computed
+    * before the subscription exists — no change falls in the gap), publish the
     * connection as current — which routes [[api]] and every durable
     * subscription here and re-arms them, and flips `healthy` — re-seed the
     * store (republishing whatever changed during the outage), latch `seeded`,
@@ -154,7 +155,7 @@ object HaFeed {
       .use { case (ll, awaitClosed) =>
         // A throwaway high-level view of THIS connection, just to subscribe the
         // store's state_changed stream before we seed.
-        HomeAssistantApi
+        val live = HomeAssistantApi
           .fromWs(ll)
           .event(Some("state_changed"))
           .use { events =>
@@ -164,8 +165,12 @@ object HaFeed {
               IO.println(
                 "[ha-feed] connected; state re-seeded from Home Assistant"
               ) *>
-              pump(events, store).race(awaitClosed).void
+              pump(events, store)
           }
+        // The race covers the WHOLE lifetime, not just the pump: subscribing and
+        // seeding both wait on the wire, so a socket dying there has to end this
+        // run too or the supervisor never gets to reconnect.
+        live.race(awaitClosed).void
       }
       .guarantee(connection.set(None))
 

@@ -7,7 +7,7 @@ import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
 import cats.effect.std.{MapRef, Queue}
 import cats.effect.{Deferred, IO, Ref, Resource}
 import io.circe.syntax.*
-import fs2.{Stream, Pull}
+import fs2.Stream
 import io.circe.parser.decode
 import io.circe.{Decoder, Encoder, Json}
 import org.http4s.Uri
@@ -29,10 +29,11 @@ trait HAWSApiLowLevel[F[_]] {
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
   ): IO[Response]
 
-  /** Subscribe, yielding the decoded event stream. The Resource ACQUIRE
-    * registers the id and sends the command, so events are being captured from
-    * the moment `use` begins — a caller may subscribe before doing work whose
-    * events it must not miss. Release unsubscribes.
+  /** Subscribe, yielding the decoded event stream. Acquire completes only when
+    * HA has ACCEPTED the subscription (its `result` ack has arrived — a
+    * rejection raises here, not on a later pull), so `use` begins with the
+    * subscription demonstrably live: a caller may safely issue a command whose
+    * events it must not miss afterwards. Release unsubscribes, best-effort.
     */
   def subscribeStream[Result](
       msg: CommandPhase & CommandResponse.AsStream[Result]
@@ -212,15 +213,21 @@ object HAWSApiLowLevel {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
 
-              /** Send `msg` and route its response frames to a fresh queue.
-                * Acquire allocates the id, registers the route and sends;
-                * release runs the command's own unsubscribe (if any) and drops
-                * the route. Undecoded — each caller applies the command's own
-                * codec.
+              /** Queue `msg` for the wire and route its response frames to a
+                * fresh queue. Acquire returns once the drain fiber has taken it
+                * and allocated an id — the frame may still be in flight, so
+                * this is NOT "HA has replied". Release runs the command's own
+                * unsubscribe (if any) and drops the route. Undecoded — each
+                * caller applies the command's own codec.
+                *
+                * The queue is handed over raw (not as a `Stream`) so a caller
+                * can take the leading `result` frame in `IO` and then read the
+                * rest as a stream: the QUEUE holds the position, so both views
+                * of it compose without losing a frame.
                 */
-              private def open(
+              private def openRoute(
                   msg: CommandPhase & CommandResponse[?]
-              ): Resource[IO, Stream[IO, WSCommandPhaseServerPayload]] = {
+              ): Resource[IO, Queue[IO, WSCommandPhaseServerPayload]] = {
                 val send = for {
                   payloadQueue <- Queue
                     .unbounded[IO, WSCommandPhaseServerPayload]
@@ -239,35 +246,51 @@ object HAWSApiLowLevel {
                       case _ => IO.unit
                     }
 
-                    finalizationIO.guarantee(idQueue.unsetKey(id)).void
+                    // A best-effort unsubscribe. It must neither fail nor block
+                    // teardown: HA errors on an id it has already forgotten (a
+                    // rejected subscription), and on a DEAD socket the reply can
+                    // never arrive — racing `terminated` is what stops teardown
+                    // hanging there, which would strand the supervisor instead
+                    // of letting it reconnect.
+                    finalizationIO.void
+                      .race(terminated.get.void)
+                      .attempt
+                      .flatMap {
+                        case Left(err) =>
+                          Console[IO].errorln(
+                            s"unsubscribe of $id failed: ${err.getMessage}"
+                          )
+                        case Right(_) => IO.unit
+                      }
+                      .guarantee(idQueue.unsetKey(id))
                   }
-                  // Dequeues in batches, so a burst of frames reaches the
-                  // consumer as one chunk.
-                  .map((q, _) => Stream.fromQueueUnterminated(q))
+                  .map((q, _) => q)
               }
 
               def sendCommand[Response](
                   command: CommandPhase &
                     CommandResponse.WithSingleResponse[Response]
               ): IO[Response] =
-                open(command)
-                  .use(_.head.compile.lastOrError)
-                  .flatMap(command.decodeMessage)
+                openRoute(command).use(_.take.flatMap(command.decodeMessage))
 
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
               ): Resource[IO, Stream[IO, Result]] =
-                open(msg).map { frames =>
-                  // The first frame is the subscribe ack (decoded to surface an
-                  // HA error); everything after it is an event.
-                  frames.pull.uncons1
-                    .flatMap {
-                      case Some((ack, events)) =>
-                        Pull.eval(msg.decodeMessage(ack)) >> events.pull.echo
-                      case None => Pull.done
-                    }
-                    .stream
-                    .evalMapChunk(msg.decodeStreamMessage)
+                openRoute(msg).evalMap { frames =>
+                  // ACQUIRE = ACCEPTED: consume the leading `result` ack here,
+                  // so `use` begins only once HA confirms the subscription and a
+                  // rejection raises at the acquire rather than on some later
+                  // pull. Everything after the ack is an event; reading them
+                  // from the same queue resumes right after it.
+                  frames.take
+                    .flatMap(msg.decodeMessage)
+                    .as(
+                      // Dequeues in batches, so a burst of frames reaches the
+                      // consumer as one chunk.
+                      Stream
+                        .fromQueueUnterminated(frames)
+                        .evalMapChunk(msg.decodeStreamMessage)
+                    )
                 }
             }
           }
