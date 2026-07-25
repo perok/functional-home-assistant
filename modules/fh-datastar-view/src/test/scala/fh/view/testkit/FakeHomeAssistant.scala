@@ -58,7 +58,10 @@ final class FakeHomeAssistant private (
     // subscription DURABLE across reconnects: a re-subscribe reads the SAME
     // queue, so an event pushed during the gap is buffered, not lost.
     queues: Ref[IO, Map[String, Queue[IO, Json]]],
-    calls: Ref[IO, Vector[ServiceCall]]
+    calls: Ref[IO, Vector[ServiceCall]],
+    // Monotonic tick, stamped as each emit's `last_updated` so a change always
+    // reads as newer than the seed and prior emits (StateStore's recency guard).
+    clock: Ref[IO, Long]
 ) extends HAWSApiLowLevel[IO] {
 
   /** The persistent queue for one event type, created on first use. */
@@ -163,29 +166,31 @@ final class FakeHomeAssistant private (
       state: String,
       attributes: Map[String, Json] = Map.empty
   ): IO[Unit] =
-    stateRef
-      .modify { current =>
-        val prev = current.getOrElse(
-          entityId,
-          FixtureEntity(entityId, "unknown", Map.empty)
-        )
-        val next = FixtureEntity(entityId, state, attributes)
-        (current.updated(entityId, next), (prev, next))
-      }
-      .flatMap { case (prev, next) =>
-        val event = Event(
-          data = Event.EventData(
-            entity_id = entityId,
-            new_state = next.eventDataState,
-            old_state = prev.eventDataState
-          ),
-          event_type = "state_changed",
-          time_fired = "1970-01-01T00:00:00+00:00",
-          origin = "LOCAL",
-          context = ResultContext("test", None, None)
-        )
-        queueFor("state_changed").flatMap(_.offer(event.asJson))
-      }
+    clock.updateAndGet(_ + 1).flatMap { tick =>
+      stateRef
+        .modify { current =>
+          val prev = current.getOrElse(
+            entityId,
+            FixtureEntity(entityId, "unknown", Map.empty)
+          )
+          val next = FixtureEntity(entityId, state, attributes)
+          (current.updated(entityId, next), (prev, next))
+        }
+        .flatMap { case (prev, next) =>
+          val event = Event(
+            data = Event.EventData(
+              entity_id = entityId,
+              new_state = next.eventDataState(FixtureEntity.tsAt(tick)),
+              old_state = prev.eventDataState()
+            ),
+            event_type = "state_changed",
+            time_fired = "1970-01-01T00:00:00+00:00",
+            origin = "LOCAL",
+            context = ResultContext("test", None, None)
+          )
+          queueFor("state_changed").flatMap(_.offer(event.asJson))
+        }
+    }
 
   /** Push a raw event of an arbitrary type onto its subscription queue — the
     * registry-watch analogue of [[emit]], used to drive a durable `rawEvents`
@@ -217,5 +222,6 @@ object FakeHomeAssistant {
       stateRef <- Ref[IO].of(seed.map(e => e.entityId -> e).toMap)
       queues <- Ref[IO].of(Map.empty[String, Queue[IO, Json]])
       calls <- Ref[IO].of(Vector.empty[ServiceCall])
-    } yield new FakeHomeAssistant(stateRef, queues, calls)
+      clock <- Ref[IO].of(0L)
+    } yield new FakeHomeAssistant(stateRef, queues, calls, clock)
 }

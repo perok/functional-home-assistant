@@ -9,6 +9,8 @@ import fs2.Stream
 import fs2.concurrent.Topic
 import io.circe.Json
 
+import java.time.{Instant, OffsetDateTime}
+
 /** A single entity's current value as the runtime cares about it.
   *
   * Carries its own `entityId` so the entity's identity (id and `domain`)
@@ -18,7 +20,12 @@ import io.circe.Json
 case class EntityState(
     entityId: String,
     state: String,
-    attributes: Map[String, Json]
+    attributes: Map[String, Json],
+    // HA's `last_updated` for this state, parsed once. Drives recency: a state
+    // is applied only if it isn't older than the stored one, so a late reseed
+    // snapshot can't clobber a fresher live event. `None` when HA omits it
+    // (optional on `get_states`); then updates fall back to value dedup.
+    lastUpdated: Option[Instant] = None
 ) {
 
   /** The entity's domain, i.e. the entity-id prefix (`light.kitchen` ->
@@ -48,6 +55,26 @@ case class EntityState(
 
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
+
+  def parseInstant(s: String): Option[Instant] =
+    scala.util.Try(OffsetDateTime.parse(s).toInstant).toOption
+  def parseInstant(s: Option[String]): Option[Instant] = s.flatMap(parseInstant)
+
+  /** Stale iff both sides carry a timestamp and the incoming one is not newer —
+    * a reseed snapshot racing a fresher live event. Missing timestamps fall
+    * through (handled by value dedup at the call site).
+    */
+  def stale(next: EntityState, prev: EntityState): Boolean =
+    (next.lastUpdated, prev.lastUpdated) match {
+      case (Some(n), Some(o)) => !n.isAfter(o)
+      case _                  => false
+    }
+
+  /** Same rendered content (ignoring timestamps), so a timestamp-only bump does
+    * not publish a redundant change.
+    */
+  def sameContent(a: EntityState, b: EntityState): Boolean =
+    a.state == b.state && a.attributes == b.attributes
 
   /** Convert a circe attribute map to a Java map for JSONata. Kept here (with
     * the cached [[EntityState.javaAttributes]]) rather than in [[Transform]],
@@ -114,33 +141,50 @@ class StateStore private (
   private[runtime] def applyEvent(event: Event): IO[Unit] = {
     val entityId = event.data.entity_id
     val ns = event.data.new_state
-    // The WS event carries the FULL attribute set, so we replace wholesale —
-    // every attribute stays live, matching the seed snapshot.
+    // The WS event carries the FULL attribute set, so we replace wholesale.
     update(
-      EntityState(entityId, StateStore.jsonToString(ns.state), ns.attributes)
+      EntityState(
+        entityId,
+        StateStore.jsonToString(ns.state),
+        ns.attributes,
+        EntityState.parseInstant(ns.last_updated)
+      )
     )
   }
 
-  /** Apply one entity's next state: store it and publish the change. The WS
-    * ingest tail, and the test seam ([[StateStore.inMemory]]).
+  private[runtime] def update(next: EntityState): IO[Unit] = update(List(next))
+
+  /** Apply a batch of next-states in ONE ref update, publishing a
+    * [[StateChange]] per entity whose content actually changed. The WS ingest
+    * tail (one element) and [[reseed]] (the whole snapshot) share this.
     *
-    * Re-render/diff happens downstream; here we only publish when the entity's
-    * state actually changed, so identical events don't churn the SSE stream.
-    * The previous value rides along so a dynamic group can tell whether the
-    * change crossed its membership boundary.
+    * Ordering-independent: a state not newer than the stored one is dropped
+    * ([[EntityState.stale]]), so a reseed snapshot and live events can
+    * interleave without a stale value clobbering a fresh one. A
+    * newer-but-identical state is stored (to advance the timestamp) but not
+    * published — only real content changes reach the SSE stream. The previous
+    * value rides along so a dynamic group can tell whether the change crossed
+    * its membership boundary.
     */
-  private[runtime] def update(next: EntityState): IO[Unit] =
+  private[runtime] def update(nexts: Iterable[EntityState]): IO[Unit] =
     ref
       .modify { current =>
-        val previous = current.get(next.entityId)
-        if (previous.contains(next)) (current, None)
-        else
-          (
-            current.updated(next.entityId, next),
-            Some(StateChange(next.entityId, previous, next))
-          )
+        val (updated, changes) =
+          nexts.foldLeft((current, List.empty[StateChange])) {
+            case ((m, changes), next) =>
+              m.get(next.entityId) match {
+                case Some(prev) if EntityState.stale(next, prev) => (m, changes)
+                case existing                                    =>
+                  val m2 = m.updated(next.entityId, next)
+                  if (existing.exists(EntityState.sameContent(_, next)))
+                    (m2, changes)
+                  else
+                    (m2, StateChange(next.entityId, existing, next) :: changes)
+              }
+          }
+        (updated, changes.reverse)
       }
-      .flatMap(_.fold(IO.unit)(change => topic.publish1(change).void))
+      .flatMap(_.traverse_(topic.publish1))
 
   /** Re-fetch the full snapshot from HA and fold it into the store.
     *
@@ -155,7 +199,7 @@ class StateStore private (
     * not what a reconnect must heal).
     */
   def reseed(api: HomeAssistantApi[IO]): IO[Unit] =
-    StateStore.seed(api).flatMap(_.values.toList.traverse_(update))
+    StateStore.seed(api).flatMap(states => update(states.values))
 
   /** Current number of `changes` subscribers, as a signal stream — a test seam
     * to await subscriptions deterministically (topic publishes reach only
@@ -212,7 +256,8 @@ object StateStore {
         s.entity_id.value -> EntityState(
           s.entity_id.value,
           jsonToString(docToJson(s.state)),
-          unknown ++ typed
+          unknown ++ typed,
+          EntityState.parseInstant(s.last_updated)
         )
       }.toMap
     }

@@ -83,17 +83,20 @@ case class FixtureEntity(
   }
 
   /** This entity as the `new_state`/`old_state` payload of a `state_changed`
-    * event. The runtime's `applyEvent` reads only `state` (a `Json`) and the
-    * full `attributes` map, so the timestamps/context are inert filler.
+    * event. `applyEvent` reads `state`, the `attributes` map, and `last_updated`
+    * (for recency), so callers pass a monotonically increasing `lastUpdated`
+    * per emit; the other timestamps/context are inert filler.
     */
-  def eventDataState: Event.EventDataState =
+  def eventDataState(
+      lastUpdated: String = FixtureEntity.Epoch
+  ): Event.EventDataState =
     Event.EventDataState(
       entity_id = entityId,
       state = Json.fromString(state),
       attributes = attributes,
       last_changed = FixtureEntity.Epoch,
       last_reported = FixtureEntity.Epoch,
-      last_updated = FixtureEntity.Epoch,
+      last_updated = lastUpdated,
       context = FixtureEntity.emptyContext
     )
 }
@@ -102,6 +105,14 @@ object FixtureEntity {
 
   private val Epoch = "1970-01-01T00:00:00+00:00"
   private val emptyContext = ResultContext("test", None, None)
+
+  /** A strictly-increasing `last_updated` for the nth emit, so a live event
+    * always reads as newer than the seed (`tsAt(0)` == Epoch) and than any
+    * earlier emit — the recency guard in [[fh.view.runtime.StateStore]] drops
+    * anything not newer.
+    */
+  def tsAt(tick: Long): String =
+    java.time.OffsetDateTime.parse(Epoch).plusSeconds(tick).toString
 
   /** Convert a circe [[Json]] to a smithy4s [[Document]] for building
     * `GetStatesData` fixtures. Numbers go through `BigDecimal` so a value

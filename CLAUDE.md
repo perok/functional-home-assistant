@@ -289,6 +289,32 @@ as standing review criteria, not a one-time cleanup that's now "done".
   `None` meaning lives only in a doc comment, `List[String]` used as an ad-hoc log/protocol, or
   functions with many same-typed positional args (extract a named `case class` request/config
   instead — see `ServerApp.Config`, the `Patches.DiffRequest` shape).
+- **Sum-type the state — but only when the flags are the SAME fact.** When several parallel
+  `Option`/`Boolean` flags encode one concept and only some combinations are valid, collapse them
+  into one ADT and derive the old projections from it ("types hold truth" applied to state). First
+  check they really are one fact, though: distinct facts want distinct shapes, and merging them
+  fakes one with the other. `current: Option[Conn]` + `healthy: Boolean` look mergeable, but
+  they're two facts — a per-connection toggle (`SignallingRef[Option[Conn]]`, whose `.isDefined`
+  IS the banner) and a one-shot "seeded at least once" latch (`Deferred[Unit]`); a 3-state `enum`
+  just fakes the latch with a state you never leave. Fusing them also over-couples: it makes the
+  banner wait for a background catch-up (reseed) that liveness never needed.
+- **One mechanism, not two parallel ones.** When two structures do variants of the same job (a
+  `Deferred` for one-shot replies + a `Queue` for streamed ones), collapse them into the single
+  primitive that subsumes both (a `Queue` you take once — the WS transport's id→`Queue` routing).
+  Uniform handling often removes a race/special-case *by construction* rather than needing a patch
+  for it.
+- **Push behavior onto the type that owns the data, not a central switchboard.** A
+  transport/dispatcher should move bytes and route by id; how to decode/interpret a message belongs
+  on the message type itself (`CommandResponse.decodeMessage`), keeping the hub format-agnostic and
+  each variant's logic next to its definition.
+- **Prefer a queue + single owner over a lock + shared mutable refs.** Serialize
+  ordering-sensitive work (id allocation, linear sends) with one consumer fiber draining a queue,
+  not `Mutex` + ref-juggling to survive cancellation. (`cats.effect.std.Hotswap` is the matching
+  tool for *resource rotation* — reconnects — but it has no readable "current" and no retry, so it
+  complements, not replaces, a state signal + backoff loop.)
+- **Refactor behind stable public signatures.** Change internals freely but keep the exposed
+  type/shape fixed (`getStates: IO[List[GetStatesData]]`, `HaFeed(api, store, healthy)`) so
+  consumers and tests stay untouched and the diff reads honestly.
 
 ### Using `scalex` for Scala navigation
 

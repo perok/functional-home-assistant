@@ -5,7 +5,7 @@ import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.Event
 import cats.effect.std.{Queue, QueueSource}
-import cats.effect.{IO, Resource}
+import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -37,31 +37,24 @@ import scala.concurrent.duration.*
   *     long-lived external subscriber (the registry watcher) survives a drop
   *     without re-subscribing itself.
   *   - [[store]] is the single [[StateStore]], seeded across reconnects.
-  *   - [[healthy]] reports whether the upstream feed is currently live; the
-  *     Server pushes it to the browser as the `haDown` signal, so the client
-  *     disconnect banner reflects an upstream freeze, not just a browser-side
-  *     drop.
+  *   - [[healthy]] reports whether a connection is currently live (`true` from
+  *     the moment the socket is up and subscribed, through a reconnect's
+  *     background reseed); the Server pushes it to the browser as the `haDown`
+  *     signal, so the disconnect banner reflects an upstream freeze, not just a
+  *     browser-side drop.
+  *   - [[awaitHealthy]] is a separate ONE-SHOT: it completes once [[store]] has
+  *     been seeded from `/api/states` at least once. Distinct from [[healthy]]
+  *     because it gates first use that assumes a populated store (startup dump
+  *     prep; a test driving [[FakeHomeAssistant.emit]]) — a warm reconnect is
+  *     "healthy" immediately, but "seeded" only ever latches once and never
+  *     un-fires.
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
     store: StateStore,
-    healthy: Signal[IO, Boolean]
-) {
-
-  /** Complete once the feed FIRST reports healthy — i.e. it has connected and
-    * seeded [[store]] from `/api/states` at least once. The feed connects in
-    * the background, so until this fires [[store]] is empty and [[api]] fails
-    * fast (the facade raises while disconnected). It is the gate before any use
-    * that assumes a live connection: startup dump prep on the server, and a
-    * test driving state through [[FakeHomeAssistant.emit]].
-    *
-    * `healthy` starts `false` and flips `true` after the first reseed, so this
-    * waits for that first `true` and returns (a later reconnect blip does not
-    * un-fire it).
-    */
-  def awaitHealthy: IO[Unit] =
-    healthy.discrete.find(identity).compile.drain
-}
+    healthy: Signal[IO, Boolean],
+    awaitHealthy: IO[Unit]
+)
 
 object HaFeed {
 
@@ -83,17 +76,20 @@ object HaFeed {
     */
   def resource(connect: Connect): Resource[IO, HaFeed] =
     for {
-      currentRef <- SignallingRef[IO]
+      // The live connection, or None while disconnected. Drives command routing,
+      // subscription re-arm, AND the `healthy` banner (`.isDefined`).
+      connection <- SignallingRef[IO]
         .of(Option.empty[HAWSApiLowLevel[IO]])
         .toResource
-      healthyRef <- SignallingRef[IO].of(false).toResource
+      // One-shot: completed on the first successful reseed. `awaitHealthy`.
+      seeded <- IO.deferred[Unit].toResource
       store <- StateStore.empty.toResource
       // The stable API: a durable facade over the current low-level connection,
       // rebuilt into the full API by `fromWs`. Consumers hold this one value
       // across every reconnect.
-      api = HomeAssistantApi.fromWs(durableFacade(currentRef))
-      _ <- superviseLoop(connect, currentRef, healthyRef, store, api).background
-    } yield HaFeed(api, store, healthyRef)
+      api = HomeAssistantApi.fromWs(durableFacade(connection))
+      _ <- superviseLoop(connect, connection, seeded, store, api).background
+    } yield HaFeed(api, store, connection.map(_.isDefined), seeded.get)
 
   /** Reconnect forever with capped exponential backoff, expressed as a
     * cats-retry policy rather than a hand-rolled doubling `Ref`.
@@ -109,8 +105,8 @@ object HaFeed {
     */
   private def superviseLoop(
       connect: Connect,
-      currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
-      healthyRef: SignallingRef[IO, Boolean],
+      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
+      seeded: Deferred[IO, Unit],
       store: StateStore,
       api: HomeAssistantApi[IO]
   ): IO[Unit] = {
@@ -126,7 +122,7 @@ object HaFeed {
         )
     }
     retryingOnErrors(
-      runConnection(connect, currentRef, healthyRef, store, api)
+      runConnection(connect, connection, seeded, store, api)
     )(
       policy = policy,
       errorHandler = logReconnect
@@ -135,23 +131,22 @@ object HaFeed {
 
   /** One connection's lifetime: subscribe to `state_changed` on THIS connection
     * (before seeding, so no change is missed in the snapshot gap), publish the
-    * connection as current — which is what makes [[api]] and every durable
-    * subscription route here and re-arm — re-seed the store (republishing
-    * whatever changed during the outage), publish liveness, then run the ingest
-    * pump raced against the connection's own `awaitClosed`. The `guarantee`
-    * marks the feed down and clears the current connection on EVERY end (clean
-    * or abnormal), so commands fail fast and the disconnect banner trips during
-    * the reconnect gap.
+    * connection as current — which routes [[api]] and every durable
+    * subscription here and re-arms them, and flips `healthy` — re-seed the
+    * store (republishing whatever changed during the outage), latch `seeded`,
+    * then run the ingest pump raced against the connection's own `awaitClosed`.
+    * The `guarantee` clears the connection on EVERY end (clean or abnormal), so
+    * commands fail fast and the banner trips during the reconnect gap.
     *
-    * The store's own `state_changed` stays PER-CONNECTION (re-created here each
-    * reconnect, with the reseed for catch-up) — that keeps its strict
-    * subscribe-before-seed guarantee. The durable facade is what carries
-    * LONG-LIVED external subscribers (the registry watcher) across reconnects.
+    * `seeded` is set live BEFORE reseed, so `healthy` is true through a warm
+    * reconnect's catch-up. Reseed staying before `pump` is no longer a
+    * correctness barrier — [[StateStore]] drops stale writes by `last_updated`
+    * — just simplest sequencing.
     */
   private def runConnection(
       connect: Connect,
-      currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
-      healthyRef: SignallingRef[IO, Boolean],
+      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
+      seeded: Deferred[IO, Unit],
       store: StateStore,
       api: HomeAssistantApi[IO]
   ): IO[Unit] =
@@ -163,16 +158,16 @@ object HaFeed {
           .fromWs(ll)
           .event(Some("state_changed"))
           .use { queue =>
-            currentRef.set(Some(ll)) *>
+            connection.set(Some(ll)) *>
               store.reseed(api) *>
-              healthyRef.set(true) *>
+              seeded.complete(()).void *>
               IO.println(
                 "[ha-feed] connected; state re-seeded from Home Assistant"
               ) *>
               pump(queue, store).race(awaitClosed).void
           }
       }
-      .guarantee(healthyRef.set(false) *> currentRef.set(None))
+      .guarantee(connection.set(None))
 
   /** Drain the live `state_changed` queue into the store. Blocks as long as the
     * connection lives; `runConnection` races it against `awaitClosed`, which is
