@@ -3,6 +3,7 @@ package api.homeassistant.ws.protocol
 import cats.effect.IO
 import api.DocumentJson
 import api.homeassistant.ws.domain.*
+import api.homeassistant.ws.protocol.client.CommandPhase.unsubscribe_events
 import server.{WSCommandPhaseServer, WSHAError}
 import api.homeassistant.ws.utils.defaults.given
 import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
@@ -19,21 +20,32 @@ object client {
     * so the transport stays codec-agnostic (routes by id, calls the command's
     * own decoder).
     */
-  sealed trait CommandResponse[R]
+  sealed trait CommandResponse[R] {
+    def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R]
+  }
 
   object CommandResponse {
 
-    /** Decodes its own server frame into the typed `R`. */
-    trait WithSingleResponse[R] extends CommandResponse[R] {
-      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R]
+    trait WithFinalization[R] {
+      def finalizationMessage(
+          id: Int
+      ): CommandPhase & CommandResponse.WithSingleResponse[R]
     }
+
+    /** The first response is the result */
+    trait WithSingleResponse[R] extends CommandResponse[R]
 
     // An HA subscription: the `result` ack (AsResult[Unit]) plus a per-event
     // stream decoder; `unsubscribe_events` cancels it.
-    trait AsStream[R] extends AsResult[Unit] {
+    trait AsStream[R] extends AsResult[Unit] with WithFinalization[Unit] {
       def decodeStreamMessage(
           payload: server.WSCommandPhaseServerPayload
       ): IO[R]
+
+      def finalizationMessage(
+          id: Int
+      ): CommandPhase & CommandResponse.WithSingleResponse[Unit] =
+        unsubscribe_events(id)
     }
 
     object AsStream {
@@ -77,8 +89,7 @@ object client {
       * smithy-schema decoder in here, so `R` is the final typed value.
       */
     trait AsResult[R](using val resultDecoder: Decoder[R])
-        extends CommandResponse[R]
-        with WithSingleResponse[R] {
+        extends CommandResponse.WithSingleResponse[R] {
 
       def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R] =
         payload.parsedPayload.liftTo[IO].flatMap {
@@ -117,7 +128,7 @@ object client {
 
     }
 
-    trait AsPong extends CommandResponse[Unit] with WithSingleResponse[Unit] {
+    trait AsPong extends CommandResponse.WithSingleResponse[Unit] {
       def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[Unit] =
         payload.parsedPayload.liftTo[IO].flatMap {
           case WSCommandPhaseServer.pong() => IO.unit

@@ -4,10 +4,10 @@ import cats.syntax.all.*
 import cats.effect.std.Console
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
-import cats.effect.std.{MapRef, QueueSource, Queue}
-import cats.effect.{IO, Ref, Resource}
+import cats.effect.std.{MapRef, Queue, QueueSource}
+import cats.effect.{Deferred, IO, Ref, Resource}
 import io.circe.syntax.*
-import fs2.Stream
+import fs2.{Stream, Pull}
 import io.circe.parser.decode
 import io.circe.{Decoder, Encoder, Json}
 import org.http4s.Uri
@@ -49,6 +49,7 @@ object HAWSApiLowLevel {
 
   private case class Command(
       message: CommandPhase,
+      id: Deferred[IO, Int],
       response: Queue[IO, WSCommandPhaseServerPayload]
   )
 
@@ -173,6 +174,7 @@ object HAWSApiLowLevel {
               for {
                 id <- incrementer
                 _ <- idQueue.setKeyValue(id, msg.response)
+                _ <- msg.id.complete(id)
                 _ <- {
                   // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
                   val idJson = Json.obj(("id" -> Json.fromInt(id)))
@@ -208,32 +210,6 @@ object HAWSApiLowLevel {
             .background
 
           op = {
-            def sendCommandWrapper[Response](
-                command: CommandPhase &
-                  CommandResponse.WithSingleResponse[Response]
-            ): IO[(Int, Response)] =
-              for {
-                payloadQueue <- Queue.unbounded[IO, WSCommandPhaseServerPayload]
-                _ <- messageQueue.offer(
-                  Command(command, payloadQueue)
-                )
-
-                payload <- payloadQueue.take
-
-                // Streamed requests will do cleanup in resource finalizers
-                _ <- command match {
-                  case _: CommandResponse.AsStream[?] =>
-                    IO.unit
-                  case _ =>
-                    idQueue.unsetKey(payload.id)
-                }
-
-                output <- command
-                  .decodeMessage(payload)
-                  .map(res => (payload.id, res))
-
-              } yield output
-
             new HAWSApiLowLevel[IO] {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
@@ -241,37 +217,67 @@ object HAWSApiLowLevel {
               def receiveStream: Stream[IO, WSCommandPhaseServerPayload] =
                 topic.subscribeUnbounded
 
+              // This is bottom. singleresponse reads the first, then the stream variant reads the others sends that
+              def subscribeStream1[Result](
+                  msg: CommandPhase & CommandResponse[Result]
+              ): Stream[IO, WSCommandPhaseServerPayload] = {
+                val sendMessage = for {
+                  payloadQueue <- Queue
+                    .unbounded[IO, WSCommandPhaseServerPayload]
+                  idDeferred <- IO.deferred[Int]
+                  _ <- messageQueue.offer(
+                    Command(msg, idDeferred, payloadQueue)
+                  )
+                  id <- idDeferred.get
+                } yield (payloadQueue, id)
+
+                Stream
+                  .resource(
+                    Resource.make(sendMessage) { (_, id) =>
+                      val finalizationIO = msg match {
+                        case finalizer: CommandResponse.WithFinalization[?] =>
+                          sendCommand(finalizer.finalizationMessage(id))
+                        case _ => IO.unit
+                      }
+
+                      finalizationIO
+                        .guarantee(idQueue.unsetKey(id))
+                        .void
+                    }
+                  )
+                  .map(_._1)
+                  .flatMap(Stream.fromQueueUnterminated(_))
+              }
+
               def sendCommand[Response](
                   command: CommandPhase &
                     CommandResponse.WithSingleResponse[Response]
               ): IO[Response] =
-                sendCommandWrapper(command).map(_._2)
+                subscribeStream1(command)
+                  .take(1)
+                  .compile
+                  .lastOrError
+                  .flatMap(command.decodeMessage)
 
+              // TODO a variant that is just a Stream
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
-              ): Resource[IO, QueueSource[IO, Result]] = for {
-                id <- sendCommandWrapper(
-                  msg
-                ).map(_._1).toResource
-
-                q <- idQueue(id).get.toResource.map(_.get)
-
-                _ <- Resource.onFinalize(
-                  sendCommandWrapper(
-                    CommandPhase.unsubscribe_events(id)
-                  ).void
-                    .guarantee(idQueue.unsetKey(id))
-                )
-
-              } yield {
-                import cats.effect.unsafe.implicits.global
-
-                (q: QueueSource[IO, WSCommandPhaseServerPayload])
-                  .map(qRes =>
-                    // TODO expose as stream instead?
-                    msg.decodeStreamMessage(qRes).unsafeRunSync()
-                  )
-              }
+              ): Resource[IO, QueueSource[IO, Result]] =
+                Queue.unbounded[IO, Result].toResource.flatMap { q =>
+                  subscribeStream1(msg).pull.uncons1
+                    .flatMap {
+                      case Some((head, tail)) =>
+                        Pull.eval(msg.decodeMessage(head)) >> tail.pull.echo
+                      case None => Pull.done
+                    }
+                    .stream
+                    .evalMap(msg.decodeStreamMessage)
+                    .evalMap(q.offer)
+                    .compile
+                    .drain
+                    .background
+                    .as(q)
+                }
             }
           }
 
