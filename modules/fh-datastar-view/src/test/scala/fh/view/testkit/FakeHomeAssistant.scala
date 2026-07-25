@@ -3,8 +3,9 @@ package fh.view.testkit
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.client.CommandPhase.*
-import api.homeassistant.ws.protocol.server.{Event, ResultContext}
+import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.{IO, Resource}
+import cats.syntax.all.*
 import cats.effect.std.Queue
 import cats.effect.kernel.Ref
 import fs2.Stream
@@ -31,12 +32,14 @@ case class ServiceCall(
   * `HomeAssistantApi[IO]` and the fake only has to answer the few WS commands
   * the runtime actually issues:
   *
+  *   - `subscribeStream(subscribe_entities)` opens with the fixtures as one full
+  *     state frame and then yields the deltas [[emit]] pushes — the feed
+  *     [[fh.view.runtime.StateStore]] lives on,
   *   - `sendCommand(get_states)` returns the current fixture as an
-  *     `/api/states` snapshot (the seed [[fh.view.runtime.StateStore]] reads on
-  *     startup),
-  *   - `subscribeStream(subscribe_events state_changed)` hands back a live
-  *     queue that [[emit]] pushes `state_changed` events onto (the change feed
-  *     the store's background fiber drains),
+  *     `/api/states` snapshot (not on the runtime path any more, but still part
+  *     of the API surface),
+  *   - `subscribeStream(subscribe_events …)` hands back a live per-type queue
+  *     ([[pushRawEvent]]) for the registry watch,
   *   - `subscribeStream(render_template)` answers the boot dump fetch
   *     (`DataDump.fetch`) with the raw dump derived from the same fixtures, so
   *     a Tier-A dashboard can be built through the REAL `prepareDumps` path,
@@ -51,17 +54,21 @@ case class ServiceCall(
   */
 final class FakeHomeAssistant private (
     stateRef: Ref[IO, Map[String, FixtureEntity]],
-    // One live queue per subscribed event type, created on first subscribe. Each
-    // carries the raw event objects that type's `subscribe_events` yields (an
-    // `Event` encoded to JSON for `state_changed`; arbitrary JSON for others —
-    // exactly what the real low-level yields after extracting the `event`
-    // field). A per-type Queue (not a fresh one per subscribe) is what makes a
-    // subscription DURABLE across reconnects: a re-subscribe reads the SAME
-    // queue, so an event pushed during the gap is buffered, not lost.
+    // One live queue per subscribed event type, created on first subscribe,
+    // carrying the raw event objects that type yields — exactly what the real
+    // low-level yields after extracting the `event` field. A per-type Queue (not
+    // a fresh one per subscribe) is what makes a subscription DURABLE across
+    // reconnects: a re-subscribe reads the SAME queue, so an event pushed during
+    // the gap is buffered, not lost.
     queues: Ref[IO, Map[String, Queue[IO, Json]]],
     calls: Ref[IO, Vector[ServiceCall]],
+    // The live delta feed. ONE queue for the lifetime of the fake, which is what
+    // makes the entity subscription durable across a reconnect: a re-subscribe
+    // reads the SAME queue, so a delta pushed during the gap is buffered.
+    deltas: Queue[IO, EntitiesEvent],
     // Monotonic tick, stamped as each emit's `last_updated` so a change always
-    // reads as newer than the seed and prior emits (StateStore's recency guard).
+    // reads as newer than the opening full set and prior emits (StateStore's
+    // recency guard).
     clock: Ref[IO, Long]
 ) extends HAWSApiLowLevel[IO] {
 
@@ -107,6 +114,18 @@ final class FakeHomeAssistant private (
       msg: CommandPhase & CommandResponse.AsStream[Result]
   ): Resource[IO, Stream[IO, Result]] =
     msg match {
+      case _: `subscribe_entities` =>
+        // Real HA opens the feed with the FULL entity set and then sends deltas,
+        // so the stream is "current fixtures as one `a` frame" followed by the
+        // live delta queue `emit` pushes to. Deriving the opening frame from the
+        // same fixtures the dump comes from is what keeps built-against and
+        // served state identical.
+        Resource.eval(
+          IO.pure(
+            (Stream.eval(fullSet) ++ Stream.fromQueueUnterminated(deltas))
+              .asInstanceOf[Stream[IO, Result]]
+          )
+        )
       case subscribe_events(Some(eventType)) =>
         // Both the store's state_changed feed and arbitrary rawEvents (the
         // registry watch) resolve to their persistent per-type queue.
@@ -122,7 +141,8 @@ final class FakeHomeAssistant private (
         // `templateFunc` takes the first and reads `.result`. A `| tojson`
         // template renders `result` to a JSON STRING (which `DataDump.parseIfString`
         // reparses), so wrap the dump the same way real HA does. Derived from the
-        // SAME fixtures `get_states` serves, so dump and live state can't drift.
+        // SAME fixtures the entity feed serves, so dump and live state can't
+        // drift.
         Resource.eval(
           rawDump.map(dump =>
             Stream
@@ -138,6 +158,17 @@ final class FakeHomeAssistant private (
   // supplies the supervisor's `awaitClosed`; this is only here to satisfy the
   // trait.
   def awaitClosed: IO[Unit] = IO.never
+
+  /** The current fixtures as a `subscribe_entities` opening frame: every entity
+    * with its complete state, stamped with the current tick so a reconnect's
+    * frame is never older than what the store already holds.
+    */
+  private def fullSet: IO[EntitiesEvent] =
+    (stateRef.get, clock.get).mapN { (current, tick) =>
+      EntitiesEvent(added =
+        current.values.map(_.toFeedEntry(FixtureEntity.epochAt(tick))).toMap
+      )
+    }
 
   /** The fixture as one RAW `render_template` dump: the pre-transform
     * `{areas, floors, entities}` shape `DataDump.fetch` receives (entities as a
@@ -159,9 +190,9 @@ final class FakeHomeAssistant private (
 
   // --- Test-driving surface (not part of the trait) --------------------------
 
-  /** Apply one change over time: update the fixture and push the matching
-    * `state_changed` event onto the feed, exactly as a real WS frame would. The
-    * store's background fiber picks it up and re-renders dependents.
+  /** Apply one change over time: update the fixture and push the matching feed
+    * DELTA, exactly as a real `subscribe_entities` frame would. The store's
+    * background fiber picks it up and re-renders dependents.
     */
   def emit(
       entityId: String,
@@ -178,19 +209,14 @@ final class FakeHomeAssistant private (
           val next = FixtureEntity(entityId, state, attributes)
           (current.updated(entityId, next), (prev, next))
         }
-        .flatMap { case (prev, next) =>
-          val event = Event(
-            data = Event.EventData(
-              entity_id = entityId,
-              new_state = next.eventDataState(FixtureEntity.tsAt(tick)),
-              old_state = prev.eventDataState()
-            ),
-            event_type = "state_changed",
-            time_fired = "1970-01-01T00:00:00+00:00",
-            origin = "LOCAL",
-            context = ResultContext("test", None, None)
+        .flatMap { (prev, next) =>
+          deltas.offer(
+            EntitiesEvent(
+              changed = Map(
+                entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
+              )
+            )
           )
-          queueFor("state_changed").flatMap(_.offer(event.asJson))
         }
     }
 
@@ -224,6 +250,7 @@ object FakeHomeAssistant {
       stateRef <- Ref[IO].of(seed.map(e => e.entityId -> e).toMap)
       queues <- Ref[IO].of(Map.empty[String, Queue[IO, Json]])
       calls <- Ref[IO].of(Vector.empty[ServiceCall])
+      deltas <- Queue.unbounded[IO, EntitiesEvent]
       clock <- Ref[IO].of(0L)
-    } yield new FakeHomeAssistant(stateRef, queues, calls, clock)
+    } yield new FakeHomeAssistant(stateRef, queues, calls, deltas, clock)
 }

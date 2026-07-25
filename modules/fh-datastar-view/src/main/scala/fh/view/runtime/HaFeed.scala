@@ -3,7 +3,7 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
-import api.homeassistant.ws.protocol.server.Event
+import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
@@ -23,11 +23,11 @@ import scala.concurrent.duration.*
   * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
   *
   * This supervises the whole connection resource. On every (re)connect it
-  * subscribes to `state_changed`, re-seeds the store from `/api/states` — which
-  * republishes exactly the entities that changed during the outage, so every
-  * connected browser catches up — and races the ingest pump against
-  * `awaitClosed`. When the connection dies it tears down and reconnects with
-  * capped exponential backoff.
+  * subscribes to HA's compressed entity feed — whose opening frame is the full
+  * entity set, so a reconnect republishes exactly the entities that changed
+  * during the outage and every connected browser catches up — and races the
+  * ingest pump against `awaitClosed`. When the connection dies it tears down
+  * and reconnects with capped exponential backoff.
   *
   *   - [[api]] is a stable facade built ONE level down, over the low-level WS
   *     ([[HAWSApiLowLevel]]): [[HomeAssistantApi.fromWs]] regenerates the whole
@@ -36,18 +36,18 @@ import scala.concurrent.duration.*
   *     SUBSCRIPTION is durable — it re-subscribes across reconnects, so a
   *     long-lived external subscriber (the registry watcher) survives a drop
   *     without re-subscribing itself.
-  *   - [[store]] is the single [[StateStore]], seeded across reconnects.
+  *   - [[store]] is the single [[StateStore]], refilled across reconnects.
   *   - [[healthy]] reports whether a connection is currently live (`true` from
-  *     the moment the socket is up and subscribed, through a reconnect's
-  *     background reseed); the Server pushes it to the browser as the `haDown`
-  *     signal, so the disconnect banner reflects an upstream freeze, not just a
+  *     the moment the socket is up and subscribed, before the full set has been
+  *     applied); the Server pushes it to the browser as the `haDown` signal, so
+  *     the disconnect banner reflects an upstream freeze, not just a
   *     browser-side drop.
-  *   - [[awaitHealthy]] is a separate ONE-SHOT: it completes once [[store]] has
-  *     been seeded from `/api/states` at least once. Distinct from [[healthy]]
-  *     because it gates first use that assumes a populated store (startup dump
-  *     prep; a test driving [[FakeHomeAssistant.emit]]) — a warm reconnect is
-  *     "healthy" immediately, but "seeded" only ever latches once and never
-  *     un-fires.
+  *   - [[awaitHealthy]] is a separate ONE-SHOT: it completes once a feed batch
+  *     has been applied to [[store]], i.e. it is populated. Distinct from
+  *     [[healthy]] because it gates first use that assumes a populated store
+  *     (startup dump prep; a test driving [[FakeHomeAssistant.emit]]) — a warm
+  *     reconnect is "healthy" immediately, but "seeded" only ever latches once
+  *     and never un-fires.
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
@@ -81,14 +81,14 @@ object HaFeed {
       connection <- SignallingRef[IO]
         .of(Option.empty[HAWSApiLowLevel[IO]])
         .toResource
-      // One-shot: completed on the first successful reseed. `awaitHealthy`.
+      // One-shot: completed once a feed batch has landed. `awaitHealthy`.
       seeded <- IO.deferred[Unit].toResource
       store <- StateStore.empty.toResource
       // The stable API: a durable facade over the current low-level connection,
       // rebuilt into the full API by `fromWs`. Consumers hold this one value
       // across every reconnect.
       api = HomeAssistantApi.fromWs(durableFacade(connection))
-      _ <- superviseLoop(connect, connection, seeded, store, api).background
+      _ <- superviseLoop(connect, connection, seeded, store).background
     } yield HaFeed(api, store, connection.map(_.isDefined), seeded.get)
 
   /** Reconnect forever with capped exponential backoff, expressed as a
@@ -107,8 +107,7 @@ object HaFeed {
       connect: Connect,
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       seeded: Deferred[IO, Unit],
-      store: StateStore,
-      api: HomeAssistantApi[IO]
+      store: StateStore
   ): IO[Unit] = {
     val policy = RetryPolicies.capDelay(
       MaxBackoff,
@@ -122,67 +121,68 @@ object HaFeed {
         )
     }
     retryingOnErrors(
-      runConnection(connect, connection, seeded, store, api)
+      runConnection(connect, connection, seeded, store)
     )(
       policy = policy,
       errorHandler = logReconnect
     ).foreverM
   }
 
-  /** One connection's lifetime: subscribe to `state_changed` on THIS connection
-    * (and WAIT for HA to accept it, so the snapshot below cannot be computed
-    * before the subscription exists — no change falls in the gap), publish the
-    * connection as current — which routes [[api]] and every durable
-    * subscription here and re-arms them, and flips `healthy` — re-seed the
-    * store (republishing whatever changed during the outage), latch `seeded`,
+  /** One connection's lifetime: subscribe to the entity feed on THIS
+    * connection, publish the connection as current — which routes [[api]] and
+    * every durable subscription here and re-arms them, and flips `healthy` —
     * then run the ingest pump raced against the connection's own `awaitClosed`.
     * The `guarantee` clears the connection on EVERY end (clean or abnormal), so
     * commands fail fast and the banner trips during the reconnect gap.
     *
-    * `seeded` is set live BEFORE reseed, so `healthy` is true through a warm
-    * reconnect's catch-up. Reseed staying before `pump` is no longer a
-    * correctness barrier — [[StateStore]] drops stale writes by `last_updated`
-    * — just simplest sequencing.
+    * There is no separate seeding step: `subscribe_entities` opens with the
+    * full entity set, so a reconnect's catch-up IS the new subscription's first
+    * frame and nothing needs ordering against a snapshot fetch.
     */
   private def runConnection(
       connect: Connect,
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       seeded: Deferred[IO, Unit],
-      store: StateStore,
-      api: HomeAssistantApi[IO]
+      store: StateStore
   ): IO[Unit] =
     connect
       .use { case (ll, awaitClosed) =>
-        // A throwaway high-level view of THIS connection, just to subscribe the
-        // store's state_changed stream before we seed.
+        // A throwaway high-level view of THIS connection: the store's feed must
+        // ride the connection being established, not the durable facade.
         val live = HomeAssistantApi
           .fromWs(ll)
-          .event(Some("state_changed"))
-          .use { events =>
+          .entities
+          .use { frames =>
             connection.set(Some(ll)) *>
-              store.reseed(api) *>
-              seeded.complete(()).void *>
-              IO.println(
-                "[ha-feed] connected; state re-seeded from Home Assistant"
-              ) *>
-              pump(events, store)
+              IO.println("[ha-feed] connected; subscribed to entity feed") *>
+              pump(frames, store, seeded)
           }
-        // The race covers the WHOLE lifetime, not just the pump: subscribing and
-        // seeding both wait on the wire, so a socket dying there has to end this
-        // run too or the supervisor never gets to reconnect.
+        // The race covers the WHOLE lifetime, not just the pump: subscribing
+        // waits on the wire, so a socket dying there has to end this run too or
+        // the supervisor never gets to reconnect.
         live.race(awaitClosed).void
       }
       .guarantee(connection.set(None))
 
-  /** Drain the live `state_changed` stream into the store, one store update per
-    * arriving CHUNK: HA emits changes in bursts (an automation moves a dozen
-    * entities at once) and the transport dequeues whatever is available, so a
-    * burst costs one `ref.modify` instead of one per event. Blocks as long as
-    * the connection lives; `runConnection` races it against `awaitClosed`,
+  /** Drain the entity feed into the store, one store update per arriving CHUNK:
+    * HA emits changes in bursts (an automation moves a dozen entities at once),
+    * so a burst costs one `ref.modify` instead of one per frame. Blocks as long
+    * as the connection lives; `runConnection` races it against `awaitClosed`,
     * which is what ends the connection scope on death.
+    *
+    * The first applied batch latches `seeded`: the feed opens with the full
+    * entity set, so "a batch has landed" IS "the store is populated".
     */
-  private def pump(events: Stream[IO, Event], store: StateStore): IO[Unit] =
-    events.chunks.evalMap(store.applyEvents).compile.drain
+  private def pump(
+      frames: Stream[IO, EntitiesEvent],
+      store: StateStore,
+      seeded: Deferred[IO, Unit]
+  ): IO[Unit] =
+    frames.chunks
+      .evalMap(store.applyEntities)
+      .evalTap(_ => seeded.complete(()).void)
+      .compile
+      .drain
 
   /** A stable low-level WS that dispatches to whatever connection is live now.
     *

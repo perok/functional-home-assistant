@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import api.homeassistant.ws.protocol.server.{Event, ResultContext}
+import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.runtime.EntityState
 import io.circe.Json
 import perok.ha.{EntityId, GetStatesData, GetStatesDataAttributes}
@@ -10,12 +10,12 @@ import smithy4s.Document
   * map — the SAME shape the runtime's [[EntityState]] carries, but as a plain,
   * static value a test can declare inline.
   *
-  * This is the single source of truth for a fixture entity. It renders to both
-  * faces Home Assistant presents to the runtime — the `/api/states` snapshot
-  * ([[toGetStatesData]]) and a `state_changed` WebSocket event
-  * ([[eventDataState]]) — so "the state the dashboard was built against" and
-  * "the live state the runtime serves" are derived from one declaration and
-  * cannot drift.
+  * This is the single source of truth for a fixture entity. It renders to every
+  * face Home Assistant presents to the runtime — the compressed feed's full state
+  * ([[toFeedEntry]]) and delta ([[deltaFrom]]), the `/api/states` snapshot
+  * ([[toGetStatesData]]) and the authoring dump row ([[toDumpEntry]]) — so "the
+  * state the dashboard was built against" and "the live state the runtime serves"
+  * are derived from one declaration and cannot drift.
   */
 case class FixtureEntity(
     entityId: String,
@@ -82,37 +82,53 @@ case class FixtureEntity(
     dumpKey -> Json.fromFields(fields)
   }
 
-  /** This entity as the `new_state`/`old_state` payload of a `state_changed`
-    * event. `applyEvent` reads `state`, the `attributes` map, and `last_updated`
-    * (for recency), so callers pass a monotonically increasing `lastUpdated`
-    * per emit; the other timestamps/context are inert filler.
+  /** This entity as one entry of a `subscribe_entities` opening (`a`) frame: its
+    * complete state, which the store applies as a replacement.
     */
-  def eventDataState(
-      lastUpdated: String = FixtureEntity.Epoch
-  ): Event.EventDataState =
-    Event.EventDataState(
-      entity_id = entityId,
-      state = Json.fromString(state),
+  def toFeedEntry(lastUpdated: Double): (String, EntitiesEvent.Full) =
+    entityId -> EntitiesEvent.Full(
+      state = state,
       attributes = attributes,
-      last_changed = FixtureEntity.Epoch,
-      last_reported = FixtureEntity.Epoch,
-      last_updated = lastUpdated,
-      context = FixtureEntity.emptyContext
+      lastChanged = Some(lastUpdated),
+      lastUpdated = Some(lastUpdated)
     )
+
+  /** This entity as a `subscribe_entities` DELTA (`c`) against `prev` — only the
+    * fields and attributes that actually moved, plus the names of attributes that
+    * went away, exactly as HA sends them. Real deltas are what the store MERGES,
+    * so computing a true diff here is what keeps "the fixture map" and "the
+    * store's map" identical rather than accidentally accumulating stale
+    * attributes.
+    */
+  def deltaFrom(
+      prev: FixtureEntity,
+      lastUpdated: Double
+  ): EntitiesEvent.Delta = {
+    val changedAttrs = attributes.filter { case (k, v) =>
+      !prev.attributes.get(k).contains(v)
+    }
+    val dropped = (prev.attributes.keySet -- attributes.keySet).toList
+    EntitiesEvent.Delta(
+      plus = Some(
+        EntitiesEvent.Patch(
+          state = Option.when(state != prev.state)(state),
+          attributes = changedAttrs,
+          lastUpdated = Some(lastUpdated)
+        )
+      ),
+      minus = Option.when(dropped.nonEmpty)(EntitiesEvent.Unset(dropped))
+    )
+  }
 }
 
 object FixtureEntity {
 
-  private val Epoch = "1970-01-01T00:00:00+00:00"
-  private val emptyContext = ResultContext("test", None, None)
-
-  /** A strictly-increasing `last_updated` for the nth emit, so a live event
-    * always reads as newer than the seed (`tsAt(0)` == Epoch) and than any
-    * earlier emit — the recency guard in [[fh.view.runtime.StateStore]] drops
-    * anything not newer.
+  /** A strictly-increasing feed timestamp (epoch seconds) for the nth emit, so a
+    * live change always reads as newer than the opening full set (`tick` 0) and
+    * than any earlier emit — the recency guard in
+    * [[fh.view.runtime.StateStore]] drops anything not newer.
     */
-  def tsAt(tick: Long): String =
-    java.time.OffsetDateTime.parse(Epoch).plusSeconds(tick).toString
+  def epochAt(tick: Long): Double = tick.toDouble
 
   /** Convert a circe [[Json]] to a smithy4s [[Document]] for building
     * `GetStatesData` fixtures. Numbers go through `BigDecimal` so a value

@@ -1,7 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.protocol.server.Event
+import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
@@ -9,7 +8,7 @@ import fs2.{Chunk, Stream}
 import fs2.concurrent.Topic
 import io.circe.Json
 
-import java.time.{Instant, OffsetDateTime}
+import java.time.Instant
 
 /** A single entity's current value as the runtime cares about it.
   *
@@ -21,10 +20,10 @@ case class EntityState(
     entityId: String,
     state: String,
     attributes: Map[String, Json],
-    // HA's `last_updated` for this state, parsed once. Drives recency: a state
-    // is applied only if it isn't older than the stored one, so a late reseed
-    // snapshot can't clobber a fresher live event. `None` when HA omits it
-    // (optional on `get_states`); then updates fall back to value dedup.
+    // HA's `last_updated` for this state, parsed once. Drives recency: a full
+    // state is applied only if it isn't older than the stored one, so a
+    // reconnect's full set can't clobber a fresher delta. `None` when the frame
+    // carried no timestamp; then updates fall back to value dedup.
     lastUpdated: Option[Instant] = None
 ) {
 
@@ -56,9 +55,13 @@ case class EntityState(
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
 
-  def parseInstant(s: String): Option[Instant] =
-    scala.util.Try(OffsetDateTime.parse(s).toInstant).toOption
-  def parseInstant(s: Option[String]): Option[Instant] = s.flatMap(parseInstant)
+  /** HA's compressed feed timestamps are epoch SECONDS as a float; millisecond
+    * resolution is more than recency needs.
+    */
+  def fromEpoch(seconds: Double): Instant =
+    Instant.ofEpochMilli(math.round(seconds * 1000d))
+  def fromEpoch(seconds: Option[Double]): Option[Instant] =
+    seconds.map(fromEpoch)
 
   /** Stale iff both sides carry a timestamp and the incoming one is not newer —
     * a reseed snapshot racing a fresher live event. Missing timestamps fall
@@ -121,12 +124,30 @@ case class StateChange(
     current: EntityState
 )
 
+/** One unit of incoming state, naming HOW it combines with what is stored —
+  * because HA's compressed feed sends both whole states and partial deltas, and
+  * the difference is not recoverable from an `EntityState` alone.
+  */
+private[runtime] enum Ingest(val entityId: String) {
+
+  /** A complete state, replacing whatever is stored (the feed's `a` frames). */
+  case Replace(state: EntityState) extends Ingest(state.entityId)
+
+  /** A partial change to an entity we already hold: changed fields and changed
+    * attributes only, so attributes MERGE (the feed's `c` frames).
+    */
+  case Merge(id: String, delta: EntitiesEvent.Delta) extends Ingest(id)
+
+  /** The entity no longer exists (the feed's `r` frames). */
+  case Remove(id: String) extends Ingest(id)
+}
+
 /** The runtime single source of truth for all entity state.
   *
-  * Seeded once from a full HA snapshot, then kept current by a background fiber
-  * consuming the `state_changed` WebSocket stream. Every applied change is
-  * published to `changes` so SSE connections can re-render dependent
-  * components.
+  * Filled and kept current by a background fiber consuming HA's compressed
+  * `subscribe_entities` feed ([[applyEntities]]) — full states first, deltas
+  * after. Every applied change is published to `changes` so SSE connections can
+  * re-render dependent components.
   */
 class StateStore private (
     ref: Ref[IO, Map[String, EntityState]],
@@ -138,71 +159,70 @@ class StateStore private (
   /** Stream of state changes (entity + its previous/current value). */
   def changes: Stream[IO, StateChange] = topic.subscribe(64)
 
-  /** Apply a batch of `state_changed` events — a burst of HA frames arrives as
-    * one chunk and lands in one [[update]], so the ref is touched once per
-    * batch rather than once per event.
+  /** Apply a batch of `subscribe_entities` frames — a burst arrives as one
+    * chunk and lands in one [[update]], so the ref is touched once per batch
+    * rather than once per frame.
     */
-  private[runtime] def applyEvents(events: Chunk[Event]): IO[Unit] =
-    update(events.asSeq.map { event =>
-      val ns = event.data.new_state
-      // The WS event carries the FULL attribute set, so we replace wholesale.
-      EntityState(
-        event.data.entity_id,
-        StateStore.jsonToString(ns.state),
-        ns.attributes,
-        EntityState.parseInstant(ns.last_updated)
-      )
-    })
+  private[runtime] def applyEntities(frames: Chunk[EntitiesEvent]): IO[Unit] =
+    update(frames.asSeq.flatMap(StateStore.ingests))
 
-  private[runtime] def update(next: EntityState): IO[Unit] = update(List(next))
+  private[runtime] def update(next: EntityState): IO[Unit] =
+    update(List(Ingest.Replace(next)))
 
-  /** Apply a batch of next-states in ONE ref update, publishing a
-    * [[StateChange]] per entity whose content actually changed. The WS ingest
-    * ([[applyEvents]], one event burst) and [[reseed]] (the whole snapshot)
-    * share this.
+  /** Apply a batch of ingests in ONE ref update, publishing a [[StateChange]]
+    * per entity whose content actually changed. The previous value rides along
+    * so a dynamic group can tell whether the change crossed its membership
+    * boundary.
     *
-    * Ordering-independent: a state not newer than the stored one is dropped
-    * ([[EntityState.stale]]), so a reseed snapshot and live events can
-    * interleave without a stale value clobbering a fresh one. A
-    * newer-but-identical state is stored (to advance the timestamp) but not
-    * published — only real content changes reach the SSE stream. The previous
-    * value rides along so a dynamic group can tell whether the change crossed
-    * its membership boundary.
+    * A newer-but-identical state is stored (to advance the timestamp) but not
+    * published — only real content changes reach the SSE stream. That dedup is
+    * what makes a RECONNECT cheap: the new subscription re-sends every entity
+    * as a [[Ingest.Replace]], and only the ones that actually moved during the
+    * outage produce a change, so every connected browser catches up over its
+    * live SSE stream with no per-client tracking.
     */
-  private[runtime] def update(nexts: Iterable[EntityState]): IO[Unit] =
+  private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
     ref
       .modify { current =>
         val (updated, changes) =
-          nexts.foldLeft((current, List.empty[StateChange])) {
-            case ((m, changes), next) =>
-              m.get(next.entityId) match {
-                case Some(prev) if EntityState.stale(next, prev) => (m, changes)
-                case existing                                    =>
-                  val m2 = m.updated(next.entityId, next)
-                  if (existing.exists(EntityState.sameContent(_, next)))
-                    (m2, changes)
-                  else
-                    (m2, StateChange(next.entityId, existing, next) :: changes)
+          ingests.foldLeft((current, List.empty[StateChange])) {
+            case ((m, changes), ingest) =>
+              // Store `next` and publish it unless it is redundant.
+              def put(
+                  next: EntityState,
+                  previous: Option[EntityState]
+              ): (Map[String, EntityState], List[StateChange]) = {
+                val m2 = m.updated(next.entityId, next)
+                if (previous.exists(EntityState.sameContent(_, next)))
+                  (m2, changes)
+                else (m2, StateChange(next.entityId, previous, next) :: changes)
+              }
+
+              val previous = m.get(ingest.entityId)
+              ingest match {
+                // No StateChange: no rendered view survives its entity, and a
+                // deletion also fires the registry event that reloads the
+                // dashboard wholesale.
+                case Ingest.Remove(id) => (m - id, changes)
+
+                // A full state can be OLDER than what we hold (a reconnect's
+                // full set racing a delta that already arrived), so it yields to
+                // a fresher stored value.
+                case Ingest.Replace(next) =>
+                  if (previous.exists(EntityState.stale(next, _))) (m, changes)
+                  else put(next, previous)
+
+                // A delta only makes sense against a state we hold, and is
+                // always newer than it — no recency check.
+                case Ingest.Merge(_, delta) =>
+                  previous.fold((m, changes))(prev =>
+                    put(StateStore.merge(prev, delta), previous)
+                  )
               }
           }
         (updated, changes.reverse)
       }
       .flatMap(_.traverse_(topic.publish1))
-
-  /** Re-fetch the full snapshot from HA and fold it into the store.
-    *
-    * The reconnect-recovery path: after the [[HaFeed]] supervisor
-    * re-establishes a dropped connection, the store may have missed any number
-    * of changes. This replays a fresh `/api/states` snapshot through
-    * [[update]], which dedups unchanged entities (no churn) and publishes a
-    * [[StateChange]] only for entities that actually changed or newly appeared
-    * while we were away — so every connected browser catches up over its live
-    * SSE stream without any per-client timestamp tracking. Entities that
-    * VANISHED from HA during the outage are left in place (removal is rare and
-    * not what a reconnect must heal).
-    */
-  def reseed(api: HomeAssistantApi[IO]): IO[Unit] =
-    StateStore.seed(api).flatMap(states => update(states.values))
 
   /** Current number of `changes` subscribers, as a signal stream — a test seam
     * to await subscriptions deterministically (topic publishes reach only
@@ -218,14 +238,51 @@ object StateStore {
   def jsonToString(json: Json): String =
     if (json.isNull) "" else json.asString.getOrElse(json.noSpaces)
 
+  /** How one feed frame combines with the store: full states replace, deltas
+    * merge, removals drop. Pure, so the whole translation is testable without a
+    * socket.
+    */
+  private[runtime] def ingests(event: EntitiesEvent): List[Ingest] =
+    event.added.toList.map { (id, full) =>
+      Ingest.Replace(
+        EntityState(
+          id,
+          full.state,
+          full.attributes,
+          EntityState.fromEpoch(full.lastUpdated.orElse(full.lastChanged))
+        )
+      )
+    } ++
+      event.changed.toList.map(Ingest.Merge(_, _)) ++
+      event.removed.map(Ingest.Remove(_))
+
+  /** Fold a delta into the state we hold: only the fields it carries move, its
+    * attributes merge over the stored ones, and `-` attributes drop out.
+    */
+  private[runtime] def merge(
+      prev: EntityState,
+      delta: EntitiesEvent.Delta
+  ): EntityState = {
+    val dropped = delta.minus.fold(List.empty[String])(_.attributes)
+    val patched = delta.plus.fold(Map.empty[String, Json])(_.attributes)
+    prev.copy(
+      state = delta.plus.flatMap(_.state).getOrElse(prev.state),
+      attributes = (prev.attributes -- dropped) ++ patched,
+      lastUpdated = delta.plus
+        .flatMap(p =>
+          EntityState.fromEpoch(p.lastUpdated.orElse(p.lastChanged))
+        )
+        .orElse(prev.lastUpdated)
+    )
+  }
+
   /** The store's ONLY constructor: an empty, passive sink with no feed of its
-    * own. It never subscribes `state_changed` itself — [[HaFeed]] is its single
-    * driver, seeding it on connect and re-seeding ([[reseed]]) on every
-    * reconnect, and draining the one live `state_changed` subscription into it
-    * via [[applyEvents]]. Keeping the subscription out of the store is what
-    * guarantees exactly one `state_changed` stream from Home Assistant no
-    * matter how many consumers read the fan-out ([[changes]]); a store that
-    * subscribed for itself would be a second stream waiting to happen.
+    * own. It never subscribes for itself — [[HaFeed]] is its single driver,
+    * draining the one live `subscribe_entities` subscription into it via
+    * [[applyEntities]]. Keeping the subscription out of the store is what
+    * guarantees exactly one state feed from Home Assistant no matter how many
+    * consumers read the fan-out ([[changes]]); a store that subscribed for
+    * itself would be a second stream waiting to happen.
     */
   def empty: IO[StateStore] = inMemory(Map.empty)
 
@@ -240,34 +297,4 @@ object StateStore {
       topic <- Topic[IO, StateChange]
     } yield new StateStore(ref, topic)
 
-  /** Full initial snapshot via the native `/api/states` endpoint (robust JSON;
-    * the Jinja `tojson` path can 400 on non-serializable attribute values).
-    */
-  private def seed(api: HomeAssistantApi[IO]): IO[Map[String, EntityState]] =
-    api.getStates.map { states =>
-      states.map { s =>
-        val typed = List(
-          "friendly_name" -> s.attributes.friendly_name,
-          "device_class" -> s.attributes.device_class
-        ).collect { case (k, Some(v)) => k -> Json.fromString(v) }.toMap
-        val unknown =
-          s.attributes.unknown
-            .getOrElse(Map.empty)
-            .view
-            .mapValues(docToJson)
-            .toMap
-        s.entity_id.value -> EntityState(
-          s.entity_id.value,
-          jsonToString(docToJson(s.state)),
-          unknown ++ typed,
-          EntityState.parseInstant(s.last_updated)
-        )
-      }.toMap
-    }
-
-  private def docToJson(d: smithy4s.Document): Json = {
-    io.circe.parser
-      .parse(smithy4s.json.Json.writeDocumentAsBlob(d).toUTF8String)
-      .fold(throw _, identity)
-  }
 }

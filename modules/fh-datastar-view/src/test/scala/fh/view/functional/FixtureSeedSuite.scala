@@ -1,33 +1,38 @@
 package fh.view.functional
 
-import api.homeassistant.HomeAssistantApi
-import fh.view.runtime.StateStore
+import cats.effect.{IO, Resource}
+import fh.view.runtime.{HaFeed, StateStore}
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture}
 
 import scala.concurrent.duration.*
 
 /** The fixture's builders are the foundation the whole functional suite trusts,
-  * so pin the round-trip: [[HouseFixture]] -> `FakeHomeAssistant` `get_states`
-  * -> the real [[StateStore]] seed ([[StateStore.reseed]]) reproduces each
+  * so pin the round-trip: [[HouseFixture]] -> `FakeHomeAssistant`'s
+  * `subscribe_entities` opening frame -> the real [[StateStore]] reproduces each
   * entity's state and attributes exactly. If this drifts, every downstream
   * behaviour test is suspect.
   *
-  * The store is a passive sink (it never subscribes for itself — [[HaFeed]] is
-  * its sole driver in production), so the seed is exercised the same way the
-  * feed does it: an empty store re-seeded from the API's snapshot.
+  * Driven through the real [[HaFeed]] (over a never-closing connection), since
+  * the store is a passive sink whose sole production driver is that feed —
+  * `awaitHealthy` is exactly "the opening full-set frame has been applied".
   */
 class FixtureSeedSuite extends munit.CatsEffectSuite {
 
-  test("StateStore seeded from the fake reproduces every fixture entity") {
+  test("StateStore filled from the fake's feed reproduces every fixture entity") {
     FakeHomeAssistant
       .create(HouseFixture.all)
       .flatMap { fake =>
-        val api = HomeAssistantApi.fromWs(fake)
-        StateStore.empty.flatMap(store => store.reseed(api) *> store.snapshot)
+        val connect: HaFeed.Connect = Resource.pure((fake, IO.never))
+        HaFeed
+          .resource(connect)
+          .use(feed => feed.awaitHealthy *> feed.store.snapshot)
       }
       .timeout(30.seconds)
+      // Timestamps come from the feed, not the fixture, so compare the values a
+      // dashboard actually renders.
+      .map(_.view.mapValues(s => (s.state, s.attributes)).toMap)
       .assertEquals(
-        HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
+        HouseFixture.all.map(e => e.entityId -> (e.state, e.attributes)).toMap
       )
   }
 }

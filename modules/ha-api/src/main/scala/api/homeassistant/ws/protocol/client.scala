@@ -50,6 +50,20 @@ object client {
 
     object AsStream {
 
+      /** The message's `event` object, decoded into `R`. */
+      trait AsEventOf[R](using Decoder[R]) extends AsStream[R] {
+        def decodeStreamMessage(
+            payload: server.WSCommandPhaseServerPayload
+        ): IO[R] =
+          payload.parsedPayload.liftTo[IO].flatMap {
+            case WSCommandPhaseServer.event(event) => event.as[R].liftTo[IO]
+            case other                             =>
+              IO.raiseError(
+                new Exception(s"expected a event message, got: $other")
+              )
+          }
+      }
+
       /** The raw `event` object of the message, undecoded. The typed
         * [[WSCommandPhaseServer]] enum decodes `event` into the
         * `state_changed`-shaped [[Event]], but HA event payloads are
@@ -57,18 +71,7 @@ object client {
         * `{action, …_id}`) — the raw form is the one that works for all of
         * them; callers decode what they subscribed to.
         */
-      trait AsEvent extends AsStream[Json] {
-        def decodeStreamMessage(
-            payload: server.WSCommandPhaseServerPayload
-        ): IO[Json] =
-          payload.parsedPayload.liftTo[IO].flatMap {
-            case WSCommandPhaseServer.event(event) => IO.pure(event)
-            case other                             =>
-              IO.raiseError(
-                new Exception(s"expected a event message, got: $other")
-              )
-          }
-      }
+      trait AsEvent extends AsEventOf[Json]
 
       trait AsTrigger extends AsStream[Json] {
         def decodeStreamMessage(
@@ -295,7 +298,15 @@ object client {
         extends CommandPhase
         with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
-    // TODO subscribe_entities https://community.home-assistant.io/t/terrible-performance-on-seemingly-most-android-tablets/760318/78?u=perok
+    /** HA's compressed state feed — the full entity set on subscribe, then
+      * deltas. Replaces `get_states` + `subscribe_events state_changed` for
+      * anything tracking live state: one subscription cannot have a gap between
+      * the snapshot and the change feed. See [[EntitiesEvent]].
+      */
+    case class subscribe_entities()
+        extends CommandPhase
+        with CommandResponse.AsStream.AsEventOf[EntitiesEvent]
+        derives ConfiguredEncoder
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)

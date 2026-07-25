@@ -48,6 +48,12 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
+  /** HA's compressed state feed: the full entity set, then deltas, over ONE
+    * subscription — so live state needs no separate snapshot fetch to race
+    * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
+    */
+  def entities: Resource[F, Stream[F, EntitiesEvent]]
+
   def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
   /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
@@ -136,6 +142,9 @@ object HomeAssistantApi {
       def deviceAutomationActionCapabilities(action: Json): IO[Json] =
         in.sendCommand(`device_automation/action/capabilities`(action))
 
+      def entities: Resource[IO, Stream[IO, EntitiesEvent]] =
+        in.subscribeStream(subscribe_entities())
+
       def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
         // The raw stream decoded into the state_changed shape (the only event
         // type this method has ever subscribed to). `evalMapChunk` keeps the
@@ -143,6 +152,7 @@ object HomeAssistantApi {
         in.subscribeStream(subscribe_events(Some("state_changed")))
           .map(_.evalMapChunk(_.as[Event].liftTo[IO]))
 
+      // TODO fix into Event..
       def rawEvents(eventType: String): Resource[IO, Stream[IO, Json]] =
         in.subscribeStream(subscribe_events(Some(eventType)))
 
