@@ -169,12 +169,15 @@ object HaFeed {
       }
       .guarantee(connection.set(None))
 
-  /** Drain the live `state_changed` stream into the store. Blocks as long as the
-    * connection lives; `runConnection` races it against `awaitClosed`, which is
-    * what ends the connection scope on death.
+  /** Drain the live `state_changed` stream into the store, one store update per
+    * arriving CHUNK: HA emits changes in bursts (an automation moves a dozen
+    * entities at once) and the transport dequeues whatever is available, so a
+    * burst costs one `ref.modify` instead of one per event. Blocks as long as
+    * the connection lives; `runConnection` races it against `awaitClosed`,
+    * which is what ends the connection scope on death.
     */
   private def pump(events: Stream[IO, Event], store: StateStore): IO[Unit] =
-    events.evalMap(store.applyEvent).compile.drain
+    events.chunks.evalMap(store.applyEvents).compile.drain
 
   /** A stable low-level WS that dispatches to whatever connection is live now.
     *

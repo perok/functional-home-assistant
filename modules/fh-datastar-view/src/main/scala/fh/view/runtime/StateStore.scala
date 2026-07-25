@@ -5,7 +5,7 @@ import api.homeassistant.ws.protocol.server.Event
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import fs2.concurrent.Topic
 import io.circe.Json
 
@@ -138,25 +138,28 @@ class StateStore private (
   /** Stream of state changes (entity + its previous/current value). */
   def changes: Stream[IO, StateChange] = topic.subscribe(64)
 
-  private[runtime] def applyEvent(event: Event): IO[Unit] = {
-    val entityId = event.data.entity_id
-    val ns = event.data.new_state
-    // The WS event carries the FULL attribute set, so we replace wholesale.
-    update(
+  /** Apply a batch of `state_changed` events — a burst of HA frames arrives as
+    * one chunk and lands in one [[update]], so the ref is touched once per
+    * batch rather than once per event.
+    */
+  private[runtime] def applyEvents(events: Chunk[Event]): IO[Unit] =
+    update(events.asSeq.map { event =>
+      val ns = event.data.new_state
+      // The WS event carries the FULL attribute set, so we replace wholesale.
       EntityState(
-        entityId,
+        event.data.entity_id,
         StateStore.jsonToString(ns.state),
         ns.attributes,
         EntityState.parseInstant(ns.last_updated)
       )
-    )
-  }
+    })
 
   private[runtime] def update(next: EntityState): IO[Unit] = update(List(next))
 
   /** Apply a batch of next-states in ONE ref update, publishing a
     * [[StateChange]] per entity whose content actually changed. The WS ingest
-    * tail (one element) and [[reseed]] (the whole snapshot) share this.
+    * ([[applyEvents]], one event burst) and [[reseed]] (the whole snapshot)
+    * share this.
     *
     * Ordering-independent: a state not newer than the stored one is dropped
     * ([[EntityState.stale]]), so a reseed snapshot and live events can
@@ -219,7 +222,7 @@ object StateStore {
     * own. It never subscribes `state_changed` itself — [[HaFeed]] is its single
     * driver, seeding it on connect and re-seeding ([[reseed]]) on every
     * reconnect, and draining the one live `state_changed` subscription into it
-    * via [[applyEvent]]. Keeping the subscription out of the store is what
+    * via [[applyEvents]]. Keeping the subscription out of the store is what
     * guarantees exactly one `state_changed` stream from Home Assistant no
     * matter how many consumers read the fan-out ([[changes]]); a store that
     * subscribed for itself would be a second stream waiting to happen.
