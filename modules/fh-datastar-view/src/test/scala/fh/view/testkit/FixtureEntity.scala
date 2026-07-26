@@ -11,11 +11,11 @@ import smithy4s.Document
   * static value a test can declare inline.
   *
   * This is the single source of truth for a fixture entity. It renders to every
-  * face Home Assistant presents to the runtime — the compressed feed's full state
-  * ([[toFeedEntry]]) and delta ([[deltaFrom]]), the `/api/states` snapshot
-  * ([[toGetStatesData]]) and the authoring dump row ([[toDumpEntry]]) — so "the
-  * state the dashboard was built against" and "the live state the runtime serves"
-  * are derived from one declaration and cannot drift.
+  * face Home Assistant presents to the runtime — the compressed feed's full
+  * state ([[toFeedEntry]]) and delta ([[deltaFrom]]), the `/api/states`
+  * snapshot ([[toGetStatesData]]) and the authoring dump row ([[toDumpEntry]])
+  * — so "the state the dashboard was built against" and "the live state the
+  * runtime serves" are derived from one declaration and cannot drift.
   */
 case class FixtureEntity(
     entityId: String,
@@ -82,8 +82,8 @@ case class FixtureEntity(
     dumpKey -> Json.fromFields(fields)
   }
 
-  /** This entity as one entry of a `subscribe_entities` opening (`a`) frame: its
-    * complete state, which the store applies as a replacement.
+  /** This entity as one entry of a `subscribe_entities` opening (`a`) frame:
+    * its complete state, which the store applies as a replacement.
     */
   def toFeedEntry(lastUpdated: Double): (String, EntitiesEvent.Full) =
     entityId -> EntitiesEvent.Full(
@@ -93,12 +93,12 @@ case class FixtureEntity(
       lastUpdated = Some(lastUpdated)
     )
 
-  /** This entity as a `subscribe_entities` DELTA (`c`) against `prev` — only the
-    * fields and attributes that actually moved, plus the names of attributes that
-    * went away, exactly as HA sends them. Real deltas are what the store MERGES,
-    * so computing a true diff here is what keeps "the fixture map" and "the
-    * store's map" identical rather than accidentally accumulating stale
-    * attributes.
+  /** This entity as a `subscribe_entities` DELTA (`c`) against `prev` — only
+    * the fields and attributes that actually moved, plus the names of
+    * attributes that went away, exactly as HA sends them. Real deltas are what
+    * the store MERGES, so computing a true diff here is what keeps "the fixture
+    * map" and "the store's map" identical rather than accidentally accumulating
+    * stale attributes.
     */
   def deltaFrom(
       prev: FixtureEntity,
@@ -123,9 +123,9 @@ case class FixtureEntity(
 
 object FixtureEntity {
 
-  /** A strictly-increasing feed timestamp (epoch seconds) for the nth emit, so a
-    * live change always reads as newer than the opening full set (`tick` 0) and
-    * than any earlier emit — the recency guard in
+  /** A strictly-increasing feed timestamp (epoch seconds) for the nth emit, so
+    * a live change always reads as newer than the opening full set (`tick` 0)
+    * and than any earlier emit — the recency guard in
     * [[fh.view.runtime.StateStore]] drops anything not newer.
     */
   def epochAt(tick: Long): Double = tick.toDouble

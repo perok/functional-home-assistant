@@ -57,8 +57,9 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
     assertEquals(
       StateStore
         .ingests(event)
-        .collect { case Ingest.Replace(s) if s.entityId == "update.supervisor" =>
-          s.lastUpdated
+        .collect {
+          case Ingest.Replace(s) if s.entityId == "update.supervisor" =>
+            s.lastUpdated
         },
       List(Some(EntityState.fromEpoch(1784450875.9129083)))
     )
@@ -94,7 +95,10 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
         Json.fromInt(7)
       )
       // ...and the ones the delta never mentioned are untouched.
-      assertEquals(supervisor.attributes("title"), Json.fromString("Supervisor"))
+      assertEquals(
+        supervisor.attributes("title"),
+        Json.fromString("Supervisor")
+      )
       assertEquals(supervisor.state, "off")
       assertEquals(
         supervisor.lastUpdated,
