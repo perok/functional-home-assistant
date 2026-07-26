@@ -62,7 +62,9 @@ object server {
     given Decoder[WSCommandPhaseServerPayload] = Decoder.instance { cursor =>
       cursor
         .get[Int]("id")
-        .map(id => WSCommandPhaseServerPayload(id, cursor.top.get))
+        // `cursor.value`, NOT `cursor.top`: a coalesced frame is an ARRAY of
+        // payloads, and `top` would hand every element the whole array.
+        .map(id => WSCommandPhaseServerPayload(id, cursor.value))
     }
   }
 

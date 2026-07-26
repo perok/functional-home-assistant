@@ -7,7 +7,7 @@ import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
 import cats.effect.std.{MapRef, Queue}
 import cats.effect.{Deferred, IO, Ref, Resource}
 import io.circe.syntax.*
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import io.circe.parser.decode
 import io.circe.{Decoder, Encoder, Json}
 import org.http4s.Uri
@@ -63,20 +63,40 @@ object HAWSApiLowLevel {
     def sendEncode[Body: Encoder](in: Body): IO[Unit] =
       wsClient.sendText(in.asJson.noSpaces)
 
+    /** Decode received frames, ONE ELEMENT PER PAYLOAD.
+      *
+      * With `coalesce_messages` enabled a frame is a JSON ARRAY of payloads (HA
+      * wraps even a single one), so a frame yields a whole fs2 `Chunk` — which
+      * is exactly how a coalesced burst stays one batch all the way to the
+      * consumer. A bare object still decodes, so this works either way.
+      */
     def receiveStreamDecode[Body: Decoder]: Stream[IO, Body] = {
       // TODO ping pong on WSFrame?
-      wsClient.receiveStream.evalMap {
-        case WSFrame.Text(data, true) =>
-          println(s"<-- Receiving: ${data.take(100)}") // TODO only when DEBUG
-          decode[Body](data).liftTo[IO].onError { err =>
-            Console[IO].errorln(s"receiveStreamDecode error decoding: $data") >>
-              Console[IO].printStackTrace(err)
-          }
-        case unknown =>
-          IO.raiseError(
-            new Throwable(s"receiveStreamDecode received unknown: $unknown")
-          )
-      }
+      // Branch on the SHAPE, and name `decodeList` explicitly rather than
+      // summoning `Decoder[List[Body]]` — that would resolve back to this very
+      // decoder. Not a `given` either, for the same reason: it is passed to
+      // `decode` by hand below.
+      val batch: Decoder[List[Body]] = Decoder.instance(c =>
+        if (c.value.isArray) Decoder.decodeList[Body].apply(c)
+        else c.as[Body].map(List(_))
+      )
+
+      wsClient.receiveStream
+        .evalMap {
+          case WSFrame.Text(data, true) =>
+            println(s"<-- Receiving: ${data.take(100)}") // TODO only when DEBUG
+            decode[List[Body]](data)(using batch).liftTo[IO].onError { err =>
+              Console[IO].errorln(
+                s"receiveStreamDecode error decoding: $data"
+              ) >>
+                Console[IO].printStackTrace(err)
+            }
+          case unknown =>
+            IO.raiseError(
+              new Throwable(s"receiveStreamDecode received unknown: $unknown")
+            )
+        }
+        .flatMap(payloads => Stream.chunk(Chunk.from(payloads)))
     }
 
     def receiveDecode[Body: Decoder](
@@ -113,8 +133,6 @@ object HAWSApiLowLevel {
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
     import cats.effect.std.Queue
 
-    // TODO coalesce https://github.com/home-assistant/developers.home-assistant/pull/2128/files
-    // https://developers.home-assistant.io/docs/api/websocket/#feature-enablement-phase
     client
       .connectHighLevel(WSRequest(uri))
       .evalTap { ha =>
@@ -294,6 +312,13 @@ object HAWSApiLowLevel {
                 }
             }
           }
+
+          // The feature-enablement phase, before anything else is sent: HA
+          // then batches a burst of events into one frame, which the receive
+          // stream turns back into one chunk (see `receiveStreamDecode`).
+          _ <- op
+            .sendCommand[Unit](CommandPhase.supported_features())
+            .toResource
 
           // Idle keepalive: ping only after `pingInterval` of silence; a missed
           // pong marks the connection dead so `awaitClosed` fires. Live traffic

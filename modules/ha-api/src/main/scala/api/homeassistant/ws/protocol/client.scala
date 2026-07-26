@@ -175,7 +175,19 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
-    // TODO supported_features https://github.com/home-assistant/core/blob/f5fd49d8cb710c95cde30fc5071c20af351760b4/homeassistant/components/websocket_api/commands.py#L906
+    /** The feature-enablement phase, sent once right after auth.
+      *
+      * `coalesce_messages` lets HA pack everything pending in one event-loop
+      * tick into a SINGLE frame — so a burst of entity changes arrives together
+      * instead of one frame each. Note it changes the framing UNCONDITIONALLY:
+      * once enabled, every frame is a JSON ARRAY of payloads, even a lone one
+      * (verified on 2026.7.2).
+      * https://developers.home-assistant.io/docs/api/websocket/#feature-enablement-phase
+      */
+    case class supported_features(
+        features: Map[String, Int] = Map("coalesce_messages" -> 1)
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Unit] derives ConfiguredEncoder
 
     // Decodes HA's `{domain: {service: ...}}` via the smithy schema.
     private val getServiceDecoder = Decoder.instance(cursor =>

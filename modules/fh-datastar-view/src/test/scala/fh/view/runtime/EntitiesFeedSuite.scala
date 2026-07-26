@@ -1,12 +1,14 @@
 package fh.view.runtime
 
 import api.homeassistant.ws.domain.EntitiesEvent
+import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
 import cats.effect.IO
 import fs2.Chunk
 import io.circe.Json
 import io.circe.parser.parse
 
-/** Pins HA's `subscribe_entities` wire format and how the store folds it in.
+/** Pins HA's `subscribe_entities` wire format, its coalesced framing, and how
+  * the store folds both in.
   *
   * The frames below are VERBATIM captures from a live instance (HA 2026.7.2) —
   * the feed is frontend-facing rather than formally documented, so a captured
@@ -130,6 +132,33 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       assert(snapshot("update.supervisor").attributes.contains("friendly_name"))
       assertEquals(snapshot.get("sensor.ams"), None)
     }
+  }
+
+  test("a coalesced frame carries several payloads in one array") {
+    // With `coalesce_messages` on, HA packs a tick's worth of messages into one
+    // ARRAY frame — and wraps even a lone message. This is the exact shape
+    // captured from 2026.7.2: a subscribe ack sharing a frame with its first
+    // event, which is also why the ack-consuming acquire and the event stream
+    // must read the same queue in order.
+    val coalesced =
+      """[{"id":2,"type":"result","success":true,"result":null},
+          {"id":2,"type":"event","event":{"c":{"sensor.ams":{"+":{"s":"7","lu":1785013461.4}}}}}]"""
+    val payloads = parse(coalesced)
+      .flatMap(_.as[List[WSCommandPhaseServerPayload]])
+      .fold(throw _, identity)
+    assertEquals(payloads.map(_.id), List(2, 2))
+
+    // A bare object still decodes as a one-payload batch, so the same receive
+    // path works before the feature is enabled.
+    val single =
+      """{"id":3,"type":"event","event":{"r":["sensor.ams"]}}"""
+    val one = parse(single)
+      .flatMap(j =>
+        j.as[List[WSCommandPhaseServerPayload]]
+          .orElse(j.as[WSCommandPhaseServerPayload].map(List(_)))
+      )
+      .fold(throw _, identity)
+    assertEquals(one.map(_.id), List(3))
   }
 
   test("a delta for an entity we do not hold is dropped, not invented") {
