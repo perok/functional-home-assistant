@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import api.homeassistant.ws.domain.EntitiesEvent
+import api.homeassistant.ws.protocol.client.CommandPhase
 import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
 import cats.effect.IO
 import fs2.Chunk
@@ -161,6 +162,31 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       )
       .fold(throw _, identity)
     assertEquals(one.map(_.id), List(3))
+  }
+
+  test("the subscribe ack carries no state; the full set is the NEXT payload") {
+    // `subscribeStream` consumes the leading `result` frame in its ACQUIRE, so
+    // if HA ever put the opening state in that frame the whole store would be
+    // silently empty. It does not: the ack is `result: null` and the full set is
+    // a separate `event` payload (53 chars vs 383 KB on the wire). The fake
+    // bypasses the frame layer, so this is the only test that pins it.
+    val frames =
+      """[{"id":2,"type":"result","success":true,"result":null},
+          {"id":2,"type":"event","event":{"a":{"sensor.ams":{"s":"61","a":{},"lc":1784450875.9}}}}]"""
+    val payloads = parse(frames)
+      .flatMap(_.as[List[WSCommandPhaseServerPayload]])
+      .fold(throw _, identity)
+    val command = CommandPhase.subscribe_entities()
+    for {
+      // What acquire does with the first payload: an empty ack, no state.
+      ack <- command.decodeMessage(payloads.head)
+      // ...and what the stream then yields from the second.
+      opening <- command.decodeStreamMessage(payloads(1))
+    } yield {
+      assertEquals(ack, ())
+      assertEquals(opening.added.keySet, Set("sensor.ams"))
+      assertEquals(opening.added("sensor.ams").state, "61")
+    }
   }
 
   test("a delta for an entity we do not hold is dropped, not invented") {
