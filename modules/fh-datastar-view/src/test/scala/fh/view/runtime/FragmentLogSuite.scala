@@ -98,18 +98,28 @@ class FragmentLogSuite extends munit.FunSuite {
   }
 
   test("an ancestor fragment at or after the mutation already carries it") {
-    // The hazard the group re-render used to sidestep: an ancestor morph
-    // rendered at v=30 contains the member that arrived at v=25, so inserting
-    // it again would duplicate the element. Ancestry is a path-id prefix.
+    // An ancestor morph rendered at v=30 contains the member placed at v=25, so
+    // inserting it again would duplicate the element. Ancestry is a path-id
+    // prefix, and the group `c_0` is an ancestor of its child `c_0_light_a`.
     val withAncestor = log
       .placed("c_0", "light.a", "c_0_light_a", "<a/>", at(25L))
       .set("c_0", "<group/>", 30L)
-    assert(withAncestor.coveredByAncestor("c_0", 25L))
-    // An ancestor rendered BEFORE the arrival does not carry it.
+    assert(withAncestor.coveredByAncestor("c_0_light_a", 25L))
+    assertEquals(withAncestor.owed(1L).mutations, Nil)
+    // An ancestor rendered BEFORE the placement does not carry it.
     val stale = log
       .placed("c_0", "light.a", "c_0_light_a", "<a/>", at(25L))
       .set("c_0", "<group/>", 20L)
-    assert(!stale.coveredByAncestor("c_0", 25L))
+    assert(!stale.coveredByAncestor("c_0_light_a", 25L))
+    assertEquals(stale.owed(1L).mutations.size, 1)
+  }
+
+  test("a node never covers itself") {
+    // Self-coverage would make every fragment suppress its own emission — the
+    // whole resume would silently send nothing.
+    val l = log.set("c_0", "<x/>", 5L)
+    assert(!l.coveredByAncestor("c_0", 5L))
+    assertEquals(l.owed(1L).fragments.map(_.html), List("<x/>"))
   }
 
   test("prefix ancestry does not confuse sibling ids") {
@@ -118,6 +128,62 @@ class FragmentLogSuite extends munit.FunSuite {
     val l = log.set("c_1", "<x/>", 9L)
     assert(!l.coveredByAncestor("c_10", 5L))
     assert(l.coveredByAncestor("c_1_0", 5L))
+  }
+
+  test("a descendant fragment an ancestor already carries is not re-sent") {
+    // Correctness never depended on this (version order makes the ancestor win),
+    // but sending a subtree twice defeats the point of resuming.
+    val out = log
+      .set("c_0_1", "<child v=20/>", 20L)
+      .set("c_0", "<parent v=25/>", 25L)
+      .owed(1L)
+    assertEquals(out.fragments.map(_.html), List("<parent v=25/>"))
+  }
+
+  test("a descendant NEWER than its ancestor is still sent") {
+    // The parent's HTML predates the child's change, so the child's morph is the
+    // only thing carrying it.
+    val out = log
+      .set("c_0", "<parent v=20/>", 20L)
+      .set("c_0_1", "<child v=25/>", 25L)
+      .owed(1L)
+    // Ascending order, so the parent lands before the child that corrects it.
+    assertEquals(
+      out.fragments.map(_.html),
+      List("<parent v=20/>", "<child v=25/>")
+    )
+  }
+
+  test("a removal an ancestor's fresh HTML already omits is not re-sent") {
+    val out = log
+      .removed("c_0_light_a", at(20L))
+      .set("c_0", "<parent v=25/>", 25L)
+      .owed(1L)
+    assertEquals(out.mutations, Nil)
+  }
+
+  test("a removal NEWER than its ancestor is still sent") {
+    val out = log
+      .set("c_0", "<parent v=25/>", 25L)
+      .removed("c_0_light_a", at(30L))
+      .owed(1L)
+    assertEquals(out.mutations.map(_._1), List("c_0_light_a"))
+  }
+
+  test("a content tick after a placement rides the mutation, latest HTML") {
+    // The cross-map collapse: one insert carrying the v=30 content, not a morph
+    // and an insert.
+    val l = log
+      .placed("c", "light.a", "c_light_a", "<v20/>", at(20L))
+      .set("c_light_a", "<v30/>", 30L)
+    val fromBefore = l.owed(1L)
+    assertEquals(fromBefore.fragments, Nil)
+    assertEquals(fromBefore.mutations.map(_._1), List("c_light_a"))
+    assertEquals(l.html("c_light_a"), Some("<v30/>"))
+    // A client that WAS present for the insert needs only the content morph.
+    val fromAfter = l.owed(25L)
+    assertEquals(fromAfter.mutations, Nil)
+    assertEquals(fromAfter.fragments.map(_.html), List("<v30/>"))
   }
 
   test("a cleared log owes nothing but keeps its identity") {

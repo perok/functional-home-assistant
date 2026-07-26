@@ -314,10 +314,10 @@ private[runtime] object Patches {
     * works unchanged.
     *
     * A `Placed` is dropped rather than emitted when its entity is no longer a
-    * member (it arrived and left while the client was away — then the LATEST
-    * mutation is a `Gone` and this is unreachable, so it is defensive), or when
-    * an ancestor fragment being sent already contains it
-    * ([[FragmentLog.coveredByAncestor]]), which would duplicate the element.
+    * member — it arrived and left while the client was away. Unreachable in
+    * practice, since the LATEST mutation would then be a `Gone`, so this is a
+    * defence rather than a case. (Placements an ancestor's HTML already carries
+    * were dropped earlier, by [[FragmentLog.since]].)
     */
   def resume(
       renderer: Renderer,
@@ -339,11 +339,10 @@ private[runtime] object Patches {
         val members = renderer.dynamicMembers(gid, states)
         val position = members.zipWithIndex.toMap
         inGroup
+          // Still a member; anything an ancestor's HTML already carries was
+          // already dropped by `since`.
           .flatMap { case (nodeId, p) =>
-            position
-              .get(p.entityId)
-              .filterNot(_ => log.coveredByAncestor(p.gid, p.version))
-              .map((nodeId, _))
+            position.get(p.entityId).map((nodeId, _))
           }
           .sortBy { case (_, at) => -at }
           .flatMap { case (nodeId, at) =>

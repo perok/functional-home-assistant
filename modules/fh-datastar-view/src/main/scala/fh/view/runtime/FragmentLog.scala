@@ -231,9 +231,15 @@ private[runtime] case class FragmentLog(
       )
   }
 
-  /** Whether some fragment at or after `version` already covers `nodeId` — i.e.
-    * the node itself, or an ANCESTOR of it, is being re-sent with HTML rendered
-    * no earlier than `version`, so that HTML already contains this node.
+  /** Whether an ANCESTOR of `nodeId` holds HTML rendered no earlier than
+    * `version` — in which case that HTML already contains this node as of at
+    * least `version`, and anything we would send for the node itself is
+    * redundant. A container's rendered HTML embeds its whole subtree, which is
+    * what makes this sound.
+    *
+    * STRICT ancestors: a node never covers itself, or every fragment would
+    * suppress its own emission. A dynamic-group child is covered by its group,
+    * since its id is `{gid}_{entity}` and so has `gid` as a prefix-ancestor.
     *
     * Ancestry is a string-prefix test because ids are location-derived
     * ([[Dashboard.pathId]]: `c`, `c_0`, `c_0_1`); the trailing `_` keeps `c_1`
@@ -241,7 +247,7 @@ private[runtime] case class FragmentLog(
     */
   def coveredByAncestor(nodeId: String, version: Long): Boolean =
     fragments.exists { case (id, f) =>
-      f.version >= version && (id == nodeId || nodeId.startsWith(id + "_"))
+      f.version >= version && id != nodeId && nodeId.startsWith(id + "_")
     }
 
   /** What a client whose cursor is `v` has not seen, or `None` when it cannot
@@ -260,17 +266,28 @@ private[runtime] case class FragmentLog(
     * whole of V is idempotent — every patch is a morph or a fresh render — and
     * cheap, where missing half of it would be silent and permanent.
     *
-    * A mutated node's fragment is NOT also reported as a morph: the element may
-    * not be where (or whether) the client has it, and a morph of an absent id
-    * silently does nothing. Its HTML rides the mutation instead.
+    * Only the LATEST meaningful change per node survives, in three ways. Both
+    * maps are keyed by node id, so repeated churn on one element collapses to
+    * one entry rather than a replay. A mutated node's fragment is not ALSO
+    * reported as a morph — the element may not be where (or whether) the client
+    * has it, and a morph of an absent id silently does nothing, so its (latest)
+    * HTML rides the mutation instead. And anything an ANCESTOR's HTML already
+    * carries is dropped ([[coveredByAncestor]]): correctness never depended on
+    * that (version order makes the ancestor win anyway), but sending a subtree
+    * twice defeats the point of resuming at all.
     */
   def since(v: Long): Option[Resume] =
     Option.when(v >= horizon) {
-      val moved = mutations.filter { case (_, m) => m.version >= v }
+      val moved = mutations.filter { case (nodeId, m) =>
+        m.version >= v && !coveredByAncestor(nodeId, m.version)
+      }
       Resume(
         fragments
           .collect {
-            case (nodeId, f) if f.version >= v && !moved.contains(nodeId) => f
+            case (nodeId, f)
+                if f.version >= v && !moved.contains(nodeId) &&
+                  !coveredByAncestor(nodeId, f.version) =>
+              f
           }
           .toList
           .sortBy(_.version),
