@@ -1069,10 +1069,17 @@ class Server(
     // aborts the stream, which fires `error` on the OUTGOING page and paints
     // "Reconnecting…" for an instant before it is replaced. Datastar's retry
     // backoff grows past this window, so a real outage still surfaces.
+    //
+    // The modifier separator is `__`, with the value after a `.`
+    // (`__debounce.600ms`) — read off the pinned bundle's own parser
+    // (`attr.split("__")`, then `mod.split(".")`), NOT from the vendored docs,
+    // which show `.debounce_600ms`. That form silently becomes part of the EVENT
+    // NAME: the listener binds to `datastar-fetch.debounce_600ms`, which never
+    // fires, so `_sse` never updates and the banner never appears at all.
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
-         |     data-on:datastar-fetch.debounce_600ms="$$_sse = $sseState">
+         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseState">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
