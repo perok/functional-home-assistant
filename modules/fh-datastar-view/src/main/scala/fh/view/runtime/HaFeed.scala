@@ -7,7 +7,7 @@ import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.FHError
 import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import fs2.concurrent.{Signal, SignallingRef}
 import retry.*
 
@@ -264,7 +264,12 @@ object HaFeed {
         // caller today drains promptly (the registry watcher), so this is a
         // documented assumption rather than backpressure.
         for {
-          out <- Queue.unbounded[IO, Result].toResource
+          // CHUNKS, for the same reason the transport's per-id queue carries
+          // them: offering element by element would dissolve the batch a
+          // coalesced frame arrived as, and re-batching on the read side is
+          // luck, not structure. (`tryOfferN` would not help — it is not atomic,
+          // and the reader still decides its own boundaries.)
+          out <- Queue.unbounded[IO, Chunk[Result]].toResource
           armed <- IO.deferred[Unit].toResource
           arm =
             currentRef.discrete
@@ -279,6 +284,7 @@ object HaFeed {
                     .evalTap(_ => armed.complete(()).void)
                     .flatten
               }
+              .chunks
               .evalMap(out.offer)
               .compile
               .drain
@@ -297,7 +303,7 @@ object HaFeed {
               )
             )
             .toResource
-        } yield Stream.fromQueueUnterminated(out)
+        } yield Stream.fromQueueUnterminatedChunk(out)
 
       // The durable facade never itself "closes" — it outlives every
       // connection, reconnecting under the hood. The per-connection close is
