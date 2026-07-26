@@ -200,9 +200,11 @@ class StateStore private (
 
               val previous = m.get(ingest.entityId)
               ingest match {
-                // No StateChange: no rendered view survives its entity, and a
-                // deletion also fires the registry event that reloads the
-                // dashboard wholesale.
+                // No StateChange: an entity appearing or vanishing changes what
+                // the dashboards were BUILT from, so it is handled by the
+                // registry watcher re-evaluating every entry, not by patching a
+                // node here. Deliberately coarse — it happens a few times a
+                // year (see `ServerApp.watchRegistryEvents`).
                 case Ingest.Remove(id) => (m - id, changes)
 
                 // A full state can be OLDER than what we hold (a reconnect's

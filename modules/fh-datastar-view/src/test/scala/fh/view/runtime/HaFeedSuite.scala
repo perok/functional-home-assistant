@@ -101,6 +101,10 @@ class HaFeedSuite extends munit.CatsEffectSuite {
             // stream can swallow an element it has taken but not yet emitted —
             // the same in-flight loss the real transport has at a dying
             // connection, so the test must not depend on winning that race.
+            // In production that loss is harmless: it can only happen at a
+            // disconnect, and every reconnect re-derives (full state set /
+            // dump refresh). Here there is nothing to re-derive from, so the
+            // test observes instead.
             _ <- delivered(Json.fromString("one"))
             _ <- drop
             _ <- uses.discrete.find(_ >= 2).head.compile.drain

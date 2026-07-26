@@ -568,12 +568,24 @@ object ServerApp extends IOApp {
     * SPANS RECONNECTS by re-subscribing, rather than by holding a subscription
     * that survives one: each connection gets a fresh subscription, whose stream
     * ends with that connection, and `healthy` going true again starts the next.
-    * The gap that leaves — registry events during the outage — is closed by
-    * refreshing on reconnect too, which is the same trick the state feed uses
-    * (re-derive after the gap rather than buffer across it) and strictly more
-    * reliable than replaying events we might not have caught. That refresh
-    * costs one dump render per reconnect and is otherwise a no-op, since an
-    * unchanged home has an unchanged content-version.
+    *
+    * NOTHING IS LOST IN THE GAP, and not by luck. A subscription is only ever
+    * interrupted by a disconnect (that is the only thing that moves `healthy`),
+    * and every reconnect refreshes unconditionally — so a registry event
+    * dropped during the outage, or in flight when the socket died, is
+    * re-derived rather than replayed. Re-deriving after the gap is both simpler
+    * and stricter than buffering across it: it cannot miss a change we never
+    * saw an event for. The state feed closes its own gap the same way, with the
+    * new subscription's opening full set.
+    *
+    * The refresh costs one dump render per reconnect and is otherwise a no-op,
+    * since an unchanged home has an unchanged content-version.
+    *
+    * A registry change means an entity/area/floor appeared, vanished or was
+    * renamed, which changes what the dashboards are BUILT from — so the answer
+    * is a full re-evaluation of every entry, not an incremental patch. That is
+    * deliberate: it happens a few times a year, and making it cheaper would buy
+    * nothing for a cost in machinery.
     */
   private def watchRegistryEvents(
       api: HomeAssistantApi[IO],

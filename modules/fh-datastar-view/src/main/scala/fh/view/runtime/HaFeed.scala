@@ -155,14 +155,17 @@ object HaFeed {
 
   /** One connection's lifetime: subscribe to the entity feed on THIS
     * connection, publish the connection as current — which routes [[api]] and
-    * every durable subscription here and re-arms them, and flips `healthy` —
-    * then run the ingest pump raced against the connection's own `awaitClosed`.
-    * The `guarantee` clears the connection on EVERY end (clean or abnormal), so
-    * commands fail fast and the banner trips during the reconnect gap.
+    * flips `healthy` — then run the ingest pump raced against the connection's
+    * own `awaitClosed`. The `guarantee` clears the connection on EVERY end
+    * (clean or abnormal), so commands fail fast and the banner trips during the
+    * reconnect gap.
     *
     * There is no separate seeding step: `subscribe_entities` opens with the
     * full entity set, so a reconnect's catch-up IS the new subscription's first
-    * frame and nothing needs ordering against a snapshot fetch.
+    * frame and nothing needs ordering against a snapshot fetch. That also makes
+    * the outage LOSSLESS without any buffering: a delta that never arrived, or
+    * one in flight when the socket died, is superseded by the next full set
+    * rather than replayed.
     */
   private def runConnection(
       connect: Connect,
