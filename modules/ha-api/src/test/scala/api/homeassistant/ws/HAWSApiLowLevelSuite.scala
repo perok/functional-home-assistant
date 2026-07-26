@@ -216,6 +216,39 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("a closed socket TERMINATES the subscription stream") {
+    withConn { (fake, ll) =>
+      // Without this the stream would simply block on a queue nothing can feed
+      // again — a silent stall, indistinguishable from a quiet house. The
+      // per-route `None` sentinel ends it, so a consumer sees the connection
+      // end and can re-subscribe.
+      ll.subscribeStream(CommandPhase.subscribe_events(Some("x"))).use {
+        events =>
+          for {
+            fiber <- events.compile.toList.start
+            id <- fake.idOf(2)
+            _ <- fake.emit(fake.event(id, payload("last")))
+            _ <- fake.close
+            got <- fiber.joinWithNever.timeout(5.seconds)
+          } yield assertEquals(got, List(payload("last")))
+      }
+    }
+  }
+
+  test("a socket dying mid-command fails the caller instead of hanging it") {
+    withConn { (fake, ll) =>
+      // A `call_service` racing a disconnect used to block forever: the reply
+      // could never arrive and nothing closed the route.
+      for {
+        _ <- fake.hold("get_config")
+        fiber <- ll.sendCommand(CommandPhase.get_config()).attempt.start
+        _ <- waitFor(fake.sentCommands.map(_.size >= 2))
+        _ <- fake.close
+        got <- fiber.joinWithNever.timeout(5.seconds)
+      } yield assert(got.isLeft, got)
+    }
+  }
+
   test("a closed socket completes awaitClosed rather than hanging") {
     withConn { (fake, ll) =>
       fake.close *> ll.awaitClosed.attempt.timeout(5.seconds).map { r =>

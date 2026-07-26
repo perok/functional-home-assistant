@@ -19,7 +19,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fs2.Stream
-import fs2.concurrent.SignallingRef
+import fs2.concurrent.{Signal, SignallingRef}
 import org.http4s.ember.server.EmberServerBuilder
 import fs2.io.file.{Watcher, Path}
 
@@ -230,6 +230,7 @@ object ServerApp extends IOApp {
           if (config.watchRegistry)
             watchRegistryEvents(
               feed.api,
+              feed.healthy,
               refreshDump
             ).compile.drain.background.void
           else Resource.unit[IO]
@@ -563,27 +564,41 @@ object ServerApp extends IOApp {
   /** Registry changes come in bursts (adding one integration fires dozens of
     * `entity_registry_updated` events), so wait for quiet before refreshing. A
     * failed refresh (an HA hiccup mid-fetch) logs and keeps listening.
+    *
+    * SPANS RECONNECTS by re-subscribing, rather than by holding a subscription
+    * that survives one: each connection gets a fresh subscription, whose stream
+    * ends with that connection, and `healthy` going true again starts the next.
+    * The gap that leaves — registry events during the outage — is closed by
+    * refreshing on reconnect too, which is the same trick the state feed uses
+    * (re-derive after the gap rather than buffer across it) and strictly more
+    * reliable than replaying events we might not have caught. That refresh
+    * costs one dump render per reconnect and is otherwise a no-op, since an
+    * unchanged home has an unchanged content-version.
     */
   private def watchRegistryEvents(
       api: HomeAssistantApi[IO],
+      healthy: Signal[IO, Boolean],
       refresh: IO[DumpRefresh.Result]
-  ): Stream[IO, Unit] =
-    Stream
-      .emits(DumpEvents)
-      .map { eventType =>
-        Stream.resource(api.rawEvents(eventType)).flatten
+  ): Stream[IO, Unit] = {
+    val runRefresh = refresh.attempt.flatMap {
+      case Left(err) =>
+        IO.println(s"registry-driven dump refresh failed: ${err.getMessage}")
+      case Right(_) => IO.unit
+    }
+
+    healthy.discrete
+      .filter(identity)
+      .switchMap { _ =>
+        val events = Stream
+          .emits(DumpEvents)
+          .map(t => Stream.resource(api.rawEvents(t)).flatten)
+          .parJoinUnbounded
+          .debounce(RegistryQuiet)
+          .evalMap(_ => runRefresh)
+        // Catch up on whatever the outage hid, then watch this connection.
+        Stream.exec(runRefresh) ++ events
       }
-      .parJoinUnbounded
-      .debounce(RegistryQuiet)
-      .evalMap { _ =>
-        refresh.attempt.flatMap {
-          case Left(err) =>
-            IO.println(
-              s"registry-driven dump refresh failed: ${err.getMessage}"
-            )
-          case Right(_) => IO.unit
-        }
-      }
+  }
 
   private val RegistryQuiet = 5.seconds
 

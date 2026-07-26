@@ -1,7 +1,8 @@
 package fh.view.runtime
 
 import cats.effect.{Deferred, IO, Ref, Resource}
-import fh.view.testkit.FakeHomeAssistant
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 
@@ -9,19 +10,22 @@ import scala.concurrent.duration.*
 
 /** The reconnect behaviour of the self-healing feed — the one thing the
   * fixture-backed functional suites can't cover, because their `Connect` never
-  * closes. Here a controllable `Connect` lets us force a drop and assert the
-  * DURABLE facade re-subscribes: a long-lived `rawEvents` subscriber (the
-  * registry watch in production) keeps receiving across a reconnect without
-  * re-subscribing itself.
+  * closes. Here a controllable `Connect` lets us force a drop.
+  *
+  * Two properties, and the split between them IS the design: the STORE is
+  * refilled by the supervisor with no help from its reader, while an external
+  * subscriber's stream ends with its connection and it re-subscribes off
+  * `healthy` (the pattern `ServerApp.watchRegistryEvents` uses). Subscriptions
+  * are deliberately not durable — see `HaFeed.routingFacade`.
   */
 class HaFeedSuite extends munit.CatsEffectSuite {
 
-  test("a durable rawEvents subscription survives a reconnect") {
-    (for {
-      fake <- FakeHomeAssistant.create(Nil)
-      // The current connection's clean-close signal, replaced on each connect.
+  /** A `Connect` whose connection can be closed on demand, reporting how many
+    * times it has been established.
+    */
+  private def controllable(fake: FakeHomeAssistant) =
+    for {
       closeRef <- Ref[IO].of(Option.empty[Deferred[IO, Unit]])
-      // How many times `connect` has been used — i.e. connection generation.
       uses <- SignallingRef[IO].of(0)
       connect: HaFeed.Connect = Resource.eval(
         for {
@@ -30,32 +34,82 @@ class HaFeedSuite extends munit.CatsEffectSuite {
           _ <- uses.update(_ + 1)
         } yield (fake, d.get) // awaitClosed completes cleanly when we fire `d`
       )
+      // Drop the live connection cleanly: the fake ends this generation's
+      // subscriptions (as the real transport does), and `awaitClosed` fires so
+      // the supervisor reconnects.
+      drop = fake.dropConnection *> closeRef.get
+        .flatMap(_.get.complete(()))
+        .void
+    } yield (connect, uses, drop)
+
+  test("the store keeps being refilled across a reconnect") {
+    (for {
+      fake <- FakeHomeAssistant.create(
+        List(FixtureEntity("light.kitchen", "off"))
+      )
+      (connect, uses, drop) <- controllable(fake)
       out <- HaFeed.resource(connect).use { feed =>
-        // Acquire means SUBSCRIBED, so an event pushed after it is attributable
-        // to the connection that was live at the time.
-        feed.api.rawEvents("test_registry").use { events =>
-          // The queue-backed stream can be consumed in stages; each run takes
-          // from where the last left off.
-          val next = events.head.compile.lastOrError.timeout(5.seconds)
+        for {
+          _ <- drop
+          _ <- uses.discrete.find(_ >= 2).head.compile.drain
+          // The new connection's opening full set is the catch-up, and the pump
+          // rides it: the store's reader does nothing to make that happen.
+          _ <- feed.healthy.discrete.find(identity).head.compile.drain
+          _ <- fake.emit("light.kitchen", "on")
+          state <- Stream
+            .repeatEval(feed.store.snapshot.map(_.get("light.kitchen")))
+            .metered(10.millis)
+            .find(_.exists(_.state == "on"))
+            .head
+            .compile
+            .lastOrError
+            .timeout(10.seconds)
+        } yield state.map(_.state)
+      }
+    } yield assertEquals(out, Some("on"))).timeout(30.seconds)
+  }
+
+  test(
+    "an external subscriber re-subscribes on healthy and spans a reconnect"
+  ) {
+    (for {
+      fake <- FakeHomeAssistant.create(Nil)
+      (connect, uses, drop) <- controllable(fake)
+      received <- Ref[IO].of(Vector.empty[Json])
+      out <- HaFeed.resource(connect).use { feed =>
+        // Exactly what ServerApp.watchRegistryEvents does: one subscription per
+        // connection, restarted when the link comes back.
+        val watch = feed.healthy.discrete
+          .filter(identity)
+          .switchMap(_ => Stream.resource(feed.api.rawEvents("test")).flatten)
+          .evalMap(j => received.update(_ :+ j))
+
+        def delivered(j: Json) = Stream
+          .repeatEval(received.get)
+          .metered(10.millis)
+          .find(_.contains(j))
+          .head
+          .compile
+          .drain
+          .timeout(10.seconds)
+
+        watch.compile.drain.background.surround {
           for {
-            _ <- fake.pushRawEvent("test_registry", Json.fromString("one"))
-            // Read it BEFORE dropping. The reconnect seam is lossy by design
-            // (an event taken from the dying connection but not yet handed to
-            // the durable queue goes with it), and this test is about surviving
-            // the reconnect — not about that gap.
-            one <- next
-            // Drop the live connection cleanly -> supervisor reconnects (a
-            // second `connect` use), and the durable subscription re-arms.
-            _ <- closeRef.get.flatMap(_.get.complete(()))
+            _ <- fake.awaitEventSubscribes(1)
+            _ <- fake.pushRawEvent("test", Json.fromString("one"))
+            // Observe delivery BEFORE dropping. Interrupting a queue-backed
+            // stream can swallow an element it has taken but not yet emitted —
+            // the same in-flight loss the real transport has at a dying
+            // connection, so the test must not depend on winning that race.
+            _ <- delivered(Json.fromString("one"))
+            _ <- drop
             _ <- uses.discrete.find(_ >= 2).head.compile.drain
-            // Reconnected is not yet re-subscribed, and the gap between them is
-            // the lossy seam — wait for the durable side to actually re-arm.
+            // The re-subscribe is what proves the stream ended and restarted.
             _ <- fake.awaitEventSubscribes(2)
-            // Pushed AFTER the drop: only a durable (re-subscribing) stream
-            // still delivers it.
-            _ <- fake.pushRawEvent("test_registry", Json.fromString("two"))
-            two <- next
-          } yield List(one, two)
+            _ <- fake.pushRawEvent("test", Json.fromString("two"))
+            _ <- delivered(Json.fromString("two"))
+            got <- received.get
+          } yield got.toList
         }
       }
     } yield assertEquals(

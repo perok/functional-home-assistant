@@ -5,9 +5,8 @@ import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.FHError
-import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
-import fs2.{Chunk, Stream}
+import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import retry.*
 
@@ -31,11 +30,11 @@ import scala.concurrent.duration.*
   *
   *   - [[api]] is a stable facade built ONE level down, over the low-level WS
   *     ([[HAWSApiLowLevel]]): [[HomeAssistantApi.fromWs]] regenerates the whole
-  *     API over a durable low-level facade that routes each call to the CURRENT
-  *     live connection. A COMMAND made while disconnected fails fast; a
-  *     SUBSCRIPTION is durable — it re-subscribes across reconnects, so a
-  *     long-lived external subscriber (the registry watcher) survives a drop
-  *     without re-subscribing itself.
+  *     API over a facade that ROUTES each call to the CURRENT live connection,
+  *     so consumers hold one value across reconnects. Anything issued while
+  *     disconnected fails fast, and a subscription stream ends when its
+  *     connection dies — a consumer that must span reconnects re-subscribes off
+  *     [[healthy]].
   *   - [[store]] is the single [[StateStore]], refilled across reconnects.
   *   - [[healthy]] reports whether a connection is currently live (`true` from
   *     the moment the socket is up and subscribed, before the full set has been
@@ -70,12 +69,6 @@ object HaFeed {
     */
   private val SeedTimeout: FiniteDuration = 60.seconds
 
-  /** How long a durable `subscribeStream` acquire waits for HA to ack the
-    * subscription. Same reasoning as [[SeedTimeout]]: bounded so a subscription
-    * HA never accepts fails loudly instead of hanging the caller forever.
-    */
-  private val ArmTimeout: FiniteDuration = 60.seconds
-
   /** A LOW-LEVEL connection resource paired with its `awaitClosed` signal (an
     * `IO[Unit]` that completes when the WebSocket has died) — exactly what
     * `FHApi.lowLevelConnectWithClose` yields. The facade sits below
@@ -105,7 +98,7 @@ object HaFeed {
       // The stable API: a durable facade over the current low-level connection,
       // rebuilt into the full API by `fromWs`. Consumers hold this one value
       // across every reconnect.
-      api = HomeAssistantApi.fromWs(durableFacade(connection))
+      api = HomeAssistantApi.fromWs(routingFacade(connection))
       _ <- superviseLoop(connect, connection, seeded, store).background
       // Credentials are validated by the caller before we get here, so failing
       // this wait means HA is configured but not answering: a clear boot error
@@ -217,24 +210,26 @@ object HaFeed {
       .compile
       .drain
 
-  /** A stable low-level WS that dispatches to whatever connection is live now.
+  /** A stable low-level WS that resolves to whatever connection is live now.
     *
-    *   - A COMMAND (`sendCommand`) issued while disconnected fails fast with a
-    *     clear error instead of hanging on a dead socket.
-    *   - A SUBSCRIPTION (`subscribeStream`) is DURABLE: it returns a stable
-    *     stream and re-subscribes on every connection generation (a `switchMap`
-    *     over the current-connection signal cancels the old subscription and
-    *     opens a new one), forwarding events into it. So a long-lived
-    *     subscriber survives a reconnect without re-subscribing itself. Events
-    *     during the disconnect gap are lost; a caller that needs catch-up (the
-    *     store) re-seeds on reconnect.
+    * Nothing more: it is pure routing, so that consumers can hold ONE value
+    * across reconnects instead of chasing the current connection themselves.
+    * Both methods fail fast while disconnected, and within a connection the
+    * transport itself refuses to strand a caller — a dead socket closes every
+    * open route, so a command raises and a subscription stream ENDS
+    * ([[HAWSApiLowLevel]]).
     *
-    * `HomeAssistantApi.fromWs` regenerates the full API over this — so the
-    * whole high-level surface inherits fail-fast commands and durable
-    * subscriptions from one place, replacing the old hand-written 18-method
-    * facade.
+    * It deliberately does NOT make subscriptions durable. It used to: a queue,
+    * an arm fiber and a `switchMap` re-subscribed on every connection
+    * generation. That existed to keep the dashboard's state feed alive across a
+    * reconnect — but the state feed never used it (it rides the connection
+    * being established, see [[runConnection]]), so the mechanism served one
+    * low-volume consumer while duplicating the reconnect logic the supervisor
+    * already owns. A consumer that wants to span reconnects re-subscribes off
+    * [[HaFeed.healthy]], which is three lines where it is needed and no
+    * machinery where it is not.
     */
-  private def durableFacade(
+  private def routingFacade(
       currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
   ): HAWSApiLowLevel[IO] =
     new HAWSApiLowLevel[IO] {
@@ -253,61 +248,15 @@ object HaFeed {
       def subscribeStream[Result](
           msg: CommandPhase & CommandResponse.AsStream[Result]
       ): Resource[IO, Stream[IO, Result]] =
-        // The queue is what makes the subscription durable: it is the stable
-        // read side, so a re-arm swaps the upstream connection underneath a
-        // consumer that never sees the seam (and events buffer while the
-        // consumer is between pulls).
-        //
-        // UNBOUNDED, and the arm fiber fills it from acquire onward whether or
-        // not anyone reads: a caller that acquires this resource and never
-        // drains the stream grows it for the life of the connection. Every
-        // caller today drains promptly (the registry watcher), so this is a
-        // documented assumption rather than backpressure.
-        for {
-          // CHUNKS, for the same reason the transport's per-id queue carries
-          // them: offering element by element would dissolve the batch a
-          // coalesced frame arrived as, and re-batching on the read side is
-          // luck, not structure. (`tryOfferN` would not help — it is not atomic,
-          // and the reader still decides its own boundaries.)
-          out <- Queue.unbounded[IO, Chunk[Result]].toResource
-          armed <- IO.deferred[Unit].toResource
-          arm =
-            currentRef.discrete
-              .switchMap {
-                case None       => Stream.empty
-                case Some(conn) =>
-                  // Signal only AFTER the inner acquire, i.e. once HA has acked
-                  // this generation's subscription — that is what lets the
-                  // outer acquire honour `subscribeStream`'s contract.
-                  Stream
-                    .resource(conn.subscribeStream(msg))
-                    .evalTap(_ => armed.complete(()).void)
-                    .flatten
-              }
-              .chunks
-              .evalMap(out.offer)
-              .compile
-              .drain
-          _ <- Resource.make(arm.start)(_.cancel)
-          // Acquire means ACCEPTED, as the trait promises: wait for the first
-          // generation to be acked. A rejection loops in the arm rather than
-          // raising here, so bound the wait — an unacked subscription must not
-          // hang boot silently.
-          _ <- armed.get
-            .timeoutTo(
-              ArmTimeout,
-              IO.raiseError(
-                new RuntimeException(
-                  s"Home Assistant did not accept the $msg subscription within $ArmTimeout"
-                )
-              )
-            )
-            .toResource
-        } yield Stream.fromQueueUnterminatedChunk(out)
+        Resource.eval(currentRef.get).flatMap {
+          case Some(conn) => conn.subscribeStream(msg)
+          case None       => Resource.eval(disconnected[Stream[IO, Result]])
+        }
 
-      // The durable facade never itself "closes" — it outlives every
-      // connection, reconnecting under the hood. The per-connection close is
-      // observed by the supervisor via each `connect`'s own `awaitClosed`.
+      // The facade itself never closes — it outlives every connection. A
+      // per-connection close is observed by the supervisor via that
+      // connection's own `awaitClosed`, and by consumers as their subscription
+      // stream ending.
       def awaitClosed: IO[Unit] = IO.never
     }
 }

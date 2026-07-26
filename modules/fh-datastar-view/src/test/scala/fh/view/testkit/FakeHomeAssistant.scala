@@ -69,8 +69,24 @@ final class FakeHomeAssistant private (
     clock: Ref[IO, Long],
     // How many `subscribe_events` subscriptions have been opened, counting
     // re-subscribes. See [[awaitEventSubscribes]].
-    eventSubscribes: SignallingRef[IO, Int]
+    eventSubscribes: SignallingRef[IO, Int],
+    // Which CONNECTION generation subscriptions belong to. See [[dropConnection]].
+    generation: SignallingRef[IO, Int]
 ) extends HAWSApiLowLevel[IO] {
+
+  /** Model a dropped connection: every subscription opened on the current
+    * generation ENDS, as the real transport's `None` sentinel makes it.
+    *
+    * The fake stands in for the low level, so without this its streams outlive
+    * every connection and a consumer that must re-subscribe looks identical to
+    * one that need not — which is exactly the distinction worth testing now
+    * that subscriptions are not durable.
+    */
+  def dropConnection: IO[Unit] = generation.update(_ + 1)
+
+  /** Bind a stream to the generation that opened it. */
+  private def forThisConnection[A](s: Stream[IO, A]): IO[Stream[IO, A]] =
+    generation.get.map(mine => s.interruptWhen(generation.map(_ != mine)))
 
   /** Block until `subscribe_events` has been subscribed `n` times.
     *
@@ -124,10 +140,9 @@ final class FakeHomeAssistant private (
         // same fixtures the dump comes from is what keeps built-against and
         // served state identical.
         Resource.eval(
-          IO.pure(
-            (Stream.eval(fullSet) ++ Stream.fromQueueUnterminated(deltas))
-              .asInstanceOf[Stream[IO, Result]]
-          )
+          forThisConnection(
+            Stream.eval(fullSet) ++ Stream.fromQueueUnterminated(deltas)
+          ).map(_.asInstanceOf[Stream[IO, Result]])
         )
       case subscribe_events(Some(eventType)) =>
         // Both the store's state_changed feed and arbitrary rawEvents (the
@@ -135,11 +150,8 @@ final class FakeHomeAssistant private (
         Resource.eval(
           queueFor(eventType)
             .flatTap(_ => eventSubscribes.update(_ + 1))
-            .map(q =>
-              Stream
-                .fromQueueUnterminated(q)
-                .asInstanceOf[Stream[IO, Result]]
-            )
+            .flatMap(q => forThisConnection(Stream.fromQueueUnterminated(q)))
+            .map(_.asInstanceOf[Stream[IO, Result]])
         )
       case _: render_template =>
         // HA's render_template pushes `event` frames `{result, listeners}`;
@@ -258,12 +270,14 @@ object FakeHomeAssistant {
       deltas <- Queue.unbounded[IO, EntitiesEvent]
       clock <- Ref[IO].of(0L)
       eventSubscribes <- SignallingRef[IO].of(0)
+      generation <- SignallingRef[IO].of(0)
     } yield new FakeHomeAssistant(
       stateRef,
       queues,
       calls,
       deltas,
       clock,
-      eventSubscribes
+      eventSubscribes,
+      generation
     )
 }
