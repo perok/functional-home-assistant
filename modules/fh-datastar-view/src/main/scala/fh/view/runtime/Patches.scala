@@ -54,10 +54,11 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       uiState: Map[String, String],
-      // The store version `states` was read at, stamped onto every fragment this
-      // request renders. Read atomically WITH the snapshot, so a fragment can
-      // never claim a version its HTML does not reflect.
-      version: Long
+      // When `states` was read (see [[Stamp]]), applied to every fragment and
+      // mutation this request records. The version is read atomically WITH the
+      // snapshot, so a fragment can never claim a version its HTML does not
+      // reflect.
+      stamp: Stamp
   )
 
   /** Which pass is selecting — the only real difference between the shared and
@@ -110,7 +111,7 @@ private[runtime] object Patches {
   def plan(
       renderer: Renderer,
       states: Map[String, EntityState],
-      version: Long,
+      stamp: Stamp,
       change: StateChange,
       scope: Scope
   ): DiffRequest = {
@@ -156,7 +157,7 @@ private[runtime] object Patches {
           states,
           before,
           Map.empty,
-          version
+          stamp
         )
 
       case Scope.Session(open, uiState) =>
@@ -220,7 +221,7 @@ private[runtime] object Patches {
           states,
           before,
           uiState,
-          version
+          stamp
         )
     }
   }
@@ -250,7 +251,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       req: DiffRequest
   ): (FragmentLog, List[ServerSentEvent]) = {
-    val at = req.version
+    val at = req.stamp
     val (logAfterFlips, flipPatches) =
       req.flips.foldLeft((log, List.empty[Patch])) { case ((c, acc), gid) =>
         val (c2, ps) =
@@ -265,7 +266,7 @@ private[runtime] object Patches {
       rendered.foldLeft((logAfterFlips, List.empty[Patch])) {
         case ((c, acc), (id, html)) =>
           if (c.html(id).contains(html)) (c, acc)
-          else (c.set(id, html, at), acc :+ Patch.Morph(html))
+          else (c.set(id, html, at.version), acc :+ Patch.Morph(html))
       }
     val (finalLog, dynPatches) =
       req.dynamics.foldLeft((logAfterStatic, List.empty[Patch])) {
@@ -323,8 +324,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       states: Map[String, EntityState],
       v: Long
-  ): List[ServerSentEvent] = {
-    val owed = log.since(v)
+  ): Option[List[ServerSentEvent]] = log.since(v).map { owed =>
     val gone = owed.mutations.collect { case (nodeId, _: Mutation.Gone) =>
       nodeId
     }
@@ -386,7 +386,7 @@ private[runtime] object Patches {
       gid: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      at: Long
+      at: Stamp
   ): (FragmentLog, List[Patch]) =
     renderer.renderNodeById(gid, states, uiState) match {
       case None       => (log, Nil)
@@ -399,7 +399,7 @@ private[runtime] object Patches {
           // fragment.
           val pruned =
             log.invalidateWhere(k => k == gid || prefixes.exists(k.startsWith))
-          (pruned.set(gid, html, at), List(Patch.Morph(html)))
+          (pruned.set(gid, html, at.version), List(Patch.Morph(html)))
         }
     }
 
@@ -418,7 +418,7 @@ private[runtime] object Patches {
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      at: Long
+      at: Stamp
   ): (FragmentLog, List[Patch]) =
     delta match {
       case DynamicDelta.InPlace =>
@@ -434,7 +434,7 @@ private[runtime] object Patches {
             case Some(html) =>
               val cid = renderer.dynamicChildId(gid, change.entityId)
               if (log.html(cid).contains(html)) (log, Nil)
-              else (log.set(cid, html, at), List(Patch.Morph(html)))
+              else (log.set(cid, html, at.version), List(Patch.Morph(html)))
           }
         else
           renderMembershipChange(
@@ -488,7 +488,7 @@ private[runtime] object Patches {
       membersBefore: List[String],
       membersAfter: List[String],
       states: Map[String, EntityState],
-      at: Long
+      at: Stamp
   ): (FragmentLog, List[Patch]) = {
     val beforeSet = membersBefore.toSet
     val afterSet = membersAfter.toSet
@@ -547,7 +547,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       gid: String,
       states: Map[String, EntityState],
-      at: Long
+      at: Stamp
   ): (FragmentLog, List[Patch]) =
     renderer.renderNodeById(gid, states) match {
       case None       => (log, Nil)
@@ -558,7 +558,7 @@ private[runtime] object Patches {
           // one stamped fragment repairs a resuming client.
           val pruned =
             log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
-          (pruned.set(gid, html, at), List(Patch.Morph(html)))
+          (pruned.set(gid, html, at.version), List(Patch.Morph(html)))
         }
     }
 }

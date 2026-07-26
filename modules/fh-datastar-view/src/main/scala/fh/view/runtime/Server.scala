@@ -394,11 +394,11 @@ class Server(
       log: Ref[IO, FragmentLog],
       change: StateChange
   ): IO[List[ServerSentEvent]] =
-    stateStore.current.flatMap { store =>
+    (stateStore.current, Server.stampNow).flatMapN { (store, millis) =>
       val req = Patches.plan(
         renderer,
         store.entities,
-        store.version,
+        Stamp(store.version, millis),
         change,
         Patches.Scope.Shared
       )
@@ -569,6 +569,7 @@ class Server(
       slug <- session.slug.get
       renderer <- rendererFor(slug)
       store <- stateStore.current
+      millis <- Server.stampNow
       open <- session.open.get
       out <- renderer match {
         case None    => IO.pure(List.empty[ServerSentEvent])
@@ -576,7 +577,7 @@ class Server(
           val req = Patches.plan(
             r,
             store.entities,
-            store.version,
+            Stamp(store.version, millis),
             change,
             Patches.Scope.Session(open, uiState)
           )
@@ -1013,6 +1014,13 @@ class Server(
 }
 
 object Server {
+
+  /** Wall clock for a [[Stamp]] — read once per diff pass, and used ONLY to age
+    * [[Mutation]]s out of a [[FragmentLog]]. Nothing is ordered by it, so a
+    * clock step (NTP, a suspended host waking) can widen or narrow a retention
+    * window but cannot corrupt a cursor comparison.
+    */
+  private[runtime] val stampNow: IO[Long] = IO.realTime.map(_.toMillis)
 
   /** Build the server with the shared-patch topic and run the per-slug
     * publishers ([[Server.sharedPatchPublishers]]) for the life of the
