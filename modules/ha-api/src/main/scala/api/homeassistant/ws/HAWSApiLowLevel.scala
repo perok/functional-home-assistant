@@ -70,7 +70,9 @@ object HAWSApiLowLevel {
       * is exactly how a coalesced burst stays one batch all the way to the
       * consumer. A bare object still decodes, so this works either way.
       */
-    def receiveStreamDecode[Body: Decoder]: Stream[IO, Body] = {
+    def receiveStreamDecode[Body: Decoder](
+        debugFrames: Boolean
+    ): Stream[IO, Body] = {
       // TODO ping pong on WSFrame?
       // Branch on the SHAPE, and name `decodeList` explicitly rather than
       // summoning `Decoder[List[Body]]` — that would resolve back to this very
@@ -84,13 +86,15 @@ object HAWSApiLowLevel {
       wsClient.receiveStream
         .evalMap {
           case WSFrame.Text(data, true) =>
-            println(s"<-- Receiving: ${data.take(100)}") // TODO only when DEBUG
-            decode[List[Body]](data)(using batch).liftTo[IO].onError { err =>
-              Console[IO].errorln(
-                s"receiveStreamDecode error decoding: $data"
-              ) >>
-                Console[IO].printStackTrace(err)
-            }
+            Console[IO]
+              .println(s"<-- Receiving: ${data.take(100)}")
+              .whenA(debugFrames) *>
+              decode[List[Body]](data)(using batch).liftTo[IO].onError { err =>
+                Console[IO].errorln(
+                  s"receiveStreamDecode error decoding: $data"
+                ) >>
+                  Console[IO].printStackTrace(err)
+              }
           case unknown =>
             IO.raiseError(
               new Throwable(s"receiveStreamDecode received unknown: $unknown")
@@ -129,7 +133,11 @@ object HAWSApiLowLevel {
       // (`state_changed` events) resets the timer, so a busy connection is never
       // pinged. https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
       pingInterval: FiniteDuration = 30.seconds,
-      pingTimeout: FiniteDuration = 10.seconds
+      pingTimeout: FiniteDuration = 10.seconds,
+      // Trace every frame in both directions. Off by default: with
+      // `subscribe_entities` this is one line per state change of the whole
+      // house, so it is a deliberate debugging switch, never ambient logging.
+      debugFrames: Boolean = false
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
     import cats.effect.std.Queue
 
@@ -188,8 +196,10 @@ object HAWSApiLowLevel {
                   // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
                   val idJson = Json.obj(("id" -> Json.fromInt(id)))
                   val toSend = msg.message.asJson.deepMerge(idJson)
-                  println(s"--> Sending ${toSend.noSpaces}")
-                  ha.sendText(toSend.noSpaces)
+                  Console[IO]
+                    .println(s"--> Sending ${toSend.noSpaces}")
+                    .whenA(debugFrames) *>
+                    ha.sendText(toSend.noSpaces)
                 }
               } yield ()
             }
@@ -204,9 +214,8 @@ object HAWSApiLowLevel {
 
           // Registration precedes the send, so the queue always exists when HA
           // answers — ack and later events land in order, no first-event race.
-          // TODO errors in parsing before passing on the message can deadlock things
           _ <- ha
-            .receiveStreamDecode[WSCommandPhaseServerPayload]
+            .receiveStreamDecode[WSCommandPhaseServerPayload](debugFrames)
             .evalTap { command =>
               idQueue(command.id).get.flatMap {
                 case Some(queue) => queue.offer(command)

@@ -71,6 +71,12 @@ object HaFeed {
     */
   private val SeedTimeout: FiniteDuration = 60.seconds
 
+  /** How long a durable `subscribeStream` acquire waits for HA to ack the
+    * subscription. Same reasoning as [[SeedTimeout]]: bounded so a subscription
+    * HA never accepts fails loudly instead of hanging the caller forever.
+    */
+  private val ArmTimeout: FiniteDuration = 60.seconds
+
   /** A LOW-LEVEL connection resource paired with its `awaitClosed` signal (an
     * `IO[Unit]` that completes when the WebSocket has died) — exactly what
     * `FHApi.lowLevelConnectWithClose` yields. The facade sits below
@@ -251,21 +257,47 @@ object HaFeed {
         // read side, so a re-arm swaps the upstream connection underneath a
         // consumer that never sees the seam (and events buffer while the
         // consumer is between pulls).
-        Resource.eval(Queue.unbounded[IO, Result]).flatMap { out =>
-          val arm =
+        //
+        // UNBOUNDED, and the arm fiber fills it from acquire onward whether or
+        // not anyone reads: a caller that acquires this resource and never
+        // drains the stream grows it for the life of the connection. Every
+        // caller today drains promptly (the registry watcher), so this is a
+        // documented assumption rather than backpressure.
+        for {
+          out <- Queue.unbounded[IO, Result].toResource
+          armed <- IO.deferred[Unit].toResource
+          arm =
             currentRef.discrete
               .switchMap {
                 case None       => Stream.empty
                 case Some(conn) =>
-                  Stream.resource(conn.subscribeStream(msg)).flatten
+                  // Signal only AFTER the inner acquire, i.e. once HA has acked
+                  // this generation's subscription — that is what lets the
+                  // outer acquire honour `subscribeStream`'s contract.
+                  Stream
+                    .resource(conn.subscribeStream(msg))
+                    .evalTap(_ => armed.complete(()).void)
+                    .flatten
               }
               .evalMap(out.offer)
               .compile
               .drain
-          Resource
-            .make(arm.start)(_.cancel)
-            .as(Stream.fromQueueUnterminated(out))
-        }
+          _ <- Resource.make(arm.start)(_.cancel)
+          // Acquire means ACCEPTED, as the trait promises: wait for the first
+          // generation to be acked. A rejection loops in the arm rather than
+          // raising here, so bound the wait — an unacked subscription must not
+          // hang boot silently.
+          _ <- armed.get
+            .timeoutTo(
+              ArmTimeout,
+              IO.raiseError(
+                new RuntimeException(
+                  s"Home Assistant did not accept the $msg subscription within $ArmTimeout"
+                )
+              )
+            )
+            .toResource
+        } yield Stream.fromQueueUnterminated(out)
 
       // The durable facade never itself "closes" — it outlives every
       // connection, reconnecting under the hood. The per-connection close is

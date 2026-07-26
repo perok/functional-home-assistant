@@ -169,7 +169,10 @@ object FHApi {
       wsApi <- HAWSApiLowLevel(
         wsClient,
         wsUri,
-        secretToken
+        secretToken,
+        // Frame tracing stays a deliberate opt-out of the default quiet, chosen
+        // at the composition root rather than hidden inside the transport.
+        debugFrames = sys.env.contains("FH_WS_DEBUG")
       )
     } yield (wsApi, wsApi.awaitClosed)
 }

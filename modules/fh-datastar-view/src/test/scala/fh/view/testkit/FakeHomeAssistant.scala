@@ -9,6 +9,7 @@ import cats.syntax.all.*
 import cats.effect.std.Queue
 import cats.effect.kernel.Ref
 import fs2.Stream
+import fs2.concurrent.SignallingRef
 import io.circe.Json
 import io.circe.syntax.*
 
@@ -32,8 +33,8 @@ case class ServiceCall(
   * `HomeAssistantApi[IO]` and the fake only has to answer the few WS commands
   * the runtime actually issues:
   *
-  *   - `subscribeStream(subscribe_entities)` opens with the fixtures as one full
-  *     state frame and then yields the deltas [[emit]] pushes — the feed
+  *   - `subscribeStream(subscribe_entities)` opens with the fixtures as one
+  *     full state frame and then yields the deltas [[emit]] pushes — the feed
   *     [[fh.view.runtime.StateStore]] lives on,
   *   - `sendCommand(get_states)` returns the current fixture as an
   *     `/api/states` snapshot (not on the runtime path any more, but still part
@@ -69,8 +70,21 @@ final class FakeHomeAssistant private (
     // Monotonic tick, stamped as each emit's `last_updated` so a change always
     // reads as newer than the opening full set and prior emits (StateStore's
     // recency guard).
-    clock: Ref[IO, Long]
+    clock: Ref[IO, Long],
+    // How many `subscribe_events` subscriptions have been opened, counting
+    // re-subscribes. See [[awaitEventSubscribes]].
+    eventSubscribes: SignallingRef[IO, Int]
 ) extends HAWSApiLowLevel[IO] {
+
+  /** Block until `subscribe_events` has been subscribed `n` times.
+    *
+    * A reconnect test needs this because "the supervisor re-connected" happens
+    * strictly BEFORE "the durable subscription re-armed" — pushing an event in
+    * between races the seam, where an event taken from the dying connection but
+    * not yet handed to the durable queue is legitimately lost.
+    */
+  def awaitEventSubscribes(n: Int): IO[Unit] =
+    eventSubscribes.discrete.find(_ >= n).head.compile.drain
 
   /** The persistent queue for one event type, created on first use. */
   private def queueFor(eventType: String): IO[Queue[IO, Json]] =
@@ -130,11 +144,13 @@ final class FakeHomeAssistant private (
         // Both the store's state_changed feed and arbitrary rawEvents (the
         // registry watch) resolve to their persistent per-type queue.
         Resource.eval(
-          queueFor(eventType).map(q =>
-            Stream
-              .fromQueueUnterminated(q)
-              .asInstanceOf[Stream[IO, Result]]
-          )
+          queueFor(eventType)
+            .flatTap(_ => eventSubscribes.update(_ + 1))
+            .map(q =>
+              Stream
+                .fromQueueUnterminated(q)
+                .asInstanceOf[Stream[IO, Result]]
+            )
         )
       case _: render_template =>
         // HA's render_template pushes `event` frames `{result, listeners}`;
@@ -252,5 +268,13 @@ object FakeHomeAssistant {
       calls <- Ref[IO].of(Vector.empty[ServiceCall])
       deltas <- Queue.unbounded[IO, EntitiesEvent]
       clock <- Ref[IO].of(0L)
-    } yield new FakeHomeAssistant(stateRef, queues, calls, deltas, clock)
+      eventSubscribes <- SignallingRef[IO].of(0)
+    } yield new FakeHomeAssistant(
+      stateRef,
+      queues,
+      calls,
+      deltas,
+      clock,
+      eventSubscribes
+    )
 }
