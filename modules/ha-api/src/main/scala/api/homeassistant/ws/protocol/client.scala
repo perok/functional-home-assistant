@@ -189,35 +189,24 @@ object client {
     ) extends CommandPhase
         with CommandResponse.AsResult[Unit] derives ConfiguredEncoder
 
-    // Decodes HA's `{domain: {service: ...}}` via the smithy schema.
-    private val getServiceDecoder = Decoder.instance(cursor =>
-      DocumentJson
-        .fromJson2(cursor.value)(using ServicesData.schema)
-        .leftMap(err => DecodingFailure.fromThrowable(err, List.empty))
-        .map(_.value)
-    )
     // get_services https://developers.home-assistant.io/docs/api/websocket#fetching-service-actions
+    // HA answers `{domain: {service: ...}}`; the schema-derived decoder yields
+    // the wrapper, so the domain map is unwrapped here.
     case class `get_services`()
         extends CommandPhase
         with CommandResponse.AsResult[List[ServiceDomain]](using
-          getServiceDecoder
+          DocumentJson.circeDecoderFor(using ServicesData.schema).map(_.value)
         ) derives ConfiguredEncoder
 
     // get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
     // The WS equivalent of REST `/api/states`: the same state representation, so
     // the result decodes with the same shape the REST leg used.
-    private val getStatesDecoder = Decoder.instance(cursor =>
-      DocumentJson
-        .fromJson2(cursor.value)(using
-          smithy4s.Schema.list(GetStatesData.schema)
-        )
-        .leftMap(err => DecodingFailure.fromThrowable(err, List.empty))
-    )
-
     case class `get_states`()
         extends CommandPhase
         with CommandResponse.AsResult[List[GetStatesData]](using
-          getStatesDecoder
+          DocumentJson.circeDecoderFor(using
+            smithy4s.Schema.list(GetStatesData.schema)
+          )
         ) derives ConfiguredEncoder
 
     // render_template https://developers.home-assistant.io/docs/api/websocket#render-a-template

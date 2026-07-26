@@ -4,7 +4,7 @@ import cats.effect.*
 import cats.syntax.all.*
 
 object DocumentJson {
-  import io.circe.Json
+  import io.circe.{Decoder, DecodingFailure, Json}
 
   private lazy val decoders = {
     // Raised max arity because HA's get_states/get_services blobs exceed the
@@ -18,7 +18,7 @@ object DocumentJson {
   /** Decode circe JSON into a smithy4s type via its schema — how a command's
     * result decoder plugs smithy types into the circe-typed protocol.
     */
-  def fromJson2[A: smithy4s.Schema](json: Json): Either[Throwable, A] = {
+  def fromJson[A: smithy4s.Schema](json: Json): Either[Throwable, A] = {
     import smithy4s.Blob
     import io.circe.Printer
 
@@ -36,6 +36,16 @@ object DocumentJson {
         )
       )
   }
+
+  /** A circe [[Decoder]] for any smithy4s-schema type — the one seam by which a
+    * smithy type plugs into the circe-typed WS protocol, so a command declares
+    * `AsResult[A]` with its schema and nothing else knows the difference.
+    */
+  def circeDecoderFor[A: smithy4s.Schema]: Decoder[A] =
+    Decoder.instance(cursor =>
+      fromJson[A](cursor.value)
+        .leftMap(err => DecodingFailure.fromThrowable(err, List.empty))
+    )
 
 }
 
