@@ -56,7 +56,9 @@ object HAWSApiLowLevel {
   private case class Command(
       message: CommandPhase,
       id: Deferred[IO, Int],
-      response: Queue[IO, WSCommandPhaseServerPayload]
+      // Chunks, not payloads: a coalesced frame is handed over whole so the
+      // batch HA sent is the batch the consumer sees. See `receiveStreamDecode`.
+      response: Queue[IO, Chunk[WSCommandPhaseServerPayload]]
   )
 
   extension (wsClient: WSConnectionHighLevel[IO])
@@ -69,11 +71,11 @@ object HAWSApiLowLevel {
       * wraps even a single one), so a frame yields a whole fs2 `Chunk`. A bare
       * object still decodes, so this works either way.
       *
-      * The chunk does NOT survive to the consumer: routing hands payloads to
-      * their per-id queue one at a time, and the subscriber's
-      * `fromQueueUnterminated` re-batches whatever happens to be queued.
-      * Batched consumption is therefore an optimization that usually fires
-      * under load, never a guarantee to build on.
+      * The chunk is preserved all the way to the consumer: routing groups a
+      * frame's payloads by id and offers each group to its subscription as ONE
+      * chunk (see the receive loop and `subscribeStream`), so a burst HA
+      * coalesced into a frame stays one batch — which is what lets
+      * `HaFeed.pump` fold it into a single store update.
       */
     def receiveStreamDecode[Body: Decoder](
         debugFrames: Boolean
@@ -179,11 +181,12 @@ object HAWSApiLowLevel {
           lastActivity <- IO.monotonic.flatMap(Ref[IO].of).toResource
 
           // id -> waiting-queue for every in-flight command (single responses
-          // and subscriptions alike).
+          // and subscriptions alike). Carries CHUNKS so a coalesced frame is
+          // routed as one batch rather than element by element.
           idQueue <- MapRef
             .ofSingleImmutableMap[IO, Int, Queue[
               IO,
-              WSCommandPhaseServerPayload
+              Chunk[WSCommandPhaseServerPayload]
             ]]()
             .toResource
 
@@ -221,15 +224,23 @@ object HAWSApiLowLevel {
           // answers — ack and later events land in order, no first-event race.
           _ <- ha
             .receiveStreamDecode[WSCommandPhaseServerPayload](debugFrames)
-            .evalTap { command =>
-              idQueue(command.id).get.flatMap {
-                case Some(queue) => queue.offer(command)
-                case None        =>
-                  Console[IO].errorln(
-                    s"Received message, but not receivers: $command"
-                  )
-              } >>
-                IO.monotonic.flatMap(lastActivity.set)
+            // Route a whole FRAME at a time: group its payloads by id and hand
+            // each subscription its group as one chunk. Doing this per payload
+            // would dissolve the batch HA deliberately coalesced.
+            .chunks
+            .evalTap { frame =>
+              frame.toList
+                .groupBy(_.id)
+                .toList
+                .traverse_ { (id, payloads) =>
+                  idQueue(id).get.flatMap {
+                    case Some(queue) => queue.offer(Chunk.from(payloads))
+                    case None        =>
+                      Console[IO].errorln(
+                        s"Received message, but not receivers: $payloads"
+                      )
+                  }
+                } >> IO.monotonic.flatMap(lastActivity.set)
             }
             .compile
             .drain
@@ -255,14 +266,16 @@ object HAWSApiLowLevel {
                 * The queue is handed over raw (not as a `Stream`) so a caller
                 * can take the leading `result` frame in `IO` and then read the
                 * rest as a stream: the QUEUE holds the position, so both views
-                * of it compose without losing a frame.
+                * of it compose without losing a frame. Its elements are whole
+                * FRAMES (a chunk of this id's payloads), which is what keeps a
+                * coalesced batch intact.
                 */
               private def openRoute(
                   msg: CommandPhase & CommandResponse[?]
-              ): Resource[IO, Queue[IO, WSCommandPhaseServerPayload]] = {
+              ): Resource[IO, Queue[IO, Chunk[WSCommandPhaseServerPayload]]] = {
                 val send = for {
                   payloadQueue <- Queue
-                    .unbounded[IO, WSCommandPhaseServerPayload]
+                    .unbounded[IO, Chunk[WSCommandPhaseServerPayload]]
                   idDeferred <- IO.deferred[Int]
                   _ <- messageQueue.offer(
                     Command(msg, idDeferred, payloadQueue)
@@ -303,7 +316,11 @@ object HAWSApiLowLevel {
                   command: CommandPhase &
                     CommandResponse.WithSingleResponse[Response]
               ): IO[Response] =
-                openRoute(command).use(_.take.flatMap(command.decodeMessage))
+                // A one-shot answer is the first payload of the first frame for
+                // this id; nothing else can be addressed to it.
+                openRoute(command).use(
+                  _.take.flatMap(frame => command.decodeMessage(frame(0)))
+                )
 
               def subscribeStream[Result](
                   msg: CommandPhase & CommandResponse.AsStream[Result]
@@ -312,17 +329,20 @@ object HAWSApiLowLevel {
                   // ACQUIRE = ACCEPTED: consume the leading `result` ack here,
                   // so `use` begins only once HA confirms the subscription and a
                   // rejection raises at the acquire rather than on some later
-                  // pull. Everything after the ack is an event; reading them
-                  // from the same queue resumes right after it.
-                  frames.take
-                    .flatMap(msg.decodeMessage)
-                    .as(
-                      // Dequeues in batches, so a burst of frames reaches the
-                      // consumer as one chunk.
-                      Stream
-                        .fromQueueUnterminated(frames)
-                        .evalMapChunk(msg.decodeStreamMessage)
-                    )
+                  // pull.
+                  frames.take.flatMap { first =>
+                    msg
+                      .decodeMessage(first(0))
+                      .as(
+                        // HA can coalesce the ack and this subscription's first
+                        // events into ONE frame, so whatever shared the ack's
+                        // frame is replayed ahead of the queue — as a chunk, so
+                        // even that boundary case stays batched.
+                        (Stream.chunk(first.drop(1)) ++
+                          Stream.fromQueueUnterminatedChunk(frames))
+                          .evalMapChunk(msg.decodeStreamMessage)
+                      )
+                  }
                 }
             }
           }

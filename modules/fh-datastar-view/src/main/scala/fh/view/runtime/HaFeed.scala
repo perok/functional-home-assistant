@@ -196,13 +196,12 @@ object HaFeed {
       }
       .guarantee(connection.set(None))
 
-  /** Drain the entity feed into the store, one store update per arriving CHUNK,
-    * so a burst (an automation moving a dozen entities at once) tends to cost
-    * one `ref.modify` rather than one per frame. Best-effort: the transport
-    * re-batches by what happens to be queued, so the grouping is an
-    * optimization, not a guarantee. Blocks as long as the connection lives;
-    * `runConnection` races it against `awaitClosed`, which is what ends the
-    * connection scope on death.
+  /** Drain the entity feed into the store, one store update per arriving CHUNK.
+    * A chunk IS a coalesced frame — the transport groups a frame's payloads by
+    * subscription and hands them over whole — so a burst (an automation moving
+    * a dozen entities at once) costs one `ref.modify`, not one per entity.
+    * Blocks as long as the connection lives; `runConnection` races it against
+    * `awaitClosed`, which is what ends the connection scope on death.
     *
     * The first applied batch latches `seeded`: the feed opens with the full
     * entity set, so "a batch has landed" IS "the store is populated".

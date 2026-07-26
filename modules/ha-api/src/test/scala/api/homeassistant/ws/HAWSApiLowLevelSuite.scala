@@ -15,8 +15,8 @@ import scala.concurrent.duration.*
 /** The WS transport itself, against [[FakeHaSocket]] — the real
   * [[HAWSApiLowLevel]] running over a stubbed socket, so everything between a
   * frame and a decoded value is exercised: the auth handshake, id routing,
-  * ack-then-events ordering, coalesced framing, teardown, and the liveness paths
-  * (`awaitClosed` via socket close, missed pong, or a frame that will not
+  * ack-then-events ordering, coalesced framing, teardown, and the liveness
+  * paths (`awaitClosed` via socket close, missed pong, or a frame that will not
   * decode).
   *
   * The dashboard suites stub `HAWSApiLowLevel` itself, so none of this is
@@ -83,23 +83,28 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
 
   test("responses route by id, whatever order they arrive in") {
     withConn { (fake, ll) =>
-      // Two in-flight commands answered BACKWARDS. Only id routing gets this
-      // right; anything positional hands each caller the other's reply.
-      val callOne = ll.sendCommand(CommandPhase.get_config())
-      val callTwo = ll.sendCommand(CommandPhase.get_config())
+      val call = ll.sendCommand(CommandPhase.get_config())
       for {
         _ <- fake.hold("get_config")
-        fiber <- (callOne, callTwo).parTupled.start
-        // Wait for both to be on the wire (supported_features is command 1).
+        // Started one at a time: two identical commands racing to the drain
+        // fiber would make WHICH id belongs to which caller a coin flip, and
+        // the test would be asserting the coin rather than the routing.
+        // (supported_features is command 1.)
+        first <- call.start
+        _ <- waitFor(fake.sentCommands.map(_.size >= 2))
+        second <- call.start
         _ <- waitFor(fake.sentCommands.map(_.size >= 3))
         idA <- fake.idOf(2)
         idB <- fake.idOf(3)
+        // Answered BACKWARDS, in one coalesced frame. Only id routing gets this
+        // right; anything positional hands each caller the other's reply.
         _ <- fake.emit(
           result(idB, Json.fromString("B")),
           result(idA, Json.fromString("A"))
         )
-        out <- fiber.joinWithNever
-      } yield assertEquals(out, (Json.fromString("A"), Json.fromString("B")))
+        a <- first.joinWithNever
+        b <- second.joinWithNever
+      } yield assertEquals((a, b), (Json.fromString("A"), Json.fromString("B")))
     }
   }
 
@@ -145,27 +150,49 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a coalesced burst delivers every payload, in order") {
+  test("a coalesced burst reaches the consumer as ONE chunk") {
     withConn { (fake, ll) =>
-      // One ARRAY frame carrying five events must fan out to five stream
-      // elements in order — the framing change `coalesce_messages` makes
-      // unconditionally, and the thing a naive one-payload-per-frame decoder
-      // would silently collapse to one.
-      //
-      // Note what is NOT asserted: that they arrive as a single fs2 chunk. The
-      // frame decodes to one chunk, but id-routing hands the payloads to the
-      // per-id queue one at a time, so the consumer re-batches opportunistically
-      // (`HaFeed.pump`'s one-update-per-burst is a best-effort optimization,
-      // never a guarantee).
+      // The point of coalesce_messages: a tick's worth of events stays a single
+      // batch end to end, so `HaFeed.pump` folds it into one store update. This
+      // is a guarantee, not an optimization that usually fires — routing groups
+      // a frame's payloads by id and offers each group as one chunk. Asserting
+      // on chunks is the only way to see that from outside; a consumer that
+      // re-batched whatever happened to be queued would pass an
+      // order-and-contents test while failing this.
       ll.subscribeStream(CommandPhase.subscribe_events(Some("x"))).use {
         events =>
           for {
-            fiber <- events.take(5).compile.toList.start
+            fiber <- events.chunks.head.compile.lastOrError.start
             id <- fake.idOf(2)
             _ <- fake.emit((1 to 5).map(i => fake.event(id, payload(s"e$i")))*)
-            got <- fiber.joinWithNever
-          } yield assertEquals(got, (1 to 5).map(i => payload(s"e$i")).toList)
+            chunk <- fiber.joinWithNever
+          } yield {
+            assertEquals(chunk.size, 5)
+            assertEquals(
+              chunk.toList,
+              (1 to 5).map(i => payload(s"e$i")).toList
+            )
+          }
       }
+    }
+  }
+
+  test("events sharing the ack's frame stay batched with the ones after it") {
+    withConn { (fake, ll) =>
+      // The boundary case: acquire consumes the ack out of a frame that also
+      // carried events. The remainder must reach the stream AS A CHUNK, not be
+      // replayed one at a time.
+      val sub = ll.subscribeStream(CommandPhase.subscribe_events(Some("x")))
+      for {
+        _ <- fake.hold("subscribe_events")
+        fiber <- sub.use(_.chunks.head.compile.lastOrError).start
+        _ <- waitFor(fake.sentCommands.map(_.size >= 2))
+        id <- fake.idOf(2)
+        _ <- fake.emit(
+          fake.ack(id) +: (1 to 3).map(i => fake.event(id, payload(s"e$i")))*
+        )
+        chunk <- fiber.joinWithNever
+      } yield assertEquals(chunk.size, 3)
     }
   }
 
@@ -181,7 +208,10 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
         )
       } yield {
         assertEquals(unsub.size, 1)
-        assertEquals(unsub.head.hcursor.get[Int]("subscription").toOption, Some(id))
+        assertEquals(
+          unsub.head.hcursor.get[Int]("subscription").toOption,
+          Some(id)
+        )
       }
     }
   }

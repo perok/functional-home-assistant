@@ -15,14 +15,14 @@ import org.http4s.client.websocket.{WSClient, WSConnection, WSFrame, WSRequest}
   * implements `HAWSApiLowLevel` itself — which is right for dashboard tests but
   * means the transport is never exercised: the auth handshake, the id routing,
   * the ack-then-events ordering, coalesced framing, ping/pong liveness and the
-  * decode-failure path are all bypassed. This stub exists so those can be tested
-  * against the real implementation.
+  * decode-failure path are all bypassed. This stub exists so those can be
+  * tested against the real implementation.
   *
   * It speaks enough of the protocol to be realistic, not all of it: the auth
   * phase, an auto-ack for the commands the runtime issues, and `pong`. Test
   * bodies drive everything else through [[emit]] / [[emitFrame]], so a test can
-  * produce framings real HA is hard to provoke into (an ack sharing a frame with
-  * its first event, a burst in one array, a malformed frame).
+  * produce framings real HA is hard to provoke into (an ack sharing a frame
+  * with its first event, a burst in one array, a malformed frame).
   */
 final class FakeHaSocket private (
     token: String,
@@ -69,7 +69,9 @@ final class FakeHaSocket private (
           val ok = json.hcursor.get[String]("access_token").contains(token)
           emitFrame(
             Json
-              .obj("type" -> Json.fromString(if (ok) "auth_ok" else "auth_invalid"))
+              .obj(
+                "type" -> Json.fromString(if (ok) "auth_ok" else "auth_invalid")
+              )
               .noSpaces
           )
         case other =>
