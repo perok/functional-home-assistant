@@ -386,6 +386,10 @@ private[runtime] object Patches {
     * group and prune its child cache entries, so a client re-establishes from a
     * known base.
     *
+    * Resume bookkeeping: departures are tombstoned (they replay verbatim), an
+    * arrival marks the group structural (its `insert` cannot be replayed) — see
+    * [[FragmentLog]].
+    *
     * Idempotency: the per-entity path fires only for an ESTABLISHED group, so
     * the first membership change after a renderer reload (fresh cache) always
     * repaints; a `remove` of an already-absent id is a no-op (see
@@ -421,7 +425,7 @@ private[runtime] object Patches {
       val (afterRemoves, removePatches) =
         removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
           val cid = renderer.dynamicChildId(gid, e)
-          (c.invalidate(cid), acc :+ Patch.Remove("#" + cid))
+          (c.removed(cid, at), acc :+ Patch.Remove("#" + cid))
         }
       val (afterAdds, addPatches) =
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
@@ -449,12 +453,15 @@ private[runtime] object Patches {
       // from the last whole-group render, so a later repaint must always re-emit
       // rather than diff against an entry that no longer describes the DOM.
       //
-      // Marked structural, not tombstoned: the `insert` patches above are
-      // positioned relative to DOM neighbours that may be gone by the time an
-      // absent client returns, so a resume re-renders this group instead of
-      // replaying them (see [[FragmentLog.structural]]).
+      // Only an ARRIVAL forces a resume to re-render this group: the `insert`
+      // patches above are positioned relative to DOM neighbours that may be gone
+      // by the time an absent client returns. A departure-only change needs
+      // nothing here — its tombstones replay verbatim, so a member leaving costs
+      // one small patch rather than a whole-group morph
+      // ([[FragmentLog.tombstones]]).
+      val invalidated = afterAdds.invalidate(gid)
       (
-        afterAdds.invalidate(gid).structuralAt(gid, at),
+        if (added.isEmpty) invalidated else invalidated.structuralAt(gid, at),
         removePatches ++ addPatches
       )
     }
