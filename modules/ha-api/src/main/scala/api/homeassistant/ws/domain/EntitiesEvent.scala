@@ -41,14 +41,13 @@ case class EntitiesEvent(
 
 object EntitiesEvent {
 
-  /** The feed's `c` (context: who/what caused the change — `{id, user_id,
-    * parent_id}`, or a bare id string) is DROPPED, not missing. It never
-    * travels alone (246 delta payloads observed, none context-only), so
-    * ignoring it cannot lose a change; nothing here renders attribution; and it
-    * changes on every single update, so carrying it would just be another
-    * always-differing field for `EntityState.sameContent` to ignore. Decode it
-    * if we ever want "changed by" — note the `Context | string` union.
-    */
+  // The feed's `c` (context: who/what caused the change — `{id, user_id,
+  // parent_id}`, or a bare id string) is DROPPED, not missing. It never travels
+  // alone (246 delta payloads observed, none context-only), so ignoring it
+  // cannot lose a change; nothing here renders attribution; and it changes on
+  // every single update, so carrying it would just be another always-differing
+  // field for `EntityState.sameContent` to ignore. Decode it if we ever want
+  // "changed by" — note the `Context | string` union.
 
   /** An entity's complete state. `lastUpdated` is absent when it equals
     * `lastChanged` (HA omits the duplicate), so read it as
