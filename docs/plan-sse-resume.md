@@ -2,12 +2,14 @@
 
 **Status: in progress.** The transport the design rests on is verified end-to-end in a
 real browser (see "Evidence"), not inferred from reading the pinned Datastar build.
-The server-side half is built and committed (`9e3eead` … `f70689d`), including the pure
-resume core. Building it corrected this document five times, and the corrections are kept
+The whole server-side path is built and committed (`9e3eead` … `af7a698`): a reconnect with a
+valid cursor is now served the log's delta, and the three signals are observed riding the
+reconnect URL in a real browser (`ResumeSpikeSuite`). Building it corrected this document five times, and the corrections are kept
 rather than tidied away because each was found by a sharper question than the one before:
 the tombstone framing (wrong twice, in opposite directions), the missing log identity, the
-"nothing grows so no eviction" claim, and the subtree a resume sent twice. Remaining:
-steps 3–5, the client-visible half.
+"nothing grows so no eviction" claim, and the subtree a resume sent twice. Remaining: the
+`dashboardHash` reload (step 4b), step 5, and — the real gap — proof points 2–6 in a
+browser, since a wrong resume fails silently and nothing in the terminal can see a DOM.
 
 ## Why
 
@@ -420,8 +422,12 @@ visibility path (override `document.hidden`, dispatch `visibilitychange`, restor
 
 ```
 request 0 @49ms:   /sse/dashboard/home/patch?datastar={}
-request 1 @1095ms: /sse/dashboard/home/patch?datastar={"haDown":false,"conn":"c4cfa822-…"}
+request 1 @1304ms: /sse/dashboard/home/patch?datastar={"haDown":false,"conn":"0bfda1ad-…",
+                     "dashboardHash":"da4a400a4d82","logId":"5268ba3b-…","storeVersion":2}
 ```
+
+The spike predates the signals and asserts only on `conn`, but it prints the whole param — so
+since step 3 it also SHOWS the real cursor arriving on the reconnect, unasked.
 
 Three load-bearing facts, now observed rather than inferred:
 
@@ -466,16 +472,38 @@ one to drive.
    `structural`. The risk this step was flagged for was real but misattributed — it lived
    in a misreading of the prune sites, not in the sites themselves. The real hazard turned
    out to be a rejoining member, closed by the subtree-authority invariant.
-3. **Hash the evaluated dashboard** where renderers are built/swapped, and push it as a
-   signal alongside `logId` and `storeVersion`.
-4. **Resume path in `sseStream`.** The pure core is DONE — `Patches.resume` returns
-   `Option[List[ServerSentEvent]]`, `None` meaning "repaint", with `ResumePatchesSuite`
-   covering anchor selection and the skips. What remains is the wiring: with a
-   matching hash and a cursor quoting the current `logId`, call it and push the result
-   instead of `initialRepaint`. Any doubt — no cursor, unparseable, hash mismatch, `logId`
-   mismatch, cursor above the current version or below the horizon, unknown slug — falls
-   back to today's full repaint. **The full repaint stays the default**; resume is the
-   narrow, provable case.
+3. ~~**Hash the evaluated dashboard.**~~ **Done** (`af7a698`). `Renderer.dashboardHash`,
+   12 hex of SHA-256, taken over the DECODED model rather than the JSON text — blind to
+   key order and formatting, and it captures the build-phase surface hoist too, which runs
+   before decode. `toString` is a deterministic rendering here because the nested maps are
+   `String`-keyed (specified `hashCode`, so iteration order is a function of contents and
+   decode-order insertion — nothing JVM-run-specific).
+4. ~~**Resume path in `sseStream`.**~~ **Done** (`af7a698`). `Server.openingPatches` is the
+   one place that decides, and it decides ONCE per connect: a cursor read off the `datastar`
+   param (`Server.cursorOf`) must quote this renderer's hash, this log's id, and a version
+   the store has reached, and `Patches.resume` must be able to serve it; otherwise the body
+   repaints. The repaint render is `lazy`, so the resumed path never pays for the thing it
+   exists to avoid. **The full repaint stayed the default** — every doubt falls to it, and
+   one test names all four doubts together.
+   Two things this step forced, both worth keeping:
+   - **The log had to become reachable from a connection**, not just from the publisher
+     fiber that writes it. It is now paired with its renderer in the registry
+     (`Server.LiveSlug`) — ONE value rather than two slug-keyed maps, so a renderer swap
+     cannot leave them out of step. The ref is stable per slug; a swap replaces its
+     CONTENTS with a freshly-identified log.
+   - **The cursor is read inside the same `Ref.modify` that produced the batch**, so a
+     client never quotes a log id its version did not come from. Cheap, and the alternative
+     was a race whose symptom is a silently stale DOM.
+   The cursor rides every non-empty shared batch and is re-emitted with the resume. A batch
+   that emitted nothing deliberately does NOT advance it: the client's older cursor then
+   resumes a superset of what it needs, which is the direction to err in.
+4b. **The reload half of `dashboardHash` is NOT built.** A hash mismatch currently falls to
+   the body repaint with everything else, which is today's behaviour and therefore no
+   regression — but the table above says it should be a full page RELOAD, and a body morph
+   cannot move `<head>`. The server has no way to reload a browser at all yet (the only
+   reload in the codebase is the user clicking the offline banner's button), so this needs a
+   patched `<script>` element and a browser to verify it. Left out deliberately rather than
+   half-built.
 5. **Per-session fragments** (open surfaces, bake owners) die with the connection and
    have no cross-connection log — `Session.lastRendered` is a `FragmentLog` for uniformity
    but its versions are never resumed from. Render those fresh for the new session; they
