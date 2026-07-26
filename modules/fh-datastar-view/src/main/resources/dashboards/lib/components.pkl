@@ -715,15 +715,22 @@ class Slider extends Node {
   // `<header>` (BeerCSS styles header as a 4rem app-bar grid, which swallowed
   // the text) and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the
   // state span into per-character wrapping).
+  //
+  // The drag signal is `_`-prefixed on purpose: Datastar sends every
+  // non-`_` signal with EVERY backend action, so an unprefixed one would ride
+  // the URL of every action POST and every SSE reconnect — a dashboard with a
+  // dozen sliders paid several hundred bytes per request for state only this
+  // browser uses. It is read client-side into the action URL (`$_val_…`) and
+  // never from a request body, so nothing server-side loses anything.
   cardDef = new CardDef {
     template = """
       <article class="card">
         <div class="slider-head"><strong>{{label}}</strong><span class="state">{{state}}</span></div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}%">
           <input type="range" min="{{min}}" max="{{max}}"
-            data-signals="{ val_{{id}}: {{value}} }"
-            data-bind="val_{{id}}"
-            data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})" />
+            data-signals="{ _val_{{id}}: {{value}} }"
+            data-bind="_val_{{id}}"
+            data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}})" />
           <span></span>
         </div>
       </article>

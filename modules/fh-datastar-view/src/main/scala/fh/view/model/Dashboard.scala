@@ -310,7 +310,7 @@ object LayoutNode:
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
     * authors never invent ids; underscore-joined so it is also a valid signal
-    * name (`val_{{id}}`).
+    * name (`_val_{{id}}`).
     */
   def pathId(path: List[Int]): String =
     if path.isEmpty then "c" else path.mkString("c_", "_", "")
