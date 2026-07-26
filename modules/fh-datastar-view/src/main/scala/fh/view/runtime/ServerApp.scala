@@ -401,7 +401,13 @@ object ServerApp extends IOApp {
       entries: List[(String, String)],
       imports: List[Set[os.Path]]
   ): Set[Path] =
-    (imports.flatten.toSet ++ entries.map { case (_, e) => dashboardsDir / e })
+    (imports.flatten.toSet ++
+      entries.map { case (_, e) => dashboardsDir / e } +
+      // The workspace manifest, so adding a package dependency takes effect
+      // like any other edit: the re-eval re-resolves the lockfile whenever this
+      // file's mtime has moved (`PklBuild.staleLockfile`). It is editable in the
+      // editor, so this is a real edit path, not a hypothetical one.
+      (dashboardsDir / EditorRoutes.Manifest))
       .map(fs2Path)
 
   private val watchedEvents = List(
