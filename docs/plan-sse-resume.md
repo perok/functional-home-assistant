@@ -2,10 +2,11 @@
 
 **Status: in progress.** The transport the design rests on is verified end-to-end in a
 real browser (see "Evidence"), not inferred from reading the pinned Datastar build.
-The server-side half is built: steps 0–2 are committed (`9e3eead`), which is where the
-mechanism became concrete and three of this document's assumptions turned out to be
-wrong in the simplifying direction — no tombstones, no watermark, plus a log identity
-the design was missing. Remaining: steps 3–5, the client-visible half.
+The server-side half is built and committed (`9e3eead` … `c538b39`), including the pure
+resume core. Building it corrected this document four times, and the corrections are kept
+rather than tidied away because each was found by a sharper question than the one before:
+the tombstone framing (wrong twice, in opposite directions), the missing log identity, and
+the "nothing grows so no eviction" claim. Remaining: steps 3–5, the client-visible half.
 
 ## Why
 
@@ -61,7 +62,7 @@ server-side structure:
 | `dashboardHash` | is this still the same compiled dashboard? | full page **reload** |
 | `logId` | is this cursor even comparable? | body **repaint** |
 | `storeVersion` | how far behind is this client's state? | body **repaint** |
-| (server-side) fragment log | which fragments changed since then? | — |
+| (server-side) fragment log | what changed since then — and is it still retained? | body **repaint** |
 
 The server keeps **no per-client memory** between connections. The client carries the
 cursor; the server keeps one versioned log per slug, shared by every client.
@@ -113,25 +114,33 @@ The per-slug diff cache gains a version, turning it from "what did we last broad
 into "when did each fragment last change":
 
 ```scala
+case class Stamp(version: Long, millis: Long)   // logical clock + wall clock
 case class Fragment(html: String, version: Long)
+
+enum Mutation(val version: Long, val millis: Long):   // last STRUCTURAL fact about a node
+  case Gone(at: Long, wall: Long)                     // its element was deleted
+  case Placed(gid: String, entityId: String, at: Long, wall: Long)  // belongs at its current position
+
 case class FragmentLog(
     id: String,                        // this log's identity; see `logId` above
     fragments: Map[String, Fragment],  // nodeId -> latest html + when it changed
-    tombstones: Map[String, Long],     // nodeId -> when its element was DELETED
-    structural: Map[String, Long]      // dynamic groupId -> when it GAINED a member
+    mutations: Map[String, Mutation],  // nodeId -> where it is
+    horizon: Long                      // oldest version `mutations` is COMPLETE for
 )
+
+def since(v: Long): Option[Resume]     // None => cannot be told, repaint
 ```
 
-A resume with cursor V is then: push every `Fragment` whose `version >= V`, a
-`remove` for every tombstone `>= V`, and re-render every group in `structural` at
-`>= V`. Three consequences:
+`fragments` answers *what does this node contain*; `mutations` answers *where is
+this node* — the changes that cannot be expressed as a morph of an element the
+client already has. A resume with cursor V pushes every `Fragment` at `>= V`,
+then applies every `Mutation` at `>= V`. Three consequences:
 
-1. **Almost no re-rendering on resume.** The HTML is already in the cache. An
+1. **No re-rendering on resume at all.** The HTML is already in the cache. An
    entity-level cursor plus a re-render (the earlier draft of this plan) would redo work
-   the server had already done and discarded. The one exception is a group that GAINED a
-   member — bounded by how many groups actually churned, usually zero.
-2. **Group-member departure costs one small patch,** not a whole-group morph — see the
-   next section, which is where this design changed shape twice.
+   the server had already done and discarded.
+2. **Every membership change costs patches proportional to what moved,** not to group
+   size — see the next section, which is where this design changed shape twice.
 3. **Only the LATEST html per node is kept, which is correct.** A client that missed
    five changes to one card wants the fifth, not a replay of all five. Truncating to
    latest is the semantics, not a compromise.
@@ -149,12 +158,62 @@ created, and every client's body — server-rendered from current state at page 
 already has it. So absence correctly reads as "you are up to date", and there is no
 bootstrapping hole.
 
-**No watermark, because nothing grows.** An earlier draft called for one: tombstones
-recorded per event accumulate without bound, so the log would have had to carry the
-oldest version for which it is complete and trim below it. Keying every map by **id**
-(node, group) rather than by event makes all three bounded by DASHBOARD SIZE — a node has
-one latest fragment and one latest removal, a group one latest arrival. Nothing to trim,
-no knob, no below-the-watermark fallback path to get wrong.
+### Eviction: `fragments` self-limits, `mutations` does not
+
+Keying by **node id** rather than by event is what keeps the log small — a node has one
+latest content and one latest structural fact however many times it churned, so a
+hyperactive sensor cannot flood it. That much was the point of the earlier "no watermark"
+claim, and for `fragments` it is sufficient: they describe nodes that currently EXIST, and
+both `removed` and `invalidateWhere` drop entries, so the map tracks the live dashboard.
+
+`mutations` is the exception, and the claim was wrong about it. A `Mutation.Gone` for a
+member that left and never returned has nothing to evict it, so the map accumulates one
+entry per entity that has EVER been a member of any group. That is bounded by ENTITY COUNT,
+not dashboard size — and it grows with elapsed TIME rather than with dashboard complexity.
+The failure is undramatic but real: a `dynamic` group over "every light that is on" will,
+over a week, name every light in the house, and those entries name versions no live client
+could still be sitting on.
+
+So mutations are **aged out** — `FragmentLog.Retention`, currently 1 hour — and the log
+carries a **`horizon`**: the oldest version for which `mutations` is complete, raised past
+everything evicted. A cursor below the horizon is refused and repaints.
+
+**Why age and not an entry cap.** The real question is "how long can a client be away and
+still be worth resuming?" — a backgrounded phone tab is minutes to hours, and past that its
+connection is long dead. Aging makes the retained set mean exactly that, where a count cap
+is only a proxy for it. And a cap is redundant anyway: the id-keyed map already bounds burst
+churn, since re-touching a node replaces its entry rather than adding one. One knob instead
+of two.
+
+**Retention needs a wall clock, which is why `Stamp` carries two.** `version` orders
+everything and is the only clock any correctness argument rests on; `millis` only ages
+mutations out. They are never compared to each other and never used to order the same thing,
+so this does NOT reintroduce the two-clocks-in-one-ordering problem that ruled out HA's
+`last_updated` as the cursor (above). A clock step — NTP, a host waking from suspend — can
+widen or narrow a retention window but cannot corrupt a cursor comparison. The clock is read
+by the caller once per diff and passed in, so the log stays pure.
+
+Two design notes worth keeping:
+
+- **The horizon is enforced by the type, not by a convention.** `since` returns
+  `Option[Resume]` — `None` means repaint — rather than exposing a `resumable` predicate a
+  caller is trusted to check first. Forgetting that check would leave a client holding a
+  ghost element indefinitely, with nothing observable at the moment of the mistake, which is
+  precisely the class of bug this whole plan is trying not to introduce.
+- **Eviction is per-log and therefore per-slug**, and a log dies on renderer swap anyway, so
+  there is no reaper and no cross-connection bookkeeping — the property that made the
+  per-client alternatives (a) and (b) unattractive.
+
+**FUTURE — retention by live cursors.** The age bound is a blunt stand-in. The precise rule
+is to truncate below the OLDEST cursor any live connection still holds: `Sessions` is already
+keyed by `conn`, so each could report its last-sent version and the log could evict
+everything below their minimum — retaining exactly what is still reachable and no more. Two
+caveats, and the second is the reason the age bound must survive rather than be replaced.
+It reintroduces per-connection server state, which this design otherwise avoids — acceptable
+here only because it would serve RETENTION, never correctness, which is what distinguishes it
+from the rejected per-client mirror in (a)/(b). And a wedged or hung connection would pin the
+log open indefinitely, so the real rule is `min(live cursors)` **clamped** by the age bound,
+not one or the other.
 
 **Hot-path cost is a point lookup, unchanged.** The live path only ever does
 `log.html(nodeId)` + compare: O(1) before, O(1) after, one small allocation per changed
@@ -166,12 +225,17 @@ lives in a comment, and NOT splitting into parallel `Map[nodeId, String]` +
 mechanism, not two" smell). The resume must `.get` the log once and scan it OUTSIDE the
 `Ref.modify`, so a reconnect never serializes against the live diff path.
 
-### Removals: tombstones for departures, re-render only for arrivals
+### Structural changes: one mutation per node
 
-The plan first called for "a tombstone at every prune site" and named it the main
-implementation risk; reading the code then suggested tombstones were unnecessary
-everywhere. Both were wrong, in opposite directions. The distinction that actually
-matters is **not** which sites touch the cache — it is which patches can be REPLAYED.
+This section changed three times, and the sequence is instructive because each wrong
+version was wrong in a *different* way. First: "emit a tombstone at every prune site",
+named as the main implementation risk. Then, on reading the code: "no tombstones anywhere,
+re-render the group instead". Then: tombstones for departures, re-render for arrivals. Each
+was corrected by asking a sharper question than the last, and the final shape is smaller
+than all three.
+
+The distinction that actually matters is **not** which sites touch the cache — it is which
+patches can be REPLAYED.
 
 **Most prune sites are cache INVALIDATIONS, not removals.** `repaintGroup` and
 `flipStateGroup` each drop their children's entries *while morphing an ancestor whose
@@ -186,40 +250,80 @@ is always `#{gid}_{entity}` — `Renderer.dynamicChildId`, a child *inside* the 
 `#gid`, which is also where the matching `insert` appends. So the complete set of elements
 the server can ever delete is "some children of some dynamic group".
 
-**Departures replay exactly; arrivals cannot.** These are not symmetric, and the first
-draft of this section wrongly generalized from the second to both:
+**A `remove` replays; an `insert` does not.**
 
 - A `remove` is **idempotent** — Datastar resolves the selector with `querySelectorAll`,
   so removing an absent id matches nothing (the live per-entity path already depends on
-  this). It therefore replays verbatim, needing no knowledge of the client's DOM. A
-  departure costs one ~40-byte patch.
+  this). It replays verbatim, needing no knowledge of the client's DOM.
 - An `insert` is **position-dependent**: `before` a DOM neighbour that may itself be gone
-  by the time an absent client returns. Recomputing the anchor at resume time needs the
-  client's DOM ordering — the one thing this design refuses to track. No amount of
-  precision in recording the removals fixes the add direction.
+  by the time an absent client returns. Recomputing the anchor needs the client's DOM
+  ordering — the one thing this design refuses to track.
 
-So a departure-only membership change is tombstoned, and only a change that ADDS marks the
-group `structural` for re-render. That matters for this plan's own goal: re-rendering a
-20-card group because one card left is exactly the payload cost the work exists to
-eliminate, and on the slow mobile link that motivates all of it. The group re-render
-survives for arrivals because it is correct without knowing what the client held — the
-fresh HTML omits whatever left, contains whatever arrived, in the right order.
+The resolution is to make the insert **self-repairing** rather than trying to replay it:
+`Mutation.Placed` emits `remove` AND `insert` for the node, which is correct whatever the
+client's DOM holds — element absent, present in the right place, or present in the wrong
+one. "Put this element here" needs no knowledge of where it was.
 
-**The rejoin hazard, and the invariant that closes it.** An entity that leaves and later
-comes back carries a tombstone AND a fresh ancestor render. Replaying the removal after
-that render deletes a live member — silent, and permanent until the next repaint. The
-invariant: **a node's fresh HTML is authoritative for its whole subtree, so stamping it
-supersedes that subtree's tombstones.** Applied in two places, because the hazard is
-reachable by two paths — `since` drops the tombstones of any group it re-renders, and
-`invalidateWhere` drops them for any subtree whose root is re-stamped (every prune site
-sets the root in the same operation, which is why that method carries the requirement in
-its doc). With both, correctness no longer depends on the order removals and fragments
-are emitted in.
+That collapses the two records into one, and the reason is a modelling one rather than an
+optimization: a node cannot be both gone and present, so parallel `tombstones`/`arrivals`
+maps made an invalid state representable — and that state is exactly what a
+leave-then-rejoin produced. One sum type with latest-wins makes the rejoin ordinary
+(`Placed` replaces `Gone`) instead of a case to handle. Both collapse directions are
+tested.
+
+**The one ordering rule left** is inherent rather than bookkeeping: placements are emitted
+**descending by current position**, so each insert's anchor provably exists — it is either
+a member the client already had, or one placed a moment ago. Ascending fails, because a
+node's anchor can be a later node not yet inserted. Morphs go first (ascending by version,
+since a container's cached HTML embeds its children's).
+
+**Two `Placed` skips**, both needed: an entity that is no longer a member (unreachable in
+practice, since the latest mutation would then be `Gone` — kept as a defence), and a node
+already contained in the HTML of an ancestor fragment being sent
+(`FragmentLog.coveredByAncestor`), which would otherwise duplicate the element. Ancestry is
+a string-prefix test, since ids are location-derived (`Dashboard.pathId`: `c`, `c_0`,
+`c_0_1`); the trailing `_` is what keeps `c_1` from matching `c_10`.
+
+**The subtree-authority invariant.** A node's fresh HTML is authoritative for everything
+under it, so stamping it supersedes that subtree's mutations — a stale `Gone` would delete
+a member the ancestor's HTML legitimately restored, and a stale `Placed` would insert one it
+already contains. Enforced in `invalidateWhere`, which every prune site uses while setting
+the subtree root in the same operation.
 
 Two removals that look like exceptions and are not: an entity vanishing from HA triggers
 a registry re-evaluation and therefore a renderer swap, which mints a new `logId` and
 rejects the cursor outright; and a popup close is a per-session control patch that dies
 with the connection (step 5).
+
+#### Note for later: positional changes on the LIVE path
+
+Member order is currently hardcoded ascending by entity id (`sortBy(_._1)`, in
+`Renderer.renderDynamic` and `dynamicMembers`). When member sorting becomes
+author-controlled, a member can change POSITION with no membership change — impossible
+today, which the live path quietly assumes.
+
+**No new mutation kind is needed.** `Mutation.Placed` already means "this element belongs at
+its current position", and its remedy (remove + insert at the current anchor) is identical
+for an arrival and a move — which is why the resume side is already done. A separate
+`Mutation.Position` would only be warranted if the resume remedy differed, and it does not.
+Note also that the descending-order argument assumes only that server and client agree on
+SOME total order over members; nothing in it depends on that order being by entity id.
+
+What *is* missing is on the live diff path, and it is a detection change, not a protocol
+one:
+
+- Today a reorder with an unchanged member SET lands in `renderMembershipChange` with
+  `added`/`removed` both empty, so `churn == 0` and it falls through to `repaintGroup` — a
+  whole-group morph. Correct, but the heavy path.
+- The optimization is to recognise "same set, different order" and move the **minimal** set
+  of members: that is `n` minus the longest increasing subsequence of target positions, the
+  standard list-reconciliation result. Each moved member emits remove + insert and records
+  `Mutation.Placed`, so resume needs no change.
+- Watch for a sort key derived from live state (brightness, `last_changed`): it makes
+  reorders fire on ordinary value ticks, so the in-place-morph fast path has to test
+  position before assuming a content-only update. A STATIC key (`friendly_name`, an
+  author-given order) only reorders on membership change and is much cheaper — worth
+  offering that shape first.
 
 ### `dashboardHash` — is it still the same dashboard?
 
@@ -332,12 +436,14 @@ one to drive.
    out to be a rejoining member, closed by the subtree-authority invariant.
 3. **Hash the evaluated dashboard** where renderers are built/swapped, and push it as a
    signal alongside `logId` and `storeVersion`.
-4. **Resume path in `sseStream`:** with a matching hash and a cursor quoting the current
-   `logId`, skip `initialRepaint` and instead push `FragmentLog.since(V)` — its fragments
-   (in version order), its removals, and a fresh render of each structural group. Any
-   doubt — no cursor, unparseable, hash mismatch, `logId` mismatch, cursor above the
-   current version, unknown slug — falls back to today's full repaint. **The full repaint
-   stays the default**; resume is the narrow, provable case.
+4. **Resume path in `sseStream`.** The pure core is DONE — `Patches.resume` returns
+   `Option[List[ServerSentEvent]]`, `None` meaning "repaint", with `ResumePatchesSuite`
+   covering anchor selection and both skip cases. What remains is the wiring: with a
+   matching hash and a cursor quoting the current `logId`, call it and push the result
+   instead of `initialRepaint`. Any doubt — no cursor, unparseable, hash mismatch, `logId`
+   mismatch, cursor above the current version or below the horizon, unknown slug — falls
+   back to today's full repaint. **The full repaint stays the default**; resume is the
+   narrow, provable case.
 5. **Per-session fragments** (open surfaces, bake owners) die with the connection and
    have no cross-connection log — `Session.lastRendered` is a `FragmentLog` for uniformity
    but its versions are never resumed from. Render those fresh for the new session; they
@@ -369,8 +475,11 @@ window, no reaper, no per-client mirror.
 4. **A restart repaints but does not reload** (hash stable, `logId` differs), and an edit
    reloads (hash differs).
 5. **A parent and a child changing at different versions resume in the right order.** The
-   silent failure is a stale container reverting a fresh child; only ordering prevents it,
-   so it needs a test that would fail if `since` stopped sorting.
+   silent failure is a stale container reverting a fresh child; only ordering prevents it.
+   Covered at the unit level (`FragmentLogSuite`); still unproven through a real browser.
+6. **A cursor older than the retention window repaints rather than resuming.** Covered at
+   the unit level via the horizon; what a browser test adds is that the repaint actually
+   restores a correct DOM from an arbitrarily stale one.
 
 ## Alternatives considered
 
