@@ -12,9 +12,19 @@ import io.circe.{Decoder, Json}
   * subscription is lost), which is why it replaces both.
   *
   * Field names are HA's single letters, kept verbatim in the wire types and
-  * given readable names here. Verified against HA 2026.7.2; it is
-  * frontend-facing rather than formally documented, so `EntitiesFeedSuite` pins
-  * the shape.
+  * given readable names here. The command is absent from the WebSocket API docs
+  * (which cover `subscribe_events`/`subscribe_trigger` only), but the format is
+  * pinned by readable source on BOTH ends:
+  *   - producer — core's `websocket_api/messages.py`: `ENTITY_EVENT_ADD/REMOVE/
+  *     CHANGE` = `a`/`r`/`c`, `STATE_DIFF_ADDITIONS/REMOVALS` = `+`/`-`; and
+  *     `homeassistant/const.py`: `COMPRESSED_STATE_*` = `s`/`a`/`c`/`lc`/`lu`.
+  *   - consumer — `home-assistant-js-websocket` (`lib/entities.ts`):
+  *     `StatesUpdates`/`EntityDiff`, whose apply step is
+  *     `Object.assign(attributes, toAdd.a)` then delete `toRemove.a` — i.e.
+  *     attributes MERGE, which is what [[EntitiesEvent.Delta]] reproduces.
+  *
+  * `EntitiesFeedSuite` pins it further against frames captured from a live
+  * instance (2026.7.2), since neither source is a stability promise.
   */
 case class EntitiesEvent(
     /** `a` — full state, replacing whatever is stored. The whole entity set on

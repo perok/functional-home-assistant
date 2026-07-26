@@ -10,10 +10,12 @@ import io.circe.parser.parse
 /** Pins HA's `subscribe_entities` wire format, its coalesced framing, and how
   * the store folds both in.
   *
-  * The frames below are VERBATIM captures from a live instance (HA 2026.7.2) —
-  * the feed is frontend-facing rather than formally documented, so a captured
-  * payload is the only honest specification we have. Everything else in the suite
-  * drives the fake, which cannot catch a decoder that disagrees with real HA.
+  * The frames below are VERBATIM captures from a live instance (HA 2026.7.2).
+  * The format itself is defined in readable source on both ends (see
+  * [[EntitiesEvent]] for the pointers), but neither end promises stability and
+  * neither is what we actually receive — so the captures are what this suite
+  * asserts against. Everything else in the test suite drives the fake, which by
+  * construction cannot catch a decoder that disagrees with real HA.
   */
 class EntitiesFeedSuite extends munit.CatsEffectSuite {
 
