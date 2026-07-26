@@ -198,10 +198,10 @@ lazy val `fh-datastar-view` = project
       // Capped exponential backoff for the self-healing HA feed reconnect
       // (HaFeed.superviseLoop) as a RetryPolicy rather than a hand-rolled Ref.
       "com.github.cb372" %% "cats-retry" % "4.0.0",
-      "org.scalameta" %% "munit" % "1.3.3" % Test,
+      "org.scalameta" %% "munit" % "1.3.4" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
-      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
       "com.microsoft.playwright" % "playwright" % "1.61.0" % Test
@@ -227,7 +227,7 @@ lazy val root = project
     commonSettings,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.3" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.4" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
