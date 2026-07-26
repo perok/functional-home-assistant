@@ -63,4 +63,85 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(changes.head.current.state, "off")
     assertEquals(changes(1).previous, None) // c was newly seen
   }
+
+  // The resume cursor (docs/plan-sse-resume.md). `changedSince` is pure, so the
+  // interesting cases are asserted on the value, not through a server.
+  private def store(entities: (String, EntityState)*) =
+    StoreState(entities.toMap, 0L, Map.empty, 0L)
+
+  test("an idle re-seed leaves every cursor resumable") {
+    val (version, since) = (for {
+      s <- StateStore.inMemory(Map("a" -> st("a", "1")))
+      _ <- s.update(st("a", "1")) // deduped: nothing a client could care about
+      v <- s.version
+      r <- s.changedSince(0L)
+    } yield (v, r)).timeout(10.seconds).unsafeRunSync()
+
+    // No version movement, so the cursor a client is holding still names the
+    // present and resumes to an empty delta rather than a repaint.
+    assertEquals(version, 0L)
+    assertEquals(since, StateStore.Since.Changed(Set.empty, 0L))
+  }
+
+  test("a cursor is told exactly which entities moved since it was issued") {
+    val (mid, out) = (for {
+      s <- StateStore.inMemory(Map("a" -> st("a", "1"), "b" -> st("b", "1")))
+      _ <- s.update(st("a", "2"))
+      mid <- s.version // the cursor a client would be holding here
+      _ <- s.update(st("b", "2"))
+      r <- s.changedSince(mid)
+    } yield (mid, r)).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(mid, 1L)
+    // `a` moved BEFORE the cursor was issued, so it is not resent.
+    assertEquals(out, StateStore.Since.Changed(Set("b"), 2L))
+  }
+
+  test("a batch is one version, however many entities it carries") {
+    val out = (for {
+      s <- StateStore.inMemory(Map.empty)
+      _ <- s.update(
+        List(Ingest.Replace(st("a", "1")), Ingest.Replace(st("b", "1")))
+      )
+      v <- s.version
+      r <- s.changedSince(0L)
+    } yield (v, r)).timeout(10.seconds).unsafeRunSync()
+
+    // One coalesced frame -> one version covering both entities.
+    assertEquals(out._1, 1L)
+    assertEquals(out._2, StateStore.Since.Changed(Set("a", "b"), 1L))
+  }
+
+  test("a removal forces a repaint for cursors issued before it") {
+    val state = store("a" -> st("a", "1"))
+    val after = StateStore
+      .changedSince(state.copy(version = 5L, lastRemoval = 5L), 4L)
+    assertEquals(after, StateStore.Since.Repaint)
+    // A cursor issued AT or after the removal is fine again.
+    assertEquals(
+      StateStore.changedSince(state.copy(version = 5L, lastRemoval = 5L), 5L),
+      StateStore.Since.Changed(Set.empty, 5L)
+    )
+  }
+
+  test("a cursor from ahead of the store is rejected, not trusted") {
+    // A restarted server: the browser still holds a signal from the old store.
+    assertEquals(
+      StateStore.changedSince(store("a" -> st("a", "1")), 7L),
+      StateStore.Since.Repaint
+    )
+  }
+
+  test("a removed entity drops out of the change index") {
+    val out = (for {
+      s <- StateStore.inMemory(Map("a" -> st("a", "1")))
+      _ <- s.update(st("a", "2")) // a changed at version 1
+      _ <- s.update(List(Ingest.Remove("a"))) // ...then vanished at version 2
+      r <- s.changedSince(2L)
+    } yield r).timeout(10.seconds).unsafeRunSync()
+
+    // The stale `changedAt` entry must not name an entity that no longer exists,
+    // or a resume would try to re-render a node with no state behind it.
+    assertEquals(out, StateStore.Since.Changed(Set.empty, 2L))
+  }
 }
