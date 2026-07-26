@@ -355,6 +355,12 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(html.contains("data-on:datastar-fetch"), html)
       assert(html.contains("retries-failed"), html)
       assert(!html.contains("data-on-interval"), html)
+      // Every `data-show` element must ALSO ship inline-hidden, or it paints
+      // before Datastar loads and flashes on each page load.
+      html
+        .split("<")
+        .filter(_.contains("data-show="))
+        .foreach(tag => assert(tag.contains("""style="display:none""""), tag))
       // Two DISTINCT messages, one per failure kind.
       assert(html.contains("Reconnecting to the dashboard"), html)
       assert(html.contains("Home Assistant unavailable"), html)

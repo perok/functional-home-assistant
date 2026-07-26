@@ -958,14 +958,21 @@ class Server(
     val sseState =
       "evt.detail.type === 'retries-failed' ? 2 : " +
         "(evt.detail.type === 'retrying' || evt.detail.type === 'error') ? 1 : 0"
+    // Both banners ship hidden by an INLINE `display:none`, or they flash on
+    // every load: the Datastar module is deferred, so the browser paints the
+    // markup before `data-show` first runs. It must be inline — `data-show`
+    // clears the element's own `style.display` to reveal it, which cannot
+    // override a stylesheet rule, so hiding these in the theme CSS would hide
+    // them permanently.
+    val hidden = """style="display:none""""
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0}"
          |     data-on:datastar-fetch="$$_sse = $sseState">
-         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sse > 0">
-         |    <span data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
-         |    <span data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
+         |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
+         |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
+         |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
          |  </div>
-         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
+         |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
