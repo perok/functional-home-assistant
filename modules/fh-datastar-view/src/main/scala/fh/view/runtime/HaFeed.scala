@@ -4,6 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.domain.EntitiesEvent
+import fh.view.FHError
 import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
@@ -42,24 +43,33 @@ import scala.concurrent.duration.*
   *     applied); the Server pushes it to the browser as the `haDown` signal, so
   *     the disconnect banner reflects an upstream freeze, not just a
   *     browser-side drop.
-  *   - [[awaitHealthy]] is a separate ONE-SHOT: it completes once a feed batch
-  *     has been applied to [[store]], i.e. it is populated. Distinct from
-  *     [[healthy]] because it gates first use that assumes a populated store
-  *     (startup dump prep; a test driving [[FakeHomeAssistant.emit]]) — a warm
-  *     reconnect is "healthy" immediately, but "seeded" only ever latches once
-  *     and never un-fires.
+  *
+  * A HaFeed VALUE MEANS THE STORE IS POPULATED: [[resource]] does not hand one
+  * out until the feed's opening full state has been applied (or gives up
+  * loudly, [[SeedTimeout]]). So a consumer never holds a feed it must first
+  * remember to wait on — the wait has no expression in the API because it
+  * cannot be skipped. That is only about the FIRST fill; a later reconnect
+  * re-seeds in the background and is reported by [[healthy]], which is a
+  * different question ("is the link up right now") from a one-shot "has it ever
+  * filled".
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
     store: StateStore,
-    healthy: Signal[IO, Boolean],
-    awaitHealthy: IO[Unit]
+    healthy: Signal[IO, Boolean]
 )
 
 object HaFeed {
 
   private val MinBackoff: FiniteDuration = 1.second
   private val MaxBackoff: FiniteDuration = 30.seconds
+
+  /** How long [[resource]] waits for the feed's opening state before failing
+    * the boot. Generous, since an add-on may start just before Home Assistant
+    * core is ready, but bounded so a misconfiguration fails loudly instead of
+    * hanging on the infinite reconnect loop.
+    */
+  private val SeedTimeout: FiniteDuration = 60.seconds
 
   /** A LOW-LEVEL connection resource paired with its `awaitClosed` signal (an
     * `IO[Unit]` that completes when the WebSocket has died) — exactly what
@@ -73,6 +83,9 @@ object HaFeed {
   /** Build the supervised feed. `connect` is re-`.use`d on every reconnect (a
     * fresh WebSocket + auth each time), so pass the full connection resource
     * (`FHApi.lowLevelConnectWithClose`), not an already-established connection.
+    *
+    * ACQUISITION BLOCKS until the store has been filled once, so what it yields
+    * is a feed that is ready to read.
     */
   def resource(connect: Connect): Resource[IO, HaFeed] =
     for {
@@ -81,7 +94,7 @@ object HaFeed {
       connection <- SignallingRef[IO]
         .of(Option.empty[HAWSApiLowLevel[IO]])
         .toResource
-      // One-shot: completed once a feed batch has landed. `awaitHealthy`.
+      // One-shot: completed once a feed batch has landed; gates acquisition.
       seeded <- IO.deferred[Unit].toResource
       store <- StateStore.empty.toResource
       // The stable API: a durable facade over the current low-level connection,
@@ -89,7 +102,21 @@ object HaFeed {
       // across every reconnect.
       api = HomeAssistantApi.fromWs(durableFacade(connection))
       _ <- superviseLoop(connect, connection, seeded, store).background
-    } yield HaFeed(api, store, connection.map(_.isDefined), seeded.get)
+      // Credentials are validated by the caller before we get here, so failing
+      // this wait means HA is configured but not answering: a clear boot error
+      // rather than a silent hang inside the reconnect loop.
+      _ <- seeded.get
+        .timeoutTo(
+          SeedTimeout,
+          IO.raiseError(
+            FHError.internal(
+              s"Home Assistant sent no state within $SeedTimeout " +
+                "(the instance is configured but did not answer — is it running?)"
+            )
+          )
+        )
+        .toResource
+    } yield HaFeed(api, store, connection.map(_.isDefined))
 
   /** Reconnect forever with capped exponential backoff, expressed as a
     * cats-retry policy rather than a hand-rolled doubling `Ref`.

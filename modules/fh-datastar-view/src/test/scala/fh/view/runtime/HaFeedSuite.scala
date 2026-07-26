@@ -36,7 +36,6 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         // live when it was pushed.
         feed.api.rawEvents("test_registry").use { events =>
           for {
-            _ <- feed.awaitHealthy
             _ <- fake.pushRawEvent("test_registry", Json.fromString("one"))
             // Drop the live connection cleanly -> supervisor reconnects (a
             // second `connect` use), and the durable subscription re-arms.

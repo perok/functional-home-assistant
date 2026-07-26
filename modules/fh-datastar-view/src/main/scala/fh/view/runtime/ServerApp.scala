@@ -123,19 +123,19 @@ object ServerApp extends IOApp {
         // Resolve SERVER/SECRET ONCE, eagerly, so a missing credential crashes
         // boot immediately — rather than being swallowed by the feed's
         // background reconnect loop and mistaken for an unreachable HA (which
-        // would only surface as the awaitHealthy timeout below).
+        // would only surface as the feed's seed timeout below).
         haEnv <- FHApi.resolveEnv.toResource
         // ONE Home Assistant connection for the whole runtime: the self-healing
         // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
         // (`call_service` + state) AND the startup/occasional REST work — dump
         // prep, dump refresh, registry watching — so there is no second,
-        // unsupervised socket that silently dies on a drop. The feed connects in
-        // the background; `feed.awaitHealthy` below gates the first use.
+        // unsupervised socket that silently dies on a drop. Acquiring it blocks
+        // until its store has been filled, so it is ready to read here.
         feed <- HaFeed.resource(FHApi.lowLevelConnectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
-        // Discover, block for the first seed, seed the dump, and build every
-        // entry — the entry-to-renderer path shared with the test harness so it
-        // can't diverge. `bundledLib` pins the FIRST dump on a fresh workspace.
+        // Discover, seed the dump, and build every entry — the entry-to-renderer
+        // path shared with the test harness so it can't diverge. `bundledLib`
+        // pins the FIRST dump on a fresh workspace.
         prepared <- prepareRenderers(
           feed,
           dashboardsDir,
@@ -286,20 +286,6 @@ object ServerApp extends IOApp {
       _ <- IO.raiseWhen(entries.isEmpty)(
         FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
       )
-      // Dump prep issues a live template call through `feed.api`, which fails
-      // fast while disconnected — so block until the feed has connected AND
-      // seeded once. Credentials are validated earlier (eager `resolveEnv`), so
-      // a timeout here means HA is configured but unreachable: a clear boot
-      // error, not a hang on the feed's infinite reconnect.
-      _ <- feed.awaitHealthy.timeoutTo(
-        HealthyBootTimeout,
-        IO.raiseError(
-          FHError.internal(
-            s"Home Assistant not reachable within $HealthyBootTimeout " +
-              "(SERVER is set but the instance did not answer — is it running?)"
-          )
-        )
-      )
       // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
       // the build phase, which owns fetching + packaging the dump.
       _ <- DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
@@ -346,20 +332,6 @@ object ServerApp extends IOApp {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      // The store must be seeded before the Server serves a page. Bounded, so a
-      // boot (or test) where the feed never seeds fails fast instead of hanging;
-      // in production this is already satisfied by the pre-dump gate, so it
-      // returns immediately.
-      _ <- feed.awaitHealthy
-        .timeoutTo(
-          HealthyBootTimeout,
-          IO.raiseError(
-            FHError.internal(
-              s"Home Assistant feed did not seed within $HealthyBootTimeout"
-            )
-          )
-        )
-        .toResource
       sessions <- Sessions.create.toResource
       server <- Server.fromFeed(
         feed,
@@ -614,13 +586,6 @@ object ServerApp extends IOApp {
       }
 
   private val RegistryQuiet = 5.seconds
-
-  /** How long boot waits for the feed to first connect + seed before giving up
-    * (see the `feed.awaitHealthy` gate). Generous, since an add-on may start
-    * just before Home Assistant core is ready, but bounded so a
-    * misconfiguration fails loudly instead of hanging.
-    */
-  private val HealthyBootTimeout = 60.seconds
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 

@@ -14,7 +14,8 @@ import scala.concurrent.duration.*
   *
   * Driven through the real [[HaFeed]] (over a never-closing connection), since
   * the store is a passive sink whose sole production driver is that feed —
-  * `awaitHealthy` is exactly "the opening full-set frame has been applied".
+  * and a HaFeed exists only once the opening full-set frame has been applied,
+  * so the snapshot can be read straight off it.
   */
 class FixtureSeedSuite extends munit.CatsEffectSuite {
 
@@ -25,7 +26,7 @@ class FixtureSeedSuite extends munit.CatsEffectSuite {
         val connect: HaFeed.Connect = Resource.pure((fake, IO.never))
         HaFeed
           .resource(connect)
-          .use(feed => feed.awaitHealthy *> feed.store.snapshot)
+          .use(_.store.snapshot)
       }
       .timeout(30.seconds)
       // Timestamps come from the feed, not the fixture, so compare the values a
