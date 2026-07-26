@@ -53,7 +53,11 @@ private[runtime] object Patches {
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      // The store version `states` was read at, stamped onto every fragment this
+      // request renders. Read atomically WITH the snapshot, so a fragment can
+      // never claim a version its HTML does not reflect.
+      version: Long
   )
 
   /** Which pass is selecting — the only real difference between the shared and
@@ -106,6 +110,7 @@ private[runtime] object Patches {
   def plan(
       renderer: Renderer,
       states: Map[String, EntityState],
+      version: Long,
       change: StateChange,
       scope: Scope
   ): DiffRequest = {
@@ -150,7 +155,8 @@ private[runtime] object Patches {
           change,
           states,
           before,
-          Map.empty
+          Map.empty,
+          version
         )
 
       case Scope.Session(open, uiState) =>
@@ -206,7 +212,16 @@ private[runtime] object Patches {
           sids
             .flatMap(sid => renderer.affectedSurfaceDynamics(sid, change))
             .distinct
-        DiffRequest(staticIds, dynamics, flips, change, states, before, uiState)
+        DiffRequest(
+          staticIds,
+          dynamics,
+          flips,
+          change,
+          states,
+          before,
+          uiState,
+          version
+        )
     }
   }
 
@@ -232,26 +247,28 @@ private[runtime] object Patches {
     */
   def diff(
       renderer: Renderer,
-      cache: Map[String, String],
+      log: FragmentLog,
       req: DiffRequest
-  ): (Map[String, String], List[ServerSentEvent]) = {
-    val (cacheAfterFlips, flipPatches) =
-      req.flips.foldLeft((cache, List.empty[Patch])) { case ((c, acc), gid) =>
-        val (c2, ps) = flipStateGroup(renderer, c, gid, req.states, req.uiState)
+  ): (FragmentLog, List[ServerSentEvent]) = {
+    val at = req.version
+    val (logAfterFlips, flipPatches) =
+      req.flips.foldLeft((log, List.empty[Patch])) { case ((c, acc), gid) =>
+        val (c2, ps) =
+          flipStateGroup(renderer, c, gid, req.states, req.uiState, at)
         (c2, acc ++ ps)
       }
     val rendered =
       req.staticIds.flatMap(id =>
         renderer.renderNodeById(id, req.states, req.uiState).map(id -> _)
       )
-    val (cacheAfterStatic, staticPatches) =
-      rendered.foldLeft((cacheAfterFlips, List.empty[Patch])) {
+    val (logAfterStatic, staticPatches) =
+      rendered.foldLeft((logAfterFlips, List.empty[Patch])) {
         case ((c, acc), (id, html)) =>
-          if (c.get(id).contains(html)) (c, acc)
-          else (c.updated(id, html), acc :+ Patch.Morph(html))
+          if (c.html(id).contains(html)) (c, acc)
+          else (c.set(id, html, at), acc :+ Patch.Morph(html))
       }
-    val (finalCache, dynPatches) =
-      req.dynamics.foldLeft((cacheAfterStatic, List.empty[Patch])) {
+    val (finalLog, dynPatches) =
+      req.dynamics.foldLeft((logAfterStatic, List.empty[Patch])) {
         case ((c, acc), (gid, delta)) =>
           val (c2, ps) =
             renderDynamicGroup(
@@ -261,11 +278,12 @@ private[runtime] object Patches {
               delta,
               req.change,
               req.states,
-              req.before
+              req.before,
+              at
             )
           (c2, acc ++ ps)
       }
-    (finalCache, (flipPatches ++ staticPatches ++ dynPatches).map(_.toSse))
+    (finalLog, (flipPatches ++ staticPatches ++ dynPatches).map(_.toSse))
   }
 
   /** Patch one FLIPPED state-selected bake group: re-render its host node — the
@@ -282,21 +300,24 @@ private[runtime] object Patches {
     */
   private def flipStateGroup(
       renderer: Renderer,
-      cache: Map[String, String],
+      log: FragmentLog,
       gid: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
-  ): (Map[String, String], List[Patch]) =
+      uiState: Map[String, String],
+      at: Long
+  ): (FragmentLog, List[Patch]) =
     renderer.renderNodeById(gid, states, uiState) match {
-      case None       => (cache, Nil)
+      case None       => (log, Nil)
       case Some(html) =>
-        if (cache.get(gid).contains(html)) (cache, Nil)
+        if (log.html(gid).contains(html)) (log, Nil)
         else {
           val prefixes = renderer.bakeMemberPrefixes(gid)
-          val pruned = cache.filterNot { case (k, _) =>
-            k == gid || prefixes.exists(k.startsWith)
-          }
-          (pruned.updated(gid, html), List(Patch.Morph(html)))
+          // Invalidation only, no tombstone: the host morph below re-supplies
+          // every member's DOM, so a resuming client is repaired by that one
+          // fragment.
+          val pruned =
+            log.invalidateWhere(k => k == gid || prefixes.exists(k.startsWith))
+          (pruned.set(gid, html, at), List(Patch.Morph(html)))
         }
     }
 
@@ -309,13 +330,14 @@ private[runtime] object Patches {
     */
   private def renderDynamicGroup(
       renderer: Renderer,
-      cache: Map[String, String],
+      log: FragmentLog,
       gid: String,
       delta: DynamicDelta,
       change: StateChange,
       states: Map[String, EntityState],
-      before: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) =
+      before: Map[String, EntityState],
+      at: Long
+  ): (FragmentLog, List[Patch]) =
     delta match {
       case DynamicDelta.InPlace =>
         // The query boundary was not crossed. Normally re-render just this
@@ -326,29 +348,31 @@ private[runtime] object Patches {
         val membersAfter = renderer.dynamicMembers(gid, states)
         if (membersBefore == membersAfter)
           renderer.renderDynamicChild(gid, change.entityId, states) match {
-            case None => (cache, Nil) // not a current member — nothing to do
+            case None => (log, Nil) // not a current member — nothing to do
             case Some(html) =>
               val cid = renderer.dynamicChildId(gid, change.entityId)
-              if (cache.get(cid).contains(html)) (cache, Nil)
-              else (cache.updated(cid, html), List(Patch.Morph(html)))
+              if (log.html(cid).contains(html)) (log, Nil)
+              else (log.set(cid, html, at), List(Patch.Morph(html)))
           }
         else
           renderMembershipChange(
             renderer,
-            cache,
+            log,
             gid,
             membersBefore,
             membersAfter,
-            states
+            states,
+            at
           )
       case DynamicDelta.Added | DynamicDelta.Removed =>
         renderMembershipChange(
           renderer,
-          cache,
+          log,
           gid,
           renderer.dynamicMembers(gid, before),
           renderer.dynamicMembers(gid, states),
-          states
+          states,
+          at
         )
     }
 
@@ -373,12 +397,13 @@ private[runtime] object Patches {
     */
   private def renderMembershipChange(
       renderer: Renderer,
-      cache: Map[String, String],
+      log: FragmentLog,
       gid: String,
       membersBefore: List[String],
       membersAfter: List[String],
-      states: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) = {
+      states: Map[String, EntityState],
+      at: Long
+  ): (FragmentLog, List[Patch]) = {
     val beforeSet = membersBefore.toSet
     val afterSet = membersAfter.toSet
     val added = membersAfter.filterNot(beforeSet)
@@ -390,14 +415,13 @@ private[runtime] object Patches {
     // is cheaper than juggling insert/remove patches. Strict `<` so exactly half
     // repaints. `MaxChurnFraction` is tunable.
     val perEntity = churn > 0 && churn < Server.MaxChurnFraction * shown
-    val established =
-      cache.contains(gid) || cache.keysIterator.exists(_.startsWith(gid + "_"))
-    if (!perEntity || !established) repaintGroup(renderer, cache, gid, states)
+    val established = log.has(gid) || log.hasChildOf(gid)
+    if (!perEntity || !established) repaintGroup(renderer, log, gid, states, at)
     else {
       val (afterRemoves, removePatches) =
-        removed.foldLeft((cache, List.empty[Patch])) { case ((c, acc), e) =>
+        removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
           val cid = renderer.dynamicChildId(gid, e)
-          (c - cid, acc :+ Patch.Remove("#" + cid))
+          (c.invalidate(cid), acc :+ Patch.Remove("#" + cid))
         }
       val (afterAdds, addPatches) =
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
@@ -418,13 +442,21 @@ private[runtime] object Patches {
                   case None =>
                     Patch.Insert(html, PatchMode.Append, "#" + gid)
                 }
-                (c.updated(cid, html), acc :+ patch)
+                (c.set(cid, html, at), acc :+ patch)
             }
         }
       // Drop the stale group-level cache entry: per-entity edits diverge the DOM
       // from the last whole-group render, so a later repaint must always re-emit
       // rather than diff against an entry that no longer describes the DOM.
-      (afterAdds - gid, removePatches ++ addPatches)
+      //
+      // Marked structural, not tombstoned: the `insert` patches above are
+      // positioned relative to DOM neighbours that may be gone by the time an
+      // absent client returns, so a resume re-renders this group instead of
+      // replaying them (see [[FragmentLog.structural]]).
+      (
+        afterAdds.invalidate(gid).structuralAt(gid, at),
+        removePatches ++ addPatches
+      )
     }
   }
 
@@ -434,19 +466,21 @@ private[runtime] object Patches {
     */
   private def repaintGroup(
       renderer: Renderer,
-      cache: Map[String, String],
+      log: FragmentLog,
       gid: String,
-      states: Map[String, EntityState]
-  ): (Map[String, String], List[Patch]) =
+      states: Map[String, EntityState],
+      at: Long
+  ): (FragmentLog, List[Patch]) =
     renderer.renderNodeById(gid, states) match {
-      case None       => (cache, Nil)
+      case None       => (log, Nil)
       case Some(html) =>
-        if (cache.get(gid).contains(html)) (cache, Nil)
+        if (log.html(gid).contains(html)) (log, Nil)
         else {
-          val pruned = cache.filterNot { case (k, _) =>
-            k == gid || k.startsWith(gid + "_")
-          }
-          (pruned.updated(gid, html), List(Patch.Morph(html)))
+          // Invalidation only: the group morph re-supplies every child's DOM, so
+          // one stamped fragment repairs a resuming client.
+          val pruned =
+            log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
+          (pruned.set(gid, html, at), List(Patch.Morph(html)))
         }
     }
 }

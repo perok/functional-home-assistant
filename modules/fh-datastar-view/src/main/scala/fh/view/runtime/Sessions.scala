@@ -20,13 +20,16 @@ import org.http4s.ServerSentEvent
   *     for the fragments that are rendered per session (open surfaces,
   *     bake-group owners) — content that differs per client. Shared main-page
   *     fragments are diffed once per slug instead (`Server`'s shared patch
-  *     pass), never here.
+  *     pass), never here. A [[FragmentLog]] for one diff contract with that
+  *     pass, but its versions are never resumed from: this log dies with the
+  *     connection, so a reconnecting client re-renders these fresh
+  *     (docs/plan-sse-resume.md).
   */
 case class Session(
     slug: Ref[IO, String],
     open: Ref[IO, Set[String]],
     control: Queue[IO, ServerSentEvent],
-    lastRendered: Ref[IO, Map[String, String]]
+    lastRendered: Ref[IO, FragmentLog]
 )
 
 object Session {
@@ -35,7 +38,8 @@ object Session {
       s <- Ref[IO].of(slug)
       o <- Ref[IO].of(Set.empty[String])
       q <- Queue.unbounded[IO, ServerSentEvent]
-      lr <- Ref[IO].of(Map.empty[String, String])
+      id <- IO.randomUUID.map(_.toString)
+      lr <- Ref[IO].of(FragmentLog(id))
     } yield Session(s, o, q, lr)
 }
 

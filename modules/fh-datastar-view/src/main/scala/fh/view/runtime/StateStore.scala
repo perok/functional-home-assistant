@@ -142,26 +142,20 @@ private[runtime] enum Ingest(val entityId: String) {
   case Remove(id: String) extends Ingest(id)
 }
 
-/** Everything the store holds, versioned as ONE value so a reader can ask "what
-  * changed since V" without a second ref to keep in step.
+/** Everything the store holds, in ONE value so the state and the version that
+  * names it cannot be read torn.
   *
   * `version` is a monotonic batch counter, bumped once per applied batch that
   * changed anything — and a batch IS a coalesced HA frame (see
   * [[StateStore.applyEntities]]), so one version covers one HA event-loop tick.
-  * `changedAt` records the version at which each entity last changed.
-  *
-  * `lastRemoval` is deliberately a single stamp rather than per-entity
-  * tombstones: an entity vanishing changes what the dashboards were BUILT from,
-  * so it forces a full re-evaluation anyway (see [[Ingest.Remove]]) — this
-  * exists only as the backstop for an `r` frame with no registry event behind
-  * it, where the answer is the same for every client ("you are too old,
-  * repaint") and no per-id detail would be used.
+  * It exists to stamp rendered fragments with the store version they were
+  * rendered from (docs/plan-sse-resume.md); the store itself answers no "what
+  * changed since V" question — the fragment log does, one layer closer to the
+  * wire.
   */
 private[runtime] case class StoreState(
     entities: Map[String, EntityState],
-    version: Long,
-    changedAt: Map[String, Long],
-    lastRemoval: Long
+    version: Long
 )
 
 /** The runtime single source of truth for all entity state.
@@ -178,15 +172,14 @@ class StateStore private (
 
   def snapshot: IO[Map[String, EntityState]] = ref.get.map(_.entities)
 
-  /** The current version, to hand a client as its resume cursor. */
-  def version: IO[Long] = ref.get.map(_.version)
-
-  /** What a client holding `since` is missing — or that it cannot be told
-    * ([[StateStore.Since.Repaint]]). Answered against the same single ref as
-    * [[snapshot]], so the pair a resume reads can't be torn.
+  /** The snapshot AND the version that names it, read together — so a fragment
+    * rendered from this snapshot cannot be stamped with a version its HTML does
+    * not reflect (docs/plan-sse-resume.md).
     */
-  private[runtime] def changedSince(since: Long): IO[StateStore.Since] =
-    ref.get.map(StateStore.changedSince(_, since))
+  private[runtime] def current: IO[StoreState] = ref.get
+
+  /** The current version alone, for asserting the clock's behaviour. */
+  private[runtime] def version: IO[Long] = ref.get.map(_.version)
 
   /** Stream of state changes (entity + its previous/current value). */
   def changes: Stream[IO, StateChange] = topic.subscribe(64)
@@ -244,8 +237,8 @@ class StateStore private (
                 // registry watcher re-evaluating every entry, not by patching a
                 // node here. Deliberately coarse — it happens a few times a
                 // year (see `ServerApp.watchRegistryEvents`). A resume cursor
-                // still has to learn of it, since an `r` frame does not always
-                // have a registry event behind it (see [[StoreState]]).
+                // still moves the version, since an `r` frame does not always
+                // have a registry event behind it.
                 case Ingest.Remove(id) =>
                   (m - id, changes, removed || m.contains(id))
 
@@ -267,17 +260,12 @@ class StateStore private (
           }
         // The version moves only on a batch that changed something a client
         // could care about, so an idle reconnect's full set (all deduped) leaves
-        // every cursor valid and resumable.
+        // every fragment stamp — and so every client's cursor — still current.
         val touched = changes.nonEmpty || removed
         (
           StoreState(
             entities = updated,
-            version = if (touched) batch else state.version,
-            // Gone entities drop out, so the map tracks the live set.
-            changedAt =
-              (state.changedAt -- (state.entities.keySet -- updated.keySet))
-                ++ changes.map(_.entityId -> batch),
-            lastRemoval = if (removed) batch else state.lastRemoval
+            version = if (touched) batch else state.version
           ),
           changes.reverse
         )
@@ -292,34 +280,6 @@ class StateStore private (
 }
 
 object StateStore {
-
-  /** The answer to "what is a client holding version V missing?" — a parsed
-    * verdict, so the caller cannot forget to check the conditions that make a
-    * delta unsafe. [[Since.Repaint]] is the honest "cannot tell you", and every
-    * doubt collapses into it.
-    */
-  private[runtime] enum Since {
-
-    /** Exactly the entities that changed, and the version that covers them. */
-    case Changed(entityIds: Set[String], version: Long)
-
-    /** No safe delta exists; send everything (today's behaviour). */
-    case Repaint
-  }
-
-  /** Pure: a cursor is resumable only if nothing vanished since it was issued
-    * and it names a version this store actually reached. A cursor from AHEAD of
-    * the current version is a different server's (or a restarted store's) and
-    * is rejected rather than trusted — the alternative is silently serving a
-    * client a delta against state it never had.
-    */
-  private[runtime] def changedSince(state: StoreState, since: Long): Since =
-    if (since > state.version || since < state.lastRemoval) Since.Repaint
-    else
-      Since.Changed(
-        state.changedAt.collect { case (id, at) if at > since => id }.toSet,
-        state.version
-      )
 
   // JSON null is treated as absent so slot defaults apply (e.g. brightness is
   // null when a light is off).
@@ -381,9 +341,7 @@ object StateStore {
       initial: Map[String, EntityState]
   ): IO[StateStore] =
     for {
-      // Version 0 with no `changedAt`: a seeded store owes no client a delta,
-      // and the first connect has no cursor to resume from anyway.
-      ref <- Ref[IO].of(StoreState(initial, 0L, Map.empty, 0L))
+      ref <- Ref[IO].of(StoreState(initial, 0L))
       topic <- Topic[IO, StateChange]
     } yield new StateStore(ref, topic)
 

@@ -538,6 +538,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     * snapshot) with an optional pre-seeded cache; return the emitted SSE
     * patches (rendered to strings) and the resulting cache.
     */
+  // These tests assert on the cached HTML, not on the fragment versions that
+  // ride with it (docs/plan-sse-resume.md), so the log is projected back to the
+  // plain node -> html map they were written against.
+  private def seedLog(seed: Map[String, String]): FragmentLog =
+    FragmentLog("test", seed.view.mapValues(Fragment(_, 0L)).toMap)
+
+  private def htmlOf(log: FragmentLog): Map[String, String] =
+    log.fragments.view.mapValues(_.html).toMap
+
   private def runShared(
       dash: Dashboard,
       after: Map[String, EntityState],
@@ -562,9 +571,9 @@ class ServerSuite extends munit.CatsEffectSuite {
         .use { server =>
           for {
             renderer <- ref.get
-            cache <- Ref[IO].of(seedCache)
+            cache <- Ref[IO].of(seedLog(seedCache))
             patches <- server.sharedPatches(renderer, cache, change)
-            finalCache <- cache.get
+            finalCache <- cache.get.map(htmlOf)
           } yield (patches.map(_.renderString), finalCache)
         }
     } yield out)
@@ -849,7 +858,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       store: StateStore,
       server: Server,
       renderer: Renderer,
-      cache: Ref[IO, Map[String, String]]
+      cache: Ref[IO, FragmentLog]
   ) {
     def step(next: EntityState): IO[List[String]] =
       (for {
@@ -864,7 +873,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         .timeout(30.seconds)
 
     def cacheNow: IO[Map[String, String]] =
-      cache.get.timeout(30.seconds)
+      cache.get.map(htmlOf).timeout(30.seconds)
   }
 
   private object SharedHarness {
@@ -905,7 +914,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           suiteSupervisor
         )
         renderer <- ref.get
-        cache <- Ref[IO].of(Map.empty[String, String])
+        cache <- Ref[IO].of(seedLog(Map.empty))
       } yield new SharedHarness(store, server, renderer, cache))
         .timeout(30.seconds)
   }
@@ -1161,7 +1170,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             perSession <- server.changedPatches(session, change, Map.empty)
-            cache <- Ref[IO].of(Map.empty[String, String])
+            cache <- Ref[IO].of(seedLog(Map.empty))
             shared <- server.sharedPatches(renderer, cache, change)
           } yield (perSession, shared)
         }

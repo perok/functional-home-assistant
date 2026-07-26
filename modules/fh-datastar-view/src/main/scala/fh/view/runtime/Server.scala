@@ -289,11 +289,20 @@ class Server(
   ): Stream[IO, Nothing] =
     ref.discrete
       .switchMap { renderer =>
-        Stream.eval(Ref[IO].of(Map.empty[String, String])).flatMap { cache =>
-          stateStore.changes
-            .evalMap(sharedPatches(renderer, cache, _))
-            .flatMap(Stream.emits)
-        }
+        // A fresh log id per swap: a cursor issued against the previous
+        // renderer's log names versions this one never had, so it must not be
+        // resumable (docs/plan-sse-resume.md).
+        Stream
+          .eval(
+            IO.randomUUID
+              .map(_.toString)
+              .flatMap(id => Ref[IO].of(FragmentLog(id)))
+          )
+          .flatMap { log =>
+            stateStore.changes
+              .evalMap(sharedPatches(renderer, log, _))
+              .flatMap(Stream.emits)
+          }
       }
       .map(sse => (slug, sse))
       .through(sharedTopic.publish)
@@ -382,12 +391,18 @@ class Server(
     */
   private[runtime] def sharedPatches(
       renderer: Renderer,
-      cache: Ref[IO, Map[String, String]],
+      log: Ref[IO, FragmentLog],
       change: StateChange
   ): IO[List[ServerSentEvent]] =
-    stateStore.snapshot.flatMap { states =>
-      val req = Patches.plan(renderer, states, change, Patches.Scope.Shared)
-      cache.modify(Patches.diff(renderer, _, req))
+    stateStore.current.flatMap { store =>
+      val req = Patches.plan(
+        renderer,
+        store.entities,
+        store.version,
+        change,
+        Patches.Scope.Shared
+      )
+      log.modify(Patches.diff(renderer, _, req))
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
@@ -507,7 +522,7 @@ class Server(
               // The repaint re-bakes the body (selected tabs included), so
               // reset the diff cache AND re-seed the open set to match. Reuses
               // this client's cookie-derived selection (closed over).
-              (session.lastRendered.set(Map.empty) *>
+              (session.lastRendered.update(_.cleared) *>
                 session.open.set(r.selectedSurfaces(uiState)) *>
                 stateStore.snapshot)
                 .map(st =>
@@ -553,14 +568,15 @@ class Server(
     for {
       slug <- session.slug.get
       renderer <- rendererFor(slug)
-      states <- stateStore.snapshot
+      store <- stateStore.current
       open <- session.open.get
       out <- renderer match {
         case None    => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
           val req = Patches.plan(
             r,
-            states,
+            store.entities,
+            store.version,
             change,
             Patches.Scope.Session(open, uiState)
           )
@@ -651,7 +667,7 @@ class Server(
           // Reset popups, but seed the target dashboard's selected tab panels
           // (its body is rendered with them baked in below).
           _ <- session.open.set(renderer.selectedSurfaces(uiState))
-          _ <- session.lastRendered.set(Map.empty)
+          _ <- session.lastRendered.update(_.cleared)
           _ <- session.control.offer(
             Datastar.patch(
               s"""<div id="${Dashboard.PopupHostId}"></div>""",

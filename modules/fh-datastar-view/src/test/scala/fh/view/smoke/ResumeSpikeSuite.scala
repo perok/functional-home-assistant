@@ -23,7 +23,9 @@ class ResumeSpikeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(page.onRequest { r =>
           if (r.url().contains("/patch"))
-            urls.synchronized(urls += ((System.currentTimeMillis() - t0, r.url())))
+            urls.synchronized(
+              urls += ((System.currentTimeMillis() - t0, r.url()))
+            )
         })
         _ <- ts.awaitLive()
         // `awaitLive` gates on the SERVER's subscriber, which can be satisfied
@@ -43,7 +45,9 @@ class ResumeSpikeSuite extends SmokeSuite {
         // handler aborts the fetch on `visibilitychange` when `document.hidden`,
         // and refetches when it goes visible again — so drive exactly that.
         before <- seen.map(_.size)
-        _ <- IO.println(s"[spike] --- hiding at ${System.currentTimeMillis() - t0}ms")
+        _ <- IO.println(
+          s"[spike] --- hiding at ${System.currentTimeMillis() - t0}ms"
+        )
         _ <- IO.blocking(page.evaluate(ResumeSpikeSuite.setHidden(true)))
         _ <- IO.sleep(1.second)
         _ <- IO.blocking(page.evaluate(ResumeSpikeSuite.setHidden(false)))
@@ -66,17 +70,20 @@ class ResumeSpikeSuite extends SmokeSuite {
 
 object ResumeSpikeSuite {
 
-  /** Fake the document's visibility, since Playwright exposes no control for it.
-    * Datastar reads `document.hidden` inside its `visibilitychange` handler, so
-    * overriding the getter and dispatching the event drives the real code path.
+  /** Fake the document's visibility, since Playwright exposes no control for
+    * it. Datastar reads `document.hidden` inside its `visibilitychange`
+    * handler, so overriding the getter and dispatching the event drives the
+    * real code path.
     */
   def setHidden(hidden: Boolean): String =
     s"""(() => {
        |  Object.defineProperty(document, 'hidden',
        |    { configurable: true, get: () => $hidden });
        |  Object.defineProperty(document, 'visibilityState',
-       |    { configurable: true, get: () => '${if (hidden) "hidden"
-      else "visible"}' });
+       |    { configurable: true, get: () => '${
+        if (hidden) "hidden"
+        else "visible"
+      }' });
        |  document.dispatchEvent(new Event('visibilitychange'));
        |})()""".stripMargin
 }
