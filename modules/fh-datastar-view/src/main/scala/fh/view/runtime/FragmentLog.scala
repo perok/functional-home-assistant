@@ -9,20 +9,42 @@ package fh.view.runtime
   */
 private[runtime] case class Fragment(html: String, version: Long)
 
+/** The last STRUCTURAL thing that happened to a node — as opposed to a change
+  * in its content, which is a [[Fragment]]. One value rather than a pair of
+  * parallel "removed"/"arrived" records, because a node cannot be both gone and
+  * present: holding two maps made that invalid state representable and turned
+  * every leave-then-rejoin into a special case. Latest wins, so a rejoin is
+  * simply [[Placed]] replacing [[Gone]].
+  */
+private[runtime] enum Mutation(val version: Long) {
+
+  /** The element was deleted from the DOM. */
+  case Gone(at: Long) extends Mutation(at)
+
+  /** The element belongs at its CURRENT position in `gid`, wherever (or
+    * whether) the client currently has it. Carries `gid`/`entityId` rather than
+    * just the node id because the anchor has to be re-derived from live
+    * membership and [[Dashboard.sanitize]] is one-way.
+    *
+    * Covers an arrival and a re-ordering identically — both mean "put this
+    * element here" — which is why an author-chosen member sort needs no new
+    * mutation kind.
+    */
+  case Placed(gid: String, entityId: String, at: Long) extends Mutation(at)
+}
+
 /** What a resume owes a client holding a given cursor:
   *
   *   - `fragments` to morph, in version order — a container's cached HTML
   *     embeds its children, so a stale parent applied after a fresh child would
   *     revert it;
-  *   - `removals`: node ids to delete, replayed verbatim (a `remove` of an
-  *     absent id is a no-op, so this needs no knowledge of the client's DOM);
-  *   - `groups`: dynamic groups that GAINED a member, which must be re-rendered
-  *     because an `insert` cannot be replayed — see [[FragmentLog.structural]].
+  *   - `mutations` (node id -> what happened) to apply structurally. See
+  *     [[Patches.resume]] for how each becomes patches, and for the ordering
+  *     argument that makes the anchors resolvable.
   */
 private[runtime] case class Resume(
     fragments: List[Fragment],
-    removals: List[String],
-    groups: List[String]
+    mutations: List[(String, Mutation)]
 )
 
 /** The per-slug (or per-session) diff cache, versioned.
@@ -37,28 +59,17 @@ private[runtime] case class Resume(
   * number means nothing across logs — version 5 of one process describes
   * different state than version 5 of the next.
   *
-  * The two membership records are split by what can be REPLAYED, which is the
-  * only asymmetry that matters here:
-  *
-  *   - `tombstones` (node id -> version it was removed at) covers a member
-  *     LEAVING. A `remove` patch is idempotent (see [[Datastar.remove]]), so it
-  *     replays verbatim — no re-render, and a departure costs one tiny patch
-  *     instead of a whole-group morph.
-  *   - `structural` (group id -> version) covers a member ARRIVING, which
-  *     cannot be replayed at all: the `insert` was positioned relative to a DOM
-  *     neighbour that may be gone by resume time, and recomputing the anchor
-  *     needs the client's DOM ordering — the one thing this design refuses to
-  *     track. Re-rendering the group from current state is correct regardless
-  *     of what the client holds.
-  *
-  * Both are keyed by id (node, group) rather than by event, so — like
-  * `fragments` — they are bounded by dashboard size and never need trimming.
+  * `fragments` answers "what does this node contain"; `mutations` answers
+  * "where is this node" — the structural changes that are NOT expressible as a
+  * morph of an element the client already has (see [[Mutation]]). Both are
+  * keyed by node id rather than by event, so the log is bounded by dashboard
+  * size and never needs trimming: a node has one latest content and one latest
+  * structural fact.
   */
 private[runtime] case class FragmentLog(
     id: String,
     fragments: Map[String, Fragment] = Map.empty,
-    tombstones: Map[String, Long] = Map.empty,
-    structural: Map[String, Long] = Map.empty
+    mutations: Map[String, Mutation] = Map.empty
 ) {
 
   /** Forget everything but keep this log's identity — the body was repainted
@@ -92,14 +103,15 @@ private[runtime] case class FragmentLog(
   /** Invalidate a whole subtree because its ROOT is being re-stamped in the
     * same operation (a group repaint, a bake-group flip). The root's fresh HTML
     * is authoritative for everything under it, which supersedes the subtree's
-    * tombstones as well as its fragments: a member that left and later rejoined
-    * would otherwise keep a tombstone able to delete it again on resume.
-    * Callers must actually [[set]] the root — this is not a bare `filterNot`.
+    * [[Mutation]]s as well as its fragments — a stale `Gone` would delete a
+    * member that root's HTML legitimately restored, and a stale `Placed` would
+    * insert one it already contains. Callers must actually [[set]] the root —
+    * this is not a bare `filterNot`.
     */
   def invalidateWhere(p: String => Boolean): FragmentLog =
     copy(
       fragments = fragments.filterNot { case (k, _) => p(k) },
-      tombstones = tombstones.filterNot { case (k, _) => p(k) }
+      mutations = mutations.filterNot { case (k, _) => p(k) }
     )
 
   /** Record that `nodeId`'s element was DELETED from the DOM at version `at`.
@@ -107,14 +119,37 @@ private[runtime] case class FragmentLog(
   def removed(nodeId: String, at: Long): FragmentLog =
     copy(
       fragments = fragments - nodeId,
-      tombstones = tombstones.updated(nodeId, at)
+      mutations = mutations.updated(nodeId, Mutation.Gone(at))
     )
 
-  /** Record that `gid` GAINED a member at version `at`, so a resume must
-    * re-render it rather than replay patches.
+  /** Record that `entityId` belongs at its CURRENT position in group `gid` as
+    * of version `at` — an arrival today, a re-order once member sorting becomes
+    * author-controlled. Also stamps its HTML, since the two always travel
+    * together.
     */
-  def structuralAt(gid: String, at: Long): FragmentLog =
-    copy(structural = structural.updated(gid, at))
+  def placed(
+      gid: String,
+      entityId: String,
+      nodeId: String,
+      html: String,
+      at: Long
+  ): FragmentLog =
+    set(nodeId, html, at).copy(
+      mutations = mutations.updated(nodeId, Mutation.Placed(gid, entityId, at))
+    )
+
+  /** Whether some fragment at or after `version` already covers `nodeId` — i.e.
+    * the node itself, or an ANCESTOR of it, is being re-sent with HTML rendered
+    * no earlier than `version`, so that HTML already contains this node.
+    *
+    * Ancestry is a string-prefix test because ids are location-derived
+    * ([[Dashboard.pathId]]: `c`, `c_0`, `c_0_1`); the trailing `_` keeps `c_1`
+    * from matching `c_10`.
+    */
+  def coveredByAncestor(nodeId: String, version: Long): Boolean =
+    fragments.exists { case (id, f) =>
+      f.version >= version && (id == nodeId || nodeId.startsWith(id + "_"))
+    }
 
   /** What a client whose cursor is `v` has not seen.
     *
@@ -124,27 +159,20 @@ private[runtime] case class FragmentLog(
     * whole of V is idempotent — every patch is a morph or a fresh render — and
     * cheap, where missing half of it would be silent and permanent.
     *
-    * Anything belonging to a group being re-rendered is dropped, because that
-    * render is authoritative for the group's CURRENT membership. For fragments
-    * that is merely redundant; for tombstones it is load-bearing — an entity
-    * that left and later rejoined has both a tombstone and a structural mark,
-    * and replaying the removal after the re-render would delete a live member.
+    * A mutated node's fragment is NOT also reported as a morph: the element may
+    * not be where (or whether) the client has it, and a morph of an absent id
+    * silently does nothing. Its HTML rides the mutation instead.
     */
   def since(v: Long): Resume = {
-    val groups = structural.collect { case (gid, at) if at >= v => gid }.toList
-    val covered = (id: String) =>
-      groups.exists(gid => id == gid || id.startsWith(gid + "_"))
+    val moved = mutations.filter { case (_, m) => m.version >= v }
     Resume(
       fragments
         .collect {
-          case (nodeId, f) if f.version >= v && !covered(nodeId) => f
+          case (nodeId, f) if f.version >= v && !moved.contains(nodeId) => f
         }
         .toList
         .sortBy(_.version),
-      tombstones.collect {
-        case (nodeId, at) if at >= v && !covered(nodeId) => nodeId
-      }.toList,
-      groups
+      moved.toList
     )
   }
 }

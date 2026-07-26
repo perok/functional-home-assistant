@@ -286,6 +286,88 @@ private[runtime] object Patches {
     (finalLog, (flipPatches ++ staticPatches ++ dynPatches).map(_.toSse))
   }
 
+  /** Everything a client resuming at cursor `v` is owed, as SSE events. The
+    * pure core of the resume path (docs/plan-sse-resume.md, step 4): the caller
+    * reads the log + snapshot and writes the stream; the ordering argument
+    * lives here.
+    *
+    * Morphs go out first, '''ascending by version''', because a container's
+    * cached HTML embeds its children's: a parent rendered at v=25 applied after
+    * a child rendered at v=30 would revert that child.
+    *
+    * Then the [[Mutation]]s. A [[Mutation.Placed]] emits `remove` AND `insert`
+    * for itself, which makes it idempotent in the client's DOM whatever state
+    * that DOM is in — present at the wrong position, present at the right one,
+    * or absent. That self-containment is what lets an arrival and a re-order be
+    * the same operation, and it removes any cross-mutation ordering requirement
+    * except one:
+    *
+    * '''Placed nodes are emitted descending by current position.''' An insert
+    * needs an anchor that EXISTS in the client's DOM, and the only anchors we
+    * can name are current members. Going high-to-low makes that provable: the
+    * anchor is either a member the client already had, or one placed a moment
+    * ago. Ascending fails — a node's anchor can be a later node not yet
+    * inserted. This relies only on server and client agreeing on SOME total
+    * order over members, which [[Renderer.dynamicMembers]] provides; nothing
+    * here depends on that order being by entity id, so an author-chosen sort
+    * works unchanged.
+    *
+    * A `Placed` is dropped rather than emitted when its entity is no longer a
+    * member (it arrived and left while the client was away — then the LATEST
+    * mutation is a `Gone` and this is unreachable, so it is defensive), or when
+    * an ancestor fragment being sent already contains it
+    * ([[FragmentLog.coveredByAncestor]]), which would duplicate the element.
+    */
+  def resume(
+      renderer: Renderer,
+      log: FragmentLog,
+      states: Map[String, EntityState],
+      v: Long
+  ): List[ServerSentEvent] = {
+    val owed = log.since(v)
+    val gone = owed.mutations.collect { case (nodeId, _: Mutation.Gone) =>
+      nodeId
+    }
+    val placed = owed.mutations.collect { case (nodeId, p: Mutation.Placed) =>
+      (nodeId, p)
+    }
+    val places = placed
+      .groupBy { case (_, p) => p.gid }
+      .toList
+      .sortBy(_._1)
+      .flatMap { case (gid, inGroup) =>
+        val members = renderer.dynamicMembers(gid, states)
+        val position = members.zipWithIndex.toMap
+        inGroup
+          .flatMap { case (nodeId, p) =>
+            position
+              .get(p.entityId)
+              .filterNot(_ => log.coveredByAncestor(p.gid, p.version))
+              .map((nodeId, _))
+          }
+          .sortBy { case (_, at) => -at }
+          .flatMap { case (nodeId, at) =>
+            log.html(nodeId).toList.flatMap { html =>
+              // Anchor on the next current member; none means this is the last
+              // member, so append into the group root.
+              val insert = members.drop(at + 1).headOption match {
+                case Some(succ) =>
+                  Patch.Insert(
+                    html,
+                    PatchMode.Before,
+                    "#" + renderer.dynamicChildId(gid, succ)
+                  )
+                case None => Patch.Insert(html, PatchMode.Append, "#" + gid)
+              }
+              List(Patch.Remove("#" + nodeId), insert)
+            }
+          }
+      }
+    (owed.fragments.map(f => Patch.Morph(f.html)) ++
+      gone.toList.sorted.map(id => Patch.Remove("#" + id)) ++
+      places).map(_.toSse)
+  }
+
   /** Patch one FLIPPED state-selected bake group: re-render its host node — the
     * bake owner, whose render bakes the newly-selected member against CURRENT
     * state ([[Renderer]]'s `resolveBake`) — morph it, and prune the group's
@@ -446,24 +528,13 @@ private[runtime] object Patches {
                   case None =>
                     Patch.Insert(html, PatchMode.Append, "#" + gid)
                 }
-                (c.set(cid, html, at), acc :+ patch)
+                (c.placed(gid, e, cid, html, at), acc :+ patch)
             }
         }
       // Drop the stale group-level cache entry: per-entity edits diverge the DOM
       // from the last whole-group render, so a later repaint must always re-emit
       // rather than diff against an entry that no longer describes the DOM.
-      //
-      // Only an ARRIVAL forces a resume to re-render this group: the `insert`
-      // patches above are positioned relative to DOM neighbours that may be gone
-      // by the time an absent client returns. A departure-only change needs
-      // nothing here — its tombstones replay verbatim, so a member leaving costs
-      // one small patch rather than a whole-group morph
-      // ([[FragmentLog.tombstones]]).
-      val invalidated = afterAdds.invalidate(gid)
-      (
-        if (added.isEmpty) invalidated else invalidated.structuralAt(gid, at),
-        removePatches ++ addPatches
-      )
+      (afterAdds.invalidate(gid), removePatches ++ addPatches)
     }
   }
 
