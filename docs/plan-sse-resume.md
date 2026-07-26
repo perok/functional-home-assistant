@@ -2,14 +2,18 @@
 
 **Status: in progress.** The transport the design rests on is verified end-to-end in a
 real browser (see "Evidence"), not inferred from reading the pinned Datastar build.
-The whole server-side path is built and committed (`9e3eead` … `af7a698`): a reconnect with a
-valid cursor is now served the log's delta, and the three signals are observed riding the
-reconnect URL in a real browser (`ResumeSpikeSuite`). Building it corrected this document five times, and the corrections are kept
-rather than tidied away because each was found by a sharper question than the one before:
-the tombstone framing (wrong twice, in opposite directions), the missing log identity, the
-"nothing grows so no eviction" claim, and the subtree a resume sent twice. Remaining: the
-`dashboardHash` reload (step 4b), step 5, and — the real gap — proof points 2–6 in a
-browser, since a wrong resume fails silently and nothing in the terminal can see a DOM.
+The whole server-side path is built and committed (`9e3eead` … `81b1e8f`): a reconnect with a
+valid cursor is served the log's delta, a changed `<head>` reloads instead, and the three
+signals are observed riding the reconnect URL in a real browser (`ResumeSpikeSuite`).
+
+Building it corrected this document six times, and the corrections are kept rather than tidied
+away because each was found by a sharper question than the one before: the tombstone framing
+(wrong twice, in opposite directions), the missing log identity, the "nothing grows so no
+eviction" claim, the subtree a resume sent twice, and the hash that was scoped to the whole
+dashboard when only `<head>` needed it.
+
+Remaining: step 5, and — the real gap — proof points 2–6 in a browser, since a wrong resume
+fails silently and nothing in the terminal can see a DOM.
 
 ## Why
 
@@ -62,7 +66,7 @@ server-side structure:
 
 | value | question it answers | on mismatch |
 |---|---|---|
-| `dashboardHash` | is this still the same compiled dashboard? | full page **reload** |
+| `headHash` | does the browser's `<head>` still match? | full page **reload** |
 | `logId` | is this cursor even comparable? | body **repaint** |
 | `storeVersion` | how far behind is this client's state? | body **repaint** |
 | (server-side) fragment log | what changed since then — and is it still retained? | body **repaint** |
@@ -75,10 +79,14 @@ number is meaningless outside the log that issued it: a restarted server resets 
 counter to 0, and a renderer hot-swap mints a fresh cache — in both cases a client
 holding version 500 would be compared against a log where 500 names nothing. The log
 carries a UUID minted with it, and a cursor quoting a different one is rejected outright
-rather than reasoned about. This is a strictly different question from `dashboardHash`,
+rather than reasoned about. This is a strictly different question from `headHash`,
 which is stable across restarts BY DESIGN: `logId` decides *is this cursor comparable*,
-`dashboardHash` decides *does the browser need a full page reload*. Two questions, two
+`headHash` decides *does the browser need a full page reload*. Two questions, two
 values; neither can answer the other's.
+
+`logId` also turns out to subsume the "is this even the same dashboard" question, which is
+why `headHash` does NOT gate the resume: every dashboard change arrives via a renderer swap,
+and a swap rotates the log id. The cursor is already rejected before any hash is consulted.
 
 ### `storeVersion` — a clock, nothing more
 
@@ -359,34 +367,70 @@ one:
   author-given order) only reorders on membership change and is much cheaper — worth
   offering that shape first.
 
-### `dashboardHash` — is it still the same dashboard?
+### `headHash` — has the `<head>` moved?
 
-The hash of the **evaluated `{cards, card}` JSON**, not of the `.pkl` source. Source
-hashing is simultaneously too sensitive and not sensitive enough: a comment or
-formatting change in `lib/components.pkl` would refresh every browser for nothing, while
-a change in the dump (`@fh-home` gaining an entity) or an imported lib module would not
-register unless the whole `Analyzer.importGraph` is hashed — more inputs, more
-fragility. The evaluated JSON is already established as *the contract* in this module
-(the wire-format snapshots byte-compare it), captures every input that can affect output
-(entry, lib, dump, theme), and is blind to everything that cannot. One hash of bytes we
-already produce, once per evaluation, never per request; 12 hex chars of SHA-256, the
-same idiom as `fh-home@1.0.0-g<hash>`.
+The first draft hashed the whole evaluated dashboard, on the reasoning that any change to it
+needs a reload. Building the reload showed that was wrong in both directions.
+
+**A body repaint already fixes arbitrary body changes.** Cards, templates, layout, surfaces
+— all of it is re-rendered and re-sent by the repaint. Hashing them would reload the page on
+every card edit, losing scroll position and flashing white, to fix nothing the repaint had not
+already fixed. **And the hash was never needed to gate the resume**, because a dashboard
+change always arrives via a renderer swap, which rotates `logId` (above).
+
+What a patch genuinely cannot repair is `<head>`: theme stylesheets, scripts, inline CSS,
+`<title>`. So the hash is scoped to exactly that — `Renderer.headHash`, 12 hex of SHA-256
+over `theme` + `title`, the same idiom as `fh-home@1.0.0-g<hash>`. The `<base href>` is
+excluded deliberately: it is per-REQUEST (the ingress prefix), not per-dashboard, so folding
+it in would make one dashboard hash differently depending on how it was reached.
+
+Taken over the DECODED model rather than the evaluated JSON text, so it is blind to key order
+and formatting; `toString` is deterministic here because the nested maps are `String`-keyed
+(specified `hashCode`, so iteration order is a function of contents plus decode-order
+insertion). Not over the Pkl SOURCE either — that is simultaneously too sensitive (a comment
+in `lib/theme-beer.pkl`) and not sensitive enough (a change reaching the theme through an
+import would need the whole `Analyzer.importGraph` hashed).
 
 **Why a hash and not a counter:** a counter does not survive a restart, so every add-on
-restart on an HA update would refresh every browser even though the dashboards are
-byte-identical. A hash is stable across restarts — which is exactly why it cannot double
-as `logId`, whose whole job is to NOT survive one.
+restart on an HA update would refresh every browser even though the theme is byte-identical.
+A hash is stable across restarts — which is exactly why it cannot double as `logId`, whose
+whole job is to NOT survive one.
 
-That produces a deliberate asymmetry between the two remedies, and clients want both:
+Three outcomes, and `Server.openingPatches` picks in this order:
 
-- **cursor invalid, hash matches** (a server restart, or a renderer swap that changed
-  nothing: `logId` differs) ⇒ body repaint, no page reload.
-- **hash differs** (an edit, a push, a `DumpRefresh`) ⇒ full page reload, because the
-  cards and templates themselves changed and `<head>` may have moved too (theme,
-  stylesheets, scripts) — a body morph cannot fix that.
+- **head differs** ⇒ full page **reload**, and nothing else is sent (the page is about to
+  re-render itself from scratch).
+- **cursor comparable** ⇒ **resume**.
+- **anything else** (including a cursor invalidated by a restart or a swap) ⇒ body
+  **repaint**, as before this plan.
 
-Connected clients are already handled by `reloadRepaints`; the hash exists for the
-client that was AWAY during the reload and comes back with a stale everything.
+**The mechanism is a signal, not a patched `<script>`.** The server pushes `_reload: true`
+and the page turns it into `window.location.reload()` with one `data-effect`. That reuses the
+channel already carrying the cursor instead of adding a second one, and keeps the client
+behaviour where every other piece of it lives (the page shell). `_`-prefixed, because unlike
+the three cursor signals this one has no reason to ride any URL.
+
+This also fixed a case that was broken independently of resuming: a theme edit while a client
+is WATCHING used to morph the body and leave the old stylesheets in place, so the page kept
+the previous look until manually refreshed. `reloadRepaints` now compares the head hash
+across the swap (`zipWithPrevious` — the question is "did the head change *across this
+swap*", not "does it differ from some baseline") and reloads instead of morphing.
+
+### Two things the browser was flashing
+
+Both found by running it, not by reading it, and neither is about resume:
+
+- **The offline banner flashed on every page reload and every phone unlock.** Navigating away
+  aborts the SSE stream, which fires `datastar-fetch` `error` on the OUTGOING page and paints
+  "Reconnecting…" for an instant before it is replaced; a visibility refetch does the same.
+  The banner's state assignment is now debounced (600ms), so a sub-second blip never paints
+  while a real outage still surfaces — Datastar's retry backoff grows past the window.
+- **Slider drag signals were riding every request.** `val_<nodeId>` was unprefixed, so
+  Datastar sent all of them with every action POST and every SSE reconnect — several hundred
+  bytes of purely local state on a dashboard with a dozen sliders, on exactly the slow link
+  this plan exists for. Renamed `_val_<nodeId>`: the value is read client-side into the
+  action URL (`$_val_…`) and never from a request body, so nothing server-side notices.
+  (`conn` must stay unprefixed — `Server.connOf` reads it FROM the POST body.)
 
 ## How the cursor travels: already on the wire
 
@@ -423,7 +467,7 @@ visibility path (override `document.hidden`, dispatch `visibilitychange`, restor
 ```
 request 0 @49ms:   /sse/dashboard/home/patch?datastar={}
 request 1 @1304ms: /sse/dashboard/home/patch?datastar={"haDown":false,"conn":"0bfda1ad-…",
-                     "dashboardHash":"da4a400a4d82","logId":"5268ba3b-…","storeVersion":2}
+                     "headHash":"da4a400a4d82","logId":"5268ba3b-…","storeVersion":2}
 ```
 
 The spike predates the signals and asserts only on `conn`, but it prints the whole param — so
@@ -472,12 +516,9 @@ one to drive.
    `structural`. The risk this step was flagged for was real but misattributed — it lived
    in a misreading of the prune sites, not in the sites themselves. The real hazard turned
    out to be a rejoining member, closed by the subtree-authority invariant.
-3. ~~**Hash the evaluated dashboard.**~~ **Done** (`af7a698`). `Renderer.dashboardHash`,
-   12 hex of SHA-256, taken over the DECODED model rather than the JSON text — blind to
-   key order and formatting, and it captures the build-phase surface hoist too, which runs
-   before decode. `toString` is a deterministic rendering here because the nested maps are
-   `String`-keyed (specified `hashCode`, so iteration order is a function of contents and
-   decode-order insertion — nothing JVM-run-specific).
+3. ~~**Hash the evaluated dashboard.**~~ **Done, then narrowed** (`af7a698`, `81b1e8f`).
+   `Renderer.headHash` — scoped to `<head>` rather than the whole dashboard, which is where
+   this step's first shape was wrong in both directions. See "`headHash`" above.
 4. ~~**Resume path in `sseStream`.**~~ **Done** (`af7a698`). `Server.openingPatches` is the
    one place that decides, and it decides ONCE per connect: a cursor read off the `datastar`
    param (`Server.cursorOf`) must quote this renderer's hash, this log's id, and a version
@@ -497,13 +538,12 @@ one to drive.
    The cursor rides every non-empty shared batch and is re-emitted with the resume. A batch
    that emitted nothing deliberately does NOT advance it: the client's older cursor then
    resumes a superset of what it needs, which is the direction to err in.
-4b. **The reload half of `dashboardHash` is NOT built.** A hash mismatch currently falls to
-   the body repaint with everything else, which is today's behaviour and therefore no
-   regression — but the table above says it should be a full page RELOAD, and a body morph
-   cannot move `<head>`. The server has no way to reload a browser at all yet (the only
-   reload in the codebase is the user clicking the offline banner's button), so this needs a
-   patched `<script>` element and a browser to verify it. Left out deliberately rather than
-   half-built.
+4b. ~~**The reload half is NOT built.**~~ **Done** (`81b1e8f`). A `_reload` signal plus one
+   `data-effect` on the page shell, for both the returning client (head hash mismatch on
+   connect) and the watching one (head hash changed across a renderer swap). Still needs a
+   browser to confirm — `data-effect` is documented in the vendored reference but unverified
+   on the pinned build, as is the banner's `.debounce_600ms` modifier separator (the vendored
+   docs use `.debounce_Xms` while the code's other modifier is `__window`).
 5. **Per-session fragments** (open surfaces, bake owners) die with the connection and
    have no cross-connection log — `Session.lastRendered` is a `FragmentLog` for uniformity
    but its versions are never resumed from. Render those fresh for the new session; they
@@ -532,8 +572,12 @@ window, no reaper, no per-client mirror.
    path — they record the group differently. The rejoin cases are already covered by
    `FragmentLogSuite`; what is still unproven is that this holds through a real
    drop/resume in a browser.
-4. **A restart repaints but does not reload** (hash stable, `logId` differs), and an edit
-   reloads (hash differs).
+4. **A restart repaints but does not reload** (head hash stable, `logId` differs); a CARD
+   edit also repaints without reloading; only a THEME or title edit reloads. Covered at the
+   unit level (`ServerSuite`) for the decision; what a browser must add is that the reload
+   actually fires — `data-effect` and the banner's debounce modifier are both documented in
+   the vendored reference but unverified on the pinned build, and both fail SILENTLY (a
+   stale-CSS page that never refreshes; a banner that never appears).
 5. **A parent and a child changing at different versions resume in the right order.** The
    silent failure is a stale container reverting a fresh child; only ordering prevents it.
    Covered at the unit level (`FragmentLogSuite`); still unproven through a real browser.
@@ -570,8 +614,9 @@ predicate tested against *current* state cannot see a member that has left. Its
 of rendered member ids was also considered as a cheaper fix for that hole; the fragment
 log makes it unnecessary.
 
-**(d) Hashing the Pkl source** rather than the evaluated output — see `dashboardHash`
-above for why that is both too sensitive and not sensitive enough.
+**(d) Hashing the Pkl source**, or the whole evaluated dashboard, rather than just what
+reaches `<head>` — see "`headHash`" above for why the source is both too sensitive and not
+sensitive enough, and why the whole dashboard over-triggers.
 
 **(e) Marking a group structural for EVERY membership change**, rather than only for
 arrivals. Simpler — one mechanism instead of two — and it was briefly the design. Rejected
