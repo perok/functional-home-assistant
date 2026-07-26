@@ -178,8 +178,8 @@ final class EditorRoutes(
     * `PklProject`) to an on-disk source under the dashboards dir, or `None` if
     * it isn't a permitted editable file. Every segment must match
     * [[AssetCache.SafeName]] (rejecting `..`, dot-files and slashes), the leaf
-    * must be `*.pkl` (or exactly `PklProject`) and not the generated `dump.pkl`,
-    * and only depth 1 (entries) or `lib/` depth 2 is allowed.
+    * must be `*.pkl` (or exactly `PklProject`) and not the generated
+    * `dump.pkl`, and only depth 1 (entries) or `lib/` depth 2 is allowed.
     */
   private def resolveEditable(rest: Uri.Path): Option[os.Path] = {
     val segs = rest.segments.map(_.decoded()).toList
