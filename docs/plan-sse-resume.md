@@ -26,126 +26,125 @@ Be honest about the size of the win: on a fast LAN this is invisible. This is a
 mobile/slow-link optimization plus a DOM-stability improvement, not a fix for a
 bug.
 
-## The key finding: the discriminator is already on the wire
+## The shape: the client carries a cursor, the server stays stateless
 
-A resume is only safe if the server can distinguish two cases that hit the same
-endpoint with the same URL:
+A resume needs one question answered — *what does this client already have?* The
+cheap way to answer it is to make the client carry the answer, so the server keeps
+no per-client memory between connections.
 
-1. **Resumed stream** — same page, same DOM, stream dropped and retried.
-2. **Fresh page load** — new DOM rendered server-side, nothing to resume onto.
+The cursor is a pair:
+
+```
+(rendererGen, storeVersion)
+```
+
+- **`storeVersion`** — a monotonic counter the [[StateStore]] owns, bumped on every
+  applied batch. Each entity records the version at which it last changed, and each
+  REMOVED entity leaves a tombstone recording the version at which it went away.
+  "What changed since V" is then a scan of both maps for `> V`.
+- **`rendererGen`** — identifies the compiled dashboard. Everything in the DOM that
+  is *not* derived from entity state (a `DumpRefresh`, an edit, an entry rebuild)
+  changes this and nothing else, so a mismatch means "give up and repaint".
+
+On resume the server intersects "changed since V" with the entities this dashboard
+renders, re-renders those nodes, and pushes only those. On any doubt — no cursor,
+unparseable cursor, `rendererGen` mismatch — it falls back to today's full repaint.
+**The full repaint stays the default**; resume is the narrow, provable case.
+
+### Why a store version and not HA's `last_updated`
+
+The obvious cursor is the timestamp HA already gives us, since
+`EntityState.lastUpdated` is parsed at ingest and sitting right there. It was the
+first design and it is wrong for three reasons:
+
+1. **Removals have no timestamp.** An `r` frame is a bare list of entity ids.
+   Stamping a tombstone with the server clock and comparing it against HA epoch
+   values puts two clocks in one ordering, and skew silently drops or duplicates
+   deletions.
+2. **`merge` can keep a stale timestamp.** A delta carrying neither `lu` nor `lc`
+   inherits `prev.lastUpdated`, so a real change becomes invisible to a
+   timestamp cursor. HA core does stamp `last_updated` on every state write, so
+   this is unlikely — but it is our fallback's behaviour, not a guarantee HA gives
+   us, and the failure is silent and permanent.
+3. **It overloads a field with a job it isn't doing.** `lastUpdated` exists for the
+   recency guard (`EntityState.stale`), which protects against a reconnect's full
+   set clobbering a fresher delta. That is a different question from "has this
+   client seen it".
+
+A store-owned counter has none of these properties: it is monotonic by
+construction, needs no clock, covers removals and changes with one mechanism, and
+is bumped by the act of applying a change regardless of what HA said about it.
+
+## How the cursor travels: already on the wire
 
 Datastar sends all non-`_`-prefixed signals with every backend action; for GET it
 serializes them into a `datastar` query param (`U.set("datastar", F)` in the pinned
-build, with `exclude: /(^|\.)_/`). The runtime already mints a `conn` id on connect
-and pushes it to the client as the `conn` signal (`Server.ConnSignal`) — not
-underscore-prefixed, therefore included.
+build, with `exclude: /(^|\.)_/`). The runtime already uses this for `conn`
+(`Server.ConnSignal`).
 
-So:
+So the server pushes the cursor as a signal alongside each patch batch, and it
+comes back on the next connect for free:
 
-- **First connect after a page load**: signals are fresh, no `conn` yet ⇒ absent
-  from the query param ⇒ full render, exactly as today.
-- **Retry / visibility refetch**: the page never reloaded, the signal survives in
-  memory ⇒ `conn` is present and names the session the server was already serving.
+- **First connect after a page load** — signals are fresh, no cursor ⇒ full render,
+  exactly as today.
+- **Retry / visibility refetch** — the page never reloaded, the signal survives in
+  memory ⇒ the cursor names precisely what the DOM holds.
 
-A page reload correctly reads as case 2, and two tabs get distinct `conn`s. No SSE
-`id:` field and no `last-event-id` handling is required. (`last-event-id` would
-work too — the build does record it and replay it as a header, surviving both the
-retry loop and the visibility refetch — but it duplicates a discriminator we
-already have.)
+A page reload correctly reads as the first case (the body is server-rendered fresh
+anyway), and two tabs carry independent cursors. No SSE `id:` field and no
+`last-event-id` handling is required. (`last-event-id` would also work — the build
+records it and replays it as a header, surviving both the retry loop and the
+visibility refetch — but it is a second channel for something the signal already
+carries.)
 
-## The blocker: the session does not survive today
+## Work
 
-`sseStream` mints `conn <- IO.randomUUID` and calls `Session.create` on **every**
-connect, and `.onFinalize(sessions.deregister(conn))` drops the old one when the
-stream dies. A retry arrives at least a second later, so by then the session — and
-its `lastRendered` mirror — is gone.
+1. **`StateStore` gains a version.** A counter bumped per applied batch; a
+   `changedAt: Map[String, Long]` beside the state map, and a `removedAt` tombstone
+   map. Both are written in the existing single `ref.modify` in `update`, so this
+   costs no extra traversal and no new synchronization. Tombstones need an eviction
+   rule — oldest-beyond-N, or drop on renderer change, since a `rendererGen` bump
+   makes them moot.
+2. **A renderer generation.** The dump already has a content version
+   (`fh-home@1.0.0-g<hash>`), but renderers also change on an entry edit, so this
+   wants its own counter incremented wherever a `SignallingRef[IO, Renderer]` is
+   swapped.
+3. **Emit the cursor** as a signal with each patch batch, and parse it on connect.
+4. **Resume path in `sseStream`**: with a valid cursor, skip `initialRepaint`,
+   render the changed set, push only those fragments.
 
-This is the substance of the work, not the diffing.
-
-## The second complication: the mirror is split
-
-`Session.lastRendered` is **not** a mirror of the whole DOM. Per `Sessions.scala`
-it covers only per-session fragments (open surfaces, bake-group owners). Shared
-main-page fragments are diffed once per slug in `sharedPatchPublishers` /
-`sharedPatches`, against a cache shared by all clients — which by construction
-cannot say what any individual browser received, since a client that was
-disconnected missed the broadcast that the shared cache already recorded as sent.
-
-So a resume needs per-client knowledge of the shared fragments too.
-
-## Design
-
-### 1. Sessions outlive their stream (briefly)
-
-Replace the immediate `deregister` with a grace period: on stream finalize, mark
-the session detached and start a timer; a resume within the window reattaches it,
-otherwise a reaper drops it.
-
-- Window: comfortably longer than Datastar's early retries, shorter than "the user
-  closed the tab". Datastar's backoff is 1s doubling to a 30s cap over 10
-  consecutive failures (~3 minutes total), so ~2 minutes is the honest match for
-  "still trying"; a visibility refetch can be much later, and that case simply
-  falls back to a full repaint.
-- Cap the number of detached sessions and evict oldest-first, so a crawler or a
-  flapping client cannot grow the map without bound.
-- `Session` gains explicit state rather than a pair of flags — one detached-at
-  timestamp is enough, but if a second flag appears, sum-type it.
-
-### 2. The mirror covers everything the client actually received
-
-When a shared patch is broadcast, each receiving session records `nodeId -> html`
-into its own mirror. Rendering stays once-per-slug; only the record is per session.
-
-Memory: one string map per live client. A large dashboard is on the order of
-100 nodes × a few hundred bytes ⇒ tens of KB per client. Fine for a home
-dashboard; note it explicitly in the type's doc so it is a known cost rather than a
-surprise.
-
-### 3. Resume = diff, not repaint
-
-On connect with a `conn` that resolves to a detached session:
-
-- reattach it (keep `lastRendered`, `open`, `slug`),
-- skip `initialRepaint`,
-- render the current snapshot and diff against the mirror — `Patches.diff` already
-  does exactly this — emitting only fragments whose HTML actually changed.
-
-Anything else (no `conn`, unknown `conn`, expired session, empty mirror) takes
-today's path unchanged. **The full repaint stays the default**; resume is the
-narrow, provable case.
-
-### 4. Bonus, nearly free
-
-The SSE `retry:` field sets Datastar's retry interval client-side (the parser
-assigns it to both the current and base interval). If the reconnect story is being
-touched anyway, the server can tune client backoff without touching the `@get`
-attribute.
+Notably absent, and this is the point: no session survives the disconnect, no grace
+window, no reaper, no per-client mirror, no eviction cap. The previous draft of this
+plan needed all of it.
 
 ## What must be proven before this is worth merging
 
-1. **The `conn` signal really does ride the retry URL.** Verified by reading the
-   pinned build, NOT observed end-to-end. Confirm against a live server by
-   dropping the connection and logging the query param — the whole design rests on
-   this one fact.
+1. **The cursor signal really does ride the retry URL.** Verified by reading the
+   pinned build, NOT observed end-to-end. Confirm against a live server by dropping
+   the connection and logging the query param — the whole design rests on this one
+   fact.
 2. **A resumed diff produces a DOM identical to a full repaint.** The failure mode
-   is silent and ugly: the mirror claims the browser holds HTML it does not, so the
-   patch is suppressed and the user sees stale values indefinitely. Worth a test
-   that drives a drop/resume and asserts the resumed DOM equals the repainted one.
-3. **Nodes that changed structurally, not just in content.** Dynamic-group
-   membership and tab selection change which nodes exist, not only their HTML;
-   check a membership change across a disconnect specifically.
+   is silent and ugly: the server believes the browser is current, suppresses the
+   patch, and the user sees stale values indefinitely. Worth a test that drives a
+   drop/resume and asserts the resumed DOM equals the repainted one.
+3. **Structural change, not just content.** Dynamic-group membership changes which
+   nodes exist, not only their HTML. Check a membership change and an entity
+   removal across a disconnect specifically — these are the cases where "re-render
+   the changed entities" is not obviously the same as "re-render everything".
 
-## Alternative considered: a per-slug replay log
+## Alternative considered: a server-side mirror of each client's DOM
 
-Give shared patches a monotonic sequence, keep a bounded ring buffer of
-`(seq, nodeId, html)`, and on resume replay everything after the client's last
-seen seq, coalescing by node; fall back to a repaint if the seq was evicted.
+Keep `Session.lastRendered` alive across the drop (grace window + reaper + cap),
+extend it to cover shared per-slug fragments as well as per-session ones, and on
+resume diff the current render against it.
 
-Bounded globally rather than per client, which is its main attraction. Rejected as
-the primary design because it is a second mechanism describing the same fact the
-per-session mirror already holds, and it still needs the per-session half for open
-surfaces — so it adds a structure without removing one. Revisit if per-client
-mirror memory ever actually bites.
+Rejected: it answers the same question with per-client server state instead of a
+client-carried value, and the bookkeeping is most of the work. It also runs into
+`Sessions.scala`'s split — `lastRendered` covers only per-session fragments, while
+shared main-page fragments are diffed once per slug against a cache shared by all
+clients, which by construction cannot say what any individual browser received.
+Recording broadcasts per session to fix that adds tens of KB per client. The cursor
+needs none of it.
 
 ## Not in scope
 
