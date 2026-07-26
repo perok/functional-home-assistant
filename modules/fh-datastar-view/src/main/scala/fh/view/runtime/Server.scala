@@ -934,40 +934,38 @@ class Server(
     //      just renders `data-show` off that signal.
     //   2. SSE TRANSPORT down (browser can't reach this server). Only the client
     //      can observe its own dropped stream, so this stays client-side.
-    //      Datastar dispatches a `datastar-sse` CustomEvent on `document` with
-    //      `detail.type` of `error`/`retrying`/`retries-failed` (trouble) or a
-    //      `datastar-*` patch type (a live message = transport alive). Datastar
-    //      auto-retries a dropped `@get` up to 10× with backoff, then gives up
-    //      (`retries-failed` — the stream is dead and needs a reload). The bridge
-    //      script mirrors that lifecycle into `window.__fhSse` (0 ok / 1 retrying
-    //      / 2 failed); a 1s interval lifts it into the `_sseDown` signal. It's
-    //      the one place that touches a Datastar internal, so it also listens for
-    //      a `datastar-fetch` alias defensively.
+    //      Datastar auto-retries a dropped `@get` (1s, doubling, capped at 30s,
+    //      10 consecutive failures) and reports the lifecycle as a
+    //      `datastar-fetch` CustomEvent whose `detail.type` is
+    //      `error`/`retrying` (trouble), `retries-failed` (given up — the stream
+    //      is dead and only a reload revives it), or anything else (`started`,
+    //      `finished`, a patch type — the transport is alive). `data-on` binds
+    //      it directly: the event is dispatched on `document` WITHOUT bubbling,
+    //      and the plugin special-cases this name onto `document` for us, so
+    //      neither `__window` (which cannot see it) nor a global+poll bridge is
+    //      needed.
     //
     // Transport takes priority: a dead transport also freezes `haDown` updates,
-    // so the HA banner is gated on `!_sseDown`. Structure/behavior live here so
+    // so the HA banner is gated on `$_sse == 0`. Structure/behavior live here so
     // the indicators always render and are theme-independent (documented
-    // primitives: `data-signals`, `data-on-interval`, `data-show`,
-    // `data-on:click`); the LOOK is theme-owned via `.fh-offline*` classes (each
-    // theme's `styles`, see lib/theme-*.pkl).
-    val connBridge =
-      """<script>
-        |window.__fhSse=0;(function(){function h(e){var t=e&&e.detail&&e.detail.type;if(!t)return;
-        |if(t==='retries-failed')window.__fhSse=2;else if(t==='retrying'||t==='error')window.__fhSse=1;
-        |else window.__fhSse=0;}document.addEventListener('datastar-sse',h);
-        |document.addEventListener('datastar-fetch',h);})();
-        |</script>""".stripMargin
+    // primitives: `data-signals`, `data-on`, `data-show`); the LOOK is
+    // theme-owned via `.fh-offline*` classes (each theme's `styles`, see
+    // lib/theme-*.pkl).
+    //
     // Datastar expressions read signals via `$name` (this pinned build, unlike
     // some Datastar doc examples, requires the sigil even for a bare read).
     val ha = "$" + Server.HaDownSignal
+    val sseState =
+      "evt.detail.type === 'retries-failed' ? 2 : " +
+        "(evt.detail.type === 'retrying' || evt.detail.type === 'error') ? 1 : 0"
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, _sseDown: false}"
-         |     data-on-interval="1000; $$_sse = (window.__fhSse || 0); $$_sseDown = $$_sse > 0">
-         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sseDown">
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0}"
+         |     data-on:datastar-fetch="$$_sse = $sseState">
+         |  <div class="fh-offline fh-offline-sse" role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
          |  </div>
-         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$ha && !$$_sseDown">Home Assistant unavailable — reconnecting…</div>
+         |  <div class="fh-offline fh-offline-ha" role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
     s"""<!doctype html>
        |<html lang="en">
@@ -980,7 +978,6 @@ class Server(
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
       )}"></script>
-       |$connBridge
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
        |$connBanner

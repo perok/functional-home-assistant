@@ -346,11 +346,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     pageHtml(titleDash("home", None)).map { html =>
       // Concept 1: the server-pushed HA-down signal drives the HA banner.
       assert(html.contains(Server.HaDownSignal), html)
-      // Concept 2: a client-side interval derives transport-down from __fhSse.
-      assert(html.contains("data-on-interval"), html)
-      // The bridge mirrors Datastar's connection-lifecycle events into a global.
-      assert(html.contains("window.__fhSse"), html)
-      assert(html.contains("datastar-sse"), html)
+      // Concept 2: transport-down is derived client-side, bound straight to
+      // Datastar's connection lifecycle — no bridge script, no polling. The
+      // event name is load-bearing (`datastar-sse` does not exist in this
+      // build), and `data-on` only reaches it because the plugin special-cases
+      // this name onto `document`; a `__window` modifier would silently never
+      // fire.
+      assert(html.contains("data-on:datastar-fetch"), html)
+      assert(html.contains("retries-failed"), html)
+      assert(!html.contains("data-on-interval"), html)
       // Two DISTINCT messages, one per failure kind.
       assert(html.contains("Reconnecting to the dashboard"), html)
       assert(html.contains("Home Assistant unavailable"), html)
