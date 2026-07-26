@@ -91,18 +91,23 @@ class Renderer(
 
   private val mainIndex = new Index(dashboard.card, "")
 
-  /** Is this still the same compiled dashboard? The browser carries this across
-    * a disconnect, and a mismatch means a full page **reload** — the cards and
-    * templates themselves changed, and `<head>` (theme, stylesheets, scripts)
-    * may have moved with them, which no body morph can fix
+  /** Does the browser's `<head>` still match this dashboard? A mismatch is the
+    * ONE thing a body patch cannot repair — theme stylesheets, scripts, inline
+    * CSS, `<title>` — so it is the one thing worth a full page **reload**
     * (docs/plan-sse-resume.md).
     *
+    * Deliberately NOT a hash of the whole dashboard. Cards and layout live in
+    * the body, which the repaint already re-sends in full, so hashing them
+    * would reload the page on every edit for no gain. And it is not needed to
+    * gate the resume either: any dashboard change arrives via a renderer swap,
+    * which rotates the fragment log's `logId` and rejects the cursor anyway.
+    *
     * STABLE ACROSS RESTARTS by design: an add-on restart on an HA update must
-    * not refresh every browser when the dashboards are byte-identical. That is
-    * exactly why it cannot double as the resume cursor's `logId`, whose whole
-    * job is to NOT survive one.
+    * not refresh every browser when the theme is byte-identical. That is
+    * exactly why it cannot double as `logId`, whose whole job is to NOT survive
+    * one.
     */
-  val dashboardHash: String = Renderer.fingerprint(dashboard)
+  val headHash: String = Renderer.headFingerprint(dashboard)
 
   /** Cards that opted out of the `.fh-cell` wrapper
     * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
@@ -1007,24 +1012,29 @@ object Renderer {
       Transforms.fromValidated(v)
     )
 
-  /** 12 hex of SHA-256 over the DECODED model — the same idiom as
-    * `fh-home@1.0.0-g<hash>`. See [[Renderer.dashboardHash]] for what it is
-    * for.
+  /** 12 hex of SHA-256 over everything `Server.page` puts in `<head>` that this
+    * dashboard decides — the same idiom as `fh-home@1.0.0-g<hash>`. See
+    * [[Renderer.headHash]] for what it is for.
     *
-    * Over the model rather than the evaluated JSON text, so it is blind to key
-    * order and formatting yet captures every input that can reach the browser
-    * (entry, lib, dump, theme, and the build-phase surface hoist, which runs
-    * before decode). Not over the Pkl SOURCE: that is both too sensitive (a
-    * comment in `lib/components.pkl` would refresh every browser) and not
-    * sensitive enough (a dump change would not register).
+    * That is the theme (stylesheets, scripts, inline CSS, tokens) and the
+    * authored `<title>`. The `<base href>` is excluded on purpose: it is
+    * per-REQUEST (the ingress prefix), not per-dashboard, so folding it in
+    * would make one dashboard hash differently depending on how it was reached.
     *
-    * `toString` is a deterministic rendering here: the nested `Map`s are keyed
-    * by `String`, whose `hashCode` is specified, so an immutable map's
-    * iteration order is a pure function of its contents and its (decode-order)
-    * insertion sequence — no identity hashes, nothing JVM-run-specific.
+    * Over the decoded model rather than the evaluated JSON text, so it is blind
+    * to key order and formatting. `toString` is a deterministic rendering here:
+    * the nested `Map`s are keyed by `String`, whose `hashCode` is specified, so
+    * an immutable map's iteration order is a pure function of its contents and
+    * its (decode-order) insertion sequence — no identity hashes, nothing
+    * JVM-run-specific.
     */
-  private[runtime] def fingerprint(dashboard: Dashboard): String =
-    LibPackage.sha256(dashboard.toString.getBytes("UTF-8")).take(12)
+  private[runtime] def headFingerprint(dashboard: Dashboard): String =
+    LibPackage
+      .sha256(
+        (dashboard.theme.toString + " " + dashboard.title.getOrElse(""))
+          .getBytes("UTF-8")
+      )
+      .take(12)
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.

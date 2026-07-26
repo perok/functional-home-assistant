@@ -425,7 +425,7 @@ class Server(
           if (patches.isEmpty) patches
           else
             patches :+ Server.cursorSignals(
-              renderer.dashboardHash,
+              renderer.headHash,
               logId,
               req.stamp.version
             )
@@ -514,19 +514,25 @@ class Server(
       resp <- Ok(stream)
     } yield resp
 
-  /** What a (re)connecting client is sent before the live streams start: the
-    * resume delta if — and only if — this client's cursor provably names what
-    * its DOM holds, otherwise today's full body repaint
-    * (docs/plan-sse-resume.md, step 4).
+  /** What a (re)connecting client is sent before the live streams start. Three
+    * outcomes, narrowest first (docs/plan-sse-resume.md, step 4):
+    *
+    *   1. '''Reload''' when the client's `<head>` no longer matches this
+    *      dashboard's ([[Renderer.headHash]]) — a theme or title change.
+    *      Nothing else is sent: the page is about to re-render itself from
+    *      scratch.
+    *   1. '''Resume''' when the cursor provably names what this DOM holds.
+    *   1. '''Repaint''' the whole body, as before this plan.
     *
     * '''The repaint is the default and every doubt falls back to it''': no
     * cursor (a fresh page load, whose body is server-rendered anyway), an
-    * unparseable one, a different compiled dashboard, a cursor from a log this
-    * server no longer has (restart, renderer swap), a cursor from the FUTURE (a
-    * version this store never reached — a restart with a rewound counter), or
-    * one so old the log can no longer say what changed ([[FragmentLog.since]]
-    * returning `None`). A repaint is always correct and merely expensive; a
-    * wrong resume is silently stale forever.
+    * unparseable one, a cursor from a log this server no longer has (restart,
+    * renderer swap — which also covers every dashboard change, since one
+    * implies the other), a cursor from the FUTURE (a version this store never
+    * reached — a restart with a rewound counter), or one so old the log can no
+    * longer say what changed ([[FragmentLog.since]] returning `None`). A
+    * repaint is always correct and merely expensive; a wrong resume is silently
+    * stale forever.
     *
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
@@ -541,30 +547,36 @@ class Server(
   ): IO[List[ServerSentEvent]] =
     (live.renderer.get, live.log.get, stateStore.current).mapN {
       (renderer, log, store) =>
-        val resumed = Server
-          .cursorOf(req)
-          .filter(c =>
-            c.dashboardHash == renderer.dashboardHash &&
-              c.logId == log.id &&
-              c.version <= store.version
+        val cursor = Server.cursorOf(req)
+        if (cursor.exists(_.headHash != renderer.headHash))
+          List(Server.reloadPatch)
+        else {
+          val resumed = cursor
+            .filter(c => c.logId == log.id && c.version <= store.version)
+            .flatMap(c =>
+              Patches.resume(renderer, log, store.entities, c.version)
+            )
+          // Lazy: rendering the whole body is the cost this exists to avoid.
+          lazy val repaint = Datastar.patch(
+            renderer.renderBody(store.entities, uiState),
+            PatchMode.Inner,
+            Some("#dashboard")
           )
-          .flatMap(c =>
-            Patches.resume(renderer, log, store.entities, c.version)
-          )
-        // Lazy: rendering the whole body is the cost this exists to avoid.
-        lazy val repaint = Datastar.patch(
-          renderer.renderBody(store.entities, uiState),
-          PatchMode.Inner,
-          Some("#dashboard")
-        )
-        resumed.getOrElse(List(repaint)) :+
-          Server.cursorSignals(renderer.dashboardHash, log.id, store.version)
+          resumed.getOrElse(List(repaint)) :+
+            Server.cursorSignals(renderer.headHash, log.id, store.version)
+        }
     }
 
   /** Live-reload body repaints for one connection. Follows the session's
     * CURRENT dashboard: watch every renderer, but only repaint when the one
     * that reloaded is the one this connection is viewing now (it may have
     * navigated since connecting).
+    *
+    * A reload whose `<head>` changed (a theme edit) sends the watching browser
+    * a page RELOAD instead: the body morph would leave the old stylesheets in
+    * place, so the page would keep the previous look until manually refreshed.
+    * `zipWithPrevious` is what makes that comparable — the decision is "did the
+    * head change across this swap", not "does it differ from some baseline".
     *
     * The watched set is the registry as it stands when this connection opens. A
     * slug pushed LATER is therefore not watched by this connection — it still
@@ -581,27 +593,30 @@ class Server(
       .eval(renderers.get)
       .flatMap(rs => Stream.emits(rs.toList))
       .map { case (s, live) =>
-        live.renderer.discrete.drop(1).evalMapFilter { r =>
-          session.slug.get.flatMap { cur =>
-            if (cur != s) IO.pure(Option.empty[ServerSentEvent])
-            else
-              // The repaint re-bakes the body (selected tabs included), so
-              // reset the diff cache AND re-seed the open set to match. Reuses
-              // this client's cookie-derived selection (closed over).
-              (session.lastRendered.update(_.cleared) *>
-                session.open.set(r.selectedSurfaces(uiState)) *>
-                stateStore.snapshot)
-                .map(st =>
-                  Some(
-                    Datastar
-                      .patch(
-                        r.renderBody(st, uiState),
-                        PatchMode.Inner,
-                        Some("#dashboard")
-                      )
+        live.renderer.discrete.zipWithPrevious.drop(1).evalMapFilter {
+          case (previous, r) =>
+            session.slug.get.flatMap { cur =>
+              if (cur != s) IO.pure(Option.empty[ServerSentEvent])
+              else if (previous.exists(_.headHash != r.headHash))
+                IO.pure(Some(Server.reloadPatch))
+              else
+                // The repaint re-bakes the body (selected tabs included), so
+                // reset the diff cache AND re-seed the open set to match. Reuses
+                // this client's cookie-derived selection (closed over).
+                (session.lastRendered.update(_.cleared) *>
+                  session.open.set(r.selectedSurfaces(uiState)) *>
+                  stateStore.snapshot)
+                  .map(st =>
+                    Some(
+                      Datastar
+                        .patch(
+                          r.renderBody(st, uiState),
+                          PatchMode.Inner,
+                          Some("#dashboard")
+                        )
+                    )
                   )
-                )
-          }
+            }
         }
       }
       .parJoinUnbounded
@@ -1048,9 +1063,16 @@ class Server(
     // override a stylesheet rule, so hiding these in the theme CSS would hide
     // them permanently.
     val hidden = """style="display:none""""
+    // The banner state is DEBOUNCED so a sub-second blip never paints. Two
+    // things flash without it: an ordinary visibility refetch (the phone-unlock
+    // path this whole resume design serves), and a page reload — navigating away
+    // aborts the stream, which fires `error` on the OUTGOING page and paints
+    // "Reconnecting…" for an instant before it is replaced. Datastar's retry
+    // backoff grows past this window, so a real outage still surfaces.
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0}"
-         |     data-on:datastar-fetch="$$_sse = $sseState">
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false}"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
+         |     data-on:datastar-fetch.debounce_600ms="$$_sse = $sseState">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -1282,20 +1304,35 @@ object Server {
     * which these ARE — but the prefix is what excludes a signal from the URL,
     * and riding the URL is their entire purpose.
     *
-    *   - `dashboardHash` — same compiled dashboard? Mismatch ⇒ page reload.
+    *   - `headHash` — does the browser's `<head>` still match? Mismatch ⇒ page
+    *     reload, the only remedy a body patch cannot supply
+    *     ([[Renderer.headHash]]).
     *   - `logId` — is the cursor even comparable? Mismatch ⇒ body repaint.
     *   - `storeVersion` — the cursor itself: how far behind this client is.
     */
-  val DashboardHashSignal: String = "dashboardHash"
+  val HeadHashSignal: String = "headHash"
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
+
+  /** Reload this page. `_`-prefixed — unlike the three above, this one is pure
+    * per-connection client state with no reason to ride any URL, and the page
+    * turns it into `window.location.reload()` via `data-effect`.
+    *
+    * A signal rather than a patched `<script>` element: it reuses the channel
+    * already carrying the cursor instead of adding a second mechanism, and the
+    * page declares the effect once where every other client behaviour lives.
+    */
+  val ReloadSignal: String = "_reload"
+
+  private[runtime] val reloadPatch: ServerSentEvent =
+    Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
 
   /** What a reconnecting browser claims its DOM already holds. All three fields
     * are required: a version without the log that issued it names nothing, and
     * without the hash it could belong to a different compiled dashboard.
     */
   private[runtime] case class Cursor(
-      dashboardHash: String,
+      headHash: String,
       logId: String,
       version: Long
   )
@@ -1314,7 +1351,7 @@ object Server {
       raw <- req.uri.query.params.get("datastar")
       json <- io.circe.parser.parse(raw).toOption
       c = json.hcursor
-      hash <- c.get[String](DashboardHashSignal).toOption
+      hash <- c.get[String](HeadHashSignal).toOption
       logId <- c.get[String](LogIdSignal).toOption
       version <- c.get[Long](StoreVersionSignal).toOption
     } yield Cursor(hash, logId, version)
@@ -1324,12 +1361,12 @@ object Server {
     * actually been sent.
     */
   private[runtime] def cursorSignals(
-      dashboardHash: String,
+      headHash: String,
       logId: String,
       version: Long
   ): ServerSentEvent =
     Datastar.patchSignals(
-      s"""{"$DashboardHashSignal":"$dashboardHash",""" +
+      s"""{"$HeadHashSignal":"$headHash",""" +
         s""""$LogIdSignal":"$logId",""" +
         s""""$StoreVersionSignal":$version}"""
     )

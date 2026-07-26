@@ -14,7 +14,8 @@ import fh.view.model.{
   Op,
   Predicate,
   SlotSource,
-  Surface
+  Surface,
+  Theme
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
@@ -891,18 +892,18 @@ class ServerSuite extends munit.CatsEffectSuite {
 
     def logId: IO[String] = cache.get.map(_.id)
 
-    def dashboardHash: String = renderer.dashboardHash
+    def headHash: String = renderer.headHash
 
     /** Connect to the SSE route with `cursor` in the `datastar` signal param —
-      * exactly how a reconnecting browser arrives — and read the OPENING block:
-      * everything up to and including the cursor signal, which the connect path
-      * emits last.
+      * exactly how a reconnecting browser arrives — and read the OPENING block.
+      * That ends at the cursor signal, which the connect path emits last, or at
+      * the reload signal, which replaces the whole block.
       */
     def opening(cursor: Option[Server.Cursor]): IO[String] =
       val uri = cursor.foldLeft(uri"/sse/dashboard/dashboard/patch") { (u, c) =>
         u.withQueryParam(
           "datastar",
-          s"""{"${Server.DashboardHashSignal}":"${c.dashboardHash}",""" +
+          s"""{"${Server.HeadHashSignal}":"${c.headHash}",""" +
             s""""${Server.LogIdSignal}":"${c.logId}",""" +
             s""""${Server.StoreVersionSignal}":${c.version}}"""
         )
@@ -913,7 +914,10 @@ class ServerSuite extends munit.CatsEffectSuite {
           _.body
             .through(fs2.text.utf8.decode)
             .scan("")(_ + _)
-            .takeThrough(!_.contains(Server.StoreVersionSignal))
+            .takeThrough(seen =>
+              !seen.contains(Server.StoreVersionSignal) &&
+                !seen.contains(Server.ReloadSignal)
+            )
             .compile
             .lastOrError
         )
@@ -1260,7 +1264,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     assertEquals(
       Server.cursorOf(
-        req("""{"dashboardHash":"h1","logId":"L1","storeVersion":7}""")
+        req("""{"headHash":"h1","logId":"L1","storeVersion":7}""")
       ),
       Some(Server.Cursor("h1", "L1", 7L))
     )
@@ -1292,7 +1296,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       assertEquals(raw.size, 2, clue = raw)
       assert(raw.last.contains(s""""${Server.LogIdSignal}":"$logId""""), raw)
       assert(raw.last.contains(s""""${Server.StoreVersionSignal}":1"""), raw)
-      assert(raw.last.contains(h.dashboardHash), clue = raw)
+      assert(raw.last.contains(h.headHash), clue = raw)
       assertEquals(quiet, Nil, clue = quiet)
     }
   }
@@ -1305,7 +1309,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
       _ <- h.step(es("sensor.a", "hot"))
       logId <- h.logId
-      opening <- h.opening(Some(Server.Cursor(h.dashboardHash, logId, 1L)))
+      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
     } yield {
       assert(opening.contains(">hot<"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
@@ -1326,7 +1330,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       // ...then b leaves: 1 of 5 shown, under the churn fraction, so per-entity.
       left <- h.step(off("light.b"))
       logId <- h.logId
-      opening <- h.opening(Some(Server.Cursor(h.dashboardHash, logId, 2L)))
+      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 2L)))
     } yield {
       assertEquals(left.size, 1, clue = left)
       assert(opening.contains("selector #c_light_b"), clue = opening)
@@ -1351,34 +1355,58 @@ class ServerSuite extends munit.CatsEffectSuite {
       none <- opening(_ => IO.pure(None))
       // A log this server no longer has (a restart, or a renderer swap).
       staleLog <- opening(h =>
-        IO.pure(Some(Server.Cursor(h.dashboardHash, "gone-with-the-log", 1L)))
-      )
-      // A different compiled dashboard.
-      otherDash <- opening(h =>
-        h.logId.map(id => Some(Server.Cursor("0000deadbeef", id, 1L)))
+        IO.pure(Some(Server.Cursor(h.headHash, "gone-with-the-log", 1L)))
       )
       // A version this store never reached.
       future <- opening(h =>
-        h.logId.map(id => Some(Server.Cursor(h.dashboardHash, id, 99L)))
+        h.logId.map(id => Some(Server.Cursor(h.headHash, id, 99L)))
       )
     } yield {
       assert(none.contains(BodyRepaint), clue = none)
       assert(staleLog.contains(BodyRepaint), clue = staleLog)
-      assert(otherDash.contains(BodyRepaint), clue = otherDash)
       assert(future.contains(BodyRepaint), clue = future)
     }
   }
 
-  test("dashboardHash tracks what renders, and only that") {
-    // Stable across restarts (a fresh Renderer over an equal dashboard) so an
-    // add-on restart does not refresh every browser; different when a card
-    // changes, so an edit does.
-    val a = Renderer.create(liveLeafDash).dashboardHash
-    assertEquals(Renderer.create(liveLeafDash).dashboardHash, a)
-    val edited = liveLeafDash.copy(
+  test("a client whose <head> has changed is reloaded, not patched") {
+    // The one thing a body patch cannot repair: the browser is holding the
+    // previous theme's stylesheets. Nothing else is sent — the page is about to
+    // render itself from scratch.
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      opening <- h.opening(Some(Server.Cursor("0000deadbeef", logId, 1L)))
+    } yield {
+      assert(opening.contains(s""""${Server.ReloadSignal}":true"""), opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+      assert(!opening.contains(">hot<"), clue = opening)
+    }
+  }
+
+  test("headHash tracks <head>, and only <head>") {
+    val base = Renderer.create(liveLeafDash).headHash
+    // Stable across restarts (a fresh Renderer over an equal dashboard), so an
+    // add-on restart does not refresh every browser.
+    assertEquals(Renderer.create(liveLeafDash).headHash, base)
+    // A card edit changes the BODY, which the repaint re-sends in full — so it
+    // must NOT force a reload.
+    val editedCard = liveLeafDash.copy(
       cards = liveLeafDash.cards
         .updated("card", CardDef("<b>{{state}}</b>", slots = List("state")))
     )
-    assertNotEquals(Renderer.create(edited).dashboardHash, a)
+    assertEquals(Renderer.create(editedCard).headHash, base)
+    // A theme or title change does.
+    val editedTheme = liveLeafDash.copy(theme =
+      Theme(stylesheets = List("https://example.test/other.css"))
+    )
+    assertNotEquals(Renderer.create(editedTheme).headHash, base)
+    assertNotEquals(
+      Renderer.create(liveLeafDash.copy(title = Some("Renamed"))).headHash,
+      base
+    )
   }
 }
