@@ -7,7 +7,6 @@ import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.FHError
 import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Resource}
-import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import retry.*
@@ -197,11 +196,13 @@ object HaFeed {
       }
       .guarantee(connection.set(None))
 
-  /** Drain the entity feed into the store, one store update per arriving CHUNK:
-    * HA emits changes in bursts (an automation moves a dozen entities at once),
-    * so a burst costs one `ref.modify` instead of one per frame. Blocks as long
-    * as the connection lives; `runConnection` races it against `awaitClosed`,
-    * which is what ends the connection scope on death.
+  /** Drain the entity feed into the store, one store update per arriving CHUNK,
+    * so a burst (an automation moving a dozen entities at once) tends to cost
+    * one `ref.modify` rather than one per frame. Best-effort: the transport
+    * re-batches by what happens to be queued, so the grouping is an
+    * optimization, not a guarantee. Blocks as long as the connection lives;
+    * `runConnection` races it against `awaitClosed`, which is what ends the
+    * connection scope on death.
     *
     * The first applied batch latches `seeded`: the feed opens with the full
     * entity set, so "a batch has landed" IS "the store is populated".

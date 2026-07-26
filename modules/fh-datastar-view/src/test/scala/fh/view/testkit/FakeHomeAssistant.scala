@@ -11,7 +11,6 @@ import cats.effect.kernel.Ref
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
-import io.circe.syntax.*
 
 /** One recorded `call_service` invocation — what the dashboard sent back to HA
   * when a control was actuated.
@@ -36,9 +35,6 @@ case class ServiceCall(
   *   - `subscribeStream(subscribe_entities)` opens with the fixtures as one
   *     full state frame and then yields the deltas [[emit]] pushes — the feed
   *     [[fh.view.runtime.StateStore]] lives on,
-  *   - `sendCommand(get_states)` returns the current fixture as an
-  *     `/api/states` snapshot (not on the runtime path any more, but still part
-  *     of the API surface),
   *   - `subscribeStream(subscribe_events …)` hands back a live per-type queue
   *     ([[pushRawEvent]]) for the registry watch,
   *   - `subscribeStream(render_template)` answers the boot dump fetch
@@ -102,13 +98,6 @@ final class FakeHomeAssistant private (
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
   ): IO[Response] =
     command match {
-      case _: `get_states` =>
-        // `get_states` is typed `List[GetStatesData]` at the command, so hand
-        // back the fixtures already in that shape — the same value the real
-        // decode would produce.
-        stateRef.get
-          .map(_.values.toList.map(_.toGetStatesData))
-          .asInstanceOf[IO[Response]]
       case cs: `call_service` =>
         calls
           .update(

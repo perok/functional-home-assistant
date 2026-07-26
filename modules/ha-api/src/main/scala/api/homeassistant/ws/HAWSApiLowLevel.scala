@@ -66,9 +66,14 @@ object HAWSApiLowLevel {
     /** Decode received frames, ONE ELEMENT PER PAYLOAD.
       *
       * With `coalesce_messages` enabled a frame is a JSON ARRAY of payloads (HA
-      * wraps even a single one), so a frame yields a whole fs2 `Chunk` — which
-      * is exactly how a coalesced burst stays one batch all the way to the
-      * consumer. A bare object still decodes, so this works either way.
+      * wraps even a single one), so a frame yields a whole fs2 `Chunk`. A bare
+      * object still decodes, so this works either way.
+      *
+      * The chunk does NOT survive to the consumer: routing hands payloads to
+      * their per-id queue one at a time, and the subscriber's
+      * `fromQueueUnterminated` re-batches whatever happens to be queued.
+      * Batched consumption is therefore an optimization that usually fires
+      * under load, never a guarantee to build on.
       */
     def receiveStreamDecode[Body: Decoder](
         debugFrames: Boolean

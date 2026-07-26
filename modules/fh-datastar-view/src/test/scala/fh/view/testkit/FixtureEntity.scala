@@ -3,8 +3,6 @@ package fh.view.testkit
 import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.runtime.EntityState
 import io.circe.Json
-import perok.ha.{EntityId, GetStatesData, GetStatesDataAttributes}
-import smithy4s.Document
 
 /** One entity in a test fixture: its id, current `state`, and full attribute
   * map — the SAME shape the runtime's [[EntityState]] carries, but as a plain,
@@ -12,10 +10,10 @@ import smithy4s.Document
   *
   * This is the single source of truth for a fixture entity. It renders to every
   * face Home Assistant presents to the runtime — the compressed feed's full
-  * state ([[toFeedEntry]]) and delta ([[deltaFrom]]), the `/api/states`
-  * snapshot ([[toGetStatesData]]) and the authoring dump row ([[toDumpEntry]])
-  * — so "the state the dashboard was built against" and "the live state the
-  * runtime serves" are derived from one declaration and cannot drift.
+  * state ([[toFeedEntry]]) and delta ([[deltaFrom]]), and the authoring dump
+  * row ([[toDumpEntry]]) — so "the state the dashboard was built against" and
+  * "the live state the runtime serves" are derived from one declaration and
+  * cannot drift.
   */
 case class FixtureEntity(
     entityId: String,
@@ -28,26 +26,6 @@ case class FixtureEntity(
     */
   def toEntityState: EntityState =
     EntityState(entityId, state, attributes)
-
-  /** This entity as one `/api/states` row. `friendly_name`/`device_class` go
-    * into the typed attribute fields (as the real HA payload has them, and as
-    * [[fh.view.runtime.StateStore.seed]] lifts them back out); every other
-    * attribute rides in `unknown`. State is always a string in `/api/states`.
-    */
-  def toGetStatesData: GetStatesData = {
-    val friendly = attributes.get("friendly_name").flatMap(_.asString)
-    val deviceClass = attributes.get("device_class").flatMap(_.asString)
-    val rest = attributes.removed("friendly_name").removed("device_class")
-    GetStatesData(
-      entity_id = EntityId(entityId),
-      state = Document.fromString(state),
-      attributes = GetStatesDataAttributes(
-        friendly_name = friendly,
-        device_class = deviceClass,
-        unknown = Some(rest.view.mapValues(FixtureEntity.jsonToDocument).toMap)
-      )
-    )
-  }
 
   /** The entity's domain — the segment before the first `.` of its id. */
   def domain: String = entityId.takeWhile(_ != '.')
@@ -129,22 +107,4 @@ object FixtureEntity {
     * [[fh.view.runtime.StateStore]] drops anything not newer.
     */
   def epochAt(tick: Long): Double = tick.toDouble
-
-  /** Convert a circe [[Json]] to a smithy4s [[Document]] for building
-    * `GetStatesData` fixtures. Numbers go through `BigDecimal` so a value
-    * survives the fixture -> `GetStatesData` -> seed round-trip.
-    */
-  def jsonToDocument(j: Json): Document =
-    j.fold(
-      Document.nullDoc,
-      b => Document.fromBoolean(b),
-      n =>
-        Document.fromBigDecimal(
-          n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))
-        ),
-      s => Document.fromString(s),
-      arr => Document.array(arr.map(jsonToDocument)),
-      obj =>
-        Document.obj(obj.toList.map { case (k, v) => k -> jsonToDocument(v) })
-    )
 }
