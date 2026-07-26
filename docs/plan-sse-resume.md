@@ -2,11 +2,12 @@
 
 **Status: in progress.** The transport the design rests on is verified end-to-end in a
 real browser (see "Evidence"), not inferred from reading the pinned Datastar build.
-The server-side half is built and committed (`9e3eead` … `c538b39`), including the pure
-resume core. Building it corrected this document four times, and the corrections are kept
+The server-side half is built and committed (`9e3eead` … `f70689d`), including the pure
+resume core. Building it corrected this document five times, and the corrections are kept
 rather than tidied away because each was found by a sharper question than the one before:
-the tombstone framing (wrong twice, in opposite directions), the missing log identity, and
-the "nothing grows so no eviction" claim. Remaining: steps 3–5, the client-visible half.
+the tombstone framing (wrong twice, in opposite directions), the missing log identity, the
+"nothing grows so no eviction" claim, and the subtree a resume sent twice. Remaining:
+steps 3–5, the client-visible half.
 
 ## Why
 
@@ -158,6 +159,36 @@ created, and every client's body — server-rendered from current state at page 
 already has it. So absence correctly reads as "you are up to date", and there is no
 bootstrapping hole.
 
+### Only the latest meaningful change: three levels of collapse
+
+A resume should carry each visible change once, and the log collapses redundancy at three
+levels. The first two fall out of the data structure; the third had to be asked for.
+
+1. **Per node.** Both maps are keyed by node id with latest-wins, so a thousand alternating
+   ticks on one element leave exactly one entry (tested). Fragments also only advance on a
+   REAL html change, because the live diff never stores a byte-identical re-render.
+2. **Across the two maps.** A node with a current `Mutation` is emitted as that mutation and
+   NOT also as a morph — but the insert carries the fragment's LATEST html, so a `Placed` at
+   v=20 followed by a content tick at v=30 is one insert containing the v=30 content. It is
+   cursor-sensitive in the right direction: a client whose cursor is 25 was present for the
+   insert, so it correctly gets only the morph.
+3. **Across the tree** (`coveredByAncestor`). A node whose ancestor is being sent with a
+   version `>=` its own is dropped entirely — fragments and mutations alike — since the
+   ancestor's cached html embeds the whole subtree. Correctness never rested on this
+   (ascending version order makes the newer ancestor land last and win), but re-sending a
+   subtree is exactly the cost this plan exists to remove.
+
+Level 3 is the one worth a warning, because getting it wrong is invisible. The predicate must
+be a STRICT ancestor test: a version that also matches the node itself makes every fragment
+suppress its own emission, so a resume silently sends nothing at all, with no error anywhere.
+There is a test named for that alone. `since` owns the rule for both maps so there is one
+place it can be wrong, and placements pass the CHILD node id — which reaches the group and
+every container above it — rather than the group id.
+
+What does not collapse, and cannot: a node that changes A→B→A across the absence yields a
+morph to `A` byte-identical to what the client already holds. Detecting that needs per-client
+DOM knowledge, the thing this design refuses to keep, and idiomorph treats it as a no-op.
+
 ### Eviction: `fragments` self-limits, `mutations` does not
 
 Keying by **node id** rather than by event is what keeps the log small — a node has one
@@ -277,12 +308,13 @@ a member the client already had, or one placed a moment ago. Ascending fails, be
 node's anchor can be a later node not yet inserted. Morphs go first (ascending by version,
 since a container's cached HTML embeds its children's).
 
-**Two `Placed` skips**, both needed: an entity that is no longer a member (unreachable in
-practice, since the latest mutation would then be `Gone` — kept as a defence), and a node
-already contained in the HTML of an ancestor fragment being sent
-(`FragmentLog.coveredByAncestor`), which would otherwise duplicate the element. Ancestry is
-a string-prefix test, since ids are location-derived (`Dashboard.pathId`: `c`, `c_0`,
-`c_0_1`); the trailing `_` is what keeps `c_1` from matching `c_10`.
+**One `Placed` skip lives in the resume**: an entity that is no longer a member. Unreachable
+in practice — the latest mutation would then be `Gone` — and kept as a defence, since the
+alternative is inserting an element the group's predicate says does not belong. The other
+skip, an element an ancestor's HTML already contains, is not special to placements at all:
+it is level 3 of the collapse above, applied to both maps inside `since`. Ancestry is a
+string-prefix test, since ids are location-derived (`Dashboard.pathId`: `c`, `c_0`, `c_0_1`);
+the trailing `_` is what keeps `c_1` from matching `c_10`.
 
 **The subtree-authority invariant.** A node's fresh HTML is authoritative for everything
 under it, so stamping it supersedes that subtree's mutations — a stale `Gone` would delete
@@ -438,7 +470,7 @@ one to drive.
    signal alongside `logId` and `storeVersion`.
 4. **Resume path in `sseStream`.** The pure core is DONE — `Patches.resume` returns
    `Option[List[ServerSentEvent]]`, `None` meaning "repaint", with `ResumePatchesSuite`
-   covering anchor selection and both skip cases. What remains is the wiring: with a
+   covering anchor selection and the skips. What remains is the wiring: with a
    matching hash and a cursor quoting the current `logId`, call it and push the result
    instead of `initialRepaint`. Any doubt — no cursor, unparseable, hash mismatch, `logId`
    mismatch, cursor above the current version or below the horizon, unknown slug — falls
