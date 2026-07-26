@@ -22,8 +22,8 @@ import org.http4s.ServerSentEvent
   *     fragments are diffed once per slug instead (`Server`'s shared patch
   *     pass), never here. A [[FragmentLog]] for one diff contract with that
   *     pass, but its versions are never resumed from: this log dies with the
-  *     connection, so a reconnecting client re-renders these fresh
-  *     (docs/plan-sse-resume.md).
+  *     connection, so a reconnecting client has these painted fresh instead —
+  *     see `Server.openingPatches` (docs/plan-sse-resume.md, step 5).
   */
 case class Session(
     slug: Ref[IO, String],

@@ -289,6 +289,32 @@ class Renderer(
   val sessionOnlyStateGroups: Set[String] =
     stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
 
+  /** The **roots of the per-session part of the main page**: main-rooted nodes
+    * whose HTML bakes a member this client selected (a `tabs` host) or a branch
+    * that transitively does. Everything under them is per-session too, and
+    * re-rendering a root re-renders its whole subtree — so this is the complete
+    * set a reconnecting client needs painted fresh, without listing the nested
+    * owners (which live in surface indexes, may not be in the DOM at all, and
+    * are covered by their root anyway).
+    *
+    * Main-rooted on purpose: a per-session subtree's chain of owners always
+    * bottoms out on the main page (a user owner inside a state branch makes
+    * that branch [[sessionOnlyStateGroups]]), so these roots cover every
+    * per-session node that is currently rendered.
+    */
+  val sessionOwnedMainIds: Set[String] =
+    mainIndex.indexed.keySet.filter(id =>
+      userBakeOwnerIds(id) || sessionOnlyStateGroups(id)
+    )
+
+  /** Whether this dashboard has any popup surface — i.e. whether the popup host
+    * is a patch target at all. A dashboard without one must not be sent a host
+    * reset: the element does not exist in its DOM (the minimal chrome omits
+    * it), and Datastar would report the missing selector.
+    */
+  val hasPopupSurfaces: Boolean =
+    dashboard.surfaces.values.exists(_.hostId == Dashboard.PopupHostId)
+
   /** State-selected owner ids grouped by the index that contains the owner
     * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
     * content tree. This is the recursion structure of the transitive active-set

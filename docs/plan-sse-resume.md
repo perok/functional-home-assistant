@@ -6,14 +6,15 @@ The whole server-side path is built and committed (`9e3eead` … `81b1e8f`): a r
 valid cursor is served the log's delta, a changed `<head>` reloads instead, and the three
 signals are observed riding the reconnect URL in a real browser (`ResumeSpikeSuite`).
 
-Building it corrected this document six times, and the corrections are kept rather than tidied
+Building it corrected this document seven times, and the corrections are kept rather than tidied
 away because each was found by a sharper question than the one before: the tombstone framing
 (wrong twice, in opposite directions), the missing log identity, the "nothing grows so no
-eviction" claim, the subtree a resume sent twice, and the hash that was scoped to the whole
-dashboard when only `<head>` needed it.
+eviction" claim, the subtree a resume sent twice, the hash that was scoped to the whole
+dashboard when only `<head>` needed it, and step 5's two wrong assumptions about per-session
+fragments (they are not always small; a popup is not rebuilt from cookies).
 
-Remaining: step 5, and — the real gap — proof points 2–6 in a browser, since a wrong resume
-fails silently and nothing in the terminal can see a DOM.
+All six work steps are now done. Remaining — the real gap — proof points 2, 3, 5 and 6 in a
+browser, since a wrong resume fails silently and nothing in the terminal can see a DOM.
 
 ## Why
 
@@ -544,10 +545,28 @@ one to drive.
    browser to confirm — `data-effect` is documented in the vendored reference but unverified
    on the pinned build, as is the banner's `.debounce_600ms` modifier separator (the vendored
    docs use `.debounce_Xms` while the code's other modifier is `__window`).
-5. **Per-session fragments** (open surfaces, bake owners) die with the connection and
-   have no cross-connection log — `Session.lastRendered` is a `FragmentLog` for uniformity
-   but its versions are never resumed from. Render those fresh for the new session; they
-   are small and the open set is rebuilt from cookies anyway.
+5. ~~**Per-session fragments** (open surfaces, bake owners) die with the connection…~~
+   **Done.** They have no cross-connection log — `Session.lastRendered` is a `FragmentLog`
+   for uniformity but its versions are never resumed from — so on the resume path each
+   per-session ROOT is re-rendered against current state and morphed
+   (`Renderer.sessionOwnedMainIds`, emitted after the resumed fragments so it wins over a
+   shared ancestor in the same batch). Only main-rooted roots are listed: a per-session
+   subtree's chain of bake owners always bottoms out on the main page, and re-rendering a
+   root covers its nested owners — which live in surface indexes and may not be in the DOM
+   at all. The repaint path needs none of it (`renderBody` already bakes those subtrees with
+   the client's `uiState`).
+
+   Two things this turned up that the step as written had missed. First, the *cost* is not
+   "small": on a tabbed dashboard the visible panel IS the per-session part, so a resume
+   there approaches a repaint of that panel. Unavoidable — nothing logs that content — and
+   still narrower than a body repaint, but the plan's "they are small" was wrong. Second,
+   the open set being "rebuilt from cookies anyway" is only true for BAKED surfaces; a popup
+   is not cookie-tracked, so a popup still standing in a returning client's DOM belongs to
+   no session and would never update again. It gets closed on connect (a host reset, as
+   `navigate` already does) — and note the repaint could not have covered this either: the
+   popup host lives in `theme.chrome`, outside the `#dashboard` body. Skipped when there is
+   no cursor (that DOM was just server-rendered) and on a dashboard with no popup surface
+   (the host isn't there to patch).
 
 **Version ordering is load-bearing** (step 4). A container's cached HTML embeds its
 children's, so a parent fragment stamped v=25 applied AFTER a child stamped v=30 would
@@ -572,12 +591,12 @@ window, no reaper, no per-client mirror.
    path — they record the group differently. The rejoin cases are already covered by
    `FragmentLogSuite`; what is still unproven is that this holds through a real
    drop/resume in a browser.
-4. **A restart repaints but does not reload** (head hash stable, `logId` differs); a CARD
-   edit also repaints without reloading; only a THEME or title edit reloads. Covered at the
-   unit level (`ServerSuite`) for the decision; what a browser must add is that the reload
-   actually fires — `data-effect` and the banner's debounce modifier are both documented in
-   the vendored reference but unverified on the pinned build, and both fail SILENTLY (a
-   stale-CSS page that never refreshes; a banner that never appears).
+4. ~~**A restart repaints but does not reload**…~~ **Done** in a browser. A title edit
+   (part of the head hash, and editable in the workspace without touching the packaged
+   theme — which is how this was exercised) reloads the page; every other dashboard edit
+   morphs in place. The banner's debounce modifier is confirmed firing too. Both would have
+   failed SILENTLY (a stale-CSS page that never refreshes; a banner that never appears),
+   which is why they needed a browser rather than the unit decision in `ServerSuite`.
 5. **A parent and a child changing at different versions resume in the right order.** The
    silent failure is a stale container reverting a fresh child; only ordering prevents it.
    Covered at the unit level (`FragmentLogSuite`); still unproven through a real browser.

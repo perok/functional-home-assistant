@@ -1387,6 +1387,104 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  /** A shared leaf (`sensor.shared`) beside a tabs host at "c_1", whose default
+    * panel shows `sensor.a`. The panel's HTML bakes a cookie-selected member,
+    * so it is rendered PER SESSION and never enters the slug's shared log —
+    * which is the whole point of step 5.
+    */
+  private def mixedTabsDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef("""<div class="tabs">{{{panel}}}</div>""")
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+        ),
+        LayoutNode.Component("tabs")
+      )
+    ),
+    surfaces = Map(
+      "t0" -> Surface(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.a")))
+        ),
+        bakeInto = Some("c_1"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(0),
+        activation = Activation.User(defaultOpen = true)
+      )
+    )
+  )
+
+  test("a resume paints the per-session subtrees fresh (they have no log)") {
+    for {
+      h <- SharedHarness.create(
+        mixedTabsDash,
+        Map(
+          "sensor.shared" -> es("sensor.shared", "cold"),
+          "sensor.a" -> es("sensor.a", "old")
+        )
+      )
+      // v1: shared, logged. v2: inside the tab panel, so the shared pass emits
+      // nothing and nothing records it — exactly what the previous connection's
+      // (now dead) per-session cache used to cover.
+      _ <- h.step(es("sensor.shared", "hot"))
+      panelTick <- h.step(es("sensor.a", "new"))
+      logId <- h.logId
+      // The client's cursor is at v1: it already has ">hot<".
+      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
+    } yield {
+      assertEquals(panelTick, Nil, clue = panelTick)
+      // Without the fresh paint this value would never reach the reconnected
+      // DOM — the silent staleness the whole resume path risks.
+      assert(opening.contains(">new<"), clue = opening)
+      assert(opening.contains("""<div class="tabs">"""), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
+  test(
+    "a returning client's popup host is reset; a fresh one's is left alone"
+  ) {
+    // The new session's open set holds only cookie-selected panels, so a popup
+    // still standing in that DOM would go dead. The host lives in theme.chrome,
+    // outside #dashboard, so not even a repaint clears it.
+    val popupHost = s"""id="${Dashboard.PopupHostId}""""
+    val withPopup = liveLeafDash.copy(
+      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
+    )
+    for {
+      h <- SharedHarness.create(
+        withPopup,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      resumed <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
+      // A stale cursor repaints the body — which does not reach the host either.
+      repainted <- h.opening(Some(Server.Cursor(h.headHash, "gone", 1L)))
+      fresh <- h.opening(None)
+      // A dashboard with no popup surface has no such element to patch.
+      noPopups <- SharedHarness
+        .create(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold")))
+        .flatMap(p =>
+          p.step(es("sensor.a", "hot")) *> p.logId
+            .flatMap(id => p.opening(Some(Server.Cursor(p.headHash, id, 1L))))
+        )
+    } yield {
+      assert(resumed.contains(popupHost), clue = resumed)
+      assert(repainted.contains(popupHost), clue = repainted)
+      assert(!fresh.contains(popupHost), clue = fresh)
+      assert(!noPopups.contains(popupHost), clue = noPopups)
+    }
+  }
+
   test("headHash tracks <head>, and only <head>") {
     val base = Renderer.create(liveLeafDash).headHash
     // Stable across restarts (a fresh Renderer over an equal dashboard), so an

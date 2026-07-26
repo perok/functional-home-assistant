@@ -537,6 +537,24 @@ class Server(
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
     *
+    * '''Per-session fragments are painted fresh, not resumed'''
+    * (docs/plan-sse-resume.md, step 5). The shared log covers only what the
+    * shared pass renders; a tab panel's contents are per-session (their HTML
+    * bakes a cookie-selected member) and their only diff cache died with the
+    * previous connection. So on the resume path each per-session ROOT
+    * ([[Renderer.sessionOwnedMainIds]]) is re-rendered against current state
+    * and morphed — after the resumed fragments, so it wins over any shared
+    * ancestor in the same batch. The repaint path needs none of this:
+    * `renderBody` already bakes those subtrees with this client's `uiState`.
+    *
+    * A returning client also has its popup host reset. The new session's open
+    * set holds only the cookie-selected panels, so a popup still standing in
+    * that DOM would never be updated again — and the host lives in
+    * `theme.chrome`, OUTSIDE the `#dashboard` body, so not even a repaint
+    * clears it. Skipped when there is no cursor (that DOM was just
+    * server-rendered, so nothing can be open) and on a dashboard with no popup
+    * surface ([[Renderer.hasPopupSurfaces]] — the host isn't there to patch).
+    *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
     */
@@ -562,7 +580,23 @@ class Server(
             PatchMode.Inner,
             Some("#dashboard")
           )
-          resumed.getOrElse(List(repaint)) :+
+          // Sorted so the emission order is deterministic (ids are
+          // location-derived, so this is document order for siblings).
+          val sessionPaint = resumed.toList.flatMap(_ =>
+            renderer.sessionOwnedMainIds.toList.sorted
+              .flatMap(renderer.renderNodeById(_, store.entities, uiState))
+              .map(Datastar.patchElements)
+          )
+          val popupReset = cursor.toList
+            .filter(_ => renderer.hasPopupSurfaces)
+            .map(_ =>
+              Datastar.patch(
+                s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                PatchMode.Outer,
+                None
+              )
+            )
+          resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popupReset :+
             Server.cursorSignals(renderer.headHash, log.id, store.version)
         }
     }
