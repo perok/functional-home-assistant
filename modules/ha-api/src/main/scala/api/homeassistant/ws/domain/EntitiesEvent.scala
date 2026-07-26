@@ -5,15 +5,16 @@ import io.circe.{Decoder, Json}
 /** One `subscribe_entities` frame: HA's compressed state feed.
   *
   * This is the command the HA frontend itself uses, and it makes the full
-  * snapshot and the change feed ONE subscription — the first frame carries every
-  * entity ([[added]]), every later frame carries only what moved. That removes
-  * the gap a separate `get_states` + `subscribe_events state_changed` pair has by
-  * construction (a change landing between the snapshot and the subscription is
-  * lost), which is why it replaces both.
+  * snapshot and the change feed ONE subscription — the first frame carries
+  * every entity ([[added]]), every later frame carries only what moved. That
+  * removes the gap a separate `get_states` + `subscribe_events state_changed`
+  * pair has by construction (a change landing between the snapshot and the
+  * subscription is lost), which is why it replaces both.
   *
-  * Field names are HA's single letters, kept verbatim in the wire types and given
-  * readable names here. Verified against HA 2026.7.2; it is frontend-facing
-  * rather than formally documented, so [[EntitiesEventSuite]] pins the shape.
+  * Field names are HA's single letters, kept verbatim in the wire types and
+  * given readable names here. Verified against HA 2026.7.2; it is
+  * frontend-facing rather than formally documented, so `EntitiesFeedSuite` pins
+  * the shape.
   */
 case class EntitiesEvent(
     /** `a` — full state, replacing whatever is stored. The whole entity set on
@@ -21,8 +22,7 @@ case class EntitiesEvent(
       * makes re-subscribing the catch-up mechanism).
       */
     added: Map[String, EntitiesEvent.Full] = Map.empty,
-    /** `c` — a per-entity DELTA. Attributes merge; see
-      * [[EntitiesEvent.Delta]].
+    /** `c` — a per-entity DELTA. Attributes merge; see [[EntitiesEvent.Delta]].
       */
     changed: Map[String, EntitiesEvent.Delta] = Map.empty,
     /** `r` — entities that no longer exist. */
@@ -33,8 +33,8 @@ object EntitiesEvent {
 
   /** An entity's complete state. `lastUpdated` is absent when it equals
     * `lastChanged` (HA omits the duplicate), so read it as
-    * `lastUpdated orElse lastChanged`. Timestamps are epoch seconds as a
-    * float — NOT the ISO strings `state_changed` used.
+    * `lastUpdated orElse lastChanged`. Timestamps are epoch seconds as a float
+    * — NOT the ISO strings `state_changed` used.
     */
   case class Full(
       state: String,
@@ -45,8 +45,8 @@ object EntitiesEvent {
 
   /** What changed about one entity: `plus` holds only the fields that moved and
     * only the attributes that moved (so attributes MERGE into the stored map,
-    * they do not replace it), `minus` names attributes that went away. An absent
-    * `state` means only attributes/timestamps changed.
+    * they do not replace it), `minus` names attributes that went away. An
+    * absent `state` means only attributes/timestamps changed.
     */
   case class Delta(
       plus: Option[Patch] = None,
