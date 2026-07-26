@@ -65,10 +65,11 @@ import scala.concurrent.duration.*
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    // One hot-swappable renderer per dashboard slug (live reload swaps in place;
-    // `.discrete` drives a body repaint over SSE). A `Ref` because the slug set
-    // is not fixed at startup: `push` mints one at runtime (ADR 0010).
-    renderers: Ref[IO, Map[String, SignallingRef[IO, Renderer]]],
+    // One hot-swappable renderer per dashboard slug, paired with that slug's
+    // fragment log (live reload swaps the renderer in place; `.discrete` drives a
+    // body repaint over SSE). A `Ref` because the slug set is not fixed at
+    // startup: `push` mints one at runtime (ADR 0010).
+    renderers: Ref[IO, Map[String, Server.LiveSlug]],
     defaultSlug: String,
     sessions: Sessions,
     // Fan-out of the shared main-page patches, fed by the per-slug publishers
@@ -256,7 +257,10 @@ class Server(
     * after startup.
     */
   private def rendererFor(slug: String): IO[Option[Renderer]] =
-    renderers.get.flatMap(_.get(slug).traverse(_.get))
+    liveFor(slug).flatMap(_.traverse(_.renderer.get))
+
+  private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
+    renderers.get.map(_.get(slug))
 
   /** One background render/diff loop per slug: one subscription to the state
     * stream, one diff cache, publishing slug-tagged patches to [[sharedTopic]]
@@ -285,22 +289,19 @@ class Server(
     */
   private def publisherFor(
       slug: String,
-      ref: SignallingRef[IO, Renderer]
+      live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    ref.discrete
+    live.renderer.discrete
       .switchMap { renderer =>
-        // A fresh log id per swap: a cursor issued against the previous
-        // renderer's log names versions this one never had, so it must not be
-        // resumable (docs/plan-sse-resume.md).
+        // A fresh log IDENTITY per swap, in the ref every connection reads: a
+        // cursor issued against the previous renderer's log names versions this
+        // one never had, so it must not be resumable
+        // (docs/plan-sse-resume.md).
         Stream
-          .eval(
-            IO.randomUUID
-              .map(_.toString)
-              .flatMap(id => Ref[IO].of(FragmentLog(id)))
-          )
-          .flatMap { log =>
+          .eval(Server.freshLog.flatMap(live.log.set))
+          .flatMap { _ =>
             stateStore.changes
-              .evalMap(sharedPatches(renderer, log, _))
+              .evalMap(sharedPatches(renderer, live.log, _))
               .flatMap(Stream.emits)
           }
       }
@@ -315,7 +316,7 @@ class Server(
       .eval(renderers.get)
       .flatMap { rs =>
         rs.toList
-          .map { case (slug, ref) => publisherFor(slug, ref) }
+          .map { case (slug, live) => publisherFor(slug, live) }
           .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
       }
 
@@ -345,7 +346,11 @@ class Server(
     * reclaims a slug that shadows a real entry.
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
-    SignallingRef[IO].of(Renderer.fromValidated(validated)).flatMap { fresh =>
+    (
+      SignallingRef[IO].of(Renderer.fromValidated(validated)),
+      Server.freshLog.flatMap(Ref[IO].of)
+    ).flatMapN { (renderer, log) =>
+      val fresh = Server.LiveSlug(renderer, log)
       val slug = validated.dashboard.slug
       renderers
         .modify { rs =>
@@ -355,8 +360,9 @@ class Server(
           }
         }
         .flatMap {
-          case Some(existing) => existing.set(Renderer.fromValidated(validated))
-          case None           =>
+          case Some(existing) =>
+            existing.renderer.set(Renderer.fromValidated(validated))
+          case None =>
             supervisor
               .supervise(publisherFor(slug, fresh).compile.drain)
               .void
@@ -402,7 +408,28 @@ class Server(
         change,
         Patches.Scope.Shared
       )
-      log.modify(Patches.diff(renderer, _, req))
+      // The log's id is read INSIDE the modify, so the cursor names the log the
+      // batch was diffed against — never one a concurrent renderer swap rotated
+      // in, which would leave the client quoting a log its version was not from.
+      log
+        .modify { l =>
+          val (next, patches) = Patches.diff(renderer, l, req)
+          (next, (next.id, patches))
+        }
+        .map { case (logId, patches) =>
+          // Advance the clients' cursor to what they were just sent — but only when
+          // something WAS sent. A batch that emitted nothing leaves every cursor
+          // where it was, so a later resume re-sends a superset of what that client
+          // needs (harmless: every fragment patch is an idempotent morph), which is
+          // the right direction to err in.
+          if (patches.isEmpty) patches
+          else
+            patches :+ Server.cursorSignals(
+              renderer.dashboardHash,
+              logId,
+              req.stamp.version
+            )
+        }
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
@@ -416,7 +443,8 @@ class Server(
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
       _ <- sessions.register(conn, session)
-      rendererOpt <- rendererFor(slug)
+      liveOpt <- liveFor(slug)
+      rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set with this client's selected tab panels (from its
       // cookies), so the baked-inline tabs receive live updates from the first
       // paint. Warn on any off cookie value.
@@ -424,21 +452,12 @@ class Server(
         warnAnomalies(r, uiState) *>
           session.open.set(r.selectedSurfaces(uiState))
       }
-      // On (re)connect, repaint the body from the CURRENT snapshot. On first
-      // load this reconciles the tiny gap between the server-rendered page and
-      // the SSE opening; on a reconnect (Datastar re-runs `data-init`) it heals
-      // a DOM that went stale while the stream was down — the shared/per-session
-      // passes only stream FUTURE changes, so without this a reconnected client
-      // would show pre-drop values until each entity next ticks.
-      initialRepaint <- rendererOpt.traverse { r =>
-        stateStore.snapshot.map(st =>
-          Datastar.patch(
-            r.renderBody(st, uiState),
-            PatchMode.Inner,
-            Some("#dashboard")
-          )
-        )
-      }
+      // On (re)connect, heal whatever the DOM missed while the stream was down —
+      // the shared/per-session passes only stream FUTURE changes, so without this
+      // a reconnected client would show pre-drop values until each entity next
+      // ticks. Either the cursor names precisely what this DOM holds (resume), or
+      // the whole body is repainted from the current snapshot.
+      opening <- liveOpt.traverse(openingPatches(_, req, uiState))
       // Home-Assistant-feed liveness, PUSHED from the server (it owns the
       // `healthy` signal). This is concept 1 of the two disconnect concepts
       // (see [[Server.page]]): the backend knows when it can't reach HA, so it
@@ -484,7 +503,7 @@ class Server(
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++
-        Stream.emits(initialRepaint.toList) ++
+        Stream.emits(opening.toList.flatten) ++
         shared
           .merge(patches)
           .merge(control)
@@ -494,6 +513,53 @@ class Server(
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
     } yield resp
+
+  /** What a (re)connecting client is sent before the live streams start: the
+    * resume delta if — and only if — this client's cursor provably names what
+    * its DOM holds, otherwise today's full body repaint
+    * (docs/plan-sse-resume.md, step 4).
+    *
+    * '''The repaint is the default and every doubt falls back to it''': no
+    * cursor (a fresh page load, whose body is server-rendered anyway), an
+    * unparseable one, a different compiled dashboard, a cursor from a log this
+    * server no longer has (restart, renderer swap), a cursor from the FUTURE (a
+    * version this store never reached — a restart with a rewound counter), or
+    * one so old the log can no longer say what changed ([[FragmentLog.since]]
+    * returning `None`). A repaint is always correct and merely expensive; a
+    * wrong resume is silently stale forever.
+    *
+    * The cursor signals are re-emitted with the resume, because the resume
+    * itself brings the client up to the log's current version.
+    *
+    * The log is read ONCE, outside any `modify`, so a reconnect never
+    * serializes against the live diff path.
+    */
+  private def openingPatches(
+      live: Server.LiveSlug,
+      req: Request[IO],
+      uiState: Map[String, String]
+  ): IO[List[ServerSentEvent]] =
+    (live.renderer.get, live.log.get, stateStore.current).mapN {
+      (renderer, log, store) =>
+        val resumed = Server
+          .cursorOf(req)
+          .filter(c =>
+            c.dashboardHash == renderer.dashboardHash &&
+              c.logId == log.id &&
+              c.version <= store.version
+          )
+          .flatMap(c =>
+            Patches.resume(renderer, log, store.entities, c.version)
+          )
+        // Lazy: rendering the whole body is the cost this exists to avoid.
+        lazy val repaint = Datastar.patch(
+          renderer.renderBody(store.entities, uiState),
+          PatchMode.Inner,
+          Some("#dashboard")
+        )
+        resumed.getOrElse(List(repaint)) :+
+          Server.cursorSignals(renderer.dashboardHash, log.id, store.version)
+    }
 
   /** Live-reload body repaints for one connection. Follows the session's
     * CURRENT dashboard: watch every renderer, but only repaint when the one
@@ -514,8 +580,8 @@ class Server(
     Stream
       .eval(renderers.get)
       .flatMap(rs => Stream.emits(rs.toList))
-      .map { case (s, ref) =>
-        ref.discrete.drop(1).evalMapFilter { r =>
+      .map { case (s, live) =>
+        live.renderer.discrete.drop(1).evalMapFilter { r =>
           session.slug.get.flatMap { cur =>
             if (cur != s) IO.pure(Option.empty[ServerSentEvent])
             else
@@ -1022,6 +1088,26 @@ object Server {
     */
   private[runtime] val stampNow: IO[Long] = IO.realTime.map(_.toMillis)
 
+  /** One slug's live state: the hot-swappable renderer and the fragment log its
+    * cursors are valid for. ONE value rather than two slug-keyed maps, because
+    * a swap must not be able to leave them out of step — and because the log
+    * has to be reachable from a reconnecting connection ([[Server.sseStream]]),
+    * not just from the publisher fiber that writes it.
+    *
+    * The log ref is stable per slug; a renderer swap replaces its CONTENTS with
+    * a freshly-identified log ([[Server.publisherFor]]) rather than the ref.
+    */
+  private[runtime] case class LiveSlug(
+      renderer: SignallingRef[IO, Renderer],
+      log: Ref[IO, FragmentLog]
+  )
+
+  /** An empty log with a fresh identity. Minted per slug at startup and again
+    * on every renderer swap.
+    */
+  private[runtime] val freshLog: IO[FragmentLog] =
+    IO.randomUUID.map(id => FragmentLog(id.toString))
+
   /** Build the server with the shared-patch topic and run the per-slug
     * publishers ([[Server.sharedPatchPublishers]]) for the life of the
     * resource. The single construction point (ServerApp and tests) so the
@@ -1044,7 +1130,15 @@ object Server {
   ): Resource[IO, Server] =
     for {
       topic <- Topic[IO, (String, ServerSentEvent)].toResource
-      registry <- Ref[IO].of(renderers).toResource
+      // Pair each seeded renderer with its own fragment log here, so the caller
+      // (ServerApp, tests) never has to know the log exists.
+      seeded <- renderers.toList
+        .traverse { case (slug, r) =>
+          freshLog.flatMap(Ref[IO].of).map(log => slug -> LiveSlug(r, log))
+        }
+        .map(_.toMap)
+        .toResource
+      registry <- Ref[IO].of(seeded).toResource
       supervisor <- Supervisor[IO]
       server = new Server(
         api,
@@ -1176,6 +1270,69 @@ object Server {
     * browser<->server transport (concept 2) is derived client-side instead.
     */
   val HaDownSignal: String = "haDown"
+
+  /** The three resume signals (docs/plan-sse-resume.md), all PUSHED by the
+    * server and never declared client-side. Datastar sends every
+    * non-`_`-prefixed signal back with each backend action, so they ride the
+    * reconnect URL for free and the server keeps no per-client state between
+    * connections.
+    *
+    * NOT `_`-prefixed, and that is a deliberate exception: `_` is exactly the
+    * convention for per-connection client state (`_sse`, the SSE-down banner),
+    * which these ARE — but the prefix is what excludes a signal from the URL,
+    * and riding the URL is their entire purpose.
+    *
+    *   - `dashboardHash` — same compiled dashboard? Mismatch ⇒ page reload.
+    *   - `logId` — is the cursor even comparable? Mismatch ⇒ body repaint.
+    *   - `storeVersion` — the cursor itself: how far behind this client is.
+    */
+  val DashboardHashSignal: String = "dashboardHash"
+  val LogIdSignal: String = "logId"
+  val StoreVersionSignal: String = "storeVersion"
+
+  /** What a reconnecting browser claims its DOM already holds. All three fields
+    * are required: a version without the log that issued it names nothing, and
+    * without the hash it could belong to a different compiled dashboard.
+    */
+  private[runtime] case class Cursor(
+      dashboardHash: String,
+      logId: String,
+      version: Long
+  )
+
+  /** Read the cursor off the GET signal payload. Datastar serializes the signal
+    * store into a `datastar` query param on every GET action, which is how the
+    * cursor survives the visibility refetch that closes and reopens the stream
+    * (verified in a browser — see the plan's "Evidence").
+    *
+    * `None` for anything short of all three fields, which covers a first load
+    * (empty store), a partial patch, and a garbled param alike — every one of
+    * them a repaint.
+    */
+  private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
+    for {
+      raw <- req.uri.query.params.get("datastar")
+      json <- io.circe.parser.parse(raw).toOption
+      c = json.hcursor
+      hash <- c.get[String](DashboardHashSignal).toOption
+      logId <- c.get[String](LogIdSignal).toOption
+      version <- c.get[Long](StoreVersionSignal).toOption
+    } yield Cursor(hash, logId, version)
+
+  /** The resume signals as one patch-signals event. Emitted on connect and
+    * after every shared patch batch, so a client's cursor names what it has
+    * actually been sent.
+    */
+  private[runtime] def cursorSignals(
+      dashboardHash: String,
+      logId: String,
+      version: Long
+  ): ServerSentEvent =
+    Datastar.patchSignals(
+      s"""{"$DashboardHashSignal":"$dashboardHash",""" +
+        s""""$LogIdSignal":"$logId",""" +
+        s""""$StoreVersionSignal":$version}"""
+    )
 
   /** How often the SSE stream re-emits the current [[HaDownSignal]] value. This
     * is a keepalive: it keeps traffic on an otherwise-idle connection so

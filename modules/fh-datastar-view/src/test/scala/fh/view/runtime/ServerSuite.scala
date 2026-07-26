@@ -547,6 +547,14 @@ class ServerSuite extends munit.CatsEffectSuite {
   private def htmlOf(log: FragmentLog): Map[String, String] =
     log.fragments.view.mapValues(_.html).toMap
 
+  /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
+    * the resume cursor as a `patch-signals` event (docs/plan-sse-resume.md);
+    * these contracts are about what the DOM receives, and one dedicated test
+    * below covers the cursor itself.
+    */
+  private def elementPatches(batch: List[ServerSentEvent]): List[String] =
+    batch.map(_.renderString).filterNot(_.contains("datastar-patch-signals"))
+
   private def runShared(
       dash: Dashboard,
       after: Map[String, EntityState],
@@ -574,7 +582,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             cache <- Ref[IO].of(seedLog(seedCache))
             patches <- server.sharedPatches(renderer, cache, change)
             finalCache <- cache.get.map(htmlOf)
-          } yield (patches.map(_.renderString), finalCache)
+          } yield (elementPatches(patches), finalCache)
         }
     } yield out)
       .timeout(30.seconds)
@@ -856,11 +864,11 @@ class ServerSuite extends munit.CatsEffectSuite {
     */
   private class SharedHarness(
       store: StateStore,
-      server: Server,
+      val server: Server,
       renderer: Renderer,
       cache: Ref[IO, FragmentLog]
   ) {
-    def step(next: EntityState): IO[List[String]] =
+    private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
       (for {
         prev <- store.snapshot.map(_.get(next.entityId))
         _ <- store.update(next)
@@ -869,11 +877,47 @@ class ServerSuite extends munit.CatsEffectSuite {
           cache,
           StateChange(next.entityId, prev, next)
         )
-      } yield patches.map(_.renderString))
-        .timeout(30.seconds)
+      } yield patches).timeout(30.seconds)
+
+    def step(next: EntityState): IO[List[String]] =
+      sharedBatch(next).map(elementPatches)
+
+    /** Everything a batch emits, cursor signal included. */
+    def stepRaw(next: EntityState): IO[List[String]] =
+      sharedBatch(next).map(_.map(_.renderString))
 
     def cacheNow: IO[Map[String, String]] =
       cache.get.map(htmlOf).timeout(30.seconds)
+
+    def logId: IO[String] = cache.get.map(_.id)
+
+    def dashboardHash: String = renderer.dashboardHash
+
+    /** Connect to the SSE route with `cursor` in the `datastar` signal param —
+      * exactly how a reconnecting browser arrives — and read the OPENING block:
+      * everything up to and including the cursor signal, which the connect path
+      * emits last.
+      */
+    def opening(cursor: Option[Server.Cursor]): IO[String] =
+      val uri = cursor.foldLeft(uri"/sse/dashboard/dashboard/patch") { (u, c) =>
+        u.withQueryParam(
+          "datastar",
+          s"""{"${Server.DashboardHashSignal}":"${c.dashboardHash}",""" +
+            s""""${Server.LogIdSignal}":"${c.logId}",""" +
+            s""""${Server.StoreVersionSignal}":${c.version}}"""
+        )
+      }
+      server.routes.orNotFound
+        .run(Request[IO](Method.GET, uri))
+        .flatMap(
+          _.body
+            .through(fs2.text.utf8.decode)
+            .scan("")(_ + _)
+            .takeThrough(!_.contains(Server.StoreVersionSignal))
+            .compile
+            .lastOrError
+        )
+        .timeout(30.seconds)
   }
 
   private object SharedHarness {
@@ -902,7 +946,10 @@ class ServerSuite extends munit.CatsEffectSuite {
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
         fake <- FakeHomeAssistant.create(Nil)
-        registry <- Ref[IO].of(Map("dashboard" -> ref))
+        slugLog <- Server.freshLog.flatMap(Ref[IO].of)
+        registry <- Ref[IO].of(
+          Map("dashboard" -> Server.LiveSlug(ref, slugLog))
+        )
         topic <- Topic[IO, (String, ServerSentEvent)]
         server = new Server(
           HomeAssistantApi.fromWs(fake),
@@ -914,8 +961,10 @@ class ServerSuite extends munit.CatsEffectSuite {
           suiteSupervisor
         )
         renderer <- ref.get
-        cache <- Ref[IO].of(seedLog(Map.empty))
-      } yield new SharedHarness(store, server, renderer, cache))
+        // The shared pass diffs against the SLUG's log — the same one a
+        // reconnecting client resumes from — so a cursor issued by `step` is
+        // valid at `opening`, as in production.
+      } yield new SharedHarness(store, server, renderer, slugLog))
         .timeout(30.seconds)
   }
 
@@ -1190,5 +1239,146 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The shared pass emits nothing — popup containment is per-session.
         assertEquals(sharedPatches, Nil)
       }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resume on reconnect (docs/plan-sse-resume.md, steps 3-4)
+  //
+  // The failure mode is SILENT — the server believes the browser is current and
+  // suppresses the patch, so a wrong resume shows stale values indefinitely. Each
+  // test below therefore asserts BOTH what the client gets and that the full-body
+  // repaint (`selector #dashboard`) was or was not used.
+  // ---------------------------------------------------------------------------
+
+  private val BodyRepaint = "selector #dashboard"
+
+  test("cursorOf reads the resume cursor off the datastar signal param") {
+    def req(q: String): Request[IO] =
+      Request[IO](
+        Method.GET,
+        uri"/sse/dashboard/d/patch".withQueryParam("datastar", q)
+      )
+    assertEquals(
+      Server.cursorOf(
+        req("""{"dashboardHash":"h1","logId":"L1","storeVersion":7}""")
+      ),
+      Some(Server.Cursor("h1", "L1", 7L))
+    )
+    // A first load carries only the signals the page declared — no cursor.
+    assertEquals(Server.cursorOf(req("""{"conn":"c","haDown":false}""")), None)
+    // Partial, garbled, and absent are all the same answer.
+    assertEquals(Server.cursorOf(req("""{"logId":"L1"}""")), None)
+    assertEquals(Server.cursorOf(req("not json")), None)
+    assertEquals(
+      Server.cursorOf(Request[IO](Method.GET, uri"/sse/dashboard/d/patch")),
+      None
+    )
+  }
+
+  test(
+    "the cursor signal rides every non-empty shared batch, quoting its log"
+  ) {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      raw <- h.stepRaw(es("sensor.a", "hot"))
+      logId <- h.logId
+      // An entity no card binds: nothing rendered, so no cursor either — the
+      // client's existing cursor still names its DOM.
+      quiet <- h.stepRaw(es("sensor.unwatched", "x"))
+    } yield {
+      assertEquals(raw.size, 2, clue = raw)
+      assert(raw.last.contains(s""""${Server.LogIdSignal}":"$logId""""), raw)
+      assert(raw.last.contains(s""""${Server.StoreVersionSignal}":1"""), raw)
+      assert(raw.last.contains(h.dashboardHash), clue = raw)
+      assertEquals(quiet, Nil, clue = quiet)
+    }
+  }
+
+  test("a valid cursor resumes with the changed fragment, no body repaint") {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      opening <- h.opening(Some(Server.Cursor(h.dashboardHash, logId, 1L)))
+    } yield {
+      assert(opening.contains(">hot<"), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
+  test("a member that LEFT across the disconnect resumes as a remove patch") {
+    // The saving this plan exists for: one small patch, not a group morph.
+    val lights = List("light.a", "light.b", "light.c", "light.d")
+    for {
+      h <- SharedHarness.create(
+        dynDash,
+        lights.map(id => id -> on(id)).toMap + ("light.e" -> off("light.e"))
+      )
+      // Establish the group in the shared log first (the very first membership
+      // change always repaints wholesale — there is no per-entity base yet).
+      _ <- h.step(on("light.e"))
+      // ...then b leaves: 1 of 5 shown, under the churn fraction, so per-entity.
+      left <- h.step(off("light.b"))
+      logId <- h.logId
+      opening <- h.opening(Some(Server.Cursor(h.dashboardHash, logId, 2L)))
+    } yield {
+      assertEquals(left.size, 1, clue = left)
+      assert(opening.contains("selector #c_light_b"), clue = opening)
+      assert(opening.contains("mode remove"), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
+  test("every doubt about the cursor falls back to the full body repaint") {
+    val cold = Map("sensor.a" -> es("sensor.a", "cold"))
+    def opening(
+        cursor: SharedHarness => IO[Option[Server.Cursor]]
+    ): IO[String] =
+      for {
+        h <- SharedHarness.create(liveLeafDash, cold)
+        _ <- h.step(es("sensor.a", "hot"))
+        c <- cursor(h)
+        out <- h.opening(c)
+      } yield out
+    for {
+      // No cursor at all — a fresh page load, whose body is server-rendered.
+      none <- opening(_ => IO.pure(None))
+      // A log this server no longer has (a restart, or a renderer swap).
+      staleLog <- opening(h =>
+        IO.pure(Some(Server.Cursor(h.dashboardHash, "gone-with-the-log", 1L)))
+      )
+      // A different compiled dashboard.
+      otherDash <- opening(h =>
+        h.logId.map(id => Some(Server.Cursor("0000deadbeef", id, 1L)))
+      )
+      // A version this store never reached.
+      future <- opening(h =>
+        h.logId.map(id => Some(Server.Cursor(h.dashboardHash, id, 99L)))
+      )
+    } yield {
+      assert(none.contains(BodyRepaint), clue = none)
+      assert(staleLog.contains(BodyRepaint), clue = staleLog)
+      assert(otherDash.contains(BodyRepaint), clue = otherDash)
+      assert(future.contains(BodyRepaint), clue = future)
+    }
+  }
+
+  test("dashboardHash tracks what renders, and only that") {
+    // Stable across restarts (a fresh Renderer over an equal dashboard) so an
+    // add-on restart does not refresh every browser; different when a card
+    // changes, so an edit does.
+    val a = Renderer.create(liveLeafDash).dashboardHash
+    assertEquals(Renderer.create(liveLeafDash).dashboardHash, a)
+    val edited = liveLeafDash.copy(
+      cards = liveLeafDash.cards
+        .updated("card", CardDef("<b>{{state}}</b>", slots = List("state")))
+    )
+    assertNotEquals(Renderer.create(edited).dashboardHash, a)
   }
 }

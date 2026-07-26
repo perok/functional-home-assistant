@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import com.samskivert.mustache.Template
+import fh.view.build.LibPackage
 import fh.view.model.{
   Activation,
   Cell,
@@ -89,6 +90,19 @@ class Renderer(
   }
 
   private val mainIndex = new Index(dashboard.card, "")
+
+  /** Is this still the same compiled dashboard? The browser carries this across
+    * a disconnect, and a mismatch means a full page **reload** — the cards and
+    * templates themselves changed, and `<head>` (theme, stylesheets, scripts)
+    * may have moved with them, which no body morph can fix
+    * (docs/plan-sse-resume.md).
+    *
+    * STABLE ACROSS RESTARTS by design: an add-on restart on an HA update must
+    * not refresh every browser when the dashboards are byte-identical. That is
+    * exactly why it cannot double as the resume cursor's `logId`, whose whole
+    * job is to NOT survive one.
+    */
+  val dashboardHash: String = Renderer.fingerprint(dashboard)
 
   /** Cards that opted out of the `.fh-cell` wrapper
     * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
@@ -992,6 +1006,25 @@ object Renderer {
       Templates.from(v.dashboard),
       Transforms.fromValidated(v)
     )
+
+  /** 12 hex of SHA-256 over the DECODED model — the same idiom as
+    * `fh-home@1.0.0-g<hash>`. See [[Renderer.dashboardHash]] for what it is
+    * for.
+    *
+    * Over the model rather than the evaluated JSON text, so it is blind to key
+    * order and formatting yet captures every input that can reach the browser
+    * (entry, lib, dump, theme, and the build-phase surface hoist, which runs
+    * before decode). Not over the Pkl SOURCE: that is both too sensitive (a
+    * comment in `lib/components.pkl` would refresh every browser) and not
+    * sensitive enough (a dump change would not register).
+    *
+    * `toString` is a deterministic rendering here: the nested `Map`s are keyed
+    * by `String`, whose `hashCode` is specified, so an immutable map's
+    * iteration order is a pure function of its contents and its (decode-order)
+    * insertion sequence — no identity hashes, nothing JVM-run-specific.
+    */
+  private[runtime] def fingerprint(dashboard: Dashboard): String =
+    LibPackage.sha256(dashboard.toString.getBytes("UTF-8")).take(12)
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.
