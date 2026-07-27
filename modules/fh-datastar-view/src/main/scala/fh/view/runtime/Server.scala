@@ -504,7 +504,7 @@ class Server(
       // never re-send them.
       //
       // What bounds it is the CONNECTION, not the queue: ember gives every
-      // socket write an idle timeout (`ServerApp`), so a peer that stops
+      // socket write an idle timeout (60s by default), so a peer that stops
       // reading is torn down and this subscription released with it.
       live = Stream
         .resource(sharedTopic.subscribeAwaitUnbounded)

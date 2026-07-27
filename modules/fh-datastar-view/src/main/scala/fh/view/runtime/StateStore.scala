@@ -193,7 +193,7 @@ class StateStore private (
     * Nothing may backpressure the feed, so a consumer that cannot keep up must
     * be dropped instead of slowing everyone down. What bounds the memory this
     * gives up is the connection: ember gives every socket write an idle timeout
-    * (`ServerApp`), so a peer that stops reading is torn down and this
+    * (60s by default), so a peer that stops reading is torn down and this
     * subscription released with it.
     */
   def changes: Stream[IO, StateChange] = topic.subscribeUnbounded
