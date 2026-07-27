@@ -636,8 +636,45 @@ obvious one:
   rendering across clients on the same tab, a standing cost of ADR 0002's shared/per-session
   split.
 
-Worth measuring before building either: how large the visible panel actually is on a real
-tabbed dashboard. If it is a few KB, this stays deferred.
+**Measured** (a 3-tab dashboard over the 6 `HouseFixture` entities, rendered through the real
+Pkl build path, default beer theme):
+
+| | bytes |
+|---|---|
+| `renderBody` — what a repaint sends | 9602 |
+| …of which the theme `<style>` block | **7714** |
+| …of which the whole layout tree | 1888 |
+| the per-session root (tabs host + baked panel) | 1762 |
+| one entity card (a narrow resume fragment) | ~290 |
+
+Two things fall out. The variant log would save that 1762 B per reconnect — a few KB on a
+real dashboard, real but modest, so it stays deferred. And the number that actually dominates
+a repaint is not per-session content at all: **80% of it is a static stylesheet**. `renderBody`
+prepends `themeStyle` because a live reload or navigate must repaint it — but a theme change
+now forces a page RELOAD (step 4b), so the only remaining reason is navigate between
+dashboards with different themes, which a separate `<style>` morph would serve. Moving the
+theme out of the repainted body is a bigger and much simpler win than either log, and it is
+orthogonal to all of this. Do it first.
+
+## Cookie or signal? (per-session state)
+
+Tabs remember their selection in a `fhui_<owner>` cookie; a popup rides
+[[Server.PopupSignal]]. Two mechanisms — but for two different facts, which is the test that
+matters:
+
+- A **cookie survives the document**. That is exactly right for tab selection: it is a
+  durable preference (the tab click writes `max-age=31536000`), and it is the ONLY thing that
+  can reach the server before Datastar boots, which is what lets a full page load bake the
+  selected panel into the server-rendered HTML instead of flashing tab 0 and patching.
+- A **signal dies with the document**. That is exactly right for an open dialog: a fresh app
+  launch should show the dashboard, not resurrect a popup from yesterday. A popup also has no
+  first-paint requirement — at page load it does not exist.
+
+Putting the popup in a cookie would also break across browser tabs: cookies are shared per
+origin, so opening a popup in one tab would push it into another tab's host on that tab's next
+reconnect. Signals are per-document. And ownership differs — the server decides what occupies
+the popup host (it evicts the previous occupant, and clears it on navigate), while the tab
+cookie is written client-side by the click.
 
 ## Alternatives considered
 
