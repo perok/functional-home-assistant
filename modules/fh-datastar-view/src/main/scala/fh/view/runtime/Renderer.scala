@@ -307,14 +307,6 @@ class Renderer(
       userBakeOwnerIds(id) || sessionOnlyStateGroups(id)
     )
 
-  /** Whether this dashboard has any popup surface — i.e. whether the popup host
-    * is a patch target at all. A dashboard without one must not be sent a host
-    * reset: the element does not exist in its DOM (the minimal chrome omits
-    * it), and Datastar would report the missing selector.
-    */
-  val hasPopupSurfaces: Boolean =
-    dashboard.surfaces.values.exists(_.hostId == Dashboard.PopupHostId)
-
   /** State-selected owner ids grouped by the index that contains the owner
     * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
     * content tree. This is the recursion structure of the transitive active-set

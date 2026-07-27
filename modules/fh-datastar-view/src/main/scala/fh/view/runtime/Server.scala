@@ -446,11 +446,15 @@ class Server(
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set with this client's selected tab panels (from its
-      // cookies), so the baked-inline tabs receive live updates from the first
-      // paint. Warn on any off cookie value.
+      // cookies) plus the popup it says it still has open (from its signal — see
+      // [[Server.PopupSignal]]), so BOTH receive live updates from the first
+      // paint and a reconnect does not silently orphan the dialog on screen.
+      // Warn on any off cookie value.
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
-          session.open.set(r.selectedSurfaces(uiState))
+          session.open.set(
+            r.selectedSurfaces(uiState) ++ Server.claimedPopup(req, r)
+          )
       }
       // On (re)connect, heal whatever the DOM missed while the stream was down —
       // the shared/per-session passes only stream FUTURE changes, so without this
@@ -547,13 +551,13 @@ class Server(
     * ancestor in the same batch. The repaint path needs none of this:
     * `renderBody` already bakes those subtrees with this client's `uiState`.
     *
-    * A returning client also has its popup host reset. The new session's open
-    * set holds only the cookie-selected panels, so a popup still standing in
-    * that DOM would never be updated again — and the host lives in
-    * `theme.chrome`, OUTSIDE the `#dashboard` body, so not even a repaint
-    * clears it. Skipped when there is no cursor (that DOM was just
-    * server-rendered, so nothing can be open) and on a dashboard with no popup
-    * surface ([[Renderer.hasPopupSurfaces]] — the host isn't there to patch).
+    * '''A popup the client still has open is restored, not closed.''' Its
+    * content is per-session and its host lives in `theme.chrome`, OUTSIDE the
+    * `#dashboard` body, so neither the resume nor the repaint reaches it. The
+    * client names it in [[Server.PopupSignal]]; it is re-rendered fresh into
+    * the host here, and `sseStream` puts it back in the session's open set so
+    * it stays live afterwards. Only a claim this dashboard no longer recognises
+    * resets the host — that dialog belongs to nothing and cannot be revived.
     *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
@@ -587,16 +591,29 @@ class Server(
               .flatMap(renderer.renderNodeById(_, store.entities, uiState))
               .map(Datastar.patchElements)
           )
-          val popupReset = cursor.toList
-            .filter(_ => renderer.hasPopupSurfaces)
-            .map(_ =>
-              Datastar.patch(
-                s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                PatchMode.Outer,
-                None
+          // The popup this client still has on screen: re-rendered fresh into its
+          // host, which both refreshes its values and leaves the `<dialog open>`
+          // standing. A claim the dashboard no longer recognises (its surface was
+          // renamed or removed) is the one case that resets the host instead —
+          // that dialog belongs to nothing and cannot be revived.
+          val popup = Server.popupOf(req).toList.map { sid =>
+            Server
+              .claimedPopup(req, renderer)
+              .flatMap(_ =>
+                renderer.renderSurface(sid, store.entities, uiState)
               )
-            )
-          resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popupReset :+
+              .fold(
+                Datastar.patch(
+                  s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                  PatchMode.Outer,
+                  None
+                )
+              )(
+                Datastar
+                  .patch(_, PatchMode.Inner, Some("#" + Dashboard.PopupHostId))
+              )
+          }
+          resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
             Server.cursorSignals(renderer.headHash, log.id, store.version)
         }
     }
@@ -723,6 +740,11 @@ class Server(
     * removing the transient popup dialog (a `popup` container card in the
     * surface content, not backend chrome). No server state tracks "is a popup
     * open". One host-swap primitive replaces the old open/close/stack paths.
+    *
+    * A swap of the POPUP host also updates the client's [[Server.PopupSignal]],
+    * so the browser carries that one bit of per-session state and a reconnect
+    * can restore the dialog. Emitted here, next to the patch that made it true,
+    * so the signal cannot disagree with what is actually in the host.
     */
   private def swapHost(
       session: Session,
@@ -761,6 +783,10 @@ class Server(
             )
           )
       }
+      _ <-
+        if (host == Dashboard.PopupHostId)
+          session.control.offer(Server.popupSignal(newSurface))
+        else IO.unit
     } yield ()
 
   /** In-place navigate: re-point the session at `slug`, reset its popups + diff
@@ -791,6 +817,7 @@ class Server(
               None
             )
           )
+          _ <- session.control.offer(Server.popupSignal(None))
           _ <- session.control.offer(
             Datastar.patch(
               renderer.renderBody(states, uiState),
@@ -1111,7 +1138,7 @@ class Server(
     // NAME: the listener binds to `datastar-fetch.debounce_600ms`, which never
     // fires, so `_sse` never updates and the banner never appears at all.
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false}"
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: ''}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
          |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseState">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
@@ -1355,6 +1382,26 @@ object Server {
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
 
+  /** Which popup surface this client has open (`""` for none) — a fourth
+    * URL-riding signal, for the same reason as the three above and answering
+    * the one per-session question nothing else can.
+    *
+    * Tab selections survive a reconnect in the `fhui_` cookies; a popup has no
+    * such record, so without this the returning connection's open set is empty
+    * and the `<dialog open>` still standing in that DOM belongs to no session:
+    * it would never be updated again (and a body repaint cannot even remove it
+    * — the host lives in `theme.chrome`, outside `#dashboard`). Losing a popup
+    * you left open is not acceptable either; on a phone, backgrounding the tab
+    * is how you read a notification, not how you dismiss a dialog.
+    *
+    * PUSHED by the server, from the one place that changes the popup host
+    * ([[swapHost]]) plus the navigate that clears it — so it always names what
+    * the server actually rendered there, rather than what a client-side
+    * expression believed it asked for. At most one popup is open at a time (the
+    * host holds one), so a single string is the whole state.
+    */
+  val PopupSignal: String = "popup"
+
   /** Reload this page. `_`-prefixed — unlike the three above, this one is pure
     * per-connection client state with no reason to ride any URL, and the page
     * turns it into `window.location.reload()` via `data-effect`.
@@ -1389,13 +1436,45 @@ object Server {
     */
   private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
     for {
-      raw <- req.uri.query.params.get("datastar")
-      json <- io.circe.parser.parse(raw).toOption
-      c = json.hcursor
+      c <- signalsOf(req)
       hash <- c.get[String](HeadHashSignal).toOption
       logId <- c.get[String](LogIdSignal).toOption
       version <- c.get[Long](StoreVersionSignal).toOption
     } yield Cursor(hash, logId, version)
+
+  /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
+    * a client that has none — including a first load, whose signal store is not
+    * on the URL at all.
+    */
+  private[runtime] def popupOf(req: Request[IO]): Option[String] =
+    signalsOf(req)
+      .flatMap(_.get[String](PopupSignal).toOption)
+      .filter(_.nonEmpty)
+
+  /** The claimed popup, narrowed to one this dashboard can actually serve: a
+    * registered surface that really does host at the popup mount. Anything else
+    * (a renamed surface, a stale claim from another dashboard, a baked panel
+    * id) is not adopted into the session's open set.
+    */
+  private[runtime] def claimedPopup(
+      req: Request[IO],
+      renderer: Renderer
+  ): Option[String] =
+    popupOf(req).filter(
+      renderer.surface(_).exists(_.hostId == Dashboard.PopupHostId)
+    )
+
+  private def signalsOf(req: Request[IO]): Option[io.circe.ACursor] =
+    req.uri.query.params
+      .get("datastar")
+      .flatMap(io.circe.parser.parse(_).toOption)
+      .map(_.hcursor)
+
+  /** [[PopupSignal]] as a patch-signals event: the open surface id, or `""` for
+    * a closed host.
+    */
+  private[runtime] def popupSignal(surfaceId: Option[String]): ServerSentEvent =
+    Datastar.patchSignals(s"""{"$PopupSignal":"${surfaceId.getOrElse("")}"}""")
 
   /** The resume signals as one patch-signals event. Emitted on connect and
     * after every shared patch batch, so a client's cursor names what it has

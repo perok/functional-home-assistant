@@ -899,15 +899,22 @@ class ServerSuite extends munit.CatsEffectSuite {
       * That ends at the cursor signal, which the connect path emits last, or at
       * the reload signal, which replaces the whole block.
       */
-    def opening(cursor: Option[Server.Cursor]): IO[String] =
-      val uri = cursor.foldLeft(uri"/sse/dashboard/dashboard/patch") { (u, c) =>
-        u.withQueryParam(
-          "datastar",
-          s"""{"${Server.HeadHashSignal}":"${c.headHash}",""" +
-            s""""${Server.LogIdSignal}":"${c.logId}",""" +
-            s""""${Server.StoreVersionSignal}":${c.version}}"""
+    def opening(
+        cursor: Option[Server.Cursor],
+        popup: Option[String] = None
+    ): IO[String] =
+      val signals = cursor.toList.flatMap(c =>
+        List(
+          s""""${Server.HeadHashSignal}":"${c.headHash}"""",
+          s""""${Server.LogIdSignal}":"${c.logId}"""",
+          s""""${Server.StoreVersionSignal}":${c.version}"""
         )
-      }
+      ) ++ popup.map(p => s""""${Server.PopupSignal}":"$p"""")
+      val uri =
+        if (signals.isEmpty) uri"/sse/dashboard/dashboard/patch"
+        else
+          uri"/sse/dashboard/dashboard/patch"
+            .withQueryParam("datastar", signals.mkString("{", ",", "}"))
       server.routes.orNotFound
         .run(Request[IO](Method.GET, uri))
         .flatMap(
@@ -1449,40 +1456,102 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test(
-    "a returning client's popup host is reset; a fresh one's is left alone"
-  ) {
-    // The new session's open set holds only cookie-selected panels, so a popup
-    // still standing in that DOM would go dead. The host lives in theme.chrome,
-    // outside #dashboard, so not even a repaint clears it.
-    val popupHost = s"""id="${Dashboard.PopupHostId}""""
+  test("a popup open across the disconnect is restored fresh, not closed") {
+    // Backgrounding a phone tab must not dismiss the dialog you were reading.
+    // The popup's content is per-session and its host sits outside #dashboard,
+    // so neither the resume nor the repaint reaches it: it is re-rendered from
+    // the client's own claim.
+    val hostSelector = s"selector #${Dashboard.PopupHostId}"
+    val hostReset = s"""<div id="${Dashboard.PopupHostId}"></div>"""
     val withPopup = liveLeafDash.copy(
-      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
+      surfaces = Map(
+        "det" -> Surface(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.b")))
+          )
+        )
+      )
     )
     for {
       h <- SharedHarness.create(
         withPopup,
-        Map("sensor.a" -> es("sensor.a", "cold"))
+        Map(
+          "sensor.a" -> es("sensor.a", "cold"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
       )
       _ <- h.step(es("sensor.a", "hot"))
+      // Inside the popup, so the shared pass is silent about it and the previous
+      // connection's (now dead) per-session cache was its only record.
+      _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
       logId <- h.logId
-      resumed <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
-      // A stale cursor repaints the body — which does not reach the host either.
-      repainted <- h.opening(Some(Server.Cursor(h.headHash, "gone", 1L)))
-      fresh <- h.opening(None)
-      // A dashboard with no popup surface has no such element to patch.
-      noPopups <- SharedHarness
-        .create(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold")))
-        .flatMap(p =>
-          p.step(es("sensor.a", "hot")) *> p.logId
-            .flatMap(id => p.opening(Some(Server.Cursor(p.headHash, id, 1L))))
-        )
+      cursor = Some(Server.Cursor(h.headHash, logId, 1L))
+      restored <- h.opening(cursor, popup = Some("det"))
+      // A claim this dashboard cannot serve is the one case that clears the host.
+      orphan <- h.opening(cursor, popup = Some("was-renamed"))
+      // Claiming nothing leaves the host alone — nothing is open to keep.
+      quiet <- h.opening(cursor)
     } yield {
-      assert(resumed.contains(popupHost), clue = resumed)
-      assert(repainted.contains(popupHost), clue = repainted)
-      assert(!fresh.contains(popupHost), clue = fresh)
-      assert(!noPopups.contains(popupHost), clue = noPopups)
+      assert(restored.contains(hostSelector), clue = restored)
+      assert(restored.contains(">B1<"), clue = restored)
+      assert(!restored.contains(hostReset), clue = restored)
+      assert(orphan.contains(hostReset), clue = orphan)
+      assert(!quiet.contains(Dashboard.PopupHostId), clue = quiet)
     }
+  }
+
+  test("the popup signal follows the host: open, switch, close") {
+    val dash = liveLeafDash.copy(
+      surfaces = Map(
+        "det" -> Surface(LayoutNode.Component("col")),
+        "other" -> Surface(LayoutNode.Component("col"))
+      )
+    )
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val conn = "c1"
+          val post = (p: String) =>
+            server.routes.orNotFound.run(
+              Request[IO](Method.POST, Uri.unsafeFromString(p))
+                .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
+            )
+          for {
+            session <- Session.create("dashboard")
+            _ <- sessions.register(conn, session)
+            _ <- post("/sse/surface/open/det")
+            _ <- post("/sse/surface/open/other")
+            _ <- post("/sse/popup/close")
+            emitted <- session.control.tryTakeN(None)
+            open <- session.open.get
+          } yield (emitted.map(_.renderString), open)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (emitted, open) =>
+        // One signal per host swap, always naming what was rendered there.
+        assertEquals(
+          emitted.filter(_.contains("datastar-patch-signals")),
+          List("det", "other", "").map(id =>
+            Server.popupSignal(Option(id).filter(_.nonEmpty)).renderString
+          )
+        )
+        // One host, one occupant: a popup replaces the previous one, and a close
+        // leaves nothing behind.
+        assertEquals(open, Set.empty[String])
+      }
   }
 
   test("headHash tracks <head>, and only <head>") {

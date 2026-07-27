@@ -558,15 +558,24 @@ one to drive.
 
    Two things this turned up that the step as written had missed. First, the *cost* is not
    "small": on a tabbed dashboard the visible panel IS the per-session part, so a resume
-   there approaches a repaint of that panel. Unavoidable — nothing logs that content — and
-   still narrower than a body repaint, but the plan's "they are small" was wrong. Second,
-   the open set being "rebuilt from cookies anyway" is only true for BAKED surfaces; a popup
-   is not cookie-tracked, so a popup still standing in a returning client's DOM belongs to
-   no session and would never update again. It gets closed on connect (a host reset, as
-   `navigate` already does) — and note the repaint could not have covered this either: the
-   popup host lives in `theme.chrome`, outside the `#dashboard` body. Skipped when there is
-   no cursor (that DOM was just server-rendered) and on a dashboard with no popup surface
-   (the host isn't there to patch).
+   there approaches a repaint of that panel. Unavoidable with no log for that content, and
+   still narrower than a body repaint, but the plan's "they are small" was wrong — see
+   "Deferred: a log for the per-session pass" below. Second, the open set being "rebuilt
+   from cookies anyway" is only true for BAKED surfaces. A popup is not cookie-tracked, so
+   the returning connection's open set has no idea the `<dialog open>` on that client's
+   screen exists: it would never be updated again, and no repaint can even remove it (the
+   popup host lives in `theme.chrome`, outside `#dashboard`).
+
+   Closing it on connect was the first answer and it was wrong — on a phone, backgrounding
+   the tab is how you read a notification, not how you dismiss a dialog. So the popup joins
+   the cursor as **client-carried state**: a fourth URL-riding signal (`popup`, the open
+   surface id or `""`), pushed by the server from the one place that changes the host
+   (`swapHost`, plus the navigate that clears it) so it always names what was actually
+   rendered there. On connect the claim seeds the session's open set and the surface is
+   re-rendered fresh into its host — restored AND live. Only a claim this dashboard no
+   longer recognises resets the host. Note the signal is server-pushed rather than set by
+   the opening click expression: the server evicts the previous occupant and clears popups
+   on navigate, so a client-side assignment would drift from the DOM the server built.
 
 **Version ordering is load-bearing** (step 4). A container's cached HTML embeds its
 children's, so a parent fragment stamped v=25 applied AFTER a child stamped v=30 would
@@ -603,6 +612,32 @@ window, no reaper, no per-client mirror.
 6. **A cursor older than the retention window repaints rather than resuming.** Covered at
    the unit level via the horizon; what a browser test adds is that the repaint actually
    restores a correct DOM from an arbitrarily stale one.
+
+## Deferred: a log for the per-session pass
+
+Step 5 leaves one cost standing: per-session fragments are painted fresh on resume, so a
+tabbed dashboard re-sends its visible panel on every reconnect. Correctness is not at stake
+(a fresh render is authoritative) — only payload, on the same slow link the plan exists to
+serve. It is deferred, not rejected, and the shape it should take if taken up is NOT the
+obvious one:
+
+- **A surviving per-client cache** (keep `Session` alive past the drop, reattach by `conn`)
+  is the obvious answer and the wrong one. It brings back the TTL/reaper/cap of alternative
+  (a)/(b), and adds a handoff race those never had to face: the dropped stream's finalizer
+  can run *after* the new stream attaches, so two connections would briefly share one
+  session — and a `Session` owns a control `Queue`, from which each stream *takes*. Popup
+  and navigate patches would then go to whichever browser tab won the race, silently.
+- **A variant-keyed log is the better shape.** The per-session HTML is not a function of the
+  client — it is a function of `(selected members, open popup)`. Two phones on the same tab
+  render byte-identical HTML today, separately, into separate logs. So the log belongs to the
+  VARIANT, shared exactly like the slug log is: a reconnecting client resumes its variant
+  with the same cursor version, no per-client state exists, and eviction is safe (a missing
+  variant degrades to the fresh paint we already do). It would also delete the duplicate
+  rendering across clients on the same tab, a standing cost of ADR 0002's shared/per-session
+  split.
+
+Worth measuring before building either: how large the visible panel actually is on a real
+tabbed dashboard. If it is a few KB, this stays deferred.
 
 ## Alternatives considered
 
