@@ -570,7 +570,10 @@ class ServerSuite extends munit.CatsEffectSuite {
     card = LayoutNode.Component(
       "col",
       children = List("sensor.a", "sensor.b").map(e =>
-        LayoutNode.Component("card", slots = Map("state" -> SlotSource(Some(e))))
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some(e)))
+        )
       )
     )
   )
@@ -673,7 +676,8 @@ class ServerSuite extends munit.CatsEffectSuite {
               IO.deferred[Unit].flatMap { stop =>
                 val reads = resp.body
                   .evalTap(_ =>
-                    stop.tryGet.flatMap(s => IO.sleep(1.minute).whenA(s.isDefined))
+                    stop.tryGet
+                      .flatMap(s => IO.sleep(1.minute).whenA(s.isDefined))
                   )
                   .compile
                   .drain

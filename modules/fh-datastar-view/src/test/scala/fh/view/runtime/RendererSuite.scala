@@ -467,7 +467,16 @@ class RendererSuite extends munit.FunSuite {
     )
     val body = col(LayoutNode.Component("btn", Map("label" -> lit("Go"))))
     def warningsOf(chrome: String): List[String] =
-      Renderer.create(Dashboard(cards, body, surfaces = popup, theme = Theme(chrome = chrome))).warnings
+      Renderer
+        .create(
+          Dashboard(
+            cards,
+            body,
+            surfaces = popup,
+            theme = Theme(chrome = chrome)
+          )
+        )
+        .warnings
 
     // No host at all: the popup can never be shown. The empty chrome counts —
     // the fallback frame has no host either.
@@ -494,7 +503,9 @@ class RendererSuite extends munit.FunSuite {
     // And a dashboard with no popup surfaces is never nagged about a host it
     // has no use for.
     assertEquals(
-      Renderer.create(Dashboard(cards, body, theme = Theme(chrome = ""))).warnings,
+      Renderer
+        .create(Dashboard(cards, body, theme = Theme(chrome = "")))
+        .warnings,
       Nil
     )
   }

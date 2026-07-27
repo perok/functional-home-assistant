@@ -43,7 +43,9 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         .void
     } yield (connect, uses, drop)
 
-  test("a peer that accepts and closes at once cannot spin the reconnect loop") {
+  test(
+    "a peer that accepts and closes at once cannot spin the reconnect loop"
+  ) {
     // The case that used to bypass the backoff entirely: a CLEAN close. The
     // retry policy only ever saw raises, so an end that merely returned sent
     // the loop straight back round with no delay — connect, auth, close,
