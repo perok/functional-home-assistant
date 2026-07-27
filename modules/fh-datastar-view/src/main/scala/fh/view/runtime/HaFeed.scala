@@ -8,7 +8,6 @@ import fh.view.FHError
 import cats.effect.{Deferred, IO, Resource}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import retry.*
 
 import scala.concurrent.duration.*
 
@@ -26,7 +25,7 @@ import scala.concurrent.duration.*
   * entity set, so a reconnect republishes exactly the entities that changed
   * during the outage and every connected browser catches up — and races the
   * ingest pump against `awaitClosed`. When the connection dies it tears down
-  * and reconnects with capped exponential backoff.
+  * and reconnects, rate-limited to one attempt per [[ReconnectDelay]].
   *
   *   - [[api]] is a stable facade built ONE level down, over the low-level WS
   *     ([[HAWSApiLowLevel]]): [[HomeAssistantApi.fromWs]] regenerates the whole
@@ -59,29 +58,18 @@ final case class HaFeed(
 
 object HaFeed {
 
-  private val MinBackoff: FiniteDuration = 1.second
-  private val MaxBackoff: FiniteDuration = 30.seconds
-
-  /** How long a connection must live to count as HEALTHY rather than a flap —
-    * and so to reset the reconnect backoff when it ends.
+  /** The shortest time between two connection attempts — a RATE limit, not a
+    * backoff.
     *
-    * Lifetime is the right question because how a connection ENDED says almost
-    * nothing: a clean close is what a Home Assistant restart looks like, and
-    * also what a peer that rejects us after auth looks like. How long it lasted
-    * separates them. Long enough, and the next reconnect is immediate; too
-    * short, and the delay escalates however politely each attempt ended.
+    * Deliberately flat. Exponential backoff assumes retries are expensive or
+    * the peer is shared; this is one WebSocket to one local instance, where a
+    * failed attempt is a refused TCP connect. It also gets the main case
+    * backwards: a Home Assistant restart takes half a minute or so, by which
+    * point an escalating delay has grown to its cap — so the dashboard would
+    * stay dark for up to that long AFTER the instance is ready again. A flat
+    * second notices within a second.
     */
-  private val ResetAfter: FiniteDuration = 1.minute
-
-  /** A socket that closed normally. Not a failure — but still an end, and it
-    * goes through the same backoff as a drop: "the peer closed politely" is no
-    * reason to reconnect faster than "the peer broke", and taking it as one is
-    * what let a peer that accepts, auths and immediately closes spin the
-    * reconnect loop at wire speed.
-    */
-  private case object CleanEnd
-      extends Exception("Home Assistant closed the connection")
-      with scala.util.control.NoStackTrace
+  private val ReconnectDelay: FiniteDuration = 1.second
 
   /** How long [[resource]] waits for the feed's opening state before failing
     * the boot. Generous, since an add-on may start just before Home Assistant
@@ -137,78 +125,51 @@ object HaFeed {
         .toResource
     } yield HaFeed(api, store, connection.map(_.isDefined))
 
-  /** Reconnect forever with capped exponential backoff, expressed as a
-    * cats-retry policy rather than a hand-rolled doubling `Ref`.
+  /** Reconnect forever: [[runConnection]] is one connection's whole lifetime,
+    * so supervising it is just "run it, wait, run it again".
     *
-    * EVERY way a connection can end goes through the policy — a clean close
-    * ([[CleanEnd]]) included — so no exit path can reconnect without a delay.
+    * The wait is UNCONDITIONAL, which is the whole reason this cannot spin —
+    * however a connection ended, however fast. That is what a rate limit gives
+    * that a retry policy did not: a policy has to be told which endings count,
+    * and the ending that reconnected instantly was the one nobody thought to
+    * name (a peer that accepts, auths and closes politely, over and over).
     *
-    * What decides whether the delay ESCALATES or starts over is how long the
-    * connection LIVED, not how it ended ([[attemptConnection]],
-    * [[ResetAfter]]). A flapping link escalates to `MaxBackoff` however each
-    * attempt ended; a connection that was up for hours and then dropped
-    * reconnects immediately, and only escalates if it turns out to be flapping
-    * after all. That case is `attemptConnection` SUCCEEDING, which ends the
-    * retry and lets `foreverM` re-enter with a fresh policy. There is no retry
-    * limit, so it reconnects indefinitely.
+    * `meteredStartImmediately` also hands us, for free, the two properties a
+    * backoff needs bookkeeping for. The first attempt is immediate, so boot is
+    * not delayed. And `fixedRate` DAMPENS missed ticks: a connection that
+    * outlived the period is followed by an immediate tick, so a healthy link
+    * that drops reconnects at once, while a flapping one is held to one attempt
+    * per period. No lifetime to measure, nothing to reset.
+    *
+    * Cancellation is deliberately not caught by the `attempt`: that is the app
+    * shutting down, and it must stop the loop rather than look like another
+    * reconnect.
     */
   private def superviseLoop(
       connect: Connect,
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       seeded: Deferred[IO, Unit],
       store: StateStore
-  ): IO[Unit] = {
-    val policy = RetryPolicies.capDelay(
-      MaxBackoff,
-      RetryPolicies.exponentialBackoff[IO](MinBackoff)
-    )
-    val logReconnect = ResultHandler.retryOnAllErrors[IO, Unit] {
-      (err: Throwable, details: RetryDetails) =>
-        IO.println(
-          s"[ha-feed] disconnected (${describe(err)}); reconnecting (attempt ${details.retriesSoFar + 1})"
-        )
-    }
-    retryingOnErrors(
-      attemptConnection(connect, connection, seeded, store)
-    )(
-      policy = policy,
-      errorHandler = logReconnect
-    ).foreverM
-  }
-
-  /** One connection's lifetime, reported the way the retry loop needs to hear
-    * it: this SUCCEEDS only when the connection lasted at least [[ResetAfter]]
-    * — the one case where the next reconnect should not wait at all — and
-    * otherwise raises, so the policy backs off. A clean end raises too, as
-    * [[CleanEnd]].
-    *
-    * Cancellation is deliberately not caught: that is the app shutting down,
-    * and it must stop the loop rather than look like another reconnect.
-    */
-  private def attemptConnection(
-      connect: Connect,
-      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
-      seeded: Deferred[IO, Unit],
-      store: StateStore
   ): IO[Unit] =
-    for {
-      start <- IO.monotonic
-      outcome <- runConnection(connect, connection, seeded, store).attempt
-      lived <- IO.monotonic.map(_ - start)
-      cause = outcome.fold(identity, _ => CleanEnd)
-      _ <-
-        if (lived >= ResetAfter)
-          IO.println(
-            s"[ha-feed] connection ended after ${lived.toSeconds}s " +
-              s"(${describe(cause)}); reconnecting"
-          )
-        else IO.raiseError(cause)
-    } yield ()
+    Stream
+      .repeatEval(runConnection(connect, connection, seeded, store).attempt)
+      .meteredStartImmediately(ReconnectDelay)
+      .map(describe)
+      // An instance that is down ends every attempt the same way; say it once
+      // rather than once a second for as long as it stays down.
+      .changes
+      .evalMap(reason =>
+        IO.println(s"[ha-feed] disconnected ($reason); retrying")
+      )
+      .compile
+      .drain
 
-  private def describe(err: Throwable): String =
-    if (err eq CleanEnd) "closed cleanly"
-    else
-      s"${err.getClass.getName} ${Option(err.getMessage).getOrElse(err.toString)}"
+  private def describe(outcome: Either[Throwable, Unit]): String =
+    outcome.fold(
+      err =>
+        s"${err.getClass.getName} ${Option(err.getMessage).getOrElse(err.toString)}",
+      _ => "closed cleanly"
+    )
 
   /** One connection's lifetime: subscribe to the entity feed on THIS
     * connection, publish the connection as current — which routes [[api]] and
@@ -291,7 +252,7 @@ object HaFeed {
     */
   private def routingFacade(
       currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
-  ): HAWSApiLowLevel[IO] =
+  ): HAWSApiLowLevel[IO] = {
     new HAWSApiLowLevel[IO] {
       private def disconnected[A]: IO[A] =
         IO.raiseError(
@@ -319,4 +280,5 @@ object HaFeed {
       // stream ending.
       def awaitClosed: IO[Unit] = IO.never
     }
+  }
 }
