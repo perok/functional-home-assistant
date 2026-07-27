@@ -54,7 +54,7 @@ jobs:
       # resources/editor/vendor.js, which sbt then packages into the fat jar.
       # vendor.js is NOT committed (it's gitignored) — CI is its source of
       # truth; `npm ci` pins to package-lock.json for a reproducible bundle.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
