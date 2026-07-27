@@ -217,6 +217,52 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("the data-init SSE URL carries what the page is showing") {
+    // The first connect carries NO signals (data-init fires before Datastar has
+    // merged the descendants' data-signals), so without this the server would
+    // repaint the DEFAULT tab over the correct first paint — and the URL mirror
+    // would then follow the repaint down to ui.c=0.
+    val dash = titleDash("home", None).copy(
+      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
+    )
+    for {
+      restored <- pageHtml(dash, "?ui.c=1&popup=det")
+      plain <- pageHtml(dash)
+    } yield {
+      assert(
+        restored.contains(
+          """data-init="@get('sse/dashboard/home/patch?ui.c=1&amp;popup=det')""""
+        ),
+        restored
+      )
+      // Nothing to restore ⇒ no query at all, not a bare `?`.
+      assert(
+        plain.contains("""data-init="@get('sse/dashboard/home/patch')""""),
+        plain
+      )
+    }
+  }
+
+  test("popupOf: the signal wins when present, the URL only seeds a connect") {
+    // A first connect has the param and no signal.
+    assertEquals(Server.popupOf(get(Server.PopupSignal -> "det")), Some("det"))
+    // A reconnect after the user closed it carries `popup: ""` alongside the
+    // page's now-stale param: the signal is authoritative, so the dialog stays
+    // closed rather than resurrecting on every retry.
+    assertEquals(
+      Server.popupOf(
+        Request[IO](
+          Method.GET,
+          uri"/"
+            .withQueryParam(Server.PopupSignal, "det")
+            .withQueryParam("datastar", s"""{"${Server.PopupSignal}":""}""")
+        )
+      ),
+      None
+    )
+    assertEquals(Server.popupOf(get()), None)
+  }
+
   test("page <title> uses the dashboard's authored title when present") {
     pageHtml(titleDash("home", Some("My Home"))).map { html =>
       assert(

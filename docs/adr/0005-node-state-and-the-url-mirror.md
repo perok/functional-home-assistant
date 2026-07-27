@@ -24,7 +24,8 @@ literals; the real questions are *naming discipline* and *persistence*.
 | moment | what the server has |
 |---|---|
 | first-paint GET (and a refresh) | the URL, cookies — **no signals** |
-| SSE (re)connect | signals (Datastar re-serializes the store on every retry) |
+| the FIRST SSE connect | still no signals (see below) — so the URL, forwarded |
+| an SSE RE-connect | signals (Datastar re-serializes the store on every retry) |
 | action POST | signals (the JSON body) |
 
 Datastar round-trips the whole signal store on every request it issues, and
@@ -33,6 +34,18 @@ page-load stale — the same mechanism the SSE-resume cursor relies on
 (`docs/plan-sse-resume.md`, proof point 1, verified in a browser). What signals
 cannot do is inform the **first paint**: the initial GET is issued by the
 browser, not by Datastar, and carries no signal payload.
+
+Nor can they inform the **first SSE connect**, which is the trap: `data-init`
+fires from the `<body>` before Datastar has merged the `data-signals` seeds on
+its descendants, so that one request arrives signal-less. The connect then
+repaints the body — computed from the DEFAULT selection — over a first paint
+that was correct, and the `data-effect` mirror dutifully writes the default back
+to the URL. A deep link visibly rewrote itself to `?ui.<id>=0`. So the page shell
+forwards its restore state (`Server.Restore`) on the `data-init` URL as ordinary
+query params; signals still win wherever both name the same fact, which is every
+request after that one. Browser-proven in `UiSmokeSuite` (the assertion is
+ordered after an unrelated state change, so it sees the repaint, not just the
+first paint).
 
 So the state needs a second carrier, and there are three candidates the server
 sees on that GET: a cookie, the URL, and `Referer`.
@@ -115,7 +128,10 @@ input, clamped at the boundary:
 - **Open popup.** `popup` (one at a time, so one string), server-pushed from
   the only place that changes the host (`Server.swapHost`), mirrored to
   `?popup=<id>`. A claim naming a surface this dashboard does not host is
-  ignored. This reverses the original decision that popups are transient and
+  ignored. The signal is authoritative **whenever it is present, `""` included**
+  — that is how a client says "I closed it" — and only its absence (the one
+  signal-less connect above) falls back to the param, so a stale URL cannot
+  resurrect a dismissed dialog on every retry. This reverses the original decision that popups are transient and
   "must not resurrect on reload": if you have a dialog open and you refresh,
   you expect it back — and on a phone, backgrounding the tab is how you read a
   notification, not how you dismiss a dialog.

@@ -982,12 +982,14 @@ class Server(
                 renderer.scripts.map(assets.rewrite),
                 renderer.title,
                 Server.ingressPrefixOf(req),
-                // A refresh with a popup still on the URL re-opens it: the
-                // seeded signal reaches the SSE connect, which renders the
-                // dialog into its host (openingPatches).
-                req.uri.query.params
-                  .get(Server.PopupSignal)
-                  .filter(p => renderer.surface(p).nonEmpty),
+                // What this document must hand back on connect for the stream
+                // to agree with the page it is attaching to.
+                Server.Restore(
+                  uiState,
+                  req.uri.query.params
+                    .get(Server.PopupSignal)
+                    .filter(p => renderer.surface(p).nonEmpty)
+                ),
                 editMode
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -1014,7 +1016,7 @@ class Server(
       scripts: List[String],
       title: Option[String],
       ingressPrefix: Option[String],
-      openPopup: Option[String],
+      restore: Server.Restore,
       editMode: Boolean = false
   ): String = {
     val links = (
@@ -1090,7 +1092,7 @@ class Server(
     // restores the dialog (the signal itself dies with the document); the
     // effect mirrors it back on every change. Together these are a hand-rolled
     // `data-query-string` — see [[Server.UrlSyncScript]] and ADR 0005.
-    val popupSeed = Server.escapeHtml(openPopup.getOrElse(""))
+    val popupSeed = Server.escapeHtml(restore.popup.getOrElse(""))
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
@@ -1114,7 +1116,7 @@ class Server(
         Server.DatastarCdn
       )}"></script>
        |</head>
-       |<body data-init="@get('sse/dashboard/$slug/patch')">
+       |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}')">
        |$connBanner
        |$body
        |$editAssets
@@ -1265,6 +1267,38 @@ object Server {
     * patches (smaller payloads, more patches), lower it to favour repaints.
     */
   val MaxChurnFraction: Double = 0.5
+
+  /** The view state a freshly-loaded document has to hand back to the server on
+    * connect: its bake-group selections and its open popup, both read off the
+    * page URL (ADR 0005).
+    *
+    * It rides the `data-init` SSE URL as ordinary query params ([[query]])
+    * because **the first connect carries no signals**: `data-init` fires from
+    * the `<body>`, and the `data-signals` seeds live on descendants that
+    * Datastar has not merged yet — so a signals-only read would render the
+    * DEFAULT tab, and its repaint would morph the correct seed away and drag
+    * the URL along with it. A reconnect is the opposite case and needs no help:
+    * it re-serializes the live signal store, which wins over these params
+    * wherever both name the same fact ([[uiStateOf]], [[popupOf]]).
+    */
+  private[runtime] case class Restore(
+      uiState: Map[String, String],
+      popup: Option[String]
+  ) {
+
+    /** `?ui.<id>=<v>&popup=<id>`, or `""` when there is nothing to restore.
+      * `&amp;` because this lands in an HTML attribute.
+      */
+    def query: String = {
+      val params = uiState.toList.sorted.map { case (id, v) =>
+        s"$UiParamPrefix${encode(id)}=${encode(v)}"
+      } ++ popup.map(p => s"$PopupSignal=${encode(p)}").toList
+      if (params.isEmpty) "" else params.mkString("?", "&amp;", "")
+    }
+
+    private def encode(s: String): String =
+      java.net.URLEncoder.encode(s, UTF_8)
+  }
 
   /** The client's UI state — bake-group id -> selected member, as
     * `id -> rawValue`. Read from the page URL's `ui.<id>` query params and from
@@ -1485,12 +1519,18 @@ object Server {
     } yield Cursor(hash, styleHash, logId, version)
 
   /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
-    * a client that has none — including a first load, whose signal store is not
-    * on the URL at all.
+    * a client that has none.
+    *
+    * The signal is authoritative WHEN PRESENT, empty string included — that is
+    * how a client says "I closed it". Only a request that does not carry the
+    * signal at all falls back to the query param, which is the first connect
+    * ([[Restore]]); after that the signal always exists, so a stale param on a
+    * reconnect's URL can never re-open a dialog the user dismissed.
     */
   private[runtime] def popupOf(req: Request[IO]): Option[String] =
     signalsOf(req)
       .flatMap(_.get[String](PopupSignal).toOption)
+      .orElse(req.uri.query.params.get(PopupSignal))
       .filter(_.nonEmpty)
 
   /** The claimed popup, narrowed to one this dashboard can actually serve: a
