@@ -97,7 +97,7 @@ class Renderer(
     * head patch can repair (a `<link>` can be added but not un-applied, a
     * module script cannot be re-run, and the chrome is the frame the body patch
     * lands INSIDE), so it is the one thing worth a full page **reload**
-    * (docs/plan-sse-resume.md).
+    * (docs/adr/0011-the-live-connection.md).
     *
     * The rest of the head — tokens, inline CSS, `<title>` — is [[styleHash]]
     * instead: it patches.

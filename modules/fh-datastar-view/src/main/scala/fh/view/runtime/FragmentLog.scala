@@ -7,7 +7,8 @@ import scala.concurrent.duration.*
   * A named type rather than a `(String, Long)` because the version is the whole
   * point: it turns the diff cache from "what did we last broadcast" into "when
   * did each fragment last change", which is what lets a reconnecting client be
-  * told the difference instead of the whole body (docs/plan-sse-resume.md).
+  * told the difference instead of the whole body
+  * (docs/adr/0011-the-live-connection.md).
   */
 private[runtime] case class Fragment(html: String, version: Long)
 
@@ -20,7 +21,7 @@ private[runtime] case class Fragment(html: String, version: Long)
   *     ([[FragmentLog.Retention]]). Never compared against a version, and never
   *     used to order anything — which is what keeps this from reintroducing the
   *     two-clocks-in-one-ordering problem that ruled out HA's `last_updated` as
-  *     the cursor (see docs/plan-sse-resume.md).
+  *     the cursor (see docs/adr/0011-the-live-connection.md).
   *
   * One value rather than two positional `Long`s, because a pair of same-typed
   * arguments threaded through the diff helpers is exactly how they get swapped.
@@ -49,11 +50,10 @@ private[runtime] object FragmentLog {
     * more. Two caveats kept this out of the first cut. It reintroduces
     * per-connection server state, which this design otherwise avoids — though
     * only for RETENTION, never for correctness, which is what separates it from
-    * the rejected per-client mirror (alternatives (a)/(b) in the plan) and
-    * makes it acceptable. And a wedged or hung connection would pin the log
-    * open indefinitely, so the age bound has to survive as a floor regardless:
-    * the real rule is `min(live cursors)` clamped by this duration, not one or
-    * the other.
+    * the rejected per-client mirror (ADR 0011) and makes it acceptable. And a
+    * wedged or hung connection would pin the log open indefinitely, so the age
+    * bound has to survive as a floor regardless: the real rule is
+    * `min(live cursors)` clamped by this duration, not one or the other.
     */
   val Retention: FiniteDuration = 1.hour
 }

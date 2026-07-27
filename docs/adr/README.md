@@ -19,3 +19,4 @@ decision gets a new ADR. Do not append dated update sections.
 - [0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract](0008-every-node-is-a-cell.md)
 - [0009 — How we test: functional tests over a fake HA, then browser smoke](0009-testing-strategy.md)
 - [0010 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side](0010-live-pkl-schema-endpoint.md)
+- [0011 — The live connection: resume an SSE reconnect, health, and what may never be dropped](0011-the-live-connection.md)

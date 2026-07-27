@@ -31,7 +31,7 @@ literals; the real questions are *naming discipline* and *persistence*.
 Datastar round-trips the whole signal store on every request it issues, and
 that includes a **retry**, so a reconnecting client's signals are current, not
 page-load stale — the same mechanism the SSE-resume cursor relies on
-(`docs/plan-sse-resume.md`, proof point 1, verified in a browser). What signals
+(`docs/adr/0011-the-live-connection.md`, proof point 1, verified in a browser). What signals
 cannot do is inform the **first paint**: the initial GET is issued by the
 browser, not by Datastar, and carries no signal payload.
 

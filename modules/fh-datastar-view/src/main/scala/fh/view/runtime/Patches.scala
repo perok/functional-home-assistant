@@ -288,9 +288,8 @@ private[runtime] object Patches {
   }
 
   /** Everything a client resuming at cursor `v` is owed, as SSE events. The
-    * pure core of the resume path (docs/plan-sse-resume.md, step 4): the caller
-    * reads the log + snapshot and writes the stream; the ordering argument
-    * lives here.
+    * pure core of the resume path (ADR 0011): the caller reads the log +
+    * snapshot and writes the stream; the ordering argument lives here.
     *
     * Morphs go out first, '''ascending by version''', because a container's
     * cached HTML embeds its children's: a parent rendered at v=25 applied after

@@ -292,7 +292,7 @@ class Server(
         // A fresh log IDENTITY per swap, in the ref every connection reads: a
         // cursor issued against the previous renderer's log names versions this
         // one never had, so it must not be resumable
-        // (docs/plan-sse-resume.md).
+        // (docs/adr/0011-the-live-connection.md).
         Stream.exec(Server.freshLog.flatMap(live.log.set)) ++
           stateStore.changes
             .evalMap(sharedPatches(renderer, live.log, _))
@@ -529,14 +529,15 @@ class Server(
     } yield resp
 
   /** What a (re)connecting client is sent before the live streams start. Three
-    * outcomes, narrowest first (docs/plan-sse-resume.md, step 4):
+    * outcomes, narrowest first (ADR 0011):
     *
     *   1. '''Reload''' when the client's `<head>` no longer matches this
     *      dashboard's UNPATCHABLE part ([[Renderer.headHash]]) — new
     *      stylesheets, scripts or chrome. Nothing else is sent: the page is
     *      about to re-render itself from scratch.
     *   1. '''Resume''' when the cursor provably names what this DOM holds.
-    *   1. '''Repaint''' the whole body, as before this plan.
+    *   1. '''Repaint''' the whole body — the default, and where every doubt
+    *      lands.
     *
     * A stale THEME or `<title>` ([[Renderer.styleHash]]) is orthogonal to all
     * three: it is repaired by [[headPatches]] in front of whichever outcome
@@ -556,15 +557,15 @@ class Server(
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
     *
-    * '''Per-session fragments are painted fresh, not resumed'''
-    * (docs/plan-sse-resume.md, step 5). The shared log covers only what the
-    * shared pass renders; a tab panel's contents are per-session (their HTML
-    * bakes a client-selected member) and their only diff cache died with the
-    * previous connection. So on the resume path each per-session ROOT
-    * ([[Renderer.sessionOwnedMainIds]]) is re-rendered against current state
-    * and morphed — after the resumed fragments, so it wins over any shared
-    * ancestor in the same batch. The repaint path needs none of this:
-    * `renderBody` already bakes those subtrees with this client's `uiState`.
+    * '''Per-session fragments are painted fresh, not resumed''' (ADR 0011). The
+    * shared log covers only what the shared pass renders; a tab panel's
+    * contents are per-session (their HTML bakes a client-selected member) and
+    * their only diff cache died with the previous connection. So on the resume
+    * path each per-session ROOT ([[Renderer.sessionOwnedMainIds]]) is
+    * re-rendered against current state and morphed — after the resumed
+    * fragments, so it wins over any shared ancestor in the same batch. The
+    * repaint path needs none of this: `renderBody` already bakes those subtrees
+    * with this client's `uiState`.
     *
     * '''A popup the client still has open is restored, not closed.''' Its
     * content is per-session and its host lives in `theme.chrome`, OUTSIDE the
@@ -1413,8 +1414,8 @@ object Server {
     */
   val HaDownSignal: String = "haDown"
 
-  /** The four resume signals (docs/plan-sse-resume.md), all PUSHED by the
-    * server and never declared client-side. Datastar sends every
+  /** The four resume signals (docs/adr/0011-the-live-connection.md), all PUSHED
+    * by the server and never declared client-side. Datastar sends every
     * non-`_`-prefixed signal back with each backend action, so they ride the
     * reconnect URL for free and the server keeps no per-client state between
     * connections.
@@ -1536,7 +1537,7 @@ object Server {
   /** Read the cursor off the GET signal payload. Datastar serializes the signal
     * store into a `datastar` query param on every GET action, which is how the
     * cursor survives the visibility refetch that closes and reopens the stream
-    * (verified in a browser — see the plan's "Evidence").
+    * (verified in a browser, and live against a real instance — ADR 0011).
     *
     * `None` for anything short of all three fields, which covers a first load
     * (empty store), a partial patch, and a garbled param alike — every one of

@@ -724,7 +724,7 @@ class RendererSuite extends munit.FunSuite {
     // sorted token vars, then the theme's inline styles; no dark overrides
     assert(
       // The theme element leads the page, OUTSIDE #dashboard: a repaint of the
-      // body must not have to re-send it (docs/plan-sse-resume.md).
+      // body must not have to re-send it (docs/adr/0011-the-live-connection.md).
       page.startsWith(
         """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><main class="container" id="dashboard">"""
       ),

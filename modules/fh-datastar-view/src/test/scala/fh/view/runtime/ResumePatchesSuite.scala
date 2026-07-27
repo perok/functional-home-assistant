@@ -12,7 +12,7 @@ import fh.view.model.{
 import io.circe.Json
 
 /** [[Patches.resume]] — where a resuming client's group members get their
-  * POSITION back. The ordering argument (docs/plan-sse-resume.md) is the whole
+  * POSITION back. The ordering argument (docs/adr/0011-the-live-connection.md) is the whole
   * of the correctness here, so these tests are about which anchor each insert
   * names.
   *

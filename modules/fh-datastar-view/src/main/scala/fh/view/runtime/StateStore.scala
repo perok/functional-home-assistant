@@ -149,9 +149,9 @@ private[runtime] enum Ingest(val entityId: String) {
   * changed anything — and a batch IS a coalesced HA frame (see
   * [[StateStore.applyEntities]]), so one version covers one HA event-loop tick.
   * It exists to stamp rendered fragments with the store version they were
-  * rendered from (docs/plan-sse-resume.md); the store itself answers no "what
-  * changed since V" question — the fragment log does, one layer closer to the
-  * wire.
+  * rendered from (docs/adr/0011-the-live-connection.md); the store itself
+  * answers no "what changed since V" question — the fragment log does, one
+  * layer closer to the wire.
   */
 private[runtime] case class StoreState(
     entities: Map[String, EntityState],
@@ -174,7 +174,7 @@ class StateStore private (
 
   /** The snapshot AND the version that names it, read together — so a fragment
     * rendered from this snapshot cannot be stamped with a version its HTML does
-    * not reflect (docs/plan-sse-resume.md).
+    * not reflect (docs/adr/0011-the-live-connection.md).
     */
   private[runtime] def current: IO[StoreState] = ref.get
 

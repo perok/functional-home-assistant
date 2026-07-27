@@ -64,7 +64,7 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(changes(1).previous, None) // c was newly seen
   }
 
-  // `version` stamps rendered fragments (docs/plan-sse-resume.md), so what it
+  // `version` stamps rendered fragments (docs/adr/0011-the-live-connection.md), so what it
   // must guarantee is: it moves iff something a client could see moved, and it
   // moves ONCE per batch.
 

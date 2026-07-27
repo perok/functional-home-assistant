@@ -7,7 +7,7 @@ import fh.view.testkit.{FixtureDashboard, HouseFixture, Scene}
 import java.net.URLDecoder
 import scala.concurrent.duration.*
 
-/** SPIKE (docs/plan-sse-resume.md, proof point 1): does a SERVER-PUSHED signal
+/** SPIKE (docs/adr/0011-the-live-connection.md, proof point 1): does a SERVER-PUSHED signal
   * ride the reconnect URL? `conn` is already pushed via `patchSignals` on every
   * connect, so the question needs no new production code — if the retry request
   * carries the previous connection's `conn`, a cursor pushed the same way will
@@ -41,7 +41,7 @@ class ResumeSpikeSuite extends SmokeSuite {
           assertThat(page.locator("body")).containsText("13.1")
         )
         _ <- seen.flatMap(s => IO.println(s"[spike] at load: ${s.size}"))
-        // The case the plan targets: backgrounding a phone tab. Datastar's
+        // The case resume targets: backgrounding a phone tab. Datastar's
         // handler aborts the fetch on `visibilitychange` when `document.hidden`,
         // and refetches when it goes visible again — so drive exactly that.
         before <- seen.map(_.size)

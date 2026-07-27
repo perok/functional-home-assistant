@@ -23,10 +23,10 @@ import org.http4s.ServerSentEvent
   *     pass), never here. A [[FragmentLog]] for one diff contract with that
   *     pass, but its versions are never resumed from: this log dies with the
   *     connection, so a reconnecting client has these painted fresh instead —
-  *     see `Server.openingPatches` (docs/plan-sse-resume.md, step 5). Its
-  *     resume half (`id`, `mutations`, `horizon`) is therefore inert here: no
-  *     cursor is ever compared against a session log. Sharing the type is what
-  *     keeps ONE diff contract; the cost is that bookkeeping nothing reads.
+  *     see `Server.openingPatches` (ADR 0011). Its resume half (`id`,
+  *     `mutations`, `horizon`) is therefore inert here: no cursor is ever
+  *     compared against a session log. Sharing the type is what keeps ONE diff
+  *     contract; the cost is that bookkeeping nothing reads.
   */
 case class Session(
     slug: String,
