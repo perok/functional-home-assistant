@@ -103,7 +103,11 @@ class Server(
     // (fetch + validate-then-swap + renderer reload, wired by ServerApp —
     // see [[DumpRefresh]]). None (tests, BuildApp-less setups) makes the
     // route a 404.
-    dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+    dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+    // How long an SSE connection may go without accepting an event before it
+    // is closed as stalled ([[Server.StallTimeout]]). A parameter only so a
+    // test need not wait out the real one.
+    stallTimeout: FiniteDuration = Server.StallTimeout
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -493,8 +497,17 @@ class Server(
       // being published to nobody and lost until the next reconnect. Erring the
       // other way is safe — a change caught by both arrives once in the opening
       // paint and once as a patch, and a patch is an idempotent morph.
+      //
+      // UNBOUNDED, and that is a correctness requirement, not a capacity
+      // choice. A bounded subscription backpressures `publish`, and there is
+      // ONE topic for every slug — so a single client that stops reading would
+      // stall the shared publisher for every viewer of every dashboard. Nor
+      // could we drop instead: the resume cursor rides this same stream, so
+      // dropping a patch while keeping a later cursor would leave the client
+      // claiming a version whose changes it never applied, and `since` would
+      // never re-send them. Bound the CONNECTION instead — see `stalled`.
       live = Stream
-        .resource(sharedTopic.subscribeAwait(64))
+        .resource(sharedTopic.subscribeAwaitUnbounded)
         .flatMap { tagged =>
           val shared =
             tagged.collect { case (s, sse) if s == session.slug => sse }
@@ -509,9 +522,34 @@ class Server(
               .merge(keepAlive)
         }
 
+      // A client that stops consuming — a sleeping phone, a peer that dropped
+      // off the network without a FIN — would otherwise hold its subscription
+      // and grow its (unbounded) queue for as long as the socket lingers.
+      // `lastWrite` advances every time an event is actually handed downstream,
+      // and the keepalive guarantees that happens every `KeepAliveInterval` on
+      // a healthy connection, so a stalled one is exactly a `lastWrite` that
+      // stopped moving. Closing it costs the client nothing it cannot recover:
+      // Datastar reconnects and resumes from its cursor.
+      startedAt <- IO.monotonic
+      lastWrite <- Ref[IO].of(startedAt)
+      stalled <- IO.deferred[Either[Throwable, Unit]]
+      watchdog = Stream
+        .awakeEvery[IO](stallTimeout)
+        .evalMap(_ => (IO.monotonic, lastWrite.get).mapN(_ - _))
+        .find(_ > stallTimeout)
+        .evalMap(_ =>
+          IO.println(s"[sse] closing a stalled connection ($conn)") *>
+            stalled.complete(Right(())).void
+        )
+
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++ live)
+        .evalTap(_ => IO.monotonic.flatMap(lastWrite.set))
+        // A clean END, not an abort: the page asks for `retry: 'always'` (see
+        // [[Server.page]]), which is what makes a completed stream reconnect.
+        .interruptWhen(stalled.get)
+        .concurrently(watchdog)
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
     } yield resp
@@ -1137,7 +1175,7 @@ class Server(
         Server.DatastarCdn
       )}"></script>
        |</head>
-       |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}')">
+       |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
        |$connBanner
        |$body
        |$editAssets
@@ -1194,7 +1232,8 @@ object Server {
       assets: AssetCache = AssetCache.empty,
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      stallTimeout: FiniteDuration = Server.StallTimeout
   ): Resource[IO, Server] =
     for {
       topic <- Topic[IO, (String, ServerSentEvent)].toResource
@@ -1219,7 +1258,8 @@ object Server {
         assets,
         healthy,
         systemPkl,
-        dumpRefresh
+        dumpRefresh,
+        stallTimeout
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -1594,6 +1634,34 @@ object Server {
         s""""$LogIdSignal":"$logId",""" +
         s""""$StoreVersionSignal":$version}"""
     )
+
+  /** How long an SSE connection may go without accepting an event before the
+    * server closes it as stalled.
+    *
+    * The keepalive puts an event on every connection every
+    * [[KeepAliveInterval]], so silence this long means the client is not
+    * reading — not that nothing happened. Well clear of that interval, since
+    * the cost of being wrong is only a reconnect-and-resume, and comfortably
+    * inside the window where a queue of undelivered patches is still small.
+    */
+  val StallTimeout: FiniteDuration = 30.seconds
+
+  /** Options for the `data-init` `@get` that opens the SSE stream.
+    *
+    * The default retry mode (`auto`) retries a DROPPED connection but not a
+    * completed one: a 200 whose body simply ends is "finished", and the client
+    * sits there forever. This stream is never supposed to end, so any end is a
+    * reason to reconnect — including the ends the SERVER chooses, which is what
+    * makes closing a stalled connection ([[StallTimeout]]) a recovery rather
+    * than a way to strand someone. It also stops a non-200 (a slug that has
+    * since been deleted) leaving a frozen page with no indication: the retries
+    * run out and the "connection lost" banner appears.
+    *
+    * Verified against the pinned v1.0.2 bundle, not the docs: after the SSE
+    * body is consumed it retries only on `retry === "always"`; everything else
+    * falls through to `finished`.
+    */
+  val SseRetry: String = "{retry:'always'}"
 
   /** How often the SSE stream re-emits the current [[HaDownSignal]] value. This
     * is a keepalive: it keeps traffic on an otherwise-idle connection so
