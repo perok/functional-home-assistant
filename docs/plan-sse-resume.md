@@ -694,6 +694,15 @@ a correctness bar — a morph of byte-identical HTML is nearly free, and the rea
 (a slider mid-drag during a reconnect) is rare — so it does not get to drive the design. It
 just means the log's payoff is preservation, not payload.
 
+**The cheaper half of that, for later: `data-signals__ifmissing`.** A repaint doesn't only
+re-send HTML, it re-runs the seeds inside it — a morphed `data-signals="{ ui_x: 0 }"`
+overwrites whatever the client currently holds. The `__ifmissing` modifier makes a seed
+initialize-only, so re-sending the fragment leaves live client state alone. That is the right
+tool for any signal we want to survive a morph (a slider mid-drag, later a filter box), and it
+is orthogonal to the log: the log stops us re-sending, `__ifmissing` makes re-sending
+harmless. Confirm it exists in the PINNED v1.0.2 bundle before using it — it is present in the
+1.0.0-RC.8 bundle (`ifMissing`), which is evidence, not proof.
+
 ## Where per-session state lives (superseded the cookie)
 
 Tab selection used to ride an `fhui_<owner>` cookie and the popup a signal — two mechanisms,
