@@ -244,6 +244,12 @@ object ServerApp extends IOApp {
             FHError.handle((server.routes <+> editor.routes(wsb)).orNotFound)
           )
           .withShutdownTimeout(0.seconds)
+          // Ember's default, set explicitly because the SSE streams depend on
+          // it: their topic subscriptions are unbounded (nothing may
+          // backpressure the HA feed — see `StateStore.changes`), so what
+          // bounds a stalled browser's undelivered patches is this timeout on
+          // the blocked socket write tearing the connection down.
+          .withIdleTimeout(60.seconds)
           .build
         _ <- IO
           .println(

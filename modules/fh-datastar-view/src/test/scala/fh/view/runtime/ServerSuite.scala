@@ -702,46 +702,6 @@ class ServerSuite extends munit.CatsEffectSuite {
     io.timeout(15.seconds)
   }
 
-  test("a connection that stops accepting events is closed") {
-    // The shared topic is unbounded and multiplexed across every slug, so a
-    // client that stops reading cannot be allowed to just sit there: its queue
-    // would grow unbounded. Bounding the CONNECTION is what replaces bounding
-    // the queue — and it is safe to close because the page asks Datastar for
-    // `retry: 'always'`, so a completed stream reconnects and resumes.
-    val io = for {
-      store <- StateStore.inMemory(
-        Map("sensor.a" -> EntityState("sensor.a", "a0", Map.empty))
-      )
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      _ <- Server
-        .resource(
-          HomeAssistantApi.fromWs(fake),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          stallTimeout = 300.millis
-        )
-        .use { server =>
-          server.routes.orNotFound
-            .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
-            .flatMap { resp =>
-              // Consume slower than the stall timeout — the same shape as a
-              // client that has stopped reading, just recoverable. If the
-              // watchdog never fires this never terminates (the keepalive
-              // alone would feed it forever) and the timeout below fails.
-              resp.body
-                .evalTap(_ => IO.sleep(500.millis))
-                .compile
-                .drain
-            }
-        }
-    } yield ()
-    io.timeout(20.seconds)
-  }
-
   test(
     "shared per-slug pass: two connections both receive a changed fragment rendered ONCE"
   ) {
