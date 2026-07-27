@@ -13,11 +13,11 @@ import scala.jdk.CollectionConverters.*
 /** Base for the browser smoke suites (ADR 0009): one Playwright + headless
   * Chromium per suite (cheap page creation off the shared browser), a fresh
   * bound [[TestServer]] + `BrowserContext`/[[Page]] per test — so recorded
-  * calls, seeded state, and cookies (the tabs restore cookie) never bleed
-  * between tests — navigated to the dashboard under test. Every [[withPage]]
-  * call fails the test on any browser console `error`: a silent JS exception (a
-  * wrong `data-on:click` selector, a dropped SSE continuation line) is exactly
-  * the class of bug a wire-level test can't see — that's the whole reason this
+  * calls, seeded state, and ui state (the tabs selection) never bleeds between
+  * tests — navigated to the dashboard under test. Every [[withPage]] call fails
+  * the test on any browser console `error`: a silent JS exception (a wrong
+  * `data-on:click` selector, a dropped SSE continuation line) is exactly the
+  * class of bug a wire-level test can't see — that's the whole reason this
   * suite exists.
   */
 abstract class SmokeSuite extends munit.CatsEffectSuite {

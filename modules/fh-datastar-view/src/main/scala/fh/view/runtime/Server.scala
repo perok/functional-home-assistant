@@ -383,7 +383,7 @@ class Server(
     *
     *   - '''Flips''': each state group whose selection this change moves
     *     ([[Renderer.affectedStateGroups]], main-rooted; minus the session-only
-    *     ones, whose branch HTML bakes a cookie-selected member and therefore
+    *     ones, whose branch HTML bakes a client-selected member and therefore
     *     rides [[changedPatches]]) gets its HOST re-rendered — [[Renderer]]'s
     *     bake picks the newly-selected member against CURRENT state — morphed,
     *     and its members' cache entries pruned ([[flipStateGroup]]).
@@ -442,10 +442,10 @@ class Server(
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set with this client's selected tab panels (from its
-      // cookies) plus the popup it says it still has open (from its signal — see
+      // signals) plus the popup it says it still has open (from its signal — see
       // [[Server.PopupSignal]]), so BOTH receive live updates from the first
       // paint and a reconnect does not silently orphan the dialog on screen.
-      // Warn on any off cookie value.
+      // Warn on any off ui-state value.
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
@@ -545,7 +545,7 @@ class Server(
     * '''Per-session fragments are painted fresh, not resumed'''
     * (docs/plan-sse-resume.md, step 5). The shared log covers only what the
     * shared pass renders; a tab panel's contents are per-session (their HTML
-    * bakes a cookie-selected member) and their only diff cache died with the
+    * bakes a client-selected member) and their only diff cache died with the
     * previous connection. So on the resume path each per-session ROOT
     * ([[Renderer.sessionOwnedMainIds]]) is re-rendered against current state
     * and morphed — after the resumed fragments, so it wins over any shared
@@ -663,7 +663,7 @@ class Server(
               else
                 // The repaint re-bakes the body (selected tabs included), so
                 // reset the diff cache AND re-seed the open set to match. Reuses
-                // this client's cookie-derived selection (closed over).
+                // this client's selection (closed over).
                 (session.lastRendered.update(_.cleared) *>
                   session.open.set(r.selectedSurfaces(uiState)) *>
                   stateStore.snapshot)
@@ -687,7 +687,7 @@ class Server(
   /** Re-render the nodes a changed entity drives that are truly per-connection
     * — for each open surface, that surface's components/dynamics, plus any
     * main-page USER bake-group owner (its HTML bakes the client's
-    * cookie-selected member, so it can't be shared) — and emit only the
+    * client-selected member, so it can't be shared) — and emit only the
     * fragments whose HTML actually changed (per-session diff). All other
     * main-page nodes ride the shared per-slug pass ([[sharedPatchPublishers]]).
     *
@@ -700,7 +700,7 @@ class Server(
     *     member's liveness ride this session's diff cache;
     *   - a [[Renderer.sessionOnlyStateGroups]] group (a user-selected owner
     *     somewhere in a branch): its host morph bakes THIS session's
-    *     cookie-selected member, so its flips — and its active subtree's
+    *     client-selected member, so its flips — and its active subtree's
     *     liveness, which the shared pass skipped — render here with the
     *     session's `uiState`.
     */
@@ -854,17 +854,17 @@ class Server(
   )(
       f: (Session, Renderer, Map[String, String]) => IO[Unit]
   ): IO[Response[IO]] = {
-    // The action POST carries this client's cookies, so its ui-state is read
-    // here and handed to the handler — swapHost/openSurface bake the
-    // cookie-selected tab, and navigate seeds the target's selection.
-    val uiState = Server.uiStateOf(req)
-    // Datastar sends the signals (including `conn`) as a JSON body; parse it
-    // directly (no http4s-circe entity decoder dependency).
+    // Datastar sends the signals as a JSON body; parse it directly (no
+    // http4s-circe entity decoder dependency). It carries both `conn` and this
+    // client's ui-state — swapHost/openSurface bake the selected tab, and
+    // navigate seeds the target's selection.
     req.bodyText.compile.string
-      .map(io.circe.parser.parse(_).toOption.flatMap(connOf))
+      .map(io.circe.parser.parse(_).toOption.flatMap { body =>
+        connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
+      })
       .flatMap {
         case None => BadRequest("""{"success":false,"error":"missing conn"}""")
-        case Some(conn) =>
+        case Some((conn, uiState)) =>
           sessions.get(conn).flatMap {
             case None          => NoContent() // stale/unknown connection
             case Some(session) =>
@@ -879,8 +879,8 @@ class Server(
     body.hcursor.get[String](Server.ConnSignal).toOption
 
   /** Log every bake-group anomaly [[Renderer.uiStateAnomalies]] reports for
-    * this client's `uiState` (an off/hand-edited cookie). Renderer stays pure —
-    * it returns the warnings, the Server logs them.
+    * this client's `uiState` (an off/hand-edited URL). Renderer stays pure — it
+    * returns the warnings, the Server logs them.
     */
   private def warnAnomalies(
       renderer: Renderer,
@@ -1051,6 +1051,12 @@ class Server(
                 renderer.scripts.map(assets.rewrite),
                 renderer.title,
                 Server.ingressPrefixOf(req),
+                // A refresh with a popup still on the URL re-opens it: the
+                // seeded signal reaches the SSE connect, which renders the
+                // dialog into its host (openingPatches).
+                req.uri.query.params
+                  .get(Server.PopupSignal)
+                  .filter(p => renderer.surface(p).nonEmpty),
                 editMode
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -1077,6 +1083,7 @@ class Server(
       scripts: List[String],
       title: Option[String],
       ingressPrefix: Option[String],
+      openPopup: Option[String],
       editMode: Boolean = false
   ): String = {
     val links = (
@@ -1153,9 +1160,14 @@ class Server(
     // which show `.debounce_600ms`. That form silently becomes part of the EVENT
     // NAME: the listener binds to `datastar-fetch.debounce_600ms`, which never
     // fires, so `_sse` never updates and the banner never appears at all.
+    // The popup this document has open, seeded from the URL so a REFRESH
+    // restores the dialog (the signal itself dies with the document); the
+    // effect mirrors it back on every change. Together these are a hand-rolled
+    // `data-query-string` — see [[Server.UrlSyncScript]] and ADR 0005.
+    val popupSeed = Server.escapeHtml(openPopup.getOrElse(""))
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: ''}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
          |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseState">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
@@ -1170,6 +1182,7 @@ class Server(
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <base href="$baseHref">
        |  $pageTitle
+       |  <script>${Server.UrlSyncScript}</script>
        |$links
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
@@ -1327,23 +1340,53 @@ object Server {
     */
   val MaxChurnFraction: Double = 0.5
 
-  /** The client's UI state read off request cookies: every `fhui_<id>` cookie
-    * mapped to `id -> rawValue` (the `fhui_` prefix dropped). The value is left
-    * opaque here — interpretation and the untrusted-value clamp live in
-    * [[Renderer.resolveActive]], so a stale/hand-edited cookie can never bake a
-    * non-existent surface. Empty when no `fhui_` cookies are present.
+  /** The client's UI state — bake-group id -> selected member, as
+    * `id -> rawValue`. Read from the page URL's `ui.<id>` query params and from
+    * the `ui_<id>` Datastar signals, the two carriers of the same fact (ADR
+    * 0005): the URL is what a first-paint GET and a refresh have, the signals
+    * are what a reconnect and an action POST have. Signals win where both are
+    * present — they are the live value; the URL trails them by a
+    * `history.replaceState`.
+    *
+    * The value is left opaque here — interpretation and the untrusted-value
+    * clamp live in [[Renderer.resolveActive]], so a stale or hand-edited URL
+    * can never bake a non-existent surface.
     */
   def uiStateOf(req: Request[IO]): Map[String, String] =
-    req.cookies.collect {
-      case c if c.name.startsWith(UiCookiePrefix) =>
-        c.name.drop(UiCookiePrefix.length) -> c.content
-    }.toMap
+    uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals)
 
-  /** Cookie-name prefix for the client's UI state (per-group tab index). Must
-    * match the cookie name the authoring layer's tab click writes — see ADR
-    * 0005. Stripped in [[uiStateOf]] to key [[Renderer.resolveActive]].
+  /** UI state off the page URL — the carrier that survives a refresh and is
+    * unique per document (a cookie is per-ORIGIN, so two browser tabs on the
+    * same dashboard would overwrite each other's selection).
     */
-  val UiCookiePrefix: String = "fhui_"
+  private def uiFromQuery(req: Request[IO]): Map[String, String] =
+    req.uri.query.params.collect {
+      case (k, v) if k.startsWith(UiParamPrefix) =>
+        k.drop(UiParamPrefix.length) -> v
+    }
+
+  /** UI state off a Datastar signal payload — the `datastar` query param on a
+    * GET, the JSON body on an action POST.
+    */
+  private[runtime] def uiFromSignals(c: io.circe.ACursor): Map[String, String] =
+    c.keys.toList.flatten
+      .filter(_.startsWith(UiSignalPrefix))
+      .flatMap { k =>
+        c.downField(k)
+          .focus
+          .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
+          .map(k.drop(UiSignalPrefix.length) -> _)
+      }
+      .toMap
+
+  /** Query-param and signal name prefixes for the client's UI state (a bake
+    * group's selected member). Framework-owned like `conn`/`popup` — the
+    * authoring layer composes the id onto them (`ui_{{id}}`), and ADR 0005's
+    * "no signal-name literals in the backend" is about the authoring layer's
+    * own names (`tab_`, `_val_`), not this protocol.
+    */
+  val UiParamPrefix: String = "ui."
+  val UiSignalPrefix: String = "ui_"
 
   /** The ingress path prefix the HA supervisor proxy announces via
     * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's
@@ -1404,13 +1447,16 @@ object Server {
     * URL-riding signal, for the same reason as the three above and answering
     * the one per-session question nothing else can.
     *
-    * Tab selections survive a reconnect in the `fhui_` cookies; a popup has no
-    * such record, so without this the returning connection's open set is empty
-    * and the `<dialog open>` still standing in that DOM belongs to no session:
-    * it would never be updated again (and a body repaint cannot even remove it
-    * — the host lives in `theme.chrome`, outside `#dashboard`). Losing a popup
-    * you left open is not acceptable either; on a phone, backgrounding the tab
-    * is how you read a notification, not how you dismiss a dialog.
+    * Without it the returning connection's open set is empty and the `<dialog
+    * open>` still standing in that DOM belongs to no session: it would never be
+    * updated again (and a body repaint cannot even remove it — the host lives
+    * in `theme.chrome`, outside `#dashboard`). Losing a popup you left open is
+    * not acceptable either; on a phone, backgrounding the tab is how you read a
+    * notification, not how you dismiss a dialog.
+    *
+    * Mirrored into the `popup` URL param like the ui-state signals
+    * ([[UrlSyncScript]]), so a REFRESH re-opens the dialog too — the signal
+    * itself dies with the document.
     *
     * PUSHED by the server, from the one place that changes the popup host
     * ([[swapHost]]) plus the navigate that clears it — so it always names what
@@ -1419,6 +1465,27 @@ object Server {
     * host holds one), so a single string is the whole state.
     */
   val PopupSignal: String = "popup"
+
+  /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
+    * without navigating: set the param, or drop it when the value is empty.
+    *
+    * This is a hand-rolled `data-query-string`, which is a Pro plugin we don't
+    * have (ADR 0005). Signals stay the LIVE carrier — they are what reaches the
+    * server on a reconnect and on every action — and the URL is their mirror,
+    * for the two things a signal cannot do: survive a refresh, and stay unique
+    * per document (a cookie is per-origin, so a second browser tab on the same
+    * dashboard would overwrite the first one's selection).
+    *
+    * `replaceState`, never `pushState`: this is view state, not navigation.
+    * Back should leave the dashboard, not step back through tab clicks.
+    *
+    * A classic inline script so it is defined before the deferred Datastar
+    * module evaluates the first `data-effect` that calls it.
+    */
+  val UrlSyncScript: String =
+    "window.fhUrl=(k,v)=>{const u=new URL(location.href);" +
+      "(v===''||v==null)?u.searchParams.delete(k):u.searchParams.set(k,v);" +
+      "history.replaceState(null,'',u)};"
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.

@@ -3,7 +3,7 @@
 // a condition: each branch is an inline surface baked into the host's
 // `{{{branch}}}` hole, and the ACTIVE member is selected by a quantified
 // condition over live entity state (server truth, shared by every viewer)
-// instead of a click/cookie. The hidden branch is not rendered and receives
+// instead of a click/selection. The hidden branch is not rendered and receives
 // no updates; toggling the condition entity swaps the branch live in every
 // open client.
 //

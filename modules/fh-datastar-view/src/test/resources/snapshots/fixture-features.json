@@ -264,7 +264,7 @@
     "tabs" : {
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ tab_{{id}}: {{bakeIndex}} }\">\n    {{{panel}}}\n  </div>\n</div>"
+      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ ui_{{id}}: {{bakeIndex}} }\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">\n    {{{panel}}}\n  </div>\n</div>"
     }
   },
   "surfaces" : {

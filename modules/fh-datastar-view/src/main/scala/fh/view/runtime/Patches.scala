@@ -130,7 +130,7 @@ private[runtime] object Patches {
           (renderer
             .componentsFor(change.entityId)
             .toList
-            // User owners bake a cookie-selected member (per-session); a
+            // User owners bake a client-selected member (per-session); a
             // session-only state owner bakes one transitively (its branch holds
             // tabs). State owners otherwise stay in the shared pass — selection
             // included, their HTML is a pure function of entity state.

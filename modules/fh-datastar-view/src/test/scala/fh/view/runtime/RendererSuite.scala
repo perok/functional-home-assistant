@@ -822,9 +822,9 @@ class RendererSuite extends munit.FunSuite {
     "selectedSurfaces picks the uiState-indexed member; empty map == the old default"
   ) {
     val rr = Renderer.create(tabsDashboard)
-    // A cookie index selects that member of the bake group...
+    // A ui-state index selects that member of the bake group...
     assertEquals(rr.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
-    // ...and no cookie picks index 0 (parity with the old defaultOpenSurfaces).
+    // ...and no selection picks index 0 (parity with the old defaultOpenSurfaces).
     assertEquals(rr.selectedSurfaces(Map.empty), Set("c_t0"))
     assertEquals(rr.selectedSurfaces(), Set("c_t0"))
   }
@@ -852,7 +852,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
 
-  test("resolveActive parses, clamps, and warns on an off cookie value") {
+  test("resolveActive parses, clamps, and warns on an off ui-state value") {
     val rr = Renderer.create(tabsDashboard)
     // out of range and unparseable both fall back to index 0 AND yield a warning
     val outOfRange = rr.resolveActive("c", Map("c" -> "99"))
@@ -928,7 +928,7 @@ class RendererSuite extends munit.FunSuite {
   ) {
     // A `tabsLive` component (id "c") owns a bake group AND binds a live entity
     // (`sensor.title`). On a live SSE patch the node is re-rendered by id — it
-    // must bake the SESSION's cookie-selected tab, not the default one.
+    // must bake the SESSION's selected tab, not the default one.
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
@@ -965,14 +965,14 @@ class RendererSuite extends munit.FunSuite {
     // The live entity binds "c" so the node is morph-wrapped and re-renderable.
     assertEquals(rr.componentsFor("sensor.title"), Set("c"))
 
-    // Default (no cookie) bakes the FIRST tab (index 0 → sensor.a → AA).
+    // Default (no selection) bakes the FIRST tab (index 0 → sensor.a → AA).
     val dflt = rr.renderNodeById("c", states).get
     assert(dflt.startsWith("""<div class="fh-cell" id="c">"""), clue = dflt)
     assert(dflt.contains("tab_c: 0"), clue = dflt)
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    // The cookie selects tab 1 → the SECOND tab is baked (sensor.b → BB), and
+    // The ui state selects tab 1 → the SECOND tab is baked (sensor.b → BB), and
     // the panel signal is seeded to 1. This is the bug the change fixes: without
     // threading uiState the live patch would re-bake the default tab.
     val sel = rr.renderNodeById("c", states, uiState = Map("c" -> "1")).get
@@ -1053,7 +1053,7 @@ class RendererSuite extends munit.FunSuite {
     )
 
   // The If host: a plain component card with one {{{branch}}} bake hole — no
-  // tab bar, no signal, no cookie; the backend never required them.
+  // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
     cards + ("ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""))
 
@@ -1188,7 +1188,7 @@ class RendererSuite extends munit.FunSuite {
   ) {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
-    // HTML embeds a cookie-selected member and cannot render shared.
+    // HTML embeds a client-selected member and cannot render shared.
     val d = Dashboard(
       ifCards,
       LayoutNode.Component("ifhost"),

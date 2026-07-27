@@ -217,8 +217,8 @@ class Renderer(
 
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
-    * carries none). This is the ordered member list a cookie index (user mode)
-    * selects among, and the first-match order (then, elseif…, else) state
+    * carries none). This is the ordered member list a ui-state index (user
+    * mode) selects among, and the first-match order (then, elseif…, else) state
     * selection walks.
     */
   private def bakeGroup(gid: String): List[String] =
@@ -230,7 +230,7 @@ class Renderer(
       .map(_._1)
 
   /** Whether a surface has a user-mode activation with `defaultOpen` set — the
-    * "shown on first paint with no cookie / no click" flag, read in
+    * "shown on first paint with no selection / no click" flag, read in
     * [[resolveActive]]'s fallback and for ungrouped (popup) surfaces in
     * [[selectedSurfaces]].
     */
@@ -257,7 +257,7 @@ class Renderer(
     )
 
   /** Component ids that own a USER-selected bake group (tabs). Their HTML
-    * depends on the client's `uiState` (the baked member is cookie-selected),
+    * depends on the client's `uiState` (the baked member is client-selected),
     * so their live patches must stay per-session and they are EXCLUDED from the
     * shared per-slug pass (see `Server`).
     */
@@ -281,7 +281,7 @@ class Renderer(
   /** Whether a member surface's content subtree contains a user-selected bake
     * owner, following nested state members transitively. Feeds
     * [[sessionOnlyStateGroups]]: a user owner inside a state branch means that
-    * branch's HTML bakes a cookie-selected member, so the branch cannot render
+    * branch's HTML bakes a client-selected member, so the branch cannot render
     * shared.
     */
   private def subtreeHasUserOwner(sid: String): Boolean = {
@@ -294,7 +294,7 @@ class Renderer(
   }
 
   /** State-selected groups whose member subtree contains a user-selected bake
-    * owner (tabs inside an If). Their host HTML embeds a cookie-selected
+    * owner (tabs inside an If). Their host HTML embeds a client-selected
     * member, so their flips must be patched PER-SESSION with that session's
     * `uiState` — the Server excludes them from the shared flip path and mirrors
     * them in the per-session pass instead. Every other state group is shared.
@@ -368,7 +368,7 @@ class Renderer(
     * the last index, and a later `elseif` is one more member, no special
     * casing. `None` when no member's condition holds (the host bakes empty
     * content). The state-mode sibling of [[resolveActive]] — no uiState, no
-    * cookie warnings, pure over the snapshot (so the Server can evaluate it
+    * ui-state warnings, pure over the snapshot (so the Server can evaluate it
     * against a before AND after snapshot to detect a flip).
     */
   private[runtime] def resolveActiveByState(
@@ -513,10 +513,10 @@ class Renderer(
     * `.toIntOption` and keeps it only when it indexes a real member; otherwise
     * falls back to the group's `defaultOpen` member (or index 0). The second
     * element is `Some(warning)` ONLY when a value was present but off
-    * (unparseable, or an int out of range) — `None` when the cookie is absent
-    * or valid. Pure: the single source of truth for both the chosen index and
-    * the malformed check. State-selected groups never come through here — see
-    * [[resolveActiveByState]].
+    * (unparseable, or an int out of range) — `None` when no selection is
+    * present or valid. Pure: the single source of truth for both the chosen
+    * index and the malformed check. State-selected groups never come through
+    * here — see [[resolveActiveByState]].
     */
   private[runtime] def resolveActive(
       gid: String,
@@ -540,7 +540,7 @@ class Renderer(
             (
               fallback,
               Some(
-                s"ui-state cookie fhui_$gid='$raw' is not a valid tab index " +
+                s"ui-state ui_$gid='$raw' is not a valid tab index " +
                   s"(0..${n - 1}); using $fallback"
               )
             )
@@ -578,7 +578,7 @@ class Renderer(
   /** Warnings for any USER-selected bake group whose `uiState` value was
     * present but off (unparseable / out of range). Pure — returns data (the
     * Server logs it), so the renderer stays side-effect-free. Absent/valid
-    * cookies produce nothing; a cookie naming a state-selected group is ignored
+    * values produce nothing; a value naming a state-selected group is ignored
     * (no client choice exists there to be malformed).
     */
   def uiStateAnomalies(uiState: Map[String, String]): List[String] =
@@ -734,7 +734,7 @@ class Renderer(
 
   /** Render a single addressable node (for live SSE patches), main or surface.
     * `uiState` is threaded through so a node that owns a bake group (a `tabs`
-    * host that also binds a live entity) re-bakes the client's cookie-selected
+    * host that also binds a live entity) re-bakes the client's client-selected
     * member on a live patch — not the default one.
     */
   def renderNodeById(
@@ -752,7 +752,7 @@ class Renderer(
     * structural var, like `id`) so a tabs template can seed its signal to the
     * selected index. Selection dispatches on the group's activation mode:
     * user-selected groups pick the `uiState`-selected member
-    * ([[resolveActive]]; no cookie ⇒ the `defaultOpen` member / index 0),
+    * ([[resolveActive]]; no selection ⇒ the `defaultOpen` member / index 0),
     * state-selected groups pick the first member whose condition holds over
     * live state ([[resolveActiveByState]]) — and when NO condition holds, bake
     * the empty string, so the host still renders its wrapper with empty content

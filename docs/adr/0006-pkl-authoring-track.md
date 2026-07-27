@@ -192,7 +192,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   `bakeInto`/`bakeAs`/`bakeIndex`/`defaultOpen`; the Listing-valued mapping
   default lets a tab body list cards with no `new`/`children`). The bar is
   BeerCSS-native markup: a `TabButton` card per tab (`.tabs > a` anchors,
-  `data-class` active + cookie-writing onclick) — internal to `Tabs`, not an
+  `data-class` active + signal-setting onclick) — internal to `Tabs`, not an
   authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
@@ -286,7 +286,7 @@ brightness-seeded slider signals match `/api/states`), the registered `detail`
 popup and the inline popup both open (`#popups` inner-patch with the popup
 chrome) and close (swap-to-empty), action POSTs actuate via WS `call_service`
 and the state change flows back as dynamic-group re-renders; `/d/pkl-tabs`
-bakes the default panel, and a `fhui_<id>` cookie on the first-paint GET bakes
+bakes the default panel, and a `?ui.<id>` URL param on the first-paint GET bakes
 the selected tab flash-free (ADR 0005); in-place navigate inner-patches
 `#dashboard` and resets `#popups`; hot reload of an edited `.pkl` entry
 repaints in ~0.5s (precise `Analyzer.importGraph` watch set). The visual-only

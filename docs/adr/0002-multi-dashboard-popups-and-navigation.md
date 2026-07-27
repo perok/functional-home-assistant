@@ -56,7 +56,7 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
   rendered content under the template var `bakeAs`, so the selected panel is
   in the initial HTML with no round-trip and no flash. How the member is
   selected is the group's activation mode: user-activated groups take the
-  `defaultOpen` (or cookie-restored — ADR 0005) member; state-activated
+  `defaultOpen` (or URL-restored — ADR 0005) member; state-activated
   groups take the first member whose condition holds (ADR 0007). Baked HTML
   and a later live switch are byte-identical.
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
@@ -99,7 +99,7 @@ the navigate moment is harmless: navigate does a full body repaint, and
 Datastar morphs are idempotent). Only what truly differs per client stays in
 the per-session change loop with the session's own diff cache: each open
 surface's nodes (a closed surface is never rendered) and *user-activated*
-bake-group-owner nodes (their HTML bakes the client's cookie-selected
+bake-group-owner nodes (their HTML bakes the client's selected
 member). *State-activated* groups and their active member ride the shared
 per-slug pass — their selection is server truth, identical for every viewer
 (ADR 0007). On a live-reload
@@ -154,7 +154,7 @@ each tab's content rides the generic inline-surface hoist with
 (eviction via the shared host) and set a per-group active signal that drives
 the highlight client-side. **No tabs logic in the backend** — the runtime reads
 only structural surface fields, never a card name. The active tab persists via
-the cookie tier (ADR 0005).
+the signal + URL mirror (ADR 0005).
 
 ### The theme owns the chrome
 

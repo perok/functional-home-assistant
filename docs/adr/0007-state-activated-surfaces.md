@@ -22,7 +22,7 @@ gated on live entity state. The requirements that shaped the design:
 A tabs group already has the exact shape an if/else needs: **one stable host
 element, N alternative subtrees registered as surfaces, exactly one baked in,
 the inactive ones not rendered and not streamed** (ADR 0002). The tab *bar*,
-the active-tab signal, and the cookie are authoring-layer composition the
+the active-tab signal, and its URL mirror are authoring-layer composition the
 `tabs` card adds — the backend never required them. So an if/else is a bake
 group whose member is selected by a **condition** instead of a click:
 
@@ -62,7 +62,7 @@ the Pkl helper is `entityIs(id)`.
 Because a state selection is server truth, state-activated groups ride the
 **shared per-slug pass** (render once per slug, every viewer gets the same
 patch) — the opposite placement from user-activated bake owners, which stay
-per-session because their HTML bakes the client's cookie-selected member
+per-session because their HTML bakes the client's selected member
 (ADR 0002). `Renderer` therefore splits `bakeOwnerIds` into
 `userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` no longer seeds
 state-activated members into a session's open set — their liveness is the
@@ -89,7 +89,7 @@ user-opened surfaces):
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
 bake owner (tabs inside an If) — its flip must bake the session's
-cookie-selected tab, so those groups (`Renderer.sessionOnlyStateGroups`) are
+client-selected tab, so those groups (`Renderer.sessionOnlyStateGroups`) are
 excluded from the shared flip path and handled per session.
 
 ### Authoring (Pkl)

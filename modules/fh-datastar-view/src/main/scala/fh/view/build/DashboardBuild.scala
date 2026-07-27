@@ -174,7 +174,7 @@ object DashboardBuild {
   // The retired flat `defaultOpen` is deliberately NOT lifted: its meaning moved
   // into the `activation` object ({kind:"user", defaultOpen}), and an authoring
   // layer still emitting the flat key is silently ignored (decoder default =
-  // user activation, whose no-cookie fallback is index 0 — the old semantics).
+  // user activation, whose no-selection fallback is index 0 — the old semantics).
   private def surfaceOf(defObj: JsonObject): Json =
     Json.fromJsonObject(
       JsonObject.fromIterable(

@@ -203,8 +203,8 @@ object Quantifier:
   *
   *   - [[User]] (`{kind:"user", defaultOpen}`): shown by a user action (a popup
   *     open, a tab click), optionally from the first paint (`defaultOpen`).
-  *     Which member the client sees is per-connection state (uiState/cookie —
-  *     ADR 0005), so these surfaces render per session.
+  *     Which member the client sees is per-connection state (uiState — ADR
+  *     0005), so these surfaces render per session.
   *   - [[State]] (`{kind:"state", condition, quantifier}`): shown while its
   *     quantified `condition` holds over live entity state (an If/else branch).
   *     The choice is server truth — a pure function of entity state, identical
@@ -389,7 +389,7 @@ case class Theme(
   *     keeping the shown panel/branch in the initial HTML (no round-trip). The
   *     `_panel` suffix + `panel` name live only in the authoring layer.
   *   - `activation`: HOW this surface becomes visible — see [[Activation]].
-  *     User-activated surfaces are opened by clicks / cookie selection (per
+  *     User-activated surfaces are opened by clicks / ui-state selection (per
   *     session); state-activated ones are selected by a condition over live
   *     entity state (shared, server truth). Absent on the wire ⇒
   *     `User(defaultOpen = false)`, so a plain popup declares nothing.
@@ -399,7 +399,7 @@ case class Surface(
     bakeInto: Option[String] = None,
     bakeAs: Option[String] = None,
     // A surface's position within its `bakeInto` group: the ordered member
-    // list a cookie index (user mode) selects among, and the first-match
+    // list a ui-state index (user mode) selects among, and the first-match
     // order (then, elseif…, else) state selection walks.
     bakeIndex: Option[Int] = None,
     activation: Activation = Activation.User(false)
@@ -575,7 +575,7 @@ case class Dashboard(
         .toList
 
     // A bake group's activation mode must be homogeneous: the runtime decides
-    // per GROUP whether selection is user truth (cookie, per session) or server
+    // per GROUP whether selection is user truth (per session) or server
     // truth (state condition, shared) — a group mixing both has no coherent
     // owner for that choice, so it is rejected here rather than half-working.
     val activationErrors: List[String] =

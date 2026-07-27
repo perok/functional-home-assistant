@@ -133,7 +133,7 @@ open class SurfaceDef {
 
 /// USER activation (mirrors fh.view.model.Activation.User): the surface is
 /// shown by a user action — a popup open, a tab click — so which member a
-/// client sees is per-session truth (uiState/cookie). `defaultOpen` bakes it
+/// client sees is per-session truth (uiState). `defaultOpen` bakes it
 /// from the first paint (a tab bar's first tab).
 class UserActivation {
   kind: "user" = "user"
@@ -534,7 +534,7 @@ class Button extends Node {
 /// Built by [[Tabs]] internally; not an authoring surface. `active` is the
 /// Datastar boolean expression driving the `.active` class client-side
 /// (`data-class`); `onclick` opens the tab's hoisted surface, seeds the
-/// signal, and writes the restore cookie.
+/// signal.
 class TabButton extends Node {
   card = "tab"
   cardDef = new CardDef {
@@ -576,9 +576,10 @@ hidden popup: Popup = new Popup {}
 /// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
 /// cards become an inline surface baked into this component's panel host
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
-/// the bar buttons open them, seed the active-tab signal, and persist the active
-/// index to the `fhui_<id>` cookie the server reads on the GET so reload /
-/// navigate restore the tab flash-free. The first tab is default-open (baked on
+/// the bar buttons open them and set the active-tab signal `ui_<id>` — which
+/// the backend reads (it rides every request) and the panel host mirrors into
+/// the `ui.<id>` URL param, so reconnect / navigate / refresh all restore the
+/// tab flash-free. The first tab is default-open (baked on
 /// first paint) via `UserActivation { defaultOpen = true }` — the rest emit no
 /// `activation` at all (null, dropped by omitNullProperties) and decode to the
 /// closed user default.
@@ -587,14 +588,16 @@ class Tabs extends Node {
   // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
   // anchors); the panel host + `{{{panel}}}` hole live below it.
   // `data-signals` seeds the active-tab signal to the baked tab's index
-  // (`{{bakeIndex}}`, injected by the renderer).
+  // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
+  // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
+  // later change back into the URL via the page shell's `fhUrl` helper.
   cardDef = new CardDef {
     template = """
       <div class="fh-col">
         <div class="tabs">
           {{#children}}{{{html}}}{{/children}}
         </div>
-        <div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">
+        <div id="{{id}}_panel" class="tab-panel" data-signals="{ ui_{{id}}: {{bakeIndex}} }" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">
           {{{panel}}}
         </div>
       </div>
@@ -623,16 +626,16 @@ class Tabs extends Node {
       }
     }
   }
-  // The `.tabs` bar anchors: each opens its tab's surface (`<id>_t<i>`), sets
-  // the active-tab signal, and writes the restore cookie. `$` is a literal
-  // Datastar signal sigil (Pkl only interpolates `\(...)`); the exact onclick
-  // text is asserted in the tests.
+  // The `.tabs` bar anchors: each opens its tab's surface (`<id>_t<i>`) and
+  // sets the active-tab signal; the URL mirror follows from the panel host's
+  // effect. `$` is a literal Datastar signal sigil (Pkl only interpolates
+  // `\(...)`); the exact onclick text is asserted in the tests.
   children = new Listing {
     for (i, l in labels) {
       new TabButton {
         label = l
-        active = "$tab_\(NODE_ID) == \(i)"
-        onclick = "@post('sse/surface/open/\(NODE_ID)_t\(i)'); $tab_\(NODE_ID) = \(i); document.cookie = 'fhui_\(NODE_ID)=\(i);path=/;max-age=31536000;samesite=lax'"
+        active = "$ui_\(NODE_ID) == \(i)"
+        onclick = "@post('sse/surface/open/\(NODE_ID)_t\(i)'); $ui_\(NODE_ID) = \(i)"
       }
     }
   }
@@ -989,7 +992,7 @@ class DynamicGroup extends LayoutNode {
 // host card with one bake hole + one inline surface per branch
 // (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
 // quantified condition over live entity state ([[StateActivation]]) instead of
-// the client cookie, so the choice is server truth, shared by every viewer.
+// the client's selection, so the choice is server truth, shared by every viewer.
 // Hidden-branch silence is structural: branch nodes live in surface indexes,
 // never the main reverse index, so the inactive branch is not rendered and
 // receives no updates.
@@ -1014,7 +1017,7 @@ class If extends Node {
   card = "ifhost"
   // The host is a bare wrapper with one `{{{branch}}}` bake hole (the selected
   // member's rendered content, injected by the backend like the tabs
-  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no cookie.
+  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no ui state.
   cardDef = new CardDef {
     template = #"<div id="{{id}}">{{{branch}}}</div>"#
   }

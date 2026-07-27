@@ -31,7 +31,7 @@ import scala.concurrent.duration.*
 class ServerSuite extends munit.CatsEffectSuite {
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
-  // into it (c_t0 default, c_t1) — the cookie index selects among them.
+  // into it (c_t0 default, c_t1) — the ui-state index selects among them.
   private def tabsRenderer: Renderer = {
     val cards = Map(
       "btn" ->
@@ -80,26 +80,51 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   }
 
-  private def get(cookies: (String, String)*): Request[IO] =
-    cookies.foldLeft(Request[IO](Method.GET, uri"/")) { case (r, (n, v)) =>
-      r.addCookie(n, v)
-    }
+  /** A page GET carrying ui state in the URL, as a refresh does. */
+  private def get(params: (String, String)*): Request[IO] =
+    Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
 
-  test("uiStateOf keeps fhui_ cookies, drops the prefix, ignores the rest") {
+  /** A request carrying ui state in the Datastar signal payload, as an SSE
+    * reconnect does (and, in the body, as every action POST does).
+    */
+  private def signalled(signals: String): Request[IO] =
+    Request[IO](
+      Method.GET,
+      uri"/".withQueryParam("datastar", signals)
+    )
+
+  test("uiStateOf reads ui. params and ui_ signals, ignoring the rest") {
     assertEquals(
-      Server.uiStateOf(get("fhui_c" -> "1", "other" -> "x")),
+      Server.uiStateOf(get("ui.c" -> "1", "other" -> "x")),
       Map("c" -> "1")
     )
     // raw value, no parsing here
-    assertEquals(Server.uiStateOf(get("fhui_c" -> "abc")), Map("c" -> "abc"))
-    // no fhui_ cookies -> empty
+    assertEquals(Server.uiStateOf(get("ui.c" -> "abc")), Map("c" -> "abc"))
     assertEquals(Server.uiStateOf(get("other" -> "x")), Map.empty)
     assertEquals(Server.uiStateOf(get()), Map.empty)
+    // Signals carry the same fact, as a number rather than a string.
+    assertEquals(
+      Server.uiStateOf(signalled("""{"ui_c":1,"conn":"x"}""")),
+      Map("c" -> "1")
+    )
+    // Both present: the signal is the live value, the URL only trails it.
+    assertEquals(
+      Server
+        .uiStateOf(
+          Request[IO](
+            Method.GET,
+            uri"/"
+              .withQueryParam("ui.c", "0")
+              .withQueryParam("datastar", """{"ui_c":1}""")
+          )
+        ),
+      Map("c" -> "1")
+    )
   }
 
-  test("cookie round-trip: fhui_<tabsId>=1 opens the index-1 surface") {
+  test("ui-state round-trip: ui.<tabsId>=1 opens the index-1 surface") {
     val r = tabsRenderer
-    val uiState = Server.uiStateOf(get("fhui_c" -> "1"))
+    val uiState = Server.uiStateOf(get("ui.c" -> "1"))
     // The server seeds the open set (and bakes) from this selection.
     assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
@@ -109,11 +134,9 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   }
 
-  test(
-    "cookie round-trip: a malformed fhui_ value falls back to index 0 + warns"
-  ) {
+  test("ui-state round-trip: a malformed value falls back to index 0 + warns") {
     val r = tabsRenderer
-    val uiState = Server.uiStateOf(get("fhui_c" -> "abc"))
+    val uiState = Server.uiStateOf(get("ui.c" -> "abc"))
     assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
     assertEquals(r.uiStateAnomalies(uiState).size, 1)
@@ -146,7 +169,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   /** GET the page shell for `dash` (served at its own slug) and return the
     * HTML.
     */
-  private def pageHtml(dash: Dashboard): IO[String] =
+  private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
     (for {
       store <- StateStore.inMemory(Map.empty)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
@@ -165,11 +188,34 @@ class ServerSuite extends munit.CatsEffectSuite {
         .use { server =>
           server.routes.orNotFound
             .run(
-              Request[IO](Method.GET, Uri.unsafeFromString(s"/d/${dash.slug}"))
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(s"/d/${dash.slug}$query")
+              )
             )
             .flatMap(_.body.through(fs2.text.utf8.decode).compile.string)
         }
     } yield body).timeout(30.seconds)
+
+  test("the page shell seeds the popup signal from the URL, or empty") {
+    // A refresh with ?popup=<id> must re-open the dialog: the seeded signal
+    // reaches the SSE connect, which renders it back into its host. An unknown
+    // id is dropped rather than seeded.
+    val dash = titleDash("home", None).copy(
+      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
+    )
+    for {
+      seeded <- pageHtml(dash, "?popup=det")
+      unknown <- pageHtml(dash, "?popup=nope")
+      none <- pageHtml(dash)
+    } yield {
+      assert(seeded.contains(s"""${Server.PopupSignal}: \'det\'"""), seeded)
+      assert(unknown.contains(s"""${Server.PopupSignal}: \'\'"""), unknown)
+      assert(none.contains(s"""${Server.PopupSignal}: \'\'"""), none)
+      // And the URL mirror helper is defined before Datastar can call it.
+      assert(none.contains("window.fhUrl="), none)
+    }
+  }
 
   test("page <title> uses the dashboard's authored title when present") {
     pageHtml(titleDash("home", Some("My Home"))).map { html =>
@@ -1414,7 +1460,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   /** A shared leaf (`sensor.shared`) beside a tabs host at "c_1", whose default
-    * panel shows `sensor.a`. The panel's HTML bakes a cookie-selected member,
+    * panel shows `sensor.a`. The panel's HTML bakes a client-selected member,
     * so it is rendered PER SESSION and never enters the slug's shared log —
     * which is the whole point of step 5.
     */
