@@ -181,8 +181,21 @@ class StateStore private (
   /** The current version alone, for asserting the clock's behaviour. */
   private[runtime] def version: IO[Long] = ref.get.map(_.version)
 
-  /** Stream of state changes (entity + its previous/current value). */
-  def changes: Stream[IO, StateChange] = topic.subscribe(64)
+  /** Stream of state changes (entity + its previous/current value).
+    *
+    * UNBOUNDED, and that is a correctness requirement rather than a capacity
+    * choice: `Topic.publish1` sends to every subscriber's channel in turn and
+    * blocks on a full one, so a bounded subscription here would let a single
+    * slow consumer — an SSE connection whose browser stopped reading — block
+    * [[update]], and with it the feed that drives the store for EVERY dashboard
+    * and every viewer.
+    *
+    * Nothing may backpressure the feed, so a consumer that cannot keep up must
+    * be dropped instead of slowing everyone down. That is the SSE connection's
+    * own job (`Server`'s stall timeout), which is also what bounds the memory
+    * this gives up.
+    */
+  def changes: Stream[IO, StateChange] = topic.subscribeUnbounded
 
   /** Apply a batch of `subscribe_entities` frames — a burst arrives as one
     * chunk and lands in one [[update]], so the ref is touched once per batch

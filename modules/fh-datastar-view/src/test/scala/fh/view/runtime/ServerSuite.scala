@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
+import cats.syntax.all.*
 import fh.view.model.{
   Activation,
   CardDef,
@@ -637,6 +638,68 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield text
     io.timeout(30.seconds)
       .map(text => assert(text.contains(missed), clue = text))
+  }
+
+  test("a connection that stops reading cannot stall the store") {
+    // `Topic.publish1` sends to every subscriber's channel in turn and blocks
+    // on a full one, so a bounded per-connection subscription would let ONE
+    // stalled browser freeze the HA feed — for every dashboard and every
+    // viewer, not just itself.
+    val io = for {
+      store <- StateStore.inMemory(
+        Map("sensor.a" -> EntityState("sensor.a", "a0", Map.empty))
+      )
+      // A dashboard with a PER-SESSION node (a tabs host bakes the client's
+      // selected panel), so the per-connection pass really emits — the case
+      // that can block, unlike a page whose every node is shared.
+      ref <- SignallingRef[IO].of(tabsRenderer)
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      _ <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          server.routes.orNotFound
+            .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+            .flatMap { resp =>
+              // Read normally until the test says stop — the connection has to
+              // be fully subscribed first, and it only subscribes once the body
+              // is being pulled.
+              IO.deferred[Unit].flatMap { stop =>
+                val reads = resp.body
+                  .evalTap(_ =>
+                    stop.tryGet.flatMap(s => IO.sleep(1.minute).whenA(s.isDefined))
+                  )
+                  .compile
+                  .drain
+                reads.background.surround {
+                  for {
+                    // The shared publisher plus this connection.
+                    _ <- store.changeSubscribers
+                      .filter(_ >= 2)
+                      .head
+                      .compile
+                      .drain
+                    _ <- stop.complete(())
+                    // The next keepalive is what carries the reader into the
+                    // stall, so wait past one.
+                    _ <- IO.sleep(Server.KeepAliveInterval * 2)
+                    // Far more than a bounded subscription would hold.
+                    _ <- (1 to 300).toList.traverse_(i =>
+                      store.update(EntityState("sensor.a", s"v$i", Map.empty))
+                    )
+                  } yield ()
+                }
+              }
+            }
+        }
+    } yield ()
+    io.timeout(15.seconds)
   }
 
   test("a connection that stops accepting events is closed") {
