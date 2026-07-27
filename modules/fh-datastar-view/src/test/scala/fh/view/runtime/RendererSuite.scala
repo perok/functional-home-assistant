@@ -275,7 +275,7 @@ class RendererSuite extends munit.FunSuite {
     // frame (no popup host — a popup-less dashboard ships no theme).
     assertEquals(
       page,
-      """<main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
+      """<style id="fh-theme"></style><main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
     )
     // containers are addressable and re-render (wrapped) by id
     assertEquals(
@@ -425,7 +425,7 @@ class RendererSuite extends munit.FunSuite {
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      """<style id="fh-theme"></style><main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
     )
   }
 
@@ -642,8 +642,10 @@ class RendererSuite extends munit.FunSuite {
     val page = Renderer.create(d).renderPage(Map.empty)
     // sorted token vars, then the theme's inline styles; no dark overrides
     assert(
+      // The theme element leads the page, OUTSIDE #dashboard: a repaint of the
+      // body must not have to re-send it (docs/plan-sse-resume.md).
       page.startsWith(
-        """<main class="container" id="dashboard"><style>:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style>"""
+        """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><main class="container" id="dashboard">"""
       ),
       clue = page
     )
@@ -671,7 +673,10 @@ class RendererSuite extends munit.FunSuite {
   test("no theme -> no :root style block") {
     val d = Dashboard(cards, col())
     val page = Renderer.create(d).renderPage(Map.empty)
-    assert(!page.contains("<style>"), clue = page)
+    // The element is always emitted (a navigate needs it as a morph target),
+    // but it is empty.
+    assert(page.startsWith("""<style id="fh-theme"></style>"""), clue = page)
+    assert(!page.contains(":root"), clue = page)
     assertEquals(Renderer.create(d).stylesheets, Nil)
   }
 

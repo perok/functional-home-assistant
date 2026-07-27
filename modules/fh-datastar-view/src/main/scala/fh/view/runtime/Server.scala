@@ -818,6 +818,12 @@ class Server(
             )
           )
           _ <- session.control.offer(Server.popupSignal(None))
+          // The theme lives outside the body now (Renderer.themeStyleTag), so a
+          // navigate into a differently-themed dashboard has to morph it
+          // explicitly — the body patch below no longer carries it.
+          _ <- session.control.offer(
+            Datastar.patchElements(renderer.themeStyleTag)
+          )
           _ <- session.control.offer(
             Datastar.patch(
               renderer.renderBody(states, uiState),

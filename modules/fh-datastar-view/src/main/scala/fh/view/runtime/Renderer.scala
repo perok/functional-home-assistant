@@ -619,13 +619,22 @@ class Renderer(
     */
   def title: Option[String] = dashboard.title
 
-  /** The theme as one `<style>` block: design tokens as `:root` custom
+  /** The theme as one id'd `<style>` element: design tokens as `:root` custom
     * properties (dark overrides under `@media (prefers-color-scheme: dark)`, so
     * the page follows the browser) followed by the theme's inline `styles`.
-    * Lives inside the patched body so a live reload (or a navigate swap)
-    * repaints it. Empty when the theme carries no tokens or styles.
+    * Empty when the theme carries no tokens or styles.
+    *
+    * Deliberately OUTSIDE `#dashboard`, i.e. not part of [[renderBody]]. It
+    * used to ride inside the repainted body so that a reload or navigate
+    * swapped it too — but it is static and it is BIG: on a small demo dashboard
+    * it is 7.7 KB of the 9.6 KB a repaint sends, re-transmitted on every
+    * reconnect that cannot resume. A theme change now forces a page reload
+    * instead ([[headHash]]/docs/plan-sse-resume.md), so the only case still
+    * needing it swapped in place is a navigate to a differently-themed
+    * dashboard, which morphs this element by its stable id
+    * ([[Renderer.ThemeStyleId]]).
     */
-  private val themeStyle: String = {
+  val themeStyleTag: String = {
     val theme = dashboard.theme
     def vars(tokens: Map[String, String]): String =
       tokens.toList
@@ -642,10 +651,17 @@ class Renderer(
       theme.styles
     ).filter(_.nonEmpty)
 
-    if (parts.isEmpty) "" else parts.mkString("<style>", "", "</style>")
+    // Always the element, even when empty: a navigate into a themed dashboard
+    // needs something to morph, and morphing an id that isn't there is a no-op
+    // the client reports as an error.
+    parts.mkString(
+      s"""<style id="${Renderer.ThemeStyleId}">""",
+      "",
+      "</style>"
+    )
   }
 
-  /** The dashboard frame, compiled once (like [[themeStyle]]) — a Mustache
+  /** The dashboard frame, compiled once (like [[themeStyleTag]]) — a Mustache
     * template with a single `{{{body}}}` hole, owning the `#dashboard` swap
     * target and (for a theme that uses popups) the popup host's placement. An
     * empty `theme.chrome` falls back to the minimal frame with no popup host —
@@ -658,26 +674,28 @@ class Renderer(
     Templates.compiler.compile(chrome)
   }
 
-  /** The dashboard body: theme + the walked layout tree, without the page
-    * shell. This is what a navigate swap `inner`-patches into the stable
-    * `#dashboard` container (so navigation also swaps the theme).
+  /** The dashboard body: the walked layout tree, without the page shell and
+    * without the theme ([[themeStyleTag]] sits outside it). This is what a
+    * repaint and a navigate swap `inner`-patch into the stable `#dashboard`
+    * container.
     */
   def renderBody(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): String =
-    s"$themeStyle${render(dashboard.card, Nil, "", states, uiState)}"
+    render(dashboard.card, Nil, "", states, uiState)
 
-  /** The full page: the theme's compiled `chrome` executed with `body =
-    * renderBody(...)` — a stable `#dashboard` swap target (and, when the theme
-    * provides one, the popup host) so in-place navigation and popups have fixed
-    * patch targets.
+  /** The full page: [[themeStyleTag]] followed by the theme's compiled `chrome`
+    * executed with `body = renderBody(...)` — a stable `#dashboard` swap target
+    * (and, when the theme provides one, the popup host) so in-place navigation
+    * and popups have fixed patch targets. The style sits BEFORE the chrome, so
+    * every patch target inside it can be repainted without re-sending the CSS.
     */
   def renderPage(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): String =
-    chromeTemplate.execute(
+    themeStyleTag + chromeTemplate.execute(
       Renderer.javaContext(
         Map("body" -> renderBody(states, uiState)),
         Nil
@@ -1053,6 +1071,11 @@ object Renderer {
           .getBytes("UTF-8")
       )
       .take(12)
+
+  /** Id of the theme's `<style>` element — stable across dashboards, so a
+    * navigate can morph one theme into another.
+    */
+  val ThemeStyleId: String = "fh-theme"
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.
