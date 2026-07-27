@@ -417,8 +417,7 @@ So the head is hashed as two values:
 
 `headPatches` is orthogonal to the resume/repaint decision — it is prepended to whichever
 outcome applies, so a re-themed dashboard costs a client its stylesheet, not its scroll
-position. `navigate` sends it unconditionally (the dashboard changed), which also fixes an
-old gap: an in-place navigate never used to update the `<title>`.
+position. (Crossing to another dashboard needs none of this — it is a page load, ADR 0002.)
 
 Three outcomes, and `Server.openingPatches` picks in this order:
 
@@ -600,12 +599,12 @@ one to drive.
    the tab is how you read a notification, not how you dismiss a dialog. So the popup joins
    the cursor as **client-carried state**: a fourth URL-riding signal (`popup`, the open
    surface id or `""`), pushed by the server from the one place that changes the host
-   (`swapHost`, plus the navigate that clears it) so it always names what was actually
+   (`swapHost`) so it always names what was actually
    rendered there. On connect the claim seeds the session's open set and the surface is
    re-rendered fresh into its host — restored AND live. Only a claim this dashboard no
    longer recognises resets the host. Note the signal is server-pushed rather than set by
-   the opening click expression: the server evicts the previous occupant and clears popups
-   on navigate, so a client-side assignment would drift from the DOM the server built.
+   the opening click expression: the server evicts the previous occupant, so a client-side
+   assignment would drift from the DOM the server built.
 
 **Version ordering is load-bearing** (step 4). A container's cached HTML embeds its
 children's, so a parent fragment stamped v=25 applied AFTER a child stamped v=30 would
@@ -658,7 +657,7 @@ obvious one:
   (a)/(b), and adds a handoff race those never had to face: the dropped stream's finalizer
   can run *after* the new stream attaches, so two connections would briefly share one
   session — and a `Session` owns a control `Queue`, from which each stream *takes*. Popup
-  and navigate patches would then go to whichever browser tab won the race, silently.
+  patches would then go to whichever browser tab won the race, silently.
 - **A variant-keyed log is the better shape.** The per-session HTML is not a function of the
   client — it is a function of `(selected members, open popup)`. Two phones on the same tab
   render byte-identical HTML today, separately, into separate logs. So the log belongs to the
@@ -682,7 +681,7 @@ Pkl build path, default beer theme):
 Two things fall out. The variant log would save that 1762 B per reconnect — a few KB on a
 real dashboard, real but modest, so it stays deferred. And the number that actually dominates
 a repaint is not per-session content at all: **80% of it was a static stylesheet**.
-`renderBody` used to prepend it so that a live reload or navigate would repaint it too.
+`renderBody` used to prepend it so that a live reload would repaint it too.
 **Done** (`cfd65fd`): it is now `<style id="fh-theme">` outside `#dashboard`, morphed by id
 only when it actually changed — which also made the head split above possible.
 

@@ -39,12 +39,13 @@ import scala.concurrent.duration.*
   *     pushes it as a signal, so action POSTs can correlate to this stream.
   *   - `POST /sse/action/:domain/:service/:id[/:k/:v]` call a HA service.
   *   - `POST /sse/surface/open/:id` open a surface (popup or tab panel);
-  *     `POST /sse/popup/close` close the (at most one) open popup;
-  *     `POST /sse/navigate/:slug` swap the viewed dashboard in place. Open,
+  *     `POST /sse/popup/close` close the (at most one) open popup. Open,
   *     switch, and close are all the same host-swap ([[swapHost]]) — evict
   *     whatever occupies the surface's host, patch the new occupant in (or
   *     patch it empty, for a close). The state lives in the connection's
-  *     [[Session]]; the resulting patches ride the same SSE stream.
+  *     [[Session]]; the resulting patches ride the same SSE stream. Going to
+  *     ANOTHER dashboard is not a route here — it is an ordinary document load
+  *     of `/d/:slug` (ADR 0002).
   *
   * Live entity patches are split by what they depend on. Main-page nodes whose
   * HTML is a pure function of entity state — including STATE-selected bake
@@ -231,11 +232,6 @@ class Server(
     case req @ POST -> Root / "sse" / "popup" / "close" =>
       withSession(req)((session, renderer, uiState) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
-      )
-
-    case req @ POST -> Root / "sse" / "navigate" / slug =>
-      withSession(req)((session, _, uiState) =>
-        navigate(session, slug, uiState)
       )
   }
 
@@ -468,18 +464,13 @@ class Server(
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       // Shared main-page patches, rendered once per slug (see
-      // sharedPatchPublishers). The session's slug can change mid-connection
-      // (navigate), so keep only the current slug's events — the filter is read
-      // per event, not fixed at connect, so it follows a navigate. A
-      // dropped-or-duplicate fragment around the navigate moment is harmless:
-      // navigate does a full body repaint, and Datastar morphs are idempotent.
+      // sharedPatchPublishers) and tagged with it, so drop every other slug's.
       //
       // One subscription to the multiplexed topic, so a slug that did not exist
       // when this connection opened (pushed since) still reaches it.
       shared = sharedTopic
         .subscribe(64)
-        .evalFilter { case (s, _) => session.slug.get.map(_ == s) }
-        .map { case (_, sse) => sse }
+        .collect { case (s, sse) if s == session.slug => sse }
       // What truly differs per client: open-surface nodes and user
       // bake-group-owner nodes (plus the state groups those pull in),
       // re-rendered per state change with this session's uiState/open set and
@@ -624,10 +615,9 @@ class Server(
         }
     }
 
-  /** Live-reload body repaints for one connection. Follows the session's
-    * CURRENT dashboard: watch every renderer, but only repaint when the one
-    * that reloaded is the one this connection is viewing now (it may have
-    * navigated since connecting).
+  /** Live-reload body repaints for one connection: watch the ONE renderer this
+    * connection views (its slug is fixed for the connection's lifetime — going
+    * elsewhere is a document load) and repaint on every swap.
     *
     * A reload that changed the head's UNPATCHABLE part ([[Renderer.headHash]] —
     * `<link>`ed stylesheets, scripts, chrome) sends the watching browser a page
@@ -637,52 +627,41 @@ class Server(
     * [[headPatches]]. `zipWithPrevious` is what makes both comparable — the
     * decision is "did the head change across this swap", not "does it differ
     * from some baseline".
-    *
-    * The watched set is the registry as it stands when this connection opens. A
-    * slug pushed LATER is therefore not watched by this connection — it still
-    * receives that slug's shared entity patches (the topic is multiplexed) and
-    * renders it correctly on navigate, but a re-push of it would not repaint
-    * here until the page is reloaded. The push/look/edit loop is unaffected,
-    * since the slug exists before the developer opens it.
     */
   private def reloadRepaints(
       session: Session,
       uiState: Map[String, String]
   ): Stream[IO, ServerSentEvent] =
     Stream
-      .eval(renderers.get)
-      .flatMap(rs => Stream.emits(rs.toList))
-      .map { case (s, live) =>
+      .eval(liveFor(session.slug))
+      .flatMap(live => Stream.emits(live.toList))
+      .flatMap { live =>
         live.renderer.discrete.zipWithPrevious
           .drop(1)
           .evalMap { case (previous, r) =>
-            session.slug.get.flatMap { cur =>
-              if (cur != s) IO.pure(List.empty[ServerSentEvent])
-              else if (previous.exists(_.headHash != r.headHash))
-                IO.pure(List(Server.reloadPatch))
-              else
-                // The repaint re-bakes the body (selected tabs included), so
-                // reset the diff cache AND re-seed the open set to match. Reuses
-                // this client's selection (closed over).
-                (session.lastRendered.update(_.cleared) *>
-                  session.open.set(r.selectedSurfaces(uiState)) *>
-                  stateStore.snapshot)
-                  .map { st =>
-                    val head =
-                      if (previous.exists(_.styleHash != r.styleHash))
-                        Server.headPatches(r, s)
-                      else Nil
-                    head :+ Datastar.patch(
-                      r.renderBody(st, uiState),
-                      PatchMode.Inner,
-                      Some("#dashboard")
-                    )
-                  }
-            }
+            if (previous.exists(_.headHash != r.headHash))
+              IO.pure(List(Server.reloadPatch))
+            else
+              // The repaint re-bakes the body (selected tabs included), so
+              // reset the diff cache AND re-seed the open set to match. Reuses
+              // this client's selection (closed over).
+              (session.lastRendered.update(_.cleared) *>
+                session.open.set(r.selectedSurfaces(uiState)) *>
+                stateStore.snapshot)
+                .map { st =>
+                  val head =
+                    if (previous.exists(_.styleHash != r.styleHash))
+                      Server.headPatches(r, session.slug)
+                    else Nil
+                  head :+ Datastar.patch(
+                    r.renderBody(st, uiState),
+                    PatchMode.Inner,
+                    Some("#dashboard")
+                  )
+                }
           }
           .flatMap(Stream.emits)
       }
-      .parJoinUnbounded
 
   /** Re-render the nodes a changed entity drives that are truly per-connection
     * — for each open surface, that surface's components/dynamics, plus any
@@ -710,8 +689,7 @@ class Server(
       uiState: Map[String, String]
   ): IO[List[ServerSentEvent]] =
     for {
-      slug <- session.slug.get
-      renderer <- rendererFor(slug)
+      renderer <- rendererFor(session.slug)
       store <- stateStore.current
       millis <- Server.stampNow
       open <- session.open.get
@@ -801,51 +779,6 @@ class Server(
         else IO.unit
     } yield ()
 
-  /** In-place navigate: re-point the session at `slug`, reset its popups + diff
-    * cache, clear the popup mount, and inner-patch the body. The URL is updated
-    * client-side in the trigger expression, so this is identical for a forward
-    * navigate and a Back/Forward `popstate` re-sync.
-    */
-  private def navigate(
-      session: Session,
-      slug: String,
-      uiState: Map[String, String]
-  ): IO[Unit] =
-    rendererFor(slug).flatMap {
-      case None           => IO.unit
-      case Some(renderer) =>
-        for {
-          states <- stateStore.snapshot
-          _ <- session.slug.set(slug)
-          _ <- warnAnomalies(renderer, uiState)
-          // Reset popups, but seed the target dashboard's selected tab panels
-          // (its body is rendered with them baked in below).
-          _ <- session.open.set(renderer.selectedSurfaces(uiState))
-          _ <- session.lastRendered.update(_.cleared)
-          _ <- session.control.offer(
-            Datastar.patch(
-              s"""<div id="${Dashboard.PopupHostId}"></div>""",
-              PatchMode.Outer,
-              None
-            )
-          )
-          _ <- session.control.offer(Server.popupSignal(None))
-          // The head is outside the body patch below, so a navigate into a
-          // differently-themed (or differently-titled) dashboard has to morph
-          // it explicitly.
-          _ <- Server
-            .headPatches(renderer, slug)
-            .traverse_(session.control.offer)
-          _ <- session.control.offer(
-            Datastar.patch(
-              renderer.renderBody(states, uiState),
-              PatchMode.Inner,
-              Some("#dashboard")
-            )
-          )
-        } yield ()
-    }
-
   /** Resolve the connection (`conn` rides in the POST body among Datastar
     * signals) to its session + current renderer, run `f`, and return NoContent.
     */
@@ -856,8 +789,7 @@ class Server(
   ): IO[Response[IO]] = {
     // Datastar sends the signals as a JSON body; parse it directly (no
     // http4s-circe entity decoder dependency). It carries both `conn` and this
-    // client's ui-state — swapHost/openSurface bake the selected tab, and
-    // navigate seeds the target's selection.
+    // client's ui-state — swapHost/openSurface bake the selected tab.
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap { body =>
         connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
@@ -868,8 +800,7 @@ class Server(
           sessions.get(conn).flatMap {
             case None          => NoContent() // stale/unknown connection
             case Some(session) =>
-              session.slug.get
-                .flatMap(rendererFor)
+              rendererFor(session.slug)
                 .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
           }
       }
@@ -1066,8 +997,8 @@ class Server(
   /** Full HTML document wrapping the rendered dashboard. The theme owns all
     * presentation (its tokens + inline CSS travel inside the body;
     * `stylesheets` are `<link>`-ed here). `data-init` opens this dashboard's
-    * SSE stream; the `popstate` handler re-syncs the in-place view to the URL
-    * on Back/Forward.
+    * SSE stream. There is no history wiring: a dashboard is a real page, so
+    * Back/Forward is the browser's (ADR 0002).
     *
     * All app URLs (here and in the authored card templates) are RELATIVE and
     * resolve against the emitted `<base href>`: `/` when served directly,
@@ -1094,11 +1025,6 @@ class Server(
     ).mkString("\n")
     val baseHref = ingressPrefix.fold("/")(p => s"$p/")
     val pageTitle = Server.titleTag(title, slug)
-    // On Back/Forward, derive the slug from the URL and re-post the swap (no
-    // pushState — the browser already moved). `/d/<slug>` or `/` -> default.
-    // The split works under any ingress prefix too.
-    val popstate =
-      s"@post('sse/navigate/' + (window.location.pathname.split('/d/')[1] || '$defaultSlug'))"
     // Edit-mode overlay (Focus / Debug per node), injected only when the editor
     // embeds this page with `?edit=1`. The config carries the slug + base so the
     // overlay can call the node-debug endpoint and message the parent editor.
@@ -1188,7 +1114,7 @@ class Server(
         Server.DatastarCdn
       )}"></script>
        |</head>
-       |<body data-init="@get('sse/dashboard/$slug/patch')" data-on:popstate__window="$popstate">
+       |<body data-init="@get('sse/dashboard/$slug/patch')">
        |$connBanner
        |$body
        |$editAssets

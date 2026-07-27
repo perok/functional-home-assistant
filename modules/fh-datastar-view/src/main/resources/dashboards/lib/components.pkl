@@ -229,11 +229,12 @@ const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
 function serviceTap(action: String): Tap =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
 
-/// In-place swap to dashboard `slug` (+ URL via pushState) — a constant click.
-/// pushState does NOT resolve against <base href>, so the URL is built
-/// explicitly from document.baseURI (works directly and behind ingress).
+/// Go to dashboard `slug` — an ordinary document load, so the browser owns the
+/// history entry (ADR 0002). `location.assign` does NOT resolve against
+/// <base href>, so the URL is built explicitly from document.baseURI (works
+/// directly and behind ingress).
 function navigate(slug: String): Tap =
-  new { onclick = "@post('sse/navigate/\(slug)'); history.pushState(null,'',new URL('d/\(slug)',document.baseURI))" }
+  new { onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))" }
 
 /// Dismiss the (single, at-a-time) open popup — the id-less `POST
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.

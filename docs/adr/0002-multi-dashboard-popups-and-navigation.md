@@ -1,7 +1,8 @@
-# ADR 0002 — Multiple dashboards, popup surfaces, and in-place navigation
+# ADR 0002 — Multiple dashboards, popup surfaces, and navigation
 
 - **Status:** Accepted
-- **Date:** 2026-06-23 (consolidated 2026-07-04)
+- **Date:** 2026-06-23 (consolidated 2026-07-04; navigation became a real page
+  load 2026-07-27)
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
 
 ## Context
@@ -16,10 +17,10 @@ change. Three needs arose together:
 3. **Cards that navigate to another dashboard.**
 
 Constraints: reuse the existing components (a popup/navigate is just another
-*action* on a normal click); reuse the **single** SSE stream; the backend owns
-popup state **per connection**; keep phase discipline (authoring is build-time
-composition); and one mechanism that serves popups *and* tabs. Correct
-laziness: a closed popup costs no render and no push.
+*action* on a normal click); reuse the **single** SSE stream *within* a
+dashboard; the backend owns popup state **per connection**; keep phase
+discipline (authoring is build-time composition); and one mechanism that serves
+popups *and* tabs. Correct laziness: a closed popup costs no render and no push.
 
 ## The design
 
@@ -28,8 +29,8 @@ laziness: a closed popup costs no render and no push.
 Every top-level `*.pkl` entry file in the dashboards dir is a dashboard whose
 slug is its filename (`dashboard.pkl` → `dashboard`, the default `/` — ADR
 0006). A `Renderer` is built per slug and served
-at `/d/:slug`. A connection shows one dashboard's DOM at a time, so node ids
-are unique within a dashboard and **not slug-prefixed**.
+at `/d/:slug`. A connection shows exactly one dashboard for its whole lifetime,
+so node ids are unique within a dashboard and **not slug-prefixed**.
 
 ### Surfaces: lazily-activated subtrees
 
@@ -67,24 +68,26 @@ open at once — was unused and is recoverable via a second overlay host; giving
 it up is what lets every surface be chrome-less and open/switch/close collapse
 into one primitive.
 
-### One primitive: `swapHost`
+### One primitive: `swapHost` (within a dashboard)
 
 Open, switch, and close are the same operation (`Server.swapHost`): evict
 whatever surface(s) occupy a host, set the new occupant, inner-patch the host —
 or patch it to an empty `<div>` for a close (`POST /sse/popup/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set.
+session's open set. Crossing to ANOTHER dashboard is not one of these — it is a
+document load (below).
 
 ### Per-connection sessions over the one SSE stream
 
 Each SSE connection mints a `conn` id and pushes it as the first
 `datastar-patch-signals` event; Datastar then sends `conn` among the signals on
 every action `@post`, correlating the POST to its stream. A `Session` (keyed by
-`conn` in `Sessions`) holds a mutable `slug` (navigate re-points it), the set
-of **open** surface ids, a **control** queue the action handlers push patches
-into, and a last-rendered diff cache so only fragments whose HTML actually
-changed are pushed.
+`conn` in `Sessions`) holds its `slug` — **fixed**, since another dashboard is
+another document and therefore another connection — the set of **open** surface
+ids, a **control** queue the action handlers push patches into, and a
+last-rendered diff cache so only fragments whose HTML actually changed are
+pushed.
 
 Live entity patches are split by what they depend on. Main-page nodes that do
 **not** own a bake group are a pure function of entity state, so they are
@@ -92,11 +95,11 @@ rendered **once per slug**: one background subscription to the state stream
 per dashboard (`Server.sharedPatchPublishers`, run by `Server.resource`)
 re-renders the affected nodes (reverse index + query-affected dynamic groups),
 diffs against a **per-slug** cache, and publishes the changed fragments on a
-per-slug topic — N viewers of one slug cost one render, not N. A connection
-subscribes to every slug's topic and keeps only its *current* slug's events,
-so navigate just re-points the filter (a dropped-or-duplicate fragment around
-the navigate moment is harmless: navigate does a full body repaint, and
-Datastar morphs are idempotent). Only what truly differs per client stays in
+per-slug topic — N viewers of one slug cost one render, not N. The topic is
+**one multiplexed** stream of slug-tagged events, so a connection subscribes
+once and drops every tag but its own; that (rather than a topic per slug) is
+what lets `push` mint a slug after a connection has opened. Only what truly
+differs per client stays in
 the per-session change loop with the session's own diff cache: each open
 surface's nodes (a closed surface is never rendered) and *user-activated*
 bake-group-owner nodes (their HTML bakes the client's selected
@@ -115,19 +118,34 @@ Datastar expression (spliced as literal text into
 
 - service call → `@post('/sse/action/<domain>/<service>/<entity_id>')`
 - popup → `@post('/sse/surface/open/<id>')` / `@post('/sse/popup/close')`
-- navigate → `@post('/sse/navigate/<slug>'); history.pushState(null,'','/d/<slug>')`
+- navigate → `window.location.assign(new URL('d/<slug>', document.baseURI))`
 
 This is why reuse "just works": `c.button(eo, action=c.openPopup('x'))` needs
 no new template.
 
-### In-place navigation; URL handled client-side
+### Navigation is a real page load
 
-Navigate is an in-place swap over the same stream: re-point the session's slug,
-reset its popups + diff cache, clear the popup host, inner-patch the body into
-the stable `#dashboard` container. Datastar v1 has no URL/redirect SSE event,
-so the URL is updated client-side (`history.pushState` in the trigger); a
-Back/Forward `popstate` handler re-posts the swap for the slug already in the
-URL — a distinction only the client can make. `/d/:slug` deep-loads directly.
+Going to another dashboard is an ordinary document load of `/d/:slug`
+(`window.location.assign`, built from `document.baseURI` so it survives the
+ingress prefix). The browser owns the history entry; there is no `pushState`, no
+`popstate` handler, and no `/sse/navigate` route.
+
+This replaced an in-place body swap over the surviving SSE stream. That design
+existed to keep one stream and one session alive across a dashboard change, and
+the reason it stopped paying is that **nothing in that session is worth
+keeping**: entity state is re-seeded from `StateStore` on connect, the diff cache
+is reset by the swap anyway, popups are cleared, and the selected tab now
+restores from the URL (ADR 0005) — so a full load re-derives the whole view with
+no flash. What it cost was real: hand-rolled history management (the Datastar
+tao's named anti-pattern), a mutable per-session slug that every render path had
+to re-read, a `<head>` the body patch could not reach (so a differently-themed
+target needed an explicit theme/title morph), and buttons that a browser cannot
+middle-click or open in a new tab.
+
+Remaining gap: the trigger is still an `onclick` expression on the one click
+slot, not an `<a href>`, so keyboard/middle-click/open-in-new-tab are only as
+good as the card's markup. Promoting a navigating card to a real anchor is a
+card-template change, not a backend one.
 
 ### The generic hoist: inline surfaces + `@@NODE_ID@@`
 
@@ -164,7 +182,7 @@ inlined in the theme (a theme imports no component library — it is
 presentation, a leaf). The backend holds **zero** frame HTML; an empty chrome
 falls back to a minimal `<main id="dashboard">` frame. `Dashboard.validate`
 fails loudly if a non-empty chrome lacks `id="dashboard"`. The document shell
-(`<head>`, Datastar `<script>`, `data-init`, `popstate`, the theme's
+(`<head>`, Datastar `<script>`, `data-init`, the theme's
 stylesheet `<link>`s and script `<script type="module">`s — `Theme.scripts`
 carries JS a theme's CSS needs, e.g. BeerCSS's slider fill; behavior stays
 Datastar's) stays in `Server.page()` — Datastar bootstrap and per-request
@@ -190,9 +208,9 @@ wiring, not dashboard frame.
 
 ## Consequences
 
-- Open/close/navigate are pure backend state transitions whose patches ride the
-  one SSE stream; closed surfaces are free.
-- Datastar specifics relied upon (patch modes, signal round-tripping of `conn`,
-  `data-on:…__window`, client `history` access) are pinned to **v1.0.2** —
-  re-verify on upgrade.
+- Open/close are pure backend state transitions whose patches ride the one SSE
+  stream; closed surfaces are free. A dashboard change is outside that model
+  entirely — it is a new document, a new stream, a new session.
+- Datastar specifics relied upon (patch modes, signal round-tripping of `conn`)
+  are pinned to **v1.0.2** — re-verify on upgrade.
 - Not covered: a nav-menu UI between dashboards.
