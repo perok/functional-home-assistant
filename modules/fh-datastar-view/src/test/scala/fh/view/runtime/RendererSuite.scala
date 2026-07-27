@@ -429,6 +429,35 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test("renderPage bakes a restored popup into the chrome's popup hole") {
+    val d = Dashboard(
+      cards,
+      col(LayoutNode.Component("btn", Map("label" -> lit("Go")))),
+      surfaces = Map(
+        "det" -> Surface(LayoutNode.Component("btn", Map("label" -> lit("D"))))
+      ),
+      theme = Theme(chrome =
+        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
+      )
+    )
+    val r = Renderer.create(d)
+    // Baked === what the connect would patch in, so the patch that follows is a
+    // no-op morph rather than a second, visible paint.
+    val baked = r.renderPage(Map.empty, popup = Some("det"))
+    assert(
+      baked.contains(
+        s"""<div id="popups">${r.renderSurface("det", Map.empty).get}</div>"""
+      ),
+      clue = baked
+    )
+    // No popup, or one this dashboard doesn't host: the hole renders empty.
+    assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
+    assert(
+      r.renderPage(Map.empty, popup = Some("nope"))
+        .contains("""<div id="popups"></div>""")
+    )
+  }
+
   test("slot default applies when value is missing, empty, or JSON null") {
     val g = LayoutNode.Component(
       "gauge",

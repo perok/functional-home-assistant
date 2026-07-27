@@ -48,7 +48,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       scene
         .card(FixtureDashboard.reading(outside))
         .card(FixtureDashboard.light("Kitchen", kitchen))
-    )(_.page).map { html =>
+    )(_.page()).map { html =>
       // The numeric reading and its unit (pulled from $attr) are present...
       assert(html.contains("12.4"), clue = html)
       assert(html.contains("°C"), clue = html)

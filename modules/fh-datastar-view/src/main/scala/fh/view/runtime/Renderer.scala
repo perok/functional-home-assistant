@@ -699,18 +699,34 @@ class Renderer(
     render(dashboard.card, Nil, "", states, uiState)
 
   /** The full page: [[themeStyleTag]] followed by the theme's compiled `chrome`
-    * executed with `body = renderBody(...)` — a stable `#dashboard` swap target
-    * (and, when the theme provides one, the popup host) so in-place navigation
-    * and popups have fixed patch targets. The style sits BEFORE the chrome, so
-    * every patch target inside it can be repainted without re-sending the CSS.
+    * executed with `body = renderBody(...)` — a stable `#dashboard` patch
+    * target (and, when the theme provides one, the popup host) so popups have a
+    * fixed patch target. The style sits BEFORE the chrome, so every patch
+    * target inside it can be repainted without re-sending the CSS.
+    *
+    * A restored `popup` is BAKED into the host's `{{{popups}}}` hole, the way a
+    * selected tab panel is baked into its owner: otherwise the dialog cannot
+    * appear until the stream connects and patches it in, which a refresh sees
+    * as the dashboard painting first and the dialog popping in late. A theme
+    * whose chrome has no hole simply renders without it (the patch still
+    * arrives) — the var is optional in the contract.
     */
   def renderPage(
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      uiState: Map[String, String] = Map.empty,
+      popup: Option[String] = None
   ): String =
     themeStyleTag + chromeTemplate.execute(
       Renderer.javaContext(
-        Map("body" -> renderBody(states, uiState)),
+        Map(
+          "body" -> renderBody(states, uiState),
+          // The dialog a refresh is restoring, baked into the host exactly as
+          // the connect would patch it — same `renderSurface` call, so the two
+          // are byte-identical and the later patch is a no-op morph.
+          "popups" -> popup
+            .flatMap(renderSurface(_, states, uiState))
+            .getOrElse("")
+        ),
         Nil
       )
     )

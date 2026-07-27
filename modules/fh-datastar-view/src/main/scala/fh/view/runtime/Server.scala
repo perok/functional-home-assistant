@@ -972,24 +972,25 @@ class Server(
         // The editor embeds the dashboard as `?edit=1`; that turns on the
         // per-node inspection overlay (Focus / Debug). Off for normal viewers.
         val editMode = req.uri.query.params.get("edit").contains("1")
+        // What this document is showing, and so also what it must hand back on
+        // connect for the stream to agree with it.
+        val restore = Server.Restore(
+          uiState,
+          req.uri.query.params
+            .get(Server.PopupSignal)
+            .filter(p => renderer.surface(p).nonEmpty)
+        )
         stateStore.snapshot.flatMap { states =>
           warnAnomalies(renderer, uiState) *>
             Ok(
               page(
                 slug,
-                renderer.renderPage(states, uiState),
+                renderer.renderPage(states, uiState, restore.popup),
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
                 renderer.title,
                 Server.ingressPrefixOf(req),
-                // What this document must hand back on connect for the stream
-                // to agree with the page it is attaching to.
-                Server.Restore(
-                  uiState,
-                  req.uri.query.params
-                    .get(Server.PopupSignal)
-                    .filter(p => renderer.surface(p).nonEmpty)
-                ),
+                restore,
                 editMode
               )
             ).map(_.withContentType(`Content-Type`(MediaType.text.html)))

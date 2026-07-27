@@ -58,7 +58,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    withServer(_.page).map { html =>
+    withServer(_.page()).map { html =>
       // entityCard label = the live friendly_name; value = $state + unit.
       assert(html.contains("Outside Temperature"), clue = html)
       assert(html.contains("12.4"), clue = html)
@@ -70,7 +70,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test("a navigating button reaches the browser as a real link") {
-    withServer(_.page).map { html =>
+    withServer(_.page()).map { html =>
       // The whole point of ADR 0002's navigation decision, end to end: the
       // author wrote c.navigate, and what ships is an anchor the browser can
       // middle-click, with a relative href resolved against <base href> — no

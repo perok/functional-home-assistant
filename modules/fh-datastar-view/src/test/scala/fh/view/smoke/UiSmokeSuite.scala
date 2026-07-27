@@ -77,6 +77,28 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("popup: it survives a refresh, and is there in the first paint") {
+    withPage(scene) { (page, ts) =>
+      val kitchenCard = page
+        .locator(
+          "article.entity",
+          new Page.LocatorOptions().setHasText("Kitchen")
+        )
+      val popup = page.locator(".popup")
+      for {
+        _ <- IO.blocking(kitchenCard.click())
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+        // The mirror wrote ?popup=<id>, so the reload has something to restore.
+        _ <- IO.blocking(page.reload())
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+        // …and it is in the served HTML, not patched in afterwards: baked into
+        // the theme chrome's popup hole, so there is no dashboard-first,
+        // dialog-a-moment-later flash.
+        html <- ts.page(s"?${fh.view.runtime.Server.PopupSignal}=detail")
+      } yield assert(html.contains("Kitchen Detail"), clue = html)
+    }
+  }
+
   test("slider: a keyboard commit posts the value-carrying action") {
     withPage(scene) { (page, ts) =>
       val slider = page.locator("input[type=range]")

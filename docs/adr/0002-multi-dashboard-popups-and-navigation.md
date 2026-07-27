@@ -187,10 +187,23 @@ the signal + URL mirror (ADR 0005).
 
 ### The theme owns the chrome
 
-`Theme.chrome` is a Mustache frame template with a single `{{{body}}}` hole,
-owning the `#dashboard` swap target and the popup host (`<div id="popups">`),
-inlined in the theme (a theme imports no component library — it is
-presentation, a leaf). The backend holds **zero** frame HTML; an empty chrome
+`Theme.chrome` is a Mustache frame template with two holes, owning the
+`#dashboard` swap target (`{{{body}}}`) and the popup host
+(`<div id="popups">{{{popups}}}</div>`), inlined in the theme (a theme imports
+no component library — it is presentation, a leaf).
+
+The second hole is what makes a **restored** popup flash-free: a refresh
+carrying `?popup=<id>` (ADR 0005) bakes the dialog into the served HTML, the
+same way a selected tab panel is baked into its owner. Without it the dialog
+cannot appear until the stream connects and patches `#popups`, so the dashboard
+paints first and the dialog arrives late — most visible on a phone. The baked
+HTML is the same `renderSurface` call the connect would patch, so the patch that
+follows is a no-op morph rather than a second paint; a theme that omits the hole
+still works, it just flashes. The theme keeps deciding WHERE the host lives —
+the backend only fills a host it already addresses by id on every
+open/switch/close.
+
+The backend holds **zero** frame HTML; an empty chrome
 falls back to a minimal `<main id="dashboard">` frame. `Dashboard.validate`
 fails loudly if a non-empty chrome lacks `id="dashboard"`. The document shell
 (`<head>`, Datastar `<script>`, `data-init`, the theme's

@@ -71,9 +71,12 @@ final class TestServer(
   private def bodyOf(resp: Response[IO]): IO[String] =
     resp.body.through(fs2.text.utf8.decode).compile.string
 
-  /** The rendered page shell for this dashboard (`GET /d/<slug>`). */
-  def page: IO[String] =
-    run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug")))
+  /** The rendered page shell for this dashboard (`GET /d/<slug><query>`) — the
+    * bytes a browser gets BEFORE any script runs, which is where first-paint
+    * claims (a baked tab panel, a restored popup) have to be checked.
+    */
+  def page(query: String = ""): IO[String] =
+    run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug$query")))
       .flatMap(bodyOf)
 
   /** POST an action route (e.g. `sse/action/light/toggle/light.kitchen`) and
