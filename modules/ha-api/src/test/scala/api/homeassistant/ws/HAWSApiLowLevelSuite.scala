@@ -269,7 +269,7 @@ class HAWSApiLowLevelSuite extends munit.CatsEffectSuite {
       .timeout(30.seconds)
       .map {
         case Left(err) =>
-          assert(err.getMessage.contains("ping timed out"), err.getMessage)
+          assert(err.getMessage.contains("ping went unanswered"), err.getMessage)
         case Right(_) => fail("a missed pong must report the connection dead")
       }
   }

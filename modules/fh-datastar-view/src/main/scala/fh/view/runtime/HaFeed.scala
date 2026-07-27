@@ -154,14 +154,43 @@ object HaFeed {
     Stream
       .repeatEval(runConnection(connect, connection, seeded, store).attempt)
       .meteredStartImmediately(ReconnectDelay)
+      // Why the last attempt ended, deduped: an instance that is down ends
+      // every attempt the same way, so this says it once instead of once a
+      // second. Dedupe is only safe because this is SUPPLEMENTARY detail —
+      // the transition itself is reported by [[logConnectivity]], which
+      // cannot lose one.
       .map(describe)
-      // An instance that is down ends every attempt the same way; say it once
-      // rather than once a second for as long as it stays down.
       .changes
-      .evalMap(reason =>
-        IO.println(s"[ha-feed] disconnected ($reason); retrying")
-      )
+      .evalMap(reason => IO.println(s"[ha-feed] attempt ended: $reason"))
+      .concurrently(logConnectivity(connection))
       .compile
+      .drain
+
+  /** Report the connection coming and going.
+    *
+    * Keyed on CONNECTIVITY, not on why an attempt ended, because a boolean
+    * alternates: `changes` can never swallow a real transition. Keyed on the
+    * reason it can, and did — two ends with the same cause an hour apart, with
+    * a healthy connection between them, are CONSECUTIVE elements of that stream
+    * (nothing between two ends emits anything), so the second was dropped and a
+    * genuine disconnect went unlogged.
+    */
+  private def logConnectivity(
+      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
+  ): Stream[IO, Nothing] =
+    connection.discrete
+      .map(_.isDefined)
+      .changes
+      .zipWithPrevious
+      .collect {
+        // A leading `false` is the starting state, not a connection lost; a
+        // leading `true` means we raced the first connect, which is still
+        // worth reporting.
+        case (prev, true) if !prev.contains(true) =>
+          "connected; subscribed to entity feed"
+        case (Some(true), false) => "connection lost; retrying"
+      }
+      .evalMap(msg => IO.println(s"[ha-feed] $msg"))
       .drain
 
   private def describe(outcome: Either[Throwable, Unit]): String =
@@ -198,11 +227,11 @@ object HaFeed {
         val live = HomeAssistantApi
           .fromWs(ll)
           .entities
-          .use { frames =>
-            connection.set(Some(ll)) *>
-              IO.println("[ha-feed] connected; subscribed to entity feed") *>
-              pump(frames, store, seeded)
-          }
+          // Publishing the connection is also what REPORTS it — one place owns
+          // the log line, driven off the signal ([[logConnectivity]]).
+          .use(frames =>
+            connection.set(Some(ll)) *> pump(frames, store, seeded)
+          )
         // The race covers the WHOLE lifetime, not just the pump: subscribing
         // waits on the wire, so a socket dying there has to end this run too or
         // the supervisor never gets to reconnect.

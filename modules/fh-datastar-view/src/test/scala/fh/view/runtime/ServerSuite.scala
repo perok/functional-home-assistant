@@ -686,9 +686,12 @@ class ServerSuite extends munit.CatsEffectSuite {
                       .compile
                       .drain
                     _ <- stop.complete(())
-                    // The next keepalive is what carries the reader into the
-                    // stall, so wait past one.
-                    _ <- IO.sleep(Server.KeepAliveInterval * 2)
+                    // The reader only stalls on the next event it takes, so
+                    // give it one (the keepalive is far too slow to wait for).
+                    _ <- store.update(
+                      EntityState("sensor.a", "engage-the-stall", Map.empty)
+                    )
+                    _ <- IO.sleep(1.second)
                     // Far more than a bounded subscription would hold.
                     _ <- (1 to 300).toList.traverse_(i =>
                       store.update(EntityState("sensor.a", s"v$i", Map.empty))

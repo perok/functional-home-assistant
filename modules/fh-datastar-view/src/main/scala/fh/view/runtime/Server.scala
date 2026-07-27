@@ -474,13 +474,12 @@ class Server(
       // Emit `haDown` on connect (the initial `discrete` value) and on every
       // health transition.
       haDown = healthy.discrete.changes.map(healthPatch)
-      // Periodic re-emit of the current health: keeps SSE traffic flowing so an
-      // idle connection isn't dropped by intermediaries, and self-heals a
-      // `haDown` patch that was ever missed. Datastar treats an unchanged signal
-      // as a no-op.
+      // Something for an idle connection to carry, so an intermediary doesn't
+      // reap it — a COMMENT, which no signal ever needs to know about (see
+      // [[Server.KeepAliveInterval]]).
       keepAlive = Stream
         .awakeEvery[IO](Server.KeepAliveInterval)
-        .evalMap(_ => healthy.get.map(healthPatch))
+        .as(Server.keepAliveComment)
 
       // Shared main-page patches, rendered once per slug (see
       // sharedPatchPublishers) and tagged with it, so drop every other slug's.
@@ -1626,11 +1625,43 @@ object Server {
     */
   val SseRetry: String = "{retry:'always'}"
 
-  /** How often the SSE stream re-emits the current [[HaDownSignal]] value. This
-    * is a keepalive: it keeps traffic on an otherwise-idle connection so
-    * intermediaries don't drop it, and self-heals a missed `haDown` patch.
+  /** How often an idle SSE connection is given something to carry.
+    *
+    * WHY AT ALL: for INTERMEDIARIES, which is the normal case here rather than
+    * the exception — the add-on is reached through Home Assistant's ingress
+    * (nginx), and the remote path adds another hop (a tunnel, a CDN). Those
+    * close a connection that has gone quiet for a minute or so. A dashboard at
+    * night is quiet for hours.
+    *
+    * And it is the CHEAP option, which is not the intuition. Letting an idle
+    * connection be reaped saves nothing: Datastar reconnects, costing a TCP+TLS
+    * handshake, a GET carrying every signal, and the opening patches — perhaps
+    * 1-2 KB, once a minute. This is ~15 bytes at this interval, about 2 KB an
+    * hour, so dropping it would cost 30-60x more traffic and battery in
+    * exchange for a connection that feels intermittently flaky.
+    *
+    * WHY A COMMENT ([[keepAliveComment]]) rather than re-emitting `haDown`: a
+    * comment line is skipped by any conforming SSE parser, so it never reaches
+    * Datastar's message handler, never touches the browser's signal store, and
+    * never shows up as an event in devtools. Health needs no repeating anyway —
+    * it is pushed on connect and on every transition (`healthy.discrete`), and
+    * a client that missed one has reconnected, which re-sends it.
+    *
+    * FUTURE: a direct LAN connection needs none of this, and we could TELL. The
+    * ingress hop announces itself (`X-Ingress-Path`, already read here for the
+    * `<base href>`) and a reverse proxy conventionally sets `X-Forwarded-*`, so
+    * this could be sent only to connections that arrived through a hop —
+    * per-connection, since the request is right there. Not done yet: the win is
+    * ~2 KB/hour, while a wrong guess is a connection that silently drops once a
+    * minute, which is the failure nobody reports because it still works.
     */
-  val KeepAliveInterval: FiniteDuration = 2.seconds
+  val KeepAliveInterval: FiniteDuration = 25.seconds
+
+  /** The keepalive itself: an SSE comment, carrying no data, no event type and
+    * no signal — just bytes on the wire. See [[KeepAliveInterval]].
+    */
+  private[runtime] val keepAliveComment: ServerSentEvent =
+    ServerSentEvent(comment = Some("keepalive"))
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across

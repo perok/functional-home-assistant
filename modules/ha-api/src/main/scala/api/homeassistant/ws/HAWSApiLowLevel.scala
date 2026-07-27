@@ -8,6 +8,7 @@ import cats.effect.std.Queue
 import cats.effect.{Deferred, IO, Ref, Resource}
 import io.circe.syntax.*
 import fs2.{Chunk, Stream}
+import fs2.concurrent.SignallingRef
 import io.circe.parser.decode
 import io.circe.{Decoder, Encoder, Json}
 import org.http4s.Uri
@@ -187,9 +188,12 @@ object HAWSApiLowLevel {
           // went unanswered), carrying the cause; `awaitClosed` surfaces it so a
           // holder can reconnect. Left = abnormal, Right = clean socket end.
           terminated <- IO.deferred[Either[Throwable, Unit]].toResource
-          // Monotonic timestamp of the last frame received. Drives the idle
-          // ping: a live stream keeps this fresh so no ping is ever sent.
-          lastActivity <- IO.monotonic.flatMap(Ref[IO].of).toResource
+          // Monotonic timestamp of the last frame received, as a SIGNAL: the
+          // keepalive watches it rather than polling it, so a frame does not
+          // just refresh a deadline, it cancels the pending ping outright.
+          lastActivity <- IO.monotonic
+            .flatMap(SignallingRef[IO].of)
+            .toResource
 
           // id -> waiting-queue for every in-flight command (single responses
           // and subscriptions alike).
@@ -435,42 +439,36 @@ object HAWSApiLowLevel {
             .sendCommand[Unit](CommandPhase.supported_features())
             .toResource
 
-          // Idle keepalive: ping only after `pingInterval` of silence; a missed
-          // pong marks the connection dead so `awaitClosed` fires. Live traffic
-          // refreshes `lastActivity`, so a busy connection is never pinged.
+          // Idle keepalive: HA closes idle sockets and intermediaries drop quiet
+          // TCP connections, so a connection that has heard nothing for
+          // `pingInterval` is pinged; an unanswered ping marks it dead and
+          // `awaitClosed` fires.
           _ <- {
-            val ping: IO[Boolean] =
+            val ping: IO[Unit] =
               op.sendCommand[Unit](CommandPhase.ping())
                 .timeout(pingTimeout)
-                .as(true)
-                .handleErrorWith(err =>
-                  Console[IO].printStackTrace(err).as(false)
-                )
+                .void
 
-            val tick: IO[Boolean] =
-              (IO.monotonic, lastActivity.get).flatMapN { (now, last) =>
-                val idle = now - last
-                if (idle >= pingInterval) ping
-                else IO.sleep(pingInterval - idle).as(true)
-              }
-
-            Stream
-              .repeatEval(tick)
-              .evalMap {
-                case true => IO.unit
-                // Same death rite as a dead receive loop: report AND close every
-                // open route, so nothing is left waiting on this connection.
-                case false =>
-                  die(Left(new Throwable("Home Assistant ping timed out"))).void
-              }
-              // The keepalive is meaningless once the connection is gone, and
-              // worse than meaningless if it keeps running: nothing refreshes
-              // `lastActivity`, so every tick pings a dead socket, fails
-              // instantly, and the loop spins until teardown.
-              // Halt quietly (`Right`), rather than re-raising the cause into a
-              // background fiber that would only swallow it: `awaitClosed` is
-              // where the cause belongs, and it already has it.
-              .interruptWhen(terminated.get.as(Right(())))
+            lastActivity.discrete
+              // Every received frame CANCELS the pending sleep and starts it
+              // over, so a ping fires only after real silence and a busy
+              // connection is never pinged at all. Two things follow for free.
+              // A dead socket produces no activity, so there is nothing left to
+              // trigger this — it cannot spin against one, where a polling loop
+              // had to be stopped explicitly. And traffic arriving DURING a ping
+              // cancels it mid-flight, which is right: that traffic is the
+              // liveness the ping was asking for.
+              .switchMap(_ =>
+                Stream.sleep[IO](pingInterval) ++ Stream.eval(ping.attempt)
+              )
+              .collect { case Left(err) => err }
+              .evalMap(err =>
+                die(
+                  Left(
+                    new Exception("Home Assistant ping went unanswered", err)
+                  )
+                ).void
+              )
               .compile
               .drain
               .background
