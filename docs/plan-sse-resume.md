@@ -694,25 +694,19 @@ a correctness bar — a morph of byte-identical HTML is nearly free, and the rea
 (a slider mid-drag during a reconnect) is rare — so it does not get to drive the design. It
 just means the log's payoff is preservation, not payload.
 
-## Cookie or signal? (per-session state)
+## Where per-session state lives (superseded the cookie)
 
-Tabs remember their selection in a `fhui_<owner>` cookie; a popup rides
-[[Server.PopupSignal]]. Two mechanisms — but for two different facts, which is the test that
-matters:
+Tab selection used to ride an `fhui_<owner>` cookie and the popup a signal — two mechanisms,
+argued for as two different facts. The argument had a hole: it took "a signal dies with the
+document" as *correct* for a popup, when a user who refreshes with a dialog open expects it
+back. And the cookie's own justification (the only client store the server sees on the
+first-paint GET) overlooked the URL, which the server also sees, is per-document rather than
+per-origin, and can be deep-linked.
 
-- A **cookie survives the document**. That is exactly right for tab selection: it is a
-  durable preference (the tab click writes `max-age=31536000`), and it is the ONLY thing that
-  can reach the server before Datastar boots, which is what lets a full page load bake the
-  selected panel into the server-rendered HTML instead of flashing tab 0 and patching.
-- A **signal dies with the document**. That is exactly right for an open dialog: a fresh app
-  launch should show the dashboard, not resurrect a popup from yesterday. A popup also has no
-  first-paint requirement — at page load it does not exist.
-
-Putting the popup in a cookie would also break across browser tabs: cookies are shared per
-origin, so opening a popup in one tab would push it into another tab's host on that tab's next
-reconnect. Signals are per-document. And ownership differs — the server decides what occupies
-the popup host (it evicts the previous occupant, and clears it on navigate), while the tab
-cookie is written client-side by the click.
+Both now ride an unprefixed signal — `ui_<id>` and `popup` — mirrored into `?ui.<id>` /
+`?popup` by a page-shell `replaceState` helper. The signal is the live truth (Datastar
+re-serializes the store on every retry, so a reconnect carries it); the URL is what survives a
+refresh. Fewer bytes than before, since the cookie rode every request too. See ADR 0005.
 
 ## Alternatives considered
 
