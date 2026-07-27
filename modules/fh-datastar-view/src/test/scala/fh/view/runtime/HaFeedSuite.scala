@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.{Deferred, IO, Ref, Resource}
+import cats.syntax.all.*
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fs2.Stream
 import fs2.concurrent.SignallingRef
@@ -41,6 +42,44 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         .flatMap(_.get.complete(()))
         .void
     } yield (connect, uses, drop)
+
+  test("a peer that accepts and closes at once cannot spin the reconnect loop") {
+    // The case that used to bypass the backoff entirely: a CLEAN close. The
+    // retry policy only ever saw raises, so an end that merely returned sent
+    // the loop straight back round with no delay — connect, auth, close,
+    // repeat, at wire speed.
+    (for {
+      fake <- FakeHomeAssistant.create(
+        List(FixtureEntity("light.kitchen", "off"))
+      )
+      closeRef <- Ref[IO].of(Option.empty[Deferred[IO, Unit]])
+      instant <- Ref[IO].of(false)
+      uses <- SignallingRef[IO].of(0)
+      connect: HaFeed.Connect = Resource.eval(
+        for {
+          d <- Deferred[IO, Unit]
+          _ <- closeRef.set(Some(d))
+          _ <- uses.update(_ + 1)
+          // The first connection stays up (the feed's acquisition waits for its
+          // opening state); every one after it closes the moment it is up.
+          _ <- instant.get.flatMap(now => d.complete(()).whenA(now))
+        } yield (fake, d.get)
+      )
+      attempts <- HaFeed.resource(connect).use { _ =>
+        for {
+          _ <- instant.set(true)
+          _ <- fake.dropConnection *> closeRef.get
+            .flatMap(_.get.complete(()))
+            .void
+          _ <- IO.sleep(2.seconds)
+          n <- uses.get
+        } yield n
+      }
+      // Two seconds of instant closes buys a couple of attempts at a 1s minimum
+      // backoff, doubling. Unthrottled it was thousands, so the bound is loose
+      // on purpose — it discriminates by orders of magnitude, not by timing.
+    } yield assert(attempts <= 6, clue = attempts)).timeout(30.seconds)
+  }
 
   test("the store keeps being refilled across a reconnect") {
     (for {
