@@ -293,13 +293,10 @@ class Server(
         // cursor issued against the previous renderer's log names versions this
         // one never had, so it must not be resumable
         // (docs/plan-sse-resume.md).
-        Stream
-          .eval(Server.freshLog.flatMap(live.log.set))
-          .flatMap { _ =>
-            stateStore.changes
-              .evalMap(sharedPatches(renderer, live.log, _))
-              .flatMap(Stream.emits)
-          }
+        Stream.exec(Server.freshLog.flatMap(live.log.set)) ++
+          stateStore.changes
+            .evalMap(sharedPatches(renderer, live.log, _))
+            .flatMap(Stream.emits)
       }
       .map(sse => (slug, sse))
       .through(sharedTopic.publish)
@@ -310,11 +307,14 @@ class Server(
   def sharedPatchPublishers: Stream[IO, Nothing] =
     Stream
       .eval(renderers.get)
-      .flatMap { rs =>
-        rs.toList
-          .map { case (slug, live) => publisherFor(slug, live) }
-          .foldLeft(Stream.empty.covaryAll[IO, Nothing])(_.merge(_))
-      }
+      .flatMap(rs =>
+        Stream
+          .emits(rs.toList.map { case (slug, live) =>
+            publisherFor(slug, live)
+          })
+          .covary[IO]
+          .parJoinUnbounded
+      )
 
   /** Current number of subscribers on the shared-patch topic, as a signal
     * stream — a test seam (mirroring [[StateStore.changeSubscribers]]) to await
@@ -563,13 +563,13 @@ class Server(
     (live.renderer.get, live.log.get, stateStore.current).mapN {
       (renderer, log, store) =>
         val cursor = Server.cursorOf(req)
-        val head =
-          if (cursor.exists(_.styleHash != renderer.styleHash))
-            Server.headPatches(renderer, slug)
-          else Nil
         if (cursor.exists(_.headHash != renderer.headHash))
           List(Server.reloadPatch)
         else {
+          val head =
+            if (cursor.exists(_.styleHash != renderer.styleHash))
+              Server.headPatches(renderer, slug)
+            else Nil
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
             .flatMap(c =>
@@ -593,23 +593,27 @@ class Server(
           // standing. A claim the dashboard no longer recognises (its surface was
           // renamed or removed) is the one case that resets the host instead —
           // that dialog belongs to nothing and cannot be revived.
-          val popup = Server.popupOf(req).toList.map { sid =>
-            Server
-              .claimedPopup(req, renderer)
-              .flatMap(_ =>
-                renderer.renderSurface(sid, store.entities, uiState)
-              )
-              .fold(
-                Datastar.patch(
-                  s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                  PatchMode.Outer,
-                  None
+          val popup = Option
+            .when(Server.popupOf(req).nonEmpty) {
+              Server
+                .claimedPopup(req, renderer)
+                .flatMap(renderer.renderSurface(_, store.entities, uiState))
+                .fold(
+                  Datastar.patch(
+                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                    PatchMode.Outer,
+                    None
+                  )
+                )(
+                  Datastar
+                    .patch(
+                      _,
+                      PatchMode.Inner,
+                      Some("#" + Dashboard.PopupHostId)
+                    )
                 )
-              )(
-                Datastar
-                  .patch(_, PatchMode.Inner, Some("#" + Dashboard.PopupHostId))
-              )
-          }
+            }
+            .toList
           head ++ resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
             Server.cursorSignals(renderer, log.id, store.version)
         }
@@ -634,7 +638,7 @@ class Server(
   ): Stream[IO, ServerSentEvent] =
     Stream
       .eval(liveFor(session.slug))
-      .flatMap(live => Stream.emits(live.toList))
+      .unNone
       .flatMap { live =>
         live.renderer.discrete.zipWithPrevious
           .drop(1)
@@ -1093,7 +1097,12 @@ class Server(
     // restores the dialog (the signal itself dies with the document); the
     // effect mirrors it back on every change. Together these are a hand-rolled
     // `data-query-string` — see [[Server.UrlSyncScript]] and ADR 0005.
-    val popupSeed = Server.escapeHtml(restore.popup.getOrElse(""))
+    // Two nested contexts, so two escapes: the value sits in a JS string literal
+    // (Datastar parses the attribute as an expression) which sits in an HTML
+    // attribute. HTML-escaping alone is not enough — `&#39;` decodes back to a
+    // bare `'` and closes the literal early.
+    val popupSeed =
+      Server.escapeHtml(Server.escapeJsString(restore.popup.getOrElse("")))
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
@@ -1592,6 +1601,13 @@ object Server {
     * page `<title>`). Ampersand first so the entity replacements aren't
     * double-escaped.
     */
+  /** Escape a string for interpolation into a single-quoted JS string literal
+    * (a seeded signal value inside a Datastar expression). Backslash first, or
+    * the escapes we add would themselves be escaped.
+    */
+  private[runtime] def escapeJsString(s: String): String =
+    s.replace("\\", "\\\\").replace("'", "\\'")
+
   def escapeHtml(s: String): String =
     s.replace("&", "&amp;")
       .replace("<", "&lt;")

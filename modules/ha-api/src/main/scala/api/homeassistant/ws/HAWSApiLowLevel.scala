@@ -53,6 +53,16 @@ trait HAWSApiLowLevel[F[_]] {
 
 object HAWSApiLowLevel {
 
+  /** The error a caller sees for work issued on a dead connection: the cause
+    * that killed it when there was one, since "closed" alone loses the only
+    * clue why (a clean socket end has no exception to reuse).
+    */
+  private def closed(cause: Either[Throwable, Unit]): Throwable =
+    cause.fold(
+      identity,
+      _ => new Exception("Home Assistant connection is closed")
+    )
+
   private case class Command(
       message: CommandPhase,
       id: Deferred[IO, Int],
@@ -228,13 +238,15 @@ object HAWSApiLowLevel {
                 }
               } yield ()
             }
-            .attempt
-            .evalTap {
-              case Left(err) => Console[IO].printStackTrace(err)
-              case Right(_)  => IO.unit
-            }
             .compile
             .drain
+            // A failed send kills this loop, and every command queued after
+            // that would block forever waiting for an id nobody allocates. So
+            // the same death rite as the receive loop: report it, close every
+            // route, and let the holder reconnect.
+            .attempt
+            .flatMap(die)
+            .void
             .background
 
           // Registration precedes the send, so the queue always exists when HA
@@ -277,6 +289,15 @@ object HAWSApiLowLevel {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
 
+              /** Fail if this connection has already died, carrying the cause
+                * that killed it (an abnormal close names itself; a clean one
+                * has no exception to reuse).
+                */
+              private val raiseIfDead: IO[Unit] =
+                terminated.tryGet.flatMap(
+                  _.traverse_(cause => IO.raiseError(closed(cause)))
+                )
+
               /** Queue `msg` for the wire and route its response frames to a
                 * fresh queue. Acquire returns once the drain fiber has taken it
                 * and allocated an id — the frame may still be in flight, so
@@ -302,22 +323,21 @@ object HAWSApiLowLevel {
                   // Already dead: fail here rather than queue a command onto a
                   // socket that cannot answer. `die` has been and gone, so it
                   // will never close a route registered after it.
-                  _ <- terminated.tryGet.flatMap(
-                    _.traverse_(_ =>
-                      IO.raiseError(
-                        new Exception(
-                          "Home Assistant connection is closed"
-                        )
-                      )
-                    )
-                  )
+                  _ <- raiseIfDead
                   payloadQueue <- Queue
                     .unbounded[IO, Option[Chunk[WSCommandPhaseServerPayload]]]
                   idDeferred <- IO.deferred[Int]
                   _ <- messageQueue.offer(
                     Command(msg, idDeferred, payloadQueue)
                   )
-                  id <- idDeferred.get
+                  // The id is allocated by the drain fiber, so waiting on it
+                  // blocks forever if that fiber is gone. Race the connection's
+                  // death (which a dead drain fiber now reports) so a caller
+                  // fails fast instead of hanging on an id nobody will mint.
+                  id <- idDeferred.get.race(terminated.get).flatMap {
+                    case Left(id)     => IO.pure(id)
+                    case Right(cause) => IO.raiseError[Int](closed(cause))
+                  }
                   // ...and close the race the check above cannot: if `die` ran
                   // between it and the registration, it passed over this route,
                   // so close it here. Either order ends with a `None` queued.
@@ -443,8 +463,16 @@ object HAWSApiLowLevel {
                 case false =>
                   die(Left(new Throwable("Home Assistant ping timed out"))).void
               }
+              // The keepalive is meaningless once the connection is gone, and
+              // worse than meaningless if it keeps running: nothing refreshes
+              // `lastActivity`, so every tick pings a dead socket, fails
+              // instantly, and the loop spins until teardown.
+              // Halt quietly (`Right`), rather than re-raising the cause into a
+              // background fiber that would only swallow it: `awaitClosed` is
+              // where the cause belongs, and it already has it.
+              .interruptWhen(terminated.get.as(Right(())))
               .compile
-              .lastOrError
+              .drain
               .background
           }
         } yield op

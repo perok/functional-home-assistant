@@ -65,10 +65,10 @@ private[runtime] object FragmentLog {
   * every leave-then-rejoin into a special case. Latest wins, so a rejoin is
   * simply [[Placed]] replacing [[Gone]].
   */
-private[runtime] enum Mutation(val version: Long, val millis: Long) {
+private[runtime] enum Mutation(val at: Stamp) {
 
   /** The element was deleted from the DOM. */
-  case Gone(at: Long, wall: Long) extends Mutation(at, wall)
+  case Gone(stamp: Stamp) extends Mutation(stamp)
 
   /** The element belongs at its CURRENT position in `gid`, wherever (or
     * whether) the client currently has it. Carries `gid`/`entityId` rather than
@@ -79,8 +79,14 @@ private[runtime] enum Mutation(val version: Long, val millis: Long) {
     * element here" — which is why an author-chosen member sort needs no new
     * mutation kind.
     */
-  case Placed(gid: String, entityId: String, at: Long, wall: Long)
-      extends Mutation(at, wall)
+  case Placed(gid: String, entityId: String, stamp: Stamp)
+      extends Mutation(stamp)
+
+  /** Ordering clock — see [[Stamp]]; the only one a resume compares against. */
+  def version: Long = at.version
+
+  /** Retention clock — see [[Stamp]]; orders nothing. */
+  def millis: Long = at.millis
 }
 
 /** What a resume owes a client holding a given cursor:
@@ -185,8 +191,7 @@ private[runtime] case class FragmentLog(
   def removed(nodeId: String, stamp: Stamp): FragmentLog =
     copy(
       fragments = fragments - nodeId,
-      mutations =
-        mutations.updated(nodeId, Mutation.Gone(stamp.version, stamp.millis))
+      mutations = mutations.updated(nodeId, Mutation.Gone(stamp))
     ).evicting(stamp.millis)
 
   /** Record that `entityId` belongs at its CURRENT position in group `gid` — an
@@ -202,10 +207,8 @@ private[runtime] case class FragmentLog(
   ): FragmentLog =
     set(nodeId, html, stamp.version)
       .copy(
-        mutations = mutations.updated(
-          nodeId,
-          Mutation.Placed(gid, entityId, stamp.version, stamp.millis)
-        )
+        mutations =
+          mutations.updated(nodeId, Mutation.Placed(gid, entityId, stamp))
       )
       .evicting(stamp.millis)
 

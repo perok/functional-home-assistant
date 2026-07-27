@@ -46,7 +46,7 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a departed member replays as a removal, not a group re-render") {
     // The win over re-rendering the group: one small patch, not 20 cards.
     val out = log.removed("c_light_a", at(5L)).owed(1L)
-    assertEquals(out.mutations, List("c_light_a" -> Mutation.Gone(5L, 5L)))
+    assertEquals(out.mutations, List("c_light_a" -> Mutation.Gone(at(5L))))
     // ...and the stale fragment does not also come back as a morph.
     assertEquals(out.fragments, Nil)
   }
@@ -57,7 +57,7 @@ class FragmentLogSuite extends munit.FunSuite {
     val out = log.placed("c", "light.a", "c_light_a", "<a/>", at(5L)).owed(1L)
     assertEquals(
       out.mutations,
-      List("c_light_a" -> Mutation.Placed("c", "light.a", 5L, 5L))
+      List("c_light_a" -> Mutation.Placed("c", "light.a", at(5L)))
     )
     assertEquals(out.fragments, Nil)
   }
@@ -71,7 +71,7 @@ class FragmentLogSuite extends munit.FunSuite {
       .owed(1L)
     assertEquals(
       out.mutations,
-      List("c_light_a" -> Mutation.Placed("c", "light.a", 20L, 20L))
+      List("c_light_a" -> Mutation.Placed("c", "light.a", at(20L)))
     )
   }
 
@@ -80,7 +80,7 @@ class FragmentLogSuite extends munit.FunSuite {
       .placed("c", "light.a", "c_light_a", "<a/>", at(10L))
       .removed("c_light_a", at(20L))
       .owed(1L)
-    assertEquals(out.mutations, List("c_light_a" -> Mutation.Gone(20L, 20L)))
+    assertEquals(out.mutations, List("c_light_a" -> Mutation.Gone(at(20L))))
   }
 
   test("a subtree re-stamp supersedes its stale mutations") {

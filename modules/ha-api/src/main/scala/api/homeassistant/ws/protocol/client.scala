@@ -101,13 +101,11 @@ object client {
                 result,
                 _
               ) =>
-            given Decoder[R] = resultDecoder
-
             result
               // A bare success ack carries no `result`; decode `null`, which a
               // `Unit` result (a subscribe ack) expects.
               .getOrElse(Json.Null)
-              .as[R]
+              .as[R](using resultDecoder)
               .liftTo[IO]
           case WSCommandPhaseServer.result(
                 false,
