@@ -86,7 +86,7 @@ lazy val `fh-codegen-plugin` = project
     // TOdo alias instead
     // fhTaskCodeGen := (ThisBuild / scalafmt).dependsOn(fhTaskCodeGen),
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "scalafmt-core" % "3.11.1", // check latest version
+      "org.scalameta" %% "scalafmt-core" % "3.11.5", // check latest version
       // "org.scalameta" %% "scalameta" % "4.12.7", https://github.com/scalameta/scalameta/issues/4145
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
