@@ -118,17 +118,29 @@ Datastar expression (spliced as literal text into
 
 - service call → `@post('/sse/action/<domain>/<service>/<entity_id>')`
 - popup → `@post('/sse/surface/open/<id>')` / `@post('/sse/popup/close')`
-- navigate → `window.location.assign(new URL('d/<slug>', document.baseURI))`
 
 This is why reuse "just works": `c.button(eo, action=c.openPopup('x'))` needs
 no new template.
 
+**Going somewhere is the exception, and it is not an expression at all.** A `Tap`
+that navigates carries an `href` (`d/<slug>`, relative so `<base href>` resolves
+it under ingress), and a card whose root can be an `<a>` must prefer it — the
+`button` template branches on `{{#href}}` and emits
+`<a class="button card" href="…">` instead of a scripted `<button>`. A link the
+browser understands is worth the branch: middle-click, open-in-new-tab, the
+status-bar preview, and a click that works before Datastar has loaded. (BeerCSS
+styles buttons as `:is(button,.button)`, so the anchor form is visually
+identical.) The `Tap` also carries the equivalent `onclick`
+(`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
+root element cannot be an anchor — `entityCard`'s `<article>` — so one authored
+`c.navigate('x')` renders correctly wherever it is dropped.
+
 ### Navigation is a real page load
 
-Going to another dashboard is an ordinary document load of `/d/:slug`
-(`window.location.assign`, built from `document.baseURI` so it survives the
-ingress prefix). The browser owns the history entry; there is no `pushState`, no
-`popstate` handler, and no `/sse/navigate` route.
+Going to another dashboard is an ordinary document load of `/d/:slug` — an
+`<a href>` where the card can be one, `location.assign` where it cannot (above).
+The browser owns the history entry; there is no `pushState`, no `popstate`
+handler, and no `/sse/navigate` route.
 
 This replaced an in-place body swap over the surviving SSE stream. That design
 existed to keep one stream and one session alive across a dashboard change, and
@@ -142,10 +154,9 @@ to re-read, a `<head>` the body patch could not reach (so a differently-themed
 target needed an explicit theme/title morph), and buttons that a browser cannot
 middle-click or open in a new tab.
 
-Remaining gap: the trigger is still an `onclick` expression on the one click
-slot, not an `<a href>`, so keyboard/middle-click/open-in-new-tab are only as
-good as the card's markup. Promoting a navigating card to a real anchor is a
-card-template change, not a backend one.
+Remaining gap: only `button` renders the anchor form. A navigating `entityCard`
+falls back to the scripted click, so it is not middle-clickable; promoting it
+means wrapping its `<article>` in the template, not a backend change.
 
 ### The generic hoist: inline surfaces + `@@NODE_ID@@`
 

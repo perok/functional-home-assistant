@@ -184,11 +184,18 @@ function expr(s: String): Expr = new { transform = s }
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 /// A tap descriptor: the whole Datastar click expression, either live (a Slot
-/// reading $entity_id/$domain) or a constant string (navigate). A tap that opens
+/// reading $entity_id/$domain) or a constant string. A tap that opens
 /// an INLINE popup also carries `inlineSurfaces` (the dialog content); the card
 /// copies it onto the node so the hoist can lift it.
+///
+/// A tap that goes somewhere ([[navigate]]) ALSO sets `href`, and a card that
+/// can be an anchor must prefer it — that is what gives the browser real link
+/// behavior (middle-click, open-in-new-tab, status bar, no JS). `onclick` is
+/// then the equivalent for cards whose root element cannot be an `<a>` (the
+/// `<article>` of [[EntityCard]]), so every card renders the same intent.
 class Tap {
   onclick: Slot|String
+  href: String? = null
   inlineSurfaces: Mapping<String, SurfaceDef>? = null
 }
 
@@ -230,11 +237,14 @@ function serviceTap(action: String): Tap =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
-/// history entry (ADR 0002). `location.assign` does NOT resolve against
-/// <base href>, so the URL is built explicitly from document.baseURI (works
-/// directly and behind ingress).
-function navigate(slug: String): Tap =
-  new { onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))" }
+/// history entry (ADR 0002). The `href` is RELATIVE and resolves against
+/// <base href> (works directly and behind ingress); the `onclick` twin is for
+/// non-anchor cards only and has to build the URL itself, since
+/// `location.assign` does not consult <base href>.
+function navigate(slug: String): Tap = new {
+  href = "d/\(slug)"
+  onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
+}
 
 /// Dismiss the (single, at-a-time) open popup — the id-less `POST
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.
@@ -506,14 +516,24 @@ hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 class Button extends Node {
   card = "button"
   cardDef = new CardDef {
+    // A button that GOES somewhere is an `<a href>`, not a scripted click: the
+    // browser then gives it middle-click, open-in-new-tab, the status-bar
+    // preview, and a working click before Datastar has even loaded. `.button`
+    // is BeerCSS's element-independent button styling, so the two forms look
+    // the same (verified in beer.min.css: every button rule is
+    // `:is(button,.button)`). Only `label` is a declared slot — the other two
+    // are the two arms of one choice, so neither is always present.
     template = """
-      <button class="card" data-on:click="{{{onclick}}}">{{label}}</button>
+      {{#href}}<a class="button card" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="card" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
       """
-    slots { "label"; "onclick" }
+    slots { "label" }
   }
   hidden entity: hass.Entity? = null
   hidden label: (String|Expr)? = null
   hidden action: Tap? = null
+  // The tap actually rendered — late binding re-derives it (and the slots
+  // below) when a builder amends `action`.
+  hidden tap: Tap = action ?? toggleTap
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
@@ -521,7 +541,14 @@ class Button extends Node {
       ["entity_id"] = entity!!.entity_id
     }
     ["label"] = labelSlot(entity, label)
-    ["onclick"] = (action ?? toggleTap).onclick
+    // The anchor form wins when the tap offers one; the other slot is then
+    // omitted entirely rather than emitted-and-ignored, so the node JSON says
+    // which element it is.
+    when (tap.href != null) {
+      ["href"] = tap.href!!
+    } else {
+      ["onclick"] = tap.onclick
+    }
   }
   // Fluent config (see [[EntityCard]]'s builder methods).
   function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }

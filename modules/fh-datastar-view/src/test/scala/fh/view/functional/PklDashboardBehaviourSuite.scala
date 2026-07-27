@@ -46,6 +46,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |    c.title("Fixture Home")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.button("Elsewhere", c.navigate("other"))
        |  }
        |}
        |""".stripMargin
@@ -65,6 +66,21 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // The kitchen light card: its friendly_name label and its "on" state.
       assert(html.contains("Kitchen"), clue = html)
       assert(html.contains(">on<"), clue = html)
+    }
+  }
+
+  test("a navigating button reaches the browser as a real link") {
+    withServer(_.page).map { html =>
+      // The whole point of ADR 0002's navigation decision, end to end: the
+      // author wrote c.navigate, and what ships is an anchor the browser can
+      // middle-click, with a relative href resolved against <base href> — no
+      // script, so it works before Datastar loads.
+      assert(
+        html.contains(
+          """<a class="button card" href="d/other">Elsewhere</a>"""
+        ),
+        clue = html
+      )
     }
   }
 

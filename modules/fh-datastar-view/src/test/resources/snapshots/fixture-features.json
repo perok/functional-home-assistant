@@ -195,10 +195,9 @@
   "cards" : {
     "button" : {
       "slots" : [
-        "label",
-        "onclick"
+        "label"
       ],
-      "template" : "<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>"
+      "template" : "{{#href}}<a class=\"button card\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>{{/href}}"
     },
     "entityCard" : {
       "slots" : [

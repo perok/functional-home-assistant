@@ -590,7 +590,9 @@ class PklBuildSuite extends munit.FunSuite {
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
-      "button" -> List("label", "onclick"),
+      // `href`/`onclick` are the two arms of one choice (anchor vs scripted
+      // click), so neither is a declared slot — only `label` always appears.
+      "button" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> List(
         "label",
@@ -1106,6 +1108,22 @@ class PklBuildSuite extends munit.FunSuite {
         |node = new c.EntityCard { entity = light; value = c.expr("$state") }""".stripMargin
     )
     assertEquals(plain.slots("value").entityId, None)
+  }
+
+  test("a navigating button is an anchor: `href`, and no onclick at all") {
+    val nav = probeComponent("""node = c.button("Home", c.navigate("other"))""")
+    // Relative, so it resolves against the page's <base href> (ingress-safe),
+    // and it is a literal — nothing about a link depends on live state.
+    assertEquals(nav.slots("href").literal, Some("d/other"))
+    assert(!nav.slots.contains("onclick"), clue = nav.slots)
+    // Every other tap keeps the scripted-click form, and offers no href — the
+    // template's `{{^href}}` arm is what renders it.
+    val toggle = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = c.button("Toggle", c.toggleTap).entity(light)""".stripMargin
+    )
+    assert(!toggle.slots.contains("href"), clue = toggle.slots)
+    assert(toggle.slots("onclick").transform.contains("@post"))
   }
 
   test("Row cssClass emits a literal `class` slot") {
