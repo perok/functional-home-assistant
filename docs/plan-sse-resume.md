@@ -62,12 +62,13 @@ state.
 
 ## The shape
 
-Three client-carried values, all riding the signal channel that already works, plus one
+Four client-carried values, all riding the signal channel that already works, plus one
 server-side structure:
 
 | value | question it answers | on mismatch |
 |---|---|---|
-| `headHash` | does the browser's `<head>` still match? | full page **reload** |
+| `headHash` | does the browser's UNPATCHABLE `<head>` still match? | full page **reload** |
+| `styleHash` | and the patchable rest of it (theme CSS, `<title>`)? | two **head patches** |
 | `logId` | is this cursor even comparable? | body **repaint** |
 | `storeVersion` | how far behind is this client's state? | body **repaint** |
 | (server-side) fragment log | what changed since then — and is it still retained? | body **repaint** |
@@ -379,9 +380,8 @@ every card edit, losing scroll position and flashing white, to fix nothing the r
 already fixed. **And the hash was never needed to gate the resume**, because a dashboard
 change always arrives via a renderer swap, which rotates `logId` (above).
 
-What a patch genuinely cannot repair is `<head>`: theme stylesheets, scripts, inline CSS,
-`<title>`. So the hash is scoped to exactly that — `Renderer.headHash`, 12 hex of SHA-256
-over `theme` + `title`, the same idiom as `fh-home@1.0.0-g<hash>`. The `<base href>` is
+What a patch genuinely cannot repair is `<head>`. So the hash is scoped to exactly that,
+12 hex of SHA-256, the same idiom as `fh-home@1.0.0-g<hash>`. The `<base href>` is
 excluded deliberately: it is per-REQUEST (the ingress prefix), not per-dashboard, so folding
 it in would make one dashboard hash differently depending on how it was reached.
 
@@ -397,10 +397,33 @@ restart on an HA update would refresh every browser even though the theme is byt
 A hash is stable across restarts — which is exactly why it cannot double as `logId`, whose
 whole job is to NOT survive one.
 
+### The head splits in two: what patches, and what doesn't
+
+`headHash` first covered the whole head, so a theme edit or a rename reloaded the page. That
+is heavier than it needs to be — a reload throws away *everything* the client holds (an open
+popup, a slider mid-drag, scroll position) to re-send a stylesheet — and now that the theme
+`<style>` lives outside `#dashboard` as `<style id="fh-theme">` it does not have to. Give the
+`<title>` an id too (`<title id="fh-title">`) and both are ordinary morph targets.
+
+So the head is hashed as two values:
+
+- `styleHash` — theme tokens, `tokensDark`, inline `styles`, `title`. Exactly what
+  `Renderer.themeStyleTag` + the `<title>` render, so a mismatch is repaired by
+  `Server.headPatches`: two element patches, no reload.
+- `headHash` — `<link>`ed stylesheets, module scripts, `theme.chrome`. None of these can be
+  patched honestly: a `<link>` can be added but not un-applied, a module script cannot be
+  re-run, and the chrome is the frame the body patch lands INSIDE. This is the reload
+  trigger, and it now fires only for changes that genuinely need one.
+
+`headPatches` is orthogonal to the resume/repaint decision — it is prepended to whichever
+outcome applies, so a re-themed dashboard costs a client its stylesheet, not its scroll
+position. `navigate` sends it unconditionally (the dashboard changed), which also fixes an
+old gap: an in-place navigate never used to update the `<title>`.
+
 Three outcomes, and `Server.openingPatches` picks in this order:
 
-- **head differs** ⇒ full page **reload**, and nothing else is sent (the page is about to
-  re-render itself from scratch).
+- **unpatchable head differs** ⇒ full page **reload**, and nothing else is sent (the page is
+  about to re-render itself from scratch).
 - **cursor comparable** ⇒ **resume**.
 - **anything else** (including a cursor invalidated by a restart or a swap) ⇒ body
   **repaint**, as before this plan.
@@ -413,9 +436,10 @@ the three cursor signals this one has no reason to ride any URL.
 
 This also fixed a case that was broken independently of resuming: a theme edit while a client
 is WATCHING used to morph the body and leave the old stylesheets in place, so the page kept
-the previous look until manually refreshed. `reloadRepaints` now compares the head hash
-across the swap (`zipWithPrevious` — the question is "did the head change *across this
-swap*", not "does it differ from some baseline") and reloads instead of morphing.
+the previous look until manually refreshed. `reloadRepaints` now compares both hashes across
+the swap (`zipWithPrevious` — the question is "did the head change *across this swap*", not
+"does it differ from some baseline"): a changed `styleHash` rides along with the repaint as
+head patches, a changed `headHash` reloads.
 
 ### Two things the browser was flashing
 
@@ -545,6 +569,12 @@ one to drive.
    browser to confirm — `data-effect` is documented in the vendored reference but unverified
    on the pinned build, as is the banner's `.debounce_600ms` modifier separator (the vendored
    docs use `.debounce_Xms` while the code's other modifier is `__window`).
+4c. **The reload was doing too much.** With the theme `<style>` out of the body (`cfd65fd`)
+   and an id on the `<title>`, both are morph targets, so the head hash split in two:
+   `styleHash` (theme CSS + title) patches, `headHash` (stylesheets, scripts, chrome)
+   reloads. Same three outcomes, but head patches ride in front of whichever one applies —
+   see "The head splits in two" above. A theme edit or a rename no longer costs a watching
+   client its scroll position, its open popup, or a slider it is dragging.
 5. ~~**Per-session fragments** (open surfaces, bake owners) die with the connection…~~
    **Done.** They have no cross-connection log — `Session.lastRendered` is a `FragmentLog`
    for uniformity but its versions are never resumed from — so on the resume path each
@@ -649,12 +679,18 @@ Pkl build path, default beer theme):
 
 Two things fall out. The variant log would save that 1762 B per reconnect — a few KB on a
 real dashboard, real but modest, so it stays deferred. And the number that actually dominates
-a repaint is not per-session content at all: **80% of it is a static stylesheet**. `renderBody`
-prepends `themeStyle` because a live reload or navigate must repaint it — but a theme change
-now forces a page RELOAD (step 4b), so the only remaining reason is navigate between
-dashboards with different themes, which a separate `<style>` morph would serve. Moving the
-theme out of the repainted body is a bigger and much simpler win than either log, and it is
-orthogonal to all of this. Do it first.
+a repaint is not per-session content at all: **80% of it was a static stylesheet**.
+`renderBody` used to prepend it so that a live reload or navigate would repaint it too.
+**Done** (`cfd65fd`): it is now `<style id="fh-theme">` outside `#dashboard`, morphed by id
+only when it actually changed — which also made the head split above possible.
+
+The variant log stays deferred, and its value has shifted: bytes were never the strongest
+argument for it. The one it inherits is **client-side state**. A repaint of an interactive
+node resets whatever the browser was holding in it, and step 5's per-session paint is the one
+place we re-send unconditionally, without knowing anything changed. That is best-effort, not
+a correctness bar — a morph of byte-identical HTML is nearly free, and the realistic casualty
+(a slider mid-drag during a reconnect) is rare — so it does not get to drive the design. It
+just means the log's payoff is preservation, not payload.
 
 ## Cookie or signal? (per-session state)
 

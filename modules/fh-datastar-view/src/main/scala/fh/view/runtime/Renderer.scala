@@ -91,10 +91,16 @@ class Renderer(
 
   private val mainIndex = new Index(dashboard.card, "")
 
-  /** Does the browser's `<head>` still match this dashboard? A mismatch is the
-    * ONE thing a body patch cannot repair — theme stylesheets, scripts, inline
-    * CSS, `<title>` — so it is the one thing worth a full page **reload**
+  /** Does the browser's `<head>` still match the UNPATCHABLE part of this
+    * dashboard — the theme's `<link>`ed stylesheets, its module scripts, and
+    * its `chrome` frame? A mismatch is the one thing neither a body patch nor a
+    * head patch can repair (a `<link>` can be added but not un-applied, a
+    * module script cannot be re-run, and the chrome is the frame the body patch
+    * lands INSIDE), so it is the one thing worth a full page **reload**
     * (docs/plan-sse-resume.md).
+    *
+    * The rest of the head — tokens, inline CSS, `<title>` — is [[styleHash]]
+    * instead: it patches.
     *
     * Deliberately NOT a hash of the whole dashboard. Cards and layout live in
     * the body, which the repaint already re-sends in full, so hashing them
@@ -108,6 +114,14 @@ class Renderer(
     * one.
     */
   val headHash: String = Renderer.headFingerprint(dashboard)
+
+  /** The PATCHABLE part of the head: the theme's tokens and inline CSS (which
+    * are exactly [[themeStyleTag]]) plus the authored `<title>`. A mismatch
+    * costs two small element patches, not a reload — see `Server.headPatches`.
+    *
+    * Same restart-stability contract as [[headHash]].
+    */
+  val styleHash: String = Renderer.styleFingerprint(dashboard)
 
   /** Cards that opted out of the `.fh-cell` wrapper
     * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
@@ -628,11 +642,10 @@ class Renderer(
     * used to ride inside the repainted body so that a reload or navigate
     * swapped it too — but it is static and it is BIG: on a small demo dashboard
     * it is 7.7 KB of the 9.6 KB a repaint sends, re-transmitted on every
-    * reconnect that cannot resume. A theme change now forces a page reload
-    * instead ([[headHash]]/docs/plan-sse-resume.md), so the only case still
-    * needing it swapped in place is a navigate to a differently-themed
-    * dashboard, which morphs this element by its stable id
-    * ([[Renderer.ThemeStyleId]]).
+    * reconnect that cannot resume. It is now sent only when it actually
+    * changed, morphed by its stable id ([[Renderer.ThemeStyleId]]) — on a
+    * navigate to a differently-themed dashboard, and on a reconnect whose
+    * [[styleHash]] no longer matches (`Server.headPatches`).
     */
   val themeStyleTag: String = {
     val theme = dashboard.theme
@@ -1048,14 +1061,12 @@ object Renderer {
       Transforms.fromValidated(v)
     )
 
-  /** 12 hex of SHA-256 over everything `Server.page` puts in `<head>` that this
-    * dashboard decides — the same idiom as `fh-home@1.0.0-g<hash>`. See
-    * [[Renderer.headHash]] for what it is for.
+  /** 12 hex of SHA-256 over the part of `<head>` only a reload can change — the
+    * same idiom as `fh-home@1.0.0-g<hash>`. See [[Renderer.headHash]].
     *
-    * That is the theme (stylesheets, scripts, inline CSS, tokens) and the
-    * authored `<title>`. The `<base href>` is excluded on purpose: it is
-    * per-REQUEST (the ingress prefix), not per-dashboard, so folding it in
-    * would make one dashboard hash differently depending on how it was reached.
+    * The `<base href>` is excluded on purpose: it is per-REQUEST (the ingress
+    * prefix), not per-dashboard, so folding it in would make one dashboard hash
+    * differently depending on how it was reached.
     *
     * Over the decoded model rather than the evaluated JSON text, so it is blind
     * to key order and formatting. `toString` is a deterministic rendering here:
@@ -1065,12 +1076,28 @@ object Renderer {
     * JVM-run-specific.
     */
   private[runtime] def headFingerprint(dashboard: Dashboard): String =
-    LibPackage
-      .sha256(
-        (dashboard.theme.toString + " " + dashboard.title.getOrElse(""))
-          .getBytes("UTF-8")
-      )
-      .take(12)
+    fingerprint(
+      (
+        dashboard.theme.stylesheets,
+        dashboard.theme.scripts,
+        dashboard.theme.chrome
+      ).toString
+    )
+
+  /** 12 hex over the patchable part of `<head>`. See [[Renderer.styleHash]].
+    */
+  private[runtime] def styleFingerprint(dashboard: Dashboard): String =
+    fingerprint(
+      (
+        dashboard.theme.tokens,
+        dashboard.theme.tokensDark,
+        dashboard.theme.styles,
+        dashboard.title
+      ).toString
+    )
+
+  private def fingerprint(s: String): String =
+    LibPackage.sha256(s.getBytes("UTF-8")).take(12)
 
   /** Id of the theme's `<style>` element — stable across dashboards, so a
     * navigate can morph one theme into another.

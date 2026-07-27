@@ -173,19 +173,25 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   test("page <title> uses the dashboard's authored title when present") {
     pageHtml(titleDash("home", Some("My Home"))).map { html =>
-      assert(html.contains("<title>My Home</title>"))
+      assert(
+        html.contains(s"""<title id="${Server.TitleId}">My Home</title>""")
+      )
     }
   }
 
   test("page <title> falls back to the slug when no title is authored") {
     pageHtml(titleDash("energy", None)).map { html =>
-      assert(html.contains("<title>energy</title>"))
+      assert(html.contains(s"""<title id="${Server.TitleId}">energy</title>"""))
     }
   }
 
   test("page <title> escapes an authored title") {
     pageHtml(titleDash("x", Some("A & <B>"))).map { html =>
-      assert(html.contains("<title>A &amp; &lt;B&gt;</title>"))
+      assert(
+        html.contains(
+          s"""<title id="${Server.TitleId}">A &amp; &lt;B&gt;</title>"""
+        )
+      )
     }
   }
 
@@ -894,6 +900,8 @@ class ServerSuite extends munit.CatsEffectSuite {
 
     def headHash: String = renderer.headHash
 
+    def styleHash: String = renderer.styleHash
+
     /** Connect to the SSE route with `cursor` in the `datastar` signal param —
       * exactly how a reconnecting browser arrives — and read the OPENING block.
       * That ends at the cursor signal, which the connect path emits last, or at
@@ -906,6 +914,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       val signals = cursor.toList.flatMap(c =>
         List(
           s""""${Server.HeadHashSignal}":"${c.headHash}"""",
+          s""""${Server.StyleHashSignal}":"${c.styleHash}"""",
           s""""${Server.LogIdSignal}":"${c.logId}"""",
           s""""${Server.StoreVersionSignal}":${c.version}"""
         )
@@ -1271,9 +1280,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     assertEquals(
       Server.cursorOf(
-        req("""{"headHash":"h1","logId":"L1","storeVersion":7}""")
+        req(
+          """{"headHash":"h1","styleHash":"s1","logId":"L1","storeVersion":7}"""
+        )
       ),
-      Some(Server.Cursor("h1", "L1", 7L))
+      Some(Server.Cursor("h1", "s1", "L1", 7L))
     )
     // A first load carries only the signals the page declared — no cursor.
     assertEquals(Server.cursorOf(req("""{"conn":"c","haDown":false}""")), None)
@@ -1316,7 +1327,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
       _ <- h.step(es("sensor.a", "hot"))
       logId <- h.logId
-      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
     } yield {
       assert(opening.contains(">hot<"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
@@ -1337,7 +1350,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       // ...then b leaves: 1 of 5 shown, under the churn fraction, so per-entity.
       left <- h.step(off("light.b"))
       logId <- h.logId
-      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 2L)))
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 2L))
+      )
     } yield {
       assertEquals(left.size, 1, clue = left)
       assert(opening.contains("selector #c_light_b"), clue = opening)
@@ -1362,11 +1377,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       none <- opening(_ => IO.pure(None))
       // A log this server no longer has (a restart, or a renderer swap).
       staleLog <- opening(h =>
-        IO.pure(Some(Server.Cursor(h.headHash, "gone-with-the-log", 1L)))
+        IO.pure(
+          Some(Server.Cursor(h.headHash, h.styleHash, "gone-with-the-log", 1L))
+        )
       )
       // A version this store never reached.
       future <- opening(h =>
-        h.logId.map(id => Some(Server.Cursor(h.headHash, id, 99L)))
+        h.logId.map(id => Some(Server.Cursor(h.headHash, h.styleHash, id, 99L)))
       )
     } yield {
       assert(none.contains(BodyRepaint), clue = none)
@@ -1386,7 +1403,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
       _ <- h.step(es("sensor.a", "hot"))
       logId <- h.logId
-      opening <- h.opening(Some(Server.Cursor("0000deadbeef", logId, 1L)))
+      opening <- h.opening(
+        Some(Server.Cursor("0000deadbeef", h.styleHash, logId, 1L))
+      )
     } yield {
       assert(opening.contains(s""""${Server.ReloadSignal}":true"""), opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
@@ -1445,7 +1464,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       panelTick <- h.step(es("sensor.a", "new"))
       logId <- h.logId
       // The client's cursor is at v1: it already has ">hot<".
-      opening <- h.opening(Some(Server.Cursor(h.headHash, logId, 1L)))
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
     } yield {
       assertEquals(panelTick, Nil, clue = panelTick)
       // Without the fresh paint this value would never reach the reconnected
@@ -1486,7 +1507,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       // connection's (now dead) per-session cache was its only record.
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
       logId <- h.logId
-      cursor = Some(Server.Cursor(h.headHash, logId, 1L))
+      cursor = Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
       restored <- h.opening(cursor, popup = Some("det"))
       // A claim this dashboard cannot serve is the one case that clears the host.
       orphan <- h.opening(cursor, popup = Some("was-renamed"))
@@ -1566,14 +1587,48 @@ class ServerSuite extends munit.CatsEffectSuite {
         .updated("card", CardDef("<b>{{state}}</b>", slots = List("state")))
     )
     assertEquals(Renderer.create(editedCard).headHash, base)
-    // A theme or title change does.
+    // A new stylesheet does: nothing can un-apply the old one.
     val editedTheme = liveLeafDash.copy(theme =
       Theme(stylesheets = List("https://example.test/other.css"))
     )
     assertNotEquals(Renderer.create(editedTheme).headHash, base)
-    assertNotEquals(
-      Renderer.create(liveLeafDash.copy(title = Some("Renamed"))).headHash,
-      base
-    )
+  }
+
+  test("styleHash tracks the patchable head, and headHash ignores it") {
+    val base = Renderer.create(liveLeafDash)
+    assertEquals(Renderer.create(liveLeafDash).styleHash, base.styleHash)
+    // Inline CSS and the title patch, so they move styleHash and leave
+    // headHash — the reload trigger — alone.
+    val restyled =
+      liveLeafDash.copy(theme = Theme(styles = ".card{color:red}"))
+    val renamed = liveLeafDash.copy(title = Some("Renamed"))
+    List(restyled, renamed).foreach { d =>
+      assertNotEquals(Renderer.create(d).styleHash, base.styleHash)
+      assertEquals(Renderer.create(d).headHash, base.headHash)
+    }
+  }
+
+  test("a stale theme is patched into the head, not reloaded") {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, "0000deadbeef", logId, 1L))
+      )
+    } yield {
+      assert(
+        opening.contains(s"""<style id="${Renderer.ThemeStyleId}">"""),
+        opening
+      )
+      assert(opening.contains(s"""<title id="${Server.TitleId}">"""), opening)
+      assert(!opening.contains(s""""${Server.ReloadSignal}":true"""), opening)
+      // And the resume still happens: the head is repaired alongside it.
+      assert(!opening.contains(BodyRepaint), clue = opening)
+      assert(opening.contains(">hot<"), clue = opening)
+    }
   }
 }

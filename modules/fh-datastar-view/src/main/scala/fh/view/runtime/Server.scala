@@ -424,11 +424,7 @@ class Server(
           // the right direction to err in.
           if (patches.isEmpty) patches
           else
-            patches :+ Server.cursorSignals(
-              renderer.headHash,
-              logId,
-              req.stamp.version
-            )
+            patches :+ Server.cursorSignals(renderer, logId, req.stamp.version)
         }
     }
 
@@ -461,7 +457,7 @@ class Server(
       // a reconnected client would show pre-drop values until each entity next
       // ticks. Either the cursor names precisely what this DOM holds (resume), or
       // the whole body is repainted from the current snapshot.
-      opening <- liveOpt.traverse(openingPatches(_, req, uiState))
+      opening <- liveOpt.traverse(openingPatches(slug, _, req, uiState))
       // Home-Assistant-feed liveness, PUSHED from the server (it owns the
       // `healthy` signal). This is concept 1 of the two disconnect concepts
       // (see [[Server.page]]): the backend knows when it can't reach HA, so it
@@ -522,11 +518,16 @@ class Server(
     * outcomes, narrowest first (docs/plan-sse-resume.md, step 4):
     *
     *   1. '''Reload''' when the client's `<head>` no longer matches this
-    *      dashboard's ([[Renderer.headHash]]) — a theme or title change.
-    *      Nothing else is sent: the page is about to re-render itself from
-    *      scratch.
+    *      dashboard's UNPATCHABLE part ([[Renderer.headHash]]) — new
+    *      stylesheets, scripts or chrome. Nothing else is sent: the page is
+    *      about to re-render itself from scratch.
     *   1. '''Resume''' when the cursor provably names what this DOM holds.
     *   1. '''Repaint''' the whole body, as before this plan.
+    *
+    * A stale THEME or `<title>` ([[Renderer.styleHash]]) is orthogonal to all
+    * three: it is repaired by [[headPatches]] in front of whichever outcome
+    * applies, so a re-themed dashboard no longer costs the client its scroll
+    * position and its open popup.
     *
     * '''The repaint is the default and every doubt falls back to it''': no
     * cursor (a fresh page load, whose body is server-rendered anyway), an
@@ -563,6 +564,7 @@ class Server(
     * serializes against the live diff path.
     */
   private def openingPatches(
+      slug: String,
       live: Server.LiveSlug,
       req: Request[IO],
       uiState: Map[String, String]
@@ -570,6 +572,10 @@ class Server(
     (live.renderer.get, live.log.get, stateStore.current).mapN {
       (renderer, log, store) =>
         val cursor = Server.cursorOf(req)
+        val head =
+          if (cursor.exists(_.styleHash != renderer.styleHash))
+            Server.headPatches(renderer, slug)
+          else Nil
         if (cursor.exists(_.headHash != renderer.headHash))
           List(Server.reloadPatch)
         else {
@@ -613,8 +619,8 @@ class Server(
                   .patch(_, PatchMode.Inner, Some("#" + Dashboard.PopupHostId))
               )
           }
-          resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
-            Server.cursorSignals(renderer.headHash, log.id, store.version)
+          head ++ resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
+            Server.cursorSignals(renderer, log.id, store.version)
         }
     }
 
@@ -623,11 +629,14 @@ class Server(
     * that reloaded is the one this connection is viewing now (it may have
     * navigated since connecting).
     *
-    * A reload whose `<head>` changed (a theme edit) sends the watching browser
-    * a page RELOAD instead: the body morph would leave the old stylesheets in
-    * place, so the page would keep the previous look until manually refreshed.
-    * `zipWithPrevious` is what makes that comparable — the decision is "did the
-    * head change across this swap", not "does it differ from some baseline".
+    * A reload that changed the head's UNPATCHABLE part ([[Renderer.headHash]] —
+    * `<link>`ed stylesheets, scripts, chrome) sends the watching browser a page
+    * RELOAD instead: the body morph would leave the old ones in place, so the
+    * page would keep the previous look until manually refreshed. A changed
+    * theme or title ([[Renderer.styleHash]]) rides along with the repaint as
+    * [[headPatches]]. `zipWithPrevious` is what makes both comparable — the
+    * decision is "did the head change across this swap", not "does it differ
+    * from some baseline".
     *
     * The watched set is the registry as it stands when this connection opens. A
     * slug pushed LATER is therefore not watched by this connection — it still
@@ -644,12 +653,13 @@ class Server(
       .eval(renderers.get)
       .flatMap(rs => Stream.emits(rs.toList))
       .map { case (s, live) =>
-        live.renderer.discrete.zipWithPrevious.drop(1).evalMapFilter {
-          case (previous, r) =>
+        live.renderer.discrete.zipWithPrevious
+          .drop(1)
+          .evalMap { case (previous, r) =>
             session.slug.get.flatMap { cur =>
-              if (cur != s) IO.pure(Option.empty[ServerSentEvent])
+              if (cur != s) IO.pure(List.empty[ServerSentEvent])
               else if (previous.exists(_.headHash != r.headHash))
-                IO.pure(Some(Server.reloadPatch))
+                IO.pure(List(Server.reloadPatch))
               else
                 // The repaint re-bakes the body (selected tabs included), so
                 // reset the diff cache AND re-seed the open set to match. Reuses
@@ -657,18 +667,20 @@ class Server(
                 (session.lastRendered.update(_.cleared) *>
                   session.open.set(r.selectedSurfaces(uiState)) *>
                   stateStore.snapshot)
-                  .map(st =>
-                    Some(
-                      Datastar
-                        .patch(
-                          r.renderBody(st, uiState),
-                          PatchMode.Inner,
-                          Some("#dashboard")
-                        )
+                  .map { st =>
+                    val head =
+                      if (previous.exists(_.styleHash != r.styleHash))
+                        Server.headPatches(r, s)
+                      else Nil
+                    head :+ Datastar.patch(
+                      r.renderBody(st, uiState),
+                      PatchMode.Inner,
+                      Some("#dashboard")
                     )
-                  )
+                  }
             }
-        }
+          }
+          .flatMap(Stream.emits)
       }
       .parJoinUnbounded
 
@@ -818,12 +830,12 @@ class Server(
             )
           )
           _ <- session.control.offer(Server.popupSignal(None))
-          // The theme lives outside the body now (Renderer.themeStyleTag), so a
-          // navigate into a differently-themed dashboard has to morph it
-          // explicitly — the body patch below no longer carries it.
-          _ <- session.control.offer(
-            Datastar.patchElements(renderer.themeStyleTag)
-          )
+          // The head is outside the body patch below, so a navigate into a
+          // differently-themed (or differently-titled) dashboard has to morph
+          // it explicitly.
+          _ <- Server
+            .headPatches(renderer, slug)
+            .traverse_(session.control.offer)
           _ <- session.control.offer(
             Datastar.patch(
               renderer.renderBody(states, uiState),
@@ -1074,9 +1086,7 @@ class Server(
           .map(src => s"""  <script type="module" src="$src"></script>""")
     ).mkString("\n")
     val baseHref = ingressPrefix.fold("/")(p => s"$p/")
-    // The authored per-dashboard title, or the slug when unset. Escaped for the
-    // HTML `<title>` element (an authored title is untrusted text).
-    val pageTitle = Server.escapeHtml(title.getOrElse(slug))
+    val pageTitle = Server.titleTag(title, slug)
     // On Back/Forward, derive the slug from the URL and re-post the swap (no
     // pushState — the browser already moved). `/d/<slug>` or `/` -> default.
     // The split works under any ingress prefix too.
@@ -1159,7 +1169,7 @@ class Server(
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <base href="$baseHref">
-       |  <title>$pageTitle</title>
+       |  $pageTitle
        |$links
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
@@ -1367,7 +1377,7 @@ object Server {
     */
   val HaDownSignal: String = "haDown"
 
-  /** The three resume signals (docs/plan-sse-resume.md), all PUSHED by the
+  /** The four resume signals (docs/plan-sse-resume.md), all PUSHED by the
     * server and never declared client-side. Datastar sends every
     * non-`_`-prefixed signal back with each backend action, so they ride the
     * reconnect URL for free and the server keeps no per-client state between
@@ -1378,13 +1388,15 @@ object Server {
     * which these ARE — but the prefix is what excludes a signal from the URL,
     * and riding the URL is their entire purpose.
     *
-    *   - `headHash` — does the browser's `<head>` still match? Mismatch ⇒ page
-    *     reload, the only remedy a body patch cannot supply
-    *     ([[Renderer.headHash]]).
+    *   - `headHash` — does the browser's `<head>` still match where it CANNOT
+    *     be patched? Mismatch ⇒ page reload ([[Renderer.headHash]]).
+    *   - `styleHash` — the patchable rest of the head. Mismatch ⇒ two element
+    *     patches ([[headPatches]]), no reload.
     *   - `logId` — is the cursor even comparable? Mismatch ⇒ body repaint.
     *   - `storeVersion` — the cursor itself: how far behind this client is.
     */
   val HeadHashSignal: String = "headHash"
+  val StyleHashSignal: String = "styleHash"
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
 
@@ -1408,7 +1420,36 @@ object Server {
     */
   val PopupSignal: String = "popup"
 
-  /** Reload this page. `_`-prefixed — unlike the three above, this one is pure
+  /** Id of the page `<title>`, so a head patch can morph it by id like any
+    * other element.
+    */
+  val TitleId: String = "fh-title"
+
+  /** The page `<title>`: the authored one, or the slug when unset. Escaped — an
+    * authored title is untrusted text.
+    */
+  private[runtime] def titleTag(title: Option[String], slug: String): String =
+    s"""<title id="$TitleId">${escapeHtml(title.getOrElse(slug))}</title>"""
+
+  /** Bring a client's `<head>` in line with this renderer WITHOUT reloading:
+    * the theme `<style>` and the `<title>`, which together are everything
+    * [[Renderer.styleHash]] covers. Sent on a navigate (the dashboard changed)
+    * and on a reconnect whose `styleHash` no longer matches.
+    *
+    * A reload would also work and used to be what we did, but it throws away
+    * every bit of client-side state on the page — an open popup, a slider
+    * mid-drag, scroll position — to re-send a stylesheet.
+    */
+  private[runtime] def headPatches(
+      renderer: Renderer,
+      slug: String
+  ): List[ServerSentEvent] =
+    List(
+      Datastar.patchElements(renderer.themeStyleTag),
+      Datastar.patchElements(titleTag(renderer.title, slug))
+    )
+
+  /** Reload this page. `_`-prefixed — unlike the four above, this one is pure
     * per-connection client state with no reason to ride any URL, and the page
     * turns it into `window.location.reload()` via `data-effect`.
     *
@@ -1421,12 +1462,13 @@ object Server {
   private[runtime] val reloadPatch: ServerSentEvent =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
 
-  /** What a reconnecting browser claims its DOM already holds. All three fields
-    * are required: a version without the log that issued it names nothing, and
-    * without the hash it could belong to a different compiled dashboard.
+  /** What a reconnecting browser claims its DOM already holds. Every field is
+    * required: a version without the log that issued it names nothing, and
+    * without the hashes it could belong to a different compiled dashboard.
     */
   private[runtime] case class Cursor(
       headHash: String,
+      styleHash: String,
       logId: String,
       version: Long
   )
@@ -1444,9 +1486,10 @@ object Server {
     for {
       c <- signalsOf(req)
       hash <- c.get[String](HeadHashSignal).toOption
+      styleHash <- c.get[String](StyleHashSignal).toOption
       logId <- c.get[String](LogIdSignal).toOption
       version <- c.get[Long](StoreVersionSignal).toOption
-    } yield Cursor(hash, logId, version)
+    } yield Cursor(hash, styleHash, logId, version)
 
   /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
     * a client that has none — including a first load, whose signal store is not
@@ -1487,12 +1530,13 @@ object Server {
     * actually been sent.
     */
   private[runtime] def cursorSignals(
-      headHash: String,
+      renderer: Renderer,
       logId: String,
       version: Long
   ): ServerSentEvent =
     Datastar.patchSignals(
-      s"""{"$HeadHashSignal":"$headHash",""" +
+      s"""{"$HeadHashSignal":"${renderer.headHash}",""" +
+        s""""$StyleHashSignal":"${renderer.styleHash}",""" +
         s""""$LogIdSignal":"$logId",""" +
         s""""$StoreVersionSignal":$version}"""
     )
