@@ -630,12 +630,14 @@ window, no reaper, no per-client mirror.
    path — they record the group differently. The rejoin cases are already covered by
    `FragmentLogSuite`; what is still unproven is that this holds through a real
    drop/resume in a browser.
-4. ~~**A restart repaints but does not reload**…~~ **Done** in a browser. A title edit
-   (part of the head hash, and editable in the workspace without touching the packaged
-   theme — which is how this was exercised) reloads the page; every other dashboard edit
-   morphs in place. The banner's debounce modifier is confirmed firing too. Both would have
-   failed SILENTLY (a stale-CSS page that never refreshes; a banner that never appears),
-   which is why they needed a browser rather than the unit decision in `ServerSuite`.
+4. ~~**A restart repaints but does not reload**…~~ **Done** in a browser. Every dashboard
+   edit morphs in place; a title edit used to reload the page and, since the head split
+   (4c), morphs too — the tab text changes with no reload, confirming that Datastar does
+   patch elements inside `<head>` by id. The theme `<style>` is the same mechanism on the
+   same code path, so it is taken as covered. The banner's debounce modifier is confirmed
+   firing too. All of these would have failed SILENTLY (a stale-CSS page that never
+   refreshes; a banner that never appears), which is why they needed a browser rather than
+   the unit decision in `ServerSuite`.
 5. **A parent and a child changing at different versions resume in the right order.** The
    silent failure is a stale container reverting a fresh child; only ordering prevents it.
    Covered at the unit level (`FragmentLogSuite`); still unproven through a real browser.
