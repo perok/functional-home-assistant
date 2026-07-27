@@ -295,7 +295,12 @@ object ServerApp extends IOApp {
       built <- entries
         .traverse { case (slug, entry) =>
           buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
-            case Right(r)  => IO.pure(Some((slug, r)))
+            case Right(r) =>
+              // Built, but maybe not sound: report what still serves and only
+              // misbehaves (a popup with nowhere to mount).
+              r._1.warnings
+                .traverse_(w => IO.println(s"[warn] '$slug': $w"))
+                .as(Some((slug, r)))
             case Left(err) =>
               IO.println(
                 s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"

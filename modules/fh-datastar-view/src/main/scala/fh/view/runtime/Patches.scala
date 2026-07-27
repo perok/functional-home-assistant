@@ -342,23 +342,18 @@ private[runtime] object Patches {
           // Still a member; anything an ancestor's HTML already carries was
           // already dropped by `since`.
           .flatMap { case (nodeId, p) =>
-            position.get(p.entityId).map((nodeId, _))
+            position.get(p.entityId).map((nodeId, p.entityId, _))
           }
-          .sortBy { case (_, at) => -at }
-          .flatMap { case (nodeId, at) =>
+          .sortBy { case (_, _, at) => -at }
+          .flatMap { case (nodeId, entityId, _) =>
             log.html(nodeId).toList.flatMap { html =>
-              // Anchor on the next current member; none means this is the last
-              // member, so append into the group root.
-              val insert = members.drop(at + 1).headOption match {
-                case Some(succ) =>
-                  Patch.Insert(
-                    html,
-                    PatchMode.Before,
-                    "#" + renderer.dynamicChildId(gid, succ)
-                  )
-                case None => Patch.Insert(html, PatchMode.Append, "#" + gid)
-              }
-              List(Patch.Remove("#" + nodeId), insert)
+              // Every current member is a usable anchor here: emitting
+              // descending by position means a node's successor was either
+              // already in the client's DOM or placed a moment ago.
+              List(
+                Patch.Remove("#" + nodeId),
+                insertInto(renderer, gid, members, entityId, _ => true, html)
+              )
             }
           }
       }
@@ -366,6 +361,39 @@ private[runtime] object Patches {
       gone.toList.sorted.map(id => Patch.Remove("#" + id)) ++
       places).map(_.toSse)
   }
+
+  /** The patch that puts `html` at `entity`'s place in group `gid`: `before`
+    * the nearest member ordered after it that the client's DOM can anchor on
+    * (`anchorable`), or `append`ed into the group root when there is none.
+    *
+    * ONE anchor rule for both the live add path and the resume replay, because
+    * an insert is the same problem in both: name a sibling that is really
+    * there. What differs is only which siblings qualify, which is the
+    * predicate.
+    *
+    * It reads the order out of `ordered` — the list [[Renderer.dynamicMembers]]
+    * produced — rather than comparing entity ids. That is what keeps this
+    * correct if member order ever becomes author-chosen: the live path used to
+    * compare ids directly and silently required id-sorted membership, which
+    * disagreed with the resume path doing it positionally.
+    */
+  private def insertInto(
+      renderer: Renderer,
+      gid: String,
+      ordered: List[String],
+      entity: String,
+      anchorable: String => Boolean,
+      html: String
+  ): Patch =
+    ordered.dropWhile(_ != entity).drop(1).find(anchorable) match {
+      case Some(succ) =>
+        Patch.Insert(
+          html,
+          PatchMode.Before,
+          "#" + renderer.dynamicChildId(gid, succ)
+        )
+      case None => Patch.Insert(html, PatchMode.Append, "#" + gid)
+    }
 
   /** Patch one FLIPPED state-selected bake group: re-render its host node — the
     * bake owner, whose render bakes the newly-selected member against CURRENT
@@ -515,18 +543,10 @@ private[runtime] object Patches {
               case None       => (c, acc) // defensive: not renderable, skip
               case Some(html) =>
                 val cid = renderer.dynamicChildId(gid, e)
-                // Insert before the first EXISTING (pre-change) member sorting
-                // after this one; if none, append into the group root.
-                val patch = membersBefore.find(_.compareTo(e) > 0) match {
-                  case Some(succ) =>
-                    Patch.Insert(
-                      html,
-                      PatchMode.Before,
-                      "#" + renderer.dynamicChildId(gid, succ)
-                    )
-                  case None =>
-                    Patch.Insert(html, PatchMode.Append, "#" + gid)
-                }
+                // Anchor only on members ALREADY in the client's DOM, i.e.
+                // pre-change ones: a co-arrival may not be inserted yet.
+                val patch =
+                  insertInto(renderer, gid, membersAfter, e, beforeSet, html)
                 (c.placed(gid, e, cid, html, at), acc :+ patch)
             }
         }

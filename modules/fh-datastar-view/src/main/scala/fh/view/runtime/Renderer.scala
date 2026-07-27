@@ -123,6 +123,13 @@ class Renderer(
     */
   val styleHash: String = Renderer.styleFingerprint(dashboard)
 
+  /** This dashboard's non-fatal problems ([[Dashboard.warnings]]) — surfaced
+    * here so the caller that builds a renderer logs them once, rather than the
+    * renderer printing from inside a pure render path (the same split as
+    * [[uiStateAnomalies]]).
+    */
+  val warnings: List[String] = dashboard.warnings
+
   /** Cards that opted out of the `.fh-cell` wrapper
     * ([[fh.view.model.CardDef.wrapAsCell]] = false) — their template root must
     * stay a direct child of a framework-structural parent (the tab anchors).

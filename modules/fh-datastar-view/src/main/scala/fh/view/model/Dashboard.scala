@@ -607,6 +607,40 @@ case class Dashboard(
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")
       }
 
+  /** Non-fatal problems worth telling the author about: unlike [[validate]]'s
+    * errors the dashboard still builds and serves, it just misbehaves in a way
+    * that is hard to attribute from the browser.
+    *
+    * Both are about the popup mount, which only the THEME can place (ADR 0002),
+    * and both are silent at render time — which is why they are reported at
+    * all:
+    *
+    *   - no `id="popups"` host in the chrome and there is nowhere to patch a
+    *     popup into, so every popup tap appears to do nothing. An empty chrome
+    *     counts: the fallback frame has no host either.
+    *   - a host but no `{{{popups}}}` hole and popups work, but one being
+    *     RESTORED on a refresh cannot be baked into the first paint, so it pops
+    *     in once the stream connects.
+    */
+  def warnings: List[String] = {
+    val popupSurfaces = surfaces.toList.collect {
+      case (sid, s) if s.hostId == Dashboard.PopupHostId => sid
+    }.sorted
+    val host = s"id=\"${Dashboard.PopupHostId}\""
+    if (popupSurfaces.isEmpty) Nil
+    else if (!theme.chrome.contains(host))
+      List(
+        s"theme.chrome has no <div $host> host, so these popup surfaces can " +
+          s"never be shown: ${popupSurfaces.mkString(", ")}"
+      )
+    else if (!theme.chrome.contains("{{{popups}}}"))
+      List(
+        s"theme.chrome's <div $host> host has no {{{popups}}} hole, so a popup " +
+          "restored on a refresh arrives only once the stream connects"
+      )
+    else Nil
+  }
+
   /** Every distinct live-slot transform string in the layout and its surfaces
     * (constant `literal` slots carry no transform and are excluded). These are
     * exactly the expressions the renderer compiles — the single source for both

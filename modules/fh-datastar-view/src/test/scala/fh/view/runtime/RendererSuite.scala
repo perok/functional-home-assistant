@@ -458,6 +458,47 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test("a popup surface with nowhere to mount is a warning, not an error") {
+    // Both failures are silent in the browser — a tap that does nothing, or a
+    // dialog that pops in late — so the only place they can be attributed is
+    // here, at build time.
+    val popup = Map(
+      "det" -> Surface(LayoutNode.Component("btn", Map("label" -> lit("D"))))
+    )
+    val body = col(LayoutNode.Component("btn", Map("label" -> lit("Go"))))
+    def warningsOf(chrome: String): List[String] =
+      Renderer.create(Dashboard(cards, body, surfaces = popup, theme = Theme(chrome = chrome))).warnings
+
+    // No host at all: the popup can never be shown. The empty chrome counts —
+    // the fallback frame has no host either.
+    assert(clue(warningsOf("")).exists(_.contains("never be shown")))
+    assert(
+      clue(warningsOf("""<main id="dashboard">{{{body}}}</main>"""))
+        .exists(_.contains("det"))
+    )
+    // A host but no hole: works, flashes on a refresh.
+    assert(
+      clue(
+        warningsOf(
+          """<main id="dashboard">{{{body}}}</main><div id="popups"></div>"""
+        )
+      ).exists(_.contains("{{{popups}}}"))
+    )
+    // Both present: nothing to say.
+    assertEquals(
+      warningsOf(
+        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
+      ),
+      Nil
+    )
+    // And a dashboard with no popup surfaces is never nagged about a host it
+    // has no use for.
+    assertEquals(
+      Renderer.create(Dashboard(cards, body, theme = Theme(chrome = ""))).warnings,
+      Nil
+    )
+  }
+
   test("slot default applies when value is missing, empty, or JSON null") {
     val g = LayoutNode.Component(
       "gauge",
