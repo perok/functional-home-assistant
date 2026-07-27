@@ -453,7 +453,6 @@ class Server(
       // a reconnected client would show pre-drop values until each entity next
       // ticks. Either the cursor names precisely what this DOM holds (resume), or
       // the whole body is repainted from the current snapshot.
-      opening <- liveOpt.traverse(openingPatches(slug, _, req, uiState))
       // Home-Assistant-feed liveness, PUSHED from the server (it owns the
       // `healthy` signal). This is concept 1 of the two disconnect concepts
       // (see [[Server.page]]): the backend knows when it can't reach HA, so it
@@ -463,14 +462,6 @@ class Server(
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
-      // Shared main-page patches, rendered once per slug (see
-      // sharedPatchPublishers) and tagged with it, so drop every other slug's.
-      //
-      // One subscription to the multiplexed topic, so a slug that did not exist
-      // when this connection opened (pushed since) still reaches it.
-      shared = sharedTopic
-        .subscribe(64)
-        .collect { case (s, sse) if s == session.slug => sse }
       // What truly differs per client: open-surface nodes and user
       // bake-group-owner nodes (plus the state groups those pull in),
       // re-rendered per state change with this session's uiState/open set and
@@ -491,16 +482,36 @@ class Server(
         .awakeEvery[IO](Server.KeepAliveInterval)
         .evalMap(_ => healthy.get.map(healthPatch))
 
+      // Shared main-page patches, rendered once per slug (see
+      // sharedPatchPublishers) and tagged with it, so drop every other slug's.
+      // One subscription to the multiplexed topic, so a slug that did not exist
+      // when this connection opened (pushed since) still reaches it.
+      //
+      // The subscription is acquired BEFORE the opening patches read the
+      // snapshot, and that order is the whole point of nesting them: a change
+      // published in between is then queued for this connection instead of
+      // being published to nobody and lost until the next reconnect. Erring the
+      // other way is safe — a change caught by both arrives once in the opening
+      // paint and once as a patch, and a patch is an idempotent morph.
+      live = Stream
+        .resource(sharedTopic.subscribeAwait(64))
+        .flatMap { tagged =>
+          val shared =
+            tagged.collect { case (s, sse) if s == session.slug => sse }
+          Stream
+            .eval(liveOpt.traverse(openingPatches(slug, _, req, uiState)))
+            .flatMap(opening => Stream.emits(opening.toList.flatten)) ++
+            shared
+              .merge(patches)
+              .merge(control)
+              .merge(reloads)
+              .merge(haDown)
+              .merge(keepAlive)
+        }
+
       stream = (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
-      ) ++
-        Stream.emits(opening.toList.flatten) ++
-        shared
-          .merge(patches)
-          .merge(control)
-          .merge(reloads)
-          .merge(haDown)
-          .merge(keepAlive))
+      ) ++ live)
         .onFinalize(sessions.deregister(conn))
       resp <- Ok(stream)
     } yield resp

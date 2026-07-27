@@ -552,6 +552,87 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  // Two live leaves: one entity can change during the connect handshake and
+  // never again (so nothing later heals it), while the other provides an
+  // ordering barrier that proves the connection is live before we look.
+  private def twoLeafDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List("sensor.a", "sensor.b").map(e =>
+        LayoutNode.Component("card", slots = Map("state" -> SlotSource(Some(e))))
+      )
+    )
+  )
+
+  test(
+    "a change published during the connect handshake still reaches the connection"
+  ) {
+    // The handshake window: `routes.run` computes the opening patches (reading
+    // the snapshot and the log) and returns, but the response body has not been
+    // pulled yet — so anything published before the stream's subscription is
+    // registered reaches this connection never. It heals on the NEXT reconnect
+    // (the cursor stays put and `since` is inclusive), but until then the client
+    // shows a pre-connect value with nothing to indicate it.
+    val missed = "gap_value_xq"
+    val barrier = "barrier_value_xq"
+    val renders = new AtomicInteger(0)
+    val io = for {
+      store <- StateStore.inMemory(
+        Map(
+          "sensor.a" -> EntityState("sensor.a", "a0", Map.empty),
+          "sensor.b" -> EntityState("sensor.b", "b0", Map.empty)
+        )
+      )
+      ref <- SignallingRef[IO]
+        .of(new CountingRenderer(twoLeafDash, renders): Renderer)
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      text <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            // The shared publisher is attached before anything changes.
+            _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+            resp <- server.routes.orNotFound
+              .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+            _ <- store.update(EntityState("sensor.a", missed, Map.empty))
+            // Waiting for the render (the counting renderer's only caller here
+            // is a diff pass) proves the shared pass has already PUBLISHED this
+            // change, rather than the test racing ahead of a slow publisher.
+            _ <- (IO.sleep(5.millis) *> IO(renders.get()))
+              .iterateUntil(_ >= 1)
+            seen <- Ref[IO].of("")
+            // Pulling the body is what registers the subscription, and only now.
+            reader <- resp.body
+              .through(fs2.text.utf8.decode)
+              .evalMap(chunk => seen.updateAndGet(_ + chunk))
+              .exists(_.contains(barrier))
+              .compile
+              .drain
+              .start
+            _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+            _ <- store.changeSubscribers.filter(_ >= 2).head.compile.drain
+            _ <- store.update(EntityState("sensor.b", barrier, Map.empty))
+            // The barrier arrived, so everything ordered before it has too.
+            _ <- reader.joinWithNever
+            text <- seen.get
+          } yield text
+        }
+    } yield text
+    io.timeout(30.seconds)
+      .map(text => assert(text.contains(missed), clue = text))
+  }
+
   test(
     "shared per-slug pass: two connections both receive a changed fragment rendered ONCE"
   ) {
