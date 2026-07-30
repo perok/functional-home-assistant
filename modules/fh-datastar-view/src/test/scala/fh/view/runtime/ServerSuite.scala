@@ -1036,6 +1036,66 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  /** '''A client is never sent a surface it is not viewing.'''
+    *
+    * Written BEFORE the per-session pass collapses into the shared one, because
+    * this is the property that collapse must PRESERVE, not one it adds — and
+    * because under-sending is the one failure mode nothing observes. A patch
+    * withheld from a client that needed it looks exactly like nothing at all:
+    * no error, no log line, just a value that stops updating. So the guard goes
+    * in first, against today's behaviour, and the filter is written to keep it
+    * green (docs/plan-one-shared-log.md, T3).
+    *
+    * Both directions are asserted deliberately. Without the second half this
+    * would pass just as well if the server sent NOBODY anything.
+    */
+  test(
+    "a tab nobody is viewing is not pushed to them; the viewer still gets it"
+  ) {
+    val after = Map(
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B1")
+    )
+    // The change is inside tab 1's panel, which only B has open.
+    val change =
+      StateChange("sensor.b", Some(es("sensor.b", "B0")), es("sensor.b", "B1"))
+    (for {
+      store <- StateStore.inMemory(after)
+      ref <- SignallingRef[IO].of(tabsRenderer)
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            viewingT0 <- Session.create("dashboard")
+            _ <- viewingT0.open.set(Set("c_t0"))
+            viewingT1 <- Session.create("dashboard")
+            _ <- viewingT1.open.set(Set("c_t1"))
+            a <- server.changedPatches(viewingT0, change, Map("c" -> "0"))
+            b <- server.changedPatches(viewingT1, change, Map("c" -> "1"))
+          } yield (a.map(_.renderString), b.map(_.renderString))
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (onT0, onT1) =>
+        // A is looking at tab 0. Not "no patch for that node" — ZERO events that
+        // so much as mention tab 1's id namespace.
+        assert(!onT0.exists(_.contains("s_c_t1__")), clue = onT0)
+        assert(!onT0.exists(_.contains("B1")), clue = onT0)
+        // ...and B, who IS looking at it, gets it. This is what stops the test
+        // passing vacuously.
+        assert(onT1.exists(_.contains("""id="s_c_t1__c"""")), clue = onT1)
+        assert(onT1.exists(_.contains("B1")), clue = onT1)
+      }
+  }
+
   test("open surface's dynamic group gets the same per-entity treatment") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
