@@ -42,14 +42,35 @@ class RendererSuite extends munit.FunSuite {
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
+    // SPLIT, like the shipped `Tabs`: the bar is the card's own presentation
+    // (`self`), the panel is where the selected tab is mounted, and they are
+    // siblings. Minimal markup, real SHAPE — shape is what the engine dispatches
+    // on (`hasSelf` picks what a patch renders and targets), so a fixture that
+    // mimicked Tabs while unsplit would be a different KIND of card.
     "tabs" -> CardDef(
-      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
+      template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
+      self = Some(
+        """<div id="{{selfId}}" class="fh-row tabbar">""" +
+          """{{#children}}{{{html}}}{{/children}}</div>"""
+      ),
+      mount = Some(
+        """<div id="{{mountId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
+      )
     ),
     // Like `tabs`, but the bake-owning component ALSO binds a live entity via a
     // `{{title}}` slot — so it is morph-wrapped and re-rendered on that entity's
     // state change. Exercises that a live node patch re-bakes the SELECTED tab.
+    // THE shape the split exists for: a container with a mount AND a live slot
+    // ("a tab bar with the current temperature in its header"). Its patch is the
+    // `self` alone, so a title tick cannot re-render the panel.
     "tabsLive" -> CardDef(
-      """<div class="tabs"><span>{{title}}</span><div id="{{id}}_panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      template = """<div>{{{self}}}{{{mount}}}</div>""",
+      self = Some(
+        """<div id="{{selfId}}" class="tabs"><span>{{title}}</span></div>"""
+      ),
+      mount = Some(
+        """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
+      ),
       slots = List("title")
     )
   )
@@ -1006,7 +1027,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "renderNodeById re-bakes the uiState-selected tab of a live bake-owning node"
+    "a live bake owner patches its header alone; the bake is document-path only"
   ) {
     // A `tabsLive` component (id "c") owns a bake group AND binds a live entity
     // (`sensor.title`). On a live SSE patch the node is re-rendered by id — it
@@ -1047,17 +1068,24 @@ class RendererSuite extends munit.FunSuite {
     // The live entity binds "c" so the node is morph-wrapped and re-renderable.
     assertEquals(rr.componentsFor("sensor.title"), Set("c"))
 
-    // Default (no selection) bakes the FIRST tab (index 0 → sensor.a → AA).
-    val dflt = rr.renderNodeById("c", states).get
-    assert(dflt.startsWith("""<div class="fh-cell" id="c">"""), clue = dflt)
+    // THE contract, and the reason the whole design exists: a live tick on the
+    // host patches its `self` — the header — and carries NOTHING of the panel.
+    // A change to the title cannot re-render what the tabs host holds.
+    val patch = rr.renderNodeById("c", states).get
+    assertEquals(
+      patch,
+      """<div id="c-self" class="tabs"><span>Live</span></div>"""
+    )
+
+    // Which member is baked was the ONLY thing that made this per-client, and it
+    // lives on the document path alone now. There the selection still decides:
+    // no uiState bakes tab 0, `c -> 1` bakes tab 1, signal seed included.
+    val dflt = rr.renderBody(states)
     assert(dflt.contains("tab_c: 0"), clue = dflt)
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    // The ui state selects tab 1 → the SECOND tab is baked (sensor.b → BB), and
-    // the panel signal is seeded to 1. This is the bug the change fixes: without
-    // threading uiState the live patch would re-bake the default tab.
-    val sel = rr.renderNodeById("c", states, uiState = Map("c" -> "1")).get
+    val sel = rr.renderBody(states, uiState = Map("c" -> "1"))
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
