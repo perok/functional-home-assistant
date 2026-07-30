@@ -116,10 +116,11 @@ private[runtime] enum MemberKey {
   def render(
       renderer: Renderer,
       container: NodeId,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      viewer: Viewer = Viewer.anonymous
   ): Option[String] = this match {
     case Entity(e)  => renderer.renderDynamicChild(container, e, states)
-    case Surface(s) => renderer.renderSurface(s, states)
+    case Surface(s) => renderer.renderSurface(s, states, viewer)
   }
 }
 

@@ -47,17 +47,18 @@ import scala.concurrent.duration.*
   *     ANOTHER dashboard is not a route here — it is an ordinary document load
   *     of `/d/:slug` (ADR 0002).
   *
-  * Live entity patches are split by what they depend on. Main-page nodes whose
-  * HTML is a pure function of entity state — including STATE-selected bake
-  * groups (If/else hosts and their active branches, whose selection is server
-  * truth) — are rendered ONCE per slug by [[sharedPatchPublishers]] (one
-  * subscription to the state stream per dashboard, per-slug diff cache) and
-  * fanned out to every connection viewing that slug over `sharedTopic`. Only
-  * what truly differs per client stays per-session in [[changedPatches]]:
-  * open-surface nodes and USER bake-group-owner nodes (their HTML depends on
-  * the client's `uiState`), plus the state groups those pull in (nested in an
-  * open popup, or with a user owner in a branch). Construct via
-  * [[Server.resource]], which creates the topic and runs the publishers.
+  * Live entity patches are rendered ONCE per slug by [[sharedPatchPublishers]]
+  * (one subscription to the state stream per dashboard, one diff cache) and
+  * fanned out over `sharedTopic` to every connection viewing that slug — main
+  * page and open surfaces alike. Who may see each patch is decided at the wire
+  * edge by its [[Addressed]] tag, not by re-rendering per client.
+  *
+  * ONE thing genuinely cannot be rendered for everyone at once: which member of
+  * a USER-selected mount a given viewer chose. So the shared pass leaves such a
+  * mount empty ([[Viewer.Nobody]]) and emits a [[Reveal]]; each connection
+  * fills its own ([[fillMount]]). That is the entire per-connection render
+  * budget. Construct via [[Server.resource]], which creates the topic and runs
+  * the publishers.
   *
   * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
   * dashboard at runtime (ADR 0010), which is why the registry is a `Ref` and
@@ -81,7 +82,7 @@ class Server(
     // subscribes when it opens, so a per-slug map would freeze the slug set at
     // connect time and a slug pushed later could never reach an open
     // connection. Tagging is what lets `push` mint a slug at runtime.
-    sharedTopic: Topic[IO, (String, Addressed)],
+    sharedTopic: Topic[IO, (String, Directed)],
     // Starts the per-slug shared-patch publisher for a slug minted by `push`.
     // Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -262,11 +263,10 @@ class Server(
     * stream, one diff cache, publishing slug-tagged patches to [[sharedTopic]]
     * — so each affected main-page fragment is rendered ONCE per state change
     * and fanned out to every connection viewing the slug, instead of N viewers
-    * doing N identical renders. Only nodes whose HTML is a pure function of
-    * entity state qualify: USER bake-group owners (uiState-dependent) are
-    * excluded and stay per-session ([[changedPatches]]); STATE-selected groups
-    * qualify and are handled here — selection flips and active-branch liveness
-    * included (see [[sharedPatches]]).
+    * doing N identical renders. EVERYTHING qualifies: a node's rendering is a
+    * pure function of entity state once a mount's contents are no longer part
+    * of it (statement (1) of the self/mount split), so bake-group owners, their
+    * selection flips and active-branch liveness are all handled here.
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
     * renderer and a FRESH per-slug diff cache. A change landing in the brief
@@ -374,38 +374,37 @@ class Server(
         }
     }
 
-  /** The shared per-slug render/diff for one state change: the affected
-    * main-page static components (reverse index, minus the USER bake-group
-    * owners), the query-affected dynamic groups, plus everything state-selected
-    * surfaces contribute — all rendered against the current snapshot and diffed
-    * against the slug's shared cache. Returns the SSE patches — child-scoped
-    * for a dynamic member update, per-entity insert/remove for a small
-    * membership delta, a whole-group morph otherwise (see [[diffPatches]]). No
-    * `uiState`: by construction these nodes don't read it.
+  /** The shared per-slug render/diff for one state change: the affected static
+    * components (reverse index), the query-affected dynamic groups, plus
+    * everything the visible surfaces contribute — all rendered against the
+    * current snapshot and diffed against the slug's shared cache. Returns the
+    * SSE patches — child-scoped for a dynamic member update, per-entity
+    * insert/remove for a small membership delta, a whole-group morph otherwise
+    * (see [[diffPatches]]). No client `uiState` reaches here at all
+    * ([[Viewer.Nobody]]) — which is what lets one rendering serve every viewer.
     *
-    * The state-selected extension (ADR 0002's shared/per-session split, cut by
-    * activation mode):
+    * The state-selected extension (what ADR 0002's split became):
     *
     *   - '''Flips''': each state group whose selection this change moves
-    *     ([[Renderer.affectedStateGroups]], main-rooted; minus the session-only
-    *     ones, whose branch HTML bakes a client-selected member and therefore
-    *     rides [[changedPatches]]) gets its HOST re-rendered — [[Renderer]]'s
-    *     bake picks the newly-selected member against CURRENT state — morphed,
-    *     and its members' cache entries pruned ([[flipStateGroup]]).
+    *     ([[Renderer.affectedStateGroups]]) gets its HOST re-rendered —
+    *     [[Renderer]]'s bake picks the newly-selected member against CURRENT
+    *     state — morphed, and its members' cache entries pruned
+    *     ([[flipStateGroup]]). A user mount inside the arriving branch comes
+    *     out empty and is filled per connection ([[Reveal]]).
     *   - '''Active-member liveness''': for each surface in the main-rooted
     *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
-    *     just-flipped subtrees — their host morph re-rendered them wholesale —
-    *     and session-only subtrees) patch its components binding the changed
-    *     entity plus its query-affected dynamics. Inactive members are never
-    *     consulted — that IS the hidden-branch no-updates guarantee, and it is
-    *     structural: their ids simply never enter the patch set.
+    *     just-flipped subtrees — their host morph re-rendered them wholesale)
+    *     patch its components binding the changed entity plus its
+    *     query-affected dynamics. Inactive members are never consulted — that
+    *     IS the hidden-branch no-updates guarantee, and it is structural: their
+    *     ids simply never enter the patch set.
     */
   private[runtime] def sharedPatches(
       slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
       change: StateChange
-  ): IO[List[Addressed]] =
+  ): IO[List[Directed]] =
     (stateStore.current, Server.stampNow, sessions.openIn(slug)).flatMapN {
       (store, millis, visible) =>
         val req = Patches.plan(
@@ -440,9 +439,9 @@ class Server(
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
-    * main-page patches, this session's own entity-change patches (open surfaces
-    * + bake-group owners), the session control channel (popup/navigate
-    * patches), live-reload body repaints, and a heartbeat.
+    * patches (filtered to what this client can see, with any [[Reveal]] filled
+    * for it), the session control channel (popup/navigate patches), live-reload
+    * body repaints, and a heartbeat.
     */
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
@@ -477,13 +476,6 @@ class Server(
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
-      // What truly differs per client: open-surface nodes and user
-      // bake-group-owner nodes (plus the state groups those pull in),
-      // re-rendered per state change with this session's uiState/open set and
-      // diffed against its own cache.
-      patches = stateStore.changes
-        .evalMap(changedPatches(session, _, uiState))
-        .flatMap(Stream.emits)
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState)
       // Emit `haDown` on connect (the initial `discrete` value) and on every
@@ -532,7 +524,14 @@ class Server(
             tagged
               .collect { case (s, a) if s == session.slug => a }
               .evalFilter(a => session.open.get.map(a.visibleTo))
-              .map(_.event)
+              // Ready bytes pass through; a Reveal is the one item this
+              // connection has to finish itself, because only it knows which
+              // member of that mount its viewer chose.
+              .evalMap {
+                case Addressed(_, event) => IO.pure(Option(event))
+                case Reveal(_, owner)    => fillMount(session, owner, uiState)
+              }
+              .unNone
           Stream
             .eval(
               session.open.get.flatMap(open =>
@@ -541,7 +540,6 @@ class Server(
             )
             .flatMap(opening => Stream.emits(opening.toList.flatten)) ++
             shared
-              .merge(patches)
               .merge(control)
               .merge(reloads)
               .merge(haDown)
@@ -643,11 +641,18 @@ class Server(
             .filter(c => c.logId == log.id && c.version <= store.version)
             .map(c =>
               Patches
-                .resume(renderer, log, store.entities, resumeFrom(req, c), open)
+                .resume(
+                  renderer,
+                  log,
+                  store.entities,
+                  resumeFrom(req, c),
+                  open,
+                  Viewer.Client(uiState)
+                )
             )
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
-            renderer.renderBody(store.entities, uiState),
+            renderer.renderBody(store.entities, Viewer.Client(uiState)),
             PatchMode.Inner,
             Some("#dashboard")
           )
@@ -704,10 +709,9 @@ class Server(
               IO.pure(List(Server.reloadPatch))
             else
               // The repaint re-bakes the body (selected tabs included), so
-              // reset the diff cache AND re-seed the open set to match. Reuses
-              // this client's selection (closed over).
-              (session.lastRendered.update(_.cleared) *>
-                session.open.set(r.selectedSurfaces(uiState)) *>
+              // re-seed the open set to match. Reuses this client's selection
+              // (closed over).
+              (session.open.set(r.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
                 .map { case (store, log) =>
                   val head =
@@ -716,7 +720,7 @@ class Server(
                     else Nil
                   head ++ List(
                     Datastar.patch(
-                      r.renderBody(store.entities, uiState),
+                      r.renderBody(store.entities, Viewer.Client(uiState)),
                       PatchMode.Inner,
                       Some("#dashboard")
                     ),
@@ -732,52 +736,35 @@ class Server(
           .flatMap(Stream.emits)
       }
 
-  /** Re-render the nodes a changed entity drives that are truly per-connection
-    * — for each open surface, that surface's components/dynamics, plus any
-    * main-page USER bake-group owner (its HTML bakes the client's
-    * client-selected member, so it can't be shared) — and emit only the
-    * fragments whose HTML actually changed (per-session diff). All other
-    * main-page nodes ride the shared per-slug pass ([[sharedPatchPublishers]]).
+  /** Finish a [[Reveal]] for THIS connection: a state flip re-created a
+    * user-selected mount, and the shared pass deliberately left it empty
+    * because it had no client to choose for ([[Viewer.Nobody]]). Fill it with
+    * the member this viewer has open — which for a client that never chose is
+    * the group's `defaultOpen` one, already seeded into `open` on connect.
     *
-    * State-selected surfaces are shared by default, but two shapes are
-    * per-session by nature and mirrored here (the counterpart of
-    * [[sharedPatches]]'s exclusions):
-    *
-    *   - a state group nested INSIDE an open surface (a popup only this session
-    *     has open) — per-session by containment: its flips and its active
-    *     member's liveness ride this session's diff cache;
-    *   - a [[Renderer.sessionOnlyStateGroups]] group (a user-selected owner
-    *     somewhere in a branch): its host morph bakes THIS session's
-    *     client-selected member, so its flips — and its active subtree's
-    *     liveness, which the shared pass skipped — render here with the
-    *     session's `uiState`.
+    * This is the ONLY per-connection rendering left, and it is the irreducible
+    * one: everything else about the branch was decided by entity state and
+    * rendered once for the slug.
     */
-  private[runtime] def changedPatches(
+  private def fillMount(
       session: Session,
-      change: StateChange,
+      owner: NodeId,
       uiState: Map[String, String]
-  ): IO[List[ServerSentEvent]] =
-    for {
-      renderer <- rendererFor(session.slug)
-      store <- stateStore.current
-      millis <- Server.stampNow
-      open <- session.open.get
-      out <- renderer match {
-        case None    => IO.pure(List.empty[ServerSentEvent])
-        case Some(r) =>
-          val req = Patches.planSession(
-            r,
+  ): IO[Option[ServerSentEvent]] =
+    (rendererFor(session.slug), session.open.get, stateStore.current).mapN {
+      (rendererOpt, open, store) =>
+        for {
+          renderer <- rendererOpt
+          sid <- renderer.bakeMembers(owner).find(open)
+          html <- renderer.renderSurface(
+            sid,
             store.entities,
-            Stamp(store.version, millis),
-            change,
-            open,
-            uiState
+            Viewer.Client(uiState)
           )
-          session.lastRendered
-            .modify(Patches.diff(r, _, req))
-            .map(_.map(_.event))
-      }
-    } yield out
+        } yield Patch
+          .Insert(html, PatchMode.Inner, renderer.mountId(owner))
+          .toSse
+    }
 
   /** Open (or switch to) a surface for this connection: resolve its host —
     * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
@@ -853,7 +840,7 @@ class Server(
       _ <- newSurface match {
         case Some(sid) =>
           renderer
-            .renderSurface(sid, states, uiState)
+            .renderSurface(sid, states, Viewer.Client(uiState))
             .traverse_(html =>
               session.control.offer(
                 Datastar.patch(html, PatchMode.Inner, Some("#" + host))
@@ -1113,7 +1100,11 @@ class Server(
               Ok(
                 page(
                   slug,
-                  renderer.renderPage(store.entities, uiState, popup),
+                  renderer.renderPage(
+                    store.entities,
+                    Viewer.Client(uiState),
+                    popup
+                  ),
                   renderer.stylesheets.map(assets.rewrite),
                   renderer.scripts.map(assets.rewrite),
                   renderer.title,
@@ -1323,7 +1314,7 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topic <- Topic[IO, (String, Addressed)].toResource
+      topic <- Topic[IO, (String, Directed)].toResource
       // Pair each seeded renderer with its own fragment log here, so the caller
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList

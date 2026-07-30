@@ -57,11 +57,12 @@ final class TestServer(
 
   /** The two readiness gates a live SSE connection needs before a change is
     * guaranteed to reach it (topics only deliver to already-subscribed
-    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 2 for one
-    * open connection (the shared publisher's own subscription plus this
-    * connection's). The smoke suites' one gate to await before `fake.emit`.
+    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 1: the
+    * per-slug publisher is the ONLY consumer of `changes`, however many
+    * connections are open. The smoke suites' one gate to await before
+    * `fake.emit`.
     */
-  def awaitLive(subscribers: Int = 2): IO[Unit] =
+  def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
   private val app = server.routes.orNotFound
@@ -102,14 +103,14 @@ final class TestServer(
     * reaches the browser" assertion.
     *
     * `subscribers` is the number of `StateStore.changes` consumers to await
-    * before triggering (topics only reach already-subscribed consumers): the
-    * shared per-slug publisher plus one per open SSE connection — so a single
-    * connection is 2.
+    * before triggering (topics only reach already-subscribed consumers). That
+    * is the shared per-slug publisher, and only it — connections subscribe to
+    * the patch topic, not to `changes` — so one open connection is 1.
     */
   def observePatch(
       marker: String,
       trigger: IO[Unit],
-      subscribers: Int = 2,
+      subscribers: Int = 1,
       timeout: FiniteDuration = 30.seconds
   ): IO[Unit] =
     run(Request[IO](Method.GET, patchUri)).flatMap { resp =>
@@ -121,10 +122,11 @@ final class TestServer(
         .drain
       for {
         fiber <- seen.start
-        // Both the store's change publishers AND this connection's shared-topic
+        // Both the store's change publisher AND this connection's shared-topic
         // subscription must be live before we emit (topics only reach current
-        // subscribers): the shared per-slug publisher + this session on
-        // `changes`, and this connection on the slug's shared topic.
+        // subscribers). A connection no longer consumes `changes` itself —
+        // there is ONE pass — so the counts are: the per-slug publisher here,
+        // and this connection on the slug's shared topic below.
         _ <- store.changeSubscribers.filter(_ >= subscribers).head.compile.drain
         _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
         _ <- trigger

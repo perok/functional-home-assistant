@@ -138,7 +138,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val uiState = Server.uiStateOf(get("ui.c" -> "1"))
     // The server seeds the open set (and bakes) from this selection.
     assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
-    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
+    assert(r.renderBody(Map.empty, Viewer.Client(uiState)).contains("tab_c: 1"))
     assert(
       r.uiStateAnomalies(uiState).isEmpty,
       clue = r.uiStateAnomalies(uiState)
@@ -149,7 +149,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val r = tabsRenderer
     val uiState = Server.uiStateOf(get("ui.c" -> "abc"))
     assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))
-    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
+    assert(r.renderBody(Map.empty, Viewer.Client(uiState)).contains("tab_c: 0"))
     assertEquals(r.uiStateAnomalies(uiState).size, 1)
   }
 
@@ -569,10 +569,10 @@ class ServerSuite extends munit.CatsEffectSuite {
     override def renderNodeById(
         id: NodeId,
         states: Map[String, EntityState],
-        uiState: Map[String, String]
+        viewer: Viewer
     ): Option[String] = {
       count.incrementAndGet()
-      super.renderNodeById(id, states, uiState)
+      super.renderNodeById(id, states, viewer)
     }
   }
 
@@ -666,7 +666,6 @@ class ServerSuite extends munit.CatsEffectSuite {
               .drain
               .start
             _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
-            _ <- store.changeSubscribers.filter(_ >= 2).head.compile.drain
             _ <- store.update(EntityState("sensor.b", barrier, Map.empty))
             // The barrier arrived, so everything ordered before it has too.
             _ <- reader.joinWithNever
@@ -718,9 +717,9 @@ class ServerSuite extends munit.CatsEffectSuite {
                   .drain
                 reads.background.surround {
                   for {
-                    // The shared publisher plus this connection.
+                    // The shared publisher — the only consumer of `changes`.
                     _ <- store.changeSubscribers
-                      .filter(_ >= 2)
+                      .filter(_ >= 1)
                       .head
                       .compile
                       .drain
@@ -785,10 +784,11 @@ class ServerSuite extends munit.CatsEffectSuite {
             seen1 <- awaitMarker(resp1).start
             seen2 <- awaitMarker(resp2).start
             // Deterministic readiness (topics deliver only to already-subscribed
-            // consumers): both connections on the shared topic, and the
-            // publisher + both per-session change loops on the store's changes.
+            // consumers): both connections on the shared topic, and the ONE
+            // publisher on the store's changes. There is no per-session loop to
+            // wait for any more — which is the point of the pass being shared.
             _ <- server.sharedSubscribers.filter(_ >= 2).head.compile.drain
-            _ <- store.changeSubscribers.filter(_ >= 3).head.compile.drain
+            _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
             _ <- store.update(EntityState("sensor.a", marker, Map.empty))
             // (a) both SSE streams receive the changed fragment...
             _ <- seen1.joinWithNever
@@ -875,9 +875,14 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(seedCache))
-            patches <- server.sharedPatches("dashboard", renderer, cache, change)
+            patches <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              cache,
+              change
+            )
             finalCache <- cache.get.map(logged)
-          } yield (elementPatches(patches.map(_.event)), finalCache)
+          } yield (elementPatches(readyEvents(patches)), finalCache)
         }
     } yield out)
       .timeout(30.seconds)
@@ -1109,7 +1114,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             cache <- Ref[IO].of(seedLog(Map.empty))
             // ONE render for the slug; who sees it is the tag's job.
             shared <- server.sharedPatches("dashboard", renderer, cache, change)
-          } yield shared.filterNot(p => isCursor(p.event))
+          } yield ready(shared)
         }
     } yield out)
       .timeout(30.seconds)
@@ -1156,7 +1161,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(Map.empty))
             ps <- server.sharedPatches("dashboard", renderer, cache, change)
-          } yield ps.filterNot(p => isCursor(p.event))
+          } yield ready(ps)
         }
     } yield patches)
       .timeout(30.seconds)
@@ -1166,7 +1171,9 @@ class ServerSuite extends munit.CatsEffectSuite {
         // one child morph, surface-namespaced id — not the whole surface group.
         assertEquals(
           one.event.elements,
-          Some("""<div class="fh-cell" id="s_det__c_light_b"><span>on</span></div>""")
+          Some(
+            """<div class="fh-cell" id="s_det__c_light_b"><span>on</span></div>"""
+          )
         )
         // Rendered on the shared pass, addressed to the popup that holds it.
         assertEquals(one.surface, Some("det"))
@@ -1264,7 +1271,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           cache,
           StateChange(next.entityId, prev, next)
         )
-      } yield patches.map(_.event)).timeout(30.seconds)
+      } yield readyEvents(patches)).timeout(30.seconds)
 
     def step(next: EntityState): IO[List[String]] =
       sharedBatch(next).map(elementPatches)
@@ -1350,7 +1357,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         registry <- Ref[IO].of(
           Map("dashboard" -> Server.LiveSlug(ref, slugLog))
         )
-        topic <- Topic[IO, (String, Addressed)]
+        topic <- Topic[IO, (String, Directed)]
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,
@@ -1611,7 +1618,9 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield ()
   }
 
-  test("a state group inside an open popup is rendered SHARED, tagged with it") {
+  test(
+    "a state group inside an open popup is rendered SHARED, tagged with it"
+  ) {
     // The If roots inside popup "det" (owner s_det__c_0). Its flip is a pure
     // function of entity state — identical for every client that can see it —
     // so it is rendered ONCE for the slug and addressed to "det", not
@@ -1666,18 +1675,15 @@ class ServerSuite extends munit.CatsEffectSuite {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
-            perSession <- server.changedPatches(session, change, Map.empty)
             cache <- Ref[IO].of(seedLog(Map.empty))
             shared <- server.sharedPatches("dashboard", renderer, cache, change)
-          } yield (perSession, shared)
+          } yield shared
         }
-    } yield (out._1.map(_.renderString), out._2))
+    } yield out)
       .timeout(30.seconds)
-      .map { case (sessionPatches, shared) =>
-        // Nothing here reads a uiState, so the per-session pass has no work.
-        assertEquals(sessionPatches, Nil)
+      .map { shared =>
         // The shared pass carries the inner flip's delta — once, for the slug.
-        val patches = shared.filterNot(a => isCursor(a.event))
+        val patches = ready(shared)
         assertEquals(patches.size, 1, clue = patches)
         val one = patches.head
         assertEquals(one.event.selector, Some("#s_det__c_0_branch"))
@@ -2119,6 +2125,20 @@ class ServerSuite extends munit.CatsEffectSuite {
     def name: String = e.eventType.getOrElse("")
   }
 
+  /** The ready-made patches a shared batch produced, cursor signal dropped —
+    * what a test asserting on BYTES wants. A `Reveal` is not bytes: it is the
+    * instruction one connection finishes for itself, so it is not here.
+    */
+  private def ready(out: List[Directed]): List[Addressed] =
+    out.collect { case a: Addressed if !isCursor(a.event) => a }
+
+  private def readyEvents(out: List[Directed]): List[ServerSentEvent] =
+    out.collect { case a: Addressed => a.event }
+
+  /** The mounts a shared batch left for each connection to fill itself. */
+  private def reveals(out: List[Directed]): List[NodeId] =
+    out.collect { case r: Reveal => r.owner }
+
   private val Elements = "datastar-patch-elements"
   private val Signals = "datastar-patch-signals"
 
@@ -2385,6 +2405,149 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ = assert(
           domEvents(s1).exists(_._3.exists(_.contains("s1"))),
           clue = s1
+        )
+      } yield ()
+    }
+  }
+
+  /** Tabs INSIDE a flipping branch — the shape that still forces
+    * [[Renderer.sessionOnlyStateGroups]] onto the per-session pass.
+    *
+    * A flip is decided by entity state, so the branch renders once for the slug
+    * — but the tabs host inside it holds a mount whose contents each client
+    * chose for itself. Rendering that mount on the shared pass would hand every
+    * client the DEFAULT tab, silently yanking a viewer off the tab they picked.
+    * Pinned here before the collapse deletes the pass that hides it.
+    */
+  private def tabsInBranchDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "ifhost" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+      ),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+      )
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+        ),
+        LayoutNode.Component("ifhost")
+      )
+    ),
+    surfaces = Map(
+      // The armed branch IS a tabs host (node `s_then__c`).
+      "then" -> stateMember(LayoutNode.Component("tabs"), "c_1", 0, armedCond),
+      "else" -> stateMember(branchCard("sensor.z"), "c_1", 1, always),
+      "t0" -> Surface(
+        branchCard("sensor.a"),
+        bakeInto = Some("s_then__c"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(0),
+        activation = Activation.User(defaultOpen = true)
+      ),
+      "t1" -> Surface(
+        branchCard("sensor.b"),
+        bakeInto = Some("s_then__c"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      )
+    )
+  )
+
+  test("a flip re-reveals each client's OWN tab, not the default one") {
+    liveWorld(
+      tabsInBranchDash,
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0"),
+        "sensor.z" -> es("sensor.z", "Z0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.s_then__c=1")
+        open0 <- onT0.drain
+        open1 <- onT1.drain
+        // First paint already differs per client: the default tab vs the one
+        // the second client asked for.
+        _ = assert(
+          open0.exists(_.renderString.contains("A0")),
+          clue = ("tab 0's viewer opens on A", open0)
+        )
+        _ = assert(
+          !open0.exists(_.renderString.contains("B0")),
+          clue = open0
+        )
+        _ = assert(
+          open1.exists(_.renderString.contains("B0")),
+          clue = ("tab 1's viewer opens on B", open1)
+        )
+        _ = assert(
+          !open1.exists(_.renderString.contains("A0")),
+          clue = open1
+        )
+
+        // The branch goes away — for both, identically. Nothing tab-shaped is
+        // left in the DOM.
+        _ <- world.change(es("alarm.h", "disarmed"))
+        off0 <- onT0.drain
+        off1 <- onT1.drain
+        _ = assert(
+          domEvents(off0).exists(_._3.exists(_.contains("Z0"))),
+          clue = off0
+        )
+        _ = assert(
+          domEvents(off1).exists(_._3.exists(_.contains("Z0"))),
+          clue = off1
+        )
+
+        // ...and comes back. THE assertion: each client is re-shown ITS tab.
+        _ <- world.change(es("alarm.h", "armed"))
+        on0 <- onT0.drain
+        on1 <- onT1.drain
+        _ = assert(
+          on0.exists(_.renderString.contains("A0")),
+          clue = ("tab 0's viewer must get A back", on0)
+        )
+        _ = assert(
+          !on0.exists(_.renderString.contains("B0")),
+          clue = ("...and never tab 1's content", on0)
+        )
+        _ = assert(
+          on1.exists(_.renderString.contains("B0")),
+          clue = ("tab 1's viewer must get B back, not the default", on1)
+        )
+        _ = assert(
+          !on1.exists(_.renderString.contains("A0")),
+          clue = ("...which is exactly the silent regression", on1)
+        )
+
+        // Both are still live inside their own tab afterwards.
+        _ <- world.change(es("sensor.a", "A1"))
+        a0 <- onT0.drain
+        a1 <- onT1.drain
+        _ = assert(
+          domEvents(a0).exists(_._3.exists(_.contains("A1"))),
+          clue = a0
+        )
+        _ = assertEquals(domEvents(a1), Nil, clue = a1)
+        _ <- world.change(es("sensor.b", "B1"))
+        b0 <- onT0.drain
+        b1 <- onT1.drain
+        _ = assertEquals(domEvents(b0), Nil, clue = b0)
+        _ = assert(
+          domEvents(b1).exists(_._3.exists(_.contains("B1"))),
+          clue = b1
         )
       } yield ()
     }

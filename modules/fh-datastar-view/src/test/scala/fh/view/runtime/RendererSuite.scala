@@ -941,7 +941,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
     // uiState maps the tabs component id ("c") to the active index "1".
-    val body = rr.renderBody(states, Map("c" -> "1"))
+    val body = rr.renderBody(states, Viewer.Client(Map("c" -> "1")))
     // the panel host seeds `tab_c: 1` (from the injected bakeIndex)...
     assert(
       body.contains(
@@ -1085,7 +1085,7 @@ class RendererSuite extends munit.FunSuite {
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderBody(states, uiState = Map("c" -> "1"))
+    val sel = rr.renderBody(states, Viewer.Client(Map("c" -> "1")))
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
@@ -1303,9 +1303,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
   }
 
-  test(
-    "sessionOnlyStateGroups: a user-selected owner inside a branch flags the group"
-  ) {
+  test("userOwnersIn: the mounts a client must fill once a branch is placed") {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
     // HTML embeds a client-selected member and cannot render shared.
@@ -1329,10 +1327,13 @@ class RendererSuite extends munit.FunSuite {
         )
       )
     )
-    assertEquals(Renderer.create(d).sessionOnlyStateGroups, Set("c"))
-    // A branch with no user owner anywhere stays shared.
+    // The then-branch holds a tabs host, so placing that branch leaves ONE
+    // mount for each connection to fill with its own panel.
+    assertEquals(Renderer.create(d).userOwnersIn("c_then"), Set("s_c_then__c"))
+    // A branch with no user owner anywhere needs no fill at all: it is one
+    // rendering that serves every viewer.
     assertEquals(
-      Renderer.create(ifDashboard()).sessionOnlyStateGroups,
+      Renderer.create(ifDashboard()).userOwnersIn("c_then"),
       Set.empty[String]
     )
   }

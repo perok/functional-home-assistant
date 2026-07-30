@@ -17,23 +17,11 @@ import org.http4s.ServerSentEvent
   *   - `control`: server-pushed patches destined for *this* connection's stream
   *     — popup mount/remove (the entity-change loop can't carry them, as
   *     they're triggered by action POSTs on other fibers).
-  *   - `lastRendered`: this connection's private last-pushed-HTML diff cache
-  *     for the fragments that are rendered per session (open surfaces,
-  *     bake-group owners) — content that differs per client. Shared main-page
-  *     fragments are diffed once per slug instead (`Server`'s shared patch
-  *     pass), never here. A [[FragmentLog]] for one diff contract with that
-  *     pass, but its versions are never resumed from: this log dies with the
-  *     connection, so a reconnecting client has these painted fresh instead —
-  *     see `Server.openingPatches` (ADR 0011). Its resume half (`id`,
-  *     `mutations`, `horizon`) is therefore inert here: no cursor is ever
-  *     compared against a session log. Sharing the type is what keeps ONE diff
-  *     contract; the cost is that bookkeeping nothing reads.
   */
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
-    control: Queue[IO, ServerSentEvent],
-    lastRendered: Ref[IO, FragmentLog]
+    control: Queue[IO, ServerSentEvent]
 )
 
 object Session {
@@ -41,9 +29,7 @@ object Session {
     for {
       o <- Ref[IO].of(Set.empty[String])
       q <- Queue.unbounded[IO, ServerSentEvent]
-      id <- IO.randomUUID.map(_.toString)
-      lr <- Ref[IO].of(FragmentLog(id))
-    } yield Session(slug, o, q, lr)
+    } yield Session(slug, o, q)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action

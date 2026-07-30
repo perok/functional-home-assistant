@@ -32,6 +32,29 @@ import fh.view.model.{
 enum DynamicDelta:
   case InPlace, Added, Removed
 
+/** Who a render is FOR — which is what decides whether a USER-selected mount
+  * can be filled at all.
+  *
+  *   - [[Client]] carries that connection's selections. An ABSENT key is still
+  *     a client: it means "hasn't chosen", so the group's `defaultOpen` member
+  *     is right.
+  *   - [[Nobody]] is the shared per-slug pass. It has no client, so a
+  *     user-selected mount renders EMPTY rather than silently handing every
+  *     viewer the default and yanking whoever picked another member off it. The
+  *     mount is filled per connection afterwards (`Patches.Reveal`).
+  *
+  * The two are NOT the same as an empty vs. non-empty map, which is exactly the
+  * confusion this type exists to prevent.
+  */
+enum Viewer:
+  case Client(uiState: Map[String, String])
+  case Nobody
+
+object Viewer:
+
+  /** A client that has chosen nothing — every group shows its default. */
+  val anonymous: Viewer = Viewer.Client(Map.empty)
+
 /** Renders the recursive dashboard layout tree from current entity state.
   *
   * Every node is a `Component` referencing a shared template by name; a
@@ -272,10 +295,10 @@ class Renderer(
   private val bakeOwnerIds: Set[NodeId] =
     dashboard.surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
 
-  /** Component ids that own a USER-selected bake group (tabs). Their HTML
-    * depends on the client's `uiState` (the baked member is client-selected),
-    * so their live patches must stay per-session and they are EXCLUDED from the
-    * shared per-slug pass (see `Server`).
+  /** Component ids that own a USER-selected bake group (tabs). Their own
+    * rendering is shared like any other node — the client-selected member lives
+    * in the MOUNT, which a patch never carries. What is per-client is filling
+    * that mount: see [[userOwnersIn]] and `Patches.Reveal`.
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -288,30 +311,18 @@ class Renderer(
   val stateBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filter(isStateGroup)
 
-  /** Whether a member surface's content subtree contains a user-selected bake
-    * owner, following nested state members transitively. Feeds
-    * [[sessionOnlyStateGroups]]: a user owner inside a state branch means that
-    * branch's HTML bakes a client-selected member, so the branch cannot render
-    * shared.
+  /** The USER-selected bake owners inside a member surface's content, following
+    * nested state members transitively — the mounts a client must fill for
+    * itself once that member is placed. A state member in between is followed
+    * because its own selection is state-decided and therefore already known.
     */
-  private def subtreeHasUserOwner(sid: String): Boolean = {
+  def userOwnersIn(sid: String): Set[NodeId] = {
     val ids =
       surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
-    ids.exists(userBakeOwnerIds) ||
-    ids.exists(gid =>
-      stateBakeOwnerIds(gid) && bakeGroup(gid).exists(subtreeHasUserOwner)
-    )
+    ids.filter(userBakeOwnerIds) ++ ids
+      .filter(stateBakeOwnerIds)
+      .flatMap(gid => bakeGroup(gid).flatMap(userOwnersIn))
   }
-
-  /** State-selected groups whose member subtree contains a user-selected bake
-    * owner (tabs inside an If). Their host HTML embeds a client-selected
-    * member, so their flips must be patched PER-SESSION with that session's
-    * `uiState` — the Server excludes them from the shared flip path and mirrors
-    * them in the per-session pass instead. Every other state group is shared.
-    * Computed once per renderer (structure, not state).
-    */
-  val sessionOnlyStateGroups: Set[NodeId] =
-    stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -448,8 +459,7 @@ class Renderer(
     * flips it in, the ancestor's host morph re-renders it fresh). Two-step per
     * group: the O(1) [[conditionTouched]] shortcut, then
     * [[resolveActiveByState]] over `before` vs `states`. The Server morphs each
-    * returned host (minus [[sessionOnlyStateGroups]] on the shared pass) and
-    * prunes its members' cache entries.
+    * returned host and prunes its members' cache entries.
     */
   def affectedStateGroups(
       change: StateChange,
@@ -495,8 +505,7 @@ class Renderer(
     * Server never consults their indices (no guard map needed; silence is
     * structural). `excluding` prunes whole subtrees: the Server passes the
     * groups it flips this round (their host morph re-renders the member
-    * wholesale — patching its parts too would double-emit) and, on the shared
-    * pass, [[sessionOnlyStateGroups]].
+    * wholesale — patching its parts too would double-emit).
     */
   def activeStateSurfaces(
       states: Map[String, EntityState],
@@ -724,9 +733,9 @@ class Renderer(
     */
   def renderBody(
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      viewer: Viewer = Viewer.anonymous
   ): String =
-    render(dashboard.card, Nil, "", states, uiState)
+    render(dashboard.card, Nil, "", states, viewer)
 
   /** The full page: [[themeStyleTag]] followed by the theme's compiled `chrome`
     * executed with `body = renderBody(...)` — a stable `#dashboard` patch
@@ -743,18 +752,18 @@ class Renderer(
     */
   def renderPage(
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
+      viewer: Viewer = Viewer.anonymous,
       popup: Option[String] = None
   ): String =
     themeStyleTag + chromeTemplate.execute(
       Renderer.javaContext(
         Map(
-          "body" -> renderBody(states, uiState),
+          "body" -> renderBody(states, viewer),
           // The dialog a refresh is restoring, baked into the host exactly as
           // the connect would patch it — same `renderSurface` call, so the two
           // are byte-identical and the later patch is a no-op morph.
           "popups" -> popup
-            .flatMap(renderSurface(_, states, uiState))
+            .flatMap(renderSurface(_, states, viewer))
             .getOrElse("")
         ),
         Nil
@@ -772,10 +781,10 @@ class Renderer(
   def renderSurface(
       surfaceId: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      viewer: Viewer = Viewer.anonymous
   ): Option[String] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
+      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, viewer)
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
@@ -786,7 +795,7 @@ class Renderer(
   def renderNodeById(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      viewer: Viewer = Viewer.anonymous
   ): Option[String] =
     allIndexed.get(id).map {
       // A card that declares a `self` patches through THAT element alone — no
@@ -800,12 +809,12 @@ class Renderer(
           structuralVars(id),
           c.slots,
           c.children.zipWithIndex.map { case (child, i) =>
-            render(child, path :+ i, prefix, states, uiState)
+            render(child, path :+ i, prefix, states, viewer)
           },
           states
         )
       case (node, path, prefix) =>
-        render(node, path, prefix, states, uiState)
+        render(node, path, prefix, states, viewer)
     }
 
   /** The node id of a surface's CONTENT root (`s_<sid>__c`) — what a state
@@ -874,7 +883,8 @@ class Renderer(
 
   def renderMount(
       container: NodeId,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      viewer: Viewer = Viewer.anonymous
   ): List[(NodeId, String)] =
     allIndexed.get(container) match {
       case Some((_: LayoutNode.Dynamic, _, _)) =>
@@ -883,7 +893,7 @@ class Renderer(
         resolveActiveByState(container, states)
           .flatMap(bakeMembers(container).lift)
           .flatMap(sid =>
-            renderSurface(sid, states).map(surfaceContentId(sid) -> _)
+            renderSurface(sid, states, viewer).map(surfaceContentId(sid) -> _)
           )
           .toList
     }
@@ -1016,7 +1026,7 @@ class Renderer(
     */
   private def resolveBake(
       id: NodeId,
-      uiState: Map[String, String],
+      viewer: Viewer,
       states: Map[String, EntityState]
   ): (Map[String, String], Map[String, String]) = {
     val group = bakeGroup(id)
@@ -1025,7 +1035,7 @@ class Renderer(
       val s = dashboard.surfaces(sid)
       (
         Map(
-          s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
+          s.bakeAs.getOrElse("") -> renderSurface(sid, states, viewer)
             .getOrElse("")
         ),
         Map("bakeIndex" -> idx.toString)
@@ -1045,7 +1055,18 @@ class Renderer(
             .getOrElse("")
           (Map(as -> ""), Map.empty)
       }
-    else bakeMember(resolveActive(id, uiState)._1)
+    else
+      viewer match {
+        case Viewer.Client(uiState) => bakeMember(resolveActive(id, uiState)._1)
+        // No client to choose for. Bake the hole EMPTY — the connection fills
+        // it with its own member (`Patches.Reveal`), which is the only way the
+        // same rendered branch can serve viewers who picked different tabs.
+        case Viewer.Nobody =>
+          val as = group.headOption
+            .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
+            .getOrElse("")
+          (Map(as -> ""), Map.empty)
+      }
   }
 
   private def render(
@@ -1053,15 +1074,15 @@ class Renderer(
       path: List[Int],
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      viewer: Viewer
   ): String =
     node match {
       case c: LayoutNode.Component =>
         val id = LayoutNode.nodeId(idPrefix, path)
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
-          render(child, path :+ i, idPrefix, states, uiState)
+          render(child, path :+ i, idPrefix, states, viewer)
         }
-        val (baked, bakeIndex) = resolveBake(id, uiState, states)
+        val (baked, bakeIndex) = resolveBake(id, viewer, states)
         // The document path renders the whole card: its two parts first (each
         // seeing the same vars), then `template` with them spliced in. A leaf
         // card has neither part, so its `template` renders exactly as before.

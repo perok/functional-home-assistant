@@ -53,7 +53,28 @@ private[runtime] enum Patch:
 private[runtime] case class Addressed(
     surface: Option[String],
     event: ServerSentEvent
-) {
+) extends Directed
+
+/** A USER-selected mount that the shared pass just re-created EMPTY, because it
+  * had no client to choose a member for (see [[Viewer.Nobody]]). Each
+  * connection turns it into its OWN member's content — the one thing in the
+  * whole pipeline that cannot be rendered once and fanned out.
+  *
+  * It rides the same stream as the patches so it lands in order, after the
+  * mount exists and before anything inside it ticks.
+  */
+private[runtime] case class Reveal(
+    surface: Option[String],
+    owner: NodeId
+) extends Directed
+
+/** Something the shared pass produced, plus who may see it. Either already
+  * bytes ([[Addressed]]) or an instruction one connection resolves for itself
+  * ([[Reveal]]) — the only two kinds there are, because a client's own
+  * selection is the only thing a per-slug render cannot know.
+  */
+private[runtime] sealed trait Directed {
+  def surface: Option[String]
 
   /** `Option.forall` over the single tag is the whole visibility test. */
   def visibleTo(open: Set[String]): Boolean = surface.forall(open)
@@ -64,14 +85,10 @@ private[runtime] case class Addressed(
   * points:
   *
   *   - [[plan]] SELECTS what one state change touches — the affected static
-  *     component ids, dynamic groups, and flipped state groups — for a given
-  *     [[Scope]]. The shared per-slug pass and the per-session pass differ only
-  *     in that scope (a shared pass has no `uiState` and no open surfaces; a
-  *     session pass carries both), which is exactly what collapses their two
-  *     formerly-parallel assembly blocks into one.
+  *     component ids, dynamic groups, and flipped state groups — for every
+  *     client at once.
   *   - [[diff]] DIFFS that selection against a cache, returning the updated
-  *     cache and the SSE patches to emit — the single diff contract both passes
-  *     share.
+  *     cache and what to emit.
   *
   * Everything here is pure over the entity snapshot; the caller ([[Server]])
   * owns the `Ref`/`IO` that reads the snapshot and `modify`s the cache.
@@ -80,8 +97,8 @@ private[runtime] object Patches {
 
   /** A selection of what one [[StateChange]] touches, ready to [[diff]] against
     * a cache. Bundles the assembled `staticIds`/`dynamics`/`flips` with the
-    * render inputs (`change`/`states`/`before`/`uiState`) they are diffed with
-    * — replacing the nine-positional-argument call the two passes used to make.
+    * render inputs (`change`/`states`/`before`) they are diffed with —
+    * replacing the nine-positional-argument call the pass used to make.
     */
   case class DiffRequest(
       // Each selected node carries WHOSE it is: the user-selected surface it
@@ -96,7 +113,6 @@ private[runtime] object Patches {
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      uiState: Map[String, String],
       // When `states` was read (see [[Stamp]]), applied to every fragment and
       // mutation this request records. The version is read atomically WITH the
       // snapshot, so a fragment can never claim a version its HTML does not
@@ -139,8 +155,10 @@ private[runtime] object Patches {
     *     consulted: the hidden-branch no-updates guarantee, structural — their
     *     ids simply never enter the selection.
     *
-    * What this pass does NOT select is whatever reads a client's `uiState`; see
-    * [[planSession]].
+    * Nothing here reads a client's `uiState`. The one thing that depends on it
+    * — which member of a USER-selected mount a viewer chose — is not rendered
+    * at all: the mount comes out empty and each connection fills its own from
+    * the [[Reveal]] this pass emits alongside the flip.
     */
   def plan(
       renderer: Renderer,
@@ -153,23 +171,16 @@ private[runtime] object Patches {
     val flips = (renderer.affectedStateGroups(change, before, states) ++
       visible.toList.flatMap(sid =>
         renderer.affectedStateGroupsIn(sid, change, before, states)
-      )).distinct.filterNot(renderer.sessionOnlyStateGroups)
+      )).distinct
     val flipped = flips.toSet
-    // Subtrees this pass cannot render: the ones it just flipped (already
-    // re-rendered wholesale) and the session-only ones (see [[planSession]]).
-    val skip = flipped ++ renderer.sessionOnlyStateGroups
-    val activeSids = renderer.activeStateSurfaces(states, skip) ++
-      visible.flatMap(renderer.activeStateSurfacesIn(_, states, skip))
+    val activeSids = renderer.activeStateSurfaces(states, flipped) ++
+      visible.flatMap(renderer.activeStateSurfacesIn(_, states, flipped))
     val sids = (visible ++ activeSids).toList
     val staticIds =
       (renderer.componentsFor(change.entityId).toList ++
         sids.flatMap(sid =>
           renderer.surfaceComponentsFor(sid, change.entityId).toList
-        )).distinct
-        .filterNot(id =>
-          renderer.userBakeOwnerIds(id) || renderer.sessionOnlyStateGroups(id)
-        )
-        .filterNot(flipped)
+        )).distinct.filterNot(flipped)
     val dynamics =
       (renderer.affectedDynamics(change) ++
         sids.flatMap(renderer.affectedSurfaceDynamics(_, change))).distinct
@@ -181,68 +192,6 @@ private[runtime] object Patches {
       change,
       states,
       before,
-      Map.empty,
-      stamp
-    )
-  }
-
-  /** The residue [[plan]] cannot render: everything whose HTML reads THIS
-    * client's `uiState` — user bake-group owners (their bake hole holds the
-    * client-selected panel) and session-only state groups (whose branch bakes
-    * one transitively). Diffed against the session's own log and never tagged:
-    * it is written straight to one connection's stream.
-    *
-    * This is the last of ADR 0002's per-session pass. It disappears once a flip
-    * revealing a mount fills that mount per connection, which is what still
-    * forces a session-only group's whole subtree through here.
-    */
-  def planSession(
-      renderer: Renderer,
-      states: Map[String, EntityState],
-      stamp: Stamp,
-      change: StateChange,
-      open: Set[String],
-      uiState: Map[String, String]
-  ): DiffRequest = {
-    val before = beforeSnapshot(states, change)
-    val flips = (renderer.affectedStateGroups(change, before, states) ++
-      open.toList.flatMap(sid =>
-        renderer.affectedStateGroupsIn(sid, change, before, states)
-      )).distinct.filter(renderer.sessionOnlyStateGroups)
-    val flipped = flips.toSet
-    // Active state members reachable ONLY through a session-only group: all
-    // active, minus what the same walk reaches with those groups closed.
-    def active(skip: Set[NodeId]): Set[String] =
-      renderer.activeStateSurfaces(states, skip) ++
-        open.flatMap(renderer.activeStateSurfacesIn(_, states, skip))
-    val sessionOnlySids =
-      if (renderer.sessionOnlyStateGroups.isEmpty) Set.empty[String]
-      else active(flipped) -- active(flipped ++ renderer.sessionOnlyStateGroups)
-    // From the main page and this client's open surfaces, only the per-session
-    // owners; from a session-only subtree, everything.
-    val owners =
-      (renderer.componentsFor(change.entityId).toList ++
-        open.toList.flatMap(sid =>
-          renderer.surfaceComponentsFor(sid, change.entityId).toList
-        )).filter(id =>
-        renderer.userBakeOwnerIds(id) || renderer.sessionOnlyStateGroups(id)
-      )
-    val nested = sessionOnlySids.toList.flatMap(sid =>
-      renderer.surfaceComponentsFor(sid, change.entityId).toList
-    )
-    val staticIds = (owners ++ nested).distinct.filterNot(flipped)
-    val dynamics = sessionOnlySids.toList
-      .flatMap(renderer.affectedSurfaceDynamics(_, change))
-      .distinct
-    request(
-      renderer,
-      staticIds,
-      dynamics,
-      flips,
-      change,
-      states,
-      before,
-      uiState,
       stamp
     )
   }
@@ -262,7 +211,6 @@ private[runtime] object Patches {
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      uiState: Map[String, String],
       stamp: Stamp
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
@@ -273,15 +221,13 @@ private[runtime] object Patches {
       change,
       states,
       before,
-      uiState,
       stamp
     )
   }
 
   /** Diff a [[DiffRequest]]'s static component ids + affected dynamic groups +
-    * flipped state groups against `cache`, returning the updated cache and the
-    * SSE patches to emit. The single diff contract shared by the per-slug and
-    * per-session passes.
+    * flipped state groups against `cache`, returning the updated cache and what
+    * to emit.
     *
     *   - A flipped state group morphs its HOST (the newly-selected member baked
     *     against current state) and prunes its members' cache entries
@@ -302,25 +248,32 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       req: DiffRequest
-  ): (FragmentLog, List[Addressed]) = {
+  ): (FragmentLog, List[Directed]) = {
     val at = req.stamp
     // Each stage carries its own patches' tag through, so a patch's audience is
     // decided once — where the node was SELECTED — and never re-derived.
     val (logAfterFlips, flipPatches) =
-      req.flips.foldLeft((log, List.empty[Addressed])) {
+      req.flips.foldLeft((log, List.empty[Directed])) {
         case ((c, acc), (gid, surface)) =>
-          val (c2, ps) =
+          val (c2, ps, revealed) =
             flipStateGroup(renderer, c, gid, req.before, req.states, at)
-          (c2, acc ++ ps.map(p => Addressed(surface, p.toSse)))
+          // The mount patch FIRST, then the fills for what it left empty: the
+          // element has to exist before a connection can put its own member in
+          // it, and one ordered stream is what guarantees that.
+          (
+            c2,
+            acc ++ ps.map(p => Addressed(surface, p.toSse)) ++
+              revealed.map(Reveal(surface, _))
+          )
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
         renderer
-          .renderNodeById(id, req.states, req.uiState)
+          .renderNodeById(id, req.states, Viewer.Nobody)
           .map(html => (id, surface, html))
       }
     val (logAfterStatic, staticPatches) =
-      rendered.foldLeft((logAfterFlips, List.empty[Addressed])) {
+      rendered.foldLeft((logAfterFlips, List.empty[Directed])) {
         case ((c, acc), (id, surface, html)) =>
           if (c.holds(id, html)) (c, acc)
           else
@@ -330,7 +283,7 @@ private[runtime] object Patches {
             )
       }
     val (finalLog, dynPatches) =
-      req.dynamics.foldLeft((logAfterStatic, List.empty[Addressed])) {
+      req.dynamics.foldLeft((logAfterStatic, List.empty[Directed])) {
         case ((c, acc), (gid, surface, delta)) =>
           val (c2, ps) =
             renderDynamicGroup(
@@ -409,7 +362,8 @@ private[runtime] object Patches {
       log: FragmentLog,
       states: Map[String, EntityState],
       v: Long,
-      open: Set[String] = Set.empty
+      open: Set[String] = Set.empty,
+      viewer: Viewer = Viewer.anonymous
   ): List[ServerSentEvent] = {
     val owed = log.since(v)
     // Split by CONTAINER KIND, because the two mounts want different tools: a
@@ -432,7 +386,10 @@ private[runtime] object Patches {
         branchPatch(
           renderer,
           gid,
-          renderer.renderMount(gid, states).map(_._2).reduceOption(_ + _),
+          renderer
+            .renderMount(gid, states, viewer)
+            .map(_._2)
+            .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
         )
       }
@@ -478,7 +435,7 @@ private[runtime] object Patches {
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
       Patch.Insert(
-        renderer.renderMount(gid, states).map(_._2).mkString,
+        renderer.renderMount(gid, states, viewer).map(_._2).mkString,
         PatchMode.Inner,
         renderer.mountId(gid)
       )
@@ -585,7 +542,7 @@ private[runtime] object Patches {
       before: Map[String, EntityState],
       states: Map[String, EntityState],
       at: Stamp
-  ): (FragmentLog, List[Patch]) = {
+  ): (FragmentLog, List[Patch], List[NodeId]) = {
     def memberAt(
         snapshot: Map[String, EntityState]
     ): Option[String] =
@@ -595,7 +552,7 @@ private[runtime] object Patches {
     val was = memberAt(before)
     val now = memberAt(states)
     // Defensive: the caller only passes groups whose selection actually moved.
-    if (was == now) (log, Nil)
+    if (was == now) (log, Nil, Nil)
     else {
       val prefixes = renderer.bakeMemberPrefixes(gid)
       val pruned = log.invalidateWhere(k => prefixes.exists(k.startsWith))
@@ -603,7 +560,10 @@ private[runtime] object Patches {
       val arrived = now.flatMap(sid =>
         val member = MemberKey.Surface(sid)
         member
-          .render(renderer, gid, states)
+          // For NOBODY: the branch is one rendering serving every viewer, so
+          // any user-selected mount inside it comes out empty and is filled per
+          // connection from the [[Reveal]]s below.
+          .render(renderer, gid, states, Viewer.Nobody)
           .map(html => (renderer.surfaceContentId(sid), member, html))
       )
       val withGone = departed.foldLeft(pruned)(_.removed(gid, _, at))
@@ -611,7 +571,11 @@ private[runtime] object Patches {
         case (l, (nodeId, member, html)) =>
           l.placed(gid, member, nodeId, html, at)
       }
-      (withPlaced, branchPatch(renderer, gid, arrived.map(_._3), departed))
+      (
+        withPlaced,
+        branchPatch(renderer, gid, arrived.map(_._3), departed),
+        now.toList.flatMap(renderer.userOwnersIn).sorted
+      )
     }
   }
 
