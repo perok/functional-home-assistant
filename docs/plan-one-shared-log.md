@@ -1374,6 +1374,31 @@ sensibly was.
 It also largely absorbs W13: rendering per connection at send time inherently does not render what
 nobody is looking at, so the lazy-render gate stops being a separate mechanism.
 
+### The seed becomes `__ifmissing`
+
+Verified against the pinned bundle: `data-signals` takes an `__ifmissing` modifier (and the
+`datastar-patch-signals` event an `onlyIfMissing` line), and the DEFAULT is overwrite.
+
+That default is the mismatch. A `bakeIndex` seed means "initialise this signal if it has no
+value"; plain `data-signals` says "assert this value", so every re-render of a tabs mount
+overwrites whatever tab the client is actually on. Datastar signals live in a global store rather
+than on the element, so with the modifier the selection simply survives the branch being removed
+and re-added.
+
+It closes two holes nothing covers today:
+
+- **The click race.** A tab click sets `$ui` locally while its `@post` is in flight; any patch
+  rendered from the server's older view lands in that window and resets the bar.
+- **Hot-reload repaints.** `reloadRepaints` renders with the `uiState` captured at connect and
+  re-seeds `session.open` from it, snapping a client back to the tab it opened the page on. That
+  also wants `uiStateFrom(open)`, the same fix the fill took.
+
+**It has to land WITH this phase, not before it.** Against the hollow render it would break the
+case it looks like it fixes: a branch not yet visible since page load has no signal, so the hollow
+mount's default index applies — and the fill can no longer correct it, because the signal now
+exists. Tab 1's content under a tab 0 highlight, reached from the other side. Once every mount is
+rendered for its viewer there is no wrong value to correct, and the modifier is purely protective.
+
 ### The digest
 
 Suppression ("this entity ticked but this node's HTML is identical") needs the bytes, so the log's
@@ -1409,7 +1434,7 @@ measurement rather than up front.
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
 | W13 (mostly absorbed by W16) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
-| W16 | **Render at the edge**: the shared pass records the change set and publishes a memoised per-variant render instead of bytes; each connection assembles its own variant from `session.open` at send time. Deletes `Viewer.Nobody`, `Patches.Reveal`, `Server.fillMount`. The log's digest is keyed by `(node, variant)` | `Patches`, `Server`, `Renderer`, `FragmentLog` |
+| W16 | **Render at the edge**: `Tabs`' mount seeds via `data-signals__ifmissing` (with this item, never before it); the shared pass records the change set and publishes a memoised per-variant render instead of bytes; each connection assembles its own variant from `session.open` at send time. Deletes `Viewer.Nobody`, `Patches.Reveal`, `Server.fillMount`. The log's digest is keyed by `(node, variant)` | `Patches`, `Server`, `Renderer`, `FragmentLog` |
 | W17 | Deferred, measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
 | W15 | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
