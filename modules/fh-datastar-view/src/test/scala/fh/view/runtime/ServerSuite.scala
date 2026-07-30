@@ -2039,6 +2039,68 @@ class ServerSuite extends munit.CatsEffectSuite {
   // End to end over the REAL stream
   // ---------------------------------------------------------------------------
 
+  /** These tests read the stream as EVENTS, not as one string, and assert on
+    * every one of them rather than on the absence of a substring.
+    *
+    * `assert(!raw.contains(…))` passes for every reason including the ones
+    * nobody meant — a renamed selector, an event that never arrived at all, a
+    * typo in the needle — so it pins almost nothing. Naming the exact sequence
+    * pins everything, and reads like the wire dump you would see in the
+    * browser.
+    *
+    * Decoding is http4s's own `ServerSentEvent.decoder`, so the tests parse the
+    * wire with the same type the server writes it with.
+    */
+  extension (e: ServerSentEvent) {
+    private def line(key: String): Option[String] =
+      e.data.toList
+        .flatMap(_.linesIterator)
+        .collectFirst {
+          case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
+        }
+
+    /** Datastar's default when the event names none. */
+    def mode: String = line("mode").getOrElse("outer")
+    def selector: Option[String] = line("selector")
+    def elements: Option[String] = line("elements")
+    def signals: Option[String] = line("signals")
+    def name: String = e.eventType.getOrElse("")
+  }
+
+  private val Elements = "datastar-patch-elements"
+  private val Signals = "datastar-patch-signals"
+
+  /** Read a response body as the events it carries. */
+  private def sseFrom(
+      resp: Response[IO]
+  )(done: ServerSentEvent => Boolean): IO[List[ServerSentEvent]] =
+    resp.body
+      .through(ServerSentEvent.decoder[IO])
+      .takeThrough(e => !done(e))
+      .compile
+      .toList
+
+  /** The cursor handshake the connect path emits last — the end of the opening
+    * block, and the marker every one of these reads stops on.
+    */
+  private def isCursor(e: ServerSentEvent): Boolean =
+    e.signals.exists(_.contains(Server.StoreVersionSignal))
+
+  /** Just the DOM events, as `(mode, selector, elements)`.
+    *
+    * The element stream is the contract worth pinning exactly. Signals are not:
+    * `haDown` rides its own merged stream, so its POSITION among the others is
+    * a scheduling detail, and asserting on it would buy a flaky test rather
+    * than a stronger one. So these tests state the element sequence in full and
+    * check for the signals they care about by presence.
+    */
+  private def domEvents(
+      events: List[ServerSentEvent]
+  ): List[(String, Option[String], Option[String])] =
+    events
+      .filter(_.name == Elements)
+      .map(e => (e.mode, e.selector, e.elements))
+
   /** Boot the whole server, open the SSE route as a browser does, hold the
     * stream open across `act`, and hand back everything that arrived on it.
     *
@@ -2052,16 +2114,72 @@ class ServerSuite extends munit.CatsEffectSuite {
     * The waits are conditions, never sleeps: first for the opening block (which
     * ends at the cursor signal), then for the stream to fall quiet after `act`.
     */
-  private def liveStream(
+  /** A connected client, driven a STEP AT A TIME.
+    *
+    * `step` applies one entity change and returns exactly the events that
+    * change produced, so a test walks the interaction the way the browser
+    * experiences it — connect, assert; change, assert; change again, assert —
+    * instead of collecting one blob at the end and rummaging in it. Every
+    * assertion is then about a specific moment, and an event arriving at the
+    * wrong TIME fails as loudly as one that never arrives.
+    */
+  private class LiveClient(
+      store: StateStore,
+      seen: Ref[IO, Vector[ServerSentEvent]]
+  ) {
+
+    /** Everything received since the last read. */
+    def drain: IO[List[ServerSentEvent]] =
+      seen.getAndSet(Vector.empty).map(_.toList)
+
+    /** Apply one change; return exactly what it put on the wire. */
+    def step(next: EntityState): IO[List[ServerSentEvent]] =
+      for {
+        _ <- store.update(next)
+        _ <- settled
+        out <- drain
+      } yield out
+
+    /** Wait for the stream to go QUIET — not for it to move.
+      *
+      * "This change produced nothing" is a real and important answer (a hidden
+      * branch, a value that renders identically), so waiting for movement would
+      * hang on exactly the cases worth asserting. Quiet needs a floor of
+      * observation to mean anything, hence the minimum window; after that it is
+      * a stability check rather than a fixed sleep, so a slow step still gets
+      * however long it needs.
+      */
+    private def settled: IO[Unit] =
+      fs2.Stream
+        .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
+        .zipWithPrevious
+        .drop(6)
+        .find { case (prev, now) => prev.contains(now) }
+        .compile
+        .drain
+        .timeout(15.seconds)
+  }
+
+  /** Boot the whole server and open the SSE route the way a browser does.
+    *
+    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so the
+    * test is deterministic and as fast as a unit test. What it adds over
+    * [[SharedHarness]] is the parts that harness deliberately skips — the
+    * publisher fibers, the topic, the per-connection merge — which is exactly
+    * where the bugs the running app found were hiding. Every one of them was
+    * invisible to tests that drove the pure diff core directly.
+    */
+  private def liveClient(
       dash: Dashboard,
-      initial: Map[String, EntityState]
-  )(act: StateStore => IO[Unit]): IO[String] =
+      initial: Map[String, EntityState],
+      sseUri: Uri = uri"/sse/dashboard/dashboard/patch"
+  )(use: LiveClient => IO[Unit]): IO[Unit] =
     (for {
       store <- StateStore.inMemory(initial)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
+      _ <- Server
         .resource(
           HomeAssistantApi.fromWs(fake),
           store,
@@ -2071,59 +2189,103 @@ class ServerSuite extends munit.CatsEffectSuite {
         )
         .use { server =>
           for {
-            seen <- Ref[IO].of("")
+            seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
             resp <- server.routes.orNotFound.run(
-              Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
+              Request[IO](Method.GET, sseUri)
             )
             pump <- resp.body
-              .through(fs2.text.utf8.decode)
-              .evalMap(chunk => seen.update(_ + chunk))
+              .through(ServerSentEvent.decoder[IO])
+              .evalMap(e => seen.update(_ :+ e))
               .compile
               .drain
               .start
-            _ <- awaitIn(seen)(_.contains(Server.StoreVersionSignal))
-            // The connection is established and caught up; NOW change the world.
-            before <- seen.get
-            _ <- act(store)
-            _ <- awaitIn(seen)(_.length > before.length)
-            // Let anything following the first event land too, then stop.
-            _ <- IO.sleep(150.millis)
+            client = new LiveClient(store, seen)
+            // The opening block ends at the cursor handshake; wait for it so a
+            // test's first `drain` is exactly what CONNECTING produced.
+            _ <- fs2.Stream
+              .repeatEval(seen.get <* IO.sleep(10.millis))
+              .find(_.exists(isCursor))
+              .compile
+              .drain
+              .timeout(15.seconds)
+            _ <- use(client)
             _ <- pump.cancel
-            all <- seen.get
-          } yield all.drop(before.length)
+          } yield ()
         }
-    } yield out).timeout(30.seconds)
+    } yield ()).timeout(30.seconds)
 
-  private def awaitIn(ref: Ref[IO, String])(p: String => Boolean): IO[Unit] =
-    fs2.Stream
-      .repeatEval(ref.get <* IO.sleep(10.millis))
-      .find(p)
-      .compile
-      .drain
-      .timeout(15.seconds)
-
-  test("end to end: a flip reaches a live browser as one mount overwrite") {
+  test("end to end: flipping there and back, one mount overwrite each time") {
     // The shape the running app showed wrong twice. Driving the diff core
-    // directly could not see it: the first bug was in the resume path, the
-    // second in how a replay was assembled, and both only appear once the
-    // events have actually travelled down a connection.
-    liveStream(
+    // directly could not see either: the first bug was in the resume path, the
+    // second in how a replay was assembled, and both only appear once events
+    // have actually travelled down a connection.
+    liveClient(
       ifDash(),
       Map(
         "alarm.h" -> es("alarm.h", "armed"),
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    )(_.update(es("alarm.h", "disarmed"))).map { live =>
-      val elements = live.linesIterator.count(_.startsWith("data: elements "))
-      assertEquals(elements, 1, clue = live)
-      assert(live.contains("mode inner"), clue = live)
-      assert(live.contains("selector #c_0_branch"), clue = live)
-      assert(live.contains("""id="s_else__c""""), clue = live)
-      assert(live.contains("B0"), clue = live)
-      // Not two removals and an append — the shape reported from the browser.
-      assert(!live.contains("mode remove"), clue = live)
-      assert(!live.contains("mode append"), clue = live)
+    ) { client =>
+      // This fixture's branch content is a single card, so the branch root IS
+      // the node — no Row wrapper (the shipped `If` wraps, the fixture does not).
+      def branch(sid: String, inner: String) =
+        Some(
+          s"""<div class="fh-cell" id="s_${sid}__c"><span>$inner</span></div>"""
+        )
+      for {
+        // 1. This client connects with NO cursor — it never loaded a document —
+        //    so the honest answer is the whole body, once. (The document case is
+        //    the separate first-load test, where the page hands its cursor back
+        //    and the opening block carries no elements at all.)
+        opening <- client.drain
+        _ = assertEquals(
+          domEvents(opening).map { case (m, s, _) => (m, s) },
+          List(("inner", Some("#dashboard"))),
+          clue = opening
+        )
+        _ = assert(opening.exists(isCursor), clue = opening)
+
+        // 2. A tick inside the ACTIVE branch: one morph of that node alone.
+        tick <- client.step(es("sensor.a", "A1"))
+        _ = assertEquals(
+          domEvents(tick),
+          List(
+            (
+              "outer",
+              None,
+              Some(
+                """<div class="fh-cell" id="s_then__c"><span>A1</span></div>"""
+              )
+            )
+          ),
+          clue = tick
+        )
+
+        // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
+        //    Silence is structural — its ids never enter the selection.
+        hidden <- client.step(es("sensor.b", "B1"))
+        _ = assertEquals(hidden, Nil, clue = hidden)
+
+        // 4. The flip: ONE overwrite of the host's mount, carrying the branch
+        //    rendered at CURRENT state (B1, which this client never saw). The
+        //    browser reported three events here — two removals and an append.
+        flip <- client.step(es("alarm.h", "disarmed"))
+        _ = assertEquals(
+          domEvents(flip),
+          List(("inner", Some("#c_0_branch"), branch("else", "B1"))),
+          clue = flip
+        )
+
+        // 5. And back again — symmetric, and the then-branch returns at its
+        //    CURRENT value rather than the one it had when it left.
+        back <- client.step(es("alarm.h", "armed"))
+        _ = assertEquals(
+          domEvents(back),
+          List(("inner", Some("#c_0_branch"), branch("then", "A1"))),
+          clue = back
+        )
+      } yield ()
     }
   }
 
@@ -2174,14 +2336,7 @@ class ServerSuite extends munit.CatsEffectSuite {
               .run(
                 Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl))
               )
-              .flatMap(
-                _.body
-                  .through(fs2.text.utf8.decode)
-                  .scan("")(_ + _)
-                  .takeThrough(!_.contains(Server.StoreVersionSignal))
-                  .compile
-                  .lastOrError
-              )
+              .flatMap(sseFrom(_)(isCursor))
           } yield (page, opening)
         }
     } yield out)
@@ -2190,28 +2345,52 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The document really does carry the dashboard...
         assert(page.contains(">cold<"), clue = page)
         assert(page.contains(">warm<"), clue = page)
-        // ...so the stream sends none of it again. No body repaint, and no
-        // morphs for the open tab panel's nodes either — the document path
-        // told the log what it put there.
-        assert(!opening.contains(BodyRepaint), clue = opening)
-        assert(!opening.contains("data: elements"), clue = opening)
-        // Only the cursor handshake.
-        assert(opening.contains(Server.StoreVersionSignal), clue = opening)
+        // ...so the stream sends none of it again. Stated as the WHOLE opening
+        // block, event by event: the connection id, then the cursor. Anything
+        // the server started re-sending shows up here as an extra event rather
+        // than slipping past a negative match.
+        assertEquals(
+          opening.map(_.name),
+          List(Signals, Signals),
+          clue = opening
+        )
+        assert(
+          opening.head.signals.exists(_.contains(Server.ConnSignal)),
+          clue = opening.head
+        )
+        assert(isCursor(opening(1)), clue = opening(1))
       }
   }
 
-  test("end to end: a leaf tick reaches the stream as one morph") {
-    liveStream(
+  test("end to end: a leaf tick, then the same value again") {
+    liveClient(
       liveLeafDash,
       Map("sensor.a" -> es("sensor.a", "cold"))
-    )(_.update(es("sensor.a", "hot"))).map { live =>
-      assert(live.contains(""">hot<"""), clue = live)
-      assert(live.contains("""id="c_0""""), clue = live)
-      assertEquals(
-        live.linesIterator.count(_.startsWith("data: elements ")),
-        1,
-        clue = live
-      )
+    ) { client =>
+      for {
+        _ <- client.drain
+        // An outer morph: it targets the id inside its own HTML and names no
+        // selector — the leaf's whole rendering, cell and all — and the batch
+        // carries the cursor it advanced to.
+        hot <- client.step(es("sensor.a", "hot"))
+        _ = assertEquals(
+          domEvents(hot),
+          List(
+            (
+              "outer",
+              None,
+              Some("""<div class="fh-cell" id="c_0"><span>hot</span></div>""")
+            )
+          ),
+          clue = hot
+        )
+        _ = assert(hot.exists(isCursor), clue = hot)
+        // The diff's whole purpose: a change that renders identically puts
+        // NOTHING on the wire — not even a cursor, since only a non-empty batch
+        // carries one.
+        again <- client.step(es("sensor.a", "hot"))
+        _ = assertEquals(again, Nil, clue = again)
+      } yield ()
     }
   }
 }
