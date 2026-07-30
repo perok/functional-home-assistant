@@ -363,7 +363,30 @@ private[runtime] object Patches {
     val placed = owed.moved.collect { case (nodeId, p: Mutation.Placed) =>
       (nodeId, p)
     }
+    // A SURFACE member — a state group's branch — occupies a one-member mount,
+    // so it needs no anchor and no ordering: remove, then append. Replaying it
+    // is the whole reason a flip is recorded structurally. Without it a client
+    // that was away across a flip gets the `Gone` and nothing else, and sits on
+    // an EMPTY host until something unrelated moves.
+    val branchPlaces = placed
+      .collect {
+        case (nodeId, p) if p.member.isInstanceOf[MemberKey.Surface] =>
+          (nodeId, p)
+      }
+      .sortBy(_._1)
+      .flatMap { case (nodeId, p) =>
+        p.member.render(renderer, p.container, states).toList.flatMap { html =>
+          List(
+            Patch.Remove(renderer.elementId(nodeId)),
+            Patch.Insert(html, PatchMode.Append, renderer.mountId(p.container))
+          )
+        }
+      }
     val places = placed
+      .collect {
+        case (nodeId, p) if p.member.isInstanceOf[MemberKey.Entity] =>
+          (nodeId, p)
+      }
       .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
@@ -371,8 +394,8 @@ private[runtime] object Patches {
         val members = renderer.dynamicMembers(gid, states)
         val position = members.zipWithIndex.toMap
         inGroup
-          // Still a member; anything an ancestor's HTML already carries was
-          // already dropped by `since`.
+          // Still a member; anything an ancestor is re-supplying was already
+          // dropped by `since`.
           .flatMap { case (nodeId, p) =>
             p.member match {
               case MemberKey.Entity(e) =>
@@ -431,7 +454,7 @@ private[runtime] object Patches {
       .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
       fromOpen ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
-      places ++ refills).map(_.toSse)
+      branchPlaces ++ places ++ refills).map(_.toSse)
   }
 
   /** The patch that puts `html` at `entity`'s place in group `gid`: `before`

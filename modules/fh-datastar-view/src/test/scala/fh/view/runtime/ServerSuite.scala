@@ -1399,6 +1399,47 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  /** '''A flip that happens while a client is away must survive the
+    * reconnect''' (docs/plan-one-shared-log.md, T8b) — the exact hole recording
+    * the flip structurally was meant to close.
+    *
+    * Found in the running app before this test existed: `Patches.resume`
+    * grouped placements by container and looked each member up by POSITION in
+    * `dynamicMembers`, which is empty for a state group — so a `Placed`
+    * carrying a `Surface` member matched nothing and was dropped. The client
+    * got the `Gone`, its branch vanished, and nothing ever put one back.
+    * Silent, and permanent until an unrelated change moved something.
+    */
+  test("a flip across a disconnect replays as remove AND append") {
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
+      )
+      // Establish the then-branch, then note where a client's cursor sits.
+      _ <- h.step(es("sensor.a", "A1"))
+      logId <- h.logId
+      cursor = Some(Server.Cursor(h.headHash, h.styleHash, logId, 2L))
+      // It flips while that client is away.
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
+      opening <- h.opening(cursor)
+    } yield {
+      // The old branch goes...
+      assert(opening.contains("selector #s_then__c"), clue = opening)
+      // ...and the new one ARRIVES. Without the append the host is left empty.
+      assert(opening.contains("mode append"), clue = opening)
+      assert(opening.contains("selector #c_0_branch"), clue = opening)
+      assert(opening.contains("""id="s_else__c""""), clue = opening)
+      // Rendered from the CURRENT snapshot, and not via a body repaint.
+      assert(opening.contains("B0"), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
   test(
     "flip prune: a re-revealed child diffs cleanly (no stale-cache suppression)"
   ) {
