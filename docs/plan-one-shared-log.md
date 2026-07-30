@@ -307,6 +307,25 @@ a tab panel is tagged with the tab panel, not the branch.
 `open` lists nested user selections, so a node inside a popup inside a tab is tagged with the
 popup and both entries are present — `Option.forall` over the single tag is the whole test.
 
+**Resolve "innermost user surface" from a PARENT POINTER, not from the node id** (decided while
+landing W7). A node id encodes only its own surface prefix — `s_<sid>__c_0` — and a nesting is
+three independent prefixes with no link between them, so the containing chain is not recoverable
+from an id at all. The alternative, threading the originating user sid down every branch of
+`plan`'s walk, is what mis-tags a nested case the moment the walk grows a branch.
+
+The relation is not new information. `Surface.bakeInto` names the NODE a surface bakes into,
+`allIndexed` knows which index — and therefore which surface — any node lives in, and
+`stateGidsByRoot` already computes exactly this parent-ness, but only for state groups and only
+for its own walk. So this is naming something the renderer already derives and discards:
+
+> `surfaceParent: Map[String, String]` — the surface containing this one, absent for a main-rooted
+> one. `userSurfaceOf(sid)` walks it until it reaches a non-state surface: the filter tag, defined
+> once.
+
+`plan` then only needs the sid a node came from, which it always has. It also unifies
+`stateGidsByRoot`, which is the same relation computed narrowly. Land it as the FIRST move of W6,
+where it is immediately used — adding it earlier would be an unused abstraction.
+
 Untagged, and therefore always sent: cursor signals, `haDown`/keepalive, and every main-page node.
 
 **Over-sending is safe; under-sending is not.** A morph at an id the DOM lacks is a silent no-op,
