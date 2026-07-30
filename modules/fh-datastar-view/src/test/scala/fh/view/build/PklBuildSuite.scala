@@ -1237,6 +1237,88 @@ class PklBuildSuite extends munit.FunSuite {
     assert(evalProj(tmp, "probe.pkl").isLeft)
   }
 
+  // ---- the card shape is a type, so an invalid dashboard is unconstructable ----
+
+  /** Evaluate a probe that defines its own card class, and say whether Pkl took
+    * it. The three rules below are the self/mount split's structural guarantees
+    * (docs/plan-one-shared-log.md, W2) — enforced HERE, in the authoring layer,
+    * rather than as a `Dashboard.validate` message after the fact.
+    */
+  private def cardShapeAccepted(body: String): Boolean = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |import "@fh-dashboard/hass.pkl"
+         |import "@fh-dashboard/components.pkl" as c
+         |$body
+         |""".stripMargin
+    )
+    evalProj(tmp, "probe.pkl").isRight
+  }
+
+  test("Pkl rejects a card shape that would break the self/mount split") {
+    // A `self` IS the patch target, so it must carry the engine's id — without
+    // it the patch would have no element to match and would silently vanish.
+    assert(
+      !cardShapeAccepted(
+        """class Bad extends c.Node {
+          |  card = "bad"
+          |  cardDef = new c.ContainerCard {
+          |    self = "<div>no id at all</div>"
+          |    mount = "<div>{{#children}}{{{html}}}{{/children}}</div>"
+          |  }
+          |}
+          |node = new Bad {}""".stripMargin
+      )
+    )
+    // `self` and `mount` must be SIBLINGS. Nesting the mount inside the self is
+    // the one way to break that, so it is the one thing forbidden — this is what
+    // makes "a patch never carries mounted content" structural.
+    assert(
+      !cardShapeAccepted(
+        """class Bad extends c.Node {
+          |  card = "bad"
+          |  cardDef = new c.ContainerCard {
+          |    self = #"<div id="{{selfId}}">{{{mount}}}</div>"#
+          |    mount = "<div>x</div>"
+          |  }
+          |}
+          |node = new Bad {}""".stripMargin
+      )
+    )
+    // A LIVE slot on a container with no `self`: it hosts content AND re-renders
+    // on state, so its patch would carry everything its mount holds. Declaring a
+    // `self` is the fix, and lifts the ban.
+    assert(
+      !cardShapeAccepted(
+        """class Bare extends c.Node {
+          |  card = "bare"
+          |  cardDef = new c.ContainerCard {
+          |    mount = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
+          |  }
+          |  slots { ["temp"] = new c.Slot { entityId = "sensor.t" } }
+          |}
+          |node = new Bare {}""".stripMargin
+      )
+    )
+  }
+
+  test("Pkl accepts Grid unchanged — a LITERAL slot on a bare container") {
+    // The rule is about the slot's VALUE, not the card's type. `Grid` holds its
+    // children directly AND carries a `class` slot on that same element — but
+    // the value is a plain String (the wire's `literal`), so nothing about it
+    // varies with entity state and it never reaches the reverse index. An
+    // earlier draft banned this shape by TYPE and would have rejected the
+    // library's three most basic cards.
+    assert(
+      cardShapeAccepted(
+        """node = (c.grid.cssClass("hero")) { children { c.title("x") } }"""
+      )
+    )
+  }
+
   test("floorView emits one section per area-with-lights (title + sliders)") {
     // A fake transformed dump: floor `over` with two areas — `stue` (two
     // lights) and `bad` (one sensor, no lights). floorView must emit ONE area

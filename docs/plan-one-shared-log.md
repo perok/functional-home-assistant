@@ -771,10 +771,29 @@ it is: the fallback of last resort, now scoped to one group instead of the page.
      at independent holes, so the only way to nest them is for `self` to contain the mount hole.
      Forbidding that makes "they are siblings" — the whole mechanism — structural.
    - A `self` part must carry the engine's id.
-   - A node slot name the card never declared, or a declared slot the card never provides.
-   - The three `wrapAsCell = false` rules (live slots, cell params, dynamic-case use), with the
-     live-slot ban conditioned on card shape — a `ContainerCard` with a `self` patches through it,
-     so it is exempt.
+   - A LIVE slot on a container with a mount and no `self`.
+
+   **NOT the slot-name pair, and this is a finding from landing it.** Both directions —
+   "every provided key is declared" and "every declared slot is provided" — were spiked against a
+   scratch lib where every card declared every slot, and both fire correctly there. Against the
+   REAL library each one rejects a shipped card:
+
+   - `Grid`/`Row`/`Column` declare **no** `slots` at all in `cardDef` yet provide `["class"]`, so
+     *provided ⊆ declared* rejects them.
+   - `Grid`'s `class` is provided only `when (cssClass != null)`, so *declared ⊆ provided* rejects
+     it the moment the card does declare it.
+
+   The cause is that `cardDef.slots` today means **required**, not *declarable* — `validate`'s
+   `checkRef` flags declared-but-missing and deliberately ignores extras ("only flags missing
+   *required* slots and ignores extra ones"). Enforcing either direction needs the card vocabulary
+   to separate the two (a `slots` set plus an `optional` set, or `Listing<SlotDecl>`), which is a
+   change to the authoring API and not a mechanical port. **Deferred, with the slot-name check
+   staying in `validate` where it is correct today.** Pick the vocabulary first.
+
+   **The `wrapAsCell = false` rules also stay in `validate` for now** (live slots, cell params,
+   dynamic-case use). Two of the three want a constraint on `cell`, which is declared on
+   `LayoutNode` — above the class that knows `cardDef` — so it needs a narrowing spike first, and
+   `TabButton` is the only card affected. No behaviour depends on where they live.
 
    **The registry needs no change, and the JSON is polymorphic for free.** `cardsOf` reflects over
    `Node` subclasses, not `CardDef` ones, and only tests `v is CardDef` — which a subclass
@@ -1253,7 +1272,7 @@ data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
 |---|---|---|
 | W1 | `CardDef` gains `self`/`mount` (`template` keeps its meaning, two holes); engine-owned `{{selfId}}` (new) and `{{mountId}}` (= `Surface.hostId` for a card, the node id for a dynamic group; required only on fill targets); document path renders `template` nested, patch path renders `self` alone | `Dashboard`, `Renderer`, `lib/components.pkl` |
 | W1b | Delete the cell conditional's bake-owner branch — every node is a cell again, `TabButton` the sole opt-out. `Tabs` and `If` gain cells defaulting to `fh-cols-full`. `wrapAsCell = false` re-specified as "my root must not be wrapped in a layout box", no longer implying "never a morph target" | `Renderer.render`, `lib/components.pkl` |
-| W2 | `CardDef` splits into `LeafCard`/`ContainerCard` (optional `self`) with type constraints; the slot-name checks and the "live slot + mount + no self" rule move onto `Node.slots`; the three `wrapAsCell = false` rules move (two as constraints, the dynamic-case one as a `throw` in `caseOf`) — all spike-verified. Triage the rest by the criterion; hoist-resolved relations (`bakeInto` → a card with a mount, dangling surface refs) STAY | `lib/components.pkl`, `Dashboard.validate` |
+| W2 | `CardDef` splits into `LeafCard`/`ContainerCard` (optional `self`) with type constraints; the "live slot + mount + no self" rule moves onto `Node.slots`. The slot-name checks and the three `wrapAsCell = false` rules STAY in `validate` — see the finding under "What changes in the authoring layer". Hoist-resolved relations (`bakeInto` → a card with a mount, dangling surface refs) stay too | `lib/components.pkl` |
 | W3 | `patchTargetId(nodeId)` — the one-way node-id → DOM-id mapping, discriminated by whether the card declares a `self` (the same predicate that chooses what the patch path renders). Consolidate the structural-var derivation into ONE function so `render` and `renderCase` cannot diverge. Log keys stay node ids | `Patches`, `Renderer` |
 | W4 | **The ledger**: opaque `NodeId`/`DomId`; `MemberKey` as a sum type owning its own `render`; `Fragment` holds a 128-bit digest; `Resume(nodes, moved, refill)` and `since` becomes TOTAL; `Patches.resume` renders from `(renderer, states)`; **re-target `coveredByAncestor` from fragments to mutations** as `coveredByMutation(nodeId, moved ++ refill)`, and drop the version sort's correctness role | `FragmentLog`, `Patches`, `Renderer`, `Server` |
 | W5 | `resolveBake` becomes document-path only — the patch path never renders a mount | `Renderer.resolveBake` |
@@ -1279,7 +1298,7 @@ behaviour-free commit that everything after is written against.
 | Phase | Items | Ships alone because |
 |---|---|---|
 | **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
-| **1 — authoring + render** | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
+| **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** | W6, W7, W8, W9, W10b, W11, W12, W13 | the per-session pass dies here; nothing earlier depends on that |
 | **4 — docs** | W15 | — |
@@ -1332,7 +1351,7 @@ into one phase is defensible if the intermediate state proves awkward to test.
 | T9 | The document render bakes the client's selection, `bakeIndex` included (flash-free refresh onto a non-default tab, no signal reset) | `RendererSuite` | the document/patch split is deliberate |
 | T10 | A state-selected host still renders only the active branch | `RendererSuite` | hidden-branch guarantee |
 | T11 | A repaint invalidates the open surfaces' entries: a node changing back to its pre-repaint value afterwards is still sent | `ServerSuite` | the repaint's one obligation |
-| T12 | Pkl rejects, at eval: a `self` without `{{selfId}}`; a `self` containing the mount hole; a node slot name the card never declared; a declared slot the card never provides; a LIVE slot on a container with a mount and no `self`; cell params or dynamic-case use on a `wrapAsCell = false` card. And ACCEPTS `Grid` unchanged, `class` slot and all | `PklBuildSuite` | unconstructable by authors — the ONLY place these rules live |
+| T12 | Pkl rejects, at eval: a `self` without `{{selfId}}`; a `self` containing the mount hole; a LIVE slot on a container with a mount and no `self`. And ACCEPTS `Grid` unchanged, `class` slot and all. (The slot-name pair and the `wrapAsCell` rules stay in `validate` — see W2) | `PklBuildSuite` | unconstructable by authors |
 | T12b | `validate` still rejects a surface whose `bakeInto` names a card with no mount, and a node naming an unregistered card | `DashboardSuite` | what Pkl cannot see, plus the lookup's failure arm |
 | T12c | The emitted registry carries `mount`+`self`+`slots` for `Tabs`, `mount`+`slots` for `Grid` (its `class` slot), `mount` alone for `If`, and no `mount` for a leaf | `PklBuildSuite` | polymorphic emission, no tag field |
 | T13 | The two Datastar contracts — sibling isolation with its wiping control, and `data-ignore-morph` in both directions | `DatastarMorphContractSuite` | upgrade guard: on failure the split is unsafe, not the test |
