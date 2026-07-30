@@ -84,9 +84,15 @@ private[runtime] object Patches {
     * — replacing the nine-positional-argument call the two passes used to make.
     */
   case class DiffRequest(
-      staticIds: List[NodeId],
-      dynamics: List[(NodeId, DynamicDelta)],
-      flips: List[NodeId],
+      // Each selected node carries WHOSE it is: the user-selected surface it
+      // sits inside, or `None` for the main page. The tag originates here,
+      // where the surface is known — it cannot be recovered from a node id
+      // afterwards, because a node's id encodes only its own surface, not the
+      // chain of surfaces containing it (a tab panel inside an `If` branch
+      // inside another tab panel is three independent prefixes).
+      staticIds: List[(NodeId, Option[String])],
+      dynamics: List[(NodeId, Option[String], DynamicDelta)],
+      flips: List[(NodeId, Option[String])],
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
@@ -186,10 +192,14 @@ private[runtime] object Patches {
             activeSids.toList.flatMap(sid =>
               renderer.affectedSurfaceDynamics(sid, change)
             )
+        // Untagged, and that is right for both kinds this pass selects: the main
+        // page, and STATE-activated surfaces, which are transparent to the
+        // filter (never in anyone's `open`, so a tag would hide them from
+        // everyone).
         DiffRequest(
-          staticIds,
-          dynamics,
-          flips,
+          staticIds.map(_ -> None),
+          dynamics.map { case (gid, d) => (gid, None, d) },
+          flips.map(_ -> None),
           change,
           states,
           before,
@@ -250,10 +260,14 @@ private[runtime] object Patches {
           sids
             .flatMap(sid => renderer.affectedSurfaceDynamics(sid, change))
             .distinct
+        // Also untagged, for now: this pass already renders only what THIS
+        // connection can see, so the filter has nothing left to decide. W6 moves
+        // this selection onto the shared pass, and that is where the tags start
+        // carrying a surface.
         DiffRequest(
-          staticIds,
-          dynamics,
-          flips,
+          staticIds.map(_ -> None),
+          dynamics.map { case (gid, d) => (gid, None, d) },
+          flips.map(_ -> None),
           change,
           states,
           before,
@@ -289,25 +303,34 @@ private[runtime] object Patches {
       req: DiffRequest
   ): (FragmentLog, List[Addressed]) = {
     val at = req.stamp
+    // Each stage carries its own patches' tag through, so a patch's audience is
+    // decided once — where the node was SELECTED — and never re-derived.
     val (logAfterFlips, flipPatches) =
-      req.flips.foldLeft((log, List.empty[Patch])) { case ((c, acc), gid) =>
-        val (c2, ps) =
-          flipStateGroup(renderer, c, gid, req.before, req.states, at)
-        (c2, acc ++ ps)
+      req.flips.foldLeft((log, List.empty[Addressed])) {
+        case ((c, acc), (gid, surface)) =>
+          val (c2, ps) =
+            flipStateGroup(renderer, c, gid, req.before, req.states, at)
+          (c2, acc ++ ps.map(p => Addressed(surface, p.toSse)))
       }
     val rendered =
-      req.staticIds.flatMap(id =>
-        renderer.renderNodeById(id, req.states, req.uiState).map(id -> _)
-      )
+      req.staticIds.flatMap { case (id, surface) =>
+        renderer
+          .renderNodeById(id, req.states, req.uiState)
+          .map(html => (id, surface, html))
+      }
     val (logAfterStatic, staticPatches) =
-      rendered.foldLeft((logAfterFlips, List.empty[Patch])) {
-        case ((c, acc), (id, html)) =>
+      rendered.foldLeft((logAfterFlips, List.empty[Addressed])) {
+        case ((c, acc), (id, surface, html)) =>
           if (c.holds(id, html)) (c, acc)
-          else (c.set(id, html, at.version), acc :+ Patch.Morph(html))
+          else
+            (
+              c.set(id, html, at.version),
+              acc :+ Addressed(surface, Patch.Morph(html).toSse)
+            )
       }
     val (finalLog, dynPatches) =
-      req.dynamics.foldLeft((logAfterStatic, List.empty[Patch])) {
-        case ((c, acc), (gid, delta)) =>
+      req.dynamics.foldLeft((logAfterStatic, List.empty[Addressed])) {
+        case ((c, acc), (gid, surface, delta)) =>
           val (c2, ps) =
             renderDynamicGroup(
               renderer,
@@ -319,16 +342,11 @@ private[runtime] object Patches {
               req.before,
               at
             )
-          (c2, acc ++ ps)
+          (c2, acc ++ ps.map(p => Addressed(surface, p.toSse)))
       }
-    // Untagged for now, which is CORRECT for everything this pass emits today:
-    // main-page nodes, and nodes inside state-activated surfaces, which are
-    // transparent to the filter. W6 moves user-surface rendering here and is
-    // what starts setting the tag.
     (
       finalLog,
-      (flipPatches ++ staticPatches ++ dynPatches)
-        .map(p => Addressed(None, p.toSse))
+      flipPatches ++ staticPatches ++ dynPatches
     )
   }
 
