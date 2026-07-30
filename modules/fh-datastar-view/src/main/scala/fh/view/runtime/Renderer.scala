@@ -804,6 +804,14 @@ class Renderer(
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
 
+  /** Which surfaces share `host` as their mount — the eviction group a swap
+    * replaces.
+    */
+  def surfacesAt(host: DomId): Set[String] =
+    dashboard.surfaces.collect {
+      case (sid, s) if s.hostId == host => sid
+    }.toSet
+
   /** Every addressable node inside one surface's content tree.
     *
     * The resume path's SECOND candidate set: a surface a client has open holds

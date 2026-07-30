@@ -760,6 +760,21 @@ class Server(
     * so the browser carries that one bit of per-session state and a reconnect
     * can restore the dialog. Emitted here, next to the patch that made it true,
     * so the signal cannot disagree with what is actually in the host.
+    *
+    * '''A fill INVALIDATES the log entries for what it just re-supplied.'''
+    * This is the one obligation every path that touches the DOM owes the ledger
+    * (docs/plan-one-shared-log.md, statement (2)): the fill put the CURRENT
+    * render into the mount, so an entry describing some earlier value is now a
+    * lie, and a change BACK to that value would be diffed as "unchanged" and
+    * suppressed while the client's DOM has moved on.
+    *
+    * Invalidating rather than re-fingerprinting is what statement (3) buys. The
+    * plan asked each fill to write its members' fingerprints, which means
+    * rendering every node in the surface a second time; but with content out of
+    * the log a MISSING entry already means "unknown — send it", so dropping the
+    * entries is correct for free. The cost is one redundant send per node on
+    * the next change — including to other viewers, since the log is shared —
+    * against a render of the whole surface per tab click.
     */
   private def swapHost(
       session: Session,
@@ -780,6 +795,14 @@ class Server(
         (open -- evict) ++ newSurface.toSet
       }
       states <- stateStore.snapshot
+      // What this swap re-supplies: the arriving surface's nodes, and the
+      // departing ones' (their DOM is gone, so any entry for them describes
+      // nothing).
+      resupplied = (newSurface.toSet ++ renderer
+        .surfacesAt(host)).flatMap(renderer.surfaceNodeIds)
+      _ <- liveFor(session.slug).flatMap(
+        _.traverse_(_.log.update(_.invalidateWhere(resupplied)))
+      )
       _ <- newSurface match {
         case Some(sid) =>
           renderer
