@@ -304,7 +304,7 @@ class Server(
           IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
         ) ++
           stateStore.changes
-            .evalMap(sharedPatches(renderer, live.log, _))
+            .evalMap(sharedPatches(slug, renderer, live.log, _))
             .flatMap(Stream.emits)
       }
       .map(addressed => (slug, addressed))
@@ -401,37 +401,42 @@ class Server(
     *     structural: their ids simply never enter the patch set.
     */
   private[runtime] def sharedPatches(
+      slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
       change: StateChange
   ): IO[List[Addressed]] =
-    (stateStore.current, Server.stampNow).flatMapN { (store, millis) =>
-      val req = Patches.plan(
-        renderer,
-        store.entities,
-        Stamp(store.version, millis),
-        change,
-        Patches.Scope.Shared
-      )
-      log
-        .modify(l => Patches.diff(renderer, l, req))
-        .map { patches =>
-          // Advance the clients' cursor to what they were just sent — but only when
-          // something WAS sent. A batch that emitted nothing leaves every cursor
-          // where it was, so a later resume re-sends a superset of what that client
-          // needs (harmless: every fragment patch is an idempotent morph), which is
-          // the right direction to err in.
-          //
-          // Only the part that CHANGED rides along. `headHash`, `styleHash` and
-          // `logId` are constant for the life of a renderer, so re-sending them
-          // on every batch is bytes on every patch of every connection — and
-          // every signal a client holds is serialised back into every request it
-          // makes. All three are (re)established where they can actually change:
-          // on connect, and on a renderer swap ([[reloadRepaints]]).
-          if (patches.isEmpty) patches
-          else
-            patches :+ Addressed(None, Server.versionSignal(req.stamp.version))
-        }
+    (stateStore.current, Server.stampNow, sessions.openIn(slug)).flatMapN {
+      (store, millis, visible) =>
+        val req = Patches.plan(
+          renderer,
+          store.entities,
+          Stamp(store.version, millis),
+          change,
+          visible
+        )
+        log
+          .modify(l => Patches.diff(renderer, l, req))
+          .map { patches =>
+            // Advance the clients' cursor to what they were just sent — but only when
+            // something WAS sent. A batch that emitted nothing leaves every cursor
+            // where it was, so a later resume re-sends a superset of what that client
+            // needs (harmless: every fragment patch is an idempotent morph), which is
+            // the right direction to err in.
+            //
+            // Only the part that CHANGED rides along. `headHash`, `styleHash` and
+            // `logId` are constant for the life of a renderer, so re-sending them
+            // on every batch is bytes on every patch of every connection — and
+            // every signal a client holds is serialised back into every request it
+            // makes. All three are (re)established where they can actually change:
+            // on connect, and on a renderer swap ([[reloadRepaints]]).
+            if (patches.isEmpty) patches
+            else
+              patches :+ Addressed(
+                None,
+                Server.versionSignal(req.stamp.version)
+              )
+          }
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
@@ -760,12 +765,13 @@ class Server(
       out <- renderer match {
         case None    => IO.pure(List.empty[ServerSentEvent])
         case Some(r) =>
-          val req = Patches.plan(
+          val req = Patches.planSession(
             r,
             store.entities,
             Stamp(store.version, millis),
             change,
-            Patches.Scope.Session(open, uiState)
+            open,
+            uiState
           )
           session.lastRendered
             .modify(Patches.diff(r, _, req))

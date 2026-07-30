@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.kernel.Ref
+import cats.syntax.all.*
 import cats.effect.std.Queue
 import org.http4s.ServerSentEvent
 
@@ -56,6 +57,22 @@ final class Sessions(ref: Ref[IO, Map[String, Session]]) {
   def deregister(conn: String): IO[Unit] = ref.update(_ - conn)
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
+
+  /** Every surface ANY client on `slug` currently has open — the shared pass's
+    * render gate. Deliberately a union, and deliberately not a correctness
+    * input: it decides what is worth RENDERING once for the slug, while who may
+    * SEE each patch is decided per patch by its `Addressed` tag. Erring wide
+    * therefore costs bytes on the server and nothing on the wire; erring narrow
+    * would drop an update a client needed, so the union is the only safe
+    * direction.
+    */
+  def openIn(slug: String): IO[Set[String]] =
+    ref.get.flatMap(
+      _.values
+        .filter(_.slug == slug)
+        .toList
+        .foldMapA(_.open.get)
+    )
 }
 
 object Sessions {

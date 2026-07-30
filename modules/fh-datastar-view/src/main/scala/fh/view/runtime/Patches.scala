@@ -104,20 +104,6 @@ private[runtime] object Patches {
       stamp: Stamp
   )
 
-  /** Which pass is selecting — the only real difference between the shared and
-    * per-session assembly.
-    *
-    *   - [[Shared]]: the per-slug pass. Nodes whose HTML is a pure function of
-    *     entity state (USER bake-group owners excluded, STATE-selected groups
-    *     included); no `uiState`, no open surfaces.
-    *   - [[Session]]: the per-connection pass. The client's open surfaces plus
-    *     the main-page USER bake-group owners and session-only state groups,
-    *     rendered with this session's `uiState`.
-    */
-  enum Scope:
-    case Shared
-    case Session(open: Set[String], uiState: Map[String, String])
-
   /** The snapshot as it was BEFORE this change — the current snapshot with the
     * changed entity rewound to its `previous` value (or dropped when it was
     * newly seen). Lets a dynamic group compute its membership before vs. after
@@ -131,150 +117,165 @@ private[runtime] object Patches {
       states.updated(change.entityId, p)
     )
 
-  /** Select what `change` touches for `scope`, against `states`. The shared and
-    * per-session passes are one method now: the scope decides whether open
-    * surfaces and a client `uiState` enter the selection.
+  /** Select what `change` touches for EVERY client on this dashboard, against
+    * `states` — one pass, whose patches are then addressed per client by their
+    * [[Addressed]] tag rather than re-selected per connection.
     *
-    * The state-selected extension (ADR 0002's shared/per-session split, cut by
-    * activation mode):
+    * `visible` is the union of the connected clients' open surfaces. It is a
+    * render GATE, not a correctness input: a surface nobody has open is not
+    * worth rendering. Erring wide costs bytes here and nothing on the wire (the
+    * tag still hides each patch from clients who cannot see it); erring narrow
+    * would drop an update someone needed.
     *
     *   - '''Flips''': each state group whose selection this change moves gets
     *     its HOST re-rendered ([[Renderer]]'s bake picks the newly-selected
     *     member against CURRENT state), morphed, and its members' cache entries
-    *     pruned ([[flipStateGroup]]). Shared takes the main-rooted groups minus
-    *     the session-only ones; a session takes the groups inside its open
-    *     surfaces (containment) plus the main-rooted session-only ones.
-    *   - '''Active-member liveness''': each surface in the relevant transitive
-    *     active set (excluding just-flipped subtrees — their host morph
-    *     re-rendered them wholesale) contributes its components binding the
-    *     changed entity plus its query-affected dynamics. Inactive members are
-    *     never consulted — the hidden-branch no-updates guarantee, structural:
-    *     their ids simply never enter the selection.
+    *     pruned ([[flipStateGroup]]).
+    *   - '''Active-member liveness''': each surface in the transitive active
+    *     set — reachable from the main page or from a visible surface —
+    *     contributes its components binding the changed entity plus its
+    *     query-affected dynamics. Just-flipped subtrees are excluded (the host
+    *     morph re-rendered them wholesale). Inactive members are never
+    *     consulted: the hidden-branch no-updates guarantee, structural — their
+    *     ids simply never enter the selection.
+    *
+    * What this pass does NOT select is whatever reads a client's `uiState`; see
+    * [[planSession]].
     */
   def plan(
       renderer: Renderer,
       states: Map[String, EntityState],
       stamp: Stamp,
       change: StateChange,
-      scope: Scope
+      visible: Set[String]
   ): DiffRequest = {
     val before = beforeSnapshot(states, change)
-    scope match {
-      case Scope.Shared =>
-        val flips = renderer
-          .affectedStateGroups(change, before, states)
-          .filterNot(renderer.sessionOnlyStateGroups)
-        val flipped = flips.toSet
-        val activeSids = renderer.activeStateSurfaces(
-          states,
-          excluding = flipped ++ renderer.sessionOnlyStateGroups
-        )
-        val staticIds =
-          (renderer
-            .componentsFor(change.entityId)
-            .toList
-            // User owners bake a client-selected member (per-session); a
-            // session-only state owner bakes one transitively (its branch holds
-            // tabs). State owners otherwise stay in the shared pass — selection
-            // included, their HTML is a pure function of entity state.
-            .filterNot(id =>
-              renderer.userBakeOwnerIds(id) ||
-                renderer.sessionOnlyStateGroups(id)
-            ) ++
-            activeSids.toList.flatMap(sid =>
-              renderer.surfaceComponentsFor(sid, change.entityId).toList
-            )).distinct
-            // A flipped host is patched (with prune) by the flip path; don't
-            // also morph it as a plain static.
-            .filterNot(flipped)
-        val dynamics =
-          renderer.affectedDynamics(change) ++
-            activeSids.toList.flatMap(sid =>
-              renderer.affectedSurfaceDynamics(sid, change)
-            )
-        // Untagged, and that is right for both kinds this pass selects: the main
-        // page, and STATE-activated surfaces, which are transparent to the
-        // filter (never in anyone's `open`, so a tag would hide them from
-        // everyone).
-        DiffRequest(
-          staticIds.map(_ -> None),
-          dynamics.map { case (gid, d) => (gid, None, d) },
-          flips.map(_ -> None),
-          change,
-          states,
-          before,
-          Map.empty,
-          stamp
-        )
-
-      case Scope.Session(open, uiState) =>
-        // State-group flips this session must patch itself: groups inside its
-        // open surfaces (containment), plus the main-rooted session-only ones
-        // (rendered with this session's uiState).
-        val openFlips = open.toList.flatMap(sid =>
-          renderer.affectedStateGroupsIn(sid, change, before, states)
-        )
-        val sessionOnlyFlips = renderer
-          .affectedStateGroups(change, before, states)
-          .filter(renderer.sessionOnlyStateGroups)
-        val flips = (openFlips ++ sessionOnlyFlips).distinct
-        val flipped = flips.toSet
-        // Active state members visible only to this session: those nested inside
-        // its open surfaces, plus the main-rooted subtrees the shared pass
-        // skipped as session-only (all-active minus shared-active is exactly
-        // those). Just-flipped subtrees are excluded — the flip's host morph
-        // re-renders them wholesale.
-        val openNested = open.toList.flatMap(sid =>
-          renderer.activeStateSurfacesIn(sid, states, flipped).toList
-        )
-        val sessionOnlySids: Set[String] =
-          if (renderer.sessionOnlyStateGroups.isEmpty) Set.empty
-          else
-            renderer.activeStateSurfaces(states, flipped) --
-              renderer.activeStateSurfaces(
-                states,
-                flipped ++ renderer.sessionOnlyStateGroups
-              )
-        val sids = (open.toList ++ openNested ++ sessionOnlySids).distinct
-        // Static components: main-page owners whose bake is per-session
-        // (user-selected, or state-selected with a user owner in a branch)
-        // binding this entity (a dynamic group is never a bake owner, so main
-        // dynamics all belong to the shared pass), plus each visible surface's
-        // components binding it.
-        val mainIds =
-          renderer
-            .componentsFor(change.entityId)
-            .toList
-            .filter(id =>
-              renderer.userBakeOwnerIds(id) ||
-                renderer.sessionOnlyStateGroups(id)
-            )
-        val surfaceStaticIds = sids.flatMap(sid =>
+    val flips = (renderer.affectedStateGroups(change, before, states) ++
+      visible.toList.flatMap(sid =>
+        renderer.affectedStateGroupsIn(sid, change, before, states)
+      )).distinct.filterNot(renderer.sessionOnlyStateGroups)
+    val flipped = flips.toSet
+    // Subtrees this pass cannot render: the ones it just flipped (already
+    // re-rendered wholesale) and the session-only ones (see [[planSession]]).
+    val skip = flipped ++ renderer.sessionOnlyStateGroups
+    val activeSids = renderer.activeStateSurfaces(states, skip) ++
+      visible.flatMap(renderer.activeStateSurfacesIn(_, states, skip))
+    val sids = (visible ++ activeSids).toList
+    val staticIds =
+      (renderer.componentsFor(change.entityId).toList ++
+        sids.flatMap(sid =>
           renderer.surfaceComponentsFor(sid, change.entityId).toList
+        )).distinct
+        .filterNot(id =>
+          renderer.userBakeOwnerIds(id) || renderer.sessionOnlyStateGroups(id)
         )
-        val staticIds =
-          (mainIds ++ surfaceStaticIds).distinct.filterNot(flipped)
-        // Dynamic groups this change can move the entity in/out of, per visible
-        // surface (surface-namespaced ids never collide across surfaces).
-        val dynamics =
-          sids
-            .flatMap(sid => renderer.affectedSurfaceDynamics(sid, change))
-            .distinct
-        // Also untagged, for now: this pass already renders only what THIS
-        // connection can see, so the filter has nothing left to decide. W6 moves
-        // this selection onto the shared pass, and that is where the tags start
-        // carrying a surface.
-        DiffRequest(
-          staticIds.map(_ -> None),
-          dynamics.map { case (gid, d) => (gid, None, d) },
-          flips.map(_ -> None),
-          change,
-          states,
-          before,
-          uiState,
-          stamp
-        )
-    }
+        .filterNot(flipped)
+    val dynamics =
+      (renderer.affectedDynamics(change) ++
+        sids.flatMap(renderer.affectedSurfaceDynamics(_, change))).distinct
+    request(
+      renderer,
+      staticIds,
+      dynamics,
+      flips,
+      change,
+      states,
+      before,
+      Map.empty,
+      stamp
+    )
+  }
+
+  /** The residue [[plan]] cannot render: everything whose HTML reads THIS
+    * client's `uiState` — user bake-group owners (their bake hole holds the
+    * client-selected panel) and session-only state groups (whose branch bakes
+    * one transitively). Diffed against the session's own log and never tagged:
+    * it is written straight to one connection's stream.
+    *
+    * This is the last of ADR 0002's per-session pass. It disappears once a flip
+    * revealing a mount fills that mount per connection, which is what still
+    * forces a session-only group's whole subtree through here.
+    */
+  def planSession(
+      renderer: Renderer,
+      states: Map[String, EntityState],
+      stamp: Stamp,
+      change: StateChange,
+      open: Set[String],
+      uiState: Map[String, String]
+  ): DiffRequest = {
+    val before = beforeSnapshot(states, change)
+    val flips = (renderer.affectedStateGroups(change, before, states) ++
+      open.toList.flatMap(sid =>
+        renderer.affectedStateGroupsIn(sid, change, before, states)
+      )).distinct.filter(renderer.sessionOnlyStateGroups)
+    val flipped = flips.toSet
+    // Active state members reachable ONLY through a session-only group: all
+    // active, minus what the same walk reaches with those groups closed.
+    def active(skip: Set[NodeId]): Set[String] =
+      renderer.activeStateSurfaces(states, skip) ++
+        open.flatMap(renderer.activeStateSurfacesIn(_, states, skip))
+    val sessionOnlySids =
+      if (renderer.sessionOnlyStateGroups.isEmpty) Set.empty[String]
+      else active(flipped) -- active(flipped ++ renderer.sessionOnlyStateGroups)
+    // From the main page and this client's open surfaces, only the per-session
+    // owners; from a session-only subtree, everything.
+    val owners =
+      (renderer.componentsFor(change.entityId).toList ++
+        open.toList.flatMap(sid =>
+          renderer.surfaceComponentsFor(sid, change.entityId).toList
+        )).filter(id =>
+        renderer.userBakeOwnerIds(id) || renderer.sessionOnlyStateGroups(id)
+      )
+    val nested = sessionOnlySids.toList.flatMap(sid =>
+      renderer.surfaceComponentsFor(sid, change.entityId).toList
+    )
+    val staticIds = (owners ++ nested).distinct.filterNot(flipped)
+    val dynamics = sessionOnlySids.toList
+      .flatMap(renderer.affectedSurfaceDynamics(_, change))
+      .distinct
+    request(
+      renderer,
+      staticIds,
+      dynamics,
+      flips,
+      change,
+      states,
+      before,
+      uiState,
+      stamp
+    )
+  }
+
+  /** Tag each selected node with the innermost user surface containing it, and
+    * bundle the request. The tag comes from the node's PLACE in the tree
+    * ([[Renderer.userSurfaceOfNode]]) — not from its id, which encodes only its
+    * own surface, and not from threading the originating surface down every
+    * branch of the selection above, which goes wrong the moment the walk grows
+    * a branch.
+    */
+  private def request(
+      renderer: Renderer,
+      staticIds: List[NodeId],
+      dynamics: List[(NodeId, DynamicDelta)],
+      flips: List[NodeId],
+      change: StateChange,
+      states: Map[String, EntityState],
+      before: Map[String, EntityState],
+      uiState: Map[String, String],
+      stamp: Stamp
+  ): DiffRequest = {
+    def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
+    DiffRequest(
+      staticIds.map(id => id -> tag(id)),
+      dynamics.map { case (gid, d) => (gid, tag(gid), d) },
+      flips.map(gid => gid -> tag(gid)),
+      change,
+      states,
+      before,
+      uiState,
+      stamp
+    )
   }
 
   /** Diff a [[DiffRequest]]'s static component ids + affected dynamic groups +

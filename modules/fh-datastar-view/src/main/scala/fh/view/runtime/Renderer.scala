@@ -353,10 +353,12 @@ class Renderer(
     rootOf(id).filter(_.nonEmpty).flatMap(userSurfaceOf)
 
   private def isStateSurface(sid: String): Boolean =
-    dashboard.surfaces.get(sid).exists(_.activation match {
-      case _: Activation.State => true
-      case _                   => false
-    })
+    dashboard.surfaces
+      .get(sid)
+      .exists(_.activation match {
+        case _: Activation.State => true
+        case _                   => false
+      })
 
   /** State-selected owner ids grouped by the tree that contains the owner node
     * ([[rootOf]]). This is the recursion structure of the transitive active-set

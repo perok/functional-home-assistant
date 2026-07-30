@@ -875,7 +875,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(seedCache))
-            patches <- server.sharedPatches(renderer, cache, change)
+            patches <- server.sharedPatches("dashboard", renderer, cache, change)
             finalCache <- cache.get.map(logged)
           } yield (elementPatches(patches.map(_.event)), finalCache)
         }
@@ -1101,23 +1101,32 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             viewingT0 <- Session.create("dashboard")
             _ <- viewingT0.open.set(Set("c_t0"))
+            _ <- sessions.register("a", viewingT0)
             viewingT1 <- Session.create("dashboard")
             _ <- viewingT1.open.set(Set("c_t1"))
-            a <- server.changedPatches(viewingT0, change, Map("c" -> "0"))
-            b <- server.changedPatches(viewingT1, change, Map("c" -> "1"))
-          } yield (a.map(_.renderString), b.map(_.renderString))
+            _ <- sessions.register("b", viewingT1)
+            renderer <- ref.get
+            cache <- Ref[IO].of(seedLog(Map.empty))
+            // ONE render for the slug; who sees it is the tag's job.
+            shared <- server.sharedPatches("dashboard", renderer, cache, change)
+          } yield shared.filterNot(p => isCursor(p.event))
         }
     } yield out)
       .timeout(30.seconds)
-      .map { case (onT0, onT1) =>
-        // A is looking at tab 0. Not "no patch for that node" — ZERO events that
-        // so much as mention tab 1's id namespace.
-        assert(!onT0.exists(_.contains("s_c_t1__")), clue = onT0)
-        assert(!onT0.exists(_.contains("B1")), clue = onT0)
-        // ...and B, who IS looking at it, gets it. This is what stops the test
-        // passing vacuously.
-        assert(onT1.exists(_.contains("""id="s_c_t1__c"""")), clue = onT1)
-        assert(onT1.exists(_.contains("B1")), clue = onT1)
+      .map { patches =>
+        // Tab 1's panel is open for SOMEBODY, so it is rendered — once.
+        assertEquals(patches.size, 1, clue = patches.map(_.event.renderString))
+        val one = patches.head
+        assert(
+          one.event.elements.exists(_.contains("""id="s_c_t1__c"""")),
+          clue = one.event.renderString
+        )
+        assert(one.event.elements.exists(_.contains("B1")), clue = one.event)
+        // A is looking at tab 0 and must not receive it; B, who IS looking at
+        // it, must — the second half is what stops this passing vacuously.
+        assertEquals(one.surface, Some("c_t1"))
+        assert(!one.visibleTo(Set("c_t0")))
+        assert(one.visibleTo(Set("c_t1")))
       }
   }
 
@@ -1143,20 +1152,24 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
-            ps <- server.changedPatches(session, change, Map.empty)
-          } yield ps
+            _ <- sessions.register("conn", session)
+            renderer <- ref.get
+            cache <- Ref[IO].of(seedLog(Map.empty))
+            ps <- server.sharedPatches("dashboard", renderer, cache, change)
+          } yield ps.filterNot(p => isCursor(p.event))
         }
-    } yield patches.map(_.renderString))
+    } yield patches)
       .timeout(30.seconds)
       .map { patches =>
-        assertEquals(patches.size, 1, clue = patches)
+        assertEquals(patches.size, 1, clue = patches.map(_.event.renderString))
+        val one = patches.head
         // one child morph, surface-namespaced id — not the whole surface group.
-        assert(
-          patches.head.contains(
-            """elements <div class="fh-cell" id="s_det__c_light_b">"""
-          ),
-          clue = patches
+        assertEquals(
+          one.event.elements,
+          Some("""<div class="fh-cell" id="s_det__c_light_b"><span>on</span></div>""")
         )
+        // Rendered on the shared pass, addressed to the popup that holds it.
+        assertEquals(one.surface, Some("det"))
       }
   }
 
@@ -1246,6 +1259,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         prev <- store.snapshot.map(_.get(next.entityId))
         _ <- store.update(next)
         patches <- server.sharedPatches(
+          "dashboard",
           renderer,
           cache,
           StateChange(next.entityId, prev, next)
@@ -1597,10 +1611,12 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield ()
   }
 
-  test("a state group inside a user-opened popup rides the PER-SESSION pass") {
-    // The If roots inside popup "det" (owner s_det__c_0): visibility is the
-    // session's open set, so its flips/liveness belong to changedPatches; the
-    // shared pass never reaches it (its owner is not main-rooted).
+  test("a state group inside an open popup is rendered SHARED, tagged with it") {
+    // The If roots inside popup "det" (owner s_det__c_0). Its flip is a pure
+    // function of entity state — identical for every client that can see it —
+    // so it is rendered ONCE for the slug and addressed to "det", not
+    // re-rendered per connection. The popup being in SOMEONE's open set is what
+    // makes it worth rendering at all.
     val d = Dashboard(
       cards = ifCards,
       card = LayoutNode.Component("col"),
@@ -1649,26 +1665,31 @@ class ServerSuite extends munit.CatsEffectSuite {
             renderer <- ref.get
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
+            _ <- sessions.register("conn", session)
             perSession <- server.changedPatches(session, change, Map.empty)
             cache <- Ref[IO].of(seedLog(Map.empty))
-            shared <- server.sharedPatches(renderer, cache, change)
+            shared <- server.sharedPatches("dashboard", renderer, cache, change)
           } yield (perSession, shared)
         }
-    } yield (out._1.map(_.renderString), out._2.map(_.event.renderString)))
+    } yield (out._1.map(_.renderString), out._2))
       .timeout(30.seconds)
-      .map { case (sessionPatches, sharedPatches) =>
-        // The session with the popup open gets exactly the inner flip's delta.
-        assertEquals(sessionPatches.size, 1, clue = sessionPatches)
+      .map { case (sessionPatches, shared) =>
+        // Nothing here reads a uiState, so the per-session pass has no work.
+        assertEquals(sessionPatches, Nil)
+        // The shared pass carries the inner flip's delta — once, for the slug.
+        val patches = shared.filterNot(a => isCursor(a.event))
+        assertEquals(patches.size, 1, clue = patches)
+        val one = patches.head
+        assertEquals(one.event.selector, Some("#s_det__c_0_branch"))
         assert(
-          sessionPatches.head.contains("selector #s_det__c_0_branch"),
-          clue = sessionPatches
+          one.event.elements.exists(_.contains("""id="s_d_else__c"""")),
+          clue = one.event.renderString
         )
-        assert(
-          sessionPatches.head.contains("""id="s_d_else__c""""),
-          clue = sessionPatches
-        )
-        // The shared pass emits nothing — popup containment is per-session.
-        assertEquals(sharedPatches, Nil)
+        // Addressed to the popup: a client with it open sees it, one without
+        // does not. That tag is the whole per-connection filter.
+        assertEquals(one.surface, Some("det"))
+        assert(one.visibleTo(Set("det")))
+        assert(!one.visibleTo(Set.empty))
       }
   }
 
@@ -2081,6 +2102,11 @@ class ServerSuite extends munit.CatsEffectSuite {
     private def line(key: String): Option[String] =
       e.data.toList
         .flatMap(_.linesIterator)
+        // A SERVER-BUILT event carries the `data: ` prefix on its continuation
+        // lines (the multi-line data field is assembled as wire text); a
+        // DECODED one does not. Tolerating both lets these accessors read an
+        // event straight off `sharedPatches` as well as one off the stream.
+        .map(l => if (l.startsWith("data: ")) l.drop("data: ".length) else l)
         .collectFirst {
           case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
         }
