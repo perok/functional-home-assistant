@@ -32,6 +32,9 @@ or the diff pass will silently suppress a later, genuine change.
 (3) is what makes (2) cheap to honour — with a fingerprint rather than bytes, a path unsure of
 what it put in the DOM can simply **drop the entry**, and the worst outcome is a re-send.
 
+A fourth statement was added later, and it is the one the fill mechanism violated — see
+"Render at the edge": **every rendering is for a viewer, and is complete when it leaves.**
+
 **The standing constraint over all three:** *a complete update is a fallback, never a design
 choice.* Deltas first; wholesale re-send only where the delta genuinely cannot be computed, and
 then at the smallest granularity that works — refill one group, not the body. The case that
@@ -342,7 +345,7 @@ attribute to a user-selected surface stays untagged.
 | Tab select, popup open/close | per connection | The existing `swapHost`; close is `swapHost(None)`. |
 | Dynamic-group repaint | shared | The heavy-churn path (≥50%, `MaxChurnFraction`); per-entity deltas are unchanged. |
 | Group refill below its horizon | per connection | The resume fallback of last resort; scoped to one group. See "The group fallback". |
-| Flip revealing a mount | per connection | Only for a **user**-selected group inside a flipped branch — the client's own selection. |
+| Flip revealing a mount | per connection | ✅ LANDED in W6, then **superseded** — see "Render at the edge". The mount is no longer created hollow, so there is nothing to fill. |
 
 An `If` flip is NOT here: it is a membership delta, not a fill (see "Containers record structure
 as mutations").
@@ -1285,6 +1288,107 @@ data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
   a browser (ADR 0006)** — the one part of this plan a terminal cannot check. See "The cell and the
   patch target become orthogonal" for the exact-today fallback if it regresses.
 
+## Render at the edge: every rendering is for a viewer
+
+**Status: designed, not implemented.** Supersedes the "flip revealing a mount" fill landed in
+W6 (see "Filling a mount"), and with it the whole idea of rendering for nobody.
+
+### What W6 got wrong
+
+W6 made the shared pass render once for every client, which is right, and concluded that a
+USER-selected mount therefore cannot be filled, which is not. It rendered such a mount EMPTY
+(`Viewer.Nobody`) and had each connection fill its own afterwards. That works — it is tested and
+it ships — but it costs two things that turn out not to be worth paying.
+
+**Two DOM updates for one change.** A flip inserts the branch with a hollow mount, then a second
+patch fills it. Both ride the same stream in the same write, so a paint between them is unlikely
+rather than impossible; "unlikely" is not a property worth designing around.
+
+**"For nobody" is not a real mode, and it leaked.** A mount carries client-dependent
+ATTRIBUTES, not just client-dependent children: the tabs mount seeds its selection signal from
+`bakeIndex`. Rendering it hollow emitted `data-signals="{ ui_x:  }"` — not valid, and not fixable
+by filling the children, which is why the fill had to grow into replacing the whole element. The
+mode was wrong, and every patch to it was a patch to the wrong thing.
+
+### The correction: variants, not audiences
+
+The audience is irrelevant. What a node's HTML depends on is entity state, plus which member is
+mounted in each user-selected group inside it — and that second axis is a **closed set the server
+already owns**: the members of that group. A tabs card with two tabs has two variants of its
+subtree. Nothing about that requires knowing who is connected.
+
+(An earlier draft of this section proposed reading the connected clients' open sets and baking the
+member they all happened to agree on. That makes the rendered bytes depend on the audience — the
+same dashboard in the same state producing different HTML depending on who is watching — for no
+gain over doing it properly. Rejected.)
+
+- **The shared pass decides; it does not render.** On a change it works out which nodes are
+  affected and records that in the log — node X changed at version V — plus the structural
+  mutations. Audience-independent, and exactly what statement (3) says the log is for.
+- **The published item carries a memoised render per variant**, not finished bytes.
+- **The connection assembles.** At send time it picks its own variant — from `session.open`, which
+  is live truth, not the `uiState` it arrived with — and sends complete HTML.
+- **The memo restores the sharing.** The first connection to need a variant forces it; the rest
+  reuse the same string. Two clients on the same tab render once, which was the whole point of the
+  shared pass and still holds. Two clients on different tabs render twice, which is unavoidable and
+  correct: they are looking at different HTML.
+
+### Why this needs no eviction policy
+
+The memo's lifetime is the published item's. It is forced on demand, held by the subscriber queues
+that still carry the item, and collected by ordinary reachability once every connection has passed
+it by. Nothing outlives what it was computed for, so nothing can go stale.
+
+Do **not** key it on the store version. That counter is global — bumped by any entity change
+anywhere — so a humidity sensor would invalidate every node on every dashboard. A cache keyed on it
+is permanently cold and pays only costs.
+
+The memory profile is unchanged from today: a queued event already holds its bytes, and the same
+object is shared across all subscriber queues. The only difference is that the bytes are computed
+on first demand instead of up front.
+
+### The property this buys: complete on first render
+
+There is one rendering function and every call has a viewer. The document path, a live patch, a
+resume, a mount fill — same function, same completeness. So:
+
+> **4. Every rendering is for a viewer, and is complete when it leaves.** No path emits markup
+> with a hole in it to be filled by a later message.
+
+The first raw HTML must already contain everything — the dashboard has to be right before Datastar
+loads, which is the same reason `c.navigate` ships an `<a href>` rather than a click handler. That
+was always true of the document path; what changes is that it becomes true of *every* path, rather
+than a property one path happened to have. "The first paint is complete" and "a mount created live
+is complete" stop being two guarantees.
+
+This does not weaken statement (1). That governs what a node's own *diff* emits — its `self`, never
+its mount's contents. Creating a subtree (a mount fill, a flip's branch) legitimately carries one;
+the change here is that it carries a COMPLETE one.
+
+### What it deletes
+
+`Viewer.Nobody`, `Patches.Reveal`, `Server.fillMount`, and the "flip revealing a mount" row of the
+fill table. `Viewer` collapses to "the client's selections", which is the only thing it ever
+sensibly was.
+
+It also largely absorbs W13: rendering per connection at send time inherently does not render what
+nobody is looking at, so the lazy-render gate stops being a separate mechanism.
+
+### The digest
+
+Suppression ("this entity ticked but this node's HTML is identical") needs the bytes, so the log's
+digest stays — keyed by `(node, variant)` rather than node alone. For almost every node there is
+exactly one variant and it is what we have today; only nodes with a user mount in their subtree
+carry more than one entry.
+
+### Deferred
+
+A longer-lived `(state, node, variant) → HTML` cache spanning batches. That is where a reference
+that the GC may reclaim earns its keep, and it wants `SoftReference`: a plain `WeakReference` entry
+dies at the next GC regardless of memory pressure, so it would cache essentially nothing. Soft
+references have their own drag on pause-time goals, so this is a decision to make against a
+measurement rather than up front.
+
 ## Work items
 
 | # | Change | Where |
@@ -1303,8 +1407,10 @@ data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
 | W10b | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
 | W11 | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>` | `Server` |
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
-| W13 | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
+| W13 (mostly absorbed by W16) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
+| W16 | **Render at the edge**: the shared pass records the change set and publishes a memoised per-variant render instead of bytes; each connection assembles its own variant from `session.open` at send time. Deletes `Viewer.Nobody`, `Patches.Reveal`, `Server.fillMount`. The log's digest is keyed by `(node, variant)` | `Patches`, `Server`, `Renderer`, `FragmentLog` |
+| W17 | Deferred, measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
 | W15 | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
 ### W6 as landed
@@ -1355,7 +1461,8 @@ behaviour-free commit that everything after is written against.
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11, W12 ✅, W13 | the per-session pass dies here; nothing earlier depends on that |
-| **4 — docs** | W15 | — |
+| **4 — render at the edge** | W16 (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
+| **5 — docs** | W15 | last, so the ADRs describe what actually shipped |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
