@@ -12,6 +12,7 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
+import fh.view.testkit.TestIds.given
 import io.circe.{parser, Json}
 
 class BuildPhaseSuite extends munit.FunSuite {

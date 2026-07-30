@@ -13,7 +13,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.Dashboard
+import fh.view.model.{Dashboard, DomId, NodeId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef, Topic}
 import io.circe.Json
@@ -767,7 +767,7 @@ class Server(
   private def swapHost(
       session: Session,
       renderer: Renderer,
-      host: String,
+      host: DomId,
       newSurface: Option[String],
       uiState: Map[String, String]
   ): IO[Unit] =
@@ -881,7 +881,10 @@ class Server(
       case None           => NotFound()
       case Some(renderer) =>
         stateStore.snapshot.flatMap { states =>
-          val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
+          // `id` is a URL segment — an untrusted CLAIM about a node id, which
+          // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
+          val entities = renderer.entitiesForNode(NodeId.derived(id))
+          val arr = Json.arr(entities.map { e =>
             states.get(e) match {
               case Some(st) =>
                 Json.obj(

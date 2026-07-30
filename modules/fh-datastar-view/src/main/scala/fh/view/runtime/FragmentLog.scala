@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.model.NodeId
+
 import scala.concurrent.duration.*
 
 /** One rendered fragment and the store version its HTML reflects.
@@ -79,7 +81,7 @@ private[runtime] enum Mutation(val at: Stamp) {
     * element here" — which is why an author-chosen member sort needs no new
     * mutation kind.
     */
-  case Placed(gid: String, entityId: String, stamp: Stamp)
+  case Placed(gid: NodeId, entityId: String, stamp: Stamp)
       extends Mutation(stamp)
 
   /** Ordering clock — see [[Stamp]]; the only one a resume compares against. */
@@ -100,7 +102,7 @@ private[runtime] enum Mutation(val at: Stamp) {
   */
 private[runtime] case class Resume(
     fragments: List[Fragment],
-    mutations: List[(String, Mutation)]
+    mutations: List[(NodeId, Mutation)]
 )
 
 /** The per-slug (or per-session) diff cache, versioned.
@@ -136,8 +138,8 @@ private[runtime] case class Resume(
   */
 private[runtime] case class FragmentLog(
     id: String,
-    fragments: Map[String, Fragment] = Map.empty,
-    mutations: Map[String, Mutation] = Map.empty,
+    fragments: Map[NodeId, Fragment] = Map.empty,
+    mutations: Map[NodeId, Mutation] = Map.empty,
     // The oldest version for which `mutations` is COMPLETE. Rises as entries are
     // evicted; a cursor below it cannot be served a delta and must repaint,
     // which is what makes eviction safe rather than silently lossy.
@@ -150,17 +152,17 @@ private[runtime] case class FragmentLog(
     */
   def cleared: FragmentLog = FragmentLog(id)
 
-  def html(nodeId: String): Option[String] = fragments.get(nodeId).map(_.html)
+  def html(nodeId: NodeId): Option[String] = fragments.get(nodeId).map(_.html)
 
-  def has(nodeId: String): Boolean = fragments.contains(nodeId)
+  def has(nodeId: NodeId): Boolean = fragments.contains(nodeId)
 
   /** Whether `gid` has any rendered child entry — half of the "group is
     * established" test that decides per-entity patching vs. a whole repaint.
     */
-  def hasChildOf(gid: String): Boolean =
+  def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
 
-  def set(nodeId: String, html: String, at: Long): FragmentLog =
+  def set(nodeId: NodeId, html: String, at: Long): FragmentLog =
     copy(fragments = fragments.updated(nodeId, Fragment(html, at)))
 
   /** Forget a node's cached HTML WITHOUT recording a removal — the node's DOM
@@ -169,7 +171,7 @@ private[runtime] case class FragmentLog(
     * removal here would delete an element that ancestor legitimately restored.
     * Use [[removed]] for a node whose DOM really is being deleted.
     */
-  def invalidate(nodeId: String): FragmentLog =
+  def invalidate(nodeId: NodeId): FragmentLog =
     copy(fragments = fragments - nodeId)
 
   /** Invalidate a whole subtree because its ROOT is being re-stamped in the
@@ -180,7 +182,7 @@ private[runtime] case class FragmentLog(
     * insert one it already contains. Callers must actually [[set]] the root —
     * this is not a bare `filterNot`.
     */
-  def invalidateWhere(p: String => Boolean): FragmentLog =
+  def invalidateWhere(p: NodeId => Boolean): FragmentLog =
     copy(
       fragments = fragments.filterNot { case (k, _) => p(k) },
       mutations = mutations.filterNot { case (k, _) => p(k) }
@@ -188,7 +190,7 @@ private[runtime] case class FragmentLog(
 
   /** Record that `nodeId`'s element was DELETED from the DOM at version `at`.
     */
-  def removed(nodeId: String, stamp: Stamp): FragmentLog =
+  def removed(nodeId: NodeId, stamp: Stamp): FragmentLog =
     copy(
       fragments = fragments - nodeId,
       mutations = mutations.updated(nodeId, Mutation.Gone(stamp))
@@ -199,9 +201,9 @@ private[runtime] case class FragmentLog(
     * Also stamps its HTML, since the two always travel together.
     */
   def placed(
-      gid: String,
+      gid: NodeId,
       entityId: String,
-      nodeId: String,
+      nodeId: NodeId,
       html: String,
       stamp: Stamp
   ): FragmentLog =
@@ -248,7 +250,7 @@ private[runtime] case class FragmentLog(
     * ([[Dashboard.pathId]]: `c`, `c_0`, `c_0_1`); the trailing `_` keeps `c_1`
     * from matching `c_10`.
     */
-  def coveredByAncestor(nodeId: String, version: Long): Boolean =
+  def coveredByAncestor(nodeId: NodeId, version: Long): Boolean =
     fragments.exists { case (id, f) =>
       f.version >= version && id != nodeId && nodeId.startsWith(id + "_")
     }

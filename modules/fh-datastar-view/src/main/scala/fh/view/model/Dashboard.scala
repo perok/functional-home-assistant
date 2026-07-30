@@ -312,8 +312,16 @@ object LayoutNode:
     * authors never invent ids; underscore-joined so it is also a valid signal
     * name (`_val_{{id}}`).
     */
-  def pathId(path: List[Int]): String =
-    if path.isEmpty then "c" else path.mkString("c_", "_", "")
+  def pathId(path: List[Int]): NodeId =
+    NodeId.derived(if path.isEmpty then "c" else path.mkString("c_", "_", ""))
+
+  /** [[pathId]] inside an id namespace — the main page's is empty, a surface's
+    * is [[surfacePrefix]]. Named rather than left as `prefix + pathId(path)` at
+    * four call sites, because the concatenation is what actually produces a
+    * [[NodeId]] and the prefix alone is not one.
+    */
+  def nodeId(prefix: String, path: List[Int]): NodeId =
+    NodeId.derived(prefix + pathId(path))
 
   /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
     * fragment — also a valid Datastar signal-name fragment.
@@ -396,7 +404,7 @@ case class Theme(
   */
 case class Surface(
     content: LayoutNode,
-    bakeInto: Option[String] = None,
+    bakeInto: Option[NodeId] = None,
     bakeAs: Option[String] = None,
     // A surface's position within its `bakeInto` group: the ordered member
     // list a ui-state index (user mode) selects among, and the first-match
@@ -411,8 +419,8 @@ case class Surface(
     * convention); an unbaked surface (a popup) hosts at the overlay
     * [[Dashboard.PopupHostId]].
     */
-  def hostId: String = (bakeInto, bakeAs) match
-    case (Some(into), Some(as)) => s"${into}_${as}"
+  def hostId: DomId = (bakeInto, bakeAs) match
+    case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
 
 /** The `dashboard.json` build artifact produced by the build phase.
@@ -706,7 +714,7 @@ object Dashboard:
     * and the patch target for `POST /sse/surface/open/:id` and
     * `POST /sse/popup/close`.
     */
-  val PopupHostId: String = "popups"
+  val PopupHostId: DomId = DomId.derived("popups")
 
   /** Backend-injected template vars available to a *static* component (the
     * author never supplies them): the stable location-based `id`.

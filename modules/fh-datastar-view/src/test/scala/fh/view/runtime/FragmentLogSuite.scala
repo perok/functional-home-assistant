@@ -1,10 +1,12 @@
 package fh.view.runtime
 
-/** The resume cursor's pure core (docs/adr/0011-the-live-connection.md). Every failure mode
-  * here is SILENT — the server believes the browser is current and suppresses
-  * the patch, so the user sees a stale value, a ghost element, or a duplicate
-  * indefinitely rather than an error. That is why these are asserted on the
-  * value rather than through a booted server.
+import fh.view.testkit.TestIds.given
+
+/** The resume cursor's pure core (docs/adr/0011-the-live-connection.md). Every
+  * failure mode here is SILENT — the server believes the browser is current and
+  * suppresses the patch, so the user sees a stale value, a ghost element, or a
+  * duplicate indefinitely rather than an error. That is why these are asserted
+  * on the value rather than through a booted server.
   */
 class FragmentLogSuite extends munit.FunSuite {
 

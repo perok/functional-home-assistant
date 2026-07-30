@@ -15,6 +15,7 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, row, st}
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {

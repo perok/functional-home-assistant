@@ -12,6 +12,7 @@ import fh.view.model.{
   Dashboard,
   DynamicCase,
   LayoutNode,
+  NodeId,
   Op,
   Predicate,
   SlotSource,
@@ -20,6 +21,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.TestIds.given
 import fs2.concurrent.{SignallingRef, Topic}
 import io.circe.Json
 import org.http4s.*
@@ -532,7 +534,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   private class CountingRenderer(dash: Dashboard, count: AtomicInteger)
       extends Renderer(dash, Templates.from(dash), Transforms.from(dash)) {
     override def renderNodeById(
-        id: String,
+        id: NodeId,
         states: Map[String, EntityState],
         uiState: Map[String, String]
     ): Option[String] = {
@@ -798,15 +800,18 @@ class ServerSuite extends munit.CatsEffectSuite {
   // ride with it (docs/adr/0011-the-live-connection.md), so the log is projected back to the
   // plain node -> html map they were written against.
   private def seedLog(seed: Map[String, String]): FragmentLog =
-    FragmentLog("test", seed.view.mapValues(Fragment(_, 0L)).toMap)
+    FragmentLog(
+      "test",
+      seed.map { case (id, html) => (id: NodeId) -> Fragment(html, 0L) }
+    )
 
   private def htmlOf(log: FragmentLog): Map[String, String] =
     log.fragments.view.mapValues(_.html).toMap
 
   /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
-    * the resume cursor as a `patch-signals` event (docs/adr/0011-the-live-connection.md);
-    * these contracts are about what the DOM receives, and one dedicated test
-    * below covers the cursor itself.
+    * the resume cursor as a `patch-signals` event
+    * (docs/adr/0011-the-live-connection.md); these contracts are about what the
+    * DOM receives, and one dedicated test below covers the cursor itself.
     */
   private def elementPatches(batch: List[ServerSentEvent]): List[String] =
     batch.map(_.renderString).filterNot(_.contains("datastar-patch-signals"))

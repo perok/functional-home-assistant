@@ -12,6 +12,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 /** The Tier-B system under test for the functional suite (fast, no Pkl/dump

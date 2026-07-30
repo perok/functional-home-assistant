@@ -6,8 +6,10 @@ import fh.view.model.{
   Activation,
   Cell,
   Dashboard,
+  DomId,
   DynamicCase,
   LayoutNode,
+  NodeId,
   Op,
   Predicate,
   Quantifier,
@@ -59,12 +61,12 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
-    val indexed: Map[String, (LayoutNode, List[Int])] = {
+    val indexed: Map[NodeId, (LayoutNode, List[Int])] = {
       def walk(
           node: LayoutNode,
           path: List[Int]
-      ): List[(String, (LayoutNode, List[Int]))] = {
-        val self = (idPrefix + LayoutNode.pathId(path)) -> (node, path)
+      ): List[(NodeId, (LayoutNode, List[Int]))] = {
+        val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
         node match {
           case c: LayoutNode.Component =>
             self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
@@ -76,7 +78,7 @@ class Renderer(
       walk(root, Nil).toMap
     }
 
-    val byEntity: Map[String, Set[String]] =
+    val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
         .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
         .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
@@ -85,7 +87,7 @@ class Renderer(
         .mapValues(_.toSet)
         .toMap
 
-    val dynamicIds: List[String] =
+    val dynamicIds: List[NodeId] =
       indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
   }
 
@@ -156,7 +158,7 @@ class Renderer(
   /** Every addressable node (main + all surfaces) keyed by its generated id,
     * paired with its path and the id prefix needed to re-render it.
     */
-  private val allIndexed: Map[String, (LayoutNode, List[Int], String)] =
+  private val allIndexed: Map[NodeId, (LayoutNode, List[Int], String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
@@ -164,7 +166,7 @@ class Renderer(
   /** Each dynamic container's query, by id (main + surfaces), for the
     * affected-by-change test. A group with no query matches every entity.
     */
-  private val dynamicQueries: Map[String, Option[Predicate]] =
+  private val dynamicQueries: Map[NodeId, Option[Predicate]] =
     allIndexed.collect { case (id, (d: LayoutNode.Dynamic, _, _)) =>
       id -> d.query
     }
@@ -180,7 +182,7 @@ class Renderer(
     * per-entity.
     */
   private def dynamicDelta(
-      id: String,
+      id: NodeId,
       change: StateChange
   ): Option[DynamicDelta] = {
     val query = dynamicQueries.getOrElse(id, None)
@@ -201,20 +203,20 @@ class Renderer(
     * whole-group repaint. Unrelated entities are filtered out, sparing the
     * whole-group re-scan + re-render on every event.
     */
-  def affectedDynamics(change: StateChange): List[(String, DynamicDelta)] =
+  def affectedDynamics(change: StateChange): List[(NodeId, DynamicDelta)] =
     mainIndex.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
 
   /** Just the affected main-page dynamic ids (delta dropped) — the pre-Tier-1
     * shape, kept for callers/tests that only need the membership test.
     */
-  def affectedDynamicIds(change: StateChange): List[String] =
+  def affectedDynamicIds(change: StateChange): List[NodeId] =
     affectedDynamics(change).map(_._1)
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(
       surfaceId: String,
       change: StateChange
-  ): List[(String, DynamicDelta)] =
+  ): List[(NodeId, DynamicDelta)] =
     surfaceIndexes
       .get(surfaceId)
       .toList
@@ -228,7 +230,7 @@ class Renderer(
     * mode) selects among, and the first-match order (then, elseif…, else) state
     * selection walks.
     */
-  private def bakeGroup(gid: String): List[String] =
+  private def bakeGroup(gid: NodeId): List[String] =
     dashboard.surfaces.toList
       .collect {
         case (sid, s) if s.bakeInto.contains(gid) => (sid, s.bakeIndex)
@@ -253,7 +255,7 @@ class Renderer(
     * never against a session's uiState/open set (the core split — ADR 0002's
     * shared/per-session cost model extended by activation mode).
     */
-  private def isStateGroup(gid: String): Boolean =
+  private def isStateGroup(gid: NodeId): Boolean =
     bakeGroup(gid).headOption.exists(sid =>
       dashboard.surfaces
         .get(sid)
@@ -263,27 +265,28 @@ class Renderer(
         })
     )
 
+  /** Every component id some surface bakes into. `bakeInto` is AUTHORED (a
+    * hoist-resolved relation `Dashboard.validate` checks against the registry),
+    * which is the one place a node id enters from outside the tree walk.
+    */
+  private val bakeOwnerIds: Set[NodeId] =
+    dashboard.surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
+
   /** Component ids that own a USER-selected bake group (tabs). Their HTML
     * depends on the client's `uiState` (the baked member is client-selected),
     * so their live patches must stay per-session and they are EXCLUDED from the
     * shared per-slug pass (see `Server`).
     */
-  val userBakeOwnerIds: Set[String] =
-    dashboard.surfaces.values
-      .flatMap(_.bakeInto)
-      .toSet
-      .filterNot(isStateGroup)
+  val userBakeOwnerIds: Set[NodeId] =
+    bakeOwnerIds.filterNot(isStateGroup)
 
   /** Component ids that own a STATE-selected bake group (If/else hosts). Their
     * HTML — selection included — is a pure function of entity state, so unlike
     * user-selected owners they stay IN the shared per-slug pass (rendered once
     * per slug, fanned out to every viewer).
     */
-  val stateBakeOwnerIds: Set[String] =
-    dashboard.surfaces.values
-      .flatMap(_.bakeInto)
-      .toSet
-      .filter(isStateGroup)
+  val stateBakeOwnerIds: Set[NodeId] =
+    bakeOwnerIds.filter(isStateGroup)
 
   /** Whether a member surface's content subtree contains a user-selected bake
     * owner, following nested state members transitively. Feeds
@@ -307,7 +310,7 @@ class Renderer(
     * them in the per-session pass instead. Every other state group is shared.
     * Computed once per renderer (structure, not state).
     */
-  val sessionOnlyStateGroups: Set[String] =
+  val sessionOnlyStateGroups: Set[NodeId] =
     stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
 
   /** The **roots of the per-session part of the main page**: main-rooted nodes
@@ -323,7 +326,7 @@ class Renderer(
     * that branch [[sessionOnlyStateGroups]]), so these roots cover every
     * per-session node that is currently rendered.
     */
-  val sessionOwnedMainIds: Set[String] =
+  val sessionOwnedMainIds: Set[NodeId] =
     mainIndex.indexed.keySet.filter(id =>
       userBakeOwnerIds(id) || sessionOnlyStateGroups(id)
     )
@@ -335,7 +338,7 @@ class Renderer(
     * members above it, so each walk starts at one root's owners and descends
     * only into selected members.
     */
-  private val stateGidsByRoot: Map[String, List[String]] = {
+  private val stateGidsByRoot: Map[String, List[NodeId]] = {
     val prefixToRoot: Map[String, String] =
       Map(mainIndex.idPrefix -> "") ++
         surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
@@ -348,7 +351,7 @@ class Renderer(
       .groupMap(_._1)(_._2)
   }
 
-  private def stateGidsAtRoot(root: String): List[String] =
+  private def stateGidsAtRoot(root: String): List[NodeId] =
     stateGidsByRoot.getOrElse(root, Nil)
 
   /** Whether a state condition, quantified over the WHOLE live state map,
@@ -379,7 +382,7 @@ class Renderer(
     * against a before AND after snapshot to detect a flip).
     */
   private[runtime] def resolveActiveByState(
-      gid: String,
+      gid: NodeId,
       states: Map[String, EntityState]
   ): Option[Int] = {
     val idx = bakeGroup(gid).indexWhere(sid =>
@@ -403,7 +406,7 @@ class Renderer(
     * the shortcut: its mere appearance can move an `all`/`none` aggregate
     * without any per-entity flip.
     */
-  private def conditionTouched(gid: String, change: StateChange): Boolean =
+  private def conditionTouched(gid: NodeId, change: StateChange): Boolean =
     change.previous match {
       case None       => true
       case Some(prev) =>
@@ -432,7 +435,7 @@ class Renderer(
       change: StateChange,
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
+  ): List[NodeId] =
     affectedStateGroupsFrom("", change, before, states)
 
   /** Like [[affectedStateGroups]], rooted at one surface's content tree — the
@@ -444,7 +447,7 @@ class Renderer(
       change: StateChange,
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
+  ): List[NodeId] =
     affectedStateGroupsFrom(surfaceId, change, before, states)
 
   private def affectedStateGroupsFrom(
@@ -452,7 +455,7 @@ class Renderer(
       change: StateChange,
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
+  ): List[NodeId] =
     stateGidsAtRoot(root).flatMap { gid =>
       val flipped =
         conditionTouched(gid, change) &&
@@ -477,7 +480,7 @@ class Renderer(
     */
   def activeStateSurfaces(
       states: Map[String, EntityState],
-      excluding: Set[String] = Set.empty
+      excluding: Set[NodeId] = Set.empty
   ): Set[String] =
     activeStateSurfacesFrom("", states, excluding)
 
@@ -487,14 +490,14 @@ class Renderer(
   def activeStateSurfacesIn(
       surfaceId: String,
       states: Map[String, EntityState],
-      excluding: Set[String] = Set.empty
+      excluding: Set[NodeId] = Set.empty
   ): Set[String] =
     activeStateSurfacesFrom(surfaceId, states, excluding)
 
   private def activeStateSurfacesFrom(
       root: String,
       states: Map[String, EntityState],
-      excluding: Set[String]
+      excluding: Set[NodeId]
   ): Set[String] =
     stateGidsAtRoot(root)
       .filterNot(excluding)
@@ -512,7 +515,7 @@ class Renderer(
     * member diffs from a known base instead of being suppressed by a stale
     * pre-flip entry.
     */
-  def bakeMemberPrefixes(gid: String): List[String] =
+  def bakeMemberPrefixes(gid: NodeId): List[String] =
     bakeGroup(gid).map(Renderer.surfacePrefix)
 
   /** Resolve which member of a USER-selected group `gid` is active, given the
@@ -526,7 +529,7 @@ class Renderer(
     * here — see [[resolveActiveByState]].
     */
   private[runtime] def resolveActive(
-      gid: String,
+      gid: NodeId,
       uiState: Map[String, String]
   ): (Int, Option[String]) = {
     val members = bakeGroup(gid)
@@ -595,7 +598,7 @@ class Renderer(
       .filterNot(isStateGroup)
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
-  def componentsFor(entityId: String): Set[String] =
+  def componentsFor(entityId: String): Set[NodeId] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
   /** The live entities one node (by generated id) binds — the inverse of
@@ -603,7 +606,7 @@ class Renderer(
     * a dynamic group (its members are per-entity children with their own ids)
     * or an unknown id. Searches main + surface indices.
     */
-  def entitiesForNode(id: String): List[String] =
+  def entitiesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
       case _                                     => Nil
@@ -611,7 +614,7 @@ class Renderer(
 
   /** Main-page node ids whose HTML this entity drives, scoped to one surface.
     */
-  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[String] =
+  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
@@ -620,7 +623,7 @@ class Renderer(
   def affectedSurfaceDynamicIds(
       surfaceId: String,
       change: StateChange
-  ): List[String] =
+  ): List[NodeId] =
     affectedSurfaceDynamics(surfaceId, change).map(_._1)
 
   /** The surface's declaration (content/group/mount), if it exists. */
@@ -761,13 +764,41 @@ class Renderer(
     * member on a live patch — not the default one.
     */
   def renderNodeById(
-      id: String,
+      id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
     allIndexed.get(id).map { case (node, path, prefix) =>
       render(node, path, prefix, states, uiState)
     }
+
+  /** The DOM element a patch for `id` targets — the ONE crossing from node id
+    * to DOM id, and one-way.
+    *
+    * Identity today: a node's patch is its whole rendering, carrying `id="$id"`
+    * on the wrapper. The self/mount split (docs/plan-one-shared-log.md, W3) is
+    * what makes it discriminate — a container declaring a `self` will target
+    * `<id>-self`, so that its patch cannot reach the sibling mount holding its
+    * children. Routed through one function from the start so that change lands
+    * in one place rather than at every patch site.
+    */
+  def patchTargetId(id: NodeId): DomId = DomId.derived(id)
+
+  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits. What
+    * a structural patch names: the thing a `remove` deletes and an `insert`
+    * anchors `before`. Distinct from [[patchTargetId]] on purpose: once a
+    * container patches its `self` alone, removing that element would leave the
+    * mount and its children standing, so "what I morph" and "what I am" stop
+    * being the same element.
+    */
+  def elementId(id: NodeId): DomId = DomId.derived(id)
+
+  /** The element a node's children live IN — an `Inner`/`append` target.
+    * Identity today (a container's own element holds its children directly);
+    * the split gives a container a mount sibling and this becomes it
+    * (`{{mountId}}`, W1).
+    */
+  def mountId(id: NodeId): DomId = DomId.derived(id)
 
   /** When component `id` owns a bake group (surfaces baked into it), bake the
     * SELECTED member as its `{{{bakeAs}}}` var so the host renders the active
@@ -785,7 +816,7 @@ class Renderer(
     * render empty). Returns `(baked, structural)`.
     */
   private def resolveBake(
-      id: String,
+      id: NodeId,
       uiState: Map[String, String],
       states: Map[String, EntityState]
   ): (Map[String, String], Map[String, String]) = {
@@ -827,7 +858,7 @@ class Renderer(
   ): String =
     node match {
       case c: LayoutNode.Component =>
-        val id = idPrefix + LayoutNode.pathId(path)
+        val id = LayoutNode.nodeId(idPrefix, path)
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states, uiState)
         }
@@ -866,11 +897,11 @@ class Renderer(
               c.cell
             )}" id="$id">$html</div>"""
       case d: LayoutNode.Dynamic =>
-        renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
+        renderDynamic(LayoutNode.nodeId(idPrefix, path), d, states)
     }
 
   private def renderDynamic(
-      id: String,
+      id: NodeId,
       d: LayoutNode.Dynamic,
       states: Map[String, EntityState]
   ): String = {
@@ -898,8 +929,8 @@ class Renderer(
     * the outer-morph / insert / remove target for a single group member. Shared
     * by [[renderCase]] and the Server's per-entity patch path.
     */
-  def dynamicChildId(groupId: String, entityId: String): String =
-    s"${groupId}_${Renderer.sanitize(entityId)}"
+  def dynamicChildId(groupId: NodeId, entityId: String): NodeId =
+    NodeId.derived(s"${groupId}_${Renderer.sanitize(entityId)}")
 
   /** The entity ids a dynamic group currently renders as children, in DOM order
     * (sorted by entity id, matching [[renderDynamic]]). A member is an entity
@@ -910,7 +941,7 @@ class Renderer(
     * the add/remove churn heuristic). Unknown / non-dynamic id ⇒ empty.
     */
   def dynamicMembers(
-      groupId: String,
+      groupId: NodeId,
       states: Map[String, EntityState]
   ): List[String] =
     allIndexed.get(groupId) match {
@@ -934,7 +965,7 @@ class Renderer(
     * query, or no case matches (i.e. the entity is not a current member).
     */
   def renderDynamicChild(
-      groupId: String,
+      groupId: NodeId,
       entityId: String,
       states: Map[String, EntityState]
   ): Option[String] =
@@ -949,7 +980,7 @@ class Renderer(
     }
 
   private def renderCase(
-      groupId: String,
+      groupId: NodeId,
       entityId: String,
       c: DynamicCase,
       states: Map[String, EntityState]

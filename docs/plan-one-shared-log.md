@@ -1278,11 +1278,31 @@ behaviour-free commit that everything after is written against.
 
 | Phase | Items | Ships alone because |
 |---|---|---|
-| **0 — types** | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
+| **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
 | **1 — authoring + render** | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** | W6, W7, W8, W9, W10b, W11, W12, W13 | the per-session pass dies here; nothing earlier depends on that |
 | **4 — docs** | W15 | — |
+
+**Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
+`opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
+node id IS a string for interpolation and prefix tests, and widening at those uses costs nothing),
+while the direction that matters, a bare `String` or a `DomId` where a `NodeId` belongs, stays an
+error. Three consequences worth knowing:
+
+- **`NodeId` → `DomId` is three functions on `Renderer`, not one.** `patchTargetId` (what a content
+  morph aims at — this is the one W3 makes discriminate), `elementId` (the node's own `.fh-cell`,
+  what a `remove` deletes and an `insert` anchors `before`) and `mountId` (where children go).
+  All three are identity today, and separating them up front is what keeps W3 from silently
+  re-targeting a `remove`: once a container morphs its `self` alone, "what I morph" and "what I am"
+  stop being the same element.
+- **`Patch.Insert`/`Patch.Remove` name a `DomId`, not a selector string**, and the `#` is added in
+  `toSse`. That is what makes the crossing unavoidable rather than a convention.
+- **`Surface.bakeInto` is `Option[NodeId]`** with a `given Decoder[NodeId]`, parsed at the wire
+  boundary rather than re-wrapped at each use — `bakeOwnerIds` on `Renderer` is now the one place
+  that authored relation enters. Test suites get a `given Conversion[String, NodeId]`
+  (`testkit/TestIds`) instead of ~130 wrappers: the type guards the server, and a suite's literal
+  id IS the spec.
 
 **The property that makes phase 1 safe is worth stating on its own: the self/mount split is
 independent of the shared-log collapse.** It is the riskiest change in the plan — it moves DOM ids,

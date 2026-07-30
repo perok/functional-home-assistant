@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.model.{DomId, NodeId}
+import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
 
 /** One DOM patch the diff pass wants to send, rendered to a Datastar SSE event
@@ -8,19 +10,26 @@ import org.http4s.ServerSentEvent
   * ADT and only touches [[Datastar]] here.
   *
   *   - [[Morph]]: outer-morph an existing element (its `id` is inside `html`).
-  *   - [[Insert]]: add a new element with an explicit `mode`/`selector`
-  *     (`before` its DOM successor, or `append` into the group root).
-  *   - [[Remove]]: delete the element matching `selector` (no HTML).
+  *   - [[Insert]]: add a new element relative to an explicit `target` (`before`
+  *     its DOM successor, or `append` into the group root).
+  *   - [[Remove]]: delete the target element (no HTML).
+  *
+  * [[Insert]] and [[Remove]] name their target as a [[DomId]], not a bare
+  * selector string: the whole point of the split is that a patch aims at ONE
+  * element, and a [[NodeId]] reaching a target slot would be exactly the
+  * confusion [[fh.view.model.NodeId]] exists to make impossible. The `#` is
+  * added here, at the wire edge.
   */
 private[runtime] enum Patch:
   case Morph(html: String)
-  case Insert(html: String, mode: PatchMode, selector: String)
-  case Remove(selector: String)
+  case Insert(html: String, mode: PatchMode, target: DomId)
+  case Remove(target: DomId)
 
   def toSse: ServerSentEvent = this match
-    case Patch.Morph(html)             => Datastar.patchElements(html)
-    case Patch.Insert(html, mode, sel) => Datastar.patch(html, mode, Some(sel))
-    case Patch.Remove(sel)             => Datastar.remove(sel)
+    case Patch.Morph(html)                => Datastar.patchElements(html)
+    case Patch.Insert(html, mode, target) =>
+      Datastar.patch(html, mode, Some(target.selector))
+    case Patch.Remove(target) => Datastar.remove(target.selector)
 
 /** The pure diff core, lifted out of [[Server]] so it is testable without a
   * booted server (no HA stub, no `Supervisor`, no SSE plumbing). Two entry
@@ -47,9 +56,9 @@ private[runtime] object Patches {
     * — replacing the nine-positional-argument call the two passes used to make.
     */
   case class DiffRequest(
-      staticIds: List[String],
-      dynamics: List[(String, DynamicDelta)],
-      flips: List[String],
+      staticIds: List[NodeId],
+      dynamics: List[(NodeId, DynamicDelta)],
+      flips: List[NodeId],
       change: StateChange,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
@@ -180,8 +189,8 @@ private[runtime] object Patches {
         val openNested = open.toList.flatMap(sid =>
           renderer.activeStateSurfacesIn(sid, states, flipped).toList
         )
-        val sessionOnlySids =
-          if (renderer.sessionOnlyStateGroups.isEmpty) Set.empty[String]
+        val sessionOnlySids: Set[String] =
+          if (renderer.sessionOnlyStateGroups.isEmpty) Set.empty
           else
             renderer.activeStateSurfaces(states, flipped) --
               renderer.activeStateSurfaces(
@@ -350,14 +359,14 @@ private[runtime] object Patches {
               // descending by position means a node's successor was either
               // already in the client's DOM or placed a moment ago.
               List(
-                Patch.Remove("#" + nodeId),
+                Patch.Remove(renderer.elementId(nodeId)),
                 insertInto(renderer, gid, members, entityId, _ => true, html)
               )
             }
           }
       }
     (owed.fragments.map(f => Patch.Morph(f.html)) ++
-      gone.toList.sorted.map(id => Patch.Remove("#" + id)) ++
+      gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
       places).map(_.toSse)
   }
 
@@ -378,7 +387,7 @@ private[runtime] object Patches {
     */
   private def insertInto(
       renderer: Renderer,
-      gid: String,
+      gid: NodeId,
       ordered: List[String],
       entity: String,
       anchorable: String => Boolean,
@@ -389,9 +398,10 @@ private[runtime] object Patches {
         Patch.Insert(
           html,
           PatchMode.Before,
-          "#" + renderer.dynamicChildId(gid, succ)
+          renderer.elementId(renderer.dynamicChildId(gid, succ))
         )
-      case None => Patch.Insert(html, PatchMode.Append, "#" + gid)
+      case None =>
+        Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
     }
 
   /** Patch one FLIPPED state-selected bake group: re-render its host node — the
@@ -409,7 +419,7 @@ private[runtime] object Patches {
   private def flipStateGroup(
       renderer: Renderer,
       log: FragmentLog,
-      gid: String,
+      gid: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
       at: Stamp
@@ -439,7 +449,7 @@ private[runtime] object Patches {
   private def renderDynamicGroup(
       renderer: Renderer,
       log: FragmentLog,
-      gid: String,
+      gid: NodeId,
       delta: DynamicDelta,
       change: StateChange,
       states: Map[String, EntityState],
@@ -510,7 +520,7 @@ private[runtime] object Patches {
   private def renderMembershipChange(
       renderer: Renderer,
       log: FragmentLog,
-      gid: String,
+      gid: NodeId,
       membersBefore: List[String],
       membersAfter: List[String],
       states: Map[String, EntityState],
@@ -533,7 +543,7 @@ private[runtime] object Patches {
       val (afterRemoves, removePatches) =
         removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
           val cid = renderer.dynamicChildId(gid, e)
-          (c.removed(cid, at), acc :+ Patch.Remove("#" + cid))
+          (c.removed(cid, at), acc :+ Patch.Remove(renderer.elementId(cid)))
         }
       val (afterAdds, addPatches) =
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
@@ -563,7 +573,7 @@ private[runtime] object Patches {
   private def repaintGroup(
       renderer: Renderer,
       log: FragmentLog,
-      gid: String,
+      gid: NodeId,
       states: Map[String, EntityState],
       at: Stamp
   ): (FragmentLog, List[Patch]) =

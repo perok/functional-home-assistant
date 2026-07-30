@@ -9,12 +9,13 @@ import fh.view.model.{
   Predicate,
   SlotSource
 }
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 /** [[Patches.resume]] — where a resuming client's group members get their
-  * POSITION back. The ordering argument (docs/adr/0011-the-live-connection.md) is the whole
-  * of the correctness here, so these tests are about which anchor each insert
-  * names.
+  * POSITION back. The ordering argument (docs/adr/0011-the-live-connection.md)
+  * is the whole of the correctness here, so these tests are about which anchor
+  * each insert names.
   *
   * A [[Mutation.Placed]] emits remove+insert for itself, so every placement is
   * two patches: that self-containment is what makes an arrival and a re-order
