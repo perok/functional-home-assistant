@@ -274,7 +274,7 @@ private[runtime] object Patches {
     val (logAfterStatic, staticPatches) =
       rendered.foldLeft((logAfterFlips, List.empty[Patch])) {
         case ((c, acc), (id, html)) =>
-          if (c.html(id).contains(html)) (c, acc)
+          if (c.holds(id, html)) (c, acc)
           else (c.set(id, html, at.version), acc :+ Patch.Morph(html))
       }
     val (finalLog, dynPatches) =
@@ -333,14 +333,14 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       v: Long
   ): Option[List[ServerSentEvent]] = log.since(v).map { owed =>
-    val gone = owed.mutations.collect { case (nodeId, _: Mutation.Gone) =>
+    val gone = owed.moved.collect { case (nodeId, _: Mutation.Gone) =>
       nodeId
     }
-    val placed = owed.mutations.collect { case (nodeId, p: Mutation.Placed) =>
+    val placed = owed.moved.collect { case (nodeId, p: Mutation.Placed) =>
       (nodeId, p)
     }
     val places = placed
-      .groupBy { case (_, p) => p.gid }
+      .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, inGroup) =>
@@ -350,11 +350,19 @@ private[runtime] object Patches {
           // Still a member; anything an ancestor's HTML already carries was
           // already dropped by `since`.
           .flatMap { case (nodeId, p) =>
-            position.get(p.entityId).map((nodeId, p.entityId, _))
+            p.member match {
+              case MemberKey.Entity(e) =>
+                position.get(e).map((nodeId, e, p.member, _))
+              case _: MemberKey.Surface => None
+            }
           }
-          .sortBy { case (_, _, at) => -at }
-          .flatMap { case (nodeId, entityId, _) =>
-            log.html(nodeId).toList.flatMap { html =>
+          .sortBy { case (_, _, _, at) => -at }
+          .flatMap { case (nodeId, entityId, member, _) =>
+            // Rendered NOW, not read back: the snapshot is at least as fresh as
+            // anything the log could have kept, and it is what lets the log hold
+            // a digest instead of bytes. The member resolves ITSELF — the whole
+            // point of [[MemberKey]] being a sum type.
+            member.render(renderer, gid, states).toList.flatMap { html =>
               // Every current member is a usable anchor here: emitting
               // descending by position means a node's successor was either
               // already in the client's DOM or placed a moment ago.
@@ -365,7 +373,8 @@ private[runtime] object Patches {
             }
           }
       }
-    (owed.fragments.map(f => Patch.Morph(f.html)) ++
+    (owed.nodes
+      .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
       places).map(_.toSse)
   }
@@ -427,7 +436,7 @@ private[runtime] object Patches {
     renderer.renderNodeById(gid, states, uiState) match {
       case None       => (log, Nil)
       case Some(html) =>
-        if (log.html(gid).contains(html)) (log, Nil)
+        if (log.holds(gid, html)) (log, Nil)
         else {
           val prefixes = renderer.bakeMemberPrefixes(gid)
           // Invalidation only, no tombstone: the host morph below re-supplies
@@ -469,7 +478,7 @@ private[runtime] object Patches {
             case None => (log, Nil) // not a current member — nothing to do
             case Some(html) =>
               val cid = renderer.dynamicChildId(gid, change.entityId)
-              if (log.html(cid).contains(html)) (log, Nil)
+              if (log.holds(cid, html)) (log, Nil)
               else (log.set(cid, html, at.version), List(Patch.Morph(html)))
           }
         else
@@ -556,7 +565,10 @@ private[runtime] object Patches {
                 // pre-change ones: a co-arrival may not be inserted yet.
                 val patch =
                   insertInto(renderer, gid, membersAfter, e, beforeSet, html)
-                (c.placed(gid, e, cid, html, at), acc :+ patch)
+                (
+                  c.placed(gid, MemberKey.Entity(e), cid, html, at),
+                  acc :+ patch
+                )
             }
         }
       // Drop the stale group-level cache entry: per-entity edits diverge the DOM
@@ -580,7 +592,7 @@ private[runtime] object Patches {
     renderer.renderNodeById(gid, states) match {
       case None       => (log, Nil)
       case Some(html) =>
-        if (log.html(gid).contains(html)) (log, Nil)
+        if (log.holds(gid, html)) (log, Nil)
         else {
           // Invalidation only: the group morph re-supplies every child's DOM, so
           // one stamped fragment repairs a resuming client.

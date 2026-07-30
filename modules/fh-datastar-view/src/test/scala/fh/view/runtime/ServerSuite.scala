@@ -796,17 +796,18 @@ class ServerSuite extends munit.CatsEffectSuite {
     * snapshot) with an optional pre-seeded cache; return the emitted SSE
     * patches (rendered to strings) and the resulting cache.
     */
-  // These tests assert on the cached HTML, not on the fragment versions that
-  // ride with it (docs/adr/0011-the-live-connection.md), so the log is projected back to the
-  // plain node -> html map they were written against.
+  // Seeded through `set`, so the digest derivation is never duplicated here.
   private def seedLog(seed: Map[String, String]): FragmentLog =
-    FragmentLog(
-      "test",
-      seed.map { case (id, html) => (id: NodeId) -> Fragment(html, 0L) }
-    )
+    seed.foldLeft(FragmentLog("test")) { case (l, (id, html)) =>
+      l.set(id, html, 0L)
+    }
 
-  private def htmlOf(log: FragmentLog): Map[String, String] =
-    log.fragments.view.mapValues(_.html).toMap
+  // WHICH nodes the log knows about, and when each last changed — everything
+  // these contracts assert on. The log holds a digest, not HTML, so there is no
+  // node -> html projection to make (docs/plan-one-shared-log.md, statement (3));
+  // what the patches CARRY is asserted on the patches themselves.
+  private def logged(log: FragmentLog): Map[NodeId, Long] =
+    log.fragments.view.mapValues(_.version).toMap
 
   /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
     * the resume cursor as a `patch-signals` event
@@ -821,7 +822,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       after: Map[String, EntityState],
       change: StateChange,
       seedCache: Map[String, String] = Map.empty
-  ): IO[(List[String], Map[String, String])] =
+  ): IO[(List[String], Map[NodeId, Long])] =
     (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
@@ -842,7 +843,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(seedCache))
             patches <- server.sharedPatches(renderer, cache, change)
-            finalCache <- cache.get.map(htmlOf)
+            finalCache <- cache.get.map(logged)
           } yield (elementPatches(patches), finalCache)
         }
     } yield out)
@@ -963,7 +964,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       // child cache entries are pruned; the group entry is refreshed.
       assert(!cache.contains("c_light_a"), clue = cache)
       assert(!cache.contains("c_light_b"), clue = cache)
-      assert(cache.get("c").exists(_.contains("id=\"c\"")), clue = cache)
+      // ...and the group entry is refreshed — what it CONTAINS is asserted on
+      // the patch above; the log only records that it changed.
+      assert(cache.contains("c"), clue = cache)
     }
   }
 
@@ -1151,8 +1154,8 @@ class ServerSuite extends munit.CatsEffectSuite {
     def stepRaw(next: EntityState): IO[List[String]] =
       sharedBatch(next).map(_.map(_.renderString))
 
-    def cacheNow: IO[Map[String, String]] =
-      cache.get.map(htmlOf).timeout(30.seconds)
+    def cacheNow: IO[Map[NodeId, Long]] =
+      cache.get.map(logged).timeout(30.seconds)
 
     def logId: IO[String] = cache.get.map(_.id)
 

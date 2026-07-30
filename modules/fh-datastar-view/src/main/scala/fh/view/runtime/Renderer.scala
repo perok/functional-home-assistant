@@ -788,6 +788,42 @@ class Renderer(
         render(node, path, prefix, states, uiState)
     }
 
+  /** Render whatever node a LOG KEY names — the inverse the ledger needs.
+    *
+    * Since the log holds a digest rather than HTML, a resume renders its
+    * candidates instead of reading them back, so every key must be resolvable
+    * here. Two kinds are: a static node ([[renderNodeById]]) and one member of
+    * a dynamic group, whose ids are per-entity and deliberately NOT in the
+    * static index.
+    *
+    * `None` means the key names nothing that exists right now — its group is
+    * gone, or the entity is no longer a member — which is exactly when there is
+    * nothing to send. That it cannot crash is the point: an unresolvable key is
+    * a fragment that can never be sent again, so it must be dropped visibly
+    * rather than taking the resume with it.
+    */
+  def renderLogged(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Option[String] =
+    renderNodeById(id, states).orElse(
+      // `sanitize` is one-way, so the entity cannot be read back out of the id —
+      // it is found by re-deriving each current member's id. O(members) on a
+      // reconnect, never on the hot path.
+      allIndexed.iterator
+        .collect {
+          case (gid, (_: LayoutNode.Dynamic, _, _))
+              if id.startsWith(gid + "_") =>
+            gid
+        }
+        .flatMap(gid => dynamicMembers(gid, states).iterator.map(gid -> _))
+        .collectFirst {
+          case (gid, e) if dynamicChildId(gid, e) == id =>
+            renderDynamicChild(gid, e, states)
+        }
+        .flatten
+    )
+
   /** The backend-injected structural template vars for one node — the ids an
     * author never composes.
     *

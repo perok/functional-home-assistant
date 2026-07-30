@@ -1,18 +1,50 @@
 package fh.view.runtime
 
+import fh.view.build.LibPackage
 import fh.view.model.NodeId
 
 import scala.concurrent.duration.*
 
-/** One rendered fragment and the store version its HTML reflects.
+/** A 128-bit content digest — enough to answer "did this node's HTML change?"
+  * and nothing more.
   *
-  * A named type rather than a `(String, Long)` because the version is the whole
-  * point: it turns the diff cache from "what did we last broadcast" into "when
-  * did each fragment last change", which is what lets a reconnecting client be
-  * told the difference instead of the whole body
+  * A digest rather than `String.hashCode` because a collision here does not
+  * cost a redundant send, it SUPPRESSES a real change: the diff would decide
+  * the node is unchanged and the client would sit on stale HTML until something
+  * else moved it.
+  *
+  * Hex rather than `Array[Byte]` so `==` means what it says — an array's
+  * equality is by reference, which in a `case class` used as a diff baseline is
+  * exactly the bug that never shows up in a test that happens to reuse one
+  * instance.
+  */
+private[runtime] opaque type Digest = String
+
+private[runtime] object Digest {
+  def of(html: String): Digest =
+    LibPackage.sha256(html.getBytes("UTF-8")).take(32)
+}
+
+/** WHEN a node last changed — never WHAT it holds.
+  *
+  * The log used to carry the rendered HTML, which fused two jobs: suppressing a
+  * redundant patch, and supplying content on resume. Only the first needs
+  * storage, and only a digest of it; the second is better served by rendering
+  * from the current snapshot, which is by definition at least as fresh
+  * (docs/plan-one-shared-log.md, statement (3)).
+  *
+  * What that buys is not memory. It makes '''dropping an entry always
+  * correct''': with content in the log, invalidating destroyed something the
+  * resume path needed, so every DOM-touching path owed the log exact bytes;
+  * with a digest, a missing entry means "unknown — send it". The failure mode
+  * moves from silent, permanent staleness to redundant bytes.
+  *
+  * The version is what makes the log a ledger rather than a cache: it answers
+  * "when did each node last change", which is what lets a reconnecting client
+  * be told the difference instead of the whole body
   * (docs/adr/0011-the-live-connection.md).
   */
-private[runtime] case class Fragment(html: String, version: Long)
+private[runtime] case class Fragment(digest: Digest, version: Long)
 
 /** When a diff pass rendered — both clocks it needs, together.
   *
@@ -60,6 +92,37 @@ private[runtime] object FragmentLog {
   val Retention: FiniteDuration = 1.hour
 }
 
+/** How a container names ONE of the things in its mount.
+  *
+  * Two containers keep membership — a dynamic group, whose members are
+  * entities, and a state group (an `If`), whose members are its branch surfaces
+  * — and each resolves a member to HTML differently. A bare `String` refused to
+  * carry that distinction, so it became two rules a caller had to remember: how
+  * to render a member "by container kind", and how to derive its anchor
+  * likewise. As a sum type each variant owns its own resolution, which is where
+  * it belongs.
+  */
+private[runtime] enum MemberKey {
+
+  /** A dynamic group's member: the entity whose card sits in the mount. */
+  case Entity(id: String)
+
+  /** A state group's member: the branch surface baked into the mount. */
+  case Surface(id: String)
+
+  /** Render this member as it is NOW. `None` when it is no longer a member at
+    * all — it arrived and left while a client was away.
+    */
+  def render(
+      renderer: Renderer,
+      container: NodeId,
+      states: Map[String, EntityState]
+  ): Option[String] = this match {
+    case Entity(e)  => renderer.renderDynamicChild(container, e, states)
+    case Surface(s) => renderer.renderSurface(s, states)
+  }
+}
+
 /** The last STRUCTURAL thing that happened to a node — as opposed to a change
   * in its content, which is a [[Fragment]]. One value rather than a pair of
   * parallel "removed"/"arrived" records, because a node cannot be both gone and
@@ -72,16 +135,17 @@ private[runtime] enum Mutation(val at: Stamp) {
   /** The element was deleted from the DOM. */
   case Gone(stamp: Stamp) extends Mutation(stamp)
 
-  /** The element belongs at its CURRENT position in `gid`, wherever (or
-    * whether) the client currently has it. Carries `gid`/`entityId` rather than
-    * just the node id because the anchor has to be re-derived from live
-    * membership and [[Dashboard.sanitize]] is one-way.
+  /** The element belongs at its CURRENT position in `container`'s mount,
+    * wherever (or whether) the client currently has it. Carries the container
+    * and the [[MemberKey]] rather than just the node id because both the anchor
+    * and the content have to be re-derived from live state, and
+    * [[fh.view.model.LayoutNode.sanitize]] is one-way.
     *
     * Covers an arrival and a re-ordering identically — both mean "put this
     * element here" — which is why an author-chosen member sort needs no new
     * mutation kind.
     */
-  case Placed(gid: NodeId, entityId: String, stamp: Stamp)
+  case Placed(container: NodeId, member: MemberKey, stamp: Stamp)
       extends Mutation(stamp)
 
   /** Ordering clock — see [[Stamp]]; the only one a resume compares against. */
@@ -93,16 +157,23 @@ private[runtime] enum Mutation(val at: Stamp) {
 
 /** What a resume owes a client holding a given cursor:
   *
-  *   - `fragments` to morph, in version order — a container's cached HTML
-  *     embeds its children, so a stale parent applied after a fresh child would
-  *     revert it;
-  *   - `mutations` (node id -> what happened) to apply structurally. See
+  *   - `nodes` to render NOW and morph — node ids, not stored HTML. The log
+  *     says which nodes moved; the current snapshot says what they contain, and
+  *     it is by definition at least as fresh as anything the log could have
+  *     kept.
+  *   - `moved` (node id -> what happened) to apply structurally. See
   *     [[Patches.resume]] for how each becomes patches, and for the ordering
   *     argument that makes the anchors resolvable.
+  *
+  * Rendering from one snapshot also retires an ordering rule: morphs used to
+  * have to go out ascending by version, because a container's cached HTML
+  * embedded its children and a stale parent applied after a fresh child would
+  * revert it. Nothing rendered now is stale, and under the self/mount split no
+  * fragment contains another node.
   */
 private[runtime] case class Resume(
-    fragments: List[Fragment],
-    mutations: List[(NodeId, Mutation)]
+    nodes: List[NodeId],
+    moved: List[(NodeId, Mutation)]
 )
 
 /** The per-slug (or per-session) diff cache, versioned.
@@ -152,7 +223,12 @@ private[runtime] case class FragmentLog(
     */
   def cleared: FragmentLog = FragmentLog(id)
 
-  def html(nodeId: NodeId): Option[String] = fragments.get(nodeId).map(_.html)
+  /** Whether `html` is what this node was last known to hold — the ONE question
+    * the stored digest answers. `false` for an absent entry: unknown means send
+    * it, which is what makes dropping an entry always safe.
+    */
+  def holds(nodeId: NodeId, html: String): Boolean =
+    fragments.get(nodeId).exists(_.digest == Digest.of(html))
 
   def has(nodeId: NodeId): Boolean = fragments.contains(nodeId)
 
@@ -163,7 +239,7 @@ private[runtime] case class FragmentLog(
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
 
   def set(nodeId: NodeId, html: String, at: Long): FragmentLog =
-    copy(fragments = fragments.updated(nodeId, Fragment(html, at)))
+    copy(fragments = fragments.updated(nodeId, Fragment(Digest.of(html), at)))
 
   /** Forget a node's cached HTML WITHOUT recording a removal — the node's DOM
     * is being re-supplied by an ancestor's fresh HTML (a group repaint, a
@@ -196,13 +272,14 @@ private[runtime] case class FragmentLog(
       mutations = mutations.updated(nodeId, Mutation.Gone(stamp))
     ).evicting(stamp.millis)
 
-  /** Record that `entityId` belongs at its CURRENT position in group `gid` — an
-    * arrival today, a re-order once member sorting becomes author-controlled.
-    * Also stamps its HTML, since the two always travel together.
+  /** Record that `member` belongs at its CURRENT position in `container`'s
+    * mount — an arrival today, a re-order once member sorting becomes
+    * author-controlled. Also stamps its HTML, since the two always travel
+    * together.
     */
   def placed(
-      gid: NodeId,
-      entityId: String,
+      container: NodeId,
+      member: MemberKey,
       nodeId: NodeId,
       html: String,
       stamp: Stamp
@@ -210,7 +287,7 @@ private[runtime] case class FragmentLog(
     set(nodeId, html, stamp.version)
       .copy(
         mutations =
-          mutations.updated(nodeId, Mutation.Placed(gid, entityId, stamp))
+          mutations.updated(nodeId, Mutation.Placed(container, member, stamp))
       )
       .evicting(stamp.millis)
 
@@ -273,13 +350,17 @@ private[runtime] case class FragmentLog(
     *
     * Only the LATEST meaningful change per node survives, in three ways. Both
     * maps are keyed by node id, so repeated churn on one element collapses to
-    * one entry rather than a replay. A mutated node's fragment is not ALSO
-    * reported as a morph — the element may not be where (or whether) the client
-    * has it, and a morph of an absent id silently does nothing, so its (latest)
-    * HTML rides the mutation instead. And anything an ANCESTOR's HTML already
-    * carries is dropped ([[coveredByAncestor]]): correctness never depended on
-    * that (version order makes the ancestor win anyway), but sending a subtree
-    * twice defeats the point of resuming at all.
+    * one entry rather than a replay. A mutated node is not ALSO reported as a
+    * morph — the element may not be where (or whether) the client has it, and a
+    * morph of an absent id silently does nothing, so its content rides the
+    * mutation instead. And anything an ANCESTOR's HTML already carries is
+    * dropped ([[coveredByAncestor]]): correctness never depended on that, but
+    * sending a subtree twice defeats the point of resuming at all.
+    *
+    * It returns node IDS, not content: the caller renders them from the current
+    * snapshot, which is at least as fresh as anything the log could have stored
+    * (statement (3)). Sorting by version went with the HTML — there is nothing
+    * stale left to order.
     */
   def since(v: Long): Option[Resume] =
     Option.when(v >= horizon) {
@@ -287,15 +368,12 @@ private[runtime] case class FragmentLog(
         m.version >= v && !coveredByAncestor(nodeId, m.version)
       }
       Resume(
-        fragments
-          .collect {
-            case (nodeId, f)
-                if f.version >= v && !moved.contains(nodeId) &&
-                  !coveredByAncestor(nodeId, f.version) =>
-              f
-          }
-          .toList
-          .sortBy(_.version),
+        fragments.collect {
+          case (nodeId, f)
+              if f.version >= v && !moved.contains(nodeId) &&
+                !coveredByAncestor(nodeId, f.version) =>
+            nodeId
+        }.toList,
         moved.toList
       )
     }
