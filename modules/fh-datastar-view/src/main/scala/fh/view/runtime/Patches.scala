@@ -31,6 +31,34 @@ private[runtime] enum Patch:
       Datastar.patch(html, mode, Some(target.selector))
     case Patch.Remove(target) => Datastar.remove(target.selector)
 
+/** One patch and WHO it is for.
+  *
+  * `None` means the main page: every connection sees it. `Some(sid)` means the
+  * patch belongs inside a user-selected surface, and only a connection with
+  * that surface open should receive it.
+  *
+  * The tag names the innermost USER-selected surface, and that qualifier is
+  * load-bearing. `Renderer.selectedSurfaces` does `filterNot(isStateGroup)`, so
+  * a state-activated branch is never in anyone's `open` set — its visibility is
+  * server-decided and identical for every client. Tagging a node with a state
+  * surface would therefore filter its patches away from EVERYONE. State
+  * surfaces are transparent here: a node inside an `If` branch nested in a tab
+  * panel is tagged with the tab panel.
+  *
+  * Over-sending is safe and under-sending is not: a morph at an id the DOM
+  * lacks is a silent no-op, so the filter can only ever cost bytes. That
+  * asymmetry is why anything the renderer cannot attribute to a user-selected
+  * surface stays untagged.
+  */
+private[runtime] case class Addressed(
+    surface: Option[String],
+    event: ServerSentEvent
+) {
+
+  /** `Option.forall` over the single tag is the whole visibility test. */
+  def visibleTo(open: Set[String]): Boolean = surface.forall(open)
+}
+
 /** The pure diff core, lifted out of [[Server]] so it is testable without a
   * booted server (no HA stub, no `Supervisor`, no SSE plumbing). Two entry
   * points:
@@ -259,7 +287,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       req: DiffRequest
-  ): (FragmentLog, List[ServerSentEvent]) = {
+  ): (FragmentLog, List[Addressed]) = {
     val at = req.stamp
     val (logAfterFlips, flipPatches) =
       req.flips.foldLeft((log, List.empty[Patch])) { case ((c, acc), gid) =>
@@ -293,7 +321,15 @@ private[runtime] object Patches {
             )
           (c2, acc ++ ps)
       }
-    (finalLog, (flipPatches ++ staticPatches ++ dynPatches).map(_.toSse))
+    // Untagged for now, which is CORRECT for everything this pass emits today:
+    // main-page nodes, and nodes inside state-activated surfaces, which are
+    // transparent to the filter. W6 moves user-surface rendering here and is
+    // what starts setting the tag.
+    (
+      finalLog,
+      (flipPatches ++ staticPatches ++ dynPatches)
+        .map(p => Addressed(None, p.toSse))
+    )
   }
 
   /** Everything a client resuming at cursor `v` is owed, as SSE events. The

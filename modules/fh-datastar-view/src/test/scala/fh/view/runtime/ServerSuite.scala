@@ -877,7 +877,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             cache <- Ref[IO].of(seedLog(seedCache))
             patches <- server.sharedPatches(renderer, cache, change)
             finalCache <- cache.get.map(logged)
-          } yield (elementPatches(patches), finalCache)
+          } yield (elementPatches(patches.map(_.event)), finalCache)
         }
     } yield out)
       .timeout(30.seconds)
@@ -1250,7 +1250,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           cache,
           StateChange(next.entityId, prev, next)
         )
-      } yield patches).timeout(30.seconds)
+      } yield patches.map(_.event)).timeout(30.seconds)
 
     def step(next: EntityState): IO[List[String]] =
       sharedBatch(next).map(elementPatches)
@@ -1336,7 +1336,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         registry <- Ref[IO].of(
           Map("dashboard" -> Server.LiveSlug(ref, slugLog))
         )
-        topic <- Topic[IO, (String, ServerSentEvent)]
+        topic <- Topic[IO, (String, Addressed)]
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,
@@ -1654,7 +1654,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             shared <- server.sharedPatches(renderer, cache, change)
           } yield (perSession, shared)
         }
-    } yield (out._1.map(_.renderString), out._2.map(_.renderString)))
+    } yield (out._1.map(_.renderString), out._2.map(_.event.renderString)))
       .timeout(30.seconds)
       .map { case (sessionPatches, sharedPatches) =>
         // The session with the popup open gets exactly the inner flip's delta.

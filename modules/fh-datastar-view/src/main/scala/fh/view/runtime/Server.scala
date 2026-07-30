@@ -81,7 +81,7 @@ class Server(
     // subscribes when it opens, so a per-slug map would freeze the slug set at
     // connect time and a slug pushed later could never reach an open
     // connection. Tagging is what lets `push` mint a slug at runtime.
-    sharedTopic: Topic[IO, (String, ServerSentEvent)],
+    sharedTopic: Topic[IO, (String, Addressed)],
     // Starts the per-slug shared-patch publisher for a slug minted by `push`.
     // Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -307,7 +307,7 @@ class Server(
             .evalMap(sharedPatches(renderer, live.log, _))
             .flatMap(Stream.emits)
       }
-      .map(sse => (slug, sse))
+      .map(addressed => (slug, addressed))
       .through(sharedTopic.publish)
 
   /** Start every currently-registered slug's publisher. Slugs pushed later get
@@ -404,7 +404,7 @@ class Server(
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
       change: StateChange
-  ): IO[List[ServerSentEvent]] =
+  ): IO[List[Addressed]] =
     (stateStore.current, Server.stampNow).flatMapN { (store, millis) =>
       val req = Patches.plan(
         renderer,
@@ -429,7 +429,8 @@ class Server(
           // makes. All three are (re)established where they can actually change:
           // on connect, and on a renderer swap ([[reloadRepaints]]).
           if (patches.isEmpty) patches
-          else patches :+ Server.versionSignal(req.stamp.version)
+          else
+            patches :+ Addressed(None, Server.versionSignal(req.stamp.version))
         }
     }
 
@@ -517,8 +518,16 @@ class Server(
       live = Stream
         .resource(sharedTopic.subscribeAwaitUnbounded)
         .flatMap { tagged =>
+          // Two filters, and they are different questions. The slug decides
+          // whether this patch is about the dashboard this connection is
+          // viewing at all; the surface tag decides whether THIS client can see
+          // the part of it that changed. `open` is read per patch rather than
+          // captured, because a tab select moves it mid-stream.
           val shared =
-            tagged.collect { case (s, sse) if s == session.slug => sse }
+            tagged
+              .collect { case (s, a) if s == session.slug => a }
+              .evalFilter(a => session.open.get.map(a.visibleTo))
+              .map(_.event)
           Stream
             .eval(
               session.open.get.flatMap(open =>
@@ -758,7 +767,9 @@ class Server(
             change,
             Patches.Scope.Session(open, uiState)
           )
-          session.lastRendered.modify(Patches.diff(r, _, req))
+          session.lastRendered
+            .modify(Patches.diff(r, _, req))
+            .map(_.map(_.event))
       }
     } yield out
 
@@ -1306,7 +1317,7 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topic <- Topic[IO, (String, ServerSentEvent)].toResource
+      topic <- Topic[IO, (String, Addressed)].toResource
       // Pair each seeded renderer with its own fragment log here, so the caller
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList
