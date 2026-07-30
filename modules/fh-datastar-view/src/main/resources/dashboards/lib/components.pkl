@@ -101,17 +101,47 @@ abstract class Node extends LayoutNode {
   inlineSurfaces: Mapping<String, SurfaceDef>? = null
 }
 
+/// A card's markup. A LEAF card is just a `template`; a card that HOLDS other
+/// nodes splits into two parts placed at independent holes in it:
+///
+///   - `mount` — the element the children occupy. Filled as its own operation
+///     (a tab select, a popup open, a group repaint); a live patch never
+///     renders into it.
+///   - `self` — the card's own presentation: a tab bar, a header, a frame. This
+///     is what a live patch renders, under the engine's `{{selfId}}`.
+///
+/// They are SIBLINGS — `self` must not contain the `{{{mount}}}` hole — and
+/// that is the whole mechanism: a top-level patch matches only the element
+/// carrying its own id, so a patch at the self element cannot reach the mount.
+/// Hence the rule the design rests on: a node's patch carries its own rendering
+/// and NEVER the contents of a mount, so a host changing cannot re-render what
+/// it hosts (docs/plan-one-shared-log.md).
+///
+/// A container with a `mount` and NO `self` ([[Row]]/[[Column]]/[[Grid]]) has
+/// only children to show, so its whole HTML contains them and it must never be
+/// patched — which is why a LIVE slot on that shape is a build error.
 class CardDef {
-  template: String
+  /// The whole card. Defaults to the two parts back to back, which is right for
+  /// a container that is nothing but its mount.
+  template: String = "{{{self}}}{{{mount}}}"
   slots: Listing<String> = new {}
-  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell`
-  // layout/morph wrapper. Null (dropped by omitNullProperties, backend
-  // defaults TRUE) for every normal card; set `false` only for a card whose
-  // root must stay a direct child of a framework-structural parent (the
-  // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
-  // never a morph target; live-entity slots, cell params, and dynamic-case
-  // use are all build errors on it (Dashboard.validate).
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell` layout
+  // wrapper. Null (dropped by omitNullProperties, backend defaults TRUE) for
+  // every normal card; set `false` only for a card whose root must stay a
+  // direct child of a framework-structural parent (the [[TabButton]] anchors
+  // under BeerCSS's `.tabs > a`). It means exactly "my root must not be wrapped
+  // in a layout box" — NOT "never a morph target", which is now decided by card
+  // shape (a container patches through its `self`).
   wrapAsCell: Boolean? = null
+  /// Where child nodes go. Carries `id="{{mountId}}"` only when something FILLS
+  /// it — a tab panel, an [[If]] branch — which is exactly where a surface's
+  /// `bakeAs` names it. A plain container's children arrive nested, so its mount
+  /// needs no id.
+  mount: String? = null
+  /// The card's own presentation, patched independently of the mount. Must carry
+  /// the engine's `{{selfId}}` (it is the patch target) and must not nest the
+  /// mount.
+  self: String? = null
 }
 
 /// An on-demand render subtree the build-phase hoist lifts into the top-level
@@ -315,8 +345,10 @@ const local function secondarySlot(secondary: String|Expr): Slot =
 // the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends Node {
   card = "fhrow"
+  // Pure mount: the row IS where its children go, so there is no `self` and
+  // `template` stays the default. No id — nothing fills a row from outside.
   cardDef = new CardDef {
-    template = """
+    mount = """
       <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -341,7 +373,7 @@ hidden row: Row = new Row {}
 class Column extends Node {
   card = "fhcol"
   cardDef = new CardDef {
-    template = """
+    mount = """
       <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -366,7 +398,7 @@ hidden column: Column = new Column {}
 class Grid extends Node {
   card = "fhgrid"
   cardDef = new CardDef {
-    template = """
+    mount = """
       <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -594,7 +626,7 @@ class Popup extends Node {
   // dialog is transient — present only while open. The ✕ posts the id-less
   // close. Ported verbatim from components.libsonnet:511.
   cardDef = new CardDef {
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
 /// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
