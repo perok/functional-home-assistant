@@ -2127,55 +2127,30 @@ class ServerSuite extends munit.CatsEffectSuite {
       .filter(_.name == Elements)
       .map(e => (e.mode, e.selector, e.elements))
 
-  /** Boot the whole server, open the SSE route as a browser does, hold the
-    * stream open across `act`, and hand back everything that arrived on it.
+  /** ONE connected client, driven a step at a time.
     *
-    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so the
-    * test is deterministic and as fast as a unit test. What it adds over
-    * [[SharedHarness]] is the parts that harness deliberately skips — the
-    * publisher fibers, the topic, the per-connection merge — which is exactly
-    * where the two bugs the running app found were hiding. Both were invisible
-    * to tests that drove the pure diff core directly.
-    *
-    * The waits are conditions, never sleeps: first for the opening block (which
-    * ends at the cursor signal), then for the stream to fall quiet after `act`.
+    * A test walks the interaction the way a browser experiences it — connect,
+    * assert; change, assert; change again, assert — instead of collecting one
+    * blob at the end and rummaging in it. Every assertion is then about a
+    * specific moment, and an event arriving at the wrong TIME fails as loudly
+    * as one that never arrives.
     */
-  /** A connected client, driven a STEP AT A TIME.
-    *
-    * `step` applies one entity change and returns exactly the events that
-    * change produced, so a test walks the interaction the way the browser
-    * experiences it — connect, assert; change, assert; change again, assert —
-    * instead of collecting one blob at the end and rummaging in it. Every
-    * assertion is then about a specific moment, and an event arriving at the
-    * wrong TIME fails as loudly as one that never arrives.
-    */
-  private class LiveClient(
-      store: StateStore,
-      seen: Ref[IO, Vector[ServerSentEvent]]
-  ) {
+  private class LiveClient(seen: Ref[IO, Vector[ServerSentEvent]]) {
 
     /** Everything received since the last read. */
     def drain: IO[List[ServerSentEvent]] =
       seen.getAndSet(Vector.empty).map(_.toList)
 
-    /** Apply one change; return exactly what it put on the wire. */
-    def step(next: EntityState): IO[List[ServerSentEvent]] =
-      for {
-        _ <- store.update(next)
-        _ <- settled
-        out <- drain
-      } yield out
-
-    /** Wait for the stream to go QUIET — not for it to move.
+    /** Wait for this client's stream to go QUIET — not for it to move.
       *
-      * "This change produced nothing" is a real and important answer (a hidden
-      * branch, a value that renders identically), so waiting for movement would
-      * hang on exactly the cases worth asserting. Quiet needs a floor of
-      * observation to mean anything, hence the minimum window; after that it is
-      * a stability check rather than a fixed sleep, so a slow step still gets
-      * however long it needs.
+      * "This produced nothing for me" is a real and important answer (a hidden
+      * branch, a value that renders identically, a surface someone else is
+      * viewing), so waiting for movement would hang on exactly the cases worth
+      * asserting. Quiet needs a floor of observation to mean anything, hence
+      * the minimum window; after that it is a stability check rather than a
+      * fixed sleep, so a slow step still gets however long it needs.
       */
-    private def settled: IO[Unit] =
+    def settled: IO[Unit] =
       fs2.Stream
         .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
         .zipWithPrevious
@@ -2186,25 +2161,71 @@ class ServerSuite extends munit.CatsEffectSuite {
         .timeout(15.seconds)
   }
 
-  /** Boot the whole server and open the SSE route the way a browser does.
+  /** A booted server plus however many connected clients a test wants.
     *
-    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so the
-    * test is deterministic and as fast as a unit test. What it adds over
+    * MANY clients matter: what one connection is sent is only half the contract
+    * — the other half is what the OTHERS are not sent, and that cannot be
+    * observed from a single stream. `change` applies one entity update and
+    * waits for every client to fall quiet, so each `drain` afterwards is
+    * exactly what that client received for that change.
+    *
+    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so this
+    * is deterministic and as fast as a unit test. What it adds over
     * [[SharedHarness]] is the parts that harness deliberately skips — the
     * publisher fibers, the topic, the per-connection merge — which is exactly
-    * where the bugs the running app found were hiding. Every one of them was
-    * invisible to tests that drove the pure diff core directly.
+    * where every bug the running app found had been hiding.
     */
-  private def liveClient(
+  private class LiveWorld(
+      routes: org.http4s.HttpApp[IO],
+      store: StateStore,
+      clients: Ref[IO, List[LiveClient]]
+  ) {
+
+    /** Connect as a browser does. `query` carries what a document would hand
+      * back — `?ui.<id>=<n>` for a selected tab (see [[Server.Restore]]).
+      */
+    def connect(query: String = ""): IO[LiveClient] =
+      for {
+        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+        resp <- routes.run(
+          Request[IO](
+            Method.GET,
+            Uri.unsafeFromString(s"/sse/dashboard/dashboard/patch$query")
+          )
+        )
+        _ <- resp.body
+          .through(ServerSentEvent.decoder[IO])
+          .evalMap(e => seen.update(_ :+ e))
+          .compile
+          .drain
+          .start
+        client = new LiveClient(seen)
+        // The opening block ends at the cursor handshake; wait for it so the
+        // first `drain` is exactly what CONNECTING produced.
+        _ <- fs2.Stream
+          .repeatEval(seen.get <* IO.sleep(10.millis))
+          .find(_.exists(isCursor))
+          .compile
+          .drain
+          .timeout(15.seconds)
+        _ <- clients.update(_ :+ client)
+      } yield client
+
+    /** Apply one change and wait for EVERY client to fall quiet. */
+    def change(next: EntityState): IO[Unit] =
+      store.update(next) *> clients.get.flatMap(_.traverse_(_.settled))
+  }
+
+  private def liveWorld(
       dash: Dashboard,
-      initial: Map[String, EntityState],
-      sseUri: Uri = uri"/sse/dashboard/dashboard/patch"
-  )(use: LiveClient => IO[Unit]): IO[Unit] =
+      initial: Map[String, EntityState]
+  )(use: LiveWorld => IO[Unit]): IO[Unit] =
     (for {
       store <- StateStore.inMemory(initial)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
+      clients <- Ref[IO].of(List.empty[LiveClient])
       _ <- Server
         .resource(
           HomeAssistantApi.fromWs(fake),
@@ -2213,32 +2234,175 @@ class ServerSuite extends munit.CatsEffectSuite {
           "dashboard",
           sessions
         )
-        .use { server =>
-          for {
-            seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-            resp <- server.routes.orNotFound.run(
-              Request[IO](Method.GET, sseUri)
-            )
-            pump <- resp.body
-              .through(ServerSentEvent.decoder[IO])
-              .evalMap(e => seen.update(_ :+ e))
-              .compile
-              .drain
-              .start
-            client = new LiveClient(store, seen)
-            // The opening block ends at the cursor handshake; wait for it so a
-            // test's first `drain` is exactly what CONNECTING produced.
-            _ <- fs2.Stream
-              .repeatEval(seen.get <* IO.sleep(10.millis))
-              .find(_.exists(isCursor))
-              .compile
-              .drain
-              .timeout(15.seconds)
-            _ <- use(client)
-            _ <- pump.cancel
-          } yield ()
-        }
+        .use(server =>
+          use(new LiveWorld(server.routes.orNotFound, store, clients))
+        )
     } yield ()).timeout(30.seconds)
+
+  /** One client, for the tests that only need one. */
+  private def liveClient(
+      dash: Dashboard,
+      initial: Map[String, EntityState]
+  )(use: (LiveWorld, LiveClient) => IO[Unit]): IO[Unit] =
+    liveWorld(dash, initial)(w => w.connect().flatMap(use(w, _)))
+
+  /** A main-page card plus a TWO-tab host (`c_1`), so two clients can be
+    * looking at different panels of the same dashboard at the same time — the
+    * shape the per-connection contract is actually about.
+    */
+  private def twoTabsDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+      )
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+        ),
+        LayoutNode.Component("tabs")
+      )
+    ),
+    surfaces = Map(
+      "t0" -> Surface(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.a")))
+        ),
+        bakeInto = Some("c_1"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(0),
+        activation = Activation.User(defaultOpen = true)
+      ),
+      "t1" -> Surface(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.b")))
+        ),
+        bakeInto = Some("c_1"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      )
+    )
+  )
+
+  /** '''What one client is sent is only half the contract.'''
+    *
+    * The other half is what the OTHERS are not sent, and no single stream can
+    * show it. This is the property ADR 0002's collapse must PRESERVE — today it
+    * falls out of the per-session pass rendering only `open` surfaces; after
+    * the collapse it has to be a deliberate per-connection filter — so it is
+    * pinned here first, at the level the change will be judged on.
+    *
+    * Under-sending is the failure mode with no symptom: a patch withheld from a
+    * client that needed it produces no error, just a value that quietly stops
+    * updating.
+    */
+  test("two clients on different tabs: each sees only its own") {
+    liveWorld(
+      twoTabsDash,
+      Map(
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.c_1=1")
+        _ <- onT0.drain
+        _ <- onT1.drain
+
+        // A change inside TAB 0's panel.
+        _ <- world.change(es("sensor.a", "A1"))
+        a0 <- onT0.drain
+        a1 <- onT1.drain
+        _ = assert(
+          domEvents(a0).exists(_._3.exists(_.contains("A1"))),
+          clue = ("viewer of tab 0 must get it", a0)
+        )
+        _ = assertEquals(
+          domEvents(a1),
+          Nil,
+          clue = ("viewer of tab 1 must get nothing", a1)
+        )
+
+        // ...and one inside TAB 1's, the mirror image.
+        _ <- world.change(es("sensor.b", "B1"))
+        b0 <- onT0.drain
+        b1 <- onT1.drain
+        _ = assertEquals(
+          domEvents(b0),
+          Nil,
+          clue = ("viewer of tab 0 must get nothing", b0)
+        )
+        _ = assert(
+          domEvents(b1).exists(_._3.exists(_.contains("B1"))),
+          clue = ("viewer of tab 1 must get it", b1)
+        )
+
+        // A MAIN-PAGE change reaches both — the filter must not swallow what is
+        // not surface-scoped at all.
+        _ <- world.change(es("sensor.shared", "s1"))
+        s0 <- onT0.drain
+        s1 <- onT1.drain
+        _ = assert(
+          domEvents(s0).exists(_._3.exists(_.contains("s1"))),
+          clue = s0
+        )
+        _ = assert(
+          domEvents(s1).exists(_._3.exists(_.contains("s1"))),
+          clue = s1
+        )
+      } yield ()
+    }
+  }
+
+  /** A connection's LIFETIME: what a late arrival is owed, and that two clients
+    * on one shared pass both stay live.
+    */
+  test("a client joining late is caught up, and both stay live after") {
+    liveWorld(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) {
+      world =>
+        for {
+          first <- world.connect()
+          _ <- first.drain
+          _ <- world.change(es("sensor.a", "warm"))
+          early <- first.drain
+          _ = assert(
+            domEvents(early).exists(_._3.exists(_.contains("warm"))),
+            clue = early
+          )
+          // A SECOND client arrives after that change. It never saw the patch, so
+          // its opening block must carry the current value — from the document
+          // path, since it connects with no cursor.
+          late <- world.connect()
+          opening <- late.drain
+          _ = assert(
+            domEvents(opening).exists(_._3.exists(_.contains("warm"))),
+            clue = opening
+          )
+          // Both are now live on the same shared pass.
+          _ <- world.change(es("sensor.a", "hot"))
+          e1 <- first.drain
+          e2 <- late.drain
+          _ = assert(
+            domEvents(e1).exists(_._3.exists(_.contains("hot"))),
+            clue = e1
+          )
+          _ = assert(
+            domEvents(e2).exists(_._3.exists(_.contains("hot"))),
+            clue = e2
+          )
+        } yield ()
+    }
+  }
 
   test("end to end: flipping there and back, one mount overwrite each time") {
     // The shape the running app showed wrong twice. Driving the diff core
@@ -2252,7 +2416,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    ) { client =>
+    ) { (world, client) =>
       // This fixture's branch content is a single card, so the branch root IS
       // the node — no Row wrapper (the shipped `If` wraps, the fixture does not).
       def branch(sid: String, inner: String) =
@@ -2273,7 +2437,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ = assert(opening.exists(isCursor), clue = opening)
 
         // 2. A tick inside the ACTIVE branch: one morph of that node alone.
-        tick <- client.step(es("sensor.a", "A1"))
+        tick <- world.change(es("sensor.a", "A1")) *> client.drain
         _ = assertEquals(
           domEvents(tick),
           List(
@@ -2290,13 +2454,13 @@ class ServerSuite extends munit.CatsEffectSuite {
 
         // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
         //    Silence is structural — its ids never enter the selection.
-        hidden <- client.step(es("sensor.b", "B1"))
+        hidden <- world.change(es("sensor.b", "B1")) *> client.drain
         _ = assertEquals(hidden, Nil, clue = hidden)
 
         // 4. The flip: ONE overwrite of the host's mount, carrying the branch
         //    rendered at CURRENT state (B1, which this client never saw). The
         //    browser reported three events here — two removals and an append.
-        flip <- client.step(es("alarm.h", "disarmed"))
+        flip <- world.change(es("alarm.h", "disarmed")) *> client.drain
         _ = assertEquals(
           domEvents(flip),
           List(("inner", Some("#c_0_branch"), branch("else", "B1"))),
@@ -2305,7 +2469,7 @@ class ServerSuite extends munit.CatsEffectSuite {
 
         // 5. And back again — symmetric, and the then-branch returns at its
         //    CURRENT value rather than the one it had when it left.
-        back <- client.step(es("alarm.h", "armed"))
+        back <- world.change(es("alarm.h", "armed")) *> client.drain
         _ = assertEquals(
           domEvents(back),
           List(("inner", Some("#c_0_branch"), branch("then", "A1"))),
@@ -2392,13 +2556,13 @@ class ServerSuite extends munit.CatsEffectSuite {
     liveClient(
       liveLeafDash,
       Map("sensor.a" -> es("sensor.a", "cold"))
-    ) { client =>
+    ) { (world, client) =>
       for {
         _ <- client.drain
         // An outer morph: it targets the id inside its own HTML and names no
         // selector — the leaf's whole rendering, cell and all — and the batch
         // carries the cursor it advanced to.
-        hot <- client.step(es("sensor.a", "hot"))
+        hot <- world.change(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(
           domEvents(hot),
           List(
@@ -2414,7 +2578,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The diff's whole purpose: a change that renders identically puts
         // NOTHING on the wire — not even a cursor, since only a non-empty batch
         // carries one.
-        again <- client.step(es("sensor.a", "hot"))
+        again <- world.change(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(again, Nil, clue = again)
       } yield ()
     }
