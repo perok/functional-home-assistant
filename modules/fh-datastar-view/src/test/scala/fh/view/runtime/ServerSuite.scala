@@ -1708,24 +1708,26 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   }
 
-  test(
-    "the cursor signal rides every non-empty shared batch, quoting its log"
-  ) {
+  test("a non-empty shared batch advances the VERSION, and nothing else") {
     for {
       h <- SharedHarness.create(
         liveLeafDash,
         Map("sensor.a" -> es("sensor.a", "cold"))
       )
       raw <- h.stepRaw(es("sensor.a", "hot"))
-      logId <- h.logId
       // An entity no card binds: nothing rendered, so no cursor either — the
       // client's existing cursor still names its DOM.
       quiet <- h.stepRaw(es("sensor.unwatched", "x"))
     } yield {
       assertEquals(raw.size, 2, clue = raw)
-      assert(raw.last.contains(s""""${Server.LogIdSignal}":"$logId""""), raw)
       assert(raw.last.contains(s""""${Server.StoreVersionSignal}":1"""), raw)
-      assert(raw.last.contains(h.headHash), clue = raw)
+      // The other three are constant for the life of a renderer, so a batch does
+      // not repeat them — that is bytes on every patch of every connection, and
+      // every signal a client holds is serialised back into every request it
+      // makes. They are (re)established on connect and on a renderer swap.
+      assert(!raw.last.contains(Server.LogIdSignal), clue = raw)
+      assert(!raw.last.contains(Server.HeadHashSignal), clue = raw)
+      assert(!raw.last.contains(Server.StyleHashSignal), clue = raw)
       assertEquals(quiet, Nil, clue = quiet)
     }
   }

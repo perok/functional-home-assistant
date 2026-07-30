@@ -413,23 +413,23 @@ class Server(
         change,
         Patches.Scope.Shared
       )
-      // The log's id is read INSIDE the modify, so the cursor names the log the
-      // batch was diffed against — never one a concurrent renderer swap rotated
-      // in, which would leave the client quoting a log its version was not from.
       log
-        .modify { l =>
-          val (next, patches) = Patches.diff(renderer, l, req)
-          (next, (next.id, patches))
-        }
-        .map { case (logId, patches) =>
+        .modify(l => Patches.diff(renderer, l, req))
+        .map { patches =>
           // Advance the clients' cursor to what they were just sent — but only when
           // something WAS sent. A batch that emitted nothing leaves every cursor
           // where it was, so a later resume re-sends a superset of what that client
           // needs (harmless: every fragment patch is an idempotent morph), which is
           // the right direction to err in.
+          //
+          // Only the part that CHANGED rides along. `headHash`, `styleHash` and
+          // `logId` are constant for the life of a renderer, so re-sending them
+          // on every batch is bytes on every patch of every connection — and
+          // every signal a client holds is serialised back into every request it
+          // makes. All three are (re)established where they can actually change:
+          // on connect, and on a renderer swap ([[reloadRepaints]]).
           if (patches.isEmpty) patches
-          else
-            patches :+ Server.cursorSignals(renderer, logId, req.stamp.version)
+          else patches :+ Server.versionSignal(req.stamp.version)
         }
     }
 
@@ -694,16 +694,24 @@ class Server(
               // this client's selection (closed over).
               (session.lastRendered.update(_.cleared) *>
                 session.open.set(r.selectedSurfaces(uiState)) *>
-                stateStore.snapshot)
-                .map { st =>
+                (stateStore.current, live.log.get).tupled)
+                .map { case (store, log) =>
                   val head =
                     if (previous.exists(_.styleHash != r.styleHash))
                       Server.headPatches(r, session.slug)
                     else Nil
-                  head :+ Datastar.patch(
-                    r.renderBody(st, uiState),
-                    PatchMode.Inner,
-                    Some("#dashboard")
+                  head ++ List(
+                    Datastar.patch(
+                      r.renderBody(store.entities, uiState),
+                      PatchMode.Inner,
+                      Some("#dashboard")
+                    ),
+                    // A swap rotates the log identity and can move the style
+                    // hash, and live batches carry only the version now — so
+                    // this is where the client learns the rest. Without it a
+                    // reconnect would quote a log that no longer exists and be
+                    // answered with a body repaint.
+                    Server.cursorSignals(r, log.id, store.version)
                   )
                 }
           }
@@ -1726,6 +1734,12 @@ object Server {
     * after every shared patch batch, so a client's cursor names what it has
     * actually been sent.
     */
+  /** The WHOLE cursor: three facts that identify which renderer and which log a
+    * client's DOM belongs to, plus where it has got to.
+    *
+    * Sent only where the first three can actually change — on connect, and on a
+    * renderer swap. Every live batch sends [[versionSignal]] alone.
+    */
   private[runtime] def cursorSignals(
       renderer: Renderer,
       logId: String,
@@ -1737,6 +1751,12 @@ object Server {
         s""""$LogIdSignal":"$logId",""" +
         s""""$StoreVersionSignal":$version}"""
     )
+
+  /** Just how far this client has got — the only part of the cursor a live
+    * batch moves.
+    */
+  private[runtime] def versionSignal(version: Long): ServerSentEvent =
+    Datastar.patchSignals(s"""{"$StoreVersionSignal":$version}""")
 
   /** Options for the `data-init` `@get` that opens the SSE stream.
     *
