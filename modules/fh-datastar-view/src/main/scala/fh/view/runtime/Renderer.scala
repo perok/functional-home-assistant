@@ -828,6 +828,19 @@ class Renderer(
     * active branch. Both are "what is in this mount", so they answer here
     * rather than at each fill site.
     */
+  /** Whether `id` is a DYNAMIC group — a mount over unboundedly many members,
+    * where position matters and a delta must preserve siblings.
+    *
+    * The distinction decides how a mount is patched. A state group's mount
+    * holds at most ONE member (a bake group has one hole), so there are no
+    * siblings to preserve and no position to fix: overwriting it IS the delta.
+    * A dynamic group's is the opposite, and gets per-member `remove`/`before`.
+    */
+  def isDynamicContainer(id: NodeId): Boolean =
+    allIndexed.get(id).exists { case (n, _, _) =>
+      n.isInstanceOf[LayoutNode.Dynamic]
+    }
+
   def renderMount(
       container: NodeId,
       states: Map[String, EntityState]

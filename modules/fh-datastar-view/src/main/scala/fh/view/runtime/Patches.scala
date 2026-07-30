@@ -357,36 +357,32 @@ private[runtime] object Patches {
       open: Set[String] = Set.empty
   ): List[ServerSentEvent] = {
     val owed = log.since(v)
-    val gone = owed.moved.collect { case (nodeId, _: Mutation.Gone) =>
-      nodeId
+    // Split by CONTAINER KIND, because the two mounts want different tools: a
+    // dynamic group's needs per-member deltas that preserve siblings, a state
+    // group's holds one member and is simply overwritten.
+    val (dynamic, branch) = owed.moved.partition { case (_, m) =>
+      renderer.isDynamicContainer(m.container)
     }
-    val placed = owed.moved.collect { case (nodeId, p: Mutation.Placed) =>
-      (nodeId, p)
-    }
-    // A SURFACE member — a state group's branch — occupies a one-member mount,
-    // so it needs no anchor and no ordering: remove, then append. Replaying it
-    // is the whole reason a flip is recorded structurally. Without it a client
-    // that was away across a flip gets the `Gone` and nothing else, and sits on
-    // an EMPTY host until something unrelated moves.
-    val branchPlaces = placed
-      .collect {
-        case (nodeId, p) if p.member.isInstanceOf[MemberKey.Surface] =>
-          (nodeId, p)
-      }
+    val gone = dynamic.collect { case (nodeId, _: Mutation.Gone) => nodeId }
+    // Replaying a flip is the whole reason it is recorded structurally: without
+    // it a client that was away across one gets the removal and nothing else,
+    // and sits on an EMPTY host until something unrelated moves. ONE `Inner` per
+    // affected container, through the same primitive the live flip uses — so a
+    // client that missed a flip is treated byte-identically to one that did not.
+    val branchFills = branch
+      .groupBy { case (_, m) => m.container }
+      .toList
       .sortBy(_._1)
-      .flatMap { case (nodeId, p) =>
-        p.member.render(renderer, p.container, states).toList.flatMap { html =>
-          List(
-            Patch.Remove(renderer.elementId(nodeId)),
-            Patch.Insert(html, PatchMode.Append, renderer.mountId(p.container))
-          )
-        }
+      .flatMap { case (gid, entries) =>
+        branchPatch(
+          renderer,
+          gid,
+          renderer.renderMount(gid, states).map(_._2).reduceOption(_ + _),
+          entries.map(_._1).sorted.headOption
+        )
       }
-    val places = placed
-      .collect {
-        case (nodeId, p) if p.member.isInstanceOf[MemberKey.Entity] =>
-          (nodeId, p)
-      }
+    val places = dynamic
+      .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
       .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
@@ -454,7 +450,7 @@ private[runtime] object Patches {
       .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
       fromOpen ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
-      branchPlaces ++ places ++ refills).map(_.toSse)
+      branchFills ++ places ++ refills).map(_.toSse)
   }
 
   /** The patch that puts `html` at `entity`'s place in group `gid`: `before`
@@ -496,10 +492,18 @@ private[runtime] object Patches {
     *
     * '''An `If` flip is a membership change on a list of one:''' the old branch
     * is [[Mutation.Gone]], the new one is [[Mutation.Placed]] into the group's
-    * mount. Live that is `remove` + `append`; on resume it replays from the
-    * same two mutations, with no ordering to arrange (one member never needs an
-    * anchor). Repeated flips collapse by latest-wins per node id, and a
-    * condition matching NO branch is a `Gone` with no `Placed`.
+    * mount. Repeated flips collapse by latest-wins per node id.
+    *
+    * On the WIRE that is a single `Inner` at the mount, not a `remove` plus an
+    * `append`. A bake group has one hole, so its mount holds at most one
+    * member: there are no siblings to preserve and no position to fix, which
+    * means overwriting the mount IS the delta rather than a wholesale fallback.
+    * It is also idempotent by construction — it lands the same whether the
+    * client currently holds the old branch, the new one, or nothing, so the
+    * paired `remove` that makes a dynamic member's re-order safe buys nothing
+    * here. A condition matching NO branch is the one other shape: a `Gone` with
+    * no `Placed`, emitted as a plain `remove` (an `Inner` of empty content is
+    * not a well-formed patch).
     *
     * It used to morph the HOST instead, whose HTML embedded the selected branch
     * — the one place a state group's patch carried other nodes. Splitting
@@ -552,16 +556,34 @@ private[runtime] object Patches {
         case (l, (nodeId, member, html)) =>
           l.placed(gid, member, nodeId, html, at)
       }
-      // Remove before append: the mount holds one member, so there is no anchor
-      // to preserve and no ordering question.
-      val patches =
-        departed.map(id => Patch.Remove(renderer.elementId(id))).toList ++
-          arrived.map { case (_, _, html) =>
-            Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
-          }.toList
-      (withPlaced, patches)
+      (withPlaced, branchPatch(renderer, gid, arrived.map(_._3), departed))
     }
   }
+
+  /** Put `content` in a STATE group's mount — one patch, whatever the client's
+    * DOM currently holds there.
+    *
+    * The mount takes at most one member, so `Inner` is both the delta (no
+    * siblings exist to preserve) and idempotent (it lands the same on the old
+    * branch, the new one, or an empty host). `departed` is only consulted when
+    * nothing holds now: an `Inner` of empty content is not a well-formed patch,
+    * so the emptying case stays a `remove` of the branch that left.
+    *
+    * Shared by the live flip and the resume replay, so a client that missed a
+    * flip gets byte-identical treatment to one that did not.
+    */
+  private def branchPatch(
+      renderer: Renderer,
+      gid: NodeId,
+      content: Option[String],
+      departed: Option[NodeId]
+  ): List[Patch] =
+    content match {
+      case Some(html) =>
+        List(Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid)))
+      case None =>
+        departed.map(id => Patch.Remove(renderer.elementId(id))).toList
+    }
 
   /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
     * changed entity's single child and morphs it (unless a case change actually

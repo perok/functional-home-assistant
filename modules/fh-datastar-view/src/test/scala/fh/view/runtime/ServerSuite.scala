@@ -1357,7 +1357,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   test(
-    "state flip: a MEMBERSHIP delta — old branch removed, new one appended"
+    "state flip: ONE overwrite of the host's mount, at CURRENT state"
   ) {
     for {
       h <- SharedHarness.create(
@@ -1372,24 +1372,23 @@ class ServerSuite extends munit.CatsEffectSuite {
       _ <- h.step(es("sensor.a", "A1")).map(p => assertEquals(p.size, 1))
       // ...and churn the hidden branch (never rendered, never patched).
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
-      // The flip: TWO patches — the departing branch removed, the arriving one
-      // appended into the host's mount, rendered against CURRENT state (B1, which
-      // no client ever saw). Not a morph of the host, whose HTML would have
-      // embedded the branch.
+      // The flip: ONE patch. The mount takes at most one member, so overwriting
+      // it IS the delta — no siblings to preserve, no position to fix — and it
+      // lands the same whatever the client currently holds there. Not a morph of
+      // the host, whose HTML would have embedded the branch.
       flip <- h.step(es("alarm.h", "disarmed"))
       cache <- h.cacheNow
     } yield {
-      assertEquals(flip.size, 2, clue = flip)
-      val (remove, append) = (flip.head, flip(1))
-      assert(remove.contains("mode remove"), clue = remove)
-      assert(remove.contains("selector #s_then__c"), clue = remove)
-      // Appended into the MOUNT — `Surface.hostId`, which is the id the If's
-      // mount template now carries. One member, so no anchor is needed.
-      assert(append.contains("mode append"), clue = append)
-      assert(append.contains("selector #c_0_branch"), clue = append)
-      assert(append.contains("""id="s_else__c""""), clue = append)
-      assert(append.contains("B1"), clue = append)
-      assert(!append.contains("A1"), clue = append)
+      assertEquals(flip.size, 1, clue = flip)
+      val p = flip.head
+      assert(p.contains("mode inner"), clue = p)
+      // The MOUNT — `Surface.hostId`, the id the If's mount template carries.
+      assert(p.contains("selector #c_0_branch"), clue = p)
+      assert(p.contains("""id="s_else__c""""), clue = p)
+      // Rendered against CURRENT state: B1, which no client ever saw.
+      assert(p.contains("B1"), clue = p)
+      assert(!p.contains("A1"), clue = p)
+      assert(!p.contains("mode remove"), clue = p)
       // The prune keeps its original job (hidden-branch churn leaves entries
       // stale), and the new branch's ROOT is now logged as the mount's occupant —
       // structure, not content. No host-level fragment at all.
@@ -1410,7 +1409,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     * got the `Gone`, its branch vanished, and nothing ever put one back.
     * Silent, and permanent until an unrelated change moved something.
     */
-  test("a flip across a disconnect replays as remove AND append") {
+  test("a flip across a disconnect replays as the same single overwrite") {
     for {
       h <- SharedHarness.create(
         ifDash(),
@@ -1425,18 +1424,21 @@ class ServerSuite extends munit.CatsEffectSuite {
       logId <- h.logId
       cursor = Some(Server.Cursor(h.headHash, h.styleHash, logId, 2L))
       // It flips while that client is away.
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       opening <- h.opening(cursor)
     } yield {
-      // The old branch goes...
-      assert(opening.contains("selector #s_then__c"), clue = opening)
-      // ...and the new one ARRIVES. Without the append the host is left empty.
-      assert(opening.contains("mode append"), clue = opening)
+      // The new branch ARRIVES — without it the host is left empty, which is
+      // exactly what the running app showed before this was fixed.
+      assert(opening.contains("mode inner"), clue = opening)
       assert(opening.contains("selector #c_0_branch"), clue = opening)
       assert(opening.contains("""id="s_else__c""""), clue = opening)
       // Rendered from the CURRENT snapshot, and not via a body repaint.
       assert(opening.contains("B0"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
+      // The overwrite subsumes the removal: a client that already applied the
+      // flip and one that missed it both land on the same DOM, so there is no
+      // paired remove to reason about.
+      assert(!opening.contains("mode remove"), clue = opening)
     }
   }
 
@@ -1457,11 +1459,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
       // (silent — the stale-entry trap this test springs), 4. flip back (the
       // arriving branch is rendered from current state, so it shows "off").
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       _ <- h.step(es("sensor.a", "off")).assertEquals(Nil)
       back <- h.step(es("alarm.h", "armed"))
-      _ = assertEquals(back.size, 2, clue = back)
-      _ = assert(back(1).contains("off"), clue = back)
+      _ = assertEquals(back.size, 1, clue = back)
+      _ = assert(back.head.contains("off"), clue = back)
       // 5. The re-revealed child returns to "on" — HTML byte-identical to the
       // step-1 cache entry. Without the flip prune this would be suppressed as
       // "unchanged" while the DOM (showing "off") has moved on.
@@ -1497,8 +1499,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       // "on2" fails the query -> a membership change (remove) for the group.
       _ = assert(tick.nonEmpty, clue = tick)
       _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
-      // Flip to else: remove the old branch, append the new one...
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
+      // Flip to else: one overwrite of the mount...
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       // ...and now the group is in a hidden branch: query-affecting churn that
       // would previously re-render it emits NOTHING.
       _ <- h.step(es("light.y", "off")).assertEquals(Nil)
@@ -1550,21 +1552,17 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Outer active: the inner flip patches ONLY the inner host's mount
       // (recursion into the active member's index found it), with its else branch.
       innerFlip <- h.step(es("mode.h", "day"))
-      _ = assertEquals(innerFlip.size, 2, clue = innerFlip)
+      _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
       _ = assert(
-        innerFlip.head.contains("selector #s_in_then__c"),
+        innerFlip.head.contains("selector #s_then__c_0_branch"),
         clue = innerFlip
       )
       _ = assert(
-        innerFlip(1).contains("selector #s_then__c_0_branch"),
-        clue = innerFlip
-      )
-      _ = assert(
-        innerFlip(1).contains("""id="s_in_else__c""""),
+        innerFlip.head.contains("""id="s_in_else__c""""),
         clue = innerFlip
       )
       // Flip the OUTER group away...
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       // ...then the inner group's condition flips inside the hidden branch:
       // unreachable DOM, zero patches (the active-set recursion never descends
       // into an unselected member).
@@ -1635,17 +1633,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       .timeout(30.seconds)
       .map { case (sessionPatches, sharedPatches) =>
         // The session with the popup open gets exactly the inner flip's delta.
-        assertEquals(sessionPatches.size, 2, clue = sessionPatches)
+        assertEquals(sessionPatches.size, 1, clue = sessionPatches)
         assert(
-          sessionPatches.head.contains("selector #s_d_then__c"),
+          sessionPatches.head.contains("selector #s_det__c_0_branch"),
           clue = sessionPatches
         )
         assert(
-          sessionPatches(1).contains("selector #s_det__c_0_branch"),
-          clue = sessionPatches
-        )
-        assert(
-          sessionPatches(1).contains("""id="s_d_else__c""""),
+          sessionPatches.head.contains("""id="s_d_else__c""""),
           clue = sessionPatches
         )
         // The shared pass emits nothing — popup containment is per-session.
