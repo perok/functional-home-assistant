@@ -511,7 +511,11 @@ class Server(
           val shared =
             tagged.collect { case (s, sse) if s == session.slug => sse }
           Stream
-            .eval(liveOpt.traverse(openingPatches(slug, _, req, uiState)))
+            .eval(
+              session.open.get.flatMap(open =>
+                liveOpt.traverse(openingPatches(slug, _, req, uiState, open))
+              )
+            )
             .flatMap(opening => Stream.emits(opening.toList.flatten)) ++
             shared
               .merge(patches)
@@ -582,7 +586,8 @@ class Server(
       slug: String,
       live: Server.LiveSlug,
       req: Request[IO],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      open: Set[String]
   ): IO[List[ServerSentEvent]] =
     (live.renderer.get, live.log.get, stateStore.current).mapN {
       (renderer, log, store) =>
@@ -601,47 +606,36 @@ class Server(
           // or one ahead of this store.
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
-            .map(c => Patches.resume(renderer, log, store.entities, c.version))
+            .map(c =>
+              Patches.resume(renderer, log, store.entities, c.version, open)
+            )
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
             renderer.renderBody(store.entities, uiState),
             PatchMode.Inner,
             Some("#dashboard")
           )
-          // Sorted so the emission order is deterministic (ids are
-          // location-derived, so this is document order for siblings).
-          val sessionPaint = resumed.toList.flatMap(_ =>
-            renderer.sessionOwnedMainIds.toList.sorted
-              .flatMap(renderer.renderNodeById(_, store.entities, uiState))
-              .map(Datastar.patchElements)
-          )
-          // The popup this client still has on screen: re-rendered fresh into its
-          // host, which both refreshes its values and leaves the `<dialog open>`
-          // standing. A claim the dashboard no longer recognises (its surface was
-          // renamed or removed) is the one case that resets the host instead —
-          // that dialog belongs to nothing and cannot be revived.
-          val popup = Option
-            .when(Server.popupOf(req).nonEmpty) {
-              Server
-                .claimedPopup(req, renderer)
-                .flatMap(renderer.renderSurface(_, store.entities, uiState))
-                .fold(
-                  Datastar.patch(
-                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                    PatchMode.Outer,
-                    None
-                  )
-                )(
-                  Datastar
-                    .patch(
-                      _,
-                      PatchMode.Inner,
-                      Some("#" + Dashboard.PopupHostId)
-                    )
-                )
-            }
+          // An open popup needs no restore branch of its own any more: its nodes
+          // are in `open`, so the resume rule reconciles them on their own ids,
+          // and a body repaint replaces `#dashboard` only — `#popups` lives in
+          // the chrome outside it, so the dialog is never disturbed.
+          //
+          // What DOES need saying is a claim this dashboard no longer recognises
+          // (its surface renamed or removed): that dialog belongs to nothing, is
+          // in nobody's open set, and would otherwise sit on screen forever.
+          val orphan = Option
+            .when(
+              Server.popupOf(req).nonEmpty &&
+                Server.claimedPopup(req, renderer).isEmpty
+            )(
+              Datastar.patch(
+                s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                PatchMode.Outer,
+                None
+              )
+            )
             .toList
-          head ++ resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
+          head ++ resumed.getOrElse(List(repaint)) ++ orphan :+
             Server.cursorSignals(renderer, log.id, store.version)
         }
     }

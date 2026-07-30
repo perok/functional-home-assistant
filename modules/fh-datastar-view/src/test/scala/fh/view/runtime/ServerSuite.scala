@@ -1731,7 +1731,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
-  test("a resume paints the per-session subtrees fresh (they have no log)") {
+  test("a resume reconciles an OPEN surface's nodes, and only what differs") {
     for {
       h <- SharedHarness.create(
         mixedTabsDash,
@@ -1752,10 +1752,16 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     } yield {
       assertEquals(panelTick, Nil, clue = panelTick)
-      // Without the fresh paint this value would never reach the reconnected
-      // DOM — the silent staleness the whole resume path risks.
+      // The panel node is reconciled on its OWN id — the untracked case, caught
+      // by `fingerprint != stored` with no entry at all. Without it this value
+      // would never reach the reconnected DOM: the silent staleness the whole
+      // resume path risks.
       assert(opening.contains(">new<"), clue = opening)
-      assert(opening.contains("""<div class="tabs">"""), clue = opening)
+      assert(opening.contains("""id="s_t0__c""""), clue = opening)
+      // And the tabs HOST is not re-sent, because nothing about it changed. The
+      // old mechanism painted every per-session root fresh on every resume; one
+      // rule over one candidate set sends only what actually differs.
+      assert(!opening.contains("""class="tabs""""), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
     }
   }
@@ -1797,9 +1803,14 @@ class ServerSuite extends munit.CatsEffectSuite {
       // Claiming nothing leaves the host alone — nothing is open to keep.
       quiet <- h.opening(cursor)
     } yield {
-      assert(restored.contains(hostSelector), clue = restored)
+      // No popup-shaped branch: its nodes are in `open`, so the ONE resume rule
+      // reconciles them on their own ids and the dialog is never disturbed.
       assert(restored.contains(">B1<"), clue = restored)
+      assert(!restored.contains(hostSelector), clue = restored)
       assert(!restored.contains(hostReset), clue = restored)
+      // The one thing still worth a branch: a claim this dashboard no longer
+      // serves. That dialog belongs to nothing and is in nobody's open set, so
+      // without this it would sit on screen forever.
       assert(orphan.contains(hostReset), clue = orphan)
       assert(!quiet.contains(Dashboard.PopupHostId), clue = quiet)
     }

@@ -804,6 +804,17 @@ class Renderer(
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
 
+  /** Every addressable node inside one surface's content tree.
+    *
+    * The resume path's SECOND candidate set: a surface a client has open holds
+    * nodes the cursor alone would not name, because nothing may have rendered
+    * that surface at all while nobody was viewing it — so the log has no
+    * version to compare, and only re-rendering can tell whether the client's
+    * DOM is current.
+    */
+  def surfaceNodeIds(surfaceId: String): Set[NodeId] =
+    surfaceIndexes.get(surfaceId).fold(Set.empty)(_.indexed.keySet)
+
   /** Every current member of a dynamic group, id and rendered HTML, in DOM
     * order — what an `Inner` fill of the group's mount carries.
     *

@@ -300,16 +300,38 @@ private[runtime] object Patches {
     * pure core of the resume path (ADR 0011): the caller reads the log +
     * snapshot and writes the stream; the ordering argument lives here.
     *
-    * Morphs go out first, '''ascending by version''', because a container's
-    * cached HTML embeds its children's: a parent rendered at v=25 applied after
-    * a child rendered at v=30 would revert that child.
+    * '''ONE rule, one candidate set, one snapshot:'''
     *
-    * Then the [[Mutation]]s. A [[Mutation.Placed]] emits `remove` AND `insert`
-    * for itself, which makes it idempotent in the client's DOM whatever state
-    * that DOM is in — present at the wrong position, present at the right one,
-    * or absent. That self-containment is what lets an arrival and a re-order be
-    * the same operation, and it removes any cross-mutation ordering requirement
-    * except one:
+    * > Candidates = nodes whose logged version is `>= v`, plus every node in an
+    * > OPEN surface. Render each from the current snapshot, and send it when >
+    * `version >= v || fingerprint != stored`, a MISSING entry counting as >
+    * "send".
+    *
+    * The two disjuncts are two different ignorances. `version >= v` means the
+    * node changed at or after the cursor, so the client may never have applied
+    * it — send what we have now, which is at least as new. `fingerprint !=
+    * stored` is the UNTRACKED case: a surface nothing rendered while nobody was
+    * viewing it, where only re-rendering can tell whether the client's DOM is
+    * current.
+    *
+    * That replaces two mechanisms with one. Per-session fragments used to be
+    * painted fresh on every resume (their HTML baked a client-selected member
+    * and their only diff cache died with the previous connection), and an open
+    * popup needed a restore branch of its own. Both are now just candidates:
+    * the popup's nodes are in `open`, and a container's `self` does not contain
+    * its mount, so a client returning after a long absence gets the bar's new
+    * HTML and keeps its panel.
+    *
+    * '''The cursor selects which nodes; the renderer decides what to send.'''
+    * The cursor is never consulted for content, which is what makes filtering
+    * patches out of a cursor-bearing stream safe.
+    *
+    * Morphs go out first, then the [[Mutation]]s. A [[Mutation.Placed]] emits
+    * `remove` AND `insert` for itself, which makes it idempotent in the
+    * client's DOM whatever state that DOM is in — present at the wrong
+    * position, present at the right one, or absent. That self-containment is
+    * what lets an arrival and a re-order be the same operation, and it removes
+    * any cross-mutation ordering requirement except one:
     *
     * '''Placed nodes are emitted descending by current position.''' An insert
     * needs an anchor that EXISTS in the client's DOM, and the only anchors we
@@ -331,7 +353,8 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       states: Map[String, EntityState],
-      v: Long
+      v: Long,
+      open: Set[String] = Set.empty
   ): List[ServerSentEvent] = {
     val owed = log.since(v)
     val gone = owed.moved.collect { case (nodeId, _: Mutation.Gone) =>
@@ -386,8 +409,27 @@ private[runtime] object Patches {
         renderer.mountId(gid)
       )
     }
+    // The second candidate set: an open surface's nodes, which the cursor alone
+    // would not name. Sorted for a deterministic order (ids are location-derived,
+    // so this is document order among siblings), and dropped when a mutation or a
+    // refill is already re-supplying an ancestor.
+    val fromOpen = open.toList
+      .flatMap(renderer.surfaceNodeIds)
+      .distinct
+      .filterNot(id =>
+        owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
+          log.coveredByMutation(id, owed.moved.map(_._1).toSet ++ owed.refill)
+      )
+      .sorted
+      .flatMap(id =>
+        renderer.renderLogged(id, states).flatMap { html =>
+          // A MISSING entry counts as "send": unknown, so tell the client.
+          Option.when(!log.holds(id, html))(Patch.Morph(html))
+        }
+      )
     (owed.nodes
       .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
+      fromOpen ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
       places ++ refills).map(_.toSse)
   }
