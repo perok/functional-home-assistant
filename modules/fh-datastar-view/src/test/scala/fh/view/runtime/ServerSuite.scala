@@ -866,6 +866,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  /** A dynamic group the log already knows: MEMBER entries, which is what
+    * "established" means now that no container logs a fragment of its own.
+    */
+  private val establishedGroup = Map(
+    "c_light_a" -> "<a>",
+    "c_light_c" -> "<c>",
+    "c_light_d" -> "<d>"
+  )
+
   test("dynamic add: per-entity insert BEFORE the DOM successor") {
     // a,c,d already on; b turns on -> Added, churn 1 of shown 3 -> per-entity.
     val after = Map(
@@ -875,8 +884,9 @@ class ServerSuite extends munit.CatsEffectSuite {
       "light.d" -> on("light.d")
     )
     val change = StateChange("light.b", Some(off("light.b")), on("light.b"))
-    // Group already established in the cache so the per-entity path engages.
-    runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>")).map {
+    // A group is ESTABLISHED by having member entries — there is no group-level
+    // fragment any more (it would be a fragment containing other nodes).
+    runShared(dynDash, after, change, seedCache = establishedGroup).map {
       case (patches, cache) =>
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
@@ -889,7 +899,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
           clue = p
         )
-        // the new child is cached; the group-level entry is invalidated.
+        // the new child is logged; no node logs a fragment containing another.
         assert(cache.contains("c_light_b"), clue = cache)
         assert(!cache.contains("c"), clue = cache)
     }
@@ -903,7 +913,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       "light.z" -> on("light.z")
     )
     val change = StateChange("light.z", Some(off("light.z")), on("light.z"))
-    runShared(dynDash, after, change, seedCache = Map("c" -> "<stale>")).map {
+    runShared(dynDash, after, change, seedCache = establishedGroup).map {
       case (patches, _) =>
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
@@ -941,38 +951,41 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("heuristic: removing 1 of 2 members repaints the whole group + prunes") {
-    // shown 2, churn 1 -> 1 < 0.5*2 is false -> whole-group repaint fallback.
+  test(
+    "heuristic: removing 1 of 2 members FILLS the group's mount + refingerprints"
+  ) {
+    // shown 2, churn 1 -> 1 < 0.5*2 is false -> the wholesale fallback.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     runShared(
       dynDash,
       after,
       change,
-      seedCache =
-        Map("c" -> "<stale>", "c_light_a" -> "<a>", "c_light_b" -> "<b>")
+      seedCache = Map("c_light_a" -> "<a>", "c_light_b" -> "<b>")
     ).map { case (patches, cache) =>
       assertEquals(patches.size, 1, clue = patches)
       val p = patches.head
-      // one outer morph of the GROUP (not a remove/insert), only light.a remains.
-      assert(
-        p.contains("""elements <div class="fh-cell fh-group" id="c">"""),
-        clue = p
-      )
+      // An `Inner` fill AT THE MOUNT — the group's own element, which IS its
+      // mount — carrying only the surviving member. Not an outer morph of the
+      // group, which would have been a patch containing other nodes.
+      assert(p.contains("mode inner"), clue = p)
+      assert(p.contains("selector #c"), clue = p)
       assert(p.contains("""id="c_light_a""""), clue = p)
-      assert(!p.contains("mode remove"), clue = p)
-      // child cache entries are pruned; the group entry is refreshed.
-      assert(!cache.contains("c_light_a"), clue = cache)
+      assert(!p.contains("""id="c_light_b""""), clue = p)
+      // The departed member's entry is gone and the surviving one is
+      // RE-FINGERPRINTED: the fill re-supplied the mount wholesale, so without
+      // that the next live diff would compare against a baseline the client never
+      // had. And no group-level entry is written — that would be a fragment
+      // containing another node.
       assert(!cache.contains("c_light_b"), clue = cache)
-      // ...and the group entry is refreshed — what it CONTAINS is asserted on
-      // the patch above; the log only records that it changed.
-      assert(cache.contains("c"), clue = cache)
+      assert(cache.contains("c_light_a"), clue = cache)
+      assert(!cache.contains("c"), clue = cache)
     }
   }
 
-  test("membership change on a not-yet-cached group falls back to repaint") {
-    // Same 1-of-4 remove that would be per-entity — but with an EMPTY cache the
-    // group isn't established, so we repaint to establish a known base.
+  test("membership change on a not-yet-logged group falls back to a fill") {
+    // Same 1-of-4 remove that would be per-entity — but with an EMPTY log the
+    // group isn't established, so we fill to establish a known base.
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> off("light.b"),
@@ -982,13 +995,12 @@ class ServerSuite extends munit.CatsEffectSuite {
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     runShared(dynDash, after, change).map { case (patches, cache) =>
       assertEquals(patches.size, 1, clue = patches)
-      assert(
-        patches.head.contains(
-          """elements <div class="fh-cell fh-group" id="c">"""
-        ),
-        clue = patches
-      )
-      assert(cache.contains("c"), clue = cache)
+      assert(patches.head.contains("mode inner"), clue = patches)
+      assert(patches.head.contains("selector #c"), clue = patches)
+      // Established by its MEMBERS' entries, so the next churn takes the delta
+      // path — and by no entry of its own.
+      assert(cache.contains("c_light_a"), clue = cache)
+      assert(!cache.contains("c"), clue = cache)
     }
   }
 
@@ -1277,7 +1289,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   test(
-    "state flip: ONE host morph with the new branch at CURRENT state; members pruned"
+    "state flip: a MEMBERSHIP delta — old branch removed, new one appended"
   ) {
     for {
       h <- SharedHarness.create(
@@ -1292,31 +1304,30 @@ class ServerSuite extends munit.CatsEffectSuite {
       _ <- h.step(es("sensor.a", "A1")).map(p => assertEquals(p.size, 1))
       // ...and churn the hidden branch (never rendered, never patched).
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
-      // The flip: exactly ONE patch — the host morph — whose HTML is the else
-      // branch rendered against CURRENT state (B1, which no client ever saw).
+      // The flip: TWO patches — the departing branch removed, the arriving one
+      // appended into the host's mount, rendered against CURRENT state (B1, which
+      // no client ever saw). Not a morph of the host, whose HTML would have
+      // embedded the branch.
       flip <- h.step(es("alarm.h", "disarmed"))
       cache <- h.cacheNow
     } yield {
-      assertEquals(flip.size, 1, clue = flip)
-      val p = flip.head
-      // The patch's ROOT element must be the id'd host itself: the default
-      // `outer` morph (no selector) targets the top-level element's id, so a
-      // wrapped/rootless fragment would be silently dropped by the client.
-      val root = p.linesIterator
-        .find(_.startsWith("data: elements "))
-        .map(_.stripPrefix("data: elements "))
-      assert(
-        root.exists(_.startsWith("""<div class="fh-cell" id="c_0">""")),
-        clue = p
-      )
-      assert(p.contains("""id="s_else__c""""), clue = p)
-      assert(p.contains("B1"), clue = p)
-      assert(!p.contains("A1"), clue = p)
-      // The prune contract: both members' surface-scoped entries are gone; the
-      // host's fresh HTML is the only record of the group.
+      assertEquals(flip.size, 2, clue = flip)
+      val (remove, append) = (flip.head, flip(1))
+      assert(remove.contains("mode remove"), clue = remove)
+      assert(remove.contains("selector #s_then__c"), clue = remove)
+      // Appended into the MOUNT — `Surface.hostId`, which is the id the If's
+      // mount template now carries. One member, so no anchor is needed.
+      assert(append.contains("mode append"), clue = append)
+      assert(append.contains("selector #c_0_branch"), clue = append)
+      assert(append.contains("""id="s_else__c""""), clue = append)
+      assert(append.contains("B1"), clue = append)
+      assert(!append.contains("A1"), clue = append)
+      // The prune keeps its original job (hidden-branch churn leaves entries
+      // stale), and the new branch's ROOT is now logged as the mount's occupant —
+      // structure, not content. No host-level fragment at all.
       assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
-      assert(!cache.keys.exists(_.startsWith("s_else__")), clue = cache)
-      assert(cache.contains("c_0"), clue = cache)
+      assert(cache.contains("s_else__c"), clue = cache)
+      assert(!cache.contains("c_0"), clue = cache)
     }
   }
 
@@ -1335,13 +1346,13 @@ class ServerSuite extends munit.CatsEffectSuite {
       // 1. Cache the then-branch child at "on".
       _ <- h.step(es("sensor.a", "on")).map(p => assertEquals(p.size, 1))
       // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
-      // (silent — the stale-entry trap this test springs), 4. flip back (host
-      // morph shows "off" from current state).
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      // (silent — the stale-entry trap this test springs), 4. flip back (the
+      // arriving branch is rendered from current state, so it shows "off").
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
       _ <- h.step(es("sensor.a", "off")).assertEquals(Nil)
       back <- h.step(es("alarm.h", "armed"))
-      _ = assertEquals(back.size, 1, clue = back)
-      _ = assert(back.head.contains("off"), clue = back)
+      _ = assertEquals(back.size, 2, clue = back)
+      _ = assert(back(1).contains("off"), clue = back)
       // 5. The re-revealed child returns to "on" — HTML byte-identical to the
       // step-1 cache entry. Without the flip prune this would be suppressed as
       // "unchanged" while the DOM (showing "off") has moved on.
@@ -1377,8 +1388,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       // "on2" fails the query -> a membership change (remove) for the group.
       _ = assert(tick.nonEmpty, clue = tick)
       _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
-      // Flip to else: one host morph...
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      // Flip to else: remove the old branch, append the new one...
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
       // ...and now the group is in a hidden branch: query-affecting churn that
       // would previously re-render it emits NOTHING.
       _ <- h.step(es("light.y", "off")).assertEquals(Nil)
@@ -1427,20 +1438,24 @@ class ServerSuite extends munit.CatsEffectSuite {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Outer active: the inner flip morphs ONLY the inner host (recursion into
-      // the active member's index found it), rendered with its else branch.
+      // Outer active: the inner flip patches ONLY the inner host's mount
+      // (recursion into the active member's index found it), with its else branch.
       innerFlip <- h.step(es("mode.h", "day"))
-      _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
+      _ = assertEquals(innerFlip.size, 2, clue = innerFlip)
       _ = assert(
-        innerFlip.head.contains("""<div class="fh-cell" id="s_then__c_0">"""),
+        innerFlip.head.contains("selector #s_in_then__c"),
         clue = innerFlip
       )
       _ = assert(
-        innerFlip.head.contains("""id="s_in_else__c""""),
+        innerFlip(1).contains("selector #s_then__c_0_branch"),
         clue = innerFlip
       )
-      // Flip the OUTER group away (one host morph of c_0)...
-      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
+      _ = assert(
+        innerFlip(1).contains("""id="s_in_else__c""""),
+        clue = innerFlip
+      )
+      // Flip the OUTER group away...
+      _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 2))
       // ...then the inner group's condition flips inside the hidden branch:
       // unreachable DOM, zero patches (the active-set recursion never descends
       // into an unselected member).
@@ -1510,15 +1525,18 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield (out._1.map(_.renderString), out._2.map(_.renderString)))
       .timeout(30.seconds)
       .map { case (sessionPatches, sharedPatches) =>
-        // The session with the popup open gets exactly the inner host flip morph.
-        assertEquals(sessionPatches.size, 1, clue = sessionPatches)
+        // The session with the popup open gets exactly the inner flip's delta.
+        assertEquals(sessionPatches.size, 2, clue = sessionPatches)
         assert(
-          sessionPatches.head
-            .contains("""<div class="fh-cell" id="s_det__c_0">"""),
+          sessionPatches.head.contains("selector #s_d_then__c"),
           clue = sessionPatches
         )
         assert(
-          sessionPatches.head.contains("""id="s_d_else__c""""),
+          sessionPatches(1).contains("selector #s_det__c_0_branch"),
+          clue = sessionPatches
+        )
+        assert(
+          sessionPatches(1).contains("""id="s_d_else__c""""),
           clue = sessionPatches
         )
         // The shared pass emits nothing — popup containment is per-session.

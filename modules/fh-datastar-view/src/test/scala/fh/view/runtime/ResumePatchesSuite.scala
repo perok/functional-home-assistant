@@ -159,25 +159,14 @@ class ResumePatchesSuite extends munit.FunSuite {
     assertEquals(resume(log, 1L), Nil)
   }
 
-  test("a placement already carried by an ancestor's HTML is skipped") {
-    // The group itself is being morphed with HTML rendered after the arrival, so
-    // that HTML contains the member — inserting it too would duplicate it.
+  test("no container-level fragment can hide a placement any more") {
+    // A group used to log its whole HTML under `gid`, and that ancestor entry
+    // suppressed a member's insert. Nothing writes such an entry now — a group's
+    // wholesale case fills its mount and fingerprints its MEMBERS — so a stale
+    // one no longer covers anything and the placement still goes.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(5L))
       .set("c", "<group>all four</group>", 6L)
-    val out = resume(log, 1L)
-    assertEquals(out.size, 1, clue = out)
-    // The group, rendered now — every current member inside it, light.b included.
-    assert(out.head.contains(s"""id="${cid("light.b")}""""), clue = out.head)
-    assert(!out.head.contains("mode before"), clue = out.head)
-  }
-
-  test("an ancestor morph OLDER than the mutation still needs the insert") {
-    // The group was rendered at v=5 and the member arrived at v=6, so the
-    // group's HTML predates it.
-    val log = empty
-      .set("c", "<group>three</group>", 5L)
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(6L))
     val out = resume(log, 1L)
     assertEquals(out.size, 3, clue = out)
     assert(out(0).contains("""id="c""""), clue = out)

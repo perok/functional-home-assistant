@@ -264,7 +264,7 @@ private[runtime] object Patches {
     val (logAfterFlips, flipPatches) =
       req.flips.foldLeft((log, List.empty[Patch])) { case ((c, acc), gid) =>
         val (c2, ps) =
-          flipStateGroup(renderer, c, gid, req.states, req.uiState, at)
+          flipStateGroup(renderer, c, gid, req.before, req.states, at)
         (c2, acc ++ ps)
       }
     val rendered =
@@ -413,40 +413,77 @@ private[runtime] object Patches {
         Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
     }
 
-  /** Patch one FLIPPED state-selected bake group: re-render its host node — the
-    * bake owner, whose render bakes the newly-selected member against CURRENT
-    * state ([[Renderer]]'s `resolveBake`) — morph it, and prune the group's
-    * cache entries: the host id plus every member's `s_<sid>__` node prefix.
-    * The same prune contract as [[repaintGroup]], and for the same reason:
-    * hidden-branch churn deliberately leaves member entries stale (the silence
-    * guarantee), so a flip must drop them — otherwise a re-revealed node whose
-    * HTML happens to equal its pre-flip entry would be suppressed while the
-    * client's DOM (repainted by this very morph) has moved on. Emits nothing
-    * when the host HTML is unchanged (defensive; the caller only passes groups
-    * whose selection actually moved).
+  /** Patch one FLIPPED state-selected bake group — as a MEMBERSHIP DELTA, the
+    * same record a dynamic group already keeps.
+    *
+    * '''An `If` flip is a membership change on a list of one:''' the old branch
+    * is [[Mutation.Gone]], the new one is [[Mutation.Placed]] into the group's
+    * mount. Live that is `remove` + `append`; on resume it replays from the
+    * same two mutations, with no ordering to arrange (one member never needs an
+    * anchor). Repeated flips collapse by latest-wins per node id, and a
+    * condition matching NO branch is a `Gone` with no `Placed`.
+    *
+    * It used to morph the HOST instead, whose HTML embedded the selected branch
+    * — the one place a state group's patch carried other nodes. Splitting
+    * content from structure keeps the useful half: the log records WHICH member
+    * is in the mount (identity), never what it holds. If the container's record
+    * moved when a CHILD's content changed, every child change would re-supply
+    * the container, which is exactly the problem this design exists to remove.
+    *
+    * Without the structural half the deletion would leave a hole: a client
+    * disconnected across a flip would show the old branch '''permanently''' —
+    * the new branch's nodes would arrive as morphs against ids its DOM lacks
+    * (silent no-ops) and nothing would remove the old ones. `selectedSurfaces`
+    * does `filterNot(isStateGroup)`, so a branch is never in `open` either.
+    *
+    * The prune stays, and for its original reason: hidden-branch churn
+    * deliberately leaves member entries stale (the silence guarantee), so a
+    * re-revealed node whose HTML happens to equal its pre-flip entry would be
+    * suppressed while the client's DOM has moved on.
     */
   private def flipStateGroup(
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
+      before: Map[String, EntityState],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
       at: Stamp
-  ): (FragmentLog, List[Patch]) =
-    renderer.renderNodeById(gid, states, uiState) match {
-      case None       => (log, Nil)
-      case Some(html) =>
-        if (log.holds(gid, html)) (log, Nil)
-        else {
-          val prefixes = renderer.bakeMemberPrefixes(gid)
-          // Invalidation only, no tombstone: the host morph below re-supplies
-          // every member's DOM, so a resuming client is repaired by that one
-          // fragment.
-          val pruned =
-            log.invalidateWhere(k => k == gid || prefixes.exists(k.startsWith))
-          (pruned.set(gid, html, at.version), List(Patch.Morph(html)))
-        }
+  ): (FragmentLog, List[Patch]) = {
+    def memberAt(
+        snapshot: Map[String, EntityState]
+    ): Option[String] =
+      renderer
+        .resolveActiveByState(gid, snapshot)
+        .flatMap(renderer.bakeMembers(gid).lift)
+    val was = memberAt(before)
+    val now = memberAt(states)
+    // Defensive: the caller only passes groups whose selection actually moved.
+    if (was == now) (log, Nil)
+    else {
+      val prefixes = renderer.bakeMemberPrefixes(gid)
+      val pruned = log.invalidateWhere(k => prefixes.exists(k.startsWith))
+      val departed = was.map(renderer.surfaceContentId)
+      val arrived = now.flatMap(sid =>
+        val member = MemberKey.Surface(sid)
+        member
+          .render(renderer, gid, states)
+          .map(html => (renderer.surfaceContentId(sid), member, html))
+      )
+      val withGone = departed.foldLeft(pruned)(_.removed(_, at))
+      val withPlaced = arrived.foldLeft(withGone) {
+        case (l, (nodeId, member, html)) =>
+          l.placed(gid, member, nodeId, html, at)
+      }
+      // Remove before append: the mount holds one member, so there is no anchor
+      // to preserve and no ordering question.
+      val patches =
+        departed.map(id => Patch.Remove(renderer.elementId(id))).toList ++
+          arrived.map { case (_, _, html) =>
+            Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
+          }.toList
+      (withPlaced, patches)
     }
+  }
 
   /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
     * changed entity's single child and morphs it (unless a case change actually
@@ -546,8 +583,13 @@ private[runtime] object Patches {
     // is cheaper than juggling insert/remove patches. Strict `<` so exactly half
     // repaints. `MaxChurnFraction` is tunable.
     val perEntity = churn > 0 && churn < Server.MaxChurnFraction * shown
-    val established = log.has(gid) || log.hasChildOf(gid)
-    if (!perEntity || !established) repaintGroup(renderer, log, gid, states, at)
+    val established = log.hasChildOf(gid)
+    // The query boundary moved but the RENDERED membership did not — an entity
+    // matching the query but no case is not a member either way, so there is
+    // nothing to send and nothing to fill.
+    if (churn == 0) (log, Nil)
+    else if (!perEntity || !established)
+      fillGroup(renderer, log, gid, states, at)
     else {
       val (afterRemoves, removePatches) =
         removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
@@ -571,34 +613,51 @@ private[runtime] object Patches {
                 )
             }
         }
-      // Drop the stale group-level cache entry: per-entity edits diverge the DOM
-      // from the last whole-group render, so a later repaint must always re-emit
-      // rather than diff against an entry that no longer describes the DOM.
-      (afterAdds.invalidate(gid), removePatches ++ addPatches)
+      (afterAdds, removePatches ++ addPatches)
     }
   }
 
-  /** Repaint a whole dynamic group by id and prune its child cache entries (so
-    * the next per-entity patch re-establishes from a known base). Emits nothing
-    * when the group's HTML is unchanged (the defensive path).
+  /** Fill a dynamic group's mount with its CURRENT members — the wholesale
+    * fallback, and the last place a patch carried other nodes.
+    *
+    * It used to outer-morph the group element and log that HTML under `gid`,
+    * which is exactly what made a container's fragment contain its children
+    * (and what `coveredByAncestor` existed to compensate for). A group's root
+    * element IS its mount, so the same content goes out as an `Inner` fill and
+    * no container-level fragment is written at all.
+    *
+    * '''The fill writes each member's fingerprint.''' It re-supplies the
+    * mount's contents wholesale, so without that the next live diff would
+    * compare against a baseline the client never had and suppress a real
+    * change. Which is also why `Inner` and not something partial: it is
+    * all-or-nothing over the mount's children — a named-but-empty child is
+    * wiped, an omitted one deleted (`DatastarMorphContractSuite`) — so a fill
+    * cannot preserve siblings and is reached only where the knowledge for a
+    * delta is gone.
     */
-  private def repaintGroup(
+  private def fillGroup(
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
       states: Map[String, EntityState],
       at: Stamp
-  ): (FragmentLog, List[Patch]) =
-    renderer.renderNodeById(gid, states) match {
-      case None       => (log, Nil)
-      case Some(html) =>
-        if (log.holds(gid, html)) (log, Nil)
-        else {
-          // Invalidation only: the group morph re-supplies every child's DOM, so
-          // one stamped fragment repairs a resuming client.
-          val pruned =
-            log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
-          (pruned.set(gid, html, at.version), List(Patch.Morph(html)))
-        }
+  ): (FragmentLog, List[Patch]) = {
+    val members = renderer.renderDynamicMembers(gid, states)
+    // Prune first: a member that LEFT must not keep an entry, and its stale
+    // mutation must not replay against a mount this fill just re-supplied.
+    val pruned = log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
+    val stamped = members.foldLeft(pruned) { case (l, (cid, html)) =>
+      l.set(cid, html, at.version)
     }
+    (
+      stamped,
+      List(
+        Patch.Insert(
+          members.map(_._2).mkString,
+          PatchMode.Inner,
+          renderer.mountId(gid)
+        )
+      )
+    )
+  }
 }

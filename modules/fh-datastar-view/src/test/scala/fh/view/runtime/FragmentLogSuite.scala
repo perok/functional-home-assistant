@@ -136,69 +136,67 @@ class FragmentLogSuite extends munit.FunSuite {
     assertEquals(out.nodes, List[NodeId]("c"))
   }
 
-  test("an ancestor fragment at or after the mutation already carries it") {
-    // An ancestor morph rendered at v=30 contains the member placed at v=25, so
-    // inserting it again would duplicate the element. Ancestry is a path-id
-    // prefix, and the group `c_0` is an ancestor of its child `c_0_light_a`.
-    val withAncestor = log
-      .placed("c_0", member("light.a"), "c_0_light_a", "<a/>", at(25L))
-      .set("c_0", "<group/>", 30L)
-    assert(withAncestor.coveredByAncestor("c_0_light_a", 25L))
-    assertEquals(withAncestor.owed(1L).moved, Nil)
-    // An ancestor rendered BEFORE the placement does not carry it.
-    val stale = log
-      .placed("c_0", member("light.a"), "c_0_light_a", "<a/>", at(25L))
-      .set("c_0", "<group/>", 20L)
-    assert(!stale.coveredByAncestor("c_0_light_a", 25L))
-    assertEquals(stale.owed(1L).moved.size, 1)
+  test("a mutation re-supplying an ancestor covers everything under it") {
+    // A branch root PLACED into an If's mount carries its whole subtree, so the
+    // nodes inside it must not also ship as morphs — the client's DOM does not
+    // hold those ids yet, so each would be a silent no-op followed by the insert
+    // that actually carries them. Ancestry is a path-id prefix.
+    val flipped = log
+      .placed(
+        "c_0",
+        MemberKey.Surface("else"),
+        "s_else__c",
+        "<branch/>",
+        at(30L)
+      )
+      .set("s_else__c_0", "<inner/>", 30L)
+      .set("s_else__c_1", "<inner/>", 30L)
+    assert(flipped.coveredByMutation("s_else__c_0", Set[NodeId]("s_else__c")))
+    val out = flipped.owed(20L)
+    assertEquals(out.nodes, Nil, clue = out)
+    assertEquals(out.moved.map(_._1), List[NodeId]("s_else__c"))
   }
 
-  test("a node never covers itself") {
-    // Self-coverage would make every fragment suppress its own emission — the
-    // whole resume would silently send nothing.
-    val l = log.set("c_0", "<x/>", 5L)
-    assert(!l.coveredByAncestor("c_0", 5L))
-    assertEquals(l.owed(1L).nodes, List[NodeId]("c_0"))
-  }
-
-  test("prefix ancestry does not confuse sibling ids") {
-    // `c_1` must not read as an ancestor of `c_10`; the trailing `_` is what
-    // prevents it.
-    val l = log.set("c_1", "<x/>", 9L)
-    assert(!l.coveredByAncestor("c_10", 5L))
-    assert(l.coveredByAncestor("c_1_0", 5L))
-  }
-
-  test("a descendant fragment an ancestor already carries is not re-sent") {
-    // Correctness never depended on this, but sending a subtree twice defeats the
-    // point of resuming.
+  test(
+    "a FRAGMENT ancestor covers nothing — no fragment contains another node"
+  ) {
+    // The rationale the self/mount split retires. A container's patch is its own
+    // `self` element and never the contents of its mount, so an ancestor's entry
+    // cannot carry a descendant and both are sent on their own ids.
     val out = log
       .set("c_0_1", "<child v=20/>", 20L)
       .set("c_0", "<parent v=25/>", 25L)
       .owed(1L)
-    assertEquals(out.nodes, List[NodeId]("c_0"))
-  }
-
-  test("a descendant NEWER than its ancestor is still sent") {
-    // The parent's HTML predates the child's change, so the child's morph is the
-    // only thing carrying it. Both go — and with content rendered NOW rather than
-    // read back, there is no stale-parent-wins hazard left to order around.
-    val out = log
-      .set("c_0", "<parent v=20/>", 20L)
-      .set("c_0_1", "<child v=25/>", 25L)
-      .owed(1L)
     assertEquals(out.nodes.toSet, Set[NodeId]("c_0", "c_0_1"))
   }
 
-  test("a removal an ancestor's fresh HTML already omits is not re-sent") {
-    val out = log
-      .removed("c_0_light_a", at(20L))
-      .set("c_0", "<parent v=25/>", 25L)
-      .owed(1L)
-    assertEquals(out.moved, Nil)
+  test("a node never covers itself") {
+    // Self-coverage would make every mutation suppress its own emission — the
+    // whole resume would silently send nothing.
+    assert(!log.coveredByMutation("c_0", Set[NodeId]("c_0")))
+    val l = log.removed("c_0", at(5L))
+    assertEquals(l.owed(1L).moved.map(_._1), List[NodeId]("c_0"))
   }
 
-  test("a removal NEWER than its ancestor is still sent") {
+  test("prefix ancestry does not confuse sibling ids") {
+    // `c_1` must not read as an ancestor of `c_10`; the trailing `_` is what
+    // prevents it. Nor can a `-self` DOM id ever appear here — no generated node
+    // id contains a hyphen.
+    assert(!log.coveredByMutation("c_10", Set[NodeId]("c_1")))
+    assert(log.coveredByMutation("c_1_0", Set[NodeId]("c_1")))
+  }
+
+  test("a removal under a re-supplied ancestor is not replayed") {
+    // The placement's fresh render already omits the departed node, so replaying
+    // the removal would delete an element that render legitimately restored.
+    val out = log
+      .removed("c_0_light_a", at(20L))
+      .placed("c", MemberKey.Surface("b"), "c_0", "<branch/>", at(25L))
+      .owed(1L)
+    assertEquals(out.moved.map(_._1), List[NodeId]("c_0"))
+  }
+
+  test("a removal with no mutated ancestor is sent") {
     val out = log
       .set("c_0", "<parent v=25/>", 25L)
       .removed("c_0_light_a", at(30L))

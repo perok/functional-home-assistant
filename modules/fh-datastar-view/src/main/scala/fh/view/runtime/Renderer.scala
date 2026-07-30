@@ -230,6 +230,13 @@ class Renderer(
     * mode) selects among, and the first-match order (then, elseif…, else) state
     * selection walks.
     */
+  /** [[bakeGroup]], for the flip path: which surfaces `gid`'s mount can hold,
+    * in selection order. A state group's members are a FIXED, tiny set (its
+    * branches), which is why — unlike a dynamic group over unbounded entities —
+    * its mutations can never accumulate and it needs no eviction horizon.
+    */
+  def bakeMembers(gid: NodeId): List[String] = bakeGroup(gid)
+
   private def bakeGroup(gid: NodeId): List[String] =
     dashboard.surfaces.toList
       .collect {
@@ -787,6 +794,31 @@ class Renderer(
       case (node, path, prefix) =>
         render(node, path, prefix, states, uiState)
     }
+
+  /** The node id of a surface's CONTENT root (`s_<sid>__c`) — what a state
+    * group's mount holds, and therefore the thing a flip removes or places.
+    *
+    * The same scheme the build-phase hoist uses to name a surface's nodes, so a
+    * branch's build-time id and the id a flip's mutation records are one story.
+    */
+  def surfaceContentId(surfaceId: String): NodeId =
+    LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
+
+  /** Every current member of a dynamic group, id and rendered HTML, in DOM
+    * order — what an `Inner` fill of the group's mount carries.
+    *
+    * Paired rather than concatenated because a fill owes the log a fingerprint
+    * per member: the mount's contents are re-supplied wholesale, so the next
+    * live diff must compare against what this fill actually put there.
+    */
+  def renderDynamicMembers(
+      groupId: NodeId,
+      states: Map[String, EntityState]
+  ): List[(NodeId, String)] =
+    dynamicMembers(groupId, states).flatMap(e =>
+      renderDynamicChild(groupId, e, states)
+        .map(dynamicChildId(groupId, e) -> _)
+    )
 
   /** Render whatever node a LOG KEY names — the inverse the ledger needs.
     *

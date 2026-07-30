@@ -230,10 +230,11 @@ private[runtime] case class FragmentLog(
   def holds(nodeId: NodeId, html: String): Boolean =
     fragments.get(nodeId).exists(_.digest == Digest.of(html))
 
-  def has(nodeId: NodeId): Boolean = fragments.contains(nodeId)
-
-  /** Whether `gid` has any rendered child entry — half of the "group is
-    * established" test that decides per-entity patching vs. a whole repaint.
+  /** Whether `gid` is ESTABLISHED — i.e. the log knows what is in its mount, so
+    * a membership change can be patched per-entity instead of filled wholesale.
+    *
+    * A container's MEMBERS are the whole record now: it logs no fragment of its
+    * own, because that fragment would contain other nodes.
     */
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
@@ -313,24 +314,27 @@ private[runtime] case class FragmentLog(
       )
   }
 
-  /** Whether an ANCESTOR of `nodeId` holds HTML rendered no earlier than
-    * `version` — in which case that HTML already contains this node as of at
-    * least `version`, and anything we would send for the node itself is
-    * redundant. A container's rendered HTML embeds its whole subtree, which is
-    * what makes this sound.
+  /** Whether a MUTATION is re-supplying an ancestor of `nodeId` — in which case
+    * that mutation carries this node too, and anything sent for the node itself
+    * would be a duplicate.
     *
-    * STRICT ancestors: a node never covers itself, or every fragment would
-    * suppress its own emission. A dynamic-group child is covered by its group,
-    * since its id is `{gid}_{entity}` and so has `gid` as a prefix-ancestor.
+    * This replaces a fragment-based test ("an ancestor's cached HTML already
+    * contains this"), which the self/mount split retires: no fragment contains
+    * another node any more, so nothing could ever be covered that way. But the
+    * dedupe is still needed, because a [[Mutation.Placed]] re-supplies a whole
+    * SUBTREE while the nodes inside it also carry `version >= cursor` and would
+    * each ship as a no-op morph first — a branch's inner nodes would arrive as
+    * morphs against ids the client's DOM does not hold yet, and only then the
+    * `remove`/`append` that actually carries them.
     *
-    * Ancestry is a string-prefix test because ids are location-derived
-    * ([[Dashboard.pathId]]: `c`, `c_0`, `c_0_1`); the trailing `_` keeps `c_1`
-    * from matching `c_10`.
+    * STRICT ancestors: a node never covers itself, or every mutation would
+    * suppress its own emission. Ancestry is a string-prefix test because ids
+    * are location-derived ([[fh.view.model.LayoutNode.pathId]]: `c`, `c_0`,
+    * `c_0_1`); the trailing `_` keeps `c_1` from matching `c_10`, and no
+    * generated id can contain the `-` a `self` element's DOM id uses.
     */
-  def coveredByAncestor(nodeId: NodeId, version: Long): Boolean =
-    fragments.exists { case (id, f) =>
-      f.version >= version && id != nodeId && nodeId.startsWith(id + "_")
-    }
+  def coveredByMutation(nodeId: NodeId, moved: Set[NodeId]): Boolean =
+    moved.exists(id => id != nodeId && nodeId.startsWith(id + "_"))
 
   /** What a client whose cursor is `v` has not seen, or `None` when it cannot
     * be told — `v` predates [[horizon]], so an evicted mutation may be exactly
@@ -353,9 +357,9 @@ private[runtime] case class FragmentLog(
     * one entry rather than a replay. A mutated node is not ALSO reported as a
     * morph — the element may not be where (or whether) the client has it, and a
     * morph of an absent id silently does nothing, so its content rides the
-    * mutation instead. And anything an ANCESTOR's HTML already carries is
-    * dropped ([[coveredByAncestor]]): correctness never depended on that, but
-    * sending a subtree twice defeats the point of resuming at all.
+    * mutation instead. And anything a MUTATION is re-supplying is dropped
+    * ([[coveredByMutation]]): correctness never depended on that, but sending a
+    * subtree twice defeats the point of resuming at all.
     *
     * It returns node IDS, not content: the caller renders them from the current
     * snapshot, which is at least as fresh as anything the log could have stored
@@ -364,17 +368,18 @@ private[runtime] case class FragmentLog(
     */
   def since(v: Long): Option[Resume] =
     Option.when(v >= horizon) {
-      val moved = mutations.filter { case (nodeId, m) =>
-        m.version >= v && !coveredByAncestor(nodeId, m.version)
-      }
+      val moved = mutations.filter { case (_, m) => m.version >= v }
+      val movedIds = moved.keySet
       Resume(
         fragments.collect {
           case (nodeId, f)
-              if f.version >= v && !moved.contains(nodeId) &&
-                !coveredByAncestor(nodeId, f.version) =>
+              if f.version >= v && !movedIds.contains(nodeId) &&
+                !coveredByMutation(nodeId, movedIds) =>
             nodeId
         }.toList,
-        moved.toList
+        moved.filterNot { case (nodeId, _) =>
+          coveredByMutation(nodeId, movedIds)
+        }.toList
       )
     }
 }
