@@ -208,6 +208,30 @@ class ServerSuite extends munit.CatsEffectSuite {
         }
     } yield body).timeout(30.seconds)
 
+  test("the connection-lost banner LATCHES once the retries are exhausted") {
+    // Every fetch type other than retrying/error/retries-failed classifies as
+    // "fine", so without a latch any event after the failure cleared the banner
+    // — and because the handler is debounced, a `finished` in the same 600ms
+    // window could swallow the failure before it ever painted. Either way the
+    // page went back to looking connected while it was not.
+    pageHtml(titleDash("home", None)).map { html =>
+      val handler = html.linesIterator
+        .find(_.contains("data-on:datastar-fetch"))
+        .getOrElse(fail(s"no fetch handler in the shell: $html"))
+      // 2 is absorbing: the assignment can only ever read 2 back out.
+      assert(handler.contains("$_sse >= 2 ? 2 :"), clue = handler)
+      // ...and the classification it guards is unchanged.
+      assert(handler.contains("'retries-failed' ? 2"), clue = handler)
+      assert(handler.contains("'retrying'"), clue = handler)
+      // The two banners still read the same signal, so the latch reaches them.
+      assert(html.contains("""data-show="$_sse < 2""""), clue = html)
+      assert(html.contains("""data-show="$_sse >= 2""""), clue = html)
+      // Recovery from a mere blip is NOT latched — 1 must still fall back to 0,
+      // or an ordinary refetch would pin "Reconnecting…" forever.
+      assert(!handler.contains("$_sse >= 1"), clue = handler)
+    }
+  }
+
   test("the page shell seeds the popup signal from the URL, or empty") {
     // A refresh with ?popup=<id> must re-open the dialog: the seeded signal
     // reaches the SSE connect, which renders it back into its host. An unknown

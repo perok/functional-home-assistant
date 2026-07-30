@@ -1169,9 +1169,22 @@ class Server(
     // Datastar expressions read signals via `$name` (this pinned build, unlike
     // some Datastar doc examples, requires the sigil even for a bare read).
     val ha = "$" + Server.HaDownSignal
+    // How one fetch event classifies the connection: 2 = gave up, 1 = trying,
+    // 0 = fine.
     val sseState =
       "evt.detail.type === 'retries-failed' ? 2 : " +
         "(evt.detail.type === 'retrying' || evt.detail.type === 'error') ? 1 : 0"
+    // ...and 2 LATCHES. Every other fetch type classifies as 0, so without this
+    // any event following `retries-failed` cleared the banner — and since the
+    // handler is debounced, a `finished` arriving in the same 600ms window could
+    // swallow the failure before it ever painted. Either way the page went
+    // silently back to looking connected while it was not, which is the one
+    // state the banner exists to make undeniable.
+    //
+    // Terminal by design: once the retries are exhausted nothing reconnects on
+    // its own, so the only ways out are the banner's Reload button and the user
+    // reloading — both of which build a new document and a new signal store.
+    val sseLatched = s"$$_sse >= 2 ? 2 : ($sseState)"
     // Both banners ship hidden by an INLINE `display:none`, or they flash on
     // every load: the Datastar module is deferred, so the browser paints the
     // markup before `data-show` first runs. It must be inline — `data-show`
@@ -1205,7 +1218,7 @@ class Server(
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
-         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseState">
+         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseLatched">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
