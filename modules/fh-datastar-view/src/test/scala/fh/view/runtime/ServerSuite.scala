@@ -2033,4 +2033,111 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(opening.contains(">hot<"), clue = opening)
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // End to end over the REAL stream
+  // ---------------------------------------------------------------------------
+
+  /** Boot the whole server, open the SSE route as a browser does, hold the
+    * stream open across `act`, and hand back everything that arrived on it.
+    *
+    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so the
+    * test is deterministic and as fast as a unit test. What it adds over
+    * [[SharedHarness]] is the parts that harness deliberately skips — the
+    * publisher fibers, the topic, the per-connection merge — which is exactly
+    * where the two bugs the running app found were hiding. Both were invisible
+    * to tests that drove the pure diff core directly.
+    *
+    * The waits are conditions, never sleeps: first for the opening block (which
+    * ends at the cursor signal), then for the stream to fall quiet after `act`.
+    */
+  private def liveStream(
+      dash: Dashboard,
+      initial: Map[String, EntityState]
+  )(act: StateStore => IO[Unit]): IO[String] =
+    (for {
+      store <- StateStore.inMemory(initial)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            seen <- Ref[IO].of("")
+            resp <- server.routes.orNotFound.run(
+              Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
+            )
+            pump <- resp.body
+              .through(fs2.text.utf8.decode)
+              .evalMap(chunk => seen.update(_ + chunk))
+              .compile
+              .drain
+              .start
+            _ <- awaitIn(seen)(_.contains(Server.StoreVersionSignal))
+            // The connection is established and caught up; NOW change the world.
+            before <- seen.get
+            _ <- act(store)
+            _ <- awaitIn(seen)(_.length > before.length)
+            // Let anything following the first event land too, then stop.
+            _ <- IO.sleep(150.millis)
+            _ <- pump.cancel
+            all <- seen.get
+          } yield all.drop(before.length)
+        }
+    } yield out).timeout(30.seconds)
+
+  private def awaitIn(ref: Ref[IO, String])(p: String => Boolean): IO[Unit] =
+    fs2.Stream
+      .repeatEval(ref.get <* IO.sleep(10.millis))
+      .find(p)
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  test("end to end: a flip reaches a live browser as one mount overwrite") {
+    // The shape the running app showed wrong twice. Driving the diff core
+    // directly could not see it: the first bug was in the resume path, the
+    // second in how a replay was assembled, and both only appear once the
+    // events have actually travelled down a connection.
+    liveStream(
+      ifDash(),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    )(_.update(es("alarm.h", "disarmed"))).map { live =>
+      val elements = live.linesIterator.count(_.startsWith("data: elements "))
+      assertEquals(elements, 1, clue = live)
+      assert(live.contains("mode inner"), clue = live)
+      assert(live.contains("selector #c_0_branch"), clue = live)
+      assert(live.contains("""id="s_else__c""""), clue = live)
+      assert(live.contains("B0"), clue = live)
+      // Not two removals and an append — the shape reported from the browser.
+      assert(!live.contains("mode remove"), clue = live)
+      assert(!live.contains("mode append"), clue = live)
+    }
+  }
+
+  test("end to end: a leaf tick reaches the stream as one morph") {
+    liveStream(
+      liveLeafDash,
+      Map("sensor.a" -> es("sensor.a", "cold"))
+    )(_.update(es("sensor.a", "hot"))).map { live =>
+      assert(live.contains(""">hot<"""), clue = live)
+      assert(live.contains("""id="c_0""""), clue = live)
+      assertEquals(
+        live.linesIterator.count(_.startsWith("data: elements ")),
+        1,
+        clue = live
+      )
+    }
+  }
 }
