@@ -2,8 +2,8 @@ package fh.view.testkit
 
 import fh.view.model.NodeId
 
-/** Node ids as literals, for suites that hand-build a [[fh.view.runtime.FragmentLog]]
-  * or assert on generated ids.
+/** Node ids as literals, for suites that hand-build a
+  * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
   *
   * A blanket conversion rather than a wrapper at ~130 call sites, and that is a
   * deliberate trade. [[NodeId]] exists to stop a DOM id (`c_2-self`,
@@ -18,10 +18,10 @@ object TestIds {
 
   /** `assertEquals(renderer.componentsFor(e), Set("c_0"))`: munit's default
     * [[munit.Compare]] wants the expected type to be a subtype of the obtained
-    * one, and `Set` is invariant, so the element conversion above does not reach
-    * inside the literal. Narrow on purpose — one container, one element type —
-    * rather than a blanket `Compare[A, B]`, which would switch off munit's
-    * type-safe equality for every other assertion in the suite.
+    * one, and `Set` is invariant, so the element conversion above does not
+    * reach inside the literal. Narrow on purpose — one container, one element
+    * type — rather than a blanket `Compare[A, B]`, which would switch off
+    * munit's type-safe equality for every other assertion in the suite.
     */
   given munit.Compare[Set[NodeId], Set[String]] = (a, b) => a == b
 }

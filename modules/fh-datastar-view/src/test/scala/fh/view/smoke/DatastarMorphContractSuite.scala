@@ -20,11 +20,11 @@ import scala.jdk.CollectionConverters.*
   * contracts, so a failure here names exactly what broke.
   *
   *   1. '''Sibling isolation.''' A container card patches its OWN element
-  *      (`<nodeId>-self`), which is a SIBLING of the mount holding its children.
-  *      The whole design — "a host's change must not re-render its children" —
-  *      is that a top-level patch touches only the element matching its own id.
-  *      The control in the same test patches the PARENT instead and must wipe
-  *      the mount, so the test cannot pass vacuously.
+  *      (`<nodeId>-self`), which is a SIBLING of the mount holding its
+  *      children. The whole design — "a host's change must not re-render its
+  *      children" — is that a top-level patch touches only the element matching
+  *      its own id. The control in the same test patches the PARENT instead and
+  *      must wipe the mount, so the test cannot pass vacuously.
   *   2. '''`data-ignore-morph` is total.''' A client-owned mount (a React root,
   *      a chart) survives an ancestor morph, AND patches aimed inside it are
   *      dropped. The second half is a FEATURE here (the JS owns that DOM) where
@@ -167,7 +167,9 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
   }
 
   private def text(page: Page, selector: String): IO[String] =
-    IO.blocking(Option(page.querySelector(selector)).fold("<gone>")(_.innerText))
+    IO.blocking(
+      Option(page.querySelector(selector)).fold("<gone>")(_.innerText)
+    )
 
   private def eventually[A](io: IO[A], timeout: FiniteDuration = 10.seconds)(
       cond: A => Boolean
@@ -195,7 +197,10 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
       .iterate(os.pwd)(_ / os.up)
       .take(4)
       .flatMap(d =>
-        List(d / "assets-cache", d / "modules" / "fh-datastar-view" / "assets-cache")
+        List(
+          d / "assets-cache",
+          d / "modules" / "fh-datastar-view" / "assets-cache"
+        )
       )
       .find(os.exists)
       .getOrElse(sys.error(s"no assets-cache found from ${os.pwd}"))
