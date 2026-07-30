@@ -263,14 +263,7 @@ class Renderer(
     * shared/per-session cost model extended by activation mode).
     */
   private def isStateGroup(gid: NodeId): Boolean =
-    bakeGroup(gid).headOption.exists(sid =>
-      dashboard.surfaces
-        .get(sid)
-        .exists(_.activation match {
-          case _: Activation.State => true
-          case _                   => false
-        })
-    )
+    bakeGroup(gid).headOption.exists(isStateSurface)
 
   /** Every component id some surface bakes into. `bakeInto` is AUTHORED (a
     * hoist-resolved relation `Dashboard.validate` checks against the registry),
@@ -320,25 +313,61 @@ class Renderer(
   val sessionOnlyStateGroups: Set[NodeId] =
     stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
 
-  /** State-selected owner ids grouped by the index that contains the owner
-    * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
-    * content tree. This is the recursion structure of the transitive active-set
+  private val prefixToRoot: Map[String, String] =
+    Map(mainIndex.idPrefix -> "") ++
+      surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
+
+  /** Which content tree a node lives in: `""` = the main page, `<sid>` = inside
+    * surface `<sid>`. Every node belongs to exactly one, by construction — it
+    * was indexed from that tree. This is NOT recoverable from the id itself: an
+    * id carries only its OWN surface prefix (`s_<sid>__c_0`), and a nesting is
+    * three independent prefixes with no link between them.
+    */
+  private def rootOf(id: NodeId): Option[String] =
+    allIndexed.get(id).map { case (_, _, prefix) => prefixToRoot(prefix) }
+
+  /** The surface CONTAINING this one — absent for a main-rooted surface. A
+    * surface's place in the tree is where its host node sits, so the relation
+    * is just [[rootOf]] applied to `bakeInto`; a popup (no `bakeInto`) hosts on
+    * the main page and so is main-rooted.
+    */
+  private val surfaceParent: Map[String, String] =
+    dashboard.surfaces.flatMap { case (sid, s) =>
+      s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
+    }
+
+  /** The innermost USER-selected surface containing `sid` (itself included) —
+    * the tag deciding which clients a patch from that tree may reach.
+    *
+    * State surfaces are TRANSPARENT: a branch of an `If` is selected by entity
+    * state, identically for every client, so it hides nothing and the walk
+    * passes through it to whatever encloses it. Reaching the main page means
+    * "no user surface above me": visible to everyone.
+    */
+  def userSurfaceOf(sid: String): Option[String] =
+    if (!isStateSurface(sid)) Some(sid)
+    else surfaceParent.get(sid).flatMap(userSurfaceOf)
+
+  /** [[userSurfaceOf]] for a node, via the tree it was indexed from. */
+  def userSurfaceOfNode(id: NodeId): Option[String] =
+    rootOf(id).filter(_.nonEmpty).flatMap(userSurfaceOf)
+
+  private def isStateSurface(sid: String): Boolean =
+    dashboard.surfaces.get(sid).exists(_.activation match {
+      case _: Activation.State => true
+      case _                   => false
+    })
+
+  /** State-selected owner ids grouped by the tree that contains the owner node
+    * ([[rootOf]]). This is the recursion structure of the transitive active-set
     * / affected-flip walks: a group is only VISIBLE through the chain of active
     * members above it, so each walk starts at one root's owners and descends
     * only into selected members.
     */
-  private val stateGidsByRoot: Map[String, List[NodeId]] = {
-    val prefixToRoot: Map[String, String] =
-      Map(mainIndex.idPrefix -> "") ++
-        surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
+  private val stateGidsByRoot: Map[String, List[NodeId]] =
     stateBakeOwnerIds.toList.sorted
-      .flatMap(gid =>
-        allIndexed.get(gid).map { case (_, _, prefix) =>
-          prefixToRoot(prefix) -> gid
-        }
-      )
+      .flatMap(gid => rootOf(gid).map(_ -> gid))
       .groupMap(_._1)(_._2)
-  }
 
   private def stateGidsAtRoot(root: String): List[NodeId] =
     stateGidsByRoot.getOrElse(root, Nil)

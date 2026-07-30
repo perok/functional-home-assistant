@@ -1337,6 +1337,70 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
+    // Two chains hanging off the main page, each two surfaces deep:
+    //   main -> t0 (user)  -> if host -> b0 (state)
+    //   main -> sx (state) -> tabs    -> u0 (user)
+    // The containing surface is where a surface's HOST node sits, so t0's If
+    // host is `s_t0__c` and sx's tabs host is `s_sx__c`.
+    val d = Dashboard(
+      ifCards,
+      col(
+        LayoutNode.Component("tabs"), // c_0 — hosts the user surface t0
+        LayoutNode.Component("ifhost") // c_1 — hosts the state surface sx
+      ),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component("ifhost"),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        ),
+        "b0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
+          bakeInto = Some("s_t0__c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(always)
+        ),
+        "sx" -> Surface(
+          LayoutNode.Component("tabs"),
+          bakeInto = Some("c_1"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(always)
+        ),
+        "u0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.b")))),
+          bakeInto = Some("s_sx__c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    val r = Renderer.create(d)
+
+    // A user surface is its own tag — it is exactly what hides content.
+    assertEquals(r.userSurfaceOf("t0"), Some("t0"))
+    assertEquals(r.userSurfaceOf("u0"), Some("u0"))
+    // A state surface hides nothing (every client sees the same branch), so the
+    // walk passes THROUGH it to whatever encloses it...
+    assertEquals(r.userSurfaceOf("b0"), Some("t0"))
+    // ...and reaching the main page means "no user surface above me".
+    assertEquals(r.userSurfaceOf("sx"), None)
+
+    // The same, entered by node: a node is tagged by the tree it was indexed
+    // from, which is NOT derivable from its id (`s_b0__c` names only b0).
+    assertEquals(r.userSurfaceOfNode("s_b0__c"), Some("t0"))
+    assertEquals(r.userSurfaceOfNode("s_u0__c"), Some("u0"))
+    assertEquals(r.userSurfaceOfNode("s_sx__c"), None)
+    assertEquals(r.userSurfaceOfNode("c"), None)
+    // An id no tree owns has no tag to give.
+    assertEquals(r.userSurfaceOfNode("c_nope"), None)
+  }
+
   test("affectedDynamics surfaces the membership delta per group") {
     val r = renderer(
       LayoutNode.Dynamic(
