@@ -768,21 +768,71 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
-    allIndexed.get(id).map { case (node, path, prefix) =>
-      render(node, path, prefix, states, uiState)
+    allIndexed.get(id).map {
+      // A card that declares a `self` patches through THAT element alone — no
+      // cell wrapper (the cell contains the mount) and no mount. Statement (1)
+      // made structural rather than enforced by suppression: the fragment
+      // simply cannot carry what the mount holds. Children DO ride along — a
+      // tab bar's buttons are the card's own rendering, not mounted content.
+      case (c: LayoutNode.Component, path, prefix) if hasSelf(c.card) =>
+        renderTemplateOf(
+          templates.selves(c.card),
+          structuralVars(id),
+          c.slots,
+          c.children.zipWithIndex.map { case (child, i) =>
+            render(child, path :+ i, prefix, states, uiState)
+          },
+          states
+        )
+      case (node, path, prefix) =>
+        render(node, path, prefix, states, uiState)
     }
+
+  /** The backend-injected structural template vars for one node — the ids an
+    * author never composes.
+    *
+    * ONE derivation, deliberately, because there are two places a node id comes
+    * from ([[LayoutNode.pathId]] for the static tree, [[dynamicChildId]] for a
+    * group member) and they used to inject their vars separately, so a var
+    * added to one silently missed the other. The rule this makes true:
+    *
+    * > Structural vars are a pure function of the node id in scope.
+    *
+    * So a container card used as a dynamic case gets `selfId`/`mountId` off its
+    * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
+    * here: it is a function of the client's selection, not of the id, and it
+    * belongs to the document path alone ([[resolveBake]]).
+    */
+  private def structuralVars(id: NodeId): Map[String, String] =
+    Map(
+      "id" -> id,
+      "selfId" -> Renderer.selfElementId(id),
+      "mountId" -> mountId(id)
+    )
+
+  /** Whether a card patches through a `self` element of its own — the ONE
+    * predicate the split turns on. It picks what the patch path renders, what
+    * [[patchTargetId]] returns, and (with it) what the diff compares, so the
+    * three can never disagree.
+    */
+  private def hasSelf(card: String): Boolean = templates.selves.contains(card)
 
   /** The DOM element a patch for `id` targets — the ONE crossing from node id
     * to DOM id, and one-way.
     *
-    * Identity today: a node's patch is its whole rendering, carrying `id="$id"`
-    * on the wrapper. The self/mount split (docs/plan-one-shared-log.md, W3) is
-    * what makes it discriminate — a container declaring a `self` will target
-    * `<id>-self`, so that its patch cannot reach the sibling mount holding its
-    * children. Routed through one function from the start so that change lands
-    * in one place rather than at every patch site.
+    * A container declaring a `self` targets `<id>-self`, so its patch cannot
+    * reach the sibling mount holding its children; everything else targets its
+    * own element. `-` is safe as the separator because [[Dashboard.sanitize]]
+    * maps everything outside `[A-Za-z0-9_]` to `_`, so no generated node id can
+    * contain one and no `startsWith(id + "_")` ancestry test can mistake
+    * `c_2-self` for a child of `c_2`.
     */
-  def patchTargetId(id: NodeId): DomId = DomId.derived(id)
+  def patchTargetId(id: NodeId): DomId =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _, _)) if hasSelf(c.card) =>
+        Renderer.selfElementId(id)
+      case _ => elementId(id)
+    }
 
   /** The node's OWN root element — the `.fh-cell` wrapper `render` emits. What
     * a structural patch names: the thing a `remove` deletes and an `insert`
@@ -793,12 +843,25 @@ class Renderer(
     */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
-  /** The element a node's children live IN — an `Inner`/`append` target.
-    * Identity today (a container's own element holds its children directly);
-    * the split gives a container a mount sibling and this becomes it
-    * (`{{mountId}}`, W1).
+  /** The element a node's children live IN — an `Inner`/`append` target, and
+    * the `{{mountId}}` a container's `mount` part writes.
+    *
+    * '''This is not a new id — for a bake owner it IS
+    * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
+    * byte-identical to the `id="{{id}}_panel"` the template used to hardcode.
+    * That removes a duplication rather than adding one: Pkl and Scala used to
+    * derive the same string independently, with nothing checking they agreed.
+    *
+    * A mount needs an id only where something FILLS it, which is exactly where
+    * `bakeAs` already names it (a tab panel, an `If` branch). `Grid`/`Row`/
+    * `Column` mounts are never fill targets — their children arrive nested — so
+    * they fall back to the node's own id and simply never use it.
     */
-  def mountId(id: NodeId): DomId = DomId.derived(id)
+  def mountId(id: NodeId): DomId =
+    bakeGroup(id).headOption
+      .flatMap(dashboard.surfaces.get)
+      .map(_.hostId)
+      .getOrElse(elementId(id))
 
   /** When component `id` owns a bake group (surfaces baked into it), bake the
     * SELECTED member as its `{{{bakeAs}}}` var so the host renders the active
@@ -862,13 +925,13 @@ class Renderer(
         val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
           render(child, path :+ i, idPrefix, states, uiState)
         }
-        val (baked, structural) = resolveBake(id, uiState, states)
-        // `id` is a backend-injected template var (the author never supplies it).
-        // Everything else fills from a slot, a baked surface var, or the injected
-        // `bakeIndex`.
-        val html = renderTemplate(
+        val (baked, bakeIndex) = resolveBake(id, uiState, states)
+        // The document path renders the whole card: its two parts first (each
+        // seeing the same vars), then `template` with them spliced in. A leaf
+        // card has neither part, so its `template` renders exactly as before.
+        val html = renderWhole(
           c.card,
-          Map("id" -> id) ++ structural ++ baked,
+          structuralVars(id) ++ bakeIndex ++ baked,
           c.slots,
           childrenHtml,
           states
@@ -992,7 +1055,7 @@ class Renderer(
     val slots =
       c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
     val id = dynamicChildId(groupId, entityId)
-    val html = renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
+    val html = renderWhole(c.card, structuralVars(id), slots, Nil, states)
     // Each child gets the SAME id'd `.fh-cell` wrapper as a static component, so
     // it is an addressable per-entity patch target (in-place morph / insert /
     // remove) rather than only ever re-rendered as part of the whole group —
@@ -1022,47 +1085,91 @@ class Renderer(
           s"unknown card '$cardName' — validate should have rejected this dashboard"
         )
       case Some(tpl) =>
-        // The card's subject entity: the `entity_id` slot resolved against its
-        // OWN entity (it DEFINES the subject, so it never inherits it). Normally
-        // a literal; a transform form (indirection) grounds on its own entityId.
-        val subject: Option[String] =
-          slots.get("entity_id").map { s =>
-            s.literal.getOrElse(resolveSlot(s.entityId, s, states))
-          }
-        val resolved = slots.map { case (slot, source) =>
-          val value = source.literal match {
-            // A constant literal: used verbatim, reading no entity and running no
-            // transform — the cheap path for a hardcoded label/action.
-            case Some(text) => text
-            case None       =>
-              // A slot's entity is its own `entityId`, or the subject when it
-              // leaves it unset (slot-level inheritance — the card's entity, or
-              // the matched entity in a dynamic case). The `entity_id` slot
-              // itself never inherits — it is the subject.
-              val srcEntity =
-                if (slot == "entity_id") source.entityId
-                else source.entityId.orElse(subject)
-              // A `reactive: false` slot is identity-derived — its transform
-              // reads only `$domain`/`$entity_id` (a service action, the
-              // slider's domain config), both immutable for the life of the
-              // entity. So its value never changes: resolve it ONCE per
-              // (entity, transform) and reuse forever. This is what keeps the
-              // dynamic render path slick — a dynamic group re-renders every
-              // matched card on every event, but those cards' action/config
-              // slots become a cache lookup, not a JSONata eval. Live slots
-              // (`reactive: true`) always re-resolve. `$entity_id` is in the key
-              // (the action URL embeds it), so two entities never collide.
-              if (!source.reactive)
-                identityCache.computeIfAbsent(
-                  (srcEntity.getOrElse(""), source.transform),
-                  _ => resolveSlot(srcEntity, source, states)
-                )
-              else resolveSlot(srcEntity, source, states)
-          }
-          slot -> value
-        }
-        tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
+        renderTemplateOf(tpl, injected, slots, childrenHtml, states)
     }
+
+  /** The DOCUMENT path's card render: both parts, then `template` with them
+    * spliced into its `{{{self}}}`/`{{{mount}}}` holes. A leaf card has
+    * neither, so its `template` renders exactly as it always did.
+    *
+    * The one place a mount is rendered as part of its own node, which is why
+    * the document path can hand a client fully-populated mounts on first paint
+    * while the patch path never touches one.
+    */
+  private def renderWhole(
+      cardName: String,
+      vars: Map[String, String],
+      slots: Map[String, SlotSource],
+      childrenHtml: List[String],
+      states: Map[String, EntityState]
+  ): String = {
+    def part(of: Map[String, Template]): String =
+      of.get(cardName)
+        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states))
+    renderTemplate(
+      cardName,
+      vars ++ Map(
+        "self" -> part(templates.selves),
+        "mount" -> part(templates.mounts)
+      ),
+      slots,
+      childrenHtml,
+      states
+    )
+  }
+
+  /** Render an already-resolved template — `template`, `self` or `mount` — with
+    * the same slot resolution for all three, so a card's parts can never
+    * disagree about what a slot means.
+    */
+  private def renderTemplateOf(
+      tpl: Template,
+      injected: Map[String, String],
+      slots: Map[String, SlotSource],
+      childrenHtml: List[String],
+      states: Map[String, EntityState]
+  ): String = {
+    // The card's subject entity: the `entity_id` slot resolved against its
+    // OWN entity (it DEFINES the subject, so it never inherits it). Normally
+    // a literal; a transform form (indirection) grounds on its own entityId.
+    val subject: Option[String] =
+      slots.get("entity_id").map { s =>
+        s.literal.getOrElse(resolveSlot(s.entityId, s, states))
+      }
+    val resolved = slots.map { case (slot, source) =>
+      val value = source.literal match {
+        // A constant literal: used verbatim, reading no entity and running no
+        // transform — the cheap path for a hardcoded label/action.
+        case Some(text) => text
+        case None       =>
+          // A slot's entity is its own `entityId`, or the subject when it
+          // leaves it unset (slot-level inheritance — the card's entity, or
+          // the matched entity in a dynamic case). The `entity_id` slot
+          // itself never inherits — it is the subject.
+          val srcEntity =
+            if (slot == "entity_id") source.entityId
+            else source.entityId.orElse(subject)
+          // A `reactive: false` slot is identity-derived — its transform
+          // reads only `$domain`/`$entity_id` (a service action, the
+          // slider's domain config), both immutable for the life of the
+          // entity. So its value never changes: resolve it ONCE per
+          // (entity, transform) and reuse forever. This is what keeps the
+          // dynamic render path slick — a dynamic group re-renders every
+          // matched card on every event, but those cards' action/config
+          // slots become a cache lookup, not a JSONata eval. Live slots
+          // (`reactive: true`) always re-resolve. `$entity_id` is in the key
+          // (the action URL embeds it), so two entities never collide.
+          if (!source.reactive)
+            identityCache.computeIfAbsent(
+              (srcEntity.getOrElse(""), source.transform),
+              _ => resolveSlot(srcEntity, source, states)
+            )
+          else resolveSlot(srcEntity, source, states)
+      }
+      slot -> value
+    }
+    tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
+  }
 
   /** Resolve a non-literal slot's value against its producing entity's state.
     * It resolves even before any state has arrived (so a `$domain` action still
@@ -1157,6 +1264,16 @@ object Renderer {
     * navigate can morph one theme into another.
     */
   val ThemeStyleId: String = "fh-theme"
+
+  /** The `self` element's DOM id for a node — `<nodeId>-self`.
+    *
+    * One derivation, used both to WRITE the id (`{{selfId}}`) and to TARGET it
+    * ([[Renderer.patchTargetId]]), so the template and the patch cannot drift
+    * apart. `-` cannot appear in a generated node id ([[LayoutNode.sanitize]]),
+    * which is what keeps the log's `startsWith(id + "_")` ancestry tests from
+    * reading `c_2-self` as a child of `c_2`.
+    */
+  def selfElementId(id: NodeId): DomId = DomId.derived(id + "-self")
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.

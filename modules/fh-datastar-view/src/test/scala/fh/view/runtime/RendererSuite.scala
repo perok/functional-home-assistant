@@ -1340,4 +1340,79 @@ class RendererSuite extends munit.FunSuite {
       Nil
     )
   }
+
+  // ---- the self/mount split (docs/plan-one-shared-log.md) ----
+
+  /** A container that declares both parts AND binds a live entity — the shape
+    * the split exists for ("a tab bar with the current temperature in its
+    * header"). The mount holds the child; the self holds the live header.
+    */
+  private val splitCards = cards + ("split" -> CardDef(
+    template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
+    self = Some("""<div id="{{selfId}}" class="bar">{{state}}</div>"""),
+    // No `{{mountId}}`: a mount needs an id only where something FILLS it, which
+    // is where `bakeAs` names it. This card has no bake group, like Grid/Row.
+    mount = Some(
+      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    slots = List("state")
+  ))
+
+  private def splitRenderer: Renderer =
+    Renderer.create(
+      Dashboard(
+        splitCards,
+        LayoutNode.Component(
+          "split",
+          slots = Map("state" -> SlotSource(Some("sensor.t"))),
+          children = List(
+            LayoutNode.Component("btn", Map("label" -> lit("inside")))
+          )
+        )
+      )
+    )
+
+  test("the document path renders both parts, the child inside the mount") {
+    val html = splitRenderer.renderBody(Map("sensor.t" -> st("sensor.t", "21")))
+    // The cell wrapper owns the node id, the self part owns its own — disjoint,
+    // one owner each.
+    assert(html.contains("""class="fh-cell" id="c""""), clue = html)
+    assert(html.contains("""id="c-self""""), clue = html)
+    assert(html.contains("21"), clue = html)
+    assert(html.contains("inside"), clue = html)
+  }
+
+  test("a container's patch render is its self element alone — statement (1)") {
+    val r = splitRenderer
+    val patch =
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21"))).get
+    // What it IS: the self element, with the live value.
+    assert(patch.startsWith("""<div id="c-self""""), clue = patch)
+    assert(patch.contains("21"), clue = patch)
+    // What it is NOT — the point of the whole design. The mount's id does not
+    // appear at all, so this fragment cannot disturb what the mount holds, and
+    // neither does the cell wrapper (which contains the mount).
+    assert(!patch.contains("panel"), clue = patch)
+    assert(!patch.contains("inside"), clue = patch)
+    assert(!patch.contains("fh-cell"), clue = patch)
+  }
+
+  test(
+    "patchTargetId aims at the self element for a container, the node for a leaf"
+  ) {
+    val r = splitRenderer
+    assertEquals(r.patchTargetId("c"), "c-self")
+    // The child is a leaf: its whole rendering IS its patch.
+    assertEquals(r.patchTargetId("c_0"), "c_0")
+    // Nothing maps back — the log key stays the node id.
+    assertEquals(r.elementId("c"), "c")
+  }
+
+  test(
+    "mountId IS Surface.hostId — the template stops deriving it separately"
+  ) {
+    val r = Renderer.create(tabsDashboard)
+    assertEquals(r.mountId("c"), "c_panel")
+    assertEquals(r.mountId("c"), r.surface("c_t0").get.hostId)
+  }
 }

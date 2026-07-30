@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.NodeId
+import fh.view.model.{DomId, NodeId}
 
 /** Node ids as literals, for suites that hand-build a
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
@@ -24,4 +24,9 @@ object TestIds {
     * munit's type-safe equality for every other assertion in the suite.
     */
   given munit.Compare[Set[NodeId], Set[String]] = (a, b) => a == b
+
+  /** Same reason, for a DOM id asserted against the literal it must equal
+    * (`patchTargetId("c") == "c-self"`).
+    */
+  given munit.Compare[DomId, String] = (a, b) => a == b
 }

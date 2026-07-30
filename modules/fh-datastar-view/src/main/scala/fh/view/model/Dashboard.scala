@@ -125,11 +125,37 @@ object SlotSource:
   *     children are always wrapped — they ARE the patch targets).
   *     [[Dashboard.validate]] rejects the wrapper-dependent shapes on such a
   *     card: live-entity slots, `cell` params, and dynamic-case use.
+  *   - `mount` / `self`: the two named parts of a card that HOLDS other nodes —
+  *     see below.
+  *
+  * '''The self/mount split.''' A container renders in two parts, placed at
+  * independent holes in `template` (which defaults to `{{{self}}}{{{mount}}}`):
+  *
+  *   - `mount` — the element the card's children occupy. Filled as its own
+  *     operation (a tab select, a popup open, a group repaint); the patch path
+  *     never renders into it.
+  *   - `self` — the card's own presentation: a tab bar, a header, a frame. This
+  *     is what the patch path renders and diffs, under the DOM id
+  *     `<nodeId>-self`.
+  *
+  * They are '''siblings''' — `self` must not contain the mount hole — and that
+  * is the whole mechanism: a top-level patch matches only the element carrying
+  * its own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
+  * design's first rule: '''a node's patch carries its own rendering and never
+  * the contents of a mount''', so a host changing cannot re-render what it
+  * hosts (docs/plan-one-shared-log.md).
+  *
+  * Both are optional and a leaf card sets neither. A container with a `mount`
+  * and NO `self` (`Grid`, `Row`, `Column`) has only children to show, so its
+  * whole HTML contains them — it must never be patched, which the authoring
+  * layer enforces by rejecting a *live* slot on exactly that shape.
   */
 case class CardDef(
     template: String,
     slots: List[String] = Nil,
-    wrapAsCell: Boolean = true
+    wrapAsCell: Boolean = true,
+    mount: Option[String] = None,
+    self: Option[String] = None
 ) derives ConfiguredDecoder
 
 /** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
