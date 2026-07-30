@@ -1137,7 +1137,13 @@ class RendererSuite extends munit.FunSuite {
   // The If host: a plain component card with one {{{branch}}} bake hole — no
   // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
-    cards + ("ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""))
+    // Mirrors lib/components.pkl's `If`: a pure mount, no `self` — an If has no
+    // presentation of its own. The cell wrapper (which the backend owns) is the
+    // node's id'd element; the mount's id is `Surface.hostId`.
+    cards + ("ifhost" -> CardDef(
+      template = "{{{self}}}{{{mount}}}",
+      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+    ))
 
   /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
     * sensor.a card) is active while alarm.h == armed, with an always-true
@@ -1207,8 +1213,12 @@ class RendererSuite extends munit.FunSuite {
     val states = armedStates("disarmed")
     assertEquals(r.resolveActiveByState("c", states), None)
     // The host still renders its wrapper — with empty branch content, so a
-    // matching branch appearing later has its patch target in the DOM.
-    assertEquals(r.renderNodeById("c", states).get, """<div id="c"></div>""")
+    // matching branch appearing later has its patch target in the DOM. Both
+    // boxes: the cell (the node's own element) and the mount inside it.
+    assertEquals(
+      r.renderNodeById("c", states).get,
+      """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
+    )
   }
 
   test("resolveActiveByState quantifiers: any = ∃, none = ∄, all = ∀") {

@@ -960,6 +960,15 @@ class PklBuildSuite extends munit.FunSuite {
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
+        |// One span per node: a later span REPLACES an earlier one (and a card's
+        |// default), because both emit a flex-basis rule and which wins would
+        |// otherwise be decided by stylesheet order, not the author's last word.
+        |respan = c.entityCard(x).columns(3).fullWidth().cellClass("hero").columns(6)
+        |// A `Tabs` DEFAULTS its span (a section, not a third of a grid row) and
+        |// is still overridable per node — before the split `.columns(n)` here
+        |// was accepted and then silently dropped, the wrapper being denied.
+        |tabsDefault = (c.tabs) { tabs { ["A"] { c.entityCard(x) } } }
+        |tabsSized = ((c.tabs) { tabs { ["A"] { c.entityCard(x) } } }).columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -971,6 +980,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
+    // The non-span class survives; only the span is replaced, last call winning.
+    assertEquals(classes("respan"), Some(List("hero", "fh-cols-6")))
+    assertEquals(classes("tabsDefault"), Some(List("fh-cols-full")))
+    assertEquals(classes("tabsSized"), Some(List("fh-cols-6")))
     // A node with no layout builders decodes with NO cell at all (the null
     // default is dropped from the wire JSON).
     val plain = probeComponent(

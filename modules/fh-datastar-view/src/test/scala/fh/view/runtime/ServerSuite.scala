@@ -1073,7 +1073,11 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   private val ifCards = Map(
     "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
-    "ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""),
+    // A pure mount, like lib/components.pkl's `If`.
+    "ifhost" -> CardDef(
+      template = "{{{self}}}{{{mount}}}",
+      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+    ),
     "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
     "dot" -> CardDef("<b>{{state}}</b>", slots = List("state"))
   )
@@ -1298,7 +1302,10 @@ class ServerSuite extends munit.CatsEffectSuite {
       val root = p.linesIterator
         .find(_.startsWith("data: elements "))
         .map(_.stripPrefix("data: elements "))
-      assert(root.exists(_.startsWith("""<div id="c_0">""")), clue = p)
+      assert(
+        root.exists(_.startsWith("""<div class="fh-cell" id="c_0">""")),
+        clue = p
+      )
       assert(p.contains("""id="s_else__c""""), clue = p)
       assert(p.contains("B1"), clue = p)
       assert(!p.contains("A1"), clue = p)
@@ -1422,7 +1429,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       innerFlip <- h.step(es("mode.h", "day"))
       _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
       _ = assert(
-        innerFlip.head.contains("""<div id="s_then__c_0">"""),
+        innerFlip.head.contains("""<div class="fh-cell" id="s_then__c_0">"""),
         clue = innerFlip
       )
       _ = assert(
@@ -1503,7 +1510,8 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The session with the popup open gets exactly the inner host flip morph.
         assertEquals(sessionPatches.size, 1, clue = sessionPatches)
         assert(
-          sessionPatches.head.contains("""<div id="s_det__c_0">"""),
+          sessionPatches.head
+            .contains("""<div class="fh-cell" id="s_det__c_0">"""),
           clue = sessionPatches
         )
         assert(

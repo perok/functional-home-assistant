@@ -80,10 +80,16 @@ class ComponentVisualSuite extends SmokeSuite {
         settle(page)
         // `.tab-panel` is `display:contents` (theme-beer.pkl) — a boxless
         // wrapper, so it (and any ancestor sharing its box) can't be
-        // screenshotted directly. The Tabs card's OWN `.fh-cell` (every node
-        // gets one, ADR 0008) is the innermost real box containing both the
-        // bar and the baked default panel — `.last()` picks it over the
-        // page-root `.fh-cell`, which also (transitively) "has" `.tabs`.
+        // screenshotted directly. The Tabs card's OWN `.fh-cell` is the
+        // innermost real box containing both the bar and the baked default
+        // panel — `.last()` picks it over the page-root `.fh-cell`, which also
+        // (transitively) "has" `.tabs`.
+        //
+        // This only became TRUE with the self/mount split: a bake owner used to
+        // be denied its cell (its patch would have carried the whole panel), so
+        // `.last()` fell through to the page root and the baseline was silently
+        // a full-page shot. Hence the one-time rebaseline — the tabs look did
+        // not change, the locator finally resolves to what it always named.
         val tabsCell = page
           .locator(
             ".fh-cell",

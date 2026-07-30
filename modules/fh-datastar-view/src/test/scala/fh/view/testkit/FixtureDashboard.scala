@@ -120,7 +120,9 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        """<div class="ifhost" id="{{id}}">{{{branch}}}</div>"""
+        template = "{{{self}}}{{{mount}}}",
+        mount =
+          Some("""<div class="ifhost" id="{{mountId}}">{{{branch}}}</div>""")
       )),
       card = LayoutNode.Component("ifhost"),
       surfaces = Map(

@@ -4,6 +4,11 @@
     "children" : [
       {
         "card" : "tabs",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
           {
             "card" : "tab",
@@ -109,6 +114,11 @@
       },
       {
         "card" : "ifhost",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "inlineSurfaces" : {
@@ -257,9 +267,10 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "ifhost" : {
+      "mount" : "<div id=\"{{mountId}}\">{{{branch}}}</div>",
       "slots" : [
       ],
-      "template" : "<div id=\"{{id}}\">{{{branch}}}</div>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "popup" : {
       "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
@@ -296,9 +307,11 @@
       "wrapAsCell" : false
     },
     "tabs" : {
+      "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-signals=\"{ ui_{{id}}: {{bakeIndex}} }\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"tabs\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ ui_{{id}}: {{bakeIndex}} }\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">\n    {{{panel}}}\n  </div>\n</div>"
+      "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
     }
   },
   "surfaces" : {

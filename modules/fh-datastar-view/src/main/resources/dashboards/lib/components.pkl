@@ -72,10 +72,25 @@ abstract class LayoutNode {
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
   // Shared appender: replace `cell` with a copy carrying one more class (the
   // null default is never amended — amending a null Listing is an error).
+  //
+  // ONE SPAN PER NODE: adding an `fh-cols-*` class DROPS any it already had.
+  // Both `columns(n)` and `fullWidth()` emit a `flex-basis` rule, so with two
+  // present which one applies would be decided by the order of the rules in the
+  // stylesheet, not by the author's last word — a silently-losing override. It
+  // is also what lets a card DEFAULT its span ([[Tabs]], [[If]]) and still be
+  // overridden per node.
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
-    let (prev = if (self.cell != null) self.cell!!.classes else new Listing<String> {})
-      (self) { cell = new Cell { classes = (prev) { cls } } }
+    let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
+    let (kept = if (cls.startsWith("fh-cols-")) had.filter((c) -> !c.startsWith("fh-cols-")) else had)
+      (self) {
+        cell = new Cell {
+          classes = new Listing<String> {
+            for (c in kept) { c }
+            cls
+          }
+        }
+      }
 }
 
 abstract class Node extends LayoutNode {
@@ -651,18 +666,36 @@ class Tabs extends Node {
   // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
   // later change back into the URL via the page shell's `fhUrl` helper.
+  // THE self/mount split's one real user in the shipped library. The bar is the
+  // card's own presentation (`self`), the panel is where the selected tab's
+  // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
+  // touch the panel. BeerCSS already dictated this shape: its tab styling is the
+  // structural selector `.tabs > a`.
+  //
+  // The bar carries no live value today (the active highlight is client-side,
+  // `data-class` off `ui_<id>`), so the `self` machinery is not yet exercised —
+  // but this is the card a live header ("the tab bar with the current
+  // temperature") would be authored on.
+  //
+  // `{{mountId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
+  // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
+  // stop agreeing by convention.
   cardDef = new CardDef {
     template = """
-      <div class="fh-col">
-        <div class="tabs">
-          {{#children}}{{{html}}}{{/children}}
-        </div>
-        <div id="{{id}}_panel" class="tab-panel" data-signals="{ ui_{{id}}: {{bakeIndex}} }" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">
-          {{{panel}}}
-        </div>
-      </div>
+      <div class="fh-col">{{{self}}}{{{mount}}}</div>
+      """
+    self = """
+      <div id="{{selfId}}" class="tabs">{{#children}}{{{html}}}{{/children}}</div>
+      """
+    mount = """
+      <div id="{{mountId}}" class="tab-panel" data-signals="{ ui_{{id}}: {{bakeIndex}} }" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
       """
   }
+  // A tab bar is a section-level component, not a third of a grid row. Its own
+  // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it
+  // was accepted and then silently dropped, because a bake owner was denied the
+  // wrapper those classes ride on.
+  cell = new Cell { classes { "fh-cols-full" } }
   /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
   /// it). The Listing DEFAULT lets a tab amend into existence and add cards
   /// directly — no `new`, no `children`:
@@ -1075,12 +1108,18 @@ const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): State
 /// bakes empty; nesting an If inside `else` is the else-if story.
 class If extends Node {
   card = "ifhost"
-  // The host is a bare wrapper with one `{{{branch}}}` bake hole (the selected
-  // member's rendered content, injected by the backend like the tabs
-  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no ui state.
+  // Pure mount: one `{{{branch}}}` bake hole (the selected member's rendered
+  // content, injected by the backend like the tabs `{{{panel}}}` — not a
+  // declared slot). No `self` at all — an If has no presentation of its own, so
+  // there is nothing about it that could change without its content changing.
   cardDef = new CardDef {
-    template = #"<div id="{{id}}">{{{branch}}}</div>"#
+    mount = #"<div id="{{mountId}}">{{{branch}}}</div>"#
   }
+  // A conditional SECTION, sized like one; its content's own layout stays the
+  // branch `Row`'s business. (Layout transparency was considered and dropped:
+  // the branch is always Row-wrapped, so it is a box regardless and could never
+  // flow into a grandparent grid.)
+  cell = new Cell { classes { "fh-cols-full" } }
   hidden condition: Predicate
   hidden quant: "any"|"none"|"all" = "any"
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is

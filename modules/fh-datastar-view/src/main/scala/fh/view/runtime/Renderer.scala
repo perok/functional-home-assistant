@@ -936,25 +936,22 @@ class Renderer(
           childrenHtml,
           states
         )
-        // EVERY node is a cell: the backend owns the id'd `.fh-cell` wrapper, so
-        // templates never carry `id="{{id}}"` themselves, every node is a
-        // Datastar morph target, and containers lay their children out
-        // uniformly (`.fh-cell` is the real flex/grid item — the themes style
-        // it). Authored `cell` classes (fh-cols-*, …) ride on the
-        // wrapper. Exceptions: a card that opted out via `CardDef.wrapAsCell =
-        // false` (its root must stay a direct child of a framework-structural
-        // parent, e.g. the tab anchors), and a bake-group owner with no live
-        // entity of its own (e.g. `Tabs`, `If`) — it is never itself a morph
-        // target (only its baked panel/branch, addressed separately via
-        // `{{id}}_panel` etc., is), and it may host a card like `If`'s whose
-        // template already carries `id="{{id}}"` as the surface host
-        // swapHost/flipStateGroup address — an extra id'd wrapper there would
-        // duplicate the id and leave the flip's outer-morph patch rootless
-        // (Datastar drops a top-level element without an id). A bake-owner that
-        // ALSO binds a live entity (e.g. `tabsLive`) still needs the wrapper: it
-        // IS a morph target for its own state-driven re-render.
+        // EVERY node is a cell — containers included. The backend owns the id'd
+        // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
+        // and authored `cell` classes (fh-cols-*, …) ride on it.
+        //
+        // The one exception is a card that opted out via
+        // `CardDef.wrapAsCell = false`, which now means exactly one thing: my
+        // root must not be wrapped in a layout box (the tab anchors, which must
+        // stay direct children of BeerCSS's `.tabs`). It no longer implies
+        // "never a morph target" — that is decided by card shape.
+        //
+        // A bake owner used to be denied the wrapper, because the cell WAS the
+        // morph target and a bake owner's patch would have carried its whole
+        // baked panel. The split separates the two: the cell is the layout item,
+        // the `self` element is the patch target. So `Tabs`/`If` are ordinary
+        // cells, and `.columns(n)` on them stops being silently dropped.
         if (noWrapCards(c.card)) html
-        else if (c.liveEntities.isEmpty && bakeGroup(id).nonEmpty) html
         else
           s"""<div class="fh-cell${Renderer.cellClasses(
               c.cell
