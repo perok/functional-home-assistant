@@ -53,10 +53,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def cid(entity: String) = renderer.dynamicChildId("c", entity)
 
   private def resume(log: FragmentLog, v: Long): List[String] =
-    Patches
-      .resume(renderer, log, states, v)
-      .getOrElse(fail(s"cursor $v unexpectedly not resumable"))
-      .map(_.renderString)
+    Patches.resume(renderer, log, states, v).map(_.renderString)
 
   private val empty = FragmentLog("test")
 
@@ -175,7 +172,7 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("a cursor past everything is owed nothing") {
     val log = empty
-      .removed(cid("light.b"), at(4L))
+      .removed("c", cid("light.b"), at(4L))
       .placed("c", MemberKey.Entity("light.c"), cid("light.c"), "<c/>", at(5L))
       .set("other", "<o/>", 6L)
     assertEquals(resume(log, 7L), Nil)

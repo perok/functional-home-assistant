@@ -594,11 +594,14 @@ class Server(
             if (cursor.exists(_.styleHash != renderer.styleHash))
               Server.headPatches(renderer, slug)
             else Nil
+          // `Patches.resume` is TOTAL now — a container whose history aged out is
+          // answered with a fill for THAT mount, not a refusal. So the only
+          // reasons left to repaint the body are the genuinely global ones
+          // checked here: no cursor at all, a cursor minted against another log,
+          // or one ahead of this store.
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
-            .flatMap(c =>
-              Patches.resume(renderer, log, store.entities, c.version)
-            )
+            .map(c => Patches.resume(renderer, log, store.entities, c.version))
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
             renderer.renderBody(store.entities, uiState),

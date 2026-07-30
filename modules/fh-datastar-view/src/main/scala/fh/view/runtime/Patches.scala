@@ -332,7 +332,8 @@ private[runtime] object Patches {
       log: FragmentLog,
       states: Map[String, EntityState],
       v: Long
-  ): Option[List[ServerSentEvent]] = log.since(v).map { owed =>
+  ): List[ServerSentEvent] = {
+    val owed = log.since(v)
     val gone = owed.moved.collect { case (nodeId, _: Mutation.Gone) =>
       nodeId
     }
@@ -373,10 +374,22 @@ private[runtime] object Patches {
             }
           }
       }
+    // Containers whose membership history no longer reaches this cursor: the
+    // delta is uncomputable, so the mount is filled wholesale. `Inner` is
+    // all-or-nothing over a mount's children, so this cannot be partial — which
+    // is precisely why it is the fallback of last resort, and why it is worth
+    // having only because it replaced a whole-BODY repaint.
+    val refills = owed.refill.sorted.map { gid =>
+      Patch.Insert(
+        renderer.renderMount(gid, states).map(_._2).mkString,
+        PatchMode.Inner,
+        renderer.mountId(gid)
+      )
+    }
     (owed.nodes
       .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
-      places).map(_.toSse)
+      places ++ refills).map(_.toSse)
   }
 
   /** The patch that puts `html` at `entity`'s place in group `gid`: `before`
@@ -469,7 +482,7 @@ private[runtime] object Patches {
           .render(renderer, gid, states)
           .map(html => (renderer.surfaceContentId(sid), member, html))
       )
-      val withGone = departed.foldLeft(pruned)(_.removed(_, at))
+      val withGone = departed.foldLeft(pruned)(_.removed(gid, _, at))
       val withPlaced = arrived.foldLeft(withGone) {
         case (l, (nodeId, member, html)) =>
           l.placed(gid, member, nodeId, html, at)
@@ -594,7 +607,10 @@ private[runtime] object Patches {
       val (afterRemoves, removePatches) =
         removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
           val cid = renderer.dynamicChildId(gid, e)
-          (c.removed(cid, at), acc :+ Patch.Remove(renderer.elementId(cid)))
+          (
+            c.removed(gid, cid, at),
+            acc :+ Patch.Remove(renderer.elementId(cid))
+          )
         }
       val (afterAdds, addPatches) =
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {

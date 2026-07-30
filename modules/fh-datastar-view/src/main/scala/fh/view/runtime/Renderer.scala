@@ -820,6 +820,29 @@ class Renderer(
         .map(dynamicChildId(groupId, e) -> _)
     )
 
+  /** Everything currently in a container's mount, id and HTML per occupant —
+    * what a wholesale FILL carries, for either kind of container.
+    *
+    * A dynamic group's mount holds its members; a state group's holds the one
+    * active branch. Both are "what is in this mount", so they answer here
+    * rather than at each fill site.
+    */
+  def renderMount(
+      container: NodeId,
+      states: Map[String, EntityState]
+  ): List[(NodeId, String)] =
+    allIndexed.get(container) match {
+      case Some((_: LayoutNode.Dynamic, _, _)) =>
+        renderDynamicMembers(container, states)
+      case _ =>
+        resolveActiveByState(container, states)
+          .flatMap(bakeMembers(container).lift)
+          .flatMap(sid =>
+            renderSurface(sid, states).map(surfaceContentId(sid) -> _)
+          )
+          .toList
+    }
+
   /** Render whatever node a LOG KEY names — the inverse the ledger needs.
     *
     * Since the log holds a digest rather than HTML, a resume renders its

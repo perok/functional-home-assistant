@@ -1299,7 +1299,7 @@ behaviour-free commit that everything after is written against.
 |---|---|---|
 | **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
-| **2 — the ledger** | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
+| **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** | W6, W7, W8, W9, W10b, W11, W12, W13 | the per-session pass dies here; nothing earlier depends on that |
 | **4 — docs** | W15 | — |
 
@@ -1322,6 +1322,20 @@ error. Three consequences worth knowing:
   that authored relation enters. Test suites get a `given Conversion[String, NodeId]`
   (`testkit/TestIds`) instead of ~130 wrappers: the type guards the server, and a suite's literal
   id IS the spec.
+
+**Phase 2 as landed** — two things the plan did not name:
+
+- **`Mutation.Gone` had to gain its container.** The per-group horizon keys on "whose membership
+  history just became incomplete", and a `Gone` only carried the departing node's id — from which
+  the container is NOT derivable (a group id contains underscores and so does a sanitised entity).
+  So `container` moved onto the `Mutation` enum itself and both cases carry it, which is better
+  typing regardless: every structural fact now says whose mount it is about.
+- **`Renderer.renderLogged` and `renderMount` are the two inverses the ledger needs.** Because the
+  log holds a digest, a resume RENDERS its candidates rather than reading them back, so every key
+  must resolve — including a dynamic member id, which is per-entity and deliberately not in the
+  static index. `renderLogged` resolves both kinds (and returns `None`, rather than crashing, for a
+  key naming nothing that exists now); `renderMount` answers "what is in this container's mount"
+  for a fill, for either kind of container.
 
 **The property that makes phase 1 safe is worth stating on its own: the self/mount split is
 independent of the shared-log collapse.** It is the riskiest change in the plan — it moves DOM ids,

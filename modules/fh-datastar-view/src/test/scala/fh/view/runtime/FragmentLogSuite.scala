@@ -26,12 +26,17 @@ class FragmentLogSuite extends munit.FunSuite {
     */
   private def moved(id: NodeId, m: Mutation): (NodeId, Mutation) = id -> m
 
-  /** These fixtures never evict, so a cursor is always resumable; `since`
-    * returning None is exercised by the eviction tests below.
+  /** The horizon widened to plain strings, so a literal map reads normally on
+    * the expected side (the key is a [[NodeId]], and the conversion does not
+    * reach inside a tuple).
     */
-  extension (l: FragmentLog)
-    private def owed(v: Long): Resume =
-      l.since(v).getOrElse(fail(s"cursor $v unexpectedly not resumable"))
+  private def horizonOf(l: FragmentLog): Map[String, Long] =
+    l.horizon.map { case (k, v) => (k: String) -> v }
+
+  /** `since` is TOTAL — an aged-out container is answered with a `refill`,
+    * never a refusal — so this is just a shorter name.
+    */
+  extension (l: FragmentLog) private def owed(v: Long): Resume = l.since(v)
 
   test("a cursor at the current version is owed nothing older") {
     // `>=`, so version 3 is re-sent to a cursor AT 3 (one store version can span
@@ -63,8 +68,11 @@ class FragmentLogSuite extends munit.FunSuite {
 
   test("a departed member replays as a removal, not a group re-render") {
     // The win over re-rendering the group: one small patch, not 20 cards.
-    val out = log.removed("c_light_a", at(5L)).owed(1L)
-    assertEquals(out.moved, List(moved("c_light_a", Mutation.Gone(at(5L)))))
+    val out = log.removed("c", "c_light_a", at(5L)).owed(1L)
+    assertEquals(
+      out.moved,
+      List(moved("c_light_a", Mutation.Gone("c", at(5L))))
+    )
     // ...and the stale entry does not also come back as a morph.
     assertEquals(out.nodes, Nil)
   }
@@ -85,7 +93,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // The reason these are ONE sum type: a node cannot be both absent and
     // present, so latest wins and the old special case disappears.
     val out = log
-      .removed("c_light_a", at(10L)) // left...
+      .removed("c", "c_light_a", at(10L)) // left...
       .placed(
         "c",
         member("light.a"),
@@ -103,9 +111,12 @@ class FragmentLogSuite extends munit.FunSuite {
   test("leaving after arriving collapses the same way, to Gone") {
     val out = log
       .placed("c", member("light.a"), "c_light_a", "<a/>", at(10L))
-      .removed("c_light_a", at(20L))
+      .removed("c", "c_light_a", at(20L))
       .owed(1L)
-    assertEquals(out.moved, List(moved("c_light_a", Mutation.Gone(at(20L)))))
+    assertEquals(
+      out.moved,
+      List(moved("c_light_a", Mutation.Gone("c", at(20L))))
+    )
   }
 
   test("a member key carries HOW to resolve it, not just its name") {
@@ -127,7 +138,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // authoritative: a leftover Gone would delete a rejoined member, and a
     // leftover Placed would insert one the HTML already contains.
     val out = log
-      .removed("c_light_a", at(10L))
+      .removed("c", "c_light_a", at(10L))
       .placed("c", member("light.b"), "c_light_b", "<b/>", at(11L))
       .invalidateWhere(k => k == "c" || k.startsWith("c_"))
       .set("c", "<c>both present</c>", 20L)
@@ -174,7 +185,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // Self-coverage would make every mutation suppress its own emission — the
     // whole resume would silently send nothing.
     assert(!log.coveredByMutation("c_0", Set[NodeId]("c_0")))
-    val l = log.removed("c_0", at(5L))
+    val l = log.removed("c", "c_0", at(5L))
     assertEquals(l.owed(1L).moved.map(_._1), List[NodeId]("c_0"))
   }
 
@@ -190,7 +201,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // The placement's fresh render already omits the departed node, so replaying
     // the removal would delete an element that render legitimately restored.
     val out = log
-      .removed("c_0_light_a", at(20L))
+      .removed("c_0", "c_0_light_a", at(20L))
       .placed("c", MemberKey.Surface("b"), "c_0", "<branch/>", at(25L))
       .owed(1L)
     assertEquals(out.moved.map(_._1), List[NodeId]("c_0"))
@@ -199,7 +210,7 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a removal with no mutated ancestor is sent") {
     val out = log
       .set("c_0", "<parent v=25/>", 25L)
-      .removed("c_0_light_a", at(30L))
+      .removed("c_0", "c_0_light_a", at(30L))
       .owed(1L)
     assertEquals(out.moved.map(_._1), List[NodeId]("c_0_light_a"))
   }
@@ -223,7 +234,7 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a cleared log owes nothing but keeps its identity") {
     val before = log
       .set("a", "<a/>", 3L)
-      .removed("b", at(4L))
+      .removed("c", "b", at(4L))
       .placed("c", member("light.a"), "c_light_a", "<a/>", at(5L))
     val after = before.cleared
     assertEquals(after.id, before.id) // cursors already issued stay comparable
@@ -235,45 +246,63 @@ class FragmentLogSuite extends munit.FunSuite {
     // that never returns has nothing to remove it, so a long-lived server would
     // otherwise accumulate one per entity that ever matched a group.
     val hour = FragmentLog.Retention.toMillis
-    val stale = log.removed("c_old", Stamp(5L, 1_000L))
+    val stale = log.removed("c", "c_old", Stamp(5L, 1_000L))
     // A later change, two hours on, ages the first one out.
-    val fresh = stale.removed("c_new", Stamp(9L, 1_000L + 2 * hour))
+    val fresh = stale.removed("c", "c_new", Stamp(9L, 1_000L + 2 * hour))
     assertEquals(fresh.mutations.keySet, Set("c_new"))
-    // Complete only from just after the newest thing forgotten.
-    assertEquals(fresh.horizon, 6L)
+    // That container is complete only from just after the newest thing forgotten
+    // about IT.
+    assertEquals(horizonOf(fresh), Map("c" -> 6L))
   }
 
-  test("a cursor below the horizon is refused, not served a lossy delta") {
+  test("one container aging out says nothing about any other") {
+    // The whole point of keying the horizon per container: a churning group's
+    // history expiring used to raise a GLOBAL horizon, costing every client below
+    // it a whole-body repaint though only that group's history was lost.
     val hour = FragmentLog.Retention.toMillis
     val evicted = log
-      .removed("c_old", Stamp(5L, 1_000L))
-      .removed("c_new", Stamp(9L, 1_000L + 2 * hour))
-    // Cursor 5 needed to hear about the removal that was just forgotten, so the
-    // honest answer is a repaint rather than a delta missing it.
-    assertEquals(evicted.since(5L), None)
-    assert(evicted.since(6L).isDefined)
+      .removed("c_0", "c_0_old", Stamp(5L, 1_000L))
+      .removed("c_1", "c_1_new", Stamp(9L, 1_000L + 2 * hour))
+    assertEquals(horizonOf(evicted), Map("c_0" -> 6L))
+    // A cursor below c_0's horizon gets THAT mount refilled, and nothing else.
+    assertEquals(evicted.since(5L).refill, List[NodeId]("c_0"))
+    assertEquals(evicted.since(6L).refill, Nil)
+    // ...and c_1's own delta still rides normally.
+    assertEquals(evicted.since(5L).moved.map(_._1), List[NodeId]("c_1_new"))
+  }
+
+  test("a refilled container's members are not ALSO sent") {
+    // The fill re-supplies the whole mount, so anything under it would be a
+    // duplicate — and this is not a rule to remember, it is the same prefix test
+    // a `Placed` goes through.
+    val hour = FragmentLog.Retention.toMillis
+    val evicted = log
+      .removed("c_0", "c_0_old", Stamp(5L, 1_000L))
+      .removed("c_1", "c_1_x", Stamp(9L, 1_000L + 2 * hour))
+      .set("c_0_light_a", "<a/>", 9L)
+    val out = evicted.since(5L)
+    assertEquals(out.refill, List[NodeId]("c_0"))
+    assertEquals(out.nodes, Nil, clue = out)
   }
 
   test("a mutation inside the window survives") {
     val half = FragmentLog.Retention.toMillis / 2
     val kept = log
-      .removed("c_old", Stamp(5L, 1_000L))
-      .removed("c_new", Stamp(9L, 1_000L + half))
+      .removed("c", "c_old", Stamp(5L, 1_000L))
+      .removed("c", "c_new", Stamp(9L, 1_000L + half))
     assertEquals(kept.mutations.size, 2)
-    assertEquals(
-      kept.horizon,
-      0L
-    ) // nothing forgotten, so every cursor is valid
+    // Nothing forgotten, so no container owes a refill.
+    assertEquals(horizonOf(kept), Map.empty[String, Long])
   }
 
   test("re-touching a node does not grow the map, so eviction stays rare") {
     // Latest-wins per node id is what keeps a churning entity from filling the
     // window on its own.
     val churned = (1 to 1000).foldLeft(log) { (l, i) =>
-      if (i % 2 == 0) l.removed("c_light_a", at(i.toLong))
+      if (i % 2 == 0) l.removed("c", "c_light_a", at(i.toLong))
       else l.placed("c", member("light.a"), "c_light_a", "<a/>", at(i.toLong))
     }
     assertEquals(churned.mutations.size, 1)
-    assertEquals(churned.horizon, 0L)
+    assertEquals(horizonOf(churned), Map.empty[String, Long])
   }
 }

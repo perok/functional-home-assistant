@@ -130,23 +130,23 @@ private[runtime] enum MemberKey {
   * every leave-then-rejoin into a special case. Latest wins, so a rejoin is
   * simply [[Placed]] replacing [[Gone]].
   */
-private[runtime] enum Mutation(val at: Stamp) {
+private[runtime] enum Mutation(val at: Stamp, val container: NodeId) {
 
-  /** The element was deleted from the DOM. */
-  case Gone(stamp: Stamp) extends Mutation(stamp)
+  /** The element was deleted from `in`'s mount. */
+  case Gone(in: NodeId, stamp: Stamp) extends Mutation(stamp, in)
 
-  /** The element belongs at its CURRENT position in `container`'s mount,
-    * wherever (or whether) the client currently has it. Carries the container
-    * and the [[MemberKey]] rather than just the node id because both the anchor
-    * and the content have to be re-derived from live state, and
+  /** The element belongs at its CURRENT position in `in`'s mount, wherever (or
+    * whether) the client currently has it. Carries the container and the
+    * [[MemberKey]] rather than just the node id because both the anchor and the
+    * content have to be re-derived from live state, and
     * [[fh.view.model.LayoutNode.sanitize]] is one-way.
     *
     * Covers an arrival and a re-ordering identically — both mean "put this
     * element here" — which is why an author-chosen member sort needs no new
     * mutation kind.
     */
-  case Placed(container: NodeId, member: MemberKey, stamp: Stamp)
-      extends Mutation(stamp)
+  case Placed(in: NodeId, member: MemberKey, stamp: Stamp)
+      extends Mutation(stamp, in)
 
   /** Ordering clock — see [[Stamp]]; the only one a resume compares against. */
   def version: Long = at.version
@@ -164,6 +164,10 @@ private[runtime] enum Mutation(val at: Stamp) {
   *   - `moved` (node id -> what happened) to apply structurally. See
   *     [[Patches.resume]] for how each becomes patches, and for the ordering
   *     argument that makes the anchors resolvable.
+  *   - `refill`: containers whose membership history no longer reaches back to
+  *     this cursor, so the delta cannot be computed and the mount is filled
+  *     wholesale. The fallback of LAST resort — and scoped to one container,
+  *     where eviction used to cost the whole body.
   *
   * Rendering from one snapshot also retires an ordering rule: morphs used to
   * have to go out ascending by version, because a container's cached HTML
@@ -173,7 +177,8 @@ private[runtime] enum Mutation(val at: Stamp) {
   */
 private[runtime] case class Resume(
     nodes: List[NodeId],
-    moved: List[(NodeId, Mutation)]
+    moved: List[(NodeId, Mutation)],
+    refill: List[NodeId] = Nil
 )
 
 /** The per-slug (or per-session) diff cache, versioned.
@@ -211,10 +216,18 @@ private[runtime] case class FragmentLog(
     id: String,
     fragments: Map[NodeId, Fragment] = Map.empty,
     mutations: Map[NodeId, Mutation] = Map.empty,
-    // The oldest version for which `mutations` is COMPLETE. Rises as entries are
-    // evicted; a cursor below it cannot be served a delta and must repaint,
-    // which is what makes eviction safe rather than silently lossy.
-    horizon: Long = 0L
+    // Per CONTAINER, the oldest version for which its membership history is
+    // COMPLETE. Rises as that container's mutations are evicted; a cursor below
+    // it cannot be served a delta for that container and gets its mount filled
+    // instead — which is what makes eviction safe rather than silently lossy.
+    //
+    // Per-container because that is the granularity at which completeness is
+    // actually lost. It used to be one global number, so ONE churning group
+    // aging out cost every client below it a whole-body repaint. Now the
+    // whole-body repaint is unreachable through eviction at all: it remains only
+    // for the genuinely global reasons (no cursor, a log-id mismatch, a cursor
+    // ahead of the store, a changed head).
+    horizon: Map[NodeId, Long] = Map.empty
 ) {
 
   /** Forget everything but keep this log's identity — the body was repainted
@@ -265,12 +278,14 @@ private[runtime] case class FragmentLog(
       mutations = mutations.filterNot { case (k, _) => p(k) }
     )
 
-  /** Record that `nodeId`'s element was DELETED from the DOM at version `at`.
+  /** Record that `nodeId`'s element was DELETED from `container`'s mount at
+    * version `at`. The container rides along so eviction knows whose history it
+    * just made incomplete.
     */
-  def removed(nodeId: NodeId, stamp: Stamp): FragmentLog =
+  def removed(container: NodeId, nodeId: NodeId, stamp: Stamp): FragmentLog =
     copy(
       fragments = fragments - nodeId,
-      mutations = mutations.updated(nodeId, Mutation.Gone(stamp))
+      mutations = mutations.updated(nodeId, Mutation.Gone(container, stamp))
     ).evicting(stamp.millis)
 
   /** Record that `member` belongs at its CURRENT position in `container`'s
@@ -309,8 +324,14 @@ private[runtime] case class FragmentLog(
     else
       copy(
         mutations = fresh,
-        // Complete only from just after the newest thing we forgot.
-        horizon = math.max(horizon, stale.values.map(_.version).max + 1)
+        // Each affected container is complete only from just after the newest
+        // thing forgotten about IT — one group aging out says nothing about any
+        // other, which is the whole point of keying this per container.
+        horizon = stale.values.foldLeft(horizon) { (h, m) =>
+          h.updatedWith(m.container)(prev =>
+            Some(math.max(prev.getOrElse(0L), m.version + 1))
+          )
+        }
       )
   }
 
@@ -336,15 +357,16 @@ private[runtime] case class FragmentLog(
   def coveredByMutation(nodeId: NodeId, moved: Set[NodeId]): Boolean =
     moved.exists(id => id != nodeId && nodeId.startsWith(id + "_"))
 
-  /** What a client whose cursor is `v` has not seen, or `None` when it cannot
-    * be told — `v` predates [[horizon]], so an evicted mutation may be exactly
-    * what this client is missing. `None` means "repaint the body", the same
-    * answer as a mismatched log [[id]].
+  /** What a client whose cursor is `v` has not seen. TOTAL: there is no longer
+    * a "cannot be told" case.
     *
-    * An `Option` rather than a `resumable` predicate the caller is trusted to
-    * check first: the failure mode of forgetting is a client left holding a
-    * ghost element indefinitely, with nothing to observe at the time of the
-    * mistake.
+    * It used to return `None` when `v` predated a GLOBAL horizon, meaning
+    * "repaint the body". With the horizon per container, the answer for a
+    * container whose history is gone is to fill THAT mount — so incompleteness
+    * is expressed as a `refill` entry instead of a refusal, and the whole-body
+    * repaint survives only for the genuinely global reasons the caller checks
+    * (no cursor, a log-id mismatch, a cursor ahead of the store, a changed
+    * head).
     *
     * `>=` rather than `>`: the cursor is pushed alongside a patch batch, and
     * one store version can produce several batches (one [[StateChange]] each),
@@ -366,20 +388,24 @@ private[runtime] case class FragmentLog(
     * (statement (3)). Sorting by version went with the HTML — there is nothing
     * stale left to order.
     */
-  def since(v: Long): Option[Resume] =
-    Option.when(v >= horizon) {
-      val moved = mutations.filter { case (_, m) => m.version >= v }
-      val movedIds = moved.keySet
-      Resume(
-        fragments.collect {
-          case (nodeId, f)
-              if f.version >= v && !movedIds.contains(nodeId) &&
-                !coveredByMutation(nodeId, movedIds) =>
-            nodeId
-        }.toList,
-        moved.filterNot { case (nodeId, _) =>
-          coveredByMutation(nodeId, movedIds)
-        }.toList
-      )
-    }
+  def since(v: Long): Resume = {
+    val refill = horizon.collect { case (gid, h) if v < h => gid }.toList
+    val moved = mutations.filter { case (_, m) => m.version >= v }
+    // A refill re-supplies its container's whole mount, so it covers by prefix
+    // exactly the way a `Placed` does — which is why "a refilled container's
+    // members must not ALSO be sent" is not a rule to remember, just this union.
+    val resupplied = moved.keySet ++ refill
+    Resume(
+      fragments.collect {
+        case (nodeId, f)
+            if f.version >= v && !resupplied.contains(nodeId) &&
+              !coveredByMutation(nodeId, resupplied) =>
+          nodeId
+      }.toList,
+      moved.filterNot { case (nodeId, _) =>
+        coveredByMutation(nodeId, resupplied)
+      }.toList,
+      refill
+    )
+  }
 }
