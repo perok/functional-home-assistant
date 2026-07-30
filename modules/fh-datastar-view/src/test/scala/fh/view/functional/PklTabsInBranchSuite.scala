@@ -135,4 +135,27 @@ class PklTabsInBranchSuite extends munit.CatsEffectSuite {
       }
     }
   }
+
+  /** A mount carries client-dependent ATTRIBUTES, not only children. The tabs
+    * mount seeds its selection signal from the baked index, so a re-revealed
+    * panel that arrives with the wrong index — or with none, which is not even
+    * valid — leaves the bar highlighting a different tab than the one on
+    * screen. Asserted on the wire because it is invisible to a content check.
+    */
+  test("a re-revealed panel carries THIS client's selection signal") {
+    withServer { ts =>
+      ts.observeLive(
+        marker = "Outside Temperature",
+        query = s"?ui.$tabsHost=1",
+        trigger = ts.fake.emit(light.entityId, "off") *>
+          ts.fake.emit(light.entityId, "on", light.attributes)
+      ).map { live =>
+        // Never a signal expression with an absent value.
+        assert(!live.contains(s"ui_$tabsHost:  }"), clue = live)
+        // The fill replaces the mount ELEMENT, so the index that lands is this
+        // client's tab, not the group's default.
+        assert(live.contains(s"ui_$tabsHost: 1 }"), clue = live)
+      }
+    }
+  }
 }

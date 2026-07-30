@@ -898,6 +898,56 @@ class Renderer(
           .toList
     }
 
+  /** The client selections implied by an open set — the inverse of
+    * [[selectedSurfaces]].
+    *
+    * `open` is LIVE truth: a tab click moves it mid-connection. A connection's
+    * captured `uiState` is only what it arrived with, so anything rendering for
+    * a client after connect must read the selection from here or it renders the
+    * tab that client was on when it opened the page.
+    */
+  def uiStateFrom(open: Set[String]): Map[String, String] =
+    userBakeOwnerIds.toList.flatMap { gid =>
+      bakeGroup(gid).indexWhere(open) match {
+        case -1 => None
+        case i  => Some(gid -> i.toString)
+      }
+    }.toMap
+
+  /** Render one node's MOUNT ELEMENT alone — the mount template with THIS
+    * viewer's baked member and `bakeIndex`, wrapping that member's content.
+    *
+    * A mount carries client-dependent ATTRIBUTES, not just client-dependent
+    * children: a tabs mount seeds its selection signal from `bakeIndex`. So a
+    * connection filling its own member has to replace the element, not just
+    * what is inside it — otherwise the content is the client's while the
+    * selection signal is still whoever's the shared render guessed.
+    *
+    * `None` for a card with no mount.
+    */
+  def renderMountElement(
+      id: NodeId,
+      states: Map[String, EntityState],
+      viewer: Viewer
+  ): Option[String] =
+    allIndexed.get(id).flatMap {
+      case (c: LayoutNode.Component, path, prefix) =>
+        templates.mounts.get(c.card).map { t =>
+          val (baked, bakeIndex) = resolveBake(id, viewer, states)
+          val childrenHtml = c.children.zipWithIndex.map { case (ch, i) =>
+            render(ch, path :+ i, prefix, states, viewer)
+          }
+          renderTemplateOf(
+            t,
+            structuralVars(id) ++ bakeIndex ++ baked,
+            c.slots,
+            childrenHtml,
+            states
+          )
+        }
+      case _ => None
+    }
+
   /** Render whatever node a LOG KEY names — the inverse the ledger needs.
     *
     * Since the log holds a digest rather than HTML, a resume renders its
@@ -1061,11 +1111,21 @@ class Renderer(
         // No client to choose for. Bake the hole EMPTY — the connection fills
         // it with its own member (`Patches.Reveal`), which is the only way the
         // same rendered branch can serve viewers who picked different tabs.
+        //
+        // `bakeIndex` is NOT emptied with it. It is structural markup, not
+        // content — a tabs mount seeds its selection signal from it — so a
+        // missing value renders `data-signals="{ ui_x:  }"`, which is not valid
+        // and leaves the bar unable to highlight anything. The group's default
+        // stands in for the moment before the connection's fill replaces this
+        // element with its own.
         case Viewer.Nobody =>
           val as = group.headOption
             .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
             .getOrElse("")
-          (Map(as -> ""), Map.empty)
+          (
+            Map(as -> ""),
+            Map("bakeIndex" -> resolveActive(id, Map.empty)._1.toString)
+          )
       }
   }
 

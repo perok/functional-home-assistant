@@ -16,6 +16,8 @@ import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.jdkhttpclient.JdkHttpClient
 
+import java.util.concurrent.TimeoutException
+
 import scala.concurrent.duration.*
 
 /** A running dashboard wired exactly as `ServerApp` assembles it — the real
@@ -119,11 +121,15 @@ final class TestServer(
     * with the cursor signal ([[Server.cursorSignals]]), which is what is
     * watched for here.
     */
+  private def LogIdSignalName = Server.LogIdSignal
+
   def observeLive(
       marker: String,
       trigger: IO[Unit],
       query: String = "",
-      timeout: FiniteDuration = 30.seconds
+      // Below munit's per-test timeout on purpose: whichever fires first owns
+      // the error message, and this one can say what actually arrived.
+      timeout: FiniteDuration = 10.seconds
   ): IO[String] =
     run(
       Request[IO](
@@ -149,10 +155,35 @@ final class TestServer(
           .compile
           .drain
           .start
-        _ <- opened.get.timeout(timeout)
+        _ <- opened.get.timeout(timeout).adaptError {
+          case _: TimeoutException =>
+            new AssertionError(
+              s"the opening block never completed (no $LogIdSignalName signal)"
+            )
+        }
+        // BOTH gates, and they are different questions. The connection being
+        // subscribed to the patch topic says it can receive; the per-slug
+        // publisher being subscribed to the store says the change will be
+        // rendered at all. A topic delivers only to CURRENT subscribers, so a
+        // change emitted before the publisher attaches is published to nobody
+        // and simply lost — intermittently, under load, which is exactly how
+        // this read as a flaky test rather than a missing gate.
         _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
         _ <- trigger
-        _ <- fiber.joinWithNever.timeout(timeout)
+        // Report what DID arrive. A bare timeout here says only "the marker
+        // never came", which is the least useful half of the story — whether
+        // nothing arrived, or the wrong thing did, is the whole diagnosis.
+        _ <- fiber.joinWithNever.timeout(timeout).recoverWith {
+          case _: TimeoutException =>
+            live.get.flatMap(seen =>
+              IO.raiseError(
+                new AssertionError(
+                  s"never saw '$marker' after the opening block; received:\n$seen"
+                )
+              )
+            )
+        }
         text <- live.get
       } yield text
     }

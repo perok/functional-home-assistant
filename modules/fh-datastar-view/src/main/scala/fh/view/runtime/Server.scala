@@ -529,7 +529,7 @@ class Server(
               // member of that mount its viewer chose.
               .evalMap {
                 case Addressed(_, event) => IO.pure(Option(event))
-                case Reveal(_, owner)    => fillMount(session, owner, uiState)
+                case Reveal(_, owner)    => fillMount(session, owner)
               }
               .unNone
           Stream
@@ -748,21 +748,22 @@ class Server(
     */
   private def fillMount(
       session: Session,
-      owner: NodeId,
-      uiState: Map[String, String]
+      owner: NodeId
   ): IO[Option[ServerSentEvent]] =
     (rendererFor(session.slug), session.open.get, stateStore.current).mapN {
       (rendererOpt, open, store) =>
         for {
           renderer <- rendererOpt
-          sid <- renderer.bakeMembers(owner).find(open)
-          html <- renderer.renderSurface(
-            sid,
+          // The whole mount element, not just its contents: `bakeIndex` rides
+          // on the element's own attributes, so filling only the inside would
+          // give this client its member under someone else's selection signal.
+          html <- renderer.renderMountElement(
+            owner,
             store.entities,
-            Viewer.Client(uiState)
+            Viewer.Client(renderer.uiStateFrom(open))
           )
         } yield Patch
-          .Insert(html, PatchMode.Inner, renderer.mountId(owner))
+          .Insert(html, PatchMode.Outer, renderer.mountId(owner))
           .toSse
     }
 
