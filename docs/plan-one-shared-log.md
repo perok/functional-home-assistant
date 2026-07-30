@@ -1295,17 +1295,52 @@ data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
 | W3 | `patchTargetId(nodeId)` — the one-way node-id → DOM-id mapping, discriminated by whether the card declares a `self` (the same predicate that chooses what the patch path renders). Consolidate the structural-var derivation into ONE function so `render` and `renderCase` cannot diverge. Log keys stay node ids | `Patches`, `Renderer` |
 | W4 | **The ledger**: opaque `NodeId`/`DomId`; `MemberKey` as a sum type owning its own `render`; `Fragment` holds a 128-bit digest; `Resume(nodes, moved, refill)` and `since` becomes TOTAL; `Patches.resume` renders from `(renderer, states)`; **re-target `coveredByAncestor` from fragments to mutations** as `coveredByMutation(nodeId, moved ++ refill)`, and drop the version sort's correctness role | `FragmentLog`, `Patches`, `Renderer`, `Server` |
 | W5 | `resolveBake` becomes document-path only — the patch path never renders a mount | `Renderer.resolveBake` |
-| W6 | Delete `Session.lastRendered` and `changedPatches`; collapse `Patches.Scope`'s two cases to one `visibleSurfaces: Set[String]` | `Server`, `Sessions`, `Patches` |
+| W6 ✅ LANDED | Delete `Session.lastRendered` and `changedPatches`; collapse `Patches.Scope`'s two cases to one `visibleSurfaces: Set[String]` | `Server`, `Sessions`, `Patches` |
 | W7 | Tag patches with `Option[surfaceId]` — the innermost **user-selected** surface, state surfaces transparent; filter per connection in `sseStream` | `Patches`, `Server` |
 | W8 | The resume rule: candidates = `version >= cursor` ∪ `open ∩ reachable`; render from one snapshot; send on `version >= cursor \|\| fingerprint != stored`, a MISSING entry counting as send | `Server.openingPatches` |
 | W9 | Reconnect repaint: invalidate the session's open surfaces' entries; delete the `sessionPaint` and popup-restore blocks. `reloadRepaints` drops `lastRendered.cleared` | `Server` |
 | W10 | `flipStateGroup` emits membership mutations (`Gone` + `Placed`) instead of a host morph; `repaintGroup` emits a mount fill; both stop logging a container-level fragment. `Mutation` generalises to `(containerId, memberKey)`. The per-connection stage appends fills for user groups revealed by a flip | `Patches`, `FragmentLog`, `Server.sseStream` |
 | W10b | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
 | W11 | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>` | `Server` |
-| W12 | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` |
+| W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
 | W13 | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W15 | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
+
+### W6 as landed
+
+Three commits, and the middle one found a real bug.
+
+**The tag comes from a parent pointer.** `surfaceParent` is `rootOf(bakeInto)` — a surface sits
+where its host node sits — and `userSurfaceOf` walks it, passing THROUGH state surfaces (a branch
+chosen by entity state hides nothing) and stopping at the first user surface, or at the main page
+meaning "everyone". `stateGidsByRoot` was the same relation computed narrowly and is now `rootOf`.
+Note the distinction that matters: deriving the chain by PARSING an id is impossible, but looking
+the id up in `allIndexed` is exact — so `userSurfaceOfNode` needs no threading through `plan` at
+all, which is better than what this document originally proposed.
+
+**`visible` is a render gate, never a correctness input.** `Sessions.openIn(slug)` unions every
+connected client's open set; it decides what is worth RENDERING once, while the tag decides who
+RECEIVES it. Erring wide costs server bytes, erring narrow drops an update — so the union is the
+only safe direction.
+
+**The guard written first failed on the code as it stood.** Two clients on different tabs inside a
+flipping branch: after the branch returns, both are shown tab 0. `sessionOnlyStateGroups` was meant
+to prevent precisely this and did not — `flipStateGroup` renders the arriving branch with no client
+at all, so routing it to the per-session pass changed which cache it was diffed against and nothing
+else. A live defect, not merely an obstacle to deleting the pass.
+
+The fix is to stop pretending a shared render can choose. `Viewer` names who a render is for:
+`Client(uiState)` (an absent key is still a client — one who has not chosen) or `Nobody`, for which
+a USER-selected mount renders EMPTY. The flip then emits a `Reveal` next to its mount patch and each
+connection fills that mount with the member IT has open. This is the "flip revealing a mount" fill
+W10 anticipated, and it is the ONLY per-connection rendering left.
+
+With it, `planSession`/`changedPatches`/`Session.lastRendered`/`sessionOnlyStateGroups`/
+`subtreeHasUserOwner` are gone, as is the exclusion of user bake owners from the shared selection —
+under the split their patch is their `self`, which is state-pure. A connection no longer subscribes
+to `StateStore.changes` at all; the harness readiness gates dropping from 2-and-3 to 1 is the
+clearest statement of what changed.
 
 ## Landing order
 
@@ -1319,7 +1354,7 @@ behaviour-free commit that everything after is written against.
 | **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
-| **3 — the collapse** | W6, W7, W8, W9, W10b, W11, W12, W13 | the per-session pass dies here; nothing earlier depends on that |
+| **3 — the collapse** | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11, W12 ✅, W13 | the per-session pass dies here; nothing earlier depends on that |
 | **4 — docs** | W15 | — |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
