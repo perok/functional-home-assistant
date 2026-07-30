@@ -252,6 +252,22 @@ private[runtime] case class FragmentLog(
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
 
+  /** Record what the DOCUMENT path put on screen, without overwriting anything
+    * the diff pass already knows.
+    *
+    * Statement (2) — everything that changes a client's DOM goes through the
+    * log — applies to the first paint too, and it is the one path that never
+    * told the log anything. Left unrecorded, a client's very first connect is
+    * offered every node of every open surface as a candidate (no entry means
+    * "unknown, send it"), so the page arrives twice.
+    *
+    * Absent-only because the log is SHARED and the seeding snapshot may already
+    * be behind: a newer entry from the live pass describes the DOM better than
+    * this one does, and clobbering it would cost a redundant send.
+    */
+  def seed(nodeId: NodeId, html: String, at: Long): FragmentLog =
+    if (fragments.contains(nodeId)) this else set(nodeId, html, at)
+
   def set(nodeId: NodeId, html: String, at: Long): FragmentLog =
     copy(fragments = fragments.updated(nodeId, Fragment(Digest.of(html), at)))
 

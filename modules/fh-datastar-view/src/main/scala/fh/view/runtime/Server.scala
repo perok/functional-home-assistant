@@ -287,13 +287,22 @@ class Server(
       slug: String,
       live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    live.renderer.discrete
-      .switchMap { renderer =>
-        // A fresh log IDENTITY per swap, in the ref every connection reads: a
+    live.renderer.discrete.zipWithIndex
+      .switchMap { case (renderer, arm) =>
+        // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
         // cursor issued against the previous renderer's log names versions this
         // one never had, so it must not be resumable
         // (docs/adr/0011-the-live-connection.md).
-        Stream.exec(Server.freshLog.flatMap(live.log.set)) ++
+        //
+        // Not on the FIRST arm, though. `discrete` emits the current renderer
+        // immediately, and rotating there invalidates cursors for no reason —
+        // the log the `LiveSlug` was created with is already this renderer's.
+        // It also raced the page route: a document served in that window
+        // advertised the old id and its first connect was refused, repainting a
+        // body it already had.
+        Stream.exec(
+          IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
+        ) ++
           stateStore.changes
             .evalMap(sharedPatches(renderer, live.log, _))
             .flatMap(Stream.emits)
@@ -575,6 +584,25 @@ class Server(
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
     */
+  /** The version a resume should ask for, which is NOT always the cursor's.
+    *
+    * `FragmentLog.since` uses `>=` because a cursor pushed alongside a patch
+    * batch can be held by a client that saw only part of that store version —
+    * one version can produce several batches — so version V must be re-sent to
+    * a client claiming V.
+    *
+    * A DOCUMENT's cursor is a different kind of claim. The page was rendered
+    * from one snapshot, so it has ALL of V by construction, and asking for
+    * `>= V` hands it back everything the document already contains. It is
+    * complete through V, so it needs `> V`.
+    *
+    * The two are told apart by where the cursor came from: signals mean a
+    * reconnect ([[cursorOf]]), plain query params mean a first load
+    * ([[Restore]]).
+    */
+  private def resumeFrom(req: Request[IO], c: Server.Cursor): Long =
+    if (Server.hasSignals(req)) c.version else c.version + 1
+
   private def openingPatches(
       slug: String,
       live: Server.LiveSlug,
@@ -600,7 +628,8 @@ class Server(
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
             .map(c =>
-              Patches.resume(renderer, log, store.entities, c.version, open)
+              Patches
+                .resume(renderer, log, store.entities, resumeFrom(req, c), open)
             )
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
@@ -1009,35 +1038,65 @@ class Server(
   }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
-    rendererFor(slug).flatMap {
-      case None           => NotFound()
-      case Some(renderer) =>
-        val uiState = Server.uiStateOf(req)
-        // The editor embeds the dashboard as `?edit=1`; that turns on the
-        // per-node inspection overlay (Focus / Debug). Off for normal viewers.
-        val editMode = req.uri.query.params.get("edit").contains("1")
-        // What this document is showing, and so also what it must hand back on
-        // connect for the stream to agree with it.
-        val restore = Server.Restore(
-          uiState,
-          req.uri.query.params
-            .get(Server.PopupSignal)
-            .filter(p => renderer.surface(p).nonEmpty)
-        )
-        stateStore.snapshot.flatMap { states =>
-          warnAnomalies(renderer, uiState) *>
-            Ok(
-              page(
-                slug,
-                renderer.renderPage(states, uiState, restore.popup),
-                renderer.stylesheets.map(assets.rewrite),
-                renderer.scripts.map(assets.rewrite),
-                renderer.title,
-                Server.ingressPrefixOf(req),
-                restore,
-                editMode
+    liveFor(slug).flatMap {
+      case None       => NotFound()
+      case Some(live) =>
+        (live.renderer.get, live.log.get, stateStore.current).flatMapN {
+          (renderer, log, store) =>
+            val uiState = Server.uiStateOf(req)
+            // The editor embeds the dashboard as `?edit=1`; that turns on the
+            // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+            val editMode = req.uri.query.params.get("edit").contains("1")
+            val popup = req.uri.query.params
+              .get(Server.PopupSignal)
+              .filter(p => renderer.surface(p).nonEmpty)
+            // What this document is showing, and so also what it must hand back
+            // on connect for the stream to agree with it — the ui state, the
+            // open popup, AND the version it was rendered at. That last part is
+            // what stops the first connect repainting a body the document
+            // already contains.
+            val restore = Server.Restore(
+              uiState,
+              popup,
+              Some(
+                Server.Cursor(
+                  renderer.headHash,
+                  renderer.styleHash,
+                  log.id,
+                  store.version
+                )
               )
-            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+            )
+            // Tell the log what this document put on screen, for the surfaces
+            // the client will have open. They are the resume rule's second
+            // candidate set, and with no entry at all "unknown, send it" would
+            // hand the client its own surfaces straight back. Node renders are
+            // client-independent (a container patches its `self`, and the bake
+            // lives on the document path), so this is sound to write into a
+            // SHARED log.
+            val open = renderer.selectedSurfaces(uiState) ++ popup
+            val seedLog = live.log.update(l =>
+              open
+                .flatMap(renderer.surfaceNodeIds)
+                .foldLeft(l)((acc, id) =>
+                  renderer
+                    .renderNodeById(id, store.entities)
+                    .fold(acc)(html => acc.seed(id, html, store.version))
+                )
+            )
+            warnAnomalies(renderer, uiState) *> seedLog *>
+              Ok(
+                page(
+                  slug,
+                  renderer.renderPage(store.entities, uiState, popup),
+                  renderer.stylesheets.map(assets.rewrite),
+                  renderer.scripts.map(assets.rewrite),
+                  renderer.title,
+                  Server.ingressPrefixOf(req),
+                  restore,
+                  editMode
+                )
+              ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
     }
 
@@ -1333,16 +1392,29 @@ object Server {
     */
   private[runtime] case class Restore(
       uiState: Map[String, String],
-      popup: Option[String]
+      popup: Option[String],
+      // What this document already SHOWS: the store version it was rendered at,
+      // and the log it belongs to. Without it the first connect has no cursor
+      // and takes the no-cursor branch, which inner-patches a body the document
+      // already contains — the whole page, sent twice, on every load.
+      cursor: Option[Cursor] = None
   ) {
 
-    /** `?ui.<id>=<v>&popup=<id>`, or `""` when there is nothing to restore.
-      * `&amp;` because this lands in an HTML attribute.
+    /** `?ui.<id>=<v>&popup=<id>&<cursor>`, or `""` when there is nothing to
+      * restore. `&amp;` because this lands in an HTML attribute.
       */
     def query: String = {
       val params = uiState.toList.sorted.map { case (id, v) =>
         s"$UiParamPrefix${encode(id)}=${encode(v)}"
-      } ++ popup.map(p => s"$PopupSignal=${encode(p)}").toList
+      } ++ popup.map(p => s"$PopupSignal=${encode(p)}").toList ++
+        cursor.toList.flatMap(c =>
+          List(
+            s"$HeadHashSignal=${encode(c.headHash)}",
+            s"$StyleHashSignal=${encode(c.styleHash)}",
+            s"$LogIdSignal=${encode(c.logId)}",
+            s"$StoreVersionSignal=${c.version}"
+          )
+        )
       if (params.isEmpty) "" else params.mkString("?", "&amp;", "")
     }
 
@@ -1560,13 +1632,36 @@ object Server {
     * them a repaint.
     */
   private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
+    signalsOf(req)
+      .flatMap(c =>
+        for {
+          hash <- c.get[String](HeadHashSignal).toOption
+          styleHash <- c.get[String](StyleHashSignal).toOption
+          logId <- c.get[String](LogIdSignal).toOption
+          version <- c.get[Long](StoreVersionSignal).toOption
+        } yield Cursor(hash, styleHash, logId, version)
+      )
+      .orElse(cursorFromQuery(req))
+
+  /** The cursor a freshly-loaded DOCUMENT hands back on its first connect
+    * ([[Restore]]), read from plain query params.
+    *
+    * Signals win where both exist, the same precedence [[uiStateOf]] and
+    * [[popupOf]] use and for the same reason: a reconnect re-serialises the
+    * live signal store, and a stale param baked into the `data-init` URL at
+    * page render must never override it. Without that rule a client would
+    * resume from its ORIGINAL page version forever, and silently miss
+    * everything since.
+    */
+  private def cursorFromQuery(req: Request[IO]): Option[Cursor] = {
+    val p = req.uri.query.params
     for {
-      c <- signalsOf(req)
-      hash <- c.get[String](HeadHashSignal).toOption
-      styleHash <- c.get[String](StyleHashSignal).toOption
-      logId <- c.get[String](LogIdSignal).toOption
-      version <- c.get[Long](StoreVersionSignal).toOption
+      hash <- p.get(HeadHashSignal)
+      styleHash <- p.get(StyleHashSignal)
+      logId <- p.get(LogIdSignal)
+      version <- p.get(StoreVersionSignal).flatMap(_.toLongOption)
     } yield Cursor(hash, styleHash, logId, version)
+  }
 
   /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
     * a client that has none.
@@ -1595,6 +1690,12 @@ object Server {
     popupOf(req).filter(
       renderer.surface(_).exists(_.hostId == Dashboard.PopupHostId)
     )
+
+  /** Whether this request carries the live signal store — i.e. it is a
+    * RECONNECT rather than a freshly-loaded document's first connect.
+    */
+  private[runtime] def hasSignals(req: Request[IO]): Boolean =
+    signalsOf(req).isDefined
 
   private def signalsOf(req: Request[IO]): Option[io.circe.ACursor] =
     req.uri.query.params

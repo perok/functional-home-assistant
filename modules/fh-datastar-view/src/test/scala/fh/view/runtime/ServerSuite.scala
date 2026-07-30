@@ -240,19 +240,20 @@ class ServerSuite extends munit.CatsEffectSuite {
       restored <- pageHtml(dash, "?ui.c=1&popup=det")
       plain <- pageHtml(dash)
     } yield {
-      assert(
-        restored.contains(
-          """data-init="@get('sse/dashboard/home/patch?ui.c=1&amp;popup=det', {retry:'always'})""""
-        ),
-        restored
-      )
-      // Nothing to restore ⇒ no query at all, not a bare `?`.
-      assert(
-        plain.contains(
-          """data-init="@get('sse/dashboard/home/patch', {retry:'always'})""""
-        ),
-        plain
-      )
+      assert(restored.contains("sse/dashboard/home/patch?ui.c=1"), restored)
+      assert(restored.contains("popup=det"), restored)
+      // ...and the CURSOR: the version this document was rendered at, so the
+      // first connect resumes from it instead of taking the no-cursor branch
+      // and inner-patching a body the document already contains.
+      List(
+        Server.HeadHashSignal,
+        Server.StyleHashSignal,
+        Server.LogIdSignal,
+        Server.StoreVersionSignal
+      ).foreach(p => assert(restored.contains(s"$p="), clue = (p, restored)))
+      // With nothing else to restore the cursor still rides — every document
+      // knows what it is showing.
+      assert(plain.contains(s"patch?${Server.HeadHashSignal}="), plain)
       // `always` is load-bearing, not decoration: the default retry mode
       // reconnects a DROPPED stream but treats one the server ended as
       // finished — which is how the server closes a stalled connection.
@@ -2124,6 +2125,79 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(!live.contains("mode remove"), clue = live)
       assert(!live.contains("mode append"), clue = live)
     }
+  }
+
+  /** '''A first page load must not send the body twice.'''
+    *
+    * Reported from the running app: loading `pkl-if` produced an
+    * `Inner #dashboard` carrying the entire dashboard — every byte of which the
+    * document already contained. The document knows what it is showing, so it
+    * hands that back on connect (`Restore`) and the stream resumes from it
+    * instead of taking the no-cursor branch.
+    *
+    * Follows the REAL wiring: the SSE url is read out of the rendered page's
+    * `data-init`, so a mismatch between what the page advertises and what the
+    * route accepts fails here rather than in a browser.
+    */
+  test("a first load resumes from the document instead of repainting it") {
+    val dash = mixedTabsDash
+    val initial = Map(
+      "sensor.shared" -> es("sensor.shared", "cold"),
+      "sensor.a" -> es("sensor.a", "warm")
+    )
+    (for {
+      store <- StateStore.inMemory(initial)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            // Take the URL the page itself advertises, unescaped as a browser
+            // would parse the attribute.
+            sseUrl = page
+              .split("""data-init="@get\('""")(1)
+              .split("'")(0)
+              .replace("&amp;", "&")
+            opening <- routes
+              .run(
+                Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl))
+              )
+              .flatMap(
+                _.body
+                  .through(fs2.text.utf8.decode)
+                  .scan("")(_ + _)
+                  .takeThrough(!_.contains(Server.StoreVersionSignal))
+                  .compile
+                  .lastOrError
+              )
+          } yield (page, opening)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (page, opening) =>
+        // The document really does carry the dashboard...
+        assert(page.contains(">cold<"), clue = page)
+        assert(page.contains(">warm<"), clue = page)
+        // ...so the stream sends none of it again. No body repaint, and no
+        // morphs for the open tab panel's nodes either — the document path
+        // told the log what it put there.
+        assert(!opening.contains(BodyRepaint), clue = opening)
+        assert(!opening.contains("data: elements"), clue = opening)
+        // Only the cursor handshake.
+        assert(opening.contains(Server.StoreVersionSignal), clue = opening)
+      }
   }
 
   test("end to end: a leaf tick reaches the stream as one morph") {
