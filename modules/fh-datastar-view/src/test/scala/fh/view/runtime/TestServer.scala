@@ -3,7 +3,7 @@
 // the deterministic SSE gating needs — the same access `ServerSuite` relies on.
 package fh.view.runtime
 
-import cats.effect.{IO, Resource}
+import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{PklDump, SystemPkl}
@@ -107,6 +107,56 @@ final class TestServer(
     * is the shared per-slug publisher, and only it — connections subscribe to
     * the patch topic, not to `changes` — so one open connection is 1.
     */
+  /** Open one live SSE connection (optionally with a `query` — e.g. a
+    * `ui.<host>` tab selection), wait until its OPENING block has been
+    * delivered, then run `trigger` and return everything that arrives after it,
+    * up to and including the fragment containing `marker`.
+    *
+    * The opening/live split is the whole point. A first paint legitimately
+    * carries this client's selected tab, so an assertion about what a LIVE flip
+    * sends has to start after it — otherwise the opening satisfies the marker
+    * and the test passes without the flip happening at all. The opening ends
+    * with the cursor signal ([[Server.cursorSignals]]), which is what is
+    * watched for here.
+    */
+  def observeLive(
+      marker: String,
+      trigger: IO[Unit],
+      query: String = "",
+      timeout: FiniteDuration = 30.seconds
+  ): IO[String] =
+    run(
+      Request[IO](
+        Method.GET,
+        Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
+      )
+    ).flatMap { resp =>
+      for {
+        opened <- Deferred[IO, Unit]
+        live <- Ref[IO].of("")
+        fiber <- resp.body
+          .through(fs2.text.utf8.decode)
+          .evalMap { chunk =>
+            opened.tryGet.flatMap {
+              case Some(_) => live.updateAndGet(_ + chunk)
+              case None    =>
+                IO.whenA(chunk.contains(Server.LogIdSignal))(
+                  opened.complete(()).void
+                ).as("")
+            }
+          }
+          .exists(_.contains(marker))
+          .compile
+          .drain
+          .start
+        _ <- opened.get.timeout(timeout)
+        _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- trigger
+        _ <- fiber.joinWithNever.timeout(timeout)
+        text <- live.get
+      } yield text
+    }
+
   def observePatch(
       marker: String,
       trigger: IO[Unit],

@@ -608,6 +608,39 @@ case class Dashboard(
         )
         .toList
 
+    // A `bakeInto` must name a node that EXISTS. It is the one relation an
+    // author never writes — the hoist mints it — so a mismatch means the
+    // build's id derivation and the renderer's have drifted, and the symptom is
+    // silent: the host renders its wrapper with an empty hole, the way a
+    // state group with no matching branch legitimately does. Checking it here
+    // is what turns "the panel is blank" into a build error naming the surface.
+    val danglingBakes: List[String] = {
+      def idsOf(
+          node: LayoutNode,
+          prefix: String,
+          path: List[Int]
+      ): List[NodeId] =
+        LayoutNode.nodeId(prefix, path) :: (node match {
+          case c: LayoutNode.Component =>
+            c.children.zipWithIndex.flatMap { case (ch, i) =>
+              idsOf(ch, prefix, path :+ i)
+            }
+          case _: LayoutNode.Dynamic => Nil
+        })
+      val known: Set[NodeId] =
+        (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
+          idsOf(s.content, LayoutNode.surfacePrefix(sid), Nil)
+        }).toSet
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+        s.bakeInto
+          .filterNot(known)
+          .map(gid =>
+            s"surface '$sid' bakes into '$gid', which is not a node in this " +
+              "dashboard (main tree or any surface's content)"
+          )
+      }
+    }
+
     // A bake group's activation mode must be homogeneous: the runtime decides
     // per GROUP whether selection is user truth (per session) or server
     // truth (state condition, shared) — a group mixing both has no coherent
@@ -635,6 +668,7 @@ case class Dashboard(
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     chromeErrors ++
+      danglingBakes ++
       activationErrors ++
       walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
