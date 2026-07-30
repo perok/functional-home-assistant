@@ -561,23 +561,16 @@ class Server(
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
     *
-    * '''Per-session fragments are painted fresh, not resumed''' (ADR 0011). The
-    * shared log covers only what the shared pass renders; a tab panel's
-    * contents are per-session (their HTML bakes a client-selected member) and
-    * their only diff cache died with the previous connection. So on the resume
-    * path each per-session ROOT ([[Renderer.sessionOwnedMainIds]]) is
-    * re-rendered against current state and morphed — after the resumed
-    * fragments, so it wins over any shared ancestor in the same batch. The
-    * repaint path needs none of this: `renderBody` already bakes those subtrees
-    * with this client's `uiState`.
-    *
-    * '''A popup the client still has open is restored, not closed.''' Its
-    * content is per-session and its host lives in `theme.chrome`, OUTSIDE the
-    * `#dashboard` body, so neither the resume nor the repaint reaches it. The
-    * client names it in [[Server.PopupSignal]]; it is re-rendered fresh into
-    * the host here, and `sseStream` puts it back in the session's open set so
-    * it stays live afterwards. Only a claim this dashboard no longer recognises
-    * resets the host — that dialog belongs to nothing and cannot be revived.
+    * '''One rule covers the surfaces too.''' A tab panel's or popup's nodes
+    * used to need painting fresh on every resume — their HTML baked a
+    * client-selected member, and their only diff cache died with the previous
+    * connection. Under the self/mount split a container patches its `self`
+    * alone, so nothing about those nodes is per-client any more: they are
+    * simply candidates, reached through the session's `open` set, and sent only
+    * if they actually differ ([[Patches.resume]]). An open popup needs no
+    * branch of its own either — a body repaint replaces `#dashboard` only, and
+    * `#popups` lives in the chrome outside it, so the dialog is never
+    * disturbed.
     *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.

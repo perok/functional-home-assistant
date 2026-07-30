@@ -320,24 +320,6 @@ class Renderer(
   val sessionOnlyStateGroups: Set[NodeId] =
     stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
 
-  /** The **roots of the per-session part of the main page**: main-rooted nodes
-    * whose HTML bakes a member this client selected (a `tabs` host) or a branch
-    * that transitively does. Everything under them is per-session too, and
-    * re-rendering a root re-renders its whole subtree — so this is the complete
-    * set a reconnecting client needs painted fresh, without listing the nested
-    * owners (which live in surface indexes, may not be in the DOM at all, and
-    * are covered by their root anyway).
-    *
-    * Main-rooted on purpose: a per-session subtree's chain of owners always
-    * bottoms out on the main page (a user owner inside a state branch makes
-    * that branch [[sessionOnlyStateGroups]]), so these roots cover every
-    * per-session node that is currently rendered.
-    */
-  val sessionOwnedMainIds: Set[NodeId] =
-    mainIndex.indexed.keySet.filter(id =>
-      userBakeOwnerIds(id) || sessionOnlyStateGroups(id)
-    )
-
   /** State-selected owner ids grouped by the index that contains the owner
     * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
     * content tree. This is the recursion structure of the transitive active-set
