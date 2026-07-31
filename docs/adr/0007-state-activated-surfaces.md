@@ -59,18 +59,20 @@ the Pkl helper is `entityIs(id)`.
 
 ### Shared-pass placement (the cache consequence)
 
-Because a state selection is server truth, state-activated groups ride the
-**shared per-slug pass** (render once per slug, every viewer gets the same
-patch) — the opposite placement from user-activated bake owners, which stay
-per-session because their HTML bakes the client's selected member
-(ADR 0002). `Renderer` therefore splits `bakeOwnerIds` into
-`userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` no longer seeds
-state-activated members into a session's open set — their liveness is the
-shared pass's job.
+Because a state selection is server truth, a state-activated group's selection
+is identical for every viewer. `Renderer` splits `bakeOwnerIds` into
+`userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` does not seed
+state-activated members into a session's open set — their liveness is the shared
+pass's job, not a client's.
 
-Per state change, the shared pass does two things (`Server.diffPatches` grew a
-`flips` leg; mirrored in the per-session pass for state groups nested inside
-user-opened surfaces):
+That distinction outlived the split it was written for. Everything now rides one
+shared per-slug pass (ADR 0002), so the question is no longer *which pass* but
+**who a patch is addressed to**: a state surface is TRANSPARENT to the
+per-connection filter. It is never in anyone's `open` set, so tagging a node with
+one would hide it from everybody; a node inside an `If` branch nested in a tab
+panel is tagged with the tab panel instead.
+
+Per state change, the shared pass does two things:
 
 1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
    `dynamicDelta`: O(1) shortcut — the changed entity's own match must have
@@ -88,9 +90,18 @@ user-opened surfaces):
    the no-updates guarantee.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
-bake owner (tabs inside an If) — its flip must bake the session's
-client-selected tab, so those groups (`Renderer.sessionOnlyStateGroups`) are
-excluded from the shared flip path and handled per session.
+bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one
+thing but one thing per selection, so it cannot be rendered once for everyone —
+`Renderer.variesByViewer` detects exactly that, and the flip publishes the render
+rather than its bytes for each connection to perform against its own selections
+(ADR 0002, `Patches.Varying`). It still arrives as ONE complete patch, with that
+viewer's panel already inside it.
+
+An earlier design instead routed these groups to a per-session pass
+(`sessionOnlyStateGroups`). It did not work: the flip rendered the branch with no
+client at all, so routing it merely changed which cache it was diffed against,
+and every viewer was handed the default tab. The bug outlived the mechanism meant
+to prevent it because nothing tested two clients on different tabs across a flip.
 
 ### Authoring (Pkl)
 
@@ -138,10 +149,10 @@ group shares one bake var. Demo entry: `pkl-if.pkl`.
 
 - An inactive branch costs nothing: no render, no patch, no membership scan.
   The flip repaint is the reconciliation point (morph + cache prune).
-- Surfaces are now the single "conditionally shown subtree" primitive with two
-  activation modes; anything user-triggered stays per-session, anything
-  state-driven is shared. New conditional UI should pick a mode, not a new
-  mechanism.
+- Surfaces are the single "conditionally shown subtree" primitive with two
+  activation modes: user-triggered selections are per-client truth and decide
+  who a patch reaches, state-driven ones are server truth and reach everyone.
+  New conditional UI should pick a mode, not a new mechanism.
 - Verified by `RendererSuite` (selection/quantifiers/owner split),
   `ServerSuite` (hidden-branch silence, flip morph + prune, nesting, popup
   containment), `BuildPhaseSuite` (activation decode/validate/hoist) and

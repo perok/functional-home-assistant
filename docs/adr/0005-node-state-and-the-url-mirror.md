@@ -60,7 +60,7 @@ interaction) but its realization stays as-is: the signal name is
 `<state>_<id>`, composed in the authoring layer from the backend-derived
 stable id. The backend must not regress into holding *authoring* signal-name
 literals; the `ui_` prefix below is a different thing — a framework protocol
-name, like `conn` and `popup`.
+name, like `conn`.
 
 ### 2. Signals are the live carrier; the URL is their mirror
 
@@ -125,13 +125,23 @@ input, clamped at the boundary:
   surface. The restore is flash-free because the GET bakes the selected surface
   directly, and the SSE connect seeds the open set with it so it streams live
   from the first paint.
-- **Open popup.** `popup` (one at a time, so one string), server-pushed from
-  the only place that changes the host (`Server.swapHost`), mirrored to
-  `?popup=<id>`. A claim naming a surface this dashboard does not host is
-  ignored. The signal is authoritative **whenever it is present, `""` included**
-  — that is how a client says "I closed it" — and only its absence (the one
-  signal-less connect above) falls back to the param, so a stale URL cannot
-  resurrect a dismissed dialog on every retry. This reverses the original decision that popups are transient and
+- **Open popup.** The SAME mechanism, not a second one: `ui_<PopupHostId>`,
+  mirrored to `ui.<PopupHostId>`, set by the open/close taps exactly as a tab
+  button sets its own. Only the VALUE differs in kind — a surface id rather than
+  a member index — because the popup host is not a bake group: any registered
+  surface can appear there, one at a time. `Renderer.openPopup` clamps it,
+  ignoring a claim naming a surface this dashboard does not host, which is the
+  popup's equivalent of `resolveActive`'s index clamp.
+
+  One asymmetry is unavoidable: every other selection's signal is declared by
+  the card that owns the mount, and the popup host lives in `theme.chrome`,
+  outside every node — so the page shell declares and mirrors this one.
+
+  The signal is authoritative **whenever it is present, `""` included** — that is
+  how a client says "I closed it" — and only its absence (the one signal-less
+  connect above) falls back to the param, so a stale URL cannot resurrect a
+  dismissed dialog on every retry. That is the ordinary signals-beat-query
+  precedence, not a popup rule. This reverses the original decision that popups are transient and
   "must not resurrect on reload": if you have a dialog open and you refresh,
   you expect it back — and on a phone, backgrounding the tab is how you read a
   notification, not how you dismiss a dialog.
