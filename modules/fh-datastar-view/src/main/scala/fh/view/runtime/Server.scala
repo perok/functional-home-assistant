@@ -451,15 +451,16 @@ class Server(
       _ <- sessions.register(conn, session)
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
-      // Seed the open set with this client's selected tab panels (from its
-      // signals) plus the popup it says it still has open (from its signal — see
-      // [[Server.PopupSignal]]), so BOTH receive live updates from the first
-      // paint and a reconnect does not silently orphan the dialog on screen.
+      // Seed the open set from this client's ui state — its selected tab
+      // panels AND the popup it says it still has open, which is now the same
+      // kind of selection read from the same map — so all of them receive live
+      // updates from the first paint and a reconnect does not silently orphan
+      // the dialog on screen.
       // Warn on any off ui-state value.
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
-            r.selectedSurfaces(uiState) ++ Server.claimedPopup(req, r)
+            r.selectedSurfaces(uiState)
           )
       }
       // On (re)connect, heal whatever the DOM missed while the stream was down —
@@ -666,8 +667,8 @@ class Server(
           // in nobody's open set, and would otherwise sit on screen forever.
           val orphan = Option
             .when(
-              Server.popupOf(req).nonEmpty &&
-                Server.claimedPopup(req, renderer).isEmpty
+              uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+                renderer.openPopup(uiState).isEmpty
             )(
               Datastar.patch(
                 s"""<div id="${Dashboard.PopupHostId}"></div>""",
@@ -791,10 +792,10 @@ class Server(
     * surface content, not backend chrome). No server state tracks "is a popup
     * open". One host-swap primitive replaces the old open/close/stack paths.
     *
-    * A swap of the POPUP host also updates the client's [[Server.PopupSignal]],
-    * so the browser carries that one bit of per-session state and a reconnect
-    * can restore the dialog. Emitted here, next to the patch that made it true,
-    * so the signal cannot disagree with what is actually in the host.
+    * A swap of the POPUP host does NOT touch the client's `ui_<hostId>` — the
+    * tap that asked for the swap already set it, exactly as a tab button sets
+    * its own. One mechanism for every selection, and the browser keeps the one
+    * bit of per-session state a reconnect restores the dialog from.
     *
     * '''A fill INVALIDATES the log entries for what it just re-supplied.'''
     * This is the one obligation every path that touches the DOM owes the ledger
@@ -856,10 +857,6 @@ class Server(
             )
           )
       }
-      _ <-
-        if (host == Dashboard.PopupHostId)
-          session.control.offer(Server.popupSignal(newSurface))
-        else IO.unit
     } yield ()
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
@@ -1060,17 +1057,21 @@ class Server(
             // The editor embeds the dashboard as `?edit=1`; that turns on the
             // per-node inspection overlay (Focus / Debug). Off for normal viewers.
             val editMode = req.uri.query.params.get("edit").contains("1")
-            val popup = req.uri.query.params
-              .get(Server.PopupSignal)
-              .filter(p => renderer.surface(p).nonEmpty)
             // What this document is showing, and so also what it must hand back
-            // on connect for the stream to agree with it — the ui state, the
-            // open popup, AND the version it was rendered at. That last part is
-            // what stops the first connect repainting a body the document
-            // already contains.
+            // on connect for the stream to agree with it — the ui state (the
+            // open popup included) AND the version it was rendered at. That
+            // last part is what stops the first connect repainting a body the
+            // document already contains.
+            //
+            // The popup claim is NARROWED first: a document does not show a
+            // dialog this dashboard cannot serve, so it must not seed one back
+            // either — on the signal or in the connect URL.
+            val restoreUi = renderer.openPopup(uiState) match {
+              case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
+              case None      => uiState - Dashboard.PopupHostId
+            }
             val restore = Server.Restore(
-              uiState,
-              popup,
+              restoreUi,
               Some(
                 Server.Cursor(
                   renderer.headHash,
@@ -1087,7 +1088,7 @@ class Server(
             // client-independent (a container patches its `self`, and the bake
             // lives on the document path), so this is sound to write into a
             // SHARED log.
-            val open = renderer.selectedSurfaces(uiState) ++ popup
+            val open = renderer.selectedSurfaces(uiState)
             val seedLog = live.log.update(l =>
               open
                 .flatMap(renderer.surfaceNodeIds)
@@ -1104,7 +1105,7 @@ class Server(
                   renderer.renderPage(
                     store.entities,
                     Viewer.Client(uiState),
-                    popup
+                    renderer.openPopup(uiState)
                   ),
                   renderer.stylesheets.map(assets.rewrite),
                   renderer.scripts.map(assets.rewrite),
@@ -1230,11 +1231,19 @@ class Server(
     // (Datastar parses the attribute as an expression) which sits in an HTML
     // attribute. HTML-escaping alone is not enough — `&#39;` decodes back to a
     // bare `'` and closes the literal early.
-    val popupSeed =
-      Server.escapeHtml(Server.escapeJsString(restore.popup.getOrElse("")))
+    // The popup host is the ONE selection with no card template to seed it —
+    // it lives in `theme.chrome`, outside every node — so the shell declares
+    // `ui_<hostId>` and mirrors it, exactly as a tabs mount does for its own.
+    val popupSignalName = Server.UiSignalPrefix + Dashboard.PopupHostId
+    val popupParamName = Server.UiParamPrefix + Dashboard.PopupHostId
+    val popupSeed = Server.escapeHtml(
+      Server.escapeJsString(
+        restore.uiState.getOrElse(Dashboard.PopupHostId, "")
+      )
+    )
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed'}"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
          |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseLatched">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
@@ -1418,11 +1427,10 @@ object Server {
     * DEFAULT tab, and its repaint would morph the correct seed away and drag
     * the URL along with it. A reconnect is the opposite case and needs no help:
     * it re-serializes the live signal store, which wins over these params
-    * wherever both name the same fact ([[uiStateOf]], [[popupOf]]).
+    * wherever both name the same fact ([[uiStateOf]]).
     */
   private[runtime] case class Restore(
       uiState: Map[String, String],
-      popup: Option[String],
       // What this document already SHOWS: the store version it was rendered at,
       // and the log it belongs to. Without it the first connect has no cursor
       // and takes the no-cursor branch, which inner-patches a body the document
@@ -1430,21 +1438,21 @@ object Server {
       cursor: Option[Cursor] = None
   ) {
 
-    /** `?ui.<id>=<v>&popup=<id>&<cursor>`, or `""` when there is nothing to
-      * restore. `&amp;` because this lands in an HTML attribute.
+    /** `?ui.<id>=<v>&<cursor>`, or `""` when there is nothing to restore. The
+      * open popup rides as `ui.<PopupHostId>` like any other selection. `&amp;`
+      * because this lands in an HTML attribute.
       */
     def query: String = {
       val params = uiState.toList.sorted.map { case (id, v) =>
         s"$UiParamPrefix${encode(id)}=${encode(v)}"
-      } ++ popup.map(p => s"$PopupSignal=${encode(p)}").toList ++
-        cursor.toList.flatMap(c =>
-          List(
-            s"$HeadHashSignal=${encode(c.headHash)}",
-            s"$StyleHashSignal=${encode(c.styleHash)}",
-            s"$LogIdSignal=${encode(c.logId)}",
-            s"$StoreVersionSignal=${c.version}"
-          )
+      } ++ cursor.toList.flatMap(c =>
+        List(
+          s"$HeadHashSignal=${encode(c.headHash)}",
+          s"$StyleHashSignal=${encode(c.styleHash)}",
+          s"$LogIdSignal=${encode(c.logId)}",
+          s"$StoreVersionSignal=${c.version}"
         )
+      )
       if (params.isEmpty) "" else params.mkString("?", "&amp;", "")
     }
 
@@ -1555,29 +1563,6 @@ object Server {
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
 
-  /** Which popup surface this client has open (`""` for none) — a fourth
-    * URL-riding signal, for the same reason as the three above and answering
-    * the one per-session question nothing else can.
-    *
-    * Without it the returning connection's open set is empty and the `<dialog
-    * open>` still standing in that DOM belongs to no session: it would never be
-    * updated again (and a body repaint cannot even remove it — the host lives
-    * in `theme.chrome`, outside `#dashboard`). Losing a popup you left open is
-    * not acceptable either; on a phone, backgrounding the tab is how you read a
-    * notification, not how you dismiss a dialog.
-    *
-    * Mirrored into the `popup` URL param like the ui-state signals
-    * ([[UrlSyncScript]]), so a REFRESH re-opens the dialog too — the signal
-    * itself dies with the document.
-    *
-    * PUSHED by the server, from the one place that changes the popup host
-    * ([[swapHost]]) plus the navigate that clears it — so it always names what
-    * the server actually rendered there, rather than what a client-side
-    * expression believed it asked for. At most one popup is open at a time (the
-    * host holds one), so a single string is the whole state.
-    */
-  val PopupSignal: String = "popup"
-
   /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
     * without navigating: set the param, or drop it when the value is empty.
     *
@@ -1677,7 +1662,7 @@ object Server {
     * ([[Restore]]), read from plain query params.
     *
     * Signals win where both exist, the same precedence [[uiStateOf]] and
-    * [[popupOf]] use and for the same reason: a reconnect re-serialises the
+    * [[uiStateOf]] uses and for the same reason: a reconnect re-serialises the
     * live signal store, and a stale param baked into the `data-init` URL at
     * page render must never override it. Without that rule a client would
     * resume from its ORIGINAL page version forever, and silently miss
@@ -1693,34 +1678,6 @@ object Server {
     } yield Cursor(hash, styleHash, logId, version)
   }
 
-  /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
-    * a client that has none.
-    *
-    * The signal is authoritative WHEN PRESENT, empty string included — that is
-    * how a client says "I closed it". Only a request that does not carry the
-    * signal at all falls back to the query param, which is the first connect
-    * ([[Restore]]); after that the signal always exists, so a stale param on a
-    * reconnect's URL can never re-open a dialog the user dismissed.
-    */
-  private[runtime] def popupOf(req: Request[IO]): Option[String] =
-    signalsOf(req)
-      .flatMap(_.get[String](PopupSignal).toOption)
-      .orElse(req.uri.query.params.get(PopupSignal))
-      .filter(_.nonEmpty)
-
-  /** The claimed popup, narrowed to one this dashboard can actually serve: a
-    * registered surface that really does host at the popup mount. Anything else
-    * (a renamed surface, a stale claim from another dashboard, a baked panel
-    * id) is not adopted into the session's open set.
-    */
-  private[runtime] def claimedPopup(
-      req: Request[IO],
-      renderer: Renderer
-  ): Option[String] =
-    popupOf(req).filter(
-      renderer.surface(_).exists(_.hostId == Dashboard.PopupHostId)
-    )
-
   /** Whether this request carries the live signal store — i.e. it is a
     * RECONNECT rather than a freshly-loaded document's first connect.
     */
@@ -1732,12 +1689,6 @@ object Server {
       .get("datastar")
       .flatMap(io.circe.parser.parse(_).toOption)
       .map(_.hcursor)
-
-  /** [[PopupSignal]] as a patch-signals event: the open surface id, or `""` for
-    * a closed host.
-    */
-  private[runtime] def popupSignal(surfaceId: Option[String]): ServerSentEvent =
-    Datastar.patchSignals(s"""{"$PopupSignal":"${surfaceId.getOrElse("")}"}""")
 
   /** The resume signals as one patch-signals event. Emitted on connect and
     * after every shared patch batch, so a client's cursor names what it has

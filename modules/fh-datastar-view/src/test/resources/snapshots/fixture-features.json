@@ -132,7 +132,7 @@
         "kind" : "component",
         "slots" : {
           "label" : "Detail…",
-          "onclick" : "@post('sse/surface/open/detail')"
+          "onclick" : "@post('sse/surface/open/detail'); $ui_popups = 'detail'"
         }
       },
       {
@@ -163,7 +163,7 @@
                       "kind" : "component",
                       "slots" : {
                         "label" : "Close",
-                        "onclick" : "@post('sse/popup/close')"
+                        "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
                       }
                     }
                   ],
@@ -183,7 +183,7 @@
         "kind" : "component",
         "slots" : {
           "label" : "Inline…",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self')"
+          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'"
         }
       }
     ],
@@ -232,7 +232,7 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"
@@ -314,7 +314,7 @@
             "kind" : "component",
             "slots" : {
               "label" : "Close",
-              "onclick" : "@post('sse/popup/close')"
+              "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
             }
           }
         ],

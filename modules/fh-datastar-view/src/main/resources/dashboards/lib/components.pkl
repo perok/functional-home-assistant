@@ -326,13 +326,15 @@ function navigate(slug: String): Tap = new {
 
 /// Dismiss the (single, at-a-time) open popup — the id-less `POST
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.
-function closePopup(): Tap = new { onclick = "@post('sse/popup/close')" }
+/// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
+/// the signal is what a refresh and a reconnect restore from.
+function closePopup(): Tap = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
 function openPopup(surfaceId: String): Tap =
-  new { onclick = "@post('sse/surface/open/\(surfaceId)')" }
+  new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
@@ -345,7 +347,7 @@ function openPopup(surfaceId: String): Tap =
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
 // per the Pkl amend-scoping gotcha.
 function openPopupInline(body: Node): Tap = new {
-  onclick = "@post('sse/surface/open/\(NODE_ID)_self')"
+  onclick = "@post('sse/surface/open/\(NODE_ID)_self'); $ui_popups = '\(NODE_ID)_self'"
   inlineSurfaces = new Mapping {
     ["self"] = new SurfaceDef { content = new Popup { children { body } } }
   }
@@ -674,7 +676,7 @@ class Popup extends Node {
   // dialog is transient — present only while open. The ✕ posts the id-less
   // close. Ported verbatim from components.libsonnet:511.
   cardDef = new ContainerCard {
-    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
 /// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).

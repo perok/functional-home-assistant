@@ -232,21 +232,23 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("the page shell seeds the popup signal from the URL, or empty") {
-    // A refresh with ?popup=<id> must re-open the dialog: the seeded signal
+  test("the page shell seeds the popup selection from the URL, or empty") {
+    // A refresh with ?ui.popups=<id> must re-open the dialog: the seeded signal
     // reaches the SSE connect, which renders it back into its host. An unknown
-    // id is dropped rather than seeded.
+    // id is dropped rather than seeded. The popup host is the one selection
+    // with no card template to declare its signal — it lives in theme.chrome —
+    // so the shell declares it, but it is `ui_<hostId>` like every other.
     val dash = titleDash("home", None).copy(
       surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
     )
     for {
-      seeded <- pageHtml(dash, "?popup=det")
-      unknown <- pageHtml(dash, "?popup=nope")
+      seeded <- pageHtml(dash, "?ui.popups=det")
+      unknown <- pageHtml(dash, "?ui.popups=nope")
       none <- pageHtml(dash)
     } yield {
-      assert(seeded.contains(s"""${Server.PopupSignal}: \'det\'"""), seeded)
-      assert(unknown.contains(s"""${Server.PopupSignal}: \'\'"""), unknown)
-      assert(none.contains(s"""${Server.PopupSignal}: \'\'"""), none)
+      assert(seeded.contains(s"""$PopupSig: \'det\'"""), seeded)
+      assert(unknown.contains(s"""$PopupSig: \'\'"""), unknown)
+      assert(none.contains(s"""$PopupSig: \'\'"""), none)
       // And the URL mirror helper is defined before Datastar can call it.
       assert(none.contains("window.fhUrl="), none)
     }
@@ -261,11 +263,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
     )
     for {
-      restored <- pageHtml(dash, "?ui.c=1&popup=det")
+      restored <- pageHtml(dash, "?ui.c=1&ui.popups=det")
       plain <- pageHtml(dash)
     } yield {
       assert(restored.contains("sse/dashboard/home/patch?ui.c=1"), restored)
-      assert(restored.contains("popup=det"), restored)
+      assert(restored.contains("ui.popups=det"), restored)
       // ...and the CURSOR: the version this document was rendered at, so the
       // first connect resumes from it instead of taking the no-cursor branch
       // and inner-patching a body the document already contains.
@@ -285,24 +287,56 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("popupOf: the signal wins when present, the URL only seeds a connect") {
+  test("the popup selection: signal wins when present, URL only seeds") {
     // A first connect has the param and no signal.
-    assertEquals(Server.popupOf(get(Server.PopupSignal -> "det")), Some("det"))
-    // A reconnect after the user closed it carries `popup: ""` alongside the
-    // page's now-stale param: the signal is authoritative, so the dialog stays
-    // closed rather than resurrecting on every retry.
     assertEquals(
-      Server.popupOf(
-        Request[IO](
-          Method.GET,
-          uri"/"
-            .withQueryParam(Server.PopupSignal, "det")
-            .withQueryParam("datastar", s"""{"${Server.PopupSignal}":""}""")
-        )
-      ),
-      None
+      Server.uiStateOf(get("ui.popups" -> "det")).get("popups"),
+      Some("det")
     )
-    assertEquals(Server.popupOf(get()), None)
+    // A reconnect after the user closed it carries `ui_popups: ""` alongside
+    // the page's now-stale param: the signal is authoritative, so the dialog
+    // stays closed rather than resurrecting on every retry. This is the same
+    // precedence every tab selection gets — one rule, not a popup rule.
+    assertEquals(
+      Server
+        .uiStateOf(
+          Request[IO](
+            Method.GET,
+            uri"/"
+              .withQueryParam("ui.popups", "det")
+              .withQueryParam("datastar", """{"ui_popups":""}""")
+          )
+        )
+        .get("popups"),
+      Some("")
+    )
+    assertEquals(Server.uiStateOf(get()).get("popups"), None)
+  }
+
+  test("openPopup adopts only a surface this dashboard can actually host") {
+    val r = Renderer.create(
+      titleDash("home", None).copy(
+        surfaces = Map(
+          "det" -> Surface(LayoutNode.Component("col")),
+          // Baked into a node, so it hosts in a panel — never the popup mount.
+          "panel" -> Surface(
+            LayoutNode.Component("col"),
+            bakeInto = Some("c"),
+            bakeAs = Some("panel")
+          )
+        )
+      )
+    )
+    assertEquals(r.openPopup(Map("popups" -> "det")), Some("det"))
+    // Closed, unknown (renamed/removed/another dashboard's), and a baked panel
+    // id are all refused — adopting one would put the session in a state its
+    // renderer cannot serve.
+    assertEquals(r.openPopup(Map("popups" -> "")), None)
+    assertEquals(r.openPopup(Map("popups" -> "nope")), None)
+    assertEquals(r.openPopup(Map("popups" -> "panel")), None)
+    assertEquals(r.openPopup(Map.empty), None)
+    // ...and an adopted one joins the open set through the ordinary path.
+    assert(r.selectedSurfaces(Map("popups" -> "det")).contains("det"))
   }
 
   test("page <title> uses the dashboard's authored title when present") {
@@ -1305,7 +1339,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           s""""${Server.LogIdSignal}":"${c.logId}"""",
           s""""${Server.StoreVersionSignal}":${c.version}"""
         )
-      ) ++ popup.map(p => s""""${Server.PopupSignal}":"$p"""")
+      ) ++ popup.map(p => s""""$PopupSig":"$p"""")
       val uri =
         if (signals.isEmpty) uri"/sse/dashboard/dashboard/patch"
         else
@@ -2018,13 +2052,10 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield out)
       .timeout(30.seconds)
       .map { case (emitted, open) =>
-        // One signal per host swap, always naming what was rendered there.
-        assertEquals(
-          emitted.filter(_.contains("datastar-patch-signals")),
-          List("det", "other", "").map(id =>
-            Server.popupSignal(Option(id).filter(_.nonEmpty)).renderString
-          )
-        )
+        // The server pushes NO signal for the swap. The tap that asked for it
+        // already set `ui_popups` client-side, the way a tab button sets its
+        // own — one mechanism for every selection.
+        assertEquals(emitted.filter(_.contains("datastar-patch-signals")), Nil)
         // One host, one occupant: a popup replaces the previous one, and a close
         // leaves nothing behind.
         assertEquals(open, Set.empty[String])
@@ -2138,6 +2169,11 @@ class ServerSuite extends munit.CatsEffectSuite {
   /** The mounts a shared batch left for each connection to fill itself. */
   private def reveals(out: List[Directed]): List[NodeId] =
     out.collect { case r: Reveal => r.owner }
+
+  /** The popup host's selection signal — `ui_` + the host id, exactly as the
+    * shell composes it.
+    */
+  private val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
   private val Elements = "datastar-patch-elements"
   private val Signals = "datastar-patch-signals"

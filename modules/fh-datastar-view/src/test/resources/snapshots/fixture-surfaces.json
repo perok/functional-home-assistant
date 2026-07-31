@@ -273,7 +273,7 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"

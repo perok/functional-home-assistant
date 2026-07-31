@@ -611,8 +611,31 @@ class Renderer(
         .toSet
     val fromUnbaked =
       unbaked.collect { case (sid, s) if defaultOpenUser(s) => sid }.toSet
-    fromGroups ++ fromUnbaked
+    fromGroups ++ fromUnbaked ++ openPopup(uiState)
   }
+
+  /** The popup this ui state has open, narrowed to one this dashboard can
+    * actually serve.
+    *
+    * The popup host is a selection like any other — `ui_<hostId>`, set by the
+    * open/close taps exactly as a tab button sets `ui_<id>` — so it arrives
+    * through the same map, with the same signals-beat-query precedence, and
+    * needs no channel of its own. Its VALUE is a surface id rather than a
+    * member index, because the host is not a bake group: any registered surface
+    * can appear there, and only one at a time.
+    *
+    * Narrowing is the whole reason this is a method: a claim can name a surface
+    * this dashboard renamed, removed, or never had (a stale URL, another
+    * dashboard's dialog), and adopting one would put a session in a state its
+    * renderer cannot serve.
+    */
+  def openPopup(uiState: Map[String, String]): Option[String] =
+    uiState
+      .get(Dashboard.PopupHostId)
+      .filter(_.nonEmpty)
+      .filter(sid =>
+        dashboard.surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
+      )
 
   /** Warnings for any USER-selected bake group whose `uiState` value was
     * present but off (unparseable / out of range). Pure — returns data (the

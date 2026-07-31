@@ -94,7 +94,7 @@ class UiSmokeSuite extends SmokeSuite {
         // …and it is in the served HTML, not patched in afterwards: baked into
         // the theme chrome's popup hole, so there is no dashboard-first,
         // dialog-a-moment-later flash.
-        html <- ts.page(s"?${fh.view.runtime.Server.PopupSignal}=detail")
+        html <- ts.page("?ui.popups=detail")
       } yield assert(html.contains("Kitchen Detail"), clue = html)
     }
   }

@@ -897,8 +897,12 @@ has nothing left to clear.
 
 The popup needs no branch of its own. A body repaint replaces `#dashboard` only, and `#popups`
 lives in `theme.chrome` outside it, so an open dialog is never disturbed; its nodes are in `open`,
-so the ordinary rule reconciles them. That deletes the whole `popupOf` / `claimedPopup` /
-host-reset block.
+so the ordinary rule reconciles them. That deletes `popupOf` and `claimedPopup`.
+
+**The host reset survives** (deviation, found landing W11). One case is not a resume question at
+all: a claim naming a surface this dashboard renamed, removed, or never had. That dialog is in
+nobody's open set and no rule reconciles it, so without the reset it sits on screen forever. It is
+now one condition over the ui state rather than a popup-specific pair of functions.
 
 **Two supporting facts.**
 
@@ -1430,7 +1434,7 @@ measurement rather than up front.
 | W9 | Reconnect repaint: invalidate the session's open surfaces' entries; delete the `sessionPaint` and popup-restore blocks. `reloadRepaints` drops `lastRendered.cleared` | `Server` |
 | W10 | `flipStateGroup` emits membership mutations (`Gone` + `Placed`) instead of a host morph; `repaintGroup` emits a mount fill; both stop logging a container-level fragment. `Mutation` generalises to `(containerId, memberKey)`. The per-connection stage appends fills for user groups revealed by a flip | `Patches`, `FragmentLog`, `Server.sseStream` |
 | W10b | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
-| W11 | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>` | `Server` |
+| W11 ✅ LANDED | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>`; the open/close taps set it client-side like a tab button. The host reset stays — see "The resume rule" | `Server`, `Renderer`, `lib/components.pkl` |
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
 | W13 (mostly absorbed by W16) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
@@ -1485,7 +1489,7 @@ behaviour-free commit that everything after is written against.
 | **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
-| **3 — the collapse** | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11, W12 ✅, W13 | the per-session pass dies here; nothing earlier depends on that |
+| **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 (absorbed by W16) | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** | W16 (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** | W15 | last, so the ADRs describe what actually shipped |
 
