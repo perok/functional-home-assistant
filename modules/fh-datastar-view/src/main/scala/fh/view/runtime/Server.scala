@@ -53,11 +53,12 @@ import scala.concurrent.duration.*
   * page and open surfaces alike. Who may see each patch is decided at the wire
   * edge by its [[Addressed]] tag, not by re-rendering per client.
   *
-  * ONE thing genuinely cannot be rendered for everyone at once: which member of
-  * a USER-selected mount a given viewer chose. So the shared pass leaves such a
-  * mount empty ([[Viewer.Nobody]]) and emits a [[Reveal]]; each connection
-  * fills its own ([[fillMount]]). That is the entire per-connection render
-  * budget. Construct via [[Server.resource]], which creates the topic and runs
+  * ONE thing genuinely cannot be rendered for everyone at once: a branch whose
+  * subtree mounts a client-selected member. The shared pass does not render
+  * those at all — it publishes a [[Varying]] carrying the render, and each
+  * connection performs it against its own selections at send time. That is the
+  * entire per-connection render budget, and it still arrives as ONE complete
+  * patch. Construct via [[Server.resource]], which creates the topic and runs
   * the publishers.
   *
   * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
@@ -389,8 +390,8 @@ class Server(
     *     ([[Renderer.affectedStateGroups]]) gets its HOST re-rendered —
     *     [[Renderer]]'s bake picks the newly-selected member against CURRENT
     *     state — morphed, and its members' cache entries pruned
-    *     ([[flipStateGroup]]). A user mount inside the arriving branch comes
-    *     out empty and is filled per connection ([[Reveal]]).
+    *     ([[flipStateGroup]]). A branch whose subtree mounts a client-selected
+    *     member is not rendered here at all — it rides as a [[Varying]].
     *   - '''Active-member liveness''': for each surface in the main-rooted
     *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
     *     just-flipped subtrees — their host morph re-rendered them wholesale)
@@ -525,12 +526,18 @@ class Server(
             tagged
               .collect { case (s, a) if s == session.slug => a }
               .evalFilter(a => session.open.get.map(a.visibleTo))
-              // Ready bytes pass through; a Reveal is the one item this
-              // connection has to finish itself, because only it knows which
-              // member of that mount its viewer chose.
+              // Ready bytes pass through; a Varying is the one item this
+              // connection renders itself, because only it knows which member
+              // its viewer has mounted. `open` is the live selection — a tab
+              // clicked mid-connection moves it, while the `uiState` this
+              // connection arrived with does not.
               .evalMap {
                 case Addressed(_, event) => IO.pure(Option(event))
-                case Reveal(_, owner)    => fillMount(session, owner)
+                case Varying(_, render)  =>
+                  (rendererFor(session.slug), session.open.get).mapN {
+                    (rendererOpt, open) =>
+                      rendererOpt.map(r => render(r.uiStateFrom(open)))
+                  }
               }
               .unNone
           Stream
@@ -648,12 +655,12 @@ class Server(
                   store.entities,
                   resumeFrom(req, c),
                   open,
-                  Viewer.Client(uiState)
+                  uiState
                 )
             )
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
-            renderer.renderBody(store.entities, Viewer.Client(uiState)),
+            renderer.renderBody(store.entities, uiState),
             PatchMode.Inner,
             Some("#dashboard")
           )
@@ -721,7 +728,7 @@ class Server(
                     else Nil
                   head ++ List(
                     Datastar.patch(
-                      r.renderBody(store.entities, Viewer.Client(uiState)),
+                      r.renderBody(store.entities, uiState),
                       PatchMode.Inner,
                       Some("#dashboard")
                     ),
@@ -736,37 +743,6 @@ class Server(
           }
           .flatMap(Stream.emits)
       }
-
-  /** Finish a [[Reveal]] for THIS connection: a state flip re-created a
-    * user-selected mount, and the shared pass deliberately left it empty
-    * because it had no client to choose for ([[Viewer.Nobody]]). Fill it with
-    * the member this viewer has open — which for a client that never chose is
-    * the group's `defaultOpen` one, already seeded into `open` on connect.
-    *
-    * This is the ONLY per-connection rendering left, and it is the irreducible
-    * one: everything else about the branch was decided by entity state and
-    * rendered once for the slug.
-    */
-  private def fillMount(
-      session: Session,
-      owner: NodeId
-  ): IO[Option[ServerSentEvent]] =
-    (rendererFor(session.slug), session.open.get, stateStore.current).mapN {
-      (rendererOpt, open, store) =>
-        for {
-          renderer <- rendererOpt
-          // The whole mount element, not just its contents: `bakeIndex` rides
-          // on the element's own attributes, so filling only the inside would
-          // give this client its member under someone else's selection signal.
-          html <- renderer.renderMountElement(
-            owner,
-            store.entities,
-            Viewer.Client(renderer.uiStateFrom(open))
-          )
-        } yield Patch
-          .Insert(html, PatchMode.Outer, renderer.mountId(owner))
-          .toSse
-    }
 
   /** Open (or switch to) a surface for this connection: resolve its host —
     * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
@@ -842,7 +818,7 @@ class Server(
       _ <- newSurface match {
         case Some(sid) =>
           renderer
-            .renderSurface(sid, states, Viewer.Client(uiState))
+            .renderSurface(sid, states, uiState)
             .traverse_(html =>
               session.control.offer(
                 Datastar.patch(html, PatchMode.Inner, Some("#" + host))
@@ -1104,7 +1080,7 @@ class Server(
                   slug,
                   renderer.renderPage(
                     store.entities,
-                    Viewer.Client(uiState),
+                    uiState,
                     renderer.openPopup(uiState)
                   ),
                   renderer.stylesheets.map(assets.rewrite),

@@ -941,7 +941,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
     // uiState maps the tabs component id ("c") to the active index "1".
-    val body = rr.renderBody(states, Viewer.Client(Map("c" -> "1")))
+    val body = rr.renderBody(states, Map("c" -> "1"))
     // the panel host seeds `tab_c: 1` (from the injected bakeIndex)...
     assert(
       body.contains(
@@ -1085,7 +1085,7 @@ class RendererSuite extends munit.FunSuite {
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderBody(states, Viewer.Client(Map("c" -> "1")))
+    val sel = rr.renderBody(states, Map("c" -> "1"))
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)

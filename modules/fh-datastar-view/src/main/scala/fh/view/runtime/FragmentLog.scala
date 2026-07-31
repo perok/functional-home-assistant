@@ -117,10 +117,10 @@ private[runtime] enum MemberKey {
       renderer: Renderer,
       container: NodeId,
       states: Map[String, EntityState],
-      viewer: Viewer = Viewer.anonymous
+      uiState: Map[String, String] = Map.empty
   ): Option[String] = this match {
     case Entity(e)  => renderer.renderDynamicChild(container, e, states)
-    case Surface(s) => renderer.renderSurface(s, states, viewer)
+    case Surface(s) => renderer.renderSurface(s, states, uiState)
   }
 }
 
@@ -317,12 +317,28 @@ private[runtime] case class FragmentLog(
       html: String,
       stamp: Stamp
   ): FragmentLog =
-    set(nodeId, html, stamp.version)
-      .copy(
-        mutations =
-          mutations.updated(nodeId, Mutation.Placed(container, member, stamp))
-      )
-      .evicting(stamp.millis)
+    placed(container, member, nodeId, stamp).set(nodeId, html, stamp.version)
+
+  /** [[placed]] for a member whose bytes are NOT one thing: its subtree mounts
+    * a client-selected member, so what each viewer received differs and no
+    * single digest describes them all.
+    *
+    * Recording the structure without the bytes is exactly what statement (3)
+    * permits — an absent entry reads as "unknown, send it", so the cost is one
+    * redundant re-send on the next tick and never a suppressed change. The
+    * alternative, storing one viewer's digest as if it were everyone's, would
+    * suppress a real change for all the others.
+    */
+  def placed(
+      container: NodeId,
+      member: MemberKey,
+      nodeId: NodeId,
+      stamp: Stamp
+  ): FragmentLog =
+    copy(
+      mutations =
+        mutations.updated(nodeId, Mutation.Placed(container, member, stamp))
+    ).evicting(stamp.millis)
 
   /** Forget mutations older than [[FragmentLog.Retention]] relative to `now`,
     * raising [[horizon]] past everything dropped so no cursor is ever served a

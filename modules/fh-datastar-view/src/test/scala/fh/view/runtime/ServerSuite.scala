@@ -138,7 +138,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val uiState = Server.uiStateOf(get("ui.c" -> "1"))
     // The server seeds the open set (and bakes) from this selection.
     assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
-    assert(r.renderBody(Map.empty, Viewer.Client(uiState)).contains("tab_c: 1"))
+    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
     assert(
       r.uiStateAnomalies(uiState).isEmpty,
       clue = r.uiStateAnomalies(uiState)
@@ -149,7 +149,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val r = tabsRenderer
     val uiState = Server.uiStateOf(get("ui.c" -> "abc"))
     assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))
-    assert(r.renderBody(Map.empty, Viewer.Client(uiState)).contains("tab_c: 0"))
+    assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
     assertEquals(r.uiStateAnomalies(uiState).size, 1)
   }
 
@@ -603,10 +603,10 @@ class ServerSuite extends munit.CatsEffectSuite {
     override def renderNodeById(
         id: NodeId,
         states: Map[String, EntityState],
-        viewer: Viewer
+        uiState: Map[String, String]
     ): Option[String] = {
       count.incrementAndGet()
-      super.renderNodeById(id, states, viewer)
+      super.renderNodeById(id, states, uiState)
     }
   }
 
@@ -2166,9 +2166,14 @@ class ServerSuite extends munit.CatsEffectSuite {
   private def readyEvents(out: List[Directed]): List[ServerSentEvent] =
     out.collect { case a: Addressed => a.event }
 
-  /** The mounts a shared batch left for each connection to fill itself. */
-  private def reveals(out: List[Directed]): List[NodeId] =
-    out.collect { case r: Reveal => r.owner }
+  /** The patches a shared batch left for each connection to RENDER itself,
+    * resolved against one viewer's selections.
+    */
+  private def varying(
+      out: List[Directed],
+      uiState: Map[String, String] = Map.empty
+  ): List[ServerSentEvent] =
+    out.collect { case v: Varying => v.render(uiState) }
 
   /** The popup host's selection signal — `ui_` + the host id, exactly as the
     * shell composes it.

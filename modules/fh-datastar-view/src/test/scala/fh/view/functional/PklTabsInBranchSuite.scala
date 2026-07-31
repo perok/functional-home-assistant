@@ -110,9 +110,17 @@ class PklTabsInBranchSuite extends munit.CatsEffectSuite {
         trigger = ts.fake.emit(light.entityId, "off") *>
           ts.fake.emit(light.entityId, "on", light.attributes)
       ).map { live =>
-        // The branch came back...
+        // ONE patch, not a hollow mount followed by a fill. The branch and the
+        // panel this viewer chose arrive together, so there is no frame in
+        // which the tabs card exists with nothing in it.
+        assertEquals(
+          live.linesIterator
+            .count(_.startsWith("event: datastar-patch-elements")),
+          1,
+          clue = live
+        )
         assert(live.contains("Light is on"), clue = live)
-        // ...and this viewer got ITS panel back.
+        // ...and this viewer got ITS panel, inside that same patch.
         assert(live.contains("Outside Temperature"), clue = live)
         // The silent regression this guards: the default tab's content reaching
         // a client that is not on the default tab. Not "not in the last patch"
@@ -141,6 +149,9 @@ class PklTabsInBranchSuite extends munit.CatsEffectSuite {
     * panel that arrives with the wrong index — or with none, which is not even
     * valid — leaves the bar highlighting a different tab than the one on
     * screen. Asserted on the wire because it is invisible to a content check.
+    *
+    * Since the branch is rendered for its viewer, the index is right by
+    * construction rather than corrected afterwards.
     */
   test("a re-revealed panel carries THIS client's selection signal") {
     withServer { ts =>

@@ -55,22 +55,26 @@ private[runtime] case class Addressed(
     event: ServerSentEvent
 ) extends Directed
 
-/** A USER-selected mount that the shared pass just re-created EMPTY, because it
-  * had no client to choose a member for (see [[Viewer.Nobody]]). Each
-  * connection turns it into its OWN member's content — the one thing in the
-  * whole pipeline that cannot be rendered once and fanned out.
+/** A patch whose BYTES depend on which member the viewer has mounted.
   *
-  * It rides the same stream as the patches so it lands in order, after the
-  * mount exists and before anything inside it ticks.
+  * A flip inserts a whole branch, and if a tabs card sits inside it, that
+  * branch's HTML is not one thing — it is one thing per selection. So the
+  * shared pass does not render it at all: it carries the render, and each
+  * connection performs it against its own selections at send time.
+  *
+  * This is the ONLY per-viewer rendering in the system, and it is the
+  * irreducible one. Everything else about the branch — that it flipped, when,
+  * and which member won — was decided by entity state and is identical for
+  * everybody.
   */
-private[runtime] case class Reveal(
+private[runtime] case class Varying(
     surface: Option[String],
-    owner: NodeId
+    render: Map[String, String] => ServerSentEvent
 ) extends Directed
 
 /** Something the shared pass produced, plus who may see it. Either already
-  * bytes ([[Addressed]]) or an instruction one connection resolves for itself
-  * ([[Reveal]]) — the only two kinds there are, because a client's own
+  * bytes ([[Addressed]]) or a render one connection performs for itself
+  * ([[Varying]]) — the only two kinds there are, because a client's own
   * selection is the only thing a per-slug render cannot know.
   */
 private[runtime] sealed trait Directed {
@@ -255,21 +259,26 @@ private[runtime] object Patches {
     val (logAfterFlips, flipPatches) =
       req.flips.foldLeft((log, List.empty[Directed])) {
         case ((c, acc), (gid, surface)) =>
-          val (c2, ps, revealed) =
+          val (c2, ps, varying) =
             flipStateGroup(renderer, c, gid, req.before, req.states, at)
-          // The mount patch FIRST, then the fills for what it left empty: the
-          // element has to exist before a connection can put its own member in
-          // it, and one ordered stream is what guarantees that.
           (
             c2,
             acc ++ ps.map(p => Addressed(surface, p.toSse)) ++
-              revealed.map(Reveal(surface, _))
+              varying.map(f =>
+                Varying(
+                  surface,
+                  ui =>
+                    f(ui)
+                      .fold(Patch.Remove(renderer.mountId(gid)))(identity)
+                      .toSse
+                )
+              )
           )
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
         renderer
-          .renderNodeById(id, req.states, Viewer.Nobody)
+          .renderNodeById(id, req.states)
           .map(html => (id, surface, html))
       }
     val (logAfterStatic, staticPatches) =
@@ -363,7 +372,7 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       v: Long,
       open: Set[String] = Set.empty,
-      viewer: Viewer = Viewer.anonymous
+      uiState: Map[String, String] = Map.empty
   ): List[ServerSentEvent] = {
     val owed = log.since(v)
     // Split by CONTAINER KIND, because the two mounts want different tools: a
@@ -387,7 +396,7 @@ private[runtime] object Patches {
           renderer,
           gid,
           renderer
-            .renderMount(gid, states, viewer)
+            .renderMount(gid, states, uiState)
             .map(_._2)
             .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
@@ -435,7 +444,7 @@ private[runtime] object Patches {
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
       Patch.Insert(
-        renderer.renderMount(gid, states, viewer).map(_._2).mkString,
+        renderer.renderMount(gid, states, uiState).map(_._2).mkString,
         PatchMode.Inner,
         renderer.mountId(gid)
       )
@@ -542,7 +551,11 @@ private[runtime] object Patches {
       before: Map[String, EntityState],
       states: Map[String, EntityState],
       at: Stamp
-  ): (FragmentLog, List[Patch], List[NodeId]) = {
+  ): (
+      FragmentLog,
+      List[Patch],
+      List[Map[String, String] => Option[Patch]]
+  ) = {
     def memberAt(
         snapshot: Map[String, EntityState]
     ): Option[String] =
@@ -557,25 +570,43 @@ private[runtime] object Patches {
       val prefixes = renderer.bakeMemberPrefixes(gid)
       val pruned = log.invalidateWhere(k => prefixes.exists(k.startsWith))
       val departed = was.map(renderer.surfaceContentId)
-      val arrived = now.flatMap(sid =>
-        val member = MemberKey.Surface(sid)
-        member
-          // For NOBODY: the branch is one rendering serving every viewer, so
-          // any user-selected mount inside it comes out empty and is filled per
-          // connection from the [[Reveal]]s below.
-          .render(renderer, gid, states, Viewer.Nobody)
-          .map(html => (renderer.surfaceContentId(sid), member, html))
-      )
       val withGone = departed.foldLeft(pruned)(_.removed(gid, _, at))
-      val withPlaced = arrived.foldLeft(withGone) {
-        case (l, (nodeId, member, html)) =>
-          l.placed(gid, member, nodeId, html, at)
+      // Can ONE rendering of the arriving branch serve every viewer? It cannot
+      // exactly when a user-selected mount sits inside it.
+      now.filter(renderer.variesByViewer) match {
+        case Some(sid) =>
+          val member = MemberKey.Surface(sid)
+          val nodeId = renderer.surfaceContentId(sid)
+          (
+            // Structure only. The bytes differ per viewer, so there is no one
+            // digest to record — see `FragmentLog.placed`'s four-argument form.
+            withGone.placed(gid, member, nodeId, at),
+            Nil,
+            List((ui: Map[String, String]) =>
+              member
+                .render(renderer, gid, states, ui)
+                .map(html =>
+                  Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid))
+                )
+            )
+          )
+        case None =>
+          val arrived = now.flatMap(sid =>
+            val member = MemberKey.Surface(sid)
+            member
+              .render(renderer, gid, states)
+              .map(html => (renderer.surfaceContentId(sid), member, html))
+          )
+          val withPlaced = arrived.foldLeft(withGone) {
+            case (l, (nodeId, member, html)) =>
+              l.placed(gid, member, nodeId, html, at)
+          }
+          (
+            withPlaced,
+            branchPatch(renderer, gid, arrived.map(_._3), departed),
+            Nil
+          )
       }
-      (
-        withPlaced,
-        branchPatch(renderer, gid, arrived.map(_._3), departed),
-        now.toList.flatMap(renderer.userOwnersIn).sorted
-      )
     }
   }
 
