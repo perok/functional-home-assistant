@@ -275,7 +275,7 @@ class Renderer(
   /** Component ids that own a USER-selected bake group (tabs). Their own
     * rendering is shared like any other node — the client-selected member lives
     * in the MOUNT, which a patch never carries. What is per-client is filling
-    * that mount: see [[userOwnersIn]] and `Patches.Reveal`.
+    * that mount: see [[variesByViewer]] and `Patches.Varying`.
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -288,29 +288,14 @@ class Renderer(
   val stateBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filter(isStateGroup)
 
-  /** The USER-selected bake owners inside a member surface's content, following
-    * nested state members transitively — the mounts a client must fill for
-    * itself once that member is placed. A state member in between is followed
-    * because its own selection is state-decided and therefore already known.
-    */
-  def userOwnersIn(sid: String): Set[NodeId] = {
-    val ids =
-      surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
-    ids.filter(userBakeOwnerIds) ++ ids
-      .filter(stateBakeOwnerIds)
-      .flatMap(gid => bakeGroup(gid).flatMap(userOwnersIn))
-  }
-
   /** Whether rendering surface `sid`'s content produces different HTML for
     * different viewers — i.e. whether a USER-selected mount appears anywhere
-    * under it, following BOTH kinds of member.
+    * under it.
     *
-    * [[userOwnersIn]] follows only state members, because it answers "which
-    * mounts must be filled"; this answers "can one rendering serve everyone",
-    * and for that a tabs card nested inside another tab's panel counts just as
-    * much. Over-answering `true` costs a redundant per-viewer render; answering
-    * `false` wrongly hands every viewer the same tab, so the walk errs wide and
-    * follows everything.
+    * The walk follows BOTH kinds of member, because a tabs card nested inside
+    * another tab's panel varies just as much as one inside an `If` branch.
+    * Over-answering `true` costs a redundant per-viewer render; answering
+    * `false` wrongly hands every viewer the same tab, so it errs wide.
     *
     * The visited set is not defensive tidiness: `bakeInto` is authored, so a
     * surface can name a host inside its own subtree and the walk would not
@@ -941,40 +926,6 @@ class Renderer(
         case i  => Some(gid -> i.toString)
       }
     }.toMap
-
-  /** Render one node's MOUNT ELEMENT alone — the mount template with THIS
-    * viewer's baked member and `bakeIndex`, wrapping that member's content.
-    *
-    * A mount carries client-dependent ATTRIBUTES, not just client-dependent
-    * children: a tabs mount seeds its selection signal from `bakeIndex`. So a
-    * connection filling its own member has to replace the element, not just
-    * what is inside it — otherwise the content is the client's while the
-    * selection signal is still whoever's the shared render guessed.
-    *
-    * `None` for a card with no mount.
-    */
-  def renderMountElement(
-      id: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String]
-  ): Option[String] =
-    allIndexed.get(id).flatMap {
-      case (c: LayoutNode.Component, path, prefix) =>
-        templates.mounts.get(c.card).map { t =>
-          val (baked, bakeIndex) = resolveBake(id, uiState, states)
-          val childrenHtml = c.children.zipWithIndex.map { case (ch, i) =>
-            render(ch, path :+ i, prefix, states, uiState)
-          }
-          renderTemplateOf(
-            t,
-            structuralVars(id) ++ bakeIndex ++ baked,
-            c.slots,
-            childrenHtml,
-            states
-          )
-        }
-      case _ => None
-    }
 
   /** Render whatever node a LOG KEY names — the inverse the ledger needs.
     *

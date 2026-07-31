@@ -1303,7 +1303,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
   }
 
-  test("userOwnersIn: the mounts a client must fill once a branch is placed") {
+  test("variesByViewer: a user mount under a branch makes it per-viewer") {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
     // HTML embeds a client-selected member and cannot render shared.
@@ -1327,15 +1327,11 @@ class RendererSuite extends munit.FunSuite {
         )
       )
     )
-    // The then-branch holds a tabs host, so placing that branch leaves ONE
-    // mount for each connection to fill with its own panel.
-    assertEquals(Renderer.create(d).userOwnersIn("c_then"), Set("s_c_then__c"))
-    // A branch with no user owner anywhere needs no fill at all: it is one
-    // rendering that serves every viewer.
-    assertEquals(
-      Renderer.create(ifDashboard()).userOwnersIn("c_then"),
-      Set.empty[String]
-    )
+    // The then-branch holds a tabs host, so its HTML is not one thing — it is
+    // one thing per selection, and the shared pass must not render it.
+    assert(Renderer.create(d).variesByViewer("c_then"))
+    // A branch with no user mount anywhere is one rendering serving everyone.
+    assert(!Renderer.create(ifDashboard()).variesByViewer("c_then"))
   }
 
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
