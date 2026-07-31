@@ -1,8 +1,15 @@
 # Plan: the self/mount split, one shared change ledger, per-client filtering
 
-**Status: designed, not implemented.** Supersedes the "variant-keyed log" deferred in
-ADR 0011, and replaces an earlier draft of this plan built on an empty-baked host plus a
-`data-ignore-morph` freeze — see "Rejected".
+**Status: ✅ COMPLETE.** Every phase has landed; the ADRs (0002, 0005, 0007, 0008, 0011) now
+describe the result, so THEY are the current-state documents and this plan is the record of how it
+was arrived at — including the three dead ends, which is the part worth keeping.
+
+Two items are deliberately deferred rather than dropped: **W17** (the per-variant render memo and a
+cache across batches, both measurement-gated) and **`data-signals__ifmissing`** (tried, reverted,
+reproducer named — see "Render at the edge").
+
+Superseded the "variant-keyed log" deferred in ADR 0011, and replaced an earlier draft of this plan
+built on an empty-baked host plus a `data-ignore-morph` freeze — see "Rejected".
 
 ## The three statements everything else follows from
 
@@ -1475,7 +1482,7 @@ measurement rather than up front.
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
 | W17 | Deferred, measurement-gated: the per-variant render memo, and a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
-| W15 | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
+| W15 ✅ LANDED | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
 ### W6 as landed
 
@@ -1526,7 +1533,7 @@ behaviour-free commit that everything after is written against.
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 (absorbed by W16) | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
-| **5 — docs** | W15 | last, so the ADRs describe what actually shipped |
+| **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
