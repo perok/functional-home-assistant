@@ -88,7 +88,9 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // The mirror wrote ?popup=<id>, so the reload has something to restore.
+        // The tap set `$ui_popups` and the mirror wrote ?ui.popups=<id>, so the
+        // reload has something to restore — the same path a tab selection
+        // takes, which is the point of the popup no longer having its own.
         _ <- IO.blocking(page.reload())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
         // …and it is in the served HTML, not patched in afterwards: baked into
