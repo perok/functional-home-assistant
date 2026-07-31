@@ -1294,8 +1294,9 @@ data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
 
 ## Render at the edge: every rendering is for a viewer
 
-**Status: designed, not implemented.** Supersedes the "flip revealing a mount" fill landed in
-W6 (see "Filling a mount"), and with it the whole idea of rendering for nobody.
+**Status: ✅ LANDED**, except the memo and the `__ifmissing` seed — see "As landed" at the end of
+this section. Supersedes the "flip revealing a mount" fill landed in W6 (see "Filling a mount"),
+and with it the whole idea of rendering for nobody.
 
 ### What W6 got wrong
 
@@ -1410,6 +1411,40 @@ digest stays — keyed by `(node, variant)` rather than node alone. For almost e
 exactly one variant and it is what we have today; only nodes with a user mount in their subtree
 carry more than one entry.
 
+### As landed
+
+The scope turned out **much smaller than this section implies**, and worth recording because the
+reason generalises: under the self/mount split, almost nothing varies by viewer. A container with
+a `self` patches its self, which holds no mount; a leaf has no group; a dynamic member is a leaf.
+The ONLY render that can differ per viewer is one that creates a subtree — a flip placing a
+branch. So "render at the edge" is not a new pipeline, it is one question asked of one path:
+
+> `variesByViewer(sid)` — can one rendering of this branch serve everybody? It can, unless a
+> user-selected mount sits under it.
+
+`false` (the common case) keeps the existing eager shared render, byte-for-byte. `true` publishes
+a `Varying` carrying the render, which the connection performs against `uiStateFrom(open)` at send
+time. One complete patch either way.
+
+Three consequences worth knowing:
+
+- **The digest is not keyed by variant after all.** A varying placement records its MUTATION and
+  no fragment, which statement (3) explicitly permits — an absent entry reads as "unknown, send
+  it". Keying the whole log by variant would have been a large change to store bytes that only
+  ever describe one viewer.
+- **`Viewer` is gone.** With `Nobody` deleted it was a one-case sum wrapping a map, holding no
+  truth the map did not.
+- **The memo is not built.** With variance confined to branch placement, the un-memoised cost is
+  one render per connection on a flip of a branch containing tabs. The cross-batch cache below
+  subsumes it; build them together, against a measurement.
+
+**`__ifmissing` did not land** — tried and reverted, with the reason recorded on the `Tabs` card.
+The URL mirror is correct on load and loses its param once the stream re-creates the panel, so
+re-asserting the seed is what currently keeps that mirror alive. The clobber the modifier was for
+is gone regardless, since a placed branch now carries each viewer's own index; what remains is the
+narrow tab-click race, which needs its own browser spike.
+(`UiSmokeSuite."tabs: a selection on the URL survives the SSE connect"` is the reproducer.)
+
 ### Deferred
 
 A longer-lived `(state, node, variant) → HTML` cache spanning batches. That is where a reference
@@ -1438,8 +1473,8 @@ measurement rather than up front.
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
 | W13 (mostly absorbed by W16) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
-| W16 | **Render at the edge**: `Tabs`' mount seeds via `data-signals__ifmissing` (with this item, never before it); the shared pass records the change set and publishes a memoised per-variant render instead of bytes; each connection assembles its own variant from `session.open` at send time. Deletes `Viewer.Nobody`, `Patches.Reveal`, `Server.fillMount`. The log's digest is keyed by `(node, variant)` | `Patches`, `Server`, `Renderer`, `FragmentLog` |
-| W17 | Deferred, measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
+| W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
+| W17 | Deferred, measurement-gated: the per-variant render memo, and a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
 | W15 | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
 ### W6 as landed
@@ -1490,7 +1525,7 @@ behaviour-free commit that everything after is written against.
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 (absorbed by W16) | the per-session pass dies here; nothing earlier depends on that |
-| **4 — render at the edge** | W16 (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
+| **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** | W15 | last, so the ADRs describe what actually shipped |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
