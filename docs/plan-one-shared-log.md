@@ -1383,8 +1383,22 @@ the change here is that it carries a COMPLETE one.
 fill table. `Viewer` collapses to "the client's selections", which is the only thing it ever
 sensibly was.
 
-It also largely absorbs W13: rendering per connection at send time inherently does not render what
-nobody is looking at, so the lazy-render gate stops being a separate mechanism.
+**It does NOT absorb W13, contrary to an earlier claim here.** That claim assumed rendering would
+move to the edge for everything; what landed moves only the varying case, and the ordinary shared
+pass still renders eagerly for every surface in `⋃ session.open`. `selectedSurfaces` returns the
+selection for every user bake group whether or not its branch is currently visible — right for
+knowing what to fill, wrong for deciding what to render — so a tab panel inside a HIDDEN `If`
+branch is still rendered and pushed on every tick of an entity it binds.
+
+Verified, not inferred: with the branch inactive, a change to an entity bound only inside that tab
+panel emits `elements <div class="fh-cell" id="s_t0__c">…`. It is not a correctness bug — the morph
+targets an id the DOM does not have, which is a silent no-op — but it is exactly the cost W13
+exists to remove, and it makes ADR 0007's "inactive members are never consulted" true only of
+STATE members. Pre-existing: the retired per-session pass read `open` the same way.
+
+The missing piece is the intersection the W13 row already names: reachability, walking from the
+main page down through active state members and selected user members. `activeStateSurfaces` is
+half of it and knows nothing about user selections.
 
 ### The seed becomes `__ifmissing`
 
@@ -1478,7 +1492,7 @@ measurement rather than up front.
 | W10b | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
 | W11 ✅ LANDED | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>`; the open/close taps set it client-side like a tab button. The host reset stays — see "The resume rule" | `Server`, `Renderer`, `lib/components.pkl` |
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
-| W13 (mostly absorbed by W16) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
+| W13 **NOT DONE** (see below) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
 | W17 | Deferred, measurement-gated: the per-variant render memo, and a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
@@ -1531,7 +1545,7 @@ behaviour-free commit that everything after is written against.
 | **0 — types** ✅ LANDED | the opaque `NodeId`/`DomId` half of W4 | pure retyping, no behaviour change |
 | **1 — authoring + render** ✅ LANDED | W1, W1b, W2, W3, W5 | the split changes *what a patch targets*; the shared/per-session structure is untouched, so it works on today's two passes |
 | **2 — the ledger** ✅ LANDED | W4 proper, W10, W14 | `Fragment` → fingerprint, `Resume` reshaped, flips become mutations — both passes still exist |
-| **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 (absorbed by W16) | the per-session pass dies here; nothing earlier depends on that |
+| **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
 

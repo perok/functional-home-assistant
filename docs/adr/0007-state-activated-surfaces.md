@@ -86,8 +86,18 @@ Per state change, the shared pass does two things:
 2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
    a nested state group contributes only through its active ancestor branch):
    patch the active members' affected components and dynamic groups against
-   the shared per-slug cache. Inactive members are never consulted — that IS
-   the no-updates guarantee.
+   the shared per-slug cache. Inactive STATE members are never consulted —
+   that IS the no-updates guarantee, and it is structural: their ids never
+   enter the selection.
+
+   The guarantee stops at state members. A *user*-selected surface nested
+   inside an inactive branch — a tab panel inside a hidden `If` — is still in
+   its client's open set, because `selectedSurfaces` reports a selection for
+   every bake group whether or not that group is on screen. Its nodes are
+   therefore rendered and pushed on every tick of an entity they bind. Harmless
+   (the morph targets an id the DOM does not have) and wasteful, and the fix is
+   the reachability intersection deferred as W13 in
+   docs/plan-one-shared-log.md.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
 bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one
