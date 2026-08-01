@@ -3,7 +3,7 @@ package fh.view.smoke
 import cats.effect.{IO, Resource}
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
-import fh.view.runtime.Datastar
+import fh.view.runtime.{AssetCache, Datastar, Server}
 import fs2.Stream
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -14,7 +14,6 @@ import org.http4s.implicits.*
 import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
-import scala.util.chaining.*
 
 /** The TWO Datastar behaviours the self/mount split rests on
   * (docs/adr/0012-one-pass-addressed-per-client.md). Not a general morph
@@ -33,8 +32,9 @@ import scala.util.chaining.*
   *      it was fatal for a server-filled panel — and the vendored docs get it
   *      wrong (`attributes.md:218` claims attribute updates still apply).
   *
-  * Pinned bundle: a committed copy under `test/resources/pinned`. On upgrade, a
-  * failure here means the split is unsafe — NOT that the test needs relaxing.
+  * Pinned bundle: whatever `Server.DatastarCdn` names, fetched into a cache. On
+  * upgrade, a failure here means the split is unsafe — NOT that the test needs
+  * relaxing.
   *
   * Deliberately standalone: a bare page and an SSE stream this test fully
   * controls, so it measures Datastar and nothing of ours.
@@ -194,23 +194,46 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
   /** The bundle the app actually ships, from the on-disk asset cache — the
     * pinned version is the whole point, so this must never reach the CDN.
     */
-  /** The pinned Datastar bundle, read from TEST RESOURCES — not from
-    * `assets-cache`, which is gitignored: it is a machine-local download cache
-    * the running app fills, so it is absent in CI and its contents differ
-    * between developers. A contract test against "whatever this machine happens
-    * to have downloaded" is not pinned to anything.
+  /** The Datastar bundle this suite runs against — the SAME build production
+    * serves, because it comes from the same pinned constant
+    * ([[fh.view.runtime.Server.DatastarCdn]]). Nothing here restates a version,
+    * so the two cannot drift.
     *
-    * The name carries the content hash the app caches it under, so
-    * [[pinMatchesCache]] can tell when the app has moved on and this pin has
-    * not.
+    * It is read from an asset cache and downloaded once if absent. NOT from
+    * `assets-cache` in the repo: that is gitignored, so it is empty in CI and
+    * differs between developers — a contract test against "whatever this
+    * machine downloaded at some point" is pinned to nothing.
+    *
+    * The directory is `FH_ASSETS_DIR` (production's own knob) or a user cache
+    * dir, which CI caches between runs so the download happens approximately
+    * never.
     */
-  private val PinnedBundle = "pinned/46cf17bf647e-datastar.js"
-
   private val bundle: IO[String] = IO.blocking {
-    val in = Option(getClass.getClassLoader.getResourceAsStream(PinnedBundle))
-      .getOrElse(sys.error(s"missing test resource $PinnedBundle"))
-    try new String(in.readAllBytes(), "UTF-8")
-    finally in.close()
+    val dir = sys.env
+      .get("FH_ASSETS_DIR")
+      .map(os.Path(_, os.pwd))
+      .getOrElse(
+        os.Path(
+          net.harawata.appdirs.AppDirsFactory.getInstance
+            .getUserCacheDir("fh", "0.0.1", "perok")
+        ) / "assets"
+      )
+    val file = dir / AssetCache.hashName(Server.DatastarCdn)
+    if (!os.exists(file)) {
+      os.makeDir.all(dir)
+      val res = java.net.http.HttpClient
+        .newHttpClient()
+        .send(
+          java.net.http.HttpRequest
+            .newBuilder(java.net.URI.create(Server.DatastarCdn))
+            .build(),
+          java.net.http.HttpResponse.BodyHandlers.ofString()
+        )
+      if (res.statusCode() != 200)
+        sys.error(s"GET ${Server.DatastarCdn} -> ${res.statusCode()}")
+      os.write.over(file, res.body())
+    }
+    os.read(file)
   }
 
   private def served(
@@ -254,28 +277,4 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         IO.blocking(p.close())
       )
     } yield (page, bound.baseUri)
-
-  test("the pinned bundle is the one the app serves") {
-    // Only answerable where the app's cache exists — it is gitignored, so never
-    // in CI. There the contract above runs against the pin and this is skipped;
-    // here it is what stops the pin silently aging out from under it.
-    val cache = LazyList
-      .iterate(os.pwd)(_ / os.up)
-      .take(4)
-      .flatMap(d =>
-        List(
-          d / "assets-cache",
-          d / "modules" / "fh-datastar-view" / "assets-cache"
-        )
-      )
-      .find(os.exists)
-    assume(cache.isDefined, "no assets-cache on this machine")
-    val served = cache.get.pipe(os.list).filter(_.last.endsWith("datastar.js"))
-    assertEquals(
-      served.map(_.last).toSet,
-      Set(PinnedBundle.stripPrefix("pinned/")),
-      "the app caches a different Datastar build than this suite pins — " +
-        "re-copy it into test/resources/pinned and re-run the contract"
-    )
-  }
 }
