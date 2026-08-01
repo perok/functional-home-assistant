@@ -1533,11 +1533,45 @@ subtree, no recursion. That is why the variant-keyed log ADR 0011 once deferred 
 in general and cheap in the one place it applies.
 
 **The caveat is children, not mounts.** `renderNodeById` splices children through the full `render`,
-so a `self` whose children include a bake owner would embed that child's mount. Today unreachable —
-the only card with both a `self` and children is `Tabs`, whose children are `TabButton`s. The rule
-to state, and to check if a custom container ever wants both:
+so a `self` whose children include a bake owner would embed that child's mount. The rule phase 6
+needs:
 
 > A node's own rendering must contain no mount — its own, or a child's.
+
+It holds today, and for a reason worth knowing: the only card with both a `self` and children is
+`Tabs`, and its children are **derived by the card**, not supplied by the author —
+
+```pkl
+hidden tabs: Mapping<String, Listing<LayoutNode>>                        // the author writes this
+children = new Listing { for (i, l in labels) { new TabButton { … } } }  // the card writes this
+```
+
+— so an author cannot nest a bake owner into a tab bar; they never write that list. The rule
+therefore wants CHECKING rather than trusting (a `validate` walk over the self's subtree), because
+only a custom card could break it.
+
+> **OPEN QUESTION — should a `self` splice children at all?** Deferred deliberately; to be settled
+> in an ADR when it is taken up, not here.
+>
+> **For uniformity** (the position to beat): everything a card holds goes through a mount, `self`
+> becomes strictly the card's own markup, and the rule above stops being a rule because the state
+> is unrepresentable. That is this plan's own stated preference — *structural rather than enforced*
+> — and CLAUDE.md's "one mechanism, not two parallel ones". It also removes a real cost: a bar with
+> a live slot (`tabsLive`) re-sends its buttons on every tick today, and would not if they were
+> mounted.
+>
+> **For the split as it stands**: a tab bar's buttons are the card's own chrome, not hosted content
+> — they have no independent existence, no ids worth patching, and `wrapAsCell = false` precisely
+> because they must remain direct children of `.tabs`. Modelling them as mounted content merges two
+> facts that are not one, which the design principles warn about specifically. It also adds a
+> mount, a mount id and a fill path for content that is static in the only real case.
+>
+> The evidence that would decide it: whether any card ever wants AUTHOR-supplied children inside a
+> `self`. If none does, the rule costs nothing; if one does, uniformity wins outright.
+
+Adjacent wart, same shape: `Tabs` assigns `children` rather than hiding it, so an author amending
+`children` on a tabs card silently clobbers the generated buttons. Independent of the question
+above, and worth a Pkl constraint.
 
 ### The walk already computes it
 
