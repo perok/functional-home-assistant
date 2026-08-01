@@ -6,12 +6,13 @@ import io.circe.Decoder
   * mistaken for the other.
   *
   * They were both `String` until the self/mount split
-  * (docs/adr/0012-one-pass-addressed-per-client.md) made the distinction load-bearing: a container
-  * card's patch targets `<nodeId>-self`, a mount is `<nodeId>_panel`, and
-  * neither is the node id the [[fh.view.runtime.FragmentLog]] is keyed by. The
-  * ledger renders content FROM its keys, so a DOM id stored as a key is a
-  * fragment that can never be rendered again — a silent, permanent hole. That
-  * is a type error now rather than a test's obligation.
+  * (docs/adr/0012-one-pass-addressed-per-client.md) made the distinction
+  * load-bearing: a container card's patch targets `<nodeId>-self`, a mount is
+  * `<nodeId>_panel`, and neither is the node id the
+  * [[fh.view.runtime.FragmentLog]] is keyed by. The ledger renders content FROM
+  * its keys, so a DOM id stored as a key is a fragment that can never be
+  * rendered again — a silent, permanent hole. That is a type error now rather
+  * than a test's obligation.
   *
   * [[NodeId]] -> [[DomId]] is one-way, through
   * [[fh.view.runtime.Renderer.patchTargetId]]. Nothing travels back.

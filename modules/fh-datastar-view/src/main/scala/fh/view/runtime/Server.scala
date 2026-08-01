@@ -826,10 +826,10 @@ class Server(
     *
     * '''A fill INVALIDATES the log entries for what it just re-supplied.'''
     * This is the one obligation every path that touches the DOM owes the ledger
-    * (docs/adr/0012-one-pass-addressed-per-client.md, statement (2)): the fill put the CURRENT
-    * render into the mount, so an entry describing some earlier value is now a
-    * lie, and a change BACK to that value would be diffed as "unchanged" and
-    * suppressed while the client's DOM has moved on.
+    * (docs/adr/0012-one-pass-addressed-per-client.md, statement (2)): the fill
+    * put the CURRENT render into the mount, so an entry describing some earlier
+    * value is now a lie, and a change BACK to that value would be diffed as
+    * "unchanged" and suppressed while the client's DOM has moved on.
     *
     * Invalidating rather than re-fingerprinting is what statement (3) buys. The
     * plan asked each fill to write its members' fingerprints, which means

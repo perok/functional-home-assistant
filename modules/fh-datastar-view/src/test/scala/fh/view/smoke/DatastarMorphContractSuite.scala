@@ -14,10 +14,12 @@ import org.http4s.implicits.*
 import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
+import scala.util.chaining.*
 
 /** The TWO Datastar behaviours the self/mount split rests on
-  * (docs/adr/0012-one-pass-addressed-per-client.md). Not a general morph exploration — only the
-  * contracts, so a failure here names exactly what broke.
+  * (docs/adr/0012-one-pass-addressed-per-client.md). Not a general morph
+  * exploration — only the contracts, so a failure here names exactly what
+  * broke.
   *
   *   1. '''Sibling isolation.''' A container card patches its OWN element
   *      (`<nodeId>-self`), which is a SIBLING of the mount holding its
@@ -31,8 +33,8 @@ import scala.jdk.CollectionConverters.*
   *      it was fatal for a server-filled panel — and the vendored docs get it
   *      wrong (`attributes.md:218` claims attribute updates still apply).
   *
-  * Pinned bundle: whatever `assets-cache` holds. On upgrade, a failure here
-  * means the split is unsafe — NOT that the test needs relaxing.
+  * Pinned bundle: a committed copy under `test/resources/pinned`. On upgrade, a
+  * failure here means the split is unsafe — NOT that the test needs relaxing.
   *
   * Deliberately standalone: a bare page and an SSE stream this test fully
   * controls, so it measures Datastar and nothing of ours.
@@ -192,23 +194,23 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
   /** The bundle the app actually ships, from the on-disk asset cache — the
     * pinned version is the whole point, so this must never reach the CDN.
     */
+  /** The pinned Datastar bundle, read from TEST RESOURCES — not from
+    * `assets-cache`, which is gitignored: it is a machine-local download cache
+    * the running app fills, so it is absent in CI and its contents differ
+    * between developers. A contract test against "whatever this machine happens
+    * to have downloaded" is not pinned to anything.
+    *
+    * The name carries the content hash the app caches it under, so
+    * [[pinMatchesCache]] can tell when the app has moved on and this pin has
+    * not.
+    */
+  private val PinnedBundle = "pinned/46cf17bf647e-datastar.js"
+
   private val bundle: IO[String] = IO.blocking {
-    val dir = LazyList
-      .iterate(os.pwd)(_ / os.up)
-      .take(4)
-      .flatMap(d =>
-        List(
-          d / "assets-cache",
-          d / "modules" / "fh-datastar-view" / "assets-cache"
-        )
-      )
-      .find(os.exists)
-      .getOrElse(sys.error(s"no assets-cache found from ${os.pwd}"))
-    os.read(
-      os.list(dir)
-        .find(_.last.endsWith("datastar.js"))
-        .getOrElse(sys.error(s"no datastar.js in $dir"))
-    )
+    val in = Option(getClass.getClassLoader.getResourceAsStream(PinnedBundle))
+      .getOrElse(sys.error(s"missing test resource $PinnedBundle"))
+    try new String(in.readAllBytes(), "UTF-8")
+    finally in.close()
   }
 
   private def served(
@@ -252,4 +254,28 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         IO.blocking(p.close())
       )
     } yield (page, bound.baseUri)
+
+  test("the pinned bundle is the one the app serves") {
+    // Only answerable where the app's cache exists — it is gitignored, so never
+    // in CI. There the contract above runs against the pin and this is skipped;
+    // here it is what stops the pin silently aging out from under it.
+    val cache = LazyList
+      .iterate(os.pwd)(_ / os.up)
+      .take(4)
+      .flatMap(d =>
+        List(
+          d / "assets-cache",
+          d / "modules" / "fh-datastar-view" / "assets-cache"
+        )
+      )
+      .find(os.exists)
+    assume(cache.isDefined, "no assets-cache on this machine")
+    val served = cache.get.pipe(os.list).filter(_.last.endsWith("datastar.js"))
+    assertEquals(
+      served.map(_.last).toSet,
+      Set(PinnedBundle.stripPrefix("pinned/")),
+      "the app caches a different Datastar build than this suite pins — " +
+        "re-copy it into test/resources/pinned and re-run the contract"
+    )
+  }
 }

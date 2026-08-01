@@ -1479,8 +1479,8 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/adr/0012-one-pass-addressed-per-client.md, T8b) — the exact hole recording
-    * the flip structurally was meant to close.
+    * reconnect''' (docs/adr/0012-one-pass-addressed-per-client.md, T8b) — the
+    * exact hole recording the flip structurally was meant to close.
     *
     * Found in the running app before this test existed: `Patches.resume`
     * grouped placements by container and looked each member up by POSITION in
@@ -2231,9 +2231,14 @@ class ServerSuite extends munit.CatsEffectSuite {
     def settled: IO[Unit] =
       fs2.Stream
         .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
-        .zipWithPrevious
         .drop(6)
-        .find { case (prev, now) => prev.contains(now) }
+        // FOUR consecutive equal readings, not two. One stable sample is not
+        // quiet, it is a gap: under load a batch's own events can arrive more
+        // than a sample apart, and a two-sample test then returns mid-batch and
+        // hands `drain` half of it. Seen in CI as an "end to end" assertion
+        // missing the second half of a batch it had already been given.
+        .sliding(4)
+        .find(w => w.toList.distinct.sizeIs == 1)
         .compile
         .drain
         .timeout(15.seconds)

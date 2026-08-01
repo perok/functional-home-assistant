@@ -1241,8 +1241,9 @@ class PklBuildSuite extends munit.FunSuite {
 
   /** Evaluate a probe that defines its own card class, and say whether Pkl took
     * it. The three rules below are the self/mount split's structural guarantees
-    * (docs/adr/0012-one-pass-addressed-per-client.md, W2) — enforced HERE, in the authoring layer,
-    * rather than as a `Dashboard.validate` message after the fact.
+    * (docs/adr/0012-one-pass-addressed-per-client.md, W2) — enforced HERE, in
+    * the authoring layer, rather than as a `Dashboard.validate` message after
+    * the fact.
     */
   private def cardShapeAccepted(body: String): Boolean = {
     val tmp = os.temp.dir()
