@@ -1620,6 +1620,25 @@ an addition. It also deletes work being done today: the document path renders ev
 **twice** — `renderPage` composes it, then `seedLog` re-renders each of its nodes by id purely to
 fingerprint them.
 
+### As landed (W18, W19)
+
+`hasOwnRendering` decides it, and `renderNodeById` is where it is said — the narrowest place,
+since every path that fingerprints or resumes goes through that one method while the document path
+composes through `render` and is untouched. Excluded nodes keep their `elementId`: a `remove` still
+deletes that element and an `insert` still anchors before it. What they lose is being rendered BY
+ID.
+
+`Traced(html, own)` is the walk's return. Two consumers: the page seeds from it, and `swapHost`
+records what its fill put in each node. The seeding SCOPE stayed exactly what it was — only the
+open surfaces' nodes — and widening it is a trap worth naming: seeding the whole page makes every
+node owed to a client whose cursor sits at that same version, which the flip test caught by
+counting two patches where it expects one.
+
+One alignment came free. The `self` is now rendered with the structural vars alone, exactly what
+`renderNodeById` gives it, so the captured trace and the later patch are the same bytes by
+construction. It also turns W21's failure from "renders on one path, blanks on the other" into
+"blanks on both, visibly, from first paint".
+
 ### What this settles
 
 - **W10b is dissolved.** "Invalidate or fingerprint?" was a choice only while fingerprinting cost a
@@ -1652,8 +1671,8 @@ fingerprint them.
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
 | W17 | Folded into W13 (the memo is the other half of lazy rendering). What remains separately deferred and measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held — a plain `WeakReference` entry dies at the next GC and would cache nothing | `Renderer` |
-| W18 | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
-| W19 | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
+| W18 ✅ LANDED | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
+| W19 ✅ LANDED | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
 | W20 | **`hasOwnRendering` by subtree, not by card shape** — a node has its own rendering iff that rendering contains no mount, its own or a descendant's. Subsumes W18's two card shapes plus the pre-split "children in `template`" one it cannot see. Settle with the self-children question, which turns on the same predicate | `Renderer`, `Dashboard.validate` |
 | W21 | **The patch path and the document path agree for a `self`.** `renderNodeById` passes `structuralVars` only, so a `self` reading `{{bakeIndex}}` renders populated on first paint and EMPTY on every later patch — visible on the first tick. Give the patch path the bake vars, which makes such a node variant-bearing: `(nodeId, bakeIndex)` digest, one entry per member, and its live patches ride `Varying`. LAST — nothing needs it until a card wants server-side active-tab highlighting, and the shipped bar does it client-side | `Renderer`, `Patches` |
 | W15 ✅ LANDED | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
@@ -1708,7 +1727,7 @@ behaviour-free commit that everything after is written against.
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
-| **6 — what a fragment is** | W18, W19, W13 (absorbing W17's memo), then W20 + W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
+| **6 — what a fragment is** | W18 ✅, W19 ✅, W13 (absorbing W17's memo), then W20 + W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
