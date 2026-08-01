@@ -131,6 +131,24 @@ and `cell` classes still ride on it. What moved is the second job: for a card wi
 a `self`, the patch aims at the `-self` element inside the cell, and the fragment
 structurally cannot contain the mount's contents.
 
+**A card with a mount and no `self` has no rendering of its own**, and therefore
+is not a patch target and not a log key. Its `.fh-cell` is a constant wrapper
+around a hole; rendering it by id renders its whole subtree, which is its
+children's business and not its own. `Dashboard.validate` already says half of
+this — it rejects a live-entity slot on such a card *because there is nothing to
+patch* — and the log follows the same rule (ADR 0011, "what is a log key").
+Dynamic group roots are in the same class, for the same reason.
+
+**One limit on a `self` today.** It may not read the bake vars (`{{bakeIndex}}`,
+or the `{{{bakeAs}}}` hole). The second is statement (1) — that hole IS the mount
+contents. The first is unguarded and currently fails visibly: the document path
+passes `bakeIndex`, the patch path does not, so a bar rendering
+`class="active-{{bakeIndex}}"` would paint correctly and then blank itself on the
+first tick. Lifting it is not forbidden by the design, only unbuilt: `bakeIndex`
+is that node's variant id, so the node becomes variant-bearing and wants a
+`(nodeId, bakeIndex)` digest plus per-viewer patching — bounded, one entry per
+member. Nothing needs it while the shipped bar highlights client-side.
+
 **The log key is always the node id.** `-self` is a rendering detail derived from
 it and nothing maps back, so a DOM id can never enter the log, the reverse index,
 or a cursor.

@@ -1,12 +1,15 @@
 # Plan: the self/mount split, one shared change ledger, per-client filtering
 
-**Status: ✅ COMPLETE.** Every phase has landed; the ADRs (0002, 0005, 0007, 0008, 0011) now
-describe the result, so THEY are the current-state documents and this plan is the record of how it
-was arrived at — including the three dead ends, which is the part worth keeping.
+**Status: phases 0–5 landed; phase 6 designed, not implemented.** The ADRs (0002, 0005, 0007,
+0008, 0011) describe what shipped, so THEY are the current-state documents and this plan is the
+record of how it was arrived at — including the dead ends, which is the part worth keeping.
 
-Two items are deliberately deferred rather than dropped: **W17** (the per-variant render memo and a
-cache across batches, both measurement-gated) and **`data-signals__ifmissing`** (tried, reverted,
-reproducer named — see "Render at the edge").
+**Phase 6** came out of reviewing the result: asking what W10b actually meant exposed a rule the
+design had never stated — *a fragment is a node's OWN html* — and, with it, a live bug (a resume
+can move a viewer onto a tab it did not choose). See "What a fragment is".
+
+Deferred rather than dropped: **`data-signals__ifmissing`** (tried, reverted, reproducer named —
+see "Render at the edge") and **advancing a client's cursor on quiet ticks** (below, under W13).
 
 Superseded the "variant-keyed log" deferred in ADR 0011, and replaced an earlier draft of this plan
 built on an empty-baked host plus a `data-ignore-morph` freeze — see "Rejected".
@@ -1474,6 +1477,100 @@ dies at the next GC regardless of memory pressure, so it would cache essentially
 references have their own drag on pause-time goals, so this is a decision to make against a
 measurement rather than up front.
 
+## What a fragment is
+
+**Status: designed, not implemented** (phase 6). Came out of asking what W10b — "every fill writes
+its members' fingerprints" — actually meant, and the answer dissolved W10b entirely.
+
+### A fragment is a node's OWN html, never the composed html
+
+A container has two renderings: its own shell with holes where children and mounts go, and the
+composed result with everything spliced in. Only the first may ever be a fragment.
+
+The composed one welds host to children. Record it and the two stop being separable — which is
+precisely what the self/mount split exists to prevent, arriving through the log instead of through
+a patch.
+
+For a split container the own html is its `self`. For a leaf it is the whole thing (a leaf has no
+mount). And for two shapes there is no own html at all:
+
+- **A bare container** (`Column`/`Row`/`Grid`/`If` — a mount, no `self`) renders as a constant
+  `.fh-cell` wrapper around a hole. There is nothing to record: it cannot change except by its
+  children changing, which the children already say.
+- **A dynamic group root**, for the same reason — `renderDynamic` composes every member into it,
+  and the members are keyed individually already.
+
+> **Neither is a log key, and neither is a morph target.** Their children are addressable in their
+> own right, so excluding them loses nothing.
+
+That is not a new restriction. `Dashboard.validate` already rejects a live-entity slot on a bare
+container *because it has no patch target* — this is the same fact, finally applied to the log.
+
+### Why it matters: a shared log cannot hold one viewer's bytes
+
+Rendering a bare container BY ID renders its whole subtree, mounts included — so its bytes depend on
+which member each descendant mount has selected. Verified:
+
+```
+tabs host (has self) → <div id="s_det__c_0-self">bar</div>            ← own content, viewer-independent
+bare col  (no self)  → <div id="s_det__c">…<div id="…_panel">
+                            <div id="s_t0__c"><span>A0</span></div>   ← tab 0's panel rides along
+```
+
+One node, two viewers, different bytes. The log is per slug, so whichever it holds is wrong for
+somebody. And it reaches a client: a tab-1 viewer reconnects, `fromOpen` re-renders that container
+with no viewer (the default tab), it differs from the seeded digest, and the resume **morphs the
+viewer onto tab 0** — over a change it could not even see. That is a live bug, and W18 is its fix.
+
+### Variance is bounded and local
+
+The one thing that can make a node's OWN html differ between viewers is its own group's selection —
+`bakeIndex`, which IS that node's variant id. It can never be a descendant's selection, because own
+html excludes mount contents.
+
+So a variant-bearing node is keyed `(nodeId, bakeIndex)`: one entry per member, no product over the
+subtree, no recursion. That is why the variant-keyed log ADR 0011 once deferred is both unnecessary
+in general and cheap in the one place it applies.
+
+**The caveat is children, not mounts.** `renderNodeById` splices children through the full `render`,
+so a `self` whose children include a bake owner would embed that child's mount. Today unreachable —
+the only card with both a `self` and children is `Tabs`, whose children are `TabButton`s. The rule
+to state, and to check if a custom container ever wants both:
+
+> A node's own rendering must contain no mount — its own, or a child's.
+
+### The walk already computes it
+
+The reason a fill looks like it "cannot know" its per-node bytes is a return type, not a cost.
+`renderWhole` builds each node's own html and throws it away:
+
+```scala
+def part(of: Map[String, Template]): String = of.get(cardName).fold("")(renderTemplateOf(…))
+renderTemplate(cardName, vars ++ Map(
+  "self"  -> part(templates.selves),   // ← the node's OWN html
+  "mount" -> part(templates.mounts)),  //   spliced into `template`, then dropped
+  …)
+```
+
+`renderDynamicMembers` already returns `List[(NodeId, String)]` — *"paired rather than concatenated
+because a fill owes the log a fingerprint per member"*. The pattern exists for a mount's direct
+occupants and simply does not recurse.
+
+Making the walk emit `(nodeId, ownHtml)` alongside the composed string is therefore a removal, not
+an addition. It also deletes work being done today: the document path renders every open surface
+**twice** — `renderPage` composes it, then `seedLog` re-renders each of its nodes by id purely to
+fingerprint them.
+
+### What this settles
+
+- **W10b is dissolved.** "Invalidate or fingerprint?" was a choice only while fingerprinting cost a
+  second render pass. With the trace, every fill fingerprints, because it is free.
+- **W16's "record the mutation without a digest"** special case goes with it: the node a flip places
+  is a surface's content root, which is a bare container and therefore not a log key at all. The
+  special case becomes the general rule.
+- **`fromOpen`'s missing viewer** needs no separate fix: once only own-html nodes are candidates,
+  and own html carries no mount, there is nothing viewer-dependent left for it to get wrong.
+
 ## Work items
 
 | # | Change | Where |
@@ -1489,13 +1586,16 @@ measurement rather than up front.
 | W8 | The resume rule: candidates = `version >= cursor` ∪ `open ∩ reachable`; render from one snapshot; send on `version >= cursor \|\| fingerprint != stored`, a MISSING entry counting as send | `Server.openingPatches` |
 | W9 | Reconnect repaint: invalidate the session's open surfaces' entries; delete the `sessionPaint` and popup-restore blocks. `reloadRepaints` drops `lastRendered.cleared` | `Server` |
 | W10 | `flipStateGroup` emits membership mutations (`Gone` + `Placed`) instead of a host morph; `repaintGroup` emits a mount fill; both stop logging a container-level fragment. `Mutation` generalises to `(containerId, memberKey)`. The per-connection stage appends fills for user groups revealed by a flip | `Patches`, `FragmentLog`, `Server.sseStream` |
-| W10b | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
+| W10b ✅ LANDED, then **DISSOLVED by W19** — it was a choice only while fingerprinting cost a second render pass | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
 | W11 ✅ LANDED | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>`; the open/close taps set it client-side like a tab button. The host reset stays — see "The resume rule" | `Server`, `Renderer`, `lib/components.pkl` |
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
-| W13 **NOT DONE** (see below) | Lazy render: gate the render set on `⋃ session.open ∩ reachable` (reachability from `activeStateSurfaces` — the intersection is load-bearing); per-pass transform memo | `Server`, `Patches`, `Renderer` |
+| W13 **NOT DONE**, rewritten | **The visibility predicate**, and its three users. "Can this client see this node" = every user surface on its chain is selected AND every state surface on its chain is active — reachability, which `⋃ session.open` is NOT (`selectedSurfaces` reports a selection whether or not its group is on screen). Users: the live filter (`Addressed.visibleTo`, today `open.contains`), the resume prune (`FragmentLog.since`, today NO filter at all), and the render gate. Build it as **lazy render gated on visibility**, not a filter over an eager pass — laziness only pays if invisibility is decided before rendering, which makes W17's memo part of the same mechanism. `fromOpen` is what keeps skipping safe: a reconnect re-renders what it can see NOW and compares, so a node nobody watched while a client was away is still corrected | `Renderer`, `Patches`, `Server` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
-| W17 | Deferred, measurement-gated: the per-variant render memo, and a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held | `Renderer` |
+| W17 | Folded into W13 (the memo is the other half of lazy rendering). What remains separately deferred and measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held — a plain `WeakReference` entry dies at the next GC and would cache nothing | `Renderer` |
+| W18 | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
+| W19 | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
+| W21 | **The patch path and the document path agree for a `self`.** `renderNodeById` passes `structuralVars` only, so a `self` reading `{{bakeIndex}}` renders populated on first paint and EMPTY on every later patch — visible on the first tick. Give the patch path the bake vars, which makes such a node variant-bearing: `(nodeId, bakeIndex)` digest, one entry per member, and its live patches ride `Varying`. LAST — nothing needs it until a card wants server-side active-tab highlighting, and the shipped bar does it client-side | `Renderer`, `Patches` |
 | W15 ✅ LANDED | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
 ### W6 as landed
@@ -1548,6 +1648,7 @@ behaviour-free commit that everything after is written against.
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
+| **6 — what a fragment is** | W18, W19, W13 (absorbing W17's memo), then W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a

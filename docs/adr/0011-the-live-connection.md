@@ -141,6 +141,31 @@ answers *where is this node* — the changes not expressible as a morph of an
 element the client already has. A resume renders every node at `>= V` from the
 CURRENT snapshot and morphs it, then applies every mutation at `>= V`.
 
+**What is a log key.** A fragment is a node's **own** html — never the composed html that
+includes its children. The composed form welds host to children and makes them inseparable, which
+is the thing statement (1) exists to prevent, arriving through the log instead of through a patch.
+
+For a card with a `self` the own html is that `self`; for a leaf it is the whole rendering. Two
+shapes have no own html and are therefore **neither log keys nor morph targets**:
+
+- a **bare container** (`Column`/`Row`/`Grid`/`If` — a mount and no `self`), which renders as a
+  constant wrapper around a hole;
+- a **dynamic group root**, which composes its members and whose members are keyed individually.
+
+Excluding them loses nothing, because their children are addressable in their own right. It is
+also not a new rule: `validate` already rejects a live-entity slot on a bare container *because it
+has no patch target*.
+
+The reason it matters is that the log is per SLUG. Rendering a bare container by id renders its
+whole subtree, mounts included, so its bytes depend on which member each descendant mount has
+selected — and whichever the log holds is wrong for somebody.
+
+**Variance, where it exists, is local.** The only thing that can make a node's own html differ
+between viewers is its own group's selection (`bakeIndex` — that node's variant id). Never a
+descendant's, since own html excludes mount contents. So a variant-bearing node keys
+`(nodeId, bakeIndex)`: one entry per member, no product over the subtree. The rule to keep true is
+that a node's own rendering contains no mount — its own, or a child's.
+
 **The log records WHEN, never WHAT.** A `Fragment` holds a digest, not HTML, and
 content is always rendered now. Three things follow. The log cannot go stale
 against the renderer, because it stores nothing a renderer swap could
@@ -153,6 +178,14 @@ redundant re-send; the worst outcome of a wrong entry is a suppressed change,
 which is silent and permanent. Everything that mutates the DOM without knowing
 its own bytes exactly (a mount fill, a per-viewer branch placement) uses that
 escape rather than recording a digest that would be true for one client only.
+
+**Two fields, two jobs, and they are not interchangeable.** `version` serves the RESUME path —
+`since(cursor)` uses it to decide what a returning client is owed, and nothing on the live path
+reads it. `digest` serves the LIVE path — re-render, compare, skip when the bytes are identical —
+and its only purpose is to not re-send. A consequence worth stating because it looks like an
+optimisation and is not: a node re-rendered to the same bytes must NOT have its version advanced.
+That would make it mean "when did we last look", `since` would over-report, and returning clients
+would be sent morphs for nodes that never changed.
 
 Digests are compared, never inspected, and are held as hex rather than
 `Array[Byte]` — array equality is by reference, so the map would have quietly
@@ -367,6 +400,19 @@ any others. And a popup needs no branch either — its nodes are in `open`, and 
 body repaint replaces `#dashboard` only, while the popup host lives in
 `theme.chrome` outside it, so an open dialog is never disturbed.
 
+**Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
+all for a change inside a tab it is not looking at, and still have its cursor advanced past that
+change. That is sound because of an invariant every reveal path holds:
+
+> **Every reveal is an unconditional complete fill.** `swapHost` renders the arriving surface whole
+> and inner-patches the host; a flip's `Varying` inserts the whole branch. Neither consults a
+> version, and nothing incremental ever depends on what a client missed while a subtree was hidden.
+
+So "I have everything through V" needs to be true only of what the client can SEE; anything it
+later reveals arrives in full. If a reveal ever became incremental — "send only what changed in
+this tab since you last looked" — one cursor would stop being sufficient and this design would need
+one per subtree.
+
 **The one thing still worth its own branch** is a popup claim this dashboard
 cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
 in nobody's open set, so no rule reconciles it, and without a host reset it would
@@ -522,16 +568,29 @@ visible panel on every reconnect — is no longer re-sent at all.
 What survives of the idea is smaller and sharper. Exactly one render can differ
 between viewers: a flip placing a branch whose subtree mounts a client-selected
 member. It is performed per connection, un-memoised, so K viewers of such a flip
-cost K renders. Two steps, to build together and against a measurement rather
-than up front:
+cost K renders.
 
-- a **batch-scoped memo**, keyed by variant, so viewers who agree render once. It
-  needs no eviction policy: it lives and dies with the published item, by ordinary
-  reachability. It must NOT be keyed on the store version, which is a global
-  counter — one humidity sensor would invalidate every node on every dashboard.
-- a **cache across batches**, `(state, node, variant) -> HTML`. That one wants
-  `SoftReference`: a plain `WeakReference` entry dies at the next GC regardless of
-  memory pressure, so it would cache essentially nothing.
+The **batch-scoped memo** that fixes that is not a separate piece of work: it is
+the other half of rendering lazily, which is the visibility work in
+docs/plan-one-shared-log.md (W13). Skipping a render only pays if you can decide
+"nobody can see this" BEFORE rendering, and once you can, the memo is what stops
+two viewers of the same variant rendering it twice. It needs no eviction policy —
+it lives and dies with the published item, by ordinary reachability — and it must
+NOT be keyed on the store version, which is a global counter: one humidity sensor
+would invalidate every node on every dashboard.
+
+Separately deferred, measurement-gated: a **cache across batches**,
+`(state, node, variant) -> HTML`. That one wants `SoftReference`; a plain
+`WeakReference` entry dies at the next GC regardless of memory pressure, so it
+would cache essentially nothing.
+
+**Advancing a client's cursor on quiet ticks.** A batch that emits nothing sends
+no cursor, so a long quiet stretch leaves a client claiming an old version and a
+later reconnect re-sends a superset — harmless, and deliberately the safe
+direction to err in. The fix is a nudge: after N quiet batches, or on a timer,
+push the cursor alone. Not free — every non-`_` signal rides back on every
+subsequent request — so it is a trade against how chatty a given dashboard is,
+not an obvious win.
 
 **`data-signals__ifmissing`** — confirmed present in the pinned bundle (the signals
 plugin reads `mods.has("ifmissing")` and passes it as `ifMissing` to the merge,
