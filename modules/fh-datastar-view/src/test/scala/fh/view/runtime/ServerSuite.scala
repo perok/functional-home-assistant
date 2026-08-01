@@ -2166,18 +2166,6 @@ class ServerSuite extends munit.CatsEffectSuite {
   private def readyEvents(out: List[Directed]): List[ServerSentEvent] =
     out.collect { case a: Addressed => a.event }
 
-  /** The patches a shared batch left for each connection to RENDER itself,
-    * resolved against one viewer's selections.
-    */
-  private def varying(
-      out: List[Directed],
-      uiState: Map[String, String] = Map.empty
-  ): IO[List[ServerSentEvent]] =
-    out
-      .collect { case v: Varying => v.resolve(uiState) }
-      .sequence
-      .map(_.flatten)
-
   /** The popup host's selection signal — `ui_` + the host id, exactly as the
     * shell composes it.
     */

@@ -1387,7 +1387,9 @@ class RendererSuite extends munit.FunSuite {
     assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
   }
 
-  test("variesByViewer: a user mount under a branch makes it per-viewer") {
+  test(
+    "surfaceVariesByViewer: a user mount under a branch makes it per-viewer"
+  ) {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
     // HTML embeds a client-selected member and cannot render shared.
@@ -1413,9 +1415,9 @@ class RendererSuite extends munit.FunSuite {
     )
     // The then-branch holds a tabs host, so its HTML is not one thing — it is
     // one thing per selection, and the shared pass must not render it.
-    assert(Renderer.create(d).variesByViewer("c_then"))
+    assert(Renderer.create(d).surfaceVariesByViewer("c_then"))
     // A branch with no user mount anywhere is one rendering serving everyone.
-    assert(!Renderer.create(ifDashboard()).variesByViewer("c_then"))
+    assert(!Renderer.create(ifDashboard()).surfaceVariesByViewer("c_then"))
   }
 
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {

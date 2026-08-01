@@ -47,9 +47,8 @@ enum DynamicDelta:
   * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
   * rendered on demand by [[renderSurface]] and kept live only while a
   * connection has them open. Their node ids are namespaced (`s_<id>__…`) so
-  * they never collide with the main page; [[surfaceComponentsFor]] /
-  * [[affectedSurfaceDynamicIds]] are the surface-scoped equivalents of the
-  * main-page update indices.
+  * they never collide with the main page; [[surfaceComponentsFor]] / the
+  * surface-scoped equivalent of the main-page update index.
   */
 class Renderer(
     dashboard: Dashboard,
@@ -275,7 +274,7 @@ class Renderer(
   /** Component ids that own a USER-selected bake group (tabs). Their own
     * rendering is shared like any other node — the client-selected member lives
     * in the MOUNT, which a patch never carries. What is per-client is filling
-    * that mount: see [[variesByViewer]] and `Patches.Varying`.
+    * that mount: see [[surfaceVariesByViewer]] and `Patches.Varying`.
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -346,7 +345,7 @@ class Renderer(
     * surface can name a host inside its own subtree and the walk would not
     * terminate.
     */
-  def variesByViewer(sid: String): Boolean = {
+  def surfaceVariesByViewer(sid: String): Boolean = {
     def walk(sid: String, seen: Set[String]): Boolean =
       !seen(sid) && {
         val ids =
@@ -432,7 +431,7 @@ class Renderer(
     * So the walk goes UP: a user surface must be in `open`, a state surface
     * must be the member its group selects, and the surface containing it must
     * itself be visible. The visited set is for the same reason as
-    * [[variesByViewer]]'s — `bakeInto` is authored, so the chain is not
+    * [[surfaceVariesByViewer]]'s — `bakeInto` is authored, so the chain is not
     * guaranteed acyclic.
     */
   def visibleSurface(
@@ -760,13 +759,6 @@ class Renderer(
     surfaceIndexes
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
-
-  /** Like [[affectedDynamicIds]], scoped to one open surface. */
-  def affectedSurfaceDynamicIds(
-      surfaceId: String,
-      change: StateChange
-  ): List[NodeId] =
-    affectedSurfaceDynamics(surfaceId, change).map(_._1)
 
   /** The surface's declaration (content/group/mount), if it exists. */
   def surface(surfaceId: String): Option[Surface] =

@@ -44,17 +44,6 @@ final class Sessions(ref: Ref[IO, Map[String, Session]]) {
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
 
-  /** Every surface ANY client on `slug` currently has open — the shared pass's
-    * render gate. Deliberately a union, and deliberately not a correctness
-    * input: it decides what is worth RENDERING once for the slug, while who may
-    * SEE each patch is decided per patch by its `Addressed` tag. Erring wide
-    * therefore costs bytes on the server and nothing on the wire; erring narrow
-    * would drop an update a client needed, so the union is the only safe
-    * direction.
-    */
-  def openIn(slug: String): IO[Set[String]] =
-    openSets(slug).map(_.foldLeft(Set.empty[String])(_ ++ _))
-
   /** Each connection's open set SEPARATELY, because visibility is a property of
     * one client's chain of selections: a surface is only really on screen if
     * everything containing it is, and that is answered against the same

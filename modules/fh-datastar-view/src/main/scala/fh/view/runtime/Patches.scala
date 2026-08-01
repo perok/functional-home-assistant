@@ -601,7 +601,7 @@ private[runtime] object Patches {
       val withGone = departed.foldLeft(pruned)(_.removed(gid, _, at))
       // Can ONE rendering of the arriving branch serve every viewer? It cannot
       // exactly when a user-selected mount sits inside it.
-      now.filter(renderer.variesByViewer) match {
+      now.filter(renderer.surfaceVariesByViewer) match {
         case Some(sid) =>
           val member = MemberKey.Surface(sid)
           val nodeId = renderer.surfaceContentId(sid)
