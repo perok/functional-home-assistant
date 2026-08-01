@@ -1,15 +1,21 @@
 # Plan: the self/mount split, one shared change ledger, per-client filtering
 
-**Status: phases 0–5 landed; phase 6 designed, not implemented.** The ADRs (0002, 0005, 0007,
+**Status: ✅ ALL PHASES LANDED.** The ADRs (0002, 0005, 0007,
 0008, 0011) describe what shipped, so THEY are the current-state documents and this plan is the
 record of how it was arrived at — including the dead ends, which is the part worth keeping.
 
 **Phase 6** came out of reviewing the result: asking what W10b actually meant exposed a rule the
 design had never stated — *a fragment is a node's OWN html* — and, with it, a live bug (a resume
-can move a viewer onto a tab it did not choose). See "What a fragment is".
+moving a viewer onto a tab it did not choose). See "What a fragment is".
 
-Deferred rather than dropped: **`data-signals__ifmissing`** (tried, reverted, reproducer named —
-see "Render at the edge") and **advancing a client's cursor on quiet ticks** (below, under W13).
+Deferred rather than dropped, all three measurement- or decision-gated:
+
+- **W17** — the per-variant render memo, and a cache across batches.
+- **`data-signals__ifmissing`** — tried, reverted, reproducer named (see "Render at the edge").
+- **Advancing a client's cursor on quiet ticks** — recorded in ADR 0011's Deferred section.
+
+And one open design question: **should a `self` splice children at all** (see "What a fragment
+is"). W20 made the current answer safe; whether the shape should be expressible is unsettled.
 
 Superseded the "variant-keyed log" deferred in ADR 0011, and replaced an earlier draft of this plan
 built on an empty-baked host plus a `data-ignore-morph` freeze — see "Rejected".
@@ -1713,7 +1719,7 @@ nothing left to get wrong — and over-sending is the safe direction anyway.
 | W18 ✅ LANDED | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
 | W19 ✅ LANDED | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
 | W20 ✅ LANDED | **`hasOwnRendering` by subtree, not by card shape** — a node has its own rendering iff that rendering contains no mount, its own or a descendant's. Subsumes W18's two card shapes plus the pre-split "children in `template`" one it cannot see. Settle with the self-children question, which turns on the same predicate | `Renderer`, `Dashboard.validate` |
-| W21 | **The patch path and the document path agree for a `self`.** `renderNodeById` passes `structuralVars` only, so a `self` reading `{{bakeIndex}}` renders populated on first paint and EMPTY on every later patch — visible on the first tick. Give the patch path the bake vars, which makes such a node variant-bearing: `(nodeId, bakeIndex)` digest, one entry per member, and its live patches ride `Varying`. LAST — nothing needs it until a card wants server-side active-tab highlighting, and the shipped bar does it client-side | `Renderer`, `Patches` |
+| W21 ✅ LANDED | **The patch path and the document path agree for a `self`.** `renderNodeById` passes `structuralVars` only, so a `self` reading `{{bakeIndex}}` renders populated on first paint and EMPTY on every later patch — visible on the first tick. Give the patch path the bake vars, which makes such a node variant-bearing: `(nodeId, bakeIndex)` digest, one entry per member, and its live patches ride `Varying`. LAST — nothing needs it until a card wants server-side active-tab highlighting, and the shipped bar does it client-side | `Renderer`, `Patches` |
 | W15 ✅ LANDED | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
 ### W6 as landed
@@ -1766,7 +1772,7 @@ behaviour-free commit that everything after is written against.
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
-| **6 — what a fragment is** | W18 ✅, W19 ✅, W13 ✅, W20 ✅, then W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
+| **6 — what a fragment is** ✅ LANDED | W18 ✅, W19 ✅, W13 ✅, W20 ✅, W21 ✅ | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a

@@ -139,15 +139,19 @@ this — it rejects a live-entity slot on such a card *because there is nothing 
 patch* — and the log follows the same rule (ADR 0011, "what is a log key").
 Dynamic group roots are in the same class, for the same reason.
 
-**One limit on a `self` today.** It may not read the bake vars (`{{bakeIndex}}`,
-or the `{{{bakeAs}}}` hole). The second is statement (1) — that hole IS the mount
-contents. The first is unguarded and currently fails visibly: the document path
-passes `bakeIndex`, the patch path does not, so a bar rendering
-`class="active-{{bakeIndex}}"` would paint correctly and then blank itself on the
-first tick. Lifting it is not forbidden by the design, only unbuilt: `bakeIndex`
-is that node's variant id, so the node becomes variant-bearing and wants a
-`(nodeId, bakeIndex)` digest plus per-viewer patching — bounded, one entry per
-member. Nothing needs it while the shipped bar highlights client-side.
+**A `self` may read `bakeIndex`, but not the `{{{bakeAs}}}` hole.** The second is
+statement (1) — that hole IS the mount's contents. The first is allowed, and
+costs something worth knowing: `bakeIndex` is the node's own variant id, so a
+bar that renders its active tab server-side has one rendering per member of its
+group. Such a node is rendered per connection and kept out of the log (a shared
+digest could only describe one viewer's bytes), which means it loses digest
+suppression and re-sends on every tick of an entity it binds.
+
+The variance is bounded — one variant per member of its OWN group, never a
+product over the subtree, because a node's own rendering carries no mount. The
+shipped bar highlights client-side through `$ui_<id>` instead, which needs no
+round trip and remains the better default; the server-rendered form is for when
+the selection must be right before Datastar loads.
 
 **The log key is always the node id.** `-self` is a rendering detail derived from
 it and nothing maps back, so a DOM id can never enter the log, the reverse index,
