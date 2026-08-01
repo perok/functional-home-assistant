@@ -1083,14 +1083,23 @@ class Renderer(
   /** Whether this node HAS a rendering of its own — the thing that decides
     * whether it may be a log key or a patch target at all.
     *
-    * A leaf has one (its whole rendering; there is no mount to exclude). A card
-    * with a `self` has one (that element). Two shapes do NOT:
+    * The property, not a card shape: **a node's own rendering must contain no
+    * mount** — its own, or one belonging to markup that rides along inside it.
+    * A mount's contents are whichever member that client selected, so a node
+    * carrying one has bytes that differ per viewer.
+    *
+    * Three shapes fail it, and only the first two are what a card's own
+    * definition tells you:
     *
     *   - a BARE container — a mount and no `self` — whose markup is a constant
-    *     `.fh-cell` wrapper around a hole. Rendering it by id renders its whole
-    *     SUBTREE, mounts included, so its bytes depend on which member each
-    *     descendant mount has selected;
-    *   - a DYNAMIC group root, which composes its members the same way.
+    *     `.fh-cell` wrapper around a hole;
+    *   - a DYNAMIC group root, which composes its members (each addressable in
+    *     its own right) rather than having markup of its own;
+    *   - anything whose CHILDREN bring a mount along — a pre-split container
+    *     splicing `{{#children}}` into its `template`, or a custom card with a
+    *     `self` and a bake-owning child. Neither is reachable from the shipped
+    *     library, and neither is visible to a test on the card alone, which is
+    *     why this asks about the rendering instead.
     *
     * The log is per SLUG, so a digest recorded for either is one viewer's bytes
     * presented as everyone's — and a resume re-rendering one hands that
@@ -1108,9 +1117,26 @@ class Renderer(
   private def hasOwnRendering(id: NodeId): Boolean =
     allIndexed.get(id).exists {
       case (c: LayoutNode.Component, _, _) =>
-        hasSelf(c.card) || !templates.mounts.contains(c.card)
+        // What `renderNodeById` would produce: a card with a `self` renders
+        // that element plus its children's FULL renderings; anything else
+        // renders its whole card, its own mount included.
+        if (hasSelf(c.card)) !c.children.exists(carriesMount)
+        else !carriesMount(c)
       case (_: LayoutNode.Dynamic, _, _) => false
     }
+
+  /** Whether rendering this node in FULL — as a parent's markup embeds it —
+    * brings a mount along, its own or a descendant's.
+    *
+    * A dynamic group does not count: its members render with no children and no
+    * bake group, so a member card's mount comes out empty and carries nobody's
+    * selection.
+    */
+  private def carriesMount(node: LayoutNode): Boolean = node match {
+    case c: LayoutNode.Component =>
+      templates.mounts.contains(c.card) || c.children.exists(carriesMount)
+    case _: LayoutNode.Dynamic => false
+  }
 
   /** Whether a card patches through a `self` element of its own — the ONE
     * predicate the split turns on. It picks what the patch path renders, what

@@ -1306,6 +1306,87 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
   }
 
+  /** The shape W18's card-shape test could not see: a container that splices
+    * `{{#children}}` into its `template` with no mount at all — the pre-split
+    * container. It passes "has no mount", so it looked like a node with its own
+    * rendering, while its rendering carries whatever its children's mounts
+    * hold.
+    *
+    * Found by accident: W18's first test fixture was exactly this, and the test
+    * still failed after the fix.
+    */
+  test("a node whose CHILDREN carry a mount has no rendering of its own") {
+    def dash(container: CardDef) = Dashboard(
+      cards =
+        Map(
+          "box" -> container,
+          "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+          "tabs" -> CardDef(
+            template = "{{{self}}}{{{mount}}}",
+            self = Some("""<div id="{{selfId}}">bar</div>"""),
+            mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+          )
+        ),
+      card = LayoutNode
+        .Component("box", children = List(LayoutNode.Component("tabs"))),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.a")))
+          ),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    val states = Map("sensor.a" -> st("sensor.a", "A0"))
+
+    // The PRE-SPLIT shape: children in `template`, no mount anywhere on the
+    // card itself.
+    val preSplit = Renderer.create(
+      dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
+    )
+    assertEquals(preSplit.renderNodeById("c", states), None)
+    // ...and a card with a `self` whose CHILD owns the bake group — the same
+    // failure from the other direction.
+    val selfWithBakingChild = Renderer.create(
+      dash(
+        CardDef(
+          template = "{{{self}}}",
+          self = Some(
+            """<div id="{{selfId}}">{{#children}}{{{html}}}{{/children}}</div>"""
+          )
+        )
+      )
+    )
+    assertEquals(selfWithBakingChild.renderNodeById("c", states), None)
+
+    // Non-vacuous: the same container with a LEAF child keeps its own
+    // rendering, because nothing under it holds a mount.
+    val plain = Renderer.create(
+      Dashboard(
+        cards = Map(
+          "box" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+          "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+        ),
+        card = LayoutNode
+          .Component(
+            "box",
+            children = List(
+              LayoutNode.Component(
+                "card",
+                slots = Map("state" -> SlotSource(Some("sensor.a")))
+              )
+            )
+          )
+      )
+    )
+    assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
+  }
+
   test("variesByViewer: a user mount under a branch makes it per-viewer") {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
