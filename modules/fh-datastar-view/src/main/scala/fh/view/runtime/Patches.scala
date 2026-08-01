@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import cats.effect.IO
 import fh.view.model.{DomId, NodeId}
 import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
@@ -66,10 +67,16 @@ private[runtime] case class Addressed(
   * irreducible one. Everything else about the branch — that it flipped, when,
   * and which member won — was decided by entity state and is identical for
   * everybody.
+  *
+  * `resolve` yields a DECISION, not a render: for a node compared against the
+  * log it may be "nothing to send". And it is memoised per VARIANT, not per
+  * connection — two viewers holding the same selection must both receive the
+  * patch, so what is computed once is the verdict, which is then handed to
+  * everyone on that variant.
   */
 private[runtime] case class Varying(
     surface: Option[String],
-    render: Map[String, String] => ServerSentEvent
+    resolve: Map[String, String] => IO[Option[ServerSentEvent]]
 ) extends Directed
 
 /** Something the shared pass produced, plus who may see it. Either already
@@ -112,6 +119,12 @@ private[runtime] object Patches {
       // chain of surfaces containing it (a tab panel inside an `If` branch
       // inside another tab panel is three independent prefixes).
       staticIds: List[(NodeId, Option[String])],
+      // Nodes whose OWN markup reads their own selection, so there is one
+      // rendering per member and no single answer to diff against. They never
+      // enter the pure pass: their verdict needs the log AND an effect, and it
+      // is computed lazily, once per variant somebody actually holds — see
+      // `Server.varyingPatches`.
+      varyingIds: List[(NodeId, Option[String])],
       dynamics: List[(NodeId, Option[String], DynamicDelta)],
       flips: List[(NodeId, Option[String])],
       change: StateChange,
@@ -218,8 +231,10 @@ private[runtime] object Patches {
       stamp: Stamp
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
+    val (varying, shared) = staticIds.partition(renderer.nodeVariesByViewer)
     DiffRequest(
-      staticIds.map(id => id -> tag(id)),
+      shared.map(id => id -> tag(id)),
+      varying.map(id => id -> tag(id)),
       dynamics.map { case (gid, d) => (gid, tag(gid), d) },
       flips.map(gid => gid -> tag(gid)),
       change,
@@ -267,33 +282,20 @@ private[runtime] object Patches {
               varying.map(f =>
                 Varying(
                   surface,
-                  ui =>
-                    f(ui)
-                      .fold(Patch.Remove(renderer.mountId(gid)))(identity)
-                      .toSse
+                  (ui: Map[String, String]) =>
+                    IO.pure(
+                      Option(
+                        f(ui)
+                          .fold(Patch.Remove(renderer.mountId(gid)))(identity)
+                          .toSse
+                      )
+                    )
                 )
               )
           )
       }
-    // A node whose own rendering reads its OWN selection has one rendering per
-    // member, so it cannot be rendered once for the slug or compared against a
-    // shared digest. Same treatment as a flip's varying branch: carry the
-    // render, let each connection perform it, keep it out of the log.
-    val (varyingStatics, sharedStatics) =
-      req.staticIds.partition { case (id, _) =>
-        renderer.nodeVariesByViewer(id)
-      }
-    val staticVarying = varyingStatics.map { case (id, surface) =>
-      Varying(
-        surface,
-        ui =>
-          Patch
-            .Morph(renderer.renderNodeById(id, req.states, ui).getOrElse(""))
-            .toSse
-      )
-    }
     val rendered =
-      sharedStatics.flatMap { case (id, surface) =>
+      req.staticIds.flatMap { case (id, surface) =>
         renderer
           .renderNodeById(id, req.states)
           .map(html => (id, surface, html))
@@ -326,7 +328,7 @@ private[runtime] object Patches {
       }
     (
       finalLog,
-      flipPatches ++ staticPatches ++ staticVarying ++ dynPatches
+      flipPatches ++ staticPatches ++ dynPatches
     )
   }
 

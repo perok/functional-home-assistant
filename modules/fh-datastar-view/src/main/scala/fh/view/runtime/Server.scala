@@ -431,8 +431,41 @@ class Server(
           change,
           visible
         )
+        // Every variant-bearing node becomes ONE memo: the first connection
+        // holding a given variant renders it, compares it against that
+        // variant's digest, records the result and returns the verdict; every
+        // later connection on the SAME variant gets that verdict handed to it.
+        // Memoising the verdict rather than the render is what stops the second
+        // viewer of a variant being told "unchanged" because the first one
+        // consumed it.
+        //
+        // Lazy on purpose: a variant nobody holds is never rendered at all.
+        val varying = req.varyingIds.traverse { case (id, surface) =>
+          Memo
+            .create[Int, Option[ServerSentEvent]] { variant =>
+              val html = renderer
+                .renderNodeById(id, store.entities, Map(id -> variant.toString))
+                .getOrElse("")
+              log.modify { l =>
+                if (l.holds(id, html, variant)) (l, None)
+                else
+                  (
+                    l.set(id, html, req.stamp.version, variant),
+                    Some(Patch.Morph(html).toSse)
+                  )
+              }
+            }
+            .map(memo =>
+              Varying(
+                surface,
+                (ui: Map[String, String]) =>
+                  memo.get(renderer.variantOf(id, ui))
+              )
+            )
+        }
         log
           .modify(l => Patches.diff(renderer, l, req))
+          .flatMap(patches => varying.map(patches ++ _))
           .map { patches =>
             // Advance the clients' cursor to what they were just sent — but only when
             // something WAS sent. A batch that emitted nothing leaves every cursor
@@ -549,10 +582,12 @@ class Server(
               // connection arrived with does not.
               .evalMap {
                 case Addressed(_, event) => IO.pure(Option(event))
-                case Varying(_, render)  =>
-                  (rendererFor(session.slug), session.open.get).mapN {
+                case Varying(_, resolve) =>
+                  (rendererFor(session.slug), session.open.get).flatMapN {
                     (rendererOpt, open) =>
-                      rendererOpt.map(r => render(r.uiStateFrom(open)))
+                      rendererOpt.fold(IO.pure(Option.empty[ServerSentEvent]))(
+                        r => resolve(r.uiStateFrom(open))
+                      )
                   }
               }
               .unNone

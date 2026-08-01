@@ -322,6 +322,17 @@ class Renderer(
       case _ => false
     }
 
+  /** Which variant of this node a viewer holding `uiState` sees — the member
+    * index its own group selects, or 0 for the overwhelming majority of nodes,
+    * whose rendering does not vary at all.
+    *
+    * The variant space is per node and STATIC: one per member of its own group.
+    * It cannot multiply out over a subtree, because a node's own rendering
+    * never carries a descendant's mount.
+    */
+  def variantOf(id: NodeId, uiState: Map[String, String]): Int =
+    if (nodeVariesByViewer(id)) resolveActive(id, uiState)._1 else 0
+
   /** Whether rendering surface `sid`'s content produces different HTML for
     * different viewers — i.e. whether a USER-selected mount appears anywhere
     * under it.

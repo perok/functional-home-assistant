@@ -2172,8 +2172,11 @@ class ServerSuite extends munit.CatsEffectSuite {
   private def varying(
       out: List[Directed],
       uiState: Map[String, String] = Map.empty
-  ): List[ServerSentEvent] =
-    out.collect { case v: Varying => v.render(uiState) }
+  ): IO[List[ServerSentEvent]] =
+    out
+      .collect { case v: Varying => v.resolve(uiState) }
+      .sequence
+      .map(_.flatten)
 
   /** The popup host's selection signal — `ui_` + the host id, exactly as the
     * shell composes it.
@@ -2796,6 +2799,52 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     )
   )
+
+  test("a variant keeps its own digest, so an unchanged tick is suppressed") {
+    // The set of variants for a bake owner is STATIC — one per member — so each
+    // is an entry of its own rather than one shared digest that could only ever
+    // describe one viewer's bytes. Two viewers on different tabs each get their
+    // own suppression, and neither consumes the other's patch.
+    liveWorld(
+      serverHighlightDash,
+      Map(
+        "sensor.title" -> es("sensor.title", "T0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.c_0=1")
+        _ <- onT0.drain
+        _ <- onT1.drain
+        // A real change: both viewers get their own bar.
+        _ <- world.change(es("sensor.title", "T1"))
+        a1 <- onT0.drain
+        b1 <- onT1.drain
+        _ = assert(
+          domEvents(a1).exists(_._3.exists(_.contains("T1"))),
+          clue = a1
+        )
+        _ = assert(
+          domEvents(b1).exists(_._3.exists(_.contains("T1"))),
+          clue = b1
+        )
+        // The SAME entity ticks to a value this node renders identically —
+        // the title is unchanged, only an attribute moved. Each variant's own
+        // digest says so, and nothing goes out to either viewer.
+        _ <- world.change(
+          es("sensor.title", "T1").copy(attributes =
+            Map("unrelated" -> io.circe.Json.fromInt(7))
+          )
+        )
+        a2 <- onT0.drain
+        b2 <- onT1.drain
+        _ = assertEquals(domEvents(a2), Nil, clue = a2)
+        _ = assertEquals(domEvents(b2), Nil, clue = b2)
+      } yield ()
+    }
+  }
 
   test("a server-rendered selection survives the first tick, per viewer") {
     liveWorld(

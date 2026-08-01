@@ -44,7 +44,15 @@ private[runtime] object Digest {
   * be told the difference instead of the whole body
   * (docs/adr/0011-the-live-connection.md).
   */
-private[runtime] case class Fragment(digest: Digest, version: Long)
+private[runtime] case class Fragment(
+    // One digest per VARIANT. Almost every node has exactly one, keyed 0: its
+    // rendering is a pure function of entity state. A node whose own markup
+    // reads its OWN selection (`Renderer.nodeVariesByViewer`) has one per member
+    // of its group — a static, tiny set, since a node's own rendering can never
+    // carry a descendant's mount and so can never multiply out.
+    digests: Map[Int, Digest],
+    version: Long
+)
 
 /** When a diff pass rendered — both clocks it needs, together.
   *
@@ -241,8 +249,10 @@ private[runtime] case class FragmentLog(
     * the stored digest answers. `false` for an absent entry: unknown means send
     * it, which is what makes dropping an entry always safe.
     */
-  def holds(nodeId: NodeId, html: String): Boolean =
-    fragments.get(nodeId).exists(_.digest == Digest.of(html))
+  def holds(nodeId: NodeId, html: String, variant: Int = 0): Boolean =
+    fragments
+      .get(nodeId)
+      .exists(_.digests.get(variant).contains(Digest.of(html)))
 
   /** Whether `gid` is ESTABLISHED — i.e. the log knows what is in its mount, so
     * a membership change can be patched per-entity instead of filled wholesale.
@@ -266,11 +276,47 @@ private[runtime] case class FragmentLog(
     * be behind: a newer entry from the live pass describes the DOM better than
     * this one does, and clobbering it would cost a redundant send.
     */
-  def seed(nodeId: NodeId, html: String, at: Long): FragmentLog =
-    if (fragments.contains(nodeId)) this else set(nodeId, html, at)
+  def seed(
+      nodeId: NodeId,
+      html: String,
+      at: Long,
+      variant: Int = 0
+  ): FragmentLog =
+    if (fragments.get(nodeId).exists(_.digests.contains(variant))) this
+    else set(nodeId, html, at, variant)
 
-  def set(nodeId: NodeId, html: String, at: Long): FragmentLog =
-    copy(fragments = fragments.updated(nodeId, Fragment(Digest.of(html), at)))
+  /** Record what a node holds, for one variant.
+    *
+    * **A fragment's version never goes backwards.** A variant-bearing node's
+    * entry is written lazily, when some connection first asks for that variant,
+    * so two batches can reach here out of order — a slow client forcing an old
+    * batch after a newer one has already been served. An older write leaves the
+    * version alone and refreshes nothing; the stale patch it produced is still
+    * sent, and the batch behind it corrects the client a moment later.
+    */
+  def set(
+      nodeId: NodeId,
+      html: String,
+      at: Long,
+      variant: Int = 0
+  ): FragmentLog =
+    fragments.get(nodeId) match {
+      case Some(f) if f.version > at => this
+      case Some(f)                   =>
+        copy(
+          fragments = fragments.updated(
+            nodeId,
+            Fragment(f.digests.updated(variant, Digest.of(html)), at)
+          )
+        )
+      case None =>
+        copy(
+          fragments = fragments.updated(
+            nodeId,
+            Fragment(Map(variant -> Digest.of(html)), at)
+          )
+        )
+    }
 
   /** Forget a node's cached HTML WITHOUT recording a removal — the node's DOM
     * is being re-supplied by an ancestor's fresh HTML (a group repaint, a
