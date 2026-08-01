@@ -1573,6 +1573,31 @@ Adjacent wart, same shape: `Tabs` assigns `children` rather than hiding it, so a
 `children` on a tabs card silently clobbers the generated buttons. Independent of the question
 above, and worth a Pkl constraint.
 
+### The third shape W18 does not cover (follow-up)
+
+W18 excludes two shapes by their CARD: a mount with no `self`, and a dynamic root. Both are proxies
+for the property that actually matters —
+
+> a node's own rendering must contain no mount, its own or a descendant's
+
+— and a third shape satisfies the proxy while failing the property: **a card that splices
+`{{#children}}` into its `template` with no mount at all.** That is the pre-split container shape.
+It has no mount, so `hasOwnRendering` says yes, so it is a log key and is rendered by id — and its
+rendering carries its children, which may carry mounts.
+
+Found by accident: the first fixture written for W18's test was exactly this shape, and the test
+still failed after the fix. Rewriting it as a pure mount (what `Column` actually is now) made it
+exercise the shipped shape and pass.
+
+Two reasons it is not urgent. The shipped library has no such card — phase 1b turned every plain
+container into a pure mount. And `validate`'s live-slot rule keys on `bareContainer`
+(`ContainerCard` with no `self`), so a `LeafCard` splicing children escapes that check too — meaning
+the gap needs a custom card to be reached at all.
+
+The fix is to stop proxying: decide `hasOwnRendering` by walking the node's rendered subtree for a
+mount, rather than by pattern-matching the card's shape. That subsumes all three shapes, and it is
+the same predicate the self-children question above turns on — so they should be settled together.
+
 ### The walk already computes it
 
 The reason a fill looks like it "cannot know" its per-node bytes is a return type, not a cost.
@@ -1629,6 +1654,7 @@ fingerprint them.
 | W17 | Folded into W13 (the memo is the other half of lazy rendering). What remains separately deferred and measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held — a plain `WeakReference` entry dies at the next GC and would cache nothing | `Renderer` |
 | W18 | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
 | W19 | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
+| W20 | **`hasOwnRendering` by subtree, not by card shape** — a node has its own rendering iff that rendering contains no mount, its own or a descendant's. Subsumes W18's two card shapes plus the pre-split "children in `template`" one it cannot see. Settle with the self-children question, which turns on the same predicate | `Renderer`, `Dashboard.validate` |
 | W21 | **The patch path and the document path agree for a `self`.** `renderNodeById` passes `structuralVars` only, so a `self` reading `{{bakeIndex}}` renders populated on first paint and EMPTY on every later patch — visible on the first tick. Give the patch path the bake vars, which makes such a node variant-bearing: `(nodeId, bakeIndex)` digest, one entry per member, and its live patches ride `Varying`. LAST — nothing needs it until a card wants server-side active-tab highlighting, and the shipped bar does it client-side | `Renderer`, `Patches` |
 | W15 ✅ LANDED | ADR 0002 rewritten (the split is gone); ADR 0011 gains statements (1) and (3) and the resume rule; ADR 0008 gains the cell/self relationship; ADR 0007 checked | `docs/adr/` |
 
@@ -1682,7 +1708,7 @@ behaviour-free commit that everything after is written against.
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
-| **6 — what a fragment is** | W18, W19, W13 (absorbing W17's memo), then W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
+| **6 — what a fragment is** | W18, W19, W13 (absorbing W17's memo), then W20 + W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
