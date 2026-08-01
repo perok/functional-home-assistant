@@ -257,6 +257,13 @@ class Server(
   private def rendererFor(slug: String): IO[Option[Renderer]] =
     liveFor(slug).flatMap(_.traverse(_.renderer.get))
 
+  /** Test seam: the live state for one slug (its renderer signal + its log), so
+    * a suite can assert on what a path wrote to the ledger rather than only on
+    * what reached the wire.
+    */
+  private[runtime] def liveSlug(slug: String): IO[Server.LiveSlug] =
+    liveFor(slug).map(_.getOrElse(sys.error(s"no live slug '$slug'")))
+
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
     renderers.get.map(_.get(slug))
 
@@ -806,24 +813,41 @@ class Server(
         )
         (open -- evict) ++ newSurface.toSet
       }
-      states <- stateStore.snapshot
+      // Version AND snapshot together: a fragment must never claim a version
+      // its bytes do not reflect.
+      store <- stateStore.current
+      states = store.entities
       // What this swap re-supplies: the arriving surface's nodes, and the
       // departing ones' (their DOM is gone, so any entry for them describes
       // nothing).
       resupplied = (newSurface.toSet ++ renderer
         .surfacesAt(host)).flatMap(renderer.surfaceNodeIds)
+      // The arriving surface, rendered ONCE: the bytes go to this connection
+      // and the per-node trace goes to the log. Invalidate first (the departing
+      // surface's entries describe nothing now), then record what this fill
+      // actually put in each node — so the next live tick can tell "unchanged"
+      // from "never told", instead of re-sending every node once.
+      arriving = newSurface.flatMap(
+        renderer.renderSurfaceTraced(_, states, uiState)
+      )
       _ <- liveFor(session.slug).flatMap(
-        _.traverse_(_.log.update(_.invalidateWhere(resupplied)))
+        _.traverse_(
+          _.log.update(l =>
+            arriving.fold(l.invalidateWhere(resupplied))(t =>
+              t.own.foldLeft(l.invalidateWhere(resupplied)) {
+                case (acc, (id, html)) => acc.set(id, html, store.version)
+              }
+            )
+          )
+        )
       )
       _ <- newSurface match {
-        case Some(sid) =>
-          renderer
-            .renderSurface(sid, states, uiState)
-            .traverse_(html =>
-              session.control.offer(
-                Datastar.patch(html, PatchMode.Inner, Some("#" + host))
-              )
+        case Some(_) =>
+          arriving.traverse_(t =>
+            session.control.offer(
+              Datastar.patch(t.html, PatchMode.Inner, Some("#" + host))
             )
+          )
         case None =>
           session.control.offer(
             Datastar.patch(
@@ -1065,24 +1089,34 @@ class Server(
             // lives on the document path), so this is sound to write into a
             // SHARED log.
             val open = renderer.selectedSurfaces(uiState)
+            // ONE render, used twice: the bytes go to the browser and the
+            // per-node trace goes to the log. This used to walk the open
+            // surfaces a second time, node by node, purely to fingerprint what
+            // the page had just composed.
+            val painted = renderer.renderPageTraced(
+              store.entities,
+              uiState,
+              renderer.openPopup(uiState)
+            )
+            // Only the OPEN SURFACES' nodes, exactly as before — the source of
+            // the bytes changed, not the scope. A main-page node deliberately
+            // starts with no entry: absence reads as "you are up to date", and
+            // for a body the server just rendered that is true. Seeding the
+            // whole page instead would make every node owed to a client whose
+            // cursor sits at this very version.
+            val seeded = open.flatMap(renderer.surfaceNodeIds)
             val seedLog = live.log.update(l =>
-              open
-                .flatMap(renderer.surfaceNodeIds)
-                .foldLeft(l)((acc, id) =>
-                  renderer
-                    .renderNodeById(id, store.entities)
-                    .fold(acc)(html => acc.seed(id, html, store.version))
-                )
+              painted.own.foldLeft(l) {
+                case (acc, (id, html)) if seeded(id) =>
+                  acc.seed(id, html, store.version)
+                case (acc, _) => acc
+              }
             )
             warnAnomalies(renderer, uiState) *> seedLog *>
               Ok(
                 page(
                   slug,
-                  renderer.renderPage(
-                    store.entities,
-                    uiState,
-                    renderer.openPopup(uiState)
-                  ),
+                  painted.html,
                   renderer.stylesheets.map(assets.rewrite),
                   renderer.scripts.map(assets.rewrite),
                   renderer.title,

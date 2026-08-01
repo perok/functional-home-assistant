@@ -2554,6 +2554,106 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  test("a fill records what it put there, so the next tick suppresses") {
+    // The point of the trace. Opening a surface renders it and patches it into
+    // the host; the log now learns each node's bytes from that same render. So
+    // when an entity inside it ticks to the SAME value, the diff can tell
+    // "unchanged" from "never told" and sends nothing.
+    //
+    // Before, a fill dropped those entries, and the first tick after any
+    // surface open re-sent every node in it once — the cost W10b named and
+    // could not pay, because fingerprinting meant walking the subtree twice.
+    val dash = Dashboard(
+      cards = Map(
+        "col" -> CardDef(
+          template = "{{{mount}}}",
+          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        ),
+        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      ),
+      card = LayoutNode.Component("col"),
+      surfaces = Map(
+        "det" -> Surface(
+          LayoutNode.Component("col", children = List(branchCard("sensor.a")))
+        )
+      )
+    )
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val conn = "c1"
+          for {
+            session <- Session.create("dashboard")
+            _ <- sessions.register(conn, session)
+            renderer <- ref.get
+            live <- server.liveSlug("dashboard")
+            // Open the popup the way a tap does.
+            _ <- server.routes.orNotFound.run(
+              Request[IO](Method.POST, uri"/sse/surface/open/det")
+                .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
+            )
+            // The fill told the log what it painted...
+            afterFill <- live.log.get.map(
+              _.holds(
+                "s_det__c_0",
+                renderer
+                  .renderNodeById(
+                    "s_det__c_0",
+                    Map("sensor.a" -> es("sensor.a", "cold"))
+                  )
+                  .get
+              )
+            )
+            // ...so an identical tick produces nothing for that node.
+            _ <- store.update(es("sensor.a", "cold"))
+            same <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              live.log,
+              StateChange(
+                "sensor.a",
+                Some(es("sensor.a", "cold")),
+                es("sensor.a", "cold")
+              )
+            )
+            // ...while a REAL change still does. The store is what the pass
+            // renders from, so it moves first.
+            _ <- store.update(es("sensor.a", "warm"))
+            changed <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              live.log,
+              StateChange(
+                "sensor.a",
+                Some(es("sensor.a", "cold")),
+                es("sensor.a", "warm")
+              )
+            )
+          } yield (afterFill, ready(same), ready(changed))
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (afterFill, same, changed) =>
+        assert(afterFill, clue = "the fill must record the node it painted")
+        assertEquals(same, Nil, clue = same.map(_.event.renderString))
+        assert(
+          changed.exists(_.event.elements.exists(_.contains("warm"))),
+          clue = changed.map(_.event.renderString)
+        )
+      }
+  }
+
   test("a resume cannot move a viewer onto a tab it did not choose") {
     val r = Renderer.create(barePopupTabsDash)
     val before =

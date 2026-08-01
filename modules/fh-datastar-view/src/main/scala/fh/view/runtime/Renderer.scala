@@ -748,7 +748,17 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): String =
-    render(dashboard.card, Nil, "", states, uiState)
+    renderBodyTraced(states, uiState).html
+
+  /** [[renderBody]] with the per-node trace — including every surface BAKED
+    * into it, which is what a page load needs to seed the log for the surfaces
+    * the client can already see.
+    */
+  private[runtime] def renderBodyTraced(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): Traced =
+    traced(dashboard.card, Nil, "", states, uiState)
 
   /** The full page: [[themeStyleTag]] followed by the theme's compiled `chrome`
     * executed with `body = renderBody(...)` — a stable `#dashboard` patch
@@ -767,21 +777,41 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None
-  ): String =
-    themeStyleTag + chromeTemplate.execute(
-      Renderer.javaContext(
-        Map(
-          "body" -> renderBody(states, uiState),
-          // The dialog a refresh is restoring, baked into the host exactly as
-          // the connect would patch it — same `renderSurface` call, so the two
-          // are byte-identical and the later patch is a no-op morph.
-          "popups" -> popup
-            .flatMap(renderSurface(_, states, uiState))
-            .getOrElse("")
-        ),
-        Nil
-      )
+  ): String = renderPageTraced(states, uiState, popup).html
+
+  /** [[renderPage]] with the per-node trace of everything it painted — the
+    * body, the surfaces baked into it, and a restored popup.
+    *
+    * The page is the one render that must tell the log what it did. Every other
+    * node starts with NO entry, which reads as "you are up to date" and is
+    * true: the document was server-rendered from current state. An open surface
+    * is the exception — with no entry the first live tick would hand the client
+    * its own surface straight back — so those are seeded, and now from the
+    * render that produced them rather than from a second walk.
+    */
+  private[runtime] def renderPageTraced(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty,
+      popup: Option[String] = None
+  ): Traced = {
+    val body = renderBodyTraced(states, uiState)
+    val dialog = popup.flatMap(renderSurfaceTraced(_, states, uiState))
+    Traced(
+      themeStyleTag + chromeTemplate.execute(
+        Renderer.javaContext(
+          Map(
+            "body" -> body.html,
+            // The dialog a refresh is restoring, baked into the host exactly as
+            // the connect would patch it — same render, so the two are
+            // byte-identical and the later patch is a no-op morph.
+            "popups" -> dialog.fold("")(_.html)
+          ),
+          Nil
+        )
+      ),
+      body.own ++ dialog.fold(Map.empty[NodeId, String])(_.own)
     )
+  }
 
   /** Render a surface's bare content, namespaced under its surface-scoped id
     * prefix (`s_<id>__…`, [[Renderer.surfacePrefix]]) so its inner nodes never
@@ -796,8 +826,18 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
+    renderSurfaceTraced(surfaceId, states, uiState).map(_.html)
+
+  /** [[renderSurface]] with the per-node trace — what a FILL uses, so the log
+    * learns what the fill put in each node without re-rendering the subtree.
+    */
+  private[runtime] def renderSurfaceTraced(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
+      traced(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
@@ -1085,24 +1125,28 @@ class Renderer(
     * byte-identical HTML. No bake group → both maps empty (absent Mustache vars
     * render empty). Returns `(baked, structural)`.
     */
-  private def resolveBake(
+  private def resolveBakeTraced(
       id: NodeId,
       uiState: Map[String, String],
       states: Map[String, EntityState]
-  ): (Map[String, String], Map[String, String]) = {
+  ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
     val group = bakeGroup(id)
-    def bakeMember(idx: Int): (Map[String, String], Map[String, String]) = {
+    def bakeMember(
+        idx: Int
+    ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
       val sid = group(idx)
       val s = dashboard.surfaces(sid)
+      // A baked member's nodes are part of what this render puts on screen, so
+      // its trace joins this one's — that is how a page load fingerprints the
+      // surfaces it baked without walking them again.
+      val member = renderSurfaceTraced(sid, states, uiState)
       (
-        Map(
-          s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
-            .getOrElse("")
-        ),
-        Map("bakeIndex" -> idx.toString)
+        Map(s.bakeAs.getOrElse("") -> member.fold("")(_.html)),
+        Map("bakeIndex" -> idx.toString),
+        member.fold(Map.empty[NodeId, String])(_.own)
       )
     }
-    if (group.isEmpty) (Map.empty, Map.empty)
+    if (group.isEmpty) (Map.empty, Map.empty, Map.empty)
     else if (isStateGroup(id))
       resolveActiveByState(id, states) match {
         case Some(idx) => bakeMember(idx)
@@ -1114,7 +1158,7 @@ class Renderer(
           val as = group.headOption
             .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
             .getOrElse("")
-          (Map(as -> ""), Map.empty)
+          (Map(as -> ""), Map.empty, Map.empty)
       }
     else bakeMember(resolveActive(id, uiState)._1)
   }
@@ -1125,20 +1169,70 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
-  ): String =
+  ): String = traced(node, path, idPrefix, states, uiState).html
+
+  /** The composed rendering, and every node's OWN html inside it.
+    *
+    * The walk already computes both — a card's `self` is built and then spliced
+    * into `template` — so the trace is a matter of not discarding it. Before
+    * this, anything that needed per-node bytes after a wholesale render (a fill
+    * fingerprinting what it just put in a mount, the page seeding the log for
+    * its open surfaces) rendered the whole subtree a SECOND time, node by node.
+    *
+    * `own` carries an entry only for nodes that have a rendering of their own
+    * ([[hasOwnRendering]]) — the same set that may be a log key — and its bytes
+    * are what [[renderNodeById]] would return for that id, which is what makes
+    * the digests comparable at all.
+    */
+  private[runtime] case class Traced(html: String, own: Map[NodeId, String])
+
+  private def traced(
+      node: LayoutNode,
+      path: List[Int],
+      idPrefix: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Traced =
     node match {
       case c: LayoutNode.Component =>
         val id = LayoutNode.nodeId(idPrefix, path)
-        val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
-          render(child, path :+ i, idPrefix, states, uiState)
+        val kids = c.children.zipWithIndex.map { case (child, i) =>
+          traced(child, path :+ i, idPrefix, states, uiState)
         }
-        val (baked, bakeIndex) = resolveBake(id, uiState, states)
-        // The document path renders the whole card: its two parts first (each
-        // seeing the same vars), then `template` with them spliced in. A leaf
-        // card has neither part, so its `template` renders exactly as before.
-        val html = renderWhole(
+        val childrenHtml = kids.map(_.html)
+        val (baked, bakeIndex, bakedTrace) =
+          resolveBakeTraced(id, uiState, states)
+        // The document path renders the whole card: its two parts first, then
+        // `template` with them spliced in. A leaf card has neither part, so its
+        // `template` renders exactly as before.
+        //
+        // The `self` is rendered with the STRUCTURAL vars alone — no bake vars —
+        // which is precisely what `renderNodeById` gives it. Aligning them is
+        // what lets the trace be captured here and compared there. It also makes
+        // a `self` that reaches for `{{bakeIndex}}` fail the same way on both
+        // paths (empty, visibly, from first paint) instead of rendering on one
+        // and blanking on the other.
+        val selfHtml = templates.selves
+          .get(c.card)
+          .map(
+            renderTemplateOf(
+              _,
+              structuralVars(id),
+              c.slots,
+              childrenHtml,
+              states
+            )
+          )
+        val vars = structuralVars(id) ++ bakeIndex ++ baked
+        val mountHtml = templates.mounts
+          .get(c.card)
+          .map(renderTemplateOf(_, vars, c.slots, childrenHtml, states))
+        val html = renderTemplate(
           c.card,
-          structuralVars(id) ++ bakeIndex ++ baked,
+          vars ++ Map(
+            "self" -> selfHtml.getOrElse(""),
+            "mount" -> mountHtml.getOrElse("")
+          ),
           c.slots,
           childrenHtml,
           states
@@ -1158,13 +1252,32 @@ class Renderer(
         // baked panel. The split separates the two: the cell is the layout item,
         // the `self` element is the patch target. So `Tabs`/`If` are ordinary
         // cells, and `.columns(n)` on them stops being silently dropped.
-        if (noWrapCards(c.card)) html
-        else
-          s"""<div class="fh-cell${Renderer.cellClasses(
-              c.cell
-            )}" id="$id">$html</div>"""
+        val wrapped =
+          if (noWrapCards(c.card)) html
+          else
+            s"""<div class="fh-cell${Renderer.cellClasses(
+                c.cell
+              )}" id="$id">$html</div>"""
+        // What this node contributes to the trace: its `self` when it has one,
+        // otherwise its whole (wrapped) rendering when it holds no mount, and
+        // nothing at all when it is a bare container. Mirrors `renderNodeById`
+        // exactly — including the wrapper, which that method's leaf branch also
+        // returns.
+        val ownHtml =
+          if (!hasOwnRendering(id)) None
+          else selfHtml.orElse(Some(wrapped))
+        Traced(
+          wrapped,
+          kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)
+        )
       case d: LayoutNode.Dynamic =>
-        renderDynamic(LayoutNode.nodeId(idPrefix, path), d, states)
+        val id = LayoutNode.nodeId(idPrefix, path)
+        // A group root composes its members and so has no own rendering; the
+        // members do, and they are what a fill must fingerprint.
+        Traced(
+          renderDynamic(id, d, states),
+          renderDynamicMembers(id, states).toMap
+        )
     }
 
   private def renderDynamic(
