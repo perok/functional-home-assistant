@@ -41,7 +41,7 @@ enum DynamicDelta:
   *
   * Addressable nodes get a stable, location-based id derived from their index
   * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
-  * [[componentsFor]] + [[affectedDynamicIds]] drive the live update loop, and
+  * [[componentsFor]] + [[affectedDynamics]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
   *
   * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
@@ -204,12 +204,6 @@ class Renderer(
     */
   def affectedDynamics(change: StateChange): List[(NodeId, DynamicDelta)] =
     mainIndex.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
-
-  /** Just the affected main-page dynamic ids (delta dropped) — the pre-Tier-1
-    * shape, kept for callers/tests that only need the membership test.
-    */
-  def affectedDynamicIds(change: StateChange): List[NodeId] =
-    affectedDynamics(change).map(_._1)
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(

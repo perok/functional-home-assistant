@@ -251,6 +251,18 @@ Intended as a Home Assistant add-on (`Dockerfile` + `entrypoint.sh`) that watche
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
 
+## Read the compiler's warnings
+
+`-Wunused:privates`/`locals`/`params`/`imports` are ON (sbt-tpolecat), and
+`warnError` is excluded so warnings do NOT fail the build — which means they are
+easy to never see. Two consequences worth knowing:
+
+- **The compiler already finds dead private members.** Do not grep for them.
+  Grep is still needed for unused PUBLIC API, which the compiler cannot prove.
+- **When filtering test/compile output, do not filter out `[warn]`.** A run
+  reduced to `grep "==> X|Total"` hides exactly the signal that would have said
+  a helper became unreachable.
+
 ## Comments: the code says what, a comment says why
 
 The runtime currently carries roughly as many comment lines as code lines. That is too many, and

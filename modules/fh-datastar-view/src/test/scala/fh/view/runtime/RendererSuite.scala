@@ -20,6 +20,13 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
+  /** The affected dynamic ids with the membership delta dropped — a shape only
+    * these tests want, so it lives here rather than as production API.
+    */
+  extension (r: Renderer)
+    private def affectedDynamicIds(change: StateChange): List[String] =
+      r.affectedDynamics(change).map(_._1)
+
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
   // `wrapAsCell = false`).
