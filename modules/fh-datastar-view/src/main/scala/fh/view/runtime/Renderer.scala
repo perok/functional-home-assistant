@@ -810,7 +810,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
-    allIndexed.get(id).map {
+    allIndexed.get(id).filter(_ => hasOwnRendering(id)).map {
       // A card that declares a `self` patches through THAT element alone — no
       // cell wrapper (the cell contains the mount) and no mount. Statement (1)
       // made structural rather than enforced by suppression: the fragment
@@ -984,6 +984,38 @@ class Renderer(
       "selfId" -> Renderer.selfElementId(id),
       "mountId" -> mountId(id)
     )
+
+  /** Whether this node HAS a rendering of its own — the thing that decides
+    * whether it may be a log key or a patch target at all.
+    *
+    * A leaf has one (its whole rendering; there is no mount to exclude). A card
+    * with a `self` has one (that element). Two shapes do NOT:
+    *
+    *   - a BARE container — a mount and no `self` — whose markup is a constant
+    *     `.fh-cell` wrapper around a hole. Rendering it by id renders its whole
+    *     SUBTREE, mounts included, so its bytes depend on which member each
+    *     descendant mount has selected;
+    *   - a DYNAMIC group root, which composes its members the same way.
+    *
+    * The log is per SLUG, so a digest recorded for either is one viewer's bytes
+    * presented as everyone's — and a resume re-rendering one hands that
+    * viewer's variant to whoever asks. Neither loses anything by being
+    * excluded: their children are addressable in their own right.
+    *
+    * This is not a new rule. `Dashboard.validate` already rejects a live-entity
+    * slot on a bare container BECAUSE it has no patch target; the log simply
+    * never followed suit.
+    *
+    * They keep their [[elementId]]: a structural patch still names them (a
+    * `remove` deletes that element, an `insert` anchors before it). What they
+    * lose is being rendered BY ID.
+    */
+  private def hasOwnRendering(id: NodeId): Boolean =
+    allIndexed.get(id).exists {
+      case (c: LayoutNode.Component, _, _) =>
+        hasSelf(c.card) || !templates.mounts.contains(c.card)
+      case (_: LayoutNode.Dynamic, _, _) => false
+    }
 
   /** Whether a card patches through a `self` element of its own — the ONE
     * predicate the split turns on. It picks what the patch path renders, what

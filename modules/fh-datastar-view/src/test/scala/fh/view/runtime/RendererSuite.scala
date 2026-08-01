@@ -413,9 +413,9 @@ class RendererSuite extends munit.FunSuite {
       ),
       cell = Some(Cell(classes = List("fh-cols-full")))
     )
-    val html = renderer(dyn)
-      .renderNodeById("c", Map("light.a" -> st("light.a", "on")))
-      .get
+    // Rendered through the document path: a dynamic group root composes its
+    // members, so it has no rendering of its OWN and is not addressable by id.
+    val html = renderer(dyn).renderBody(Map("light.a" -> st("light.a", "on")))
     assertEquals(
       html,
       """<div class="fh-cell fh-group fh-cols-full" id="c">""" +
@@ -590,7 +590,7 @@ class RendererSuite extends munit.FunSuite {
     // morph target (itself a cell, plus `fh-group`); each child is ALSO wrapped
     // in its own id'd `fh-cell` (the per-entity patch target)
     // `<groupId>_<sanitized entity>`.
-    val html = r.renderNodeById("c", states).get
+    val html = r.renderBody(states)
     assert(
       html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
       clue = html
@@ -716,7 +716,7 @@ class RendererSuite extends munit.FunSuite {
           "friendly_name" -> Json.fromString("Lamp")
         )
       )
-    val html = renderer(dyn).renderNodeById("c", states).get
+    val html = renderer(dyn).renderBody(states)
     assert(html.contains("<button>Fixed</button>"), clue = html)
     assert(!html.contains("Lamp"), clue = html)
   }
@@ -1242,11 +1242,14 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.resolveActiveByState("c", states), None)
     // The host still renders its wrapper — with empty branch content, so a
     // matching branch appearing later has its patch target in the DOM. Both
-    // boxes: the cell (the node's own element) and the mount inside it.
+    // boxes: the cell (the node's own element) and the mount inside it. Through
+    // the document path: an If is a pure mount, so it has no rendering of its
+    // own and `renderNodeById` refuses it.
     assertEquals(
-      r.renderNodeById("c", states).get,
+      r.renderBody(states),
       """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
     )
+    assertEquals(r.renderNodeById("c", states), None)
   }
 
   test("resolveActiveByState quantifiers: any = ∃, none = ∄, all = ∀") {

@@ -158,16 +158,17 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("no container-level fragment can hide a placement any more") {
     // A group used to log its whole HTML under `gid`, and that ancestor entry
-    // suppressed a member's insert. Nothing writes such an entry now — a group's
-    // wholesale case fills its mount and fingerprints its MEMBERS — so a stale
-    // one no longer covers anything and the placement still goes.
+    // suppressed a member's insert. Nothing writes such an entry now — a group
+    // root composes its members and so has no rendering of its OWN — and a
+    // stale one planted by hand is not merely harmless but unresolvable: it
+    // renders to nothing and drops out, while the placement still goes.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(5L))
       .set("c", "<group>all four</group>", 6L)
     val out = resume(log, 1L)
-    assertEquals(out.size, 3, clue = out)
-    assert(out(0).contains("""id="c""""), clue = out)
-    assert(out(2).contains("mode before"), clue = out)
+    assertEquals(out.size, 2, clue = out)
+    assert(!out.exists(_.contains("all four")), clue = out)
+    assert(out(1).contains("mode before"), clue = out)
   }
 
   test("a cursor past everything is owed nothing") {

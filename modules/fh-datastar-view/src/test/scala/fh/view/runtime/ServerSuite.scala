@@ -2503,6 +2503,95 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  /** A BARE container — a mount and no `self` — has no rendering of its own:
+    * rendering it by id renders its whole subtree, mounts included. The log is
+    * per SLUG, so a digest recorded for one is one viewer's bytes presented as
+    * everyone's, and a resume re-rendering it hands that viewer's variant to
+    * whoever asks.
+    *
+    * Concretely, and this is the failure it caused: a client on tab 1
+    * reconnects and is morphed onto tab 0 — over a change inside tab 0's panel,
+    * which it could not see and did not ask for.
+    */
+  private def barePopupTabsDash = Dashboard(
+    cards = Map(
+      // A PURE MOUNT, exactly as the shipped `Column` is: no `self`, children
+      // in the mount. That shape is the whole point — it has no markup of its
+      // own to fingerprint.
+      "col" -> CardDef(
+        template = "{{{mount}}}",
+        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+      ),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        self = Some("""<div id="{{selfId}}">bar</div>"""),
+        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+      )
+    ),
+    card = LayoutNode.Component("col"),
+    surfaces = Map(
+      // The popup's content root is a bare `col` wrapping the tabs host.
+      "det" -> Surface(
+        LayoutNode.Component(
+          "col",
+          children = List(LayoutNode.Component("tabs"))
+        )
+      ),
+      "t0" -> Surface(
+        branchCard("sensor.a"),
+        bakeInto = Some("s_det__c_0"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(0),
+        activation = Activation.User(defaultOpen = true)
+      ),
+      "t1" -> Surface(
+        branchCard("sensor.b"),
+        bakeInto = Some("s_det__c_0"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      )
+    )
+  )
+
+  test("a resume cannot move a viewer onto a tab it did not choose") {
+    val r = Renderer.create(barePopupTabsDash)
+    val before =
+      Map(
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    // The page seeds the log for the open surfaces' nodes, exactly as
+    // `pageResponse` does — by id, with no viewer.
+    val ids =
+      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
+    val seeded = ids.foldLeft(FragmentLog("w18")) { (l, id) =>
+      r.renderLogged(id, before).fold(l)(h => l.seed(id, h, 1L))
+    }
+    // This viewer holds tab 1.
+    val open = Set("det", "t1")
+    val mine = Map("s_det__c_0" -> "1")
+
+    // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
+    //     content must not reach it by ANY route.
+    val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
+    val owed = Patches.resume(r, seeded, tab0Moved, 2L, open, mine)
+    assert(
+      !owed.exists(_.renderString.contains("s_t0__c")),
+      clue = owed.map(_.renderString)
+    )
+    assert(!owed.exists(_.renderString.contains("A1")), clue = owed)
+
+    // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
+    //     arrive. Without this the test would pass by sending nothing, ever.
+    val tab1Moved = before.updated("sensor.b", es("sensor.b", "B1"))
+    val mineOwed = Patches.resume(r, seeded, tab1Moved, 2L, open, mine)
+    assert(
+      mineOwed.exists(_.renderString.contains("B1")),
+      clue = mineOwed.map(_.renderString)
+    )
+  }
+
   test("a flip re-reveals each client's OWN tab, not the default one") {
     liveWorld(
       tabsInBranchDash,
