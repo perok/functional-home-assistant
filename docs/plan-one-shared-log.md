@@ -1290,6 +1290,24 @@ data: selector #c_0_1_branch
 data: elements <div class="fh-cell" id="s_c_0_1_else__c">…</div>
 ```
 
+### As landed (W13)
+
+`visibleSurface` walks UP the chain: a user surface must be in `open`, a state surface must be the
+member its group selects, and whatever contains it must itself be visible. Two callers — the shared
+pass's render gate and the resume's candidate filter.
+
+The per-session detail matters: each session is filtered against its OWN open set before the union.
+Unioning first mixes one client's tab with another's branch and calls the result visible.
+
+**W17 did not fold in after all.** The plan expected "lazy render" to be new machinery; it was not.
+`plan` already selects node ids before `diff` renders them, so gating the selection IS the
+laziness. The memo is a separate optimisation for the single per-viewer render, and it stays
+deferred behind a measurement.
+
+The live filter (`Addressed.visibleTo`) was deliberately left on its cheaper `open.contains` test.
+Once the render gate is right, a patch for an invisible node is never produced, so the filter has
+nothing left to get wrong — and over-sending is the safe direction anyway.
+
 ### What this settles, and what it costs
 
 - **No new id scheme.** `{{selfId}}` is the only new id; `{{mountId}}` is `Surface.hostId` under a
@@ -1639,6 +1657,24 @@ One alignment came free. The `self` is now rendered with the structural vars alo
 construction. It also turns W21's failure from "renders on one path, blanks on the other" into
 "blanks on both, visibly, from first paint".
 
+### As landed (W13)
+
+`visibleSurface` walks UP the chain: a user surface must be in `open`, a state surface must be the
+member its group selects, and whatever contains it must itself be visible. Two callers — the shared
+pass's render gate and the resume's candidate filter.
+
+The per-session detail matters: each session is filtered against its OWN open set before the union.
+Unioning first mixes one client's tab with another's branch and calls the result visible.
+
+**W17 did not fold in after all.** The plan expected "lazy render" to be new machinery; it was not.
+`plan` already selects node ids before `diff` renders them, so gating the selection IS the
+laziness. The memo is a separate optimisation for the single per-viewer render, and it stays
+deferred behind a measurement.
+
+The live filter (`Addressed.visibleTo`) was deliberately left on its cheaper `open.contains` test.
+Once the render gate is right, a patch for an invisible node is never produced, so the filter has
+nothing left to get wrong — and over-sending is the safe direction anyway.
+
 ### What this settles
 
 - **W10b is dissolved.** "Invalidate or fingerprint?" was a choice only while fingerprinting cost a
@@ -1667,10 +1703,10 @@ construction. It also turns W21's failure from "renders on one path, blanks on t
 | W10b ✅ LANDED, then **DISSOLVED by W19** — it was a choice only while fingerprinting cost a second render pass | **Every fill writes its members' fingerprints** — `swapHost` (select, popup open, flip-reveal) as well as the wholesale cases, or statement (2) is violated and the next live diff suppresses a real change (T4b). `uiState` leaves `swapHost`/`renderSurface` with it: surface content is client-independent, so only the document path needs it | `Server.swapHost`, `Renderer.renderSurface` |
 | W11 ✅ LANDED | Retire `PopupSignal`/`popupOf`/`claimedPopup` in favour of `ui_<hostId>`; the open/close taps set it client-side like a tab button. The host reset stays — see "The resume rule" | `Server`, `Renderer`, `lib/components.pkl` |
 | W12 ✅ LANDED | Delete `sessionOwnedMainIds`, `sessionOnlyStateGroups`, `subtreeHasUserOwner` | `Renderer` (fell out of W6 — `userOwnersIn` replaced `subtreeHasUserOwner`) |
-| W13 **NOT DONE**, rewritten | **The visibility predicate**, and its three users. "Can this client see this node" = every user surface on its chain is selected AND every state surface on its chain is active — reachability, which `⋃ session.open` is NOT (`selectedSurfaces` reports a selection whether or not its group is on screen). Users: the live filter (`Addressed.visibleTo`, today `open.contains`), the resume prune (`FragmentLog.since`, today NO filter at all), and the render gate. Build it as **lazy render gated on visibility**, not a filter over an eager pass — laziness only pays if invisibility is decided before rendering, which makes W17's memo part of the same mechanism. `fromOpen` is what keeps skipping safe: a reconnect re-renders what it can see NOW and compares, so a node nobody watched while a client was away is still corrected | `Renderer`, `Patches`, `Server` |
+| W13 ✅ LANDED | **The visibility predicate**, and its three users. "Can this client see this node" = every user surface on its chain is selected AND every state surface on its chain is active — reachability, which `⋃ session.open` is NOT (`selectedSurfaces` reports a selection whether or not its group is on screen). Users: the live filter (`Addressed.visibleTo`, today `open.contains`), the resume prune (`FragmentLog.since`, today NO filter at all), and the render gate. Build it as **lazy render gated on visibility**, not a filter over an eager pass — laziness only pays if invisibility is decided before rendering, which makes W17's memo part of the same mechanism. `fromOpen` is what keeps skipping safe: a reconnect re-renders what it can see NOW and compares, so a node nobody watched while a client was away is still corrected | `Renderer`, `Patches`, `Server` |
 | W14 | `horizon` becomes `Map[gid, Long]` for DYNAMIC groups only (a state group's branches are a fixed set, so its mutations never accumulate); a cursor below a group's horizon puts that group in `Resume.refill`, so `coveredByMutation(nodeId, moved ++ refill)` drops its members. The refill carries the group's content in full and writes its members' fingerprints. Eviction can no longer trigger a body repaint | `FragmentLog`, `Patches.resume` |
 | W16 ✅ LANDED | **Render at the edge**: a branch that `variesByViewer` is published as a `Varying` render, performed per connection from `session.open` at send time; everything else stays eagerly shared. Deletes `Viewer` entirely, `Patches.Reveal`, `Server.fillMount`. A varying placement logs its mutation without a digest. NOT landed: the memo (folded into W17) and `data-signals__ifmissing` (reverted — see "As landed") | `Patches`, `Server`, `Renderer`, `FragmentLog` |
-| W17 | Folded into W13 (the memo is the other half of lazy rendering). What remains separately deferred and measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held — a plain `WeakReference` entry dies at the next GC and would cache nothing | `Renderer` |
+| W17 | **Still deferred, and deliberately NOT folded into W13.** W13 turned out to be a selection fix — `plan` already chose ids before `diff` rendered them, so gating selection IS the laziness, and no memo was needed to get it. The memo remains an optimisation for the one per-viewer render (`Varying`, K viewers of one flip), and building it without a measurement would contradict its own justification. Plus, still deferred and measurement-gated: a longer-lived `(state, node, variant) -> HTML` cache across batches, `SoftReference`-held — a plain `WeakReference` entry dies at the next GC and would cache nothing | `Renderer` |
 | W18 ✅ LANDED | **Bare containers and dynamic group roots stop being fragment keys and morph targets** — they have no own rendering, so anything recorded for them is a composed subtree that differs per viewer. Fixes the resume that moves a viewer onto another tab. See "What a fragment is" | `Renderer`, `Server.pageResponse`, `Patches.resume` |
 | W19 ✅ LANDED | **The render walk emits `(nodeId, ownHtml)`** alongside the composed string, generalising `renderDynamicMembers`' pairing to every depth. Fills and `seedLog` consume it instead of re-rendering by id — the document path currently renders every open surface TWICE. Dissolves W10b: every fill fingerprints, because it is free | `Renderer.render`, `Server.swapHost`, `Server.pageResponse` |
 | W20 | **`hasOwnRendering` by subtree, not by card shape** — a node has its own rendering iff that rendering contains no mount, its own or a descendant's. Subsumes W18's two card shapes plus the pre-split "children in `template`" one it cannot see. Settle with the self-children question, which turns on the same predicate | `Renderer`, `Dashboard.validate` |
@@ -1727,7 +1763,7 @@ behaviour-free commit that everything after is written against.
 | **3 — the collapse** ✅ LANDED | W6 ✅, W7 ✅, W8 ✅, W9 ✅, W10b ✅, W11 ✅, W12 ✅, W13 ❌ | the per-session pass dies here; nothing earlier depends on that |
 | **4 — render at the edge** ✅ LANDED | W16 ✅ (W17 deferred) | needs the collapse landed first: it replaces the fill W6 introduced, and mostly absorbs W13 |
 | **5 — docs** ✅ LANDED | W15 ✅ | last, so the ADRs describe what actually shipped |
-| **6 — what a fragment is** | W18 ✅, W19 ✅, W13 (absorbing W17's memo), then W20 + W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
+| **6 — what a fragment is** | W18 ✅, W19 ✅, W13 ✅, then W20 + W21 | found by reviewing the finished result; W18 first because it defines what "own html" is, W19 next because it removes work rather than adding it, W21 last because nothing needs it yet |
 
 **Phase 0 as landed**, since phase 1 is written against it. `NodeId`/`DomId` are
 `opaque type X <: String = String` in `fh/view/model/Ids.scala` — the upper bound is deliberate (a
