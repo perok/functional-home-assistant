@@ -275,8 +275,25 @@ private[runtime] object Patches {
               )
           )
       }
+    // A node whose own rendering reads its OWN selection has one rendering per
+    // member, so it cannot be rendered once for the slug or compared against a
+    // shared digest. Same treatment as a flip's varying branch: carry the
+    // render, let each connection perform it, keep it out of the log.
+    val (varyingStatics, sharedStatics) =
+      req.staticIds.partition { case (id, _) =>
+        renderer.nodeVariesByViewer(id)
+      }
+    val staticVarying = varyingStatics.map { case (id, surface) =>
+      Varying(
+        surface,
+        ui =>
+          Patch
+            .Morph(renderer.renderNodeById(id, req.states, ui).getOrElse(""))
+            .toSse
+      )
+    }
     val rendered =
-      req.staticIds.flatMap { case (id, surface) =>
+      sharedStatics.flatMap { case (id, surface) =>
         renderer
           .renderNodeById(id, req.states)
           .map(html => (id, surface, html))
@@ -309,7 +326,7 @@ private[runtime] object Patches {
       }
     (
       finalLog,
-      flipPatches ++ staticPatches ++ dynPatches
+      flipPatches ++ staticPatches ++ staticVarying ++ dynPatches
     )
   }
 

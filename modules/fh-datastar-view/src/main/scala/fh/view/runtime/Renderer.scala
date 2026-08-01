@@ -288,6 +288,40 @@ class Renderer(
   val stateBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filter(isStateGroup)
 
+  /** Whether THIS NODE's own rendering differs between viewers — i.e. whether
+    * its `self` reads `bakeIndex` while the group it owns is USER-selected.
+    *
+    * `bakeIndex` is the node's own variant id, so a bar that renders its active
+    * tab server-side (rather than through a `$ui_<id>` expression) has one
+    * rendering per member. That is legitimate and bounded — one variant per
+    * member of its OWN group, never a product over the subtree, because a
+    * node's own rendering carries no mount.
+    *
+    * Two consequences, both handled by treating it like a flip's varying
+    * branch: its patches are rendered per connection (`Patches.Varying`), and
+    * it is kept OUT of the log, since a shared digest could only ever describe
+    * one viewer's bytes. It therefore loses digest suppression and re-sends on
+    * every tick of an entity it binds — the price of asking for a
+    * server-rendered selection, paid only by cards that do.
+    *
+    * A STATE-selected group is not affected: its selection is server truth and
+    * identical for everyone.
+    *
+    * The test is on the template SOURCE rather than the compiled form, and errs
+    * wide (any mention of the name counts) — over-answering costs a re-render,
+    * under-answering hands a viewer someone else's tab.
+    */
+  def nodeVariesByViewer(id: NodeId): Boolean =
+    allIndexed.get(id).exists {
+      case (c: LayoutNode.Component, _, _) =>
+        userBakeOwnerIds(id) &&
+        dashboard.cards
+          .get(c.card)
+          .flatMap(_.self)
+          .exists(_.contains("bakeIndex"))
+      case _ => false
+    }
+
   /** Whether rendering surface `sid`'s content produces different HTML for
     * different viewers — i.e. whether a USER-selected mount appears anywhere
     * under it.
@@ -914,7 +948,7 @@ class Renderer(
       case (c: LayoutNode.Component, path, prefix) if hasSelf(c.card) =>
         renderTemplateOf(
           templates.selves(c.card),
-          structuralVars(id),
+          structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
           c.slots,
           c.children.zipWithIndex.map { case (child, i) =>
             render(child, path :+ i, prefix, states, uiState)
@@ -1287,12 +1321,11 @@ class Renderer(
         // `template` with them spliced in. A leaf card has neither part, so its
         // `template` renders exactly as before.
         //
-        // The `self` is rendered with the STRUCTURAL vars alone — no bake vars —
-        // which is precisely what `renderNodeById` gives it. Aligning them is
-        // what lets the trace be captured here and compared there. It also makes
-        // a `self` that reaches for `{{bakeIndex}}` fail the same way on both
-        // paths (empty, visibly, from first paint) instead of rendering on one
-        // and blanking on the other.
+        // The `self` sees the structural vars AND `bakeIndex` — precisely what
+        // `renderNodeById` gives it, which is what lets the trace be captured
+        // here and compared there. NOT the baked member itself: that is the
+        // mount's contents, and statement (1) is that a node's own rendering
+        // never carries them.
         val selfHtml = templates.selves
           .get(c.card)
           .map(
@@ -1345,7 +1378,7 @@ class Renderer(
         // exactly — including the wrapper, which that method's leaf branch also
         // returns.
         val ownHtml =
-          if (!hasOwnRendering(id)) None
+          if (!hasOwnRendering(id) || nodeVariesByViewer(id)) None
           else selfHtml.orElse(Some(wrapped))
         Traced(
           wrapped,

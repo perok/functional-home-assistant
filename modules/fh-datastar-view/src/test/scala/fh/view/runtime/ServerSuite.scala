@@ -2745,6 +2745,101 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   }
 
+  /** A bar that renders its ACTIVE tab server-side rather than through a
+    * `$ui_<id>` expression — `{{bakeIndex}}` in the card's `self`.
+    *
+    * It used to paint correctly and then blank itself on the first tick: the
+    * document path passed `bakeIndex`, the patch path did not. Now both do, and
+    * the node is per-viewer as a result — one rendering per member of its own
+    * group.
+    */
+  private def serverHighlightDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef(
+        template = "{{{mount}}}",
+        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+      ),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        // The bar names the active tab AND binds a live entity, so it is
+        // re-rendered on that entity's ticks — the shape the split exists for.
+        self = Some(
+          """<div id="{{selfId}}" class="active-{{bakeIndex}}">{{title}}</div>"""
+        ),
+        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>"""),
+        slots = List("title")
+      )
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = List(
+        LayoutNode.Component(
+          "tabs",
+          slots = Map("title" -> SlotSource(Some("sensor.title")))
+        )
+      )
+    ),
+    surfaces = Map(
+      "t0" -> Surface(
+        branchCard("sensor.a"),
+        bakeInto = Some("c_0"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(0),
+        activation = Activation.User(defaultOpen = true)
+      ),
+      "t1" -> Surface(
+        branchCard("sensor.b"),
+        bakeInto = Some("c_0"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      )
+    )
+  )
+
+  test("a server-rendered selection survives the first tick, per viewer") {
+    liveWorld(
+      serverHighlightDash,
+      Map(
+        "sensor.title" -> es("sensor.title", "T0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.c_0=1")
+        _ <- onT0.drain
+        _ <- onT1.drain
+        // A tick of the bar's OWN entity: the patch must keep each viewer's
+        // index, not blank it and not swap it for the other's.
+        _ <- world.change(es("sensor.title", "T1"))
+        a <- onT0.drain
+        b <- onT1.drain
+        _ = assert(
+          domEvents(a).exists(_._3.exists(_.contains("""class="active-0""""))),
+          clue = ("tab 0's viewer keeps index 0", a)
+        )
+        _ = assert(
+          domEvents(b).exists(_._3.exists(_.contains("""class="active-1""""))),
+          clue = ("tab 1's viewer keeps index 1", b)
+        )
+        // ...and both got the new title, so the patch is real.
+        _ = assert(domEvents(a).exists(_._3.exists(_.contains("T1"))), clue = a)
+        _ = assert(domEvents(b).exists(_._3.exists(_.contains("T1"))), clue = b)
+        // Neither is handed the other's bar.
+        _ = assert(
+          !domEvents(a).exists(_._3.exists(_.contains("active-1"))),
+          clue = a
+        )
+        _ = assert(
+          !domEvents(b).exists(_._3.exists(_.contains("active-0"))),
+          clue = b
+        )
+      } yield ()
+    }
+  }
+
   test("a flip re-reveals each client's OWN tab, not the default one") {
     liveWorld(
       tabsInBranchDash,
