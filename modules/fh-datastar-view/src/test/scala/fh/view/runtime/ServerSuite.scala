@@ -2692,6 +2692,71 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   }
 
+  /** An inactive branch costs nothing — the guarantee ADR 0007 states — and it
+    * has to hold for a USER surface nested inside one too.
+    *
+    * `selectedSurfaces` reports a selection for every bake group whether or not
+    * that group is on screen, so a tab panel inside a hidden `If` is in its
+    * client's open set while nothing of it exists in any DOM. Rendering and
+    * pushing it is harmless (the morph targets an id the DOM lacks) and is pure
+    * waste, per tick of every entity it binds.
+    */
+  test("a tab panel inside a HIDDEN branch costs nothing") {
+    liveWorld(
+      tabsInBranchDash,
+      Map(
+        // Disarmed: the `then` branch, which holds the tabs, is NOT active.
+        "alarm.h" -> es("alarm.h", "disarmed"),
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0"),
+        "sensor.z" -> es("sensor.z", "Z0")
+      )
+    ) { world =>
+      for {
+        c <- world.connect()
+        _ <- c.drain
+        // sensor.a is bound ONLY inside tab 0's panel, inside the hidden
+        // branch. Nothing on screen shows it.
+        _ <- world.change(es("sensor.a", "A1"))
+        hidden <- c.drain
+        _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
+
+        // ...and the guard is not vacuous: a change the client CAN see still
+        // arrives, through the same pass.
+        _ <- world.change(es("sensor.shared", "s1"))
+        seen <- c.drain
+        _ = assert(
+          domEvents(seen).exists(_._3.exists(_.contains("s1"))),
+          clue = seen
+        )
+      } yield ()
+    }
+  }
+
+  test("a reconnect is not owed another client's tab") {
+    // Two viewers, different tabs, both inside the ACTIVE branch. A change in
+    // tab 0's panel is rendered (its viewer needs it) and logged — so the
+    // cursor names it. The tab-1 viewer's resume must not carry it: the cursor
+    // knows what changed, not who is looking.
+    val r = Renderer.create(tabsInBranchDash)
+    val states = Map(
+      "alarm.h" -> es("alarm.h", "armed"),
+      "sensor.shared" -> es("sensor.shared", "s0"),
+      "sensor.a" -> es("sensor.a", "A1"),
+      "sensor.b" -> es("sensor.b", "B0"),
+      "sensor.z" -> es("sensor.z", "Z0")
+    )
+    val tab0Node: NodeId = "s_t0__c"
+    val log = FragmentLog("w13")
+      .set(tab0Node, r.renderNodeById(tab0Node, states).get, 5L)
+    val owed = Patches.resume(r, log, states, 1L, Set("then", "t1"), Map.empty)
+    assert(
+      !owed.exists(_.renderString.contains("A1")),
+      clue = owed.map(_.renderString)
+    )
+  }
+
   test("a flip re-reveals each client's OWN tab, not the default one") {
     liveWorld(
       tabsInBranchDash,

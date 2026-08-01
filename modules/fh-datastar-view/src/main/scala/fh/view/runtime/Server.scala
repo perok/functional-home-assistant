@@ -413,8 +413,17 @@ class Server(
       log: Ref[IO, FragmentLog],
       change: StateChange
   ): IO[List[Directed]] =
-    (stateStore.current, Server.stampNow, sessions.openIn(slug)).flatMapN {
-      (store, millis, visible) =>
+    (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
+      (store, millis, opens) =>
+        // What is worth rendering: the surfaces some client can actually SEE,
+        // not merely has selected. A tab panel inside a hidden `If` branch is in
+        // its client's open set and on nobody's screen — rendering it is pure
+        // waste, and the waste is per tick of every entity it binds. Each
+        // session is filtered against its OWN set before the union, because a
+        // chain is one client's.
+        val visible = opens
+          .flatMap(o => o.filter(renderer.visibleSurface(_, o, store.entities)))
+          .toSet
         val req = Patches.plan(
           renderer,
           store.entities,

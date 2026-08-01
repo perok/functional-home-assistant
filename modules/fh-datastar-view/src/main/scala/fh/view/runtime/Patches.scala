@@ -454,6 +454,10 @@ private[runtime] object Patches {
     // so this is document order among siblings), and dropped when a mutation or a
     // refill is already re-supplying an ancestor.
     val fromOpen = open.toList
+      // Only what this client can actually SEE. `open` reports a selection for
+      // every bake group whether or not that group is on screen, so a tab panel
+      // inside a hidden `If` branch is in here and in nobody's DOM.
+      .filter(renderer.visibleSurface(_, open, states))
       .flatMap(renderer.surfaceNodeIds)
       .distinct
       .filterNot(id =>
@@ -468,6 +472,11 @@ private[runtime] object Patches {
         }
       )
     (owed.nodes
+      // The cursor names every node that changed, across every surface — it
+      // knows nothing about who is looking. A morph at an id this client's DOM
+      // lacks is a silent no-op, so this only ever cost bytes; it is still one
+      // client's worth of another client's tab on every reconnect.
+      .filter(renderer.visibleNode(_, open, states))
       .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
       fromOpen ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++

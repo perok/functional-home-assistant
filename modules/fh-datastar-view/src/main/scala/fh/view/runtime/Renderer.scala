@@ -361,6 +361,61 @@ class Renderer(
         case _                   => false
       })
 
+  /** Whether a STATE surface is the member its group currently selects — the
+    * state half of visibility, and a pure function of entity state.
+    */
+  private def stateSelected(
+      sid: String,
+      states: Map[String, EntityState]
+  ): Boolean =
+    dashboard.surfaces.get(sid).flatMap(_.bakeInto).exists { gid =>
+      resolveActiveByState(gid, states)
+        .flatMap(bakeMembers(gid).lift)
+        .contains(sid)
+    }
+
+  /** Can a client holding `open` actually SEE this surface — is every surface
+    * on the chain from the main page down to it currently showing?
+    *
+    * `open` alone does not answer that. `selectedSurfaces` reports a selection
+    * for every user bake group whether or not that group is on screen, so a tab
+    * panel inside a hidden `If` branch is "open" while nothing of it exists in
+    * any DOM. Answering with `open.contains` renders and pushes that panel on
+    * every tick of an entity it binds — harmless, since the morph targets an id
+    * the DOM lacks, and pure waste.
+    *
+    * So the walk goes UP: a user surface must be in `open`, a state surface
+    * must be the member its group selects, and the surface containing it must
+    * itself be visible. The visited set is for the same reason as
+    * [[variesByViewer]]'s — `bakeInto` is authored, so the chain is not
+    * guaranteed acyclic.
+    */
+  def visibleSurface(
+      sid: String,
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): Boolean = {
+    def up(sid: String, seen: Set[String]): Boolean =
+      !seen(sid) && {
+        val here =
+          if (isStateSurface(sid)) stateSelected(sid, states) else open(sid)
+        here && surfaceParent.get(sid).forall(up(_, seen + sid))
+      }
+    up(sid, Set.empty)
+  }
+
+  /** [[visibleSurface]] for a node, via the tree it was indexed from. A
+    * main-page node is always visible; an id this renderer does not know (a
+    * dynamic group's per-entity child) is treated as visible, which is the safe
+    * direction — over-sending costs bytes, under-sending loses an update.
+    */
+  def visibleNode(
+      id: NodeId,
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): Boolean =
+    rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
+
   /** State-selected owner ids grouped by the tree that contains the owner node
     * ([[rootOf]]). This is the recursion structure of the transitive active-set
     * / affected-flip walks: a group is only VISIBLE through the chain of active

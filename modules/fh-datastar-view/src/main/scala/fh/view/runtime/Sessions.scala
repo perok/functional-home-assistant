@@ -53,12 +53,16 @@ final class Sessions(ref: Ref[IO, Map[String, Session]]) {
     * direction.
     */
   def openIn(slug: String): IO[Set[String]] =
-    ref.get.flatMap(
-      _.values
-        .filter(_.slug == slug)
-        .toList
-        .foldMapA(_.open.get)
-    )
+    openSets(slug).map(_.foldLeft(Set.empty[String])(_ ++ _))
+
+  /** Each connection's open set SEPARATELY, because visibility is a property of
+    * one client's chain of selections: a surface is only really on screen if
+    * everything containing it is, and that is answered against the same
+    * session's set. Unioning first would mix one client's tab with another's
+    * branch and call the result visible.
+    */
+  def openSets(slug: String): IO[List[Set[String]]] =
+    ref.get.flatMap(_.values.filter(_.slug == slug).toList.traverse(_.open.get))
 }
 
 object Sessions {
