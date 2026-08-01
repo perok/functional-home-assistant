@@ -8,6 +8,10 @@ A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assis
 
 Scala 3 + Typelevel stack (cats-effect, http4s, circe, chimney) + smithy4s for the REST API. Built with **sbt 2.0.0**.
 
+## behavior
+
+Do not make anything up and ask questions if anything is unclear.
+
 ## Build & run commands
 
 ```bash
@@ -246,6 +250,25 @@ Intended as a Home Assistant add-on (`Dockerfile` + `entrypoint.sh`) that watche
 - The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
+
+## Comments: the code says what, a comment says why
+
+The runtime currently carries roughly as many comment lines as code lines. That is too many, and
+new work should not add to the ratio. Before writing a comment, try to delete the need for it — a
+better name, a smaller function, or a type usually says it better and cannot go stale.
+
+**Do not write:** a restatement of the signature or the control flow; a narration of what a
+well-named call does; a history of what the code used to be or what was tried and reverted (that
+belongs in the commit message, or in a plan/ADR if it is a decision); a section header over three
+lines of code.
+
+**Do write:** the reason a non-obvious choice was made over the obvious one; an invariant a reader
+would otherwise have to reconstruct; a trap that has actually bitten (with what it looked like);
+anything that took a spike to learn. One or two lines each — if it needs a paragraph, it is
+probably a design decision and belongs in the ADR, with the code pointing at it.
+
+A useful test: delete the comment and ask whether a competent reader would now make a mistake. If
+not, leave it deleted.
 
 ## Design principles (apply when touching existing code, not just when writing new code)
 

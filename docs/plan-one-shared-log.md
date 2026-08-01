@@ -1494,6 +1494,30 @@ is gone regardless, since a placed branch now carries each viewer's own index; w
 narrow tab-click race, which needs its own browser spike.
 (`UiSmokeSuite."tabs: a selection on the URL survives the SSE connect"` is the reproducer.)
 
+### The no-JS path, and what W21/W22 cost (for the ADR)
+
+W21 and W22 exist for a reason bigger than server-side tab highlighting, and it should be recorded
+before anyone reads their cost and reverts them.
+
+**The dashboard should work with no JavaScript at all**, at the price of manual refresh. Without
+Datastar the client-side `data-class="{active: $ui_<id> == 0}"` never runs, so the bar cannot show
+which tab is open; a tab click is an `<a href="?ui.<host>=N">` and the answer arrives as a fresh
+document. That document is server-rendered, so `{{bakeIndex}}` in a `self` IS the mechanism — it is
+the only way the selection can be visible without a script. W19's alignment (both paths pass the
+bake vars) is what makes it consistent, W21 makes it survive a patch, and W22 keeps it from costing
+digest suppression.
+
+**Its cost, stated plainly so a future revert is informed.** Four concepts serve it —
+`nodeVariesByViewer`, `variantOf`, a per-variant `Fragment`, and `Memo` — plus a branch in the diff
+path (`DiffRequest.varyingIds`) and the lazy log write with its version-monotonicity rule. About
+150 lines of production code. In a JS-only world that is dead weight: the shipped bar highlights
+client-side, needs no round trip, and would keep working if all of this were deleted.
+
+So the trade is: **~150 lines and four concepts, in exchange for a dashboard that is correct
+without scripts.** If the no-JS goal is ever dropped, this is the first thing to remove, and
+reverting it means restoring a `validate` rule that rejects `{{bakeIndex}}` in a `self` and points
+authors at `$ui_<id>`.
+
 ### Deferred
 
 A longer-lived `(state, node, variant) → HTML` cache spanning batches. That is where a reference
