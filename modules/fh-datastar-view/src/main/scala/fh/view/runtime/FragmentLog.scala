@@ -31,7 +31,7 @@ private[runtime] object Digest {
   * redundant patch, and supplying content on resume. Only the first needs
   * storage, and only a digest of it; the second is better served by rendering
   * from the current snapshot, which is by definition at least as fresh
-  * (docs/plan-one-shared-log.md, statement (3)).
+  * (docs/adr/0012-one-pass-addressed-per-client.md, statement (3)).
   *
   * What that buys is not memory. It makes '''dropping an entry always
   * correct''': with content in the log, invalidating destroyed something the

@@ -871,7 +871,7 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   // WHICH nodes the log knows about, and when each last changed — everything
   // these contracts assert on. The log holds a digest, not HTML, so there is no
-  // node -> html projection to make (docs/plan-one-shared-log.md, statement (3));
+  // node -> html projection to make (docs/adr/0012-one-pass-addressed-per-client.md, statement (3));
   // what the patches CARRY is asserted on the patches themselves.
   private def logged(log: FragmentLog): Map[NodeId, Long] =
     log.fragments.view.mapValues(_.version).toMap
@@ -1108,7 +1108,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     * withheld from a client that needed it looks exactly like nothing at all:
     * no error, no log line, just a value that stops updating. So the guard goes
     * in first, against today's behaviour, and the filter is written to keep it
-    * green (docs/plan-one-shared-log.md, T3).
+    * green (docs/adr/0012-one-pass-addressed-per-client.md, T3).
     *
     * Both directions are asserted deliberately. Without the second half this
     * would pass just as well if the server sent NOBODY anything.
@@ -1479,7 +1479,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/plan-one-shared-log.md, T8b) — the exact hole recording
+    * reconnect''' (docs/adr/0012-one-pass-addressed-per-client.md, T8b) — the exact hole recording
     * the flip structurally was meant to close.
     *
     * Found in the running app before this test existed: `Patches.resume`

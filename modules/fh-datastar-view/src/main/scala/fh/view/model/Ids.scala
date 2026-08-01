@@ -6,7 +6,7 @@ import io.circe.Decoder
   * mistaken for the other.
   *
   * They were both `String` until the self/mount split
-  * (docs/plan-one-shared-log.md) made the distinction load-bearing: a container
+  * (docs/adr/0012-one-pass-addressed-per-client.md) made the distinction load-bearing: a container
   * card's patch targets `<nodeId>-self`, a mount is `<nodeId>_panel`, and
   * neither is the node id the [[fh.view.runtime.FragmentLog]] is keyed by. The
   * ledger renders content FROM its keys, so a DOM id stored as a key is a

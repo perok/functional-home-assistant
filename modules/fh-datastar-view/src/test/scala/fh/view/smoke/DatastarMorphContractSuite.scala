@@ -16,7 +16,7 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /** The TWO Datastar behaviours the self/mount split rests on
-  * (docs/plan-one-shared-log.md). Not a general morph exploration — only the
+  * (docs/adr/0012-one-pass-addressed-per-client.md). Not a general morph exploration — only the
   * contracts, so a failure here names exactly what broke.
   *
   *   1. '''Sibling isolation.''' A container card patches its OWN element

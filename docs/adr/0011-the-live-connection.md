@@ -572,7 +572,7 @@ cost K renders.
 
 The **batch-scoped memo** that fixes that is not a separate piece of work: it is
 the other half of rendering lazily, which is the visibility work in
-docs/plan-one-shared-log.md (W13). Skipping a render only pays if you can decide
+docs/adr/0012-one-pass-addressed-per-client.md (W13). Skipping a render only pays if you can decide
 "nobody can see this" BEFORE rendering, and once you can, the memo is what stops
 two viewers of the same variant rendering it twice. It needs no eviction policy —
 it lives and dies with the published item, by ordinary reachability — and it must

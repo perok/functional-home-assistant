@@ -143,7 +143,7 @@ object SlotSource:
   * its own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
   * design's first rule: '''a node's patch carries its own rendering and never
   * the contents of a mount''', so a host changing cannot re-render what it
-  * hosts (docs/plan-one-shared-log.md).
+  * hosts (docs/adr/0012-one-pass-addressed-per-client.md).
   *
   * Both are optional and a leaf card sets neither. A container with a `mount`
   * and NO `self` (`Grid`, `Row`, `Column`) has only children to show, so its

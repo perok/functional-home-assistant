@@ -97,7 +97,7 @@ Per state change, the shared pass does two things:
    therefore rendered and pushed on every tick of an entity they bind. Harmless
    (the morph targets an id the DOM does not have) and wasteful, and the fix is
    the reachability intersection deferred as W13 in
-   docs/plan-one-shared-log.md.
+   docs/adr/0012-one-pass-addressed-per-client.md.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
 bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one

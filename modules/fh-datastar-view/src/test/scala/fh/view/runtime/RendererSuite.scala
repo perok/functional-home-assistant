@@ -1533,7 +1533,7 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // ---- the self/mount split (docs/plan-one-shared-log.md) ----
+  // ---- the self/mount split (docs/adr/0012-one-pass-addressed-per-client.md) ----
 
   /** A container that declares both parts AND binds a live entity — the shape
     * the split exists for ("a tab bar with the current temperature in its
