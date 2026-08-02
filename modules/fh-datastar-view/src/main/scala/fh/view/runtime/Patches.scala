@@ -69,10 +69,14 @@ private[runtime] case class Addressed(
   * everybody.
   *
   * `resolve` yields a DECISION, not a render: for a node compared against the
-  * log it may be "nothing to send". And it is memoised per VARIANT, not per
-  * connection — two viewers holding the same selection must both receive the
-  * patch, so what is computed once is the verdict, which is then handed to
-  * everyone on that variant.
+  * log it may be "nothing to send". And it is memoised per [[Selections]], not
+  * per connection — two viewers holding the same selection must both receive
+  * the patch, so what is computed once is the verdict, which is then handed to
+  * everyone who resolves to that key.
+  *
+  * Every one of these is built from a [[Pending]], in one place in the shell. A
+  * branch fill and a single varying node differ only in how many nodes their
+  * render writes.
   */
 private[runtime] case class Varying(
     surface: Option[String],
@@ -89,14 +93,29 @@ private[runtime] case class Varying(
   */
 private[runtime] case class Pending(
     surface: Option[String],
-    id: NodeId,
+    // The nodes whose digests this render writes — known BEFORE rendering, so
+    // the version prune can skip the render entirely.
+    keys: List[NodeId],
+    // This client's selections, narrowed to the ones this render reads. Two
+    // viewers who agree on those share one render however else they differ.
+    selections: Map[String, String] => Selections,
     // Takes the snapshot to render FROM, rather than closing over the batch's.
     // A queued item is forced whenever its connection gets to it, and by then
     // newer state may exist — which is the state worth sending, since anything
     // older is about to be superseded by an item already behind it in the same
     // queue.
-    render: (Int, Map[String, EntityState]) => String
+    render: (Selections, Map[String, EntityState]) => Option[Rendered]
 )
+
+/** What a pending render produced: the patch, and what it put in each node.
+  *
+  * The two travel together because the log owes a digest for exactly what went
+  * on the wire. A single-node morph carries one entry; a fill carries one per
+  * node it placed — which is what lets a fill be suppressed and resumed by the
+  * same per-node rules as everything else, without ever fingerprinting a
+  * composed subtree under one id.
+  */
+private[runtime] case class Rendered(patch: Patch, own: Map[NodeId, String])
 
 /** Something the shared pass produced, plus who may see it. Either already
   * bytes ([[Addressed]]) or a render one connection performs for itself
@@ -290,27 +309,23 @@ private[runtime] object Patches {
     val at = req.stamp
     // Each stage carries its own patches' tag through, so a patch's audience is
     // decided once — where the node was SELECTED — and never re-derived.
-    val (logAfterFlips, flipPatches) =
-      req.flips.foldLeft((log, List.empty[Directed])) {
-        case ((c, acc), (gid, surface)) =>
-          val (c2, ps, varying) =
-            flipStateGroup(renderer, c, gid, req.before, req.states, at)
+    val (logAfterFlips, flipPatches, flipPending) =
+      req.flips.foldLeft((log, List.empty[Directed], List.empty[Pending])) {
+        case ((c, acc, deferred), (gid, surface)) =>
+          val (c2, ps, pending) =
+            flipStateGroup(
+              renderer,
+              c,
+              gid,
+              surface,
+              req.before,
+              req.states,
+              at
+            )
           (
             c2,
-            acc ++ ps.map(p => Addressed(surface, p.toSse)) ++
-              varying.map(f =>
-                Varying(
-                  surface,
-                  (ui: Map[String, String], now: StoreState) =>
-                    IO.pure(
-                      Option(
-                        f(ui, now.entities)
-                          .fold(Patch.Remove(renderer.mountId(gid)))(identity)
-                          .toSse
-                      )
-                    )
-                )
-              )
+            acc ++ ps.map(p => Addressed(surface, p.toSse)),
+            deferred ++ pending
           )
       }
     val rendered =
@@ -350,14 +365,19 @@ private[runtime] object Patches {
     val pending = req.varyingIds.map { case (id, surface) =>
       Pending(
         surface,
-        id,
-        (variant, states) =>
+        List(id),
+        renderer.selectionsOf(id, _),
+        (sel, states) =>
           renderer
-            .renderNodeById(id, states, Map(id -> variant.toString))
-            .getOrElse("")
+            .renderNodeById(id, states, uiFrom(sel))
+            .map(html => Rendered(Patch.Morph(html), Map(id -> html)))
       )
     }
-    (finalLog, flipPatches ++ staticPatches ++ dynPatches, pending)
+    (
+      finalLog,
+      flipPatches ++ staticPatches ++ dynPatches,
+      flipPending ++ pending
+    )
   }
 
   /** Everything a client resuming at cursor `v` is owed, as SSE events. The
@@ -653,18 +673,22 @@ private[runtime] object Patches {
     * re-revealed node whose HTML happens to equal its pre-flip entry would be
     * suppressed while the client's DOM has moved on.
     */
+  /** [[Selections]] spelled as the ui-state a render reads. Canonical by
+    * construction — every value is an in-range index — which is what makes two
+    * viewers with differently-spelled but equivalent signals share one render.
+    */
+  private def uiFrom(sel: Selections): Map[String, String] =
+    sel.map { case (gid, idx) => gid -> idx.toString }
+
   private def flipStateGroup(
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
+      surface: Option[String],
       before: Map[String, EntityState],
       states: Map[String, EntityState],
       at: Stamp
-  ): (
-      FragmentLog,
-      List[Patch],
-      List[(Map[String, String], Map[String, EntityState]) => Option[Patch]]
-  ) = {
+  ): (FragmentLog, List[Patch], Option[Pending]) = {
     def memberAt(
         snapshot: Map[String, EntityState]
     ): Option[String] =
@@ -674,7 +698,7 @@ private[runtime] object Patches {
     val was = memberAt(before)
     val now = memberAt(states)
     // Defensive: the caller only passes groups whose selection actually moved.
-    if (was == now) (log, Nil, Nil)
+    if (was == now) (log, Nil, None)
     else {
       val host = renderer.mountId(gid)
       val departed = was.map(renderer.surfaceContentId)
@@ -699,25 +723,34 @@ private[runtime] object Patches {
       now.filter(renderer.surfaceVariesByViewer) match {
         case Some(sid) =>
           // Nothing arrives HERE: the bytes differ per viewer, so the shared
-          // pass evicts (a fill with no arrival) and leaves the render to each
-          // connection. Structure without a digest — see `FragmentLog.placed`'s
-          // four-argument form.
+          // pass evicts (a fill with no arrival) and defers the render, one per
+          // distinct selection rather than one per connection.
           val (evicted, _) =
             fillHost(renderer, log, host, None, states, Map.empty, at.version)
           (
             structure(evicted),
             Nil,
-            List((ui: Map[String, String], now: Map[String, EntityState]) =>
-              MemberKey
-                .Surface(sid)
-                .render(renderer, gid, now, ui)
-                .map(html => Patch.Insert(html, PatchMode.Inner, host))
+            Some(
+              Pending(
+                surface,
+                renderer.surfaceNodeIds(sid).toList,
+                renderer.selectionsUnder(sid, _),
+                (sel, now) =>
+                  renderer
+                    .renderSurfaceTraced(sid, now, uiFrom(sel))
+                    .map(t =>
+                      Rendered(
+                        Patch.Insert(t.html, PatchMode.Inner, host),
+                        t.own
+                      )
+                    )
+              )
             )
           )
         case None =>
           val (filled, html) =
             fillHost(renderer, log, host, now, states, Map.empty, at.version)
-          (structure(filled), branchPatch(renderer, gid, html, departed), Nil)
+          (structure(filled), branchPatch(renderer, gid, html, departed), None)
       }
     }
   }

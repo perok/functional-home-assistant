@@ -17,6 +17,16 @@ import fh.view.model.{
   Surface
 }
 
+/** A viewer's resolved bake-group selections: group id -> chosen member index.
+  *
+  * The canonical form of the client's `ui_<gid>` signals — already parsed,
+  * clamped to a real member, and restricted to the groups a given render
+  * actually reads. That is what makes it a memo key: two viewers who spelled
+  * their selection differently, or who carry selections for groups this render
+  * never touches, resolve to the SAME key and share one render.
+  */
+private[runtime] type Selections = Map[NodeId, Int]
+
 /** How one state change moves the changed entity across a dynamic group's
   * membership boundary — the two query-match booleans (before ∧ after) kept
   * apart instead of collapsed to a single "touched" flag, so the live-patch
@@ -322,31 +332,68 @@ class Renderer(
   def variantOf(id: NodeId, uiState: Map[String, String]): Int =
     if (nodeVariesByViewer(id)) resolveActive(id, uiState)._1 else 0
 
-  /** Whether rendering surface `sid`'s content produces different HTML for
-    * different viewers — i.e. whether a USER-selected mount appears anywhere
-    * under it.
+  /** [[variantOf]] against already-resolved [[Selections]]. A varying node IS
+    * its own group's owner ([[nodeVariesByViewer]] requires
+    * `userBakeOwnerIds`), so its own id is the key to look up.
+    */
+  def variantIn(id: NodeId, selections: Selections): Int =
+    if (nodeVariesByViewer(id)) selections.getOrElse(id, 0) else 0
+
+  /** The selections a render of THIS NODE reads: its own group's, or none.
+    *
+    * The digest variant and the render key are the same thing for a single
+    * node, which is why they were one `Int` before surfaces needed keying too.
+    */
+  def selectionsOf(id: NodeId, uiState: Map[String, String]): Selections =
+    if (nodeVariesByViewer(id)) Map(id -> resolveActive(id, uiState)._1)
+    else Map.empty
+
+  /** The selections a render of surface `sid` reads — every user-selected group
+    * under it, resolved.
+    *
+    * Wider than [[selectionsOf]] deliberately: a surface's HTML varies with any
+    * tab inside it, not just with hosts whose OWN markup reads a selection. A
+    * tabs card whose bar does not print `bakeIndex` still puts a different
+    * panel in the composed bytes.
+    */
+  def selectionsUnder(sid: String, uiState: Map[String, String]): Selections =
+    userGroupsUnder(sid).map(g => g -> resolveActive(g, uiState)._1).toMap
+
+  /** Every USER-selected bake group in `sid`'s subtree — what makes rendering
+    * it differ between viewers, and so what a per-variant render must be keyed
+    * by.
     *
     * The walk follows BOTH kinds of member, because a tabs card nested inside
-    * another tab's panel varies just as much as one inside an `If` branch.
-    * Over-answering `true` costs a redundant per-viewer render; answering
-    * `false` wrongly hands every viewer the same tab, so it errs wide.
-    *
-    * The visited set is not defensive tidiness: `bakeInto` is authored, so a
+    * another tab's panel varies just as much as one inside an `If` branch. The
+    * visited set is not defensive tidiness: `bakeInto` is authored, so a
     * surface can name a host inside its own subtree and the walk would not
     * terminate.
     */
-  def surfaceVariesByViewer(sid: String): Boolean = {
-    def walk(sid: String, seen: Set[String]): Boolean =
-      !seen(sid) && {
+  def userGroupsUnder(sid: String): Set[NodeId] =
+    userGroupsBySurface.getOrElse(sid, Set.empty)
+
+  private val userGroupsBySurface: Map[String, Set[NodeId]] = {
+    def walk(sid: String, seen: Set[String]): Set[NodeId] =
+      if (seen(sid)) Set.empty
+      else {
         val ids =
           surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
-        ids.exists(userBakeOwnerIds) ||
-        ids.filter(bakeOwnerIds).exists { gid =>
-          bakeGroup(gid).exists(walk(_, seen + sid))
-        }
+        ids.filter(userBakeOwnerIds) ++
+          ids
+            .filter(bakeOwnerIds)
+            .flatMap(gid => bakeGroup(gid).flatMap(walk(_, seen + sid)))
       }
-    walk(sid, Set.empty)
+    dashboard.surfaces.keySet.map(sid => sid -> walk(sid, Set.empty)).toMap
   }
+
+  /** Whether rendering surface `sid`'s content produces different HTML for
+    * different viewers — i.e. whether a USER-selected mount appears anywhere
+    * under it. Over-answering `true` costs a redundant per-viewer render;
+    * answering `false` wrongly hands every viewer the same tab, so it errs
+    * wide.
+    */
+  def surfaceVariesByViewer(sid: String): Boolean =
+    userGroupsUnder(sid).nonEmpty
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++

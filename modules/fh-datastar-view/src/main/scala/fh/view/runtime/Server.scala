@@ -454,29 +454,55 @@ class Server(
                   // time exists to avoid — and would stop two connections on
                   // one variant sharing a verdict the moment a tick separated
                   // them.
-                  .keyed[Int, Option[ServerSentEvent]] { variant =>
+                  .keyed[Selections, Option[ServerSentEvent]] { sel =>
                     stateStore.current.flatMap { now =>
                       log.get.flatMap { before =>
-                        // Cheap skip first. An entry at or past this version was
-                        // written from this same state, so its digest already
-                        // describes what a render would produce — no need to
-                        // produce it. This is what collapses several queued
-                        // batches that all touch one node.
-                        if (before.atLeast(p.id, variant, now.version))
-                          IO.pure(None)
-                        else {
-                          val html = p.render(variant, now.entities)
-                          log.modify { l =>
-                            // And the digest, for the other question: the
-                            // version moved but the rendering did not.
-                            if (l.holds(p.id, html, variant)) (l, None)
-                            else
-                              (
-                                l.set(p.id, html, now.version, variant),
-                                Some(Patch.Morph(html).toSse)
-                              )
+                        // Cheap skip first. Every node this render would write
+                        // is already recorded at or past this version, so the
+                        // digests already describe what it would produce — no
+                        // need to produce it. This is what collapses several
+                        // queued batches that all touch one node.
+                        val known = p.keys.nonEmpty && p.keys.forall(id =>
+                          before.atLeast(
+                            id,
+                            renderer.variantIn(id, sel),
+                            now.version
+                          )
+                        )
+                        if (known) IO.pure(None)
+                        else
+                          p.render(sel, now.entities) match {
+                            case None    => IO.pure(None)
+                            case Some(r) =>
+                              log.modify { l =>
+                                // And the digest, for the other question: the
+                                // version moved but the rendering did not. A
+                                // fill answers it per node, never over its
+                                // composed bytes.
+                                val unchanged = r.own.nonEmpty && r.own.forall {
+                                  case (id, html) =>
+                                    l.holds(
+                                      id,
+                                      html,
+                                      renderer.variantIn(id, sel)
+                                    )
+                                }
+                                if (unchanged) (l, None)
+                                else
+                                  (
+                                    r.own.foldLeft(l) {
+                                      case (acc, (id, html)) =>
+                                        acc.set(
+                                          id,
+                                          html,
+                                          now.version,
+                                          renderer.variantIn(id, sel)
+                                        )
+                                    },
+                                    Some(r.patch.toSse)
+                                  )
+                              }
                           }
-                        }
                       }
                     }
                   }
@@ -484,7 +510,7 @@ class Server(
                     Varying(
                       p.surface,
                       (ui: Map[String, String], _: StoreState) =>
-                        memo(renderer.variantOf(p.id, ui))
+                        memo(p.selections(ui))
                     )
                   )
               }
@@ -1230,7 +1256,7 @@ class Server(
       title: Option[String],
       ingressPrefix: Option[String],
       restore: Server.Restore,
-      editMode: Boolean = false
+      editMode: Boolean
   ): String = {
     val links = (
       stylesheets
