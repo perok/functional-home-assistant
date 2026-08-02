@@ -79,6 +79,20 @@ private[runtime] case class Varying(
     resolve: Map[String, String] => IO[Option[ServerSentEvent]]
 ) extends Directed
 
+/** A render the shell has to perform LATER, per variant, because its verdict
+  * needs the log and an effect.
+  *
+  * The core still decides everything about it — which node, whose it is, and
+  * how to render one variant — so the only thing left outside is when to force
+  * it and what to do with the result. Before this the shell also knew how to
+  * render, which put "what goes on the wire" in two places.
+  */
+private[runtime] case class Pending(
+    surface: Option[String],
+    id: NodeId,
+    render: Int => String
+)
+
 /** Something the shared pass produced, plus who may see it. Either already
   * bytes ([[Addressed]]) or a render one connection performs for itself
   * ([[Varying]]) — the only two kinds there are, because a client's own
@@ -267,7 +281,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       req: DiffRequest
-  ): (FragmentLog, List[Directed]) = {
+  ): (FragmentLog, List[Directed], List[Pending]) = {
     val at = req.stamp
     // Each stage carries its own patches' tag through, so a patch's audience is
     // decided once — where the node was SELECTED — and never re-derived.
@@ -326,10 +340,19 @@ private[runtime] object Patches {
             )
           (c2, acc ++ ps.map(p => Addressed(surface, p.toSse)))
       }
-    (
-      finalLog,
-      flipPatches ++ staticPatches ++ dynPatches
-    )
+    // The per-variant renders the shell forces on demand. Described here, next
+    // to everything else that decides what goes on the wire.
+    val pending = req.varyingIds.map { case (id, surface) =>
+      Pending(
+        surface,
+        id,
+        variant =>
+          renderer
+            .renderNodeById(id, req.states, Map(id -> variant.toString))
+            .getOrElse("")
+      )
+    }
+    (finalLog, flipPatches ++ staticPatches ++ dynPatches, pending)
   }
 
   /** Everything a client resuming at cursor `v` is owed, as SSE events. The
