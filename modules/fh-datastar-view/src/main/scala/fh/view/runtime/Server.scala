@@ -886,20 +886,11 @@ class Server(
     * its own. One mechanism for every selection, and the browser keeps the one
     * bit of per-session state a reconnect restores the dialog from.
     *
-    * '''A fill INVALIDATES the log entries for what it just re-supplied.'''
-    * This is the one obligation every path that touches the DOM owes the ledger
-    * (docs/adr/0012-one-pass-addressed-per-client.md, statement (2)): the fill
-    * put the CURRENT render into the mount, so an entry describing some earlier
-    * value is now a lie, and a change BACK to that value would be diffed as
-    * "unchanged" and suppressed while the client's DOM has moved on.
-    *
-    * Invalidating rather than re-fingerprinting is what statement (3) buys. The
-    * plan asked each fill to write its members' fingerprints, which means
-    * rendering every node in the surface a second time; but with content out of
-    * the log a MISSING entry already means "unknown — send it", so dropping the
-    * entries is correct for free. The cost is one redundant send per node on
-    * the next change — including to other viewers, since the log is shared —
-    * against a render of the whole surface per tab click.
+    * The fill itself — evict, render, tell the log what it put where — is
+    * [[Patches.fillHost]], shared with the state-group flip. What stays here is
+    * the half the two do NOT share: a tab switch is one client's choice, so it
+    * records no [[Mutation]], where a flip is server truth every client must be
+    * replayed.
     */
   private def swapHost(
       session: Session,

@@ -77,12 +77,15 @@ Per state change, the shared pass does two things:
 1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
    `dynamicDelta`: O(1) shortcut — the changed entity's own match must have
    flipped for some member's condition — before the full before/after
-   selection compare): re-render the host (`resolveBake` bakes the newly
-   selected member against *current* state), morph it, and **prune** the
-   group's cache entries (`bakeMemberPrefixes` — same contract as
-   `repaintGroup`), so re-revealed nodes diff from a known base. Hidden-branch
-   churn deliberately leaves stale cache entries; the flip-prune is what makes
-   that correct.
+   selection compare): record where the branch went, **prune** the group's
+   cache entries, and defer the render. Hidden-branch churn deliberately leaves
+   stale cache entries; the flip-prune is what makes that correct.
+
+   The fill itself is `Patches.fillHost` — the same primitive a tab switch and
+   a popup open use, since all three evict a host and overwrite its mount
+   (ADR 0012). It arrives as one `Inner` at the mount, not a morph of the host:
+   the host's HTML would have embedded the branch, which is exactly the welding
+   the self/mount split exists to prevent (ADR 0008).
 2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
    a nested state group contributes only through its active ancestor branch):
    patch the active members' affected components and dynamic groups against
@@ -90,22 +93,27 @@ Per state change, the shared pass does two things:
    that IS the no-updates guarantee, and it is structural: their ids never
    enter the selection.
 
-   The guarantee stops at state members. A *user*-selected surface nested
-   inside an inactive branch — a tab panel inside a hidden `If` — is still in
-   its client's open set, because `selectedSurfaces` reports a selection for
-   every bake group whether or not that group is on screen. Its nodes are
-   therefore rendered and pushed on every tick of an entity they bind. Harmless
-   (the morph targets an id the DOM does not have) and wasteful, and the fix is
-   the reachability intersection deferred as W13 in
-   docs/adr/0012-one-pass-addressed-per-client.md.
+   Structural silence covers state members directly. A *user*-selected surface
+   nested inside an inactive branch — a tab panel inside a hidden `If` — needs
+   one more step, because `selectedSurfaces` reports a selection for every bake
+   group whether or not it is on screen, so `open` alone would keep rendering
+   it. The shared pass therefore filters each session's open set through
+   `Renderer.visibleSurface`, the visibility CHAIN (ADR 0012): every user
+   surface above a node selected AND every state surface above it active. A
+   group in an unopened tab is not merely unsent — it is never planned.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
 bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one
-thing but one thing per selection, so it cannot be rendered once for everyone —
-`Renderer.variesByViewer` detects exactly that, and the flip publishes the render
-rather than its bytes for each connection to perform against its own selections
-(ADR 0002, `Patches.Varying`). It still arrives as ONE complete patch, with that
-viewer's panel already inside it.
+thing but one thing per selection, so it cannot be rendered once for everyone.
+That is no longer a case to detect. Every flip publishes the render rather than
+its bytes (`Patches.Pending`), keyed by the `Selections` it reads; a branch with
+no user group inside it resolves to the empty key and one render still serves
+everybody. It arrives as ONE complete patch, with that viewer's panel already
+inside it.
+
+Before that, the varying branch was the special case — and, having no memo,
+the only patch in the system rendered once per *connection* rather than once
+per variant.
 
 An earlier design instead routed these groups to a per-session pass
 (`sessionOnlyStateGroups`). It did not work: the flip rendered the branch with no

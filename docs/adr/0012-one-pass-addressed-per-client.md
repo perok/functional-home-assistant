@@ -45,6 +45,35 @@ entry of its own, and the verdict for a variant is computed on first ask and
 shared with everyone holding it — not per connection, or the first viewer would
 consume the patch and the second would be told nothing changed.
 
+**A fill is one operation, whoever chose the member.** A tab switch, a popup
+open and an `If` flip all evict a host's occupants, render the arriving surface
+once, tell the log what it put in each node, and overwrite the mount
+(`Patches.fillHost`). The model already said so: both kinds of member are
+surfaces with `bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.mountId` derives a
+group's mount from its members' `Surface.hostId`. Only two things differ, and
+both stay with the caller — the **selector** (a client's `ui_<gid>` signal vs a
+condition over entity state) and whether the fill is shared **structure**. A
+flip records a `Mutation` because it is server truth every client must be
+replayed; a tab switch records none, because asserting one client's selection as
+structure would replay it to everybody.
+
+**Everything per-viewer is deferred, and keyed by what it reads.** The shared
+pass renders nothing whose bytes depend on a selection; it emits a `Pending`
+naming the nodes the render will write, and each connection forces it. The key
+is `Selections` — the groups that render actually reads, resolved and narrowed —
+so viewers who agree on those share one render however else their signals
+differ. A branch containing no user group resolves to the empty key, which is
+how "one rendering serves everybody" is a *case* of this rather than a second
+path. A node morph is the one-node instance of the same shape.
+
+**A deferred render is dropped if it was superseded.** A queued fill was planned
+against a selection that may have moved again before its connection drained the
+queue; sending it then puts the wrong branch on screen until the item behind it
+corrects the DOM. The log already knows — the later flip recorded that member
+`Gone` — so the check is a lookup at force time, which is the earliest moment
+the answer exists. A queued item cannot be pruned when it is planned, because
+what supersedes it has not happened yet.
+
 ## Consequences
 
 - `Session` holds no diff cache. There is one `FragmentLog` per slug, and
@@ -55,7 +84,14 @@ consume the patch and the second would be told nothing changed.
 - The popup stopped being a special channel: it is `ui_<hostId>`, set by its own
   taps like any tab (ADR 0005).
 - Rendering per viewer is bounded to the variant case, so the work is per
-  *variant*, never per connection.
+  *variant*, never per connection. A branch fill used to be the exception — it
+  had no memo at all, so ten viewers meant ten renders of one subtree.
+- Nothing is rendered for a batch nobody is connected to receive. The log still
+  records where a branch went, so a client arriving later is resumed from the
+  structure rather than from bytes computed for no one.
+- A flip's render moves out of the shared pass into the first connection that
+  forces it. That connection pays the latency; every other one on its selection
+  takes the finished verdict.
 
 ## Why the no-JS path is worth its cost
 

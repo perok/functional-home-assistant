@@ -117,10 +117,15 @@ branch whose subtree mounts a client-selected member (tabs inside an `If`). That
 branch is published as a `Patches.Varying` carrying the render rather than its
 bytes, and each connection performs it against its own selections at send time —
 still arriving as one complete patch, with that viewer's panel already inside it.
-`Renderer.variesByViewer` is the whole test, and it is false for almost
-everything: under the self/mount split (ADR 0008) a container patches its `self`,
-which holds no mount, so only a render that CREATES a subtree can differ per
-viewer.
+Rather than detect that case, every such render is published as a
+`Patches.Pending` keyed by the `Selections` it reads (ADR 0012): viewers who
+agree on those groups share one render, and a branch with no user group inside
+it resolves to the empty key, so "one rendering serves everybody" is that case
+rather than a separate path.
+
+Almost nothing else can vary: under the self/mount split (ADR 0008) a container
+patches its `self`, which holds no mount, so only a render that CREATES a
+subtree can differ per viewer.
 
 This replaced a **shared/per-session split**, in which open surfaces and
 bake-group owners were re-rendered once per connection against a per-session diff

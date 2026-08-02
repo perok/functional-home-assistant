@@ -300,12 +300,11 @@ class Renderer(
     * member of its OWN group, never a product over the subtree, because a
     * node's own rendering carries no mount.
     *
-    * Two consequences, both handled by treating it like a flip's varying
-    * branch: its patches are rendered per connection (`Patches.Varying`), and
-    * it is kept OUT of the log, since a shared digest could only ever describe
-    * one viewer's bytes. It therefore loses digest suppression and re-sends on
-    * every tick of an entity it binds — the price of asking for a
-    * server-rendered selection, paid only by cards that do.
+    * Two consequences, both shared with a flip's branch fill: its patch is
+    * deferred (`Patches.Pending`) and rendered once per SELECTION rather than
+    * per connection, and its log entry carries one digest per variant instead
+    * of one for the node — so digest suppression still applies, just per
+    * viewer's selection rather than across all of them.
     *
     * A STATE-selected group is not affected: its selection is server truth and
     * identical for everyone.
