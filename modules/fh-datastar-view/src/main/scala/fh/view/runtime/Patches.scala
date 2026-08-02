@@ -654,18 +654,27 @@ private[runtime] object Patches {
           )
         case None =>
           val arrived = now.flatMap(sid =>
-            val member = MemberKey.Surface(sid)
-            member
-              .render(renderer, gid, states)
-              .map(html => (renderer.surfaceContentId(sid), member, html))
+            renderer
+              .renderSurfaceTraced(sid, states)
+              .map(t => (sid, MemberKey.Surface(sid), t))
           )
           val withPlaced = arrived.foldLeft(withGone) {
-            case (l, (nodeId, member, html)) =>
-              l.placed(gid, member, nodeId, html, at)
+            case (l, (sid, member, t)) =>
+              // The mutation names WHERE the branch went; the trace says what
+              // this fill put in each node it placed. Recording the composed
+              // subtree under the branch's ROOT instead — which is what this
+              // did — writes a digest for a node with no rendering of its own,
+              // so nothing can ever resolve it and the fill's members go
+              // unfingerprinted (the W10b obligation, missed on this one path).
+              t.own.foldLeft(
+                l.placed(gid, member, renderer.surfaceContentId(sid), at)
+              ) { case (acc, (nodeId, html)) =>
+                acc.set(nodeId, html, at.version)
+              }
           }
           (
             withPlaced,
-            branchPatch(renderer, gid, arrived.map(_._3), departed),
+            branchPatch(renderer, gid, arrived.map(_._3.html), departed),
             Nil
           )
       }

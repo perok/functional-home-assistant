@@ -2638,6 +2638,66 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  test("a flip fingerprints the nodes it placed, not the blob") {
+    // The obligation every other fill already meets: a flip re-supplies a whole
+    // subtree, so the next diff has to know what it put in EACH node. Recording
+    // the composed subtree under the branch's ROOT does not do that — that root
+    // is a bare container, so it has no rendering of its own, nothing can ever
+    // resolve the entry, and the members it placed stay unknown.
+    val d = Dashboard(
+      cards = ifCards ++ Map(
+        "col" -> CardDef(
+          template = "{{{mount}}}",
+          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        )
+      ),
+      card = LayoutNode
+        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+      surfaces = Map(
+        // The branch's root is a `col` — a mount with no self.
+        "then" -> stateMember(
+          LayoutNode.Component("col", children = List(branchCard("sensor.a"))),
+          "c_0",
+          0,
+          armedCond
+        )
+      )
+    )
+    val r = Renderer.create(d)
+    val armed = Map(
+      "alarm.h" -> es("alarm.h", "armed"),
+      "sensor.a" -> es("sensor.a", "A0")
+    )
+    val (log, _, _) = Patches.diff(
+      r,
+      FragmentLog("flip"),
+      Patches.plan(
+        r,
+        armed,
+        Stamp(2L, 0L),
+        StateChange(
+          "alarm.h",
+          Some(es("alarm.h", "disarmed")),
+          es("alarm.h", "armed")
+        ),
+        Set.empty
+      )
+    )
+
+    // The leaf the flip placed is recorded, holding what the flip rendered...
+    val leaf: NodeId = "s_then__c_0"
+    assert(
+      log.holds(leaf, r.renderNodeById(leaf, armed).get),
+      clue = ("the placed member must be fingerprinted", log.fragments.keySet)
+    )
+    // ...so a later read at that version needs no render at all.
+    assert(log.atLeast(leaf, 0, 2L))
+    // And the branch ROOT gets none: it has no rendering of its own, so an
+    // entry there could never be resolved.
+    assertEquals(r.renderNodeById("s_then__c", armed), None)
+    assert(!log.fragments.contains(NodeId.derived("s_then__c")))
+  }
+
   test("a superseded batch skips its render on a version check") {
     // Two batches queued for one slow client, both touching the same
     // variant-bearing node. The first to be forced renders CURRENT state and
