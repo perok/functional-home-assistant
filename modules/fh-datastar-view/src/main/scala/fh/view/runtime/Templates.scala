@@ -25,7 +25,13 @@ import fh.view.model.{CardDef, Dashboard}
 class Templates private (
     val components: Map[String, Template],
     val selves: Map[String, Template],
-    val mounts: Map[String, Template]
+    val mounts: Map[String, Template],
+    // Cards whose `self` renders the SELECTED member's index, so their nodes
+    // have one rendering per member (ADR 0012). Decided here, where the
+    // templates are, rather than by searching the source at every ask: this
+    // matches a mustache TAG, so `bakeIndex` in a comment, a class name or an
+    // attribute value does not silently make a card per-viewer forever.
+    val selvesReadingSelection: Set[String]
 )
 
 object Templates {
@@ -50,8 +56,20 @@ object Templates {
       // Compiled alongside `template`, so the patch path is a lookup rather
       // than a re-parse on the hot path.
       selves = part(dashboard, _.self),
-      mounts = part(dashboard, _.mount)
+      mounts = part(dashboard, _.mount),
+      selvesReadingSelection = dashboard.cards.collect {
+        case (name, cd)
+            if cd.self.exists(SelectionTag.findFirstIn(_).isDefined) =>
+          name
+      }.toSet
     )
+
+  /** `{{bakeIndex}}` as a tag — the renderer-injected selected-member index.
+    * Triple-stache too, since a numeric index is escape-identical and an author
+    * may well write it that way.
+    */
+  private val SelectionTag: scala.util.matching.Regex =
+    """\{\{\{?\s*bakeIndex\s*\}?\}\}""".r
 
   private def part(
       dashboard: Dashboard,

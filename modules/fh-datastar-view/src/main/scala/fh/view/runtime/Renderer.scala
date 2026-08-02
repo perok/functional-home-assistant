@@ -300,18 +300,14 @@ class Renderer(
     * A STATE-selected group is not affected: its selection is server truth and
     * identical for everyone.
     *
-    * The test is on the template SOURCE rather than the compiled form, and errs
-    * wide (any mention of the name counts) — over-answering costs a re-render,
-    * under-answering hands a viewer someone else's tab.
+    * Decided by [[Templates]] when the templates are compiled, matching a
+    * mustache TAG — not a substring of the source, which would make a card
+    * per-viewer forever because the word appears in one of its comments.
     */
   def nodeVariesByViewer(id: NodeId): Boolean =
     allIndexed.get(id).exists {
       case (c: LayoutNode.Component, _, _) =>
-        userBakeOwnerIds(id) &&
-        dashboard.cards
-          .get(c.card)
-          .flatMap(_.self)
-          .exists(_.contains("bakeIndex"))
+        userBakeOwnerIds(id) && templates.selvesReadingSelection(c.card)
       case _ => false
     }
 

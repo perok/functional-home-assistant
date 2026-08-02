@@ -1394,6 +1394,58 @@ class RendererSuite extends munit.FunSuite {
     assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
   }
 
+  test("a self reads the selection only when it uses the TAG") {
+    def cards(self: String) = Map(
+      "col" -> CardDef(
+        template = "{{{mount}}}",
+        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+      ),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        self = Some(self),
+        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+      )
+    )
+    def dash(self: String) = Dashboard(
+      cards = cards(self),
+      card = LayoutNode
+        .Component("col", children = List(LayoutNode.Component("tabs"))),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    // A real tag — including the triple-stache form, since a numeric index
+    // escapes to itself and an author may well write it that way.
+    assert(
+      Renderer
+        .create(dash("""<div id="{{selfId}}" class="a-{{bakeIndex}}"></div>"""))
+        .nodeVariesByViewer("c_0")
+    )
+    assert(
+      Renderer
+        .create(dash("""<div id="{{selfId}}">{{{ bakeIndex }}}</div>"""))
+        .nodeVariesByViewer("c_0")
+    )
+    // The word, but not the value: a comment and a class name are not reads,
+    // and treating them as such makes the card per-viewer forever.
+    assert(
+      !Renderer
+        .create(
+          dash(
+            """<div id="{{selfId}}" class="bakeIndex"><!-- bakeIndex --></div>"""
+          )
+        )
+        .nodeVariesByViewer("c_0")
+    )
+  }
+
   test(
     "surfaceVariesByViewer: a user mount under a branch makes it per-viewer"
   ) {
