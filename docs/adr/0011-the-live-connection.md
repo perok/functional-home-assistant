@@ -605,11 +605,18 @@ which the URL mirror then faithfully writes, wiping a deep link's selection. Tha
 was the symptom: correct on load, gone after the stream. Pinned by
 `DatastarMorphContractSuite`.
 
-Seeding from the BAR instead would work — on one element, signals apply before
-its own readers — but it puts `{{bakeIndex}}` inside a `self`, which makes every
-tabs node per-viewer and costs its digest suppression (ADR 0012). Too much for
-what re-assertion still gets wrong: only a tab click racing a patch already in
-flight.
+Seeding from the BAR instead **would** work — `__ifmissing` declines only for a
+signal something has already read, and a parent's seed reaches its children's
+readers. And it would **not** cost digest suppression: variants have had entries
+of their own since the per-variant `Fragment` (ADR 0012).
+
+What rules it out is a third thing: `{{bakeIndex}}` in a `self` makes every tabs
+node variant-bearing, and then EVERY path that renders one by id must know the
+viewer. `Patches.resume` does not — it renders candidates through
+`renderLogged(id, states)` with no selection, so it would hand a tab-1 client a
+bar rendered at the default index. That is fixable (resume already carries the
+viewer for its mount fills), but it is a wider change than the one thing
+re-assertion still gets wrong: a tab click racing a patch already in flight.
 
 ## Rejected along the way (still guarding the design)
 

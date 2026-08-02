@@ -1323,18 +1323,11 @@ class Renderer(
         // here and compared there. NOT the baked member itself: that is the
         // mount's contents, and statement (1) is that a node's own rendering
         // never carries them.
+        val selfVars = structuralVars(id) ++ bakeIndex
         val selfHtml = templates.selves
           .get(c.card)
-          .map(
-            renderTemplateOf(
-              _,
-              structuralVars(id),
-              c.slots,
-              childrenHtml,
-              states
-            )
-          )
-        val vars = structuralVars(id) ++ bakeIndex ++ baked
+          .map(renderTemplateOf(_, selfVars, c.slots, childrenHtml, states))
+        val vars = selfVars ++ baked
         val mountHtml = templates.mounts
           .get(c.card)
           .map(renderTemplateOf(_, vars, c.slots, childrenHtml, states))
@@ -1374,9 +1367,12 @@ class Renderer(
         // nothing at all when it is a bare container. Mirrors `renderNodeById`
         // exactly — including the wrapper, which that method's leaf branch also
         // returns.
+        // A variant-bearing node IS recorded: this walk renders for ONE viewer,
+        // so its bytes are that viewer's variant and the log keys them by it.
+        // Excluding them was a leftover from before variants had entries of
+        // their own.
         val ownHtml =
-          if (!hasOwnRendering(id) || nodeVariesByViewer(id)) None
-          else selfHtml.orElse(Some(wrapped))
+          if (hasOwnRendering(id)) selfHtml.orElse(Some(wrapped)) else None
         Traced(
           wrapped,
           kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)

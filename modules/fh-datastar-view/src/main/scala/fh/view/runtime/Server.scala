@@ -879,7 +879,13 @@ class Server(
           _.log.update(l =>
             arriving.fold(l.invalidateWhere(resupplied))(t =>
               t.own.foldLeft(l.invalidateWhere(resupplied)) {
-                case (acc, (id, html)) => acc.set(id, html, store.version)
+                case (acc, (id, html)) =>
+                  acc.set(
+                    id,
+                    html,
+                    store.version,
+                    renderer.variantOf(id, uiState)
+                  )
               }
             )
           )
@@ -1152,7 +1158,12 @@ class Server(
             val seedLog = live.log.update(l =>
               painted.own.foldLeft(l) {
                 case (acc, (id, html)) if seeded(id) =>
-                  acc.seed(id, html, store.version)
+                  acc.seed(
+                    id,
+                    html,
+                    store.version,
+                    renderer.variantOf(id, uiState)
+                  )
                 case (acc, _) => acc
               }
             )

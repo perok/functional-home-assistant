@@ -289,7 +289,8 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         |<div data-signals__ifmissing="{ late: 1 }"></div>
         |<div id="reader2" data-text="$asserted"></div>
         |<div data-signals="{ asserted: 1 }"></div>
-        |<div id="together" data-signals__ifmissing="{ own: 1 }" data-text="$own"></div>""".stripMargin
+        |<div id="together" data-signals__ifmissing="{ own: 1 }" data-text="$own"></div>
+        |<div data-signals__ifmissing="{ kid: 1 }"><span id="child" data-text="$kid"></span></div>""".stripMargin
 
     served(page, Nil).use { case (p, uri) =>
       for {
@@ -298,6 +299,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         late <- text(p, "#reader")
         asserted <- text(p, "#reader2")
         own <- text(p, "#together")
+        kid <- text(p, "#child")
         _ <- IO {
           // Read first, seeded after: never initialised.
           assertEquals(
@@ -313,6 +315,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
           )
           // On ONE element, signals apply before the reader — so it works.
           assertEquals(own, "1", "same-element seed beats its own reader")
+          println(s"SPIKE|parent-seeds-child-reads = '$kid'")
         }
       } yield ()
     }

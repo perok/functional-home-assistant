@@ -703,19 +703,21 @@ class Tabs extends Node {
   // later change back into the URL via the page shell's `fhUrl` helper.
   //
   // NOT `data-signals__ifmissing`, though a seed that asserts on every re-render
-  // reads wrong. It cannot work HERE, and the rule is worth knowing:
-  // `__ifmissing` initialises a signal only if nothing has referenced it yet —
-  // a READ creates it (as ""), after which the seed correctly declines. This
-  // bar's `data-class` reads `$ui_<id>` and the bar renders BEFORE this mount,
-  // so the seed never fires and the signal stays "" — which the URL mirror then
-  // faithfully writes, wiping a deep link's selection. Pinned by
-  // `DatastarMorphContractSuite`.
+  // reads wrong. Two things had to be checked before ruling it out, and both
+  // came back the OPPOSITE of what was first assumed (see ADR 0011):
   //
-  // Moving the seed onto the bar would work (same element: signals apply
-  // first), but it puts `{{bakeIndex}}` in a `self`, which makes every tabs
-  // node per-viewer and costs its digest suppression (ADR 0012). Not worth it
-  // for the one thing re-assertion still gets wrong: a tab click racing a patch
-  // already in flight.
+  //   - it CAN seed from here — `__ifmissing` only declines for a signal
+  //     something has already READ, and a parent's seed reaches its children's
+  //     readers, so putting it on this bar (whose children read `$ui_<id>`)
+  //     would work where putting it on the panel does not;
+  //   - it does NOT cost digest suppression — variants have had entries of
+  //     their own since the per-variant `Fragment`.
+  //
+  // What still rules it out: `{{bakeIndex}}` in a `self` makes EVERY tabs node
+  // variant-bearing, and then every path that renders one by id has to know the
+  // viewer. `Patches.resume` does not — it would hand a tab-1 client a bar
+  // rendered at the default index. Fixable, but not for what re-assertion still
+  // gets wrong: only a tab click racing a patch already in flight.
   // THE self/mount split's one real user in the shipped library. The bar is the
   // card's own presentation (`self`), the panel is where the selected tab's
   // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
