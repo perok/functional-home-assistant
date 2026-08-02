@@ -254,6 +254,20 @@ private[runtime] case class FragmentLog(
       .get(nodeId)
       .exists(_.digests.get(variant).contains(Digest.of(html)))
 
+  /** Whether this node's variant was already recorded at or past `version` —
+    * i.e. written from this same state, so its digest already describes what a
+    * render would produce.
+    *
+    * The cheap half of the two skips: an integer comparison that spares the
+    * render entirely, where [[holds]] must render first to compare. Versions
+    * only grow and a write records the version it rendered from, so an entry
+    * can never be ahead of a later read.
+    */
+  def atLeast(nodeId: NodeId, variant: Int, version: Long): Boolean =
+    fragments
+      .get(nodeId)
+      .exists(f => f.version >= version && f.digests.contains(variant))
+
   /** Whether `gid` is ESTABLISHED — i.e. the log knows what is in its mount, so
     * a membership change can be patched per-entity instead of filled wholesale.
     *

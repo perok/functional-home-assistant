@@ -448,21 +448,42 @@ class Server(
             pending
               .traverse { p =>
                 Memo
+                  // Keyed by VARIANT alone. Keying on the snapshot too would
+                  // put a whole `StoreState` in this map and hold it for the
+                  // life of the batch — the retention that reading at force
+                  // time exists to avoid — and would stop two connections on
+                  // one variant sharing a verdict the moment a tick separated
+                  // them.
                   .create[Int, Option[ServerSentEvent]] { variant =>
-                    val html = p.render(variant)
-                    log.modify { l =>
-                      if (l.holds(p.id, html, variant)) (l, None)
-                      else
-                        (
-                          l.set(p.id, html, req.stamp.version, variant),
-                          Some(Patch.Morph(html).toSse)
-                        )
+                    stateStore.current.flatMap { now =>
+                      log.get.flatMap { before =>
+                        // Cheap skip first. An entry at or past this version was
+                        // written from this same state, so its digest already
+                        // describes what a render would produce — no need to
+                        // produce it. This is what collapses several queued
+                        // batches that all touch one node.
+                        if (before.atLeast(p.id, variant, now.version))
+                          IO.pure(None)
+                        else {
+                          val html = p.render(variant, now.entities)
+                          log.modify { l =>
+                            // And the digest, for the other question: the
+                            // version moved but the rendering did not.
+                            if (l.holds(p.id, html, variant)) (l, None)
+                            else
+                              (
+                                l.set(p.id, html, now.version, variant),
+                                Some(Patch.Morph(html).toSse)
+                              )
+                          }
+                        }
+                      }
                     }
                   }
                   .map(memo =>
                     Varying(
                       p.surface,
-                      (ui: Map[String, String]) =>
+                      (ui: Map[String, String], _: StoreState) =>
                         memo.get(renderer.variantOf(p.id, ui))
                     )
                   )
@@ -586,11 +607,18 @@ class Server(
               .evalMap {
                 case Addressed(_, event) => IO.pure(Option(event))
                 case Varying(_, resolve) =>
-                  (rendererFor(session.slug), session.open.get).flatMapN {
-                    (rendererOpt, open) =>
-                      rendererOpt.fold(IO.pure(Option.empty[ServerSentEvent]))(
-                        r => resolve(r.uiStateFrom(open))
-                      )
+                  // Read at FORCE time, entities and version together: a queued
+                  // item renders the state that exists when it is finally sent,
+                  // not the one its batch was diffed at — anything older is
+                  // about to be superseded by an item already behind it.
+                  (
+                    rendererFor(session.slug),
+                    session.open.get,
+                    stateStore.current
+                  ).flatMapN { (rendererOpt, open, now) =>
+                    rendererOpt.fold(IO.pure(Option.empty[ServerSentEvent]))(
+                      r => resolve(r.uiStateFrom(open), now)
+                    )
                   }
               }
               .unNone

@@ -2638,6 +2638,31 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  test("a superseded batch skips its render on a version check") {
+    // Two batches queued for one slow client, both touching the same
+    // variant-bearing node. The first to be forced renders CURRENT state and
+    // records it; the second finds an entry at or past that version and skips
+    // WITHOUT rendering — the prune, not the digest, which would have had to
+    // render first to discover the same thing.
+    val r = Renderer.create(serverHighlightDash)
+    val states = Map(
+      "sensor.title" -> es("sensor.title", "T1"),
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B0")
+    )
+    val host: NodeId = "c_0"
+    val fresh = FragmentLog("prune")
+    // Nothing recorded: the render has to happen.
+    assert(!fresh.atLeast(host, 0, 7L))
+    // Recorded FROM this version: a render could only reproduce it.
+    val after = fresh.set(host, r.renderNodeById(host, states).get, 7L)
+    assert(after.atLeast(host, 0, 7L), clue = "same version is covered")
+    assert(after.atLeast(host, 0, 6L), clue = "an older read is covered too")
+    // A newer state is not covered, and neither is another variant.
+    assert(!after.atLeast(host, 0, 8L))
+    assert(!after.atLeast(host, 1, 7L), clue = "variant 1 was never recorded")
+  }
+
   test("a resume renders a variant-bearing node for THIS viewer") {
     // The hole that kept `__ifmissing` out. A node whose own markup reads its
     // own selection has one rendering per member, and `resume` renders its

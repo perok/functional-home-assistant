@@ -76,7 +76,7 @@ private[runtime] case class Addressed(
   */
 private[runtime] case class Varying(
     surface: Option[String],
-    resolve: Map[String, String] => IO[Option[ServerSentEvent]]
+    resolve: (Map[String, String], StoreState) => IO[Option[ServerSentEvent]]
 ) extends Directed
 
 /** A render the shell has to perform LATER, per variant, because its verdict
@@ -90,7 +90,12 @@ private[runtime] case class Varying(
 private[runtime] case class Pending(
     surface: Option[String],
     id: NodeId,
-    render: Int => String
+    // Takes the snapshot to render FROM, rather than closing over the batch's.
+    // A queued item is forced whenever its connection gets to it, and by then
+    // newer state may exist — which is the state worth sending, since anything
+    // older is about to be superseded by an item already behind it in the same
+    // queue.
+    render: (Int, Map[String, EntityState]) => String
 )
 
 /** Something the shared pass produced, plus who may see it. Either already
@@ -296,10 +301,10 @@ private[runtime] object Patches {
               varying.map(f =>
                 Varying(
                   surface,
-                  (ui: Map[String, String]) =>
+                  (ui: Map[String, String], now: StoreState) =>
                     IO.pure(
                       Option(
-                        f(ui)
+                        f(ui, now.entities)
                           .fold(Patch.Remove(renderer.mountId(gid)))(identity)
                           .toSse
                       )
@@ -346,9 +351,9 @@ private[runtime] object Patches {
       Pending(
         surface,
         id,
-        variant =>
+        (variant, states) =>
           renderer
-            .renderNodeById(id, req.states, Map(id -> variant.toString))
+            .renderNodeById(id, states, Map(id -> variant.toString))
             .getOrElse("")
       )
     }
@@ -611,7 +616,7 @@ private[runtime] object Patches {
   ): (
       FragmentLog,
       List[Patch],
-      List[Map[String, String] => Option[Patch]]
+      List[(Map[String, String], Map[String, EntityState]) => Option[Patch]]
   ) = {
     def memberAt(
         snapshot: Map[String, EntityState]
@@ -639,9 +644,9 @@ private[runtime] object Patches {
             // digest to record — see `FragmentLog.placed`'s four-argument form.
             withGone.placed(gid, member, nodeId, at),
             Nil,
-            List((ui: Map[String, String]) =>
+            List((ui: Map[String, String], now: Map[String, EntityState]) =>
               member
-                .render(renderer, gid, states, ui)
+                .render(renderer, gid, now, ui)
                 .map(html =>
                   Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid))
                 )
