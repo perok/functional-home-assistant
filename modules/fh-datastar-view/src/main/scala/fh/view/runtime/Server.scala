@@ -454,7 +454,7 @@ class Server(
                   // time exists to avoid — and would stop two connections on
                   // one variant sharing a verdict the moment a tick separated
                   // them.
-                  .create[Int, Option[ServerSentEvent]] { variant =>
+                  .keyed[Int, Option[ServerSentEvent]] { variant =>
                     stateStore.current.flatMap { now =>
                       log.get.flatMap { before =>
                         // Cheap skip first. An entry at or past this version was
@@ -484,7 +484,7 @@ class Server(
                     Varying(
                       p.surface,
                       (ui: Map[String, String], _: StoreState) =>
-                        memo.get(renderer.variantOf(p.id, ui))
+                        memo(renderer.variantOf(p.id, ui))
                     )
                   )
               }
