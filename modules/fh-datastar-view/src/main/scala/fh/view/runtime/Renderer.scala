@@ -1061,6 +1061,11 @@ class Renderer(
     * a dynamic group, whose ids are per-entity and deliberately NOT in the
     * static index.
     *
+    * `uiState` is the viewer this render is FOR. A node whose own markup reads
+    * its own selection has one rendering per member, so rendering it by id
+    * without a viewer hands everybody the default member's — which on a resume
+    * is a client's own tab being flipped out from under it.
+    *
     * `None` means the key names nothing that exists right now — its group is
     * gone, or the entity is no longer a member — which is exactly when there is
     * nothing to send. That it cannot crash is the point: an unresolvable key is
@@ -1069,9 +1074,10 @@ class Renderer(
     */
   def renderLogged(
       id: NodeId,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
   ): Option[String] =
-    renderNodeById(id, states).orElse(
+    renderNodeById(id, states, uiState).orElse(
       // `sanitize` is one-way, so the entity cannot be read back out of the id —
       // it is found by re-deriving each current member's id. O(members) on a
       // reconnect, never on the hot path.

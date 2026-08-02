@@ -307,8 +307,8 @@
       "wrapAsCell" : false
     },
     "tabs" : {
-      "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-signals=\"{ ui_{{id}}: {{bakeIndex}} }\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"tabs\">{{#children}}{{{html}}}{{/children}}</div>",
+      "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}} }\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
       "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"

@@ -592,31 +592,27 @@ push the cursor alone. Not free — every non-`_` signal rides back on every
 subsequent request — so it is a trade against how chatty a given dashboard is,
 not an obvious win.
 
-**`data-signals__ifmissing`** — investigated and **ruled out for this design**, not
-merely deferred. The modifier exists and behaves as documented; the constraint is
-one Datastar does not spell out:
+**`data-signals__ifmissing`** — **adopted**, after the spike that explained why it
+had failed. The modifier behaves as documented; the constraint is one Datastar
+does not spell out:
 
 > `__ifmissing` initialises a signal only if nothing has REFERENCED it yet. A
 > read creates the signal (as `""`), after which the seed correctly declines.
 
-A tabs bar reads `$ui_<id>` (its active-tab highlight) and renders BEFORE the
-panel that would seed it, so the seed never fires and the signal stays `""` —
-which the URL mirror then faithfully writes, wiping a deep link's selection. That
-was the symptom: correct on load, gone after the stream. Pinned by
-`DatastarMorphContractSuite`.
+Seeding from the panel could never work, because the tabs BAR reads `$ui_<id>`
+for its highlight and renders first — the signal stayed `""` and the URL mirror
+faithfully wrote empty, which is how a deep link lost its selection. Seeding
+from the BAR works: a parent's seed reaches its children's readers. Both halves
+are pinned by `DatastarMorphContractSuite`.
 
-Seeding from the BAR instead **would** work — `__ifmissing` declines only for a
-signal something has already read, and a parent's seed reaches its children's
-readers. And it would **not** cost digest suppression: variants have had entries
-of their own since the per-variant `Fragment` (ADR 0012).
+It cost one prerequisite. `{{bakeIndex}}` in a `self` makes every tabs node
+variant-bearing (ADR 0012), so every path rendering one BY ID has to know the
+viewer — and `resume` did not; it would have handed a tab-1 client a bar drawn
+at the default index. `renderLogged` now takes the viewer, and `fromOpen`
+compares against that viewer's variant rather than variant 0.
 
-What rules it out is a third thing: `{{bakeIndex}}` in a `self` makes every tabs
-node variant-bearing, and then EVERY path that renders one by id must know the
-viewer. `Patches.resume` does not — it renders candidates through
-`renderLogged(id, states)` with no selection, so it would hand a tab-1 client a
-bar rendered at the default index. That is fixable (resume already carries the
-viewer for its mount fills), but it is a wider change than the one thing
-re-assertion still gets wrong: a tab click racing a patch already in flight.
+What it buys: a re-render can no longer overwrite the tab a client actually
+chose, which closes the race between a tab click and a patch already in flight.
 
 ## Rejected along the way (still guarding the design)
 

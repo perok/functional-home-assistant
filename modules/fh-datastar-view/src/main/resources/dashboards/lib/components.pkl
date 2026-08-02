@@ -702,22 +702,21 @@ class Tabs extends Node {
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
   // later change back into the URL via the page shell's `fhUrl` helper.
   //
-  // NOT `data-signals__ifmissing`, though a seed that asserts on every re-render
-  // reads wrong. Two things had to be checked before ruling it out, and both
-  // came back the OPPOSITE of what was first assumed (see ADR 0011):
+  // The active-tab signal is SEEDED on the bar with `__ifmissing`, and mirrored
+  // to the URL from the panel below. Seeding initialises rather than asserts, so
+  // a re-render can never overwrite the tab this client actually chose — which
+  // a tab click racing a patch already in flight otherwise does.
   //
-  //   - it CAN seed from here — `__ifmissing` only declines for a signal
-  //     something has already READ, and a parent's seed reaches its children's
-  //     readers, so putting it on this bar (whose children read `$ui_<id>`)
-  //     would work where putting it on the panel does not;
-  //   - it does NOT cost digest suppression — variants have had entries of
-  //     their own since the per-variant `Fragment`.
+  // It has to be the BAR, not the panel: `__ifmissing` declines for a signal
+  // something has already READ, and this bar's buttons read `$ui_<id>` for
+  // their highlight. A parent's seed reaches its children's readers; a later
+  // sibling's does not, and the signal would stay "" forever (pinned by
+  // `DatastarMorphContractSuite`).
   //
-  // What still rules it out: `{{bakeIndex}}` in a `self` makes EVERY tabs node
-  // variant-bearing, and then every path that renders one by id has to know the
-  // viewer. `Patches.resume` does not — it would hand a tab-1 client a bar
-  // rendered at the default index. Fixable, but not for what re-assertion still
-  // gets wrong: only a tab click racing a patch already in flight.
+  // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
+  // rendering per member, its own log entry per variant, and every path that
+  // renders it by id must know the viewer — including `Patches.resume`, which
+  // is why that had to learn the viewer first.
   // THE self/mount split's one real user in the shipped library. The bar is the
   // card's own presentation (`self`), the panel is where the selected tab's
   // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
@@ -737,10 +736,10 @@ class Tabs extends Node {
       <div class="fh-col">{{{self}}}{{{mount}}}</div>
       """
     self = """
-      <div id="{{selfId}}" class="tabs">{{#children}}{{{html}}}{{/children}}</div>
+      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{#children}}{{{html}}}{{/children}}</div>
       """
     mount = """
-      <div id="{{mountId}}" class="tab-panel" data-signals="{ ui_{{id}}: {{bakeIndex}} }" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
+      <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
       """
   }
   // A tab bar is a section-level component, not a third of a grid row. Its own

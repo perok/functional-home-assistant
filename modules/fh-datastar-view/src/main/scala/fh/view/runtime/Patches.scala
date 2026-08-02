@@ -485,9 +485,13 @@ private[runtime] object Patches {
       )
       .sorted
       .flatMap(id =>
-        renderer.renderLogged(id, states).flatMap { html =>
+        renderer.renderLogged(id, states, uiState).flatMap { html =>
+          // Compared against THIS viewer's variant — the log holds one digest
+          // per variant, and another viewer's says nothing about this DOM.
           // A MISSING entry counts as "send": unknown, so tell the client.
-          Option.when(!log.holds(id, html))(Patch.Morph(html))
+          Option.when(!log.holds(id, html, renderer.variantOf(id, uiState)))(
+            Patch.Morph(html)
+          )
         }
       )
     (owed.nodes
@@ -496,7 +500,9 @@ private[runtime] object Patches {
       // lacks is a silent no-op, so this only ever cost bytes; it is still one
       // client's worth of another client's tab on every reconnect.
       .filter(renderer.visibleNode(_, open, states))
-      .flatMap(id => renderer.renderLogged(id, states).map(Patch.Morph(_))) ++
+      .flatMap(id =>
+        renderer.renderLogged(id, states, uiState).map(Patch.Morph(_))
+      ) ++
       fromOpen ++
       gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
       branchFills ++ places ++ refills).map(_.toSse)

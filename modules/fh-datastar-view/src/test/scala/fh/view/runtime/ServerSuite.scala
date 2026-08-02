@@ -2638,6 +2638,39 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  test("a resume renders a variant-bearing node for THIS viewer") {
+    // The hole that kept `__ifmissing` out. A node whose own markup reads its
+    // own selection has one rendering per member, and `resume` renders its
+    // candidates BY ID — so without the viewer it hands every client the
+    // default member's bar, flipping a tab-1 viewer's highlight to tab 0 on
+    // reconnect.
+    val r = Renderer.create(serverHighlightDash)
+    val states = Map(
+      "sensor.title" -> es("sensor.title", "T1"),
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B0")
+    )
+    val host: NodeId = "c_0"
+    val mine = Map("c_0" -> "1")
+    // The bar moved at v5, recorded under the DEFAULT variant — i.e. by a
+    // viewer on tab 0, which is all a shared log ever holds for someone else.
+    val log = FragmentLog("w23")
+      .set(host, r.renderNodeById(host, states).get, 5L)
+    val owed = Patches.resume(r, log, states, 1L, Set("t1"), mine)
+
+    assert(
+      owed.exists(_.renderString.contains("active-1")),
+      clue = owed.map(_.renderString)
+    )
+    assert(
+      !owed.exists(_.renderString.contains("active-0")),
+      clue = (
+        "a tab-1 viewer must not be sent tab 0's bar",
+        owed.map(_.renderString)
+      )
+    )
+  }
+
   test("a resume cannot move a viewer onto a tab it did not choose") {
     val r = Renderer.create(barePopupTabsDash)
     val before =
