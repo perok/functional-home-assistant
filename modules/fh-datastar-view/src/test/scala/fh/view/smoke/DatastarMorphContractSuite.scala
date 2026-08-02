@@ -277,4 +277,44 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         IO.blocking(p.close())
       )
     } yield (page, bound.baseUri)
+
+  test("__ifmissing only seeds a signal nothing has read yet") {
+    // Why the tabs seed asserts instead of initialising. Datastar creates a
+    // signal the moment an expression READS one, so an `__ifmissing` seed that
+    // appears after any reader finds the key already present — as "" — and
+    // correctly declines. A tabs bar reads `$ui_<id>` and renders BEFORE the
+    // panel that seeds it, so the seed would never fire.
+    val page =
+      """<div id="reader" data-text="$late"></div>
+        |<div data-signals__ifmissing="{ late: 1 }"></div>
+        |<div id="reader2" data-text="$asserted"></div>
+        |<div data-signals="{ asserted: 1 }"></div>
+        |<div id="together" data-signals__ifmissing="{ own: 1 }" data-text="$own"></div>""".stripMargin
+
+    served(page, Nil).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        late <- text(p, "#reader")
+        asserted <- text(p, "#reader2")
+        own <- text(p, "#together")
+        _ <- IO {
+          // Read first, seeded after: never initialised.
+          assertEquals(
+            late,
+            "",
+            "__ifmissing must not seed an already-read signal"
+          )
+          // The same shape with a plain seed: asserted, so it lands.
+          assertEquals(
+            asserted,
+            "1",
+            "a plain seed asserts regardless of readers"
+          )
+          // On ONE element, signals apply before the reader — so it works.
+          assertEquals(own, "1", "same-element seed beats its own reader")
+        }
+      } yield ()
+    }
+  }
 }

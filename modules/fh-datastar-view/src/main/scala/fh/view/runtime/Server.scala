@@ -1630,6 +1630,12 @@ object Server {
     * `replaceState`, never `pushState`: this is view state, not navigation.
     * Back should leave the dashboard, not step back through tab clicks.
     *
+    * An empty value DROPS the param, and that is not defensive: it is how a
+    * client says "closed" (a dismissed popup). It does mean this cannot tell
+    * "cleared" from "never initialised" — Datastar creates a signal as `""` the
+    * moment an expression reads one — which is why the seeds that feed it must
+    * ASSERT rather than initialise-if-missing. See `Tabs` in components.pkl.
+    *
     * A classic inline script so it is defined before the deferred Datastar
     * module evaluates the first `data-effect` that calls it.
     */

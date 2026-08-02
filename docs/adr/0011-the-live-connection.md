@@ -592,20 +592,24 @@ push the cursor alone. Not free — every non-`_` signal rides back on every
 subsequent request — so it is a trade against how chatty a given dashboard is,
 not an obvious win.
 
-**`data-signals__ifmissing`** — confirmed present in the pinned bundle (the signals
-plugin reads `mods.has("ifmissing")` and passes it as `ifMissing` to the merge,
-whose default is overwrite), and **tried and reverted**. A seed that asserts its
-value on every re-render reads wrong, and the modifier is the right semantics for
-one; but switching the tabs mount to it breaks the URL mirror. The param is
-correct on load and disappears once the stream re-creates the panel — the tab
-shown stays right, so the server side is fine and something about re-registration
-drops it. Re-asserting is what currently keeps the mirror alive.
+**`data-signals__ifmissing`** — investigated and **ruled out for this design**, not
+merely deferred. The modifier exists and behaves as documented; the constraint is
+one Datastar does not spell out:
 
-The clobber it was for is gone regardless: a placed branch now carries each
-viewer's own index, so nothing overwrites a selection. What remains is the narrow
-race between a tab click and a patch already in flight, which does not justify
-the regression. `UiSmokeSuite."tabs: a selection on the URL survives the SSE
-connect"` is the reproducer for the spike this needs.
+> `__ifmissing` initialises a signal only if nothing has REFERENCED it yet. A
+> read creates the signal (as `""`), after which the seed correctly declines.
+
+A tabs bar reads `$ui_<id>` (its active-tab highlight) and renders BEFORE the
+panel that would seed it, so the seed never fires and the signal stays `""` —
+which the URL mirror then faithfully writes, wiping a deep link's selection. That
+was the symptom: correct on load, gone after the stream. Pinned by
+`DatastarMorphContractSuite`.
+
+Seeding from the BAR instead would work — on one element, signals apply before
+its own readers — but it puts `{{bakeIndex}}` inside a `self`, which makes every
+tabs node per-viewer and costs its digest suppression (ADR 0012). Too much for
+what re-assertion still gets wrong: only a tab click racing a patch already in
+flight.
 
 ## Rejected along the way (still guarding the design)
 

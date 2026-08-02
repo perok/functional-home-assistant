@@ -702,16 +702,20 @@ class Tabs extends Node {
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
   // later change back into the URL via the page shell's `fhUrl` helper.
   //
-  // NOT `data-signals__ifmissing`, though a seed asserting its value on every
-  // re-render reads wrong. Tried, and it breaks the URL mirror: the param is
-  // correct on load and disappears once the stream re-creates this element —
-  // the tab shown stays right, so the server side is fine and something about
-  // re-registration drops it. Re-asserting is what currently keeps the mirror
-  // alive. The clobber it would have prevented is gone anyway, since a flip now
-  // renders each viewer its OWN selection; what is left is the narrow race
-  // between a tab click and a patch already in flight. Needs its own browser
-  // spike (`UiSmokeSuite."tabs: a selection on the URL survives the SSE
-  // connect"` is the reproducer) before it can land.
+  // NOT `data-signals__ifmissing`, though a seed that asserts on every re-render
+  // reads wrong. It cannot work HERE, and the rule is worth knowing:
+  // `__ifmissing` initialises a signal only if nothing has referenced it yet —
+  // a READ creates it (as ""), after which the seed correctly declines. This
+  // bar's `data-class` reads `$ui_<id>` and the bar renders BEFORE this mount,
+  // so the seed never fires and the signal stays "" — which the URL mirror then
+  // faithfully writes, wiping a deep link's selection. Pinned by
+  // `DatastarMorphContractSuite`.
+  //
+  // Moving the seed onto the bar would work (same element: signals apply
+  // first), but it puts `{{bakeIndex}}` in a `self`, which makes every tabs
+  // node per-viewer and costs its digest suppression (ADR 0012). Not worth it
+  // for the one thing re-assertion still gets wrong: a tab click racing a patch
+  // already in flight.
   // THE self/mount split's one real user in the shipped library. The bar is the
   // card's own presentation (`self`), the panel is where the selected tab's
   // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
