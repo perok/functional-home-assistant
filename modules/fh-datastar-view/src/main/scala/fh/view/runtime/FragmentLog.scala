@@ -268,6 +268,20 @@ private[runtime] case class FragmentLog(
       .get(nodeId)
       .exists(f => f.version >= version && f.digests.contains(variant))
 
+  /** Whether this node's element is currently recorded as DELETED.
+    *
+    * What makes a queued fill STALE. A fill is planned when a selection moves,
+    * but sent when its connection reaches it, and by then the selection may
+    * have moved again — in which case a later flip has already recorded this
+    * member as [[Mutation.Gone]] and this fill would put back a branch that no
+    * longer belongs, until the item behind it corrected the DOM.
+    */
+  def isGone(nodeId: NodeId): Boolean =
+    mutations.get(nodeId).exists {
+      case _: Mutation.Gone => true
+      case _                => false
+    }
+
   /** Whether `gid` is ESTABLISHED — i.e. the log knows what is in its mount, so
     * a membership change can be patched per-entity instead of filled wholesale.
     *

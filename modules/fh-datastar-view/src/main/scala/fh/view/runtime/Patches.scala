@@ -96,6 +96,12 @@ private[runtime] case class Pending(
     // The nodes whose digests this render writes — known BEFORE rendering, so
     // the version prune can skip the render entirely.
     keys: List[NodeId],
+    // The member this render puts in a mount, when it fills one. A queued fill
+    // can be SUPERSEDED — the selection moved again before this connection got
+    // to its item — and then its bytes are not merely redundant but wrong for a
+    // moment, until the item behind it corrects them. `None` for a node morph,
+    // which fills nothing and so cannot be overtaken.
+    placing: Option[NodeId],
     // This client's selections, narrowed to the ones this render reads. Two
     // viewers who agree on those share one render however else they differ.
     selections: Map[String, String] => Selections,
@@ -366,6 +372,7 @@ private[runtime] object Patches {
       Pending(
         surface,
         List(id),
+        None,
         renderer.selectionsOf(id, _),
         (sel, states) =>
           renderer
@@ -718,22 +725,25 @@ private[runtime] object Patches {
           )
         )
       }
-      // Can ONE rendering of the arriving branch serve every viewer? It cannot
-      // exactly when a user-selected mount sits inside it.
-      now.filter(renderer.surfaceVariesByViewer) match {
+      // Nothing is rendered HERE. The shared pass evicts (a fill with no
+      // arrival) and records where the branch went; the render is deferred, one
+      // per distinct selection. A branch nobody's selection reaches inside
+      // resolves to the empty key, so "one rendering serves every viewer" is
+      // that case of the same mechanism rather than a second path — and it is
+      // no longer rendered at all when nobody is connected to receive it.
+      val (evicted, _) =
+        fillHost(renderer, log, host, None, states, Map.empty, at.version)
+      val logged = structure(evicted)
+      now match {
         case Some(sid) =>
-          // Nothing arrives HERE: the bytes differ per viewer, so the shared
-          // pass evicts (a fill with no arrival) and defers the render, one per
-          // distinct selection rather than one per connection.
-          val (evicted, _) =
-            fillHost(renderer, log, host, None, states, Map.empty, at.version)
           (
-            structure(evicted),
+            logged,
             Nil,
             Some(
               Pending(
                 surface,
                 renderer.surfaceNodeIds(sid).toList,
+                Some(renderer.surfaceContentId(sid)),
                 renderer.selectionsUnder(sid, _),
                 (sel, now) =>
                   renderer
@@ -747,10 +757,9 @@ private[runtime] object Patches {
               )
             )
           )
+        // No member holds: nothing to render, just the departure.
         case None =>
-          val (filled, html) =
-            fillHost(renderer, log, host, now, states, Map.empty, at.version)
-          (structure(filled), branchPatch(renderer, gid, html, departed), None)
+          (logged, branchPatch(renderer, gid, None, departed), None)
       }
     }
   }

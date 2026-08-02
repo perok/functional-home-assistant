@@ -915,8 +915,11 @@ class ServerSuite extends munit.CatsEffectSuite {
               cache,
               change
             )
+            events <- received(patches, store)
+            // AFTER forcing: a deferred render writes its digests when a viewer
+            // takes it, not when the pass planned it.
             finalCache <- cache.get.map(logged)
-          } yield (elementPatches(readyEvents(patches)), finalCache)
+          } yield (elementPatches(events), finalCache)
         }
     } yield out)
       .timeout(30.seconds)
@@ -1305,10 +1308,31 @@ class ServerSuite extends munit.CatsEffectSuite {
           cache,
           StateChange(next.entityId, prev, next)
         )
-      } yield readyEvents(patches)).timeout(30.seconds)
+        events <- received(patches, store)
+      } yield events).timeout(30.seconds)
 
     def step(next: EntityState): IO[List[String]] =
       sharedBatch(next).map(elementPatches)
+
+    /** Several batches PLANNED before any of them is forced — one slow client
+      * whose queue holds them all when it finally drains.
+      */
+    def queued(nexts: List[EntityState]): IO[List[String]] =
+      (for {
+        directed <- nexts.foldLeftM(List.empty[Directed]) { (acc, next) =>
+          for {
+            prev <- store.snapshot.map(_.get(next.entityId))
+            _ <- store.update(next)
+            ds <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              cache,
+              StateChange(next.entityId, prev, next)
+            )
+          } yield acc ++ ds
+        }
+        events <- received(directed, store)
+      } yield elementPatches(events)).timeout(30.seconds)
 
     /** Everything a batch emits, cursor signal included. */
     def stepRaw(next: EntityState): IO[List[String]] =
@@ -1711,25 +1735,31 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- sessions.register("conn", session)
             cache <- Ref[IO].of(seedLog(Map.empty))
             shared <- server.sharedPatches("dashboard", renderer, cache, change)
-          } yield shared
+            events <- received(shared, store)
+          } yield (shared, events)
         }
     } yield out)
       .timeout(30.seconds)
-      .map { shared =>
+      .map { case (shared, events) =>
         // The shared pass carries the inner flip's delta — once, for the slug.
-        val patches = ready(shared)
-        assertEquals(patches.size, 1, clue = patches)
-        val one = patches.head
-        assertEquals(one.event.selector, Some("#s_det__c_0_branch"))
-        assert(
-          one.event.elements.exists(_.contains("""id="s_d_else__c"""")),
-          clue = one.event.renderString
-        )
+        val tagged = shared.filter {
+          case a: Addressed => !isCursor(a.event)
+          case _            => true
+        }
+        assertEquals(tagged.size, 1, clue = tagged)
         // Addressed to the popup: a client with it open sees it, one without
-        // does not. That tag is the whole per-connection filter.
-        assertEquals(one.surface, Some("det"))
-        assert(one.visibleTo(Set("det")))
-        assert(!one.visibleTo(Set.empty))
+        // does not. That tag is the whole per-connection filter, and it is
+        // carried by the deferred render just as it was by ready bytes.
+        assertEquals(tagged.head.surface, Some("det"))
+        assert(tagged.head.visibleTo(Set("det")))
+        assert(!tagged.head.visibleTo(Set.empty))
+        val patches = events.filterNot(isCursor)
+        assertEquals(patches.size, 1, clue = patches)
+        assertEquals(patches.head.selector, Some("#s_det__c_0_branch"))
+        assert(
+          patches.head.elements.exists(_.contains("""id="s_d_else__c"""")),
+          clue = patches.head.renderString
+        )
       }
   }
 
@@ -2163,8 +2193,27 @@ class ServerSuite extends munit.CatsEffectSuite {
   private def ready(out: List[Directed]): List[Addressed] =
     out.collect { case a: Addressed if !isCursor(a.event) => a }
 
-  private def readyEvents(out: List[Directed]): List[ServerSentEvent] =
-    out.collect { case a: Addressed => a.event }
+  /** What ONE connection receives from a batch: the already-addressed bytes,
+    * plus the per-viewer renders it forces for itself.
+    *
+    * The shared pass renders nothing whose bytes depend on a selection — every
+    * branch fill included, since a branch with no user group inside it is just
+    * the empty-selection case of the same mechanism. So a batch is only
+    * observable through a viewer, and `ui` is which one.
+    */
+  private def received(
+      out: List[Directed],
+      store: StateStore,
+      ui: Map[String, String] = Map.empty
+  ): IO[List[ServerSentEvent]] =
+    store.current
+      .flatMap(now =>
+        out.traverse {
+          case a: Addressed => IO.pure(Option(a.event))
+          case v: Varying   => v.resolve(ui, now)
+        }
+      )
+      .map(_.flatten)
 
   /** The popup host's selection signal — `ui_` + the host id, exactly as the
     * shell composes it.
@@ -2638,6 +2687,61 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  test("a queued flip that a later one superseded is dropped, not sent") {
+    // Two flips reach one slow client's queue. The first was planned against a
+    // selection that has since moved, so its bytes are not merely redundant —
+    // they would put the wrong branch on screen until the item behind them
+    // corrected it. The log already knows: the later flip recorded that
+    // member as Gone.
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
+      )
+      out <- h.queued(
+        List(es("alarm.h", "disarmed"), es("alarm.h", "armed"))
+      )
+    } yield {
+      assertEquals(out.size, 1, clue = out)
+      // The surviving branch, not the one that flashed past.
+      assert(out.head.contains("""id="s_then__c""""), clue = out.head)
+      assert(!out.head.contains("""id="s_else__c""""), clue = out.head)
+    }
+  }
+
+  test("a branch that empties removes its content, never the mount") {
+    // An `If` with no matching member: the mount must survive, because every
+    // later fill targets it by id and a patch at a missing id is a silent
+    // no-op — the group would go permanently dead for that client.
+    val d = ifDash().copy(surfaces =
+      Map("then" -> stateMember(branchCard("sensor.a"), "c_0", 0, armedCond))
+    )
+    for {
+      h <- SharedHarness.create(
+        d,
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0")
+        )
+      )
+      emptied <- h.stepRaw(es("alarm.h", "disarmed"))
+      refilled <- h.step(es("alarm.h", "armed"))
+    } yield {
+      val removes = emptied.filter(_.contains("mode remove"))
+      assertEquals(removes.size, 1, clue = emptied)
+      // The branch's CONTENT element, not the host it sat in.
+      assert(removes.head.contains("selector #s_then__c"), clue = removes.head)
+      assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
+      // And the mount is still there to be filled again.
+      assertEquals(refilled.size, 1, clue = refilled)
+      assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
+    }
+  }
+
   test("a flip fingerprints the nodes it placed, not the blob") {
     // The obligation every other fill already meets: a flip re-supplies a whole
     // subtree, so the next diff has to know what it put in EACH node. Recording
@@ -2668,7 +2772,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       "alarm.h" -> es("alarm.h", "armed"),
       "sensor.a" -> es("sensor.a", "A0")
     )
-    val (log, _, _) = Patches.diff(
+    val (log, _, pending) = Patches.diff(
       r,
       FragmentLog("flip"),
       Patches.plan(
@@ -2683,19 +2787,22 @@ class ServerSuite extends munit.CatsEffectSuite {
         Set.empty
       )
     )
+    assertEquals(pending.size, 1, clue = pending)
+    val fill = pending.head.render(Map.empty, armed).get
 
-    // The leaf the flip placed is recorded, holding what the flip rendered...
+    // The leaf the flip places is in the fill's trace, holding exactly what a
+    // patch for that node alone would carry — which is what makes the two
+    // comparable at all.
     val leaf: NodeId = "s_then__c_0"
-    assert(
-      log.holds(leaf, r.renderNodeById(leaf, armed).get),
-      clue = ("the placed member must be fingerprinted", log.fragments.keySet)
-    )
-    // ...so a later read at that version needs no render at all.
-    assert(log.atLeast(leaf, 0, 2L))
-    // And the branch ROOT gets none: it has no rendering of its own, so an
-    // entry there could never be resolved.
-    assertEquals(r.renderNodeById("s_then__c", armed), None)
-    assert(!log.fragments.contains(NodeId.derived("s_then__c")))
+    assertEquals(fill.own.get(leaf), r.renderNodeById(leaf, armed))
+    assert(pending.head.keys.contains(leaf), clue = pending.head.keys)
+    // And the branch ROOT gets nothing: it has no rendering of its own, so an
+    // entry there could never be resolved — not in the trace, and not written
+    // by the pass either.
+    val root = NodeId.derived("s_then__c")
+    assertEquals(r.renderNodeById(root, armed), None)
+    assert(!fill.own.contains(root), clue = fill.own.keySet)
+    assert(!log.fragments.contains(root), clue = log.fragments.keySet)
   }
 
   test("a superseded batch skips its render on a version check") {

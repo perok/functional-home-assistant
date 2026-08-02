@@ -462,6 +462,11 @@ class Server(
                         // digests already describe what it would produce — no
                         // need to produce it. This is what collapses several
                         // queued batches that all touch one node.
+                        // Superseded first: this item's selection moved again
+                        // before its connection reached it, so its bytes are
+                        // not merely redundant but briefly WRONG. The item
+                        // behind it in the same queue carries what belongs.
+                        val stale = p.placing.exists(before.isGone)
                         val known = p.keys.nonEmpty && p.keys.forall(id =>
                           before.atLeast(
                             id,
@@ -469,7 +474,7 @@ class Server(
                             now.version
                           )
                         )
-                        if (known) IO.pure(None)
+                        if (stale || known) IO.pure(None)
                         else
                           p.render(sel, now.entities) match {
                             case None    => IO.pure(None)
