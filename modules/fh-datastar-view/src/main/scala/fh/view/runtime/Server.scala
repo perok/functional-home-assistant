@@ -246,7 +246,7 @@ class Server(
     */
   private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
     io.handleErrorWith {
-      case e: FHError => IO.pure(FHError.response(e))
+      case e: FHError => FHError.logged(e)
       case err        => InternalServerError(err.getMessage)
     }
 
@@ -1041,7 +1041,7 @@ class Server(
             // exercised without the app-level FHError.handle); a non-FHError
             // is an unnamed bug and becomes a 500.
             .handleErrorWith {
-              case e: FHError => IO.pure(FHError.response(e))
+              case e: FHError => FHError.logged(e)
               case err        => InternalServerError(err.getMessage)
             }
       }
