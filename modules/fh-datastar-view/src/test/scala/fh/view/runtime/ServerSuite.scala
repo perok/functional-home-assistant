@@ -2795,7 +2795,6 @@ class ServerSuite extends munit.CatsEffectSuite {
     // comparable at all.
     val leaf: NodeId = "s_then__c_0"
     assertEquals(fill.own.get(leaf), r.renderNodeById(leaf, armed))
-    assert(pending.head.keys.contains(leaf), clue = pending.head.keys)
     // And the branch ROOT gets nothing: it has no rendering of its own, so an
     // entry there could never be resolved — not in the trace, and not written
     // by the pass either.

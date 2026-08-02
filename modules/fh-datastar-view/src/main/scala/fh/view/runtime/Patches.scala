@@ -489,26 +489,27 @@ private[runtime] object Patches {
           // dropped by `since`.
           .flatMap { case (nodeId, p) =>
             p.member match {
-              case MemberKey.Entity(e) =>
-                position.get(e).map((nodeId, e, p.member, _))
+              case MemberKey.Entity(e)  => position.get(e).map((nodeId, e, _))
               case _: MemberKey.Surface => None
             }
           }
-          .sortBy { case (_, _, _, at) => -at }
-          .flatMap { case (nodeId, entityId, member, _) =>
+          .sortBy { case (_, _, at) => -at }
+          .flatMap { case (nodeId, entityId, _) =>
             // Rendered NOW, not read back: the snapshot is at least as fresh as
             // anything the log could have kept, and it is what lets the log hold
-            // a digest instead of bytes. The member resolves ITSELF — the whole
-            // point of [[MemberKey]] being a sum type.
-            member.render(renderer, gid, states).toList.flatMap { html =>
-              // Every current member is a usable anchor here: emitting
-              // descending by position means a node's successor was either
-              // already in the client's DOM or placed a moment ago.
-              List(
-                Patch.Remove(renderer.elementId(nodeId)),
-                insertInto(renderer, gid, members, entityId, _ => true, html)
-              )
-            }
+            // a digest instead of bytes.
+            renderer
+              .renderDynamicChild(gid, entityId, states)
+              .toList
+              .flatMap { html =>
+                // Every current member is a usable anchor here: emitting
+                // descending by position means a node's successor was either
+                // already in the client's DOM or placed a moment ago.
+                List(
+                  Patch.Remove(renderer.elementId(nodeId)),
+                  insertInto(renderer, gid, members, entityId, _ => true, html)
+                )
+              }
           }
       }
     // Containers whose membership history no longer reaches this cursor: the
@@ -742,7 +743,15 @@ private[runtime] object Patches {
             Some(
               Pending(
                 surface,
-                renderer.surfaceNodeIds(sid).toList,
+                // No version prune for a fill: what it writes is every
+                // own-rendering node in the composed subtree, which is not
+                // knowable until it is rendered (`surfaceNodeIds` is the wrong
+                // set — it counts bare containers, which never carry an entry,
+                // so the prune could only ever answer "no"). Nothing is lost:
+                // the supersede check drops a fill a later flip replaced, and
+                // the memo collapses viewers who share a selection, which
+                // together are every case a repeated fill arises from.
+                Nil,
                 Some(renderer.surfaceContentId(sid)),
                 renderer.selectionsUnder(sid, _),
                 (sel, now) =>

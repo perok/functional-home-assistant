@@ -104,11 +104,10 @@ private[runtime] object FragmentLog {
   *
   * Two containers keep membership — a dynamic group, whose members are
   * entities, and a state group (an `If`), whose members are its branch surfaces
-  * — and each resolves a member to HTML differently. A bare `String` refused to
-  * carry that distinction, so it became two rules a caller had to remember: how
-  * to render a member "by container kind", and how to derive its anchor
-  * likewise. As a sum type each variant owns its own resolution, which is where
-  * it belongs.
+  * — and a bare `String` refused to carry that distinction. The kind decides
+  * how a resume replays the member: an entity's card is a per-member delta that
+  * must preserve its siblings, where a branch is one `Inner` over a mount that
+  * holds exactly one thing.
   */
 private[runtime] enum MemberKey {
 
@@ -117,19 +116,6 @@ private[runtime] enum MemberKey {
 
   /** A state group's member: the branch surface baked into the mount. */
   case Surface(id: String)
-
-  /** Render this member as it is NOW. `None` when it is no longer a member at
-    * all — it arrived and left while a client was away.
-    */
-  def render(
-      renderer: Renderer,
-      container: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
-  ): Option[String] = this match {
-    case Entity(e)  => renderer.renderDynamicChild(container, e, states)
-    case Surface(s) => renderer.renderSurface(s, states, uiState)
-  }
 }
 
 /** The last STRUCTURAL thing that happened to a node — as opposed to a change
