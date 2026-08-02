@@ -179,6 +179,20 @@ which is silent and permanent. Everything that mutates the DOM without knowing
 its own bytes exactly (a mount fill, a per-viewer branch placement) uses that
 escape rather than recording a digest that would be true for one client only.
 
+**Two skips, and neither subsumes the other.** A node can be spared a re-send
+for two different reasons, and it is worth keeping them apart:
+
+  - the **version prune** — *a later write already covered this node*. If its
+    entry's version is at or past the version being rendered from, nothing can
+    have changed since, so it is skipped WITHOUT rendering. This is what
+    collapses several queued batches that all touch one node.
+  - the **digest** — *the content did not actually change*. This catches the tick
+    that moves an entity without moving what a node displays, which the version
+    prune cannot see.
+
+The prune is an integer comparison and the digest costs a render, so the prune
+goes first.
+
 **Two fields, two jobs, and they are not interchangeable.** `version` serves the RESUME path —
 `since(cursor)` uses it to decide what a returning client is owed, and nothing on the live path
 reads it. `digest` serves the LIVE path — re-render, compare, skip when the bytes are identical —
@@ -226,6 +240,19 @@ What cannot collapse: a node that goes A→B→A across the absence yields a mor
 `A` byte-identical to what the client holds. Detecting that needs per-client DOM
 knowledge — the thing this design refuses to keep — and idiomorph treats it as a
 no-op.
+
+> **FOLLOW-UP — why is structure a separate map at all?** `fragments` and
+> `mutations` are both keyed by node id and together encode one state machine:
+> a node is present with some content, or gone, or placed. The invariant that
+> "gone" and "has content" cannot both hold is maintained BY HAND (`removed`
+> drops the fragment), which is exactly the shape this design collapsed one
+> level down when parallel `tombstones`/`arrivals` maps became a single
+> `Mutation` sum. The same argument applies here and has not been examined.
+>
+> What keeps them apart today is eviction: `mutations` age out against a
+> retention window and `fragments` do not, so a single map would need a
+> per-case retention rule. Whether that is worse than two maps with a hand-held
+> invariant is the open question.
 
 ### Eviction: `fragments` self-limits, `mutations` does not
 
