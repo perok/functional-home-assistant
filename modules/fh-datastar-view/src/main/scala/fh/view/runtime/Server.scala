@@ -892,41 +892,36 @@ class Server(
       // its bytes do not reflect.
       store <- stateStore.current
       states = store.entities
-      // What this swap re-supplies: the arriving surface's nodes, and the
-      // departing ones' (their DOM is gone, so any entry for them describes
-      // nothing).
-      resupplied = (newSurface.toSet ++ renderer
-        .surfacesAt(host)).flatMap(renderer.surfaceNodeIds)
-      // The arriving surface, rendered ONCE: the bytes go to this connection
-      // and the per-node trace goes to the log. Invalidate first (the departing
-      // surface's entries describe nothing now), then record what this fill
-      // actually put in each node — so the next live tick can tell "unchanged"
-      // from "never told", instead of re-sending every node once.
-      arriving = newSurface.flatMap(
-        renderer.renderSurfaceTraced(_, states, uiState)
-      )
-      _ <- liveFor(session.slug).flatMap(
-        _.traverse_(
-          _.log.update(l =>
-            arriving.fold(l.invalidateWhere(resupplied))(t =>
-              t.own.foldLeft(l.invalidateWhere(resupplied)) {
-                case (acc, (id, html)) =>
-                  acc.set(
-                    id,
-                    html,
-                    store.version,
-                    renderer.variantOf(id, uiState)
-                  )
-              }
-            )
+      // The arriving surface, rendered ONCE by the shared fill primitive: the
+      // bytes go to this connection, the per-node trace goes to the log. No
+      // Mutation — this is one client's selection, not shared structure.
+      live <- liveFor(session.slug)
+      arriving <- live match {
+        case Some(l) =>
+          l.log.modify(
+            Patches
+              .fillHost(
+                renderer,
+                _,
+                host,
+                newSurface,
+                states,
+                uiState,
+                store.version
+              )
           )
-        )
-      )
+        // No live loop for this slug (no diff cache to tell): render anyway, so
+        // the swap still lands.
+        case None =>
+          IO.pure(
+            newSurface.flatMap(renderer.renderSurface(_, states, uiState))
+          )
+      }
       _ <- newSurface match {
         case Some(_) =>
-          arriving.traverse_(t =>
+          arriving.traverse_(html =>
             session.control.offer(
-              Datastar.patch(t.html, PatchMode.Inner, Some("#" + host))
+              Datastar.patch(html, PatchMode.Inner, Some("#" + host))
             )
           )
         case None =>

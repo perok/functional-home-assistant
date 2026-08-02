@@ -570,6 +570,53 @@ private[runtime] object Patches {
         Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
     }
 
+  /** Fill `host` with `arriving`'s rendering, and tell the log what it put
+    * there. THE fill primitive: a tab switch, a popup open and a state-group
+    * flip are the same operation, differing only in who chose the member.
+    *
+    * The model already says so — a tab panel and an `If` branch are both
+    * surfaces with `bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.mountId`
+    * derives a group's mount from its members' `Surface.hostId` — so both
+    * callers name the same host the same way. Only the SELECTOR differs
+    * (`resolveActive` reads the client's signal, `resolveActiveByState` reads
+    * entity state), and that stays with the caller.
+    *
+    * Three steps, in this order. Evict every entry for the surfaces that host
+    * here (`Renderer.surfacesAt`): the departing member's DOM is gone, so its
+    * entries describe nothing, and a stale one would suppress a real change on
+    * the way back. Render the arrival ONCE, traced. Record what that render put
+    * in each node, so the next live tick can tell "unchanged" from "never
+    * told".
+    *
+    * What it does NOT do is record a [[Mutation]] — that is the caller's,
+    * because the two callers disagree about what a fill MEANS. A flip is server
+    * truth for every viewer, so it is a membership change the log must replay
+    * to a client that missed it. A tab switch is one client's choice, and
+    * asserting it as shared structure would replay one viewer's selection to
+    * everybody.
+    */
+  private[runtime] def fillHost(
+      renderer: Renderer,
+      log: FragmentLog,
+      host: DomId,
+      arriving: Option[String],
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      version: Long
+  ): (FragmentLog, Option[String]) = {
+    val resupplied =
+      (renderer.surfacesAt(host) ++ arriving).flatMap(renderer.surfaceNodeIds)
+    val pruned = log.invalidateWhere(resupplied)
+    arriving.flatMap(renderer.renderSurfaceTraced(_, states, uiState)) match {
+      case None    => (pruned, None)
+      case Some(t) =>
+        val recorded = t.own.foldLeft(pruned) { case (l, (id, html)) =>
+          l.set(id, html, version, renderer.variantOf(id, uiState))
+        }
+        (recorded, Some(t.html))
+    }
+  }
+
   /** Patch one FLIPPED state-selected bake group — as a MEMBERSHIP DELTA, the
     * same record a dynamic group already keeps.
     *
@@ -629,54 +676,48 @@ private[runtime] object Patches {
     // Defensive: the caller only passes groups whose selection actually moved.
     if (was == now) (log, Nil, Nil)
     else {
-      val prefixes = renderer.bakeMemberPrefixes(gid)
-      val pruned = log.invalidateWhere(k => prefixes.exists(k.startsWith))
+      val host = renderer.mountId(gid)
       val departed = was.map(renderer.surfaceContentId)
-      val withGone = departed.foldLeft(pruned)(_.removed(gid, _, at))
+      // The mutation names WHERE the branch went; [[fillHost]] tells the log
+      // what the fill put in each node it placed. Recording the composed
+      // subtree under the branch's ROOT instead writes a digest for a node with
+      // no rendering of its own, so nothing can ever resolve it and the fill's
+      // members go unfingerprinted.
+      def structure(l: FragmentLog): FragmentLog = {
+        val withGone = departed.foldLeft(l)(_.removed(gid, _, at))
+        now.foldLeft(withGone)((acc, sid) =>
+          acc.placed(
+            gid,
+            MemberKey.Surface(sid),
+            renderer.surfaceContentId(sid),
+            at
+          )
+        )
+      }
       // Can ONE rendering of the arriving branch serve every viewer? It cannot
       // exactly when a user-selected mount sits inside it.
       now.filter(renderer.surfaceVariesByViewer) match {
         case Some(sid) =>
-          val member = MemberKey.Surface(sid)
-          val nodeId = renderer.surfaceContentId(sid)
+          // Nothing arrives HERE: the bytes differ per viewer, so the shared
+          // pass evicts (a fill with no arrival) and leaves the render to each
+          // connection. Structure without a digest — see `FragmentLog.placed`'s
+          // four-argument form.
+          val (evicted, _) =
+            fillHost(renderer, log, host, None, states, Map.empty, at.version)
           (
-            // Structure only. The bytes differ per viewer, so there is no one
-            // digest to record — see `FragmentLog.placed`'s four-argument form.
-            withGone.placed(gid, member, nodeId, at),
+            structure(evicted),
             Nil,
             List((ui: Map[String, String], now: Map[String, EntityState]) =>
-              member
+              MemberKey
+                .Surface(sid)
                 .render(renderer, gid, now, ui)
-                .map(html =>
-                  Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid))
-                )
+                .map(html => Patch.Insert(html, PatchMode.Inner, host))
             )
           )
         case None =>
-          val arrived = now.flatMap(sid =>
-            renderer
-              .renderSurfaceTraced(sid, states)
-              .map(t => (sid, MemberKey.Surface(sid), t))
-          )
-          val withPlaced = arrived.foldLeft(withGone) {
-            case (l, (sid, member, t)) =>
-              // The mutation names WHERE the branch went; the trace says what
-              // this fill put in each node it placed. Recording the composed
-              // subtree under the branch's ROOT instead — which is what this
-              // did — writes a digest for a node with no rendering of its own,
-              // so nothing can ever resolve it and the fill's members go
-              // unfingerprinted (the W10b obligation, missed on this one path).
-              t.own.foldLeft(
-                l.placed(gid, member, renderer.surfaceContentId(sid), at)
-              ) { case (acc, (nodeId, html)) =>
-                acc.set(nodeId, html, at.version)
-              }
-          }
-          (
-            withPlaced,
-            branchPatch(renderer, gid, arrived.map(_._3.html), departed),
-            Nil
-          )
+          val (filled, html) =
+            fillHost(renderer, log, host, now, states, Map.empty, at.version)
+          (structure(filled), branchPatch(renderer, gid, html, departed), Nil)
       }
     }
   }

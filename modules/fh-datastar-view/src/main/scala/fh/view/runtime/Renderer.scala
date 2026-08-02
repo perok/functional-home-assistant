@@ -617,15 +617,6 @@ class Renderer(
       }
       .toSet
 
-  /** The `s_<sid>__` node-id prefixes of every member of `gid`'s bake group —
-    * the cache-prune scope for a state-group flip (host id + these prefixes,
-    * the same contract as the Server's `repaintGroup`), so a later re-revealed
-    * member diffs from a known base instead of being suppressed by a stale
-    * pre-flip entry.
-    */
-  def bakeMemberPrefixes(gid: NodeId): List[String] =
-    bakeGroup(gid).map(Renderer.surfacePrefix)
-
   /** Resolve which member of a USER-selected group `gid` is active, given the
     * client's (untrusted) `uiState`. Parses `uiState.get(gid)` with
     * `.toIntOption` and keeps it only when it indexes a real member; otherwise
