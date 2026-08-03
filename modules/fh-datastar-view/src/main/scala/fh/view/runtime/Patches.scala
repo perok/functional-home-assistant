@@ -333,23 +333,24 @@ private[runtime] object Patches {
     // Each stage carries its own patches' tag through, so a patch's audience is
     // decided once — where the node was SELECTED — and never re-derived.
     val (logAfterFlips, flipPatches, flipPending) =
-      req.flips.foldLeft((log, List.empty[Directed], List.empty[Pending])) {
-        case ((c, acc, deferred), (gid, surface)) =>
-          val (c2, ps, pending) =
-            flipStateGroup(
-              renderer,
-              c,
-              gid,
-              surface,
-              req.before,
-              req.states,
-              at
-            )
-          (
-            c2,
-            acc ++ ps.map(p => Addressed(surface, p.toSse)),
-            deferred ++ pending
+      req.flips.foldLeft(
+        (log, List.empty[(Option[String], Patch)], List.empty[Pending])
+      ) { case ((c, acc, deferred), (gid, surface)) =>
+        val (c2, ps, pending) =
+          flipStateGroup(
+            renderer,
+            c,
+            gid,
+            surface,
+            req.before,
+            req.states,
+            at
           )
+        (
+          c2,
+          acc ++ ps.map(surface -> _),
+          deferred ++ pending
+        )
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
@@ -358,29 +359,27 @@ private[runtime] object Patches {
           .map(html => (id, surface, html))
       }
     val (logAfterStatic, staticPatches) =
-      rendered.foldLeft((logAfterFlips, List.empty[Directed])) {
+      rendered.foldLeft((logAfterFlips, List.empty[(Option[String], Patch)])) {
         case ((c, acc), (id, surface, html)) =>
           if (c.holds(id, html)) (c, acc)
           else
-            (
-              c.set(id, html, at.version),
-              acc :+ Addressed(surface, Patch.Morph(html).toSse)
-            )
+            (c.set(id, html, at.version), acc :+ (surface, Patch.Morph(html)))
       }
     val (finalLog, dynPatches) =
-      req.dynamics.foldLeft((logAfterStatic, List.empty[Directed])) {
-        case ((c, acc), (gid, surface, touched)) =>
-          val (c2, ps) =
-            renderDynamicGroup(
-              renderer,
-              c,
-              gid,
-              touched,
-              req.states,
-              req.before,
-              at
-            )
-          (c2, acc ++ ps.map(p => Addressed(surface, p.toSse)))
+      req.dynamics.foldLeft(
+        (logAfterStatic, List.empty[(Option[String], Patch)])
+      ) { case ((c, acc), (gid, surface, touched)) =>
+        val (c2, ps) =
+          renderDynamicGroup(
+            renderer,
+            c,
+            gid,
+            touched,
+            req.states,
+            req.before,
+            at
+          )
+        (c2, acc ++ ps.map(surface -> _))
       }
     // The per-variant renders the shell forces on demand. Described here, next
     // to everything else that decides what goes on the wire.
@@ -398,7 +397,7 @@ private[runtime] object Patches {
     }
     (
       finalLog,
-      flipPatches ++ staticPatches ++ dynPatches,
+      addressed(flipPatches ++ staticPatches ++ dynPatches),
       flipPending ++ pending
     )
   }
@@ -697,6 +696,40 @@ private[runtime] object Patches {
     * re-revealed node whose HTML happens to equal its pre-flip entry would be
     * suppressed while the client's DOM has moved on.
     */
+  /** Render a batch's patches to the wire, merging what can share an event.
+    *
+    * A [[Patch.Morph]] carries no selector and no mode — it finds its target by
+    * the id inside its own HTML — so any run of them is one
+    * `datastar-patch-elements` carrying several top-level elements, each
+    * morphed against its own id (pinned in `DatastarMorphContractSuite`). One
+    * HA frame touching a dozen entities is then one event instead of a dozen.
+    *
+    * Two constraints, both load-bearing:
+    *
+    *   - '''Same tag only.''' The tag is what keeps a popup's patch from
+    *     reaching a client without it open. Merging across tags would weld a
+    *     tagged patch to an untagged one and leak it to everybody.
+    *   - '''Adjacent only.''' An [[Patch.Insert]]/[[Patch.Remove]] names its
+    *     own target and cannot join, but it is also a BARRIER: a morph after an
+    *     insert may target the element that insert just created, and reordering
+    *     across it would aim the morph at an id the DOM does not hold yet — a
+    *     silent no-op.
+    */
+  private def addressed(
+      patches: List[(Option[String], Patch)]
+  ): List[Directed] =
+    patches
+      .foldLeft(List.empty[(Option[String], Patch)]) {
+        case (
+              (prevTag, Patch.Morph(before)) :: rest,
+              (tag, Patch.Morph(next))
+            ) if prevTag == tag =>
+          (tag, Patch.Morph(before + next)) :: rest
+        case (acc, one) => one :: acc
+      }
+      .reverse
+      .map { case (tag, p) => Addressed(tag, p.toSse) }
+
   /** [[Selections]] spelled as the ui-state a render reads. Canonical by
     * construction — every value is an in-range index — which is what makes two
     * viewers with differently-spelled but equivalent signals share one render.

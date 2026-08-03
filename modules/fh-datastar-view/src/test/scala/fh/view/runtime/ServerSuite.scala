@@ -3259,10 +3259,12 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- world.frame(List(es("sensor.a", "A1"), es("sensor.b", "B1")))
         seen <- client.drain
       } yield {
-        // Both entities' nodes are patched...
-        val elements = domEvents(seen).flatMap(_._3)
-        assert(elements.exists(_.contains("A1")), clue = seen)
-        assert(elements.exists(_.contains("B1")), clue = seen)
+        // ONE element event carrying BOTH nodes. A morph names its target by
+        // the id inside its own HTML, so a run of them shares an event.
+        val elements = domEvents(seen)
+        assertEquals(elements.size, 1, clue = seen)
+        assert(elements.head._3.exists(_.contains("A1")), clue = seen)
+        assert(elements.head._3.exists(_.contains("B1")), clue = seen)
         // ...and the frame ends ONCE. A second cursor here means the pass ran
         // twice over one instant.
         assertEquals(seen.count(isCursor), 1, clue = seen)
