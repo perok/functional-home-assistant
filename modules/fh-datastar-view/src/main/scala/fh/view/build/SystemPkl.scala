@@ -90,9 +90,9 @@ object SystemPkl {
       def module(name: String): IO[String] =
         name match {
           case "dump.pkl" =>
-            // Every disk touch on this path is `IO.blocking`: these routes are
-            // served from the same pool that renders fragments, and a dump zip
-            // is not small.
+            // `Pins` is synchronous build-layer code whose callers supply the
+            // region (see the class doc); these methods are the only effectful
+            // way in, so the region belongs here. `readZipEntry` owns its own.
             IO.blocking(Pins.homeVersion(dashboardsDir)).flatMap {
               case None =>
                 FHError
@@ -100,15 +100,14 @@ object SystemPkl {
                   .raiseError[IO, String]
               case Some(version) =>
                 val ref = PackageRef(DumpPackage.Name, version)
-                IO.blocking(
-                  readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
-                ).flatMap(
-                  _.liftTo[IO](
-                    FHError.notFound(
-                      s"dump package $version is not in the cache"
+                readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
+                  .flatMap(
+                    _.liftTo[IO](
+                      FHError.notFound(
+                        s"dump package $version is not in the cache"
+                      )
                     )
                   )
-                )
             }
           case "hass.pkl" =>
             FHError
@@ -161,23 +160,29 @@ object SystemPkl {
 
   /** Extract one entry's text from a zip (the `dump.pkl` module out of the
     * pinned `@fh-home` package). `None` when the zip or the entry is absent.
+    *
+    * Owns its `IO.blocking`: opening and reading a zip is the blocking thing
+    * here, so it is declared where it happens rather than at whichever call
+    * site happens to reach it.
     */
   private def readZipEntry(
       zipPath: os.Path,
       entryName: String
-  ): Option[String] =
-    Option
-      .when(os.exists(zipPath)) {
-        val zf = new java.util.zip.ZipFile(zipPath.toIO)
-        try
-          Option(zf.getEntry(entryName)).map { e =>
-            val is = zf.getInputStream(e)
-            try new String(is.readAllBytes(), "UTF-8")
-            finally is.close()
-          }
-        finally zf.close()
-      }
-      .flatten
+  ): IO[Option[String]] =
+    IO.blocking {
+      Option
+        .when(os.exists(zipPath)) {
+          val zf = new java.util.zip.ZipFile(zipPath.toIO)
+          try
+            Option(zf.getEntry(entryName)).map { e =>
+              val is = zf.getInputStream(e)
+              try new String(is.readAllBytes(), "UTF-8")
+              finally is.close()
+            }
+          finally zf.close()
+        }
+        .flatten
+    }
 
   /** `<name>@<version>` as it appears in the cache layout — conservative
     * charset, no separators, so it can never escape the cache dir.

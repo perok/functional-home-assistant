@@ -247,3 +247,62 @@ IO(Thread.currentThread().getName).flatMap(IO.println)
 // Shift to a specific ExecutionContext:
 IO.evalOn(IO(compute()), myExecutionContext)
 ```
+
+### Where `IO.blocking` goes: at the origin, wrapped tightly
+
+Two rules, and they pull in opposite directions, which is why both need saying.
+
+**1. The origin declares it, never the call site.** The function that performs
+the blocking work is the one that returns `IO` with `IO.blocking` inside. A
+caller wrapping someone else's blocking function is a bug waiting to be
+duplicated: the next caller will not know to wrap it, and nothing in the type
+says they must.
+
+```scala
+// WRONG — the route knows a secret about listFiles that the type does not tell it
+private def listFiles: String = os.list(dir).map(render).mkString
+case GET -> Root / "files" => IO.blocking(listFiles).flatMap(Ok(_))
+
+// RIGHT — listFiles owns its blocking; the route just calls it
+private def listFiles: IO[String] = IO.blocking(scan()).map(render)
+case GET -> Root / "files" => listFiles.flatMap(Ok(_))
+```
+
+Watch for the eager variant, which is worse than an unwrapped call because it
+*looks* suspended: `IO.pure(os.read.bytes(p))` runs the read when the `IO` is
+CONSTRUCTED, on whatever thread built it. `IO.pure` takes a value — if that
+value costs a syscall, it is already too late. Same for `Option.when(cond)(read)`
+handed to `.liftTo[IO]`.
+
+**2. Wrap only what blocks.** `IO.blocking` is a pool shift, so everything
+inside runs off the compute pool — including pure work that had no reason to
+leave it. Scan in the region, transform outside.
+
+```scala
+// Loose: JSON encoding, sorting and rendering all run on the blocking pool
+IO.blocking(os.list(dir).map(toJson).sorted.mkString)
+
+// Tight: only the syscall is in the region
+IO.blocking(os.list(dir).toList).map(_.map(toJson).sorted.mkString)
+```
+
+**The exception that keeps rule 1 honest**: a *synchronous* helper layer whose
+callers already hold a region (a bootstrap step, a file-rewrite routine) should
+stay synchronous — one region per step beats a dozen, and it cannot return `IO`
+anyway if it is called from inside `IO.blocking`. Say so in its doc, name the
+effectful entry points that are allowed to reach it, and make each of those own
+its region. What you must not have is a function that blocks, does not say so,
+and is reachable from a route.
+
+**Why it matters beyond tidiness**: work parked on the compute pool delays every
+other fiber on it, and cats-effect will tell you so —
+
+> Your app's responsiveness to a new asynchronous event was in excess of 100
+> milliseconds. Your CPU is probably starving.
+
+That warning names blocking I/O explicitly, but a long *CPU-bound* step is just
+as capable of causing it, and `IO.blocking` is the wrong tool there: the
+blocking pool is unbounded, so handing it CPU-bound work (a template compiler, a
+Pkl/Truffle evaluation) oversubscribes the cores rather than protecting them.
+Bound that work to its own sized pool with `IO.evalOn`, or break it up with
+`IO.cede`.

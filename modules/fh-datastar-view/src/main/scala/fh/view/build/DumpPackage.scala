@@ -173,6 +173,9 @@ object DumpPackage {
     * snapshot), the lib half from the effective pin + its cached metadata
     * ([[libPin]]). `None` until a real dump has been pinned (before the first
     * dump there is no `pins.json` at all).
+    *
+    * Reads the disk synchronously ([[Pins]]'s convention): callers supply the
+    * `IO.blocking` region.
     */
   def index(dashboardsDir: os.Path): Option[String] =
     for {

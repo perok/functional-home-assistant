@@ -165,5 +165,7 @@ ZIO.scoped {
 | `Future` interop with `Await.result` | Use `IO.fromFuture` / `ZIO.fromFuture` |
 | Forgetting `parTraverse` vs `traverse` | `traverse` = sequential; `parTraverse` = parallel |
 | Calling `.start` without joining or cancelling | Use `Supervisor` or structured concurrency (`parMapN`, etc.) |
-| Thread-blocking I/O on the compute pool | Wrap with `IO.blocking { ... }` / `ZIO.blocking { ... }` |
+| Thread-blocking I/O on the compute pool | Wrap with `IO.blocking { ... }` / `ZIO.blocking { ... }` — at the ORIGIN (the function that blocks returns `IO`), never at the call site, and tightly around the I/O only. See [cats-effect.md](references/cats-effect.md#where-ioblocking-goes-at-the-origin-wrapped-tightly) |
+| `IO.pure(blockingCall())` / `Option.when(c)(read()).liftTo[IO]` | Runs the effect when the `IO` is BUILT, on the caller's thread. `IO.pure` takes a value; use `IO.blocking` |
+| `IO.blocking` around CPU-bound work | The blocking pool is unbounded — this oversubscribes cores. Use `IO.evalOn` with a sized pool, or `IO.cede` |
 | ZIO 1.x patterns in ZIO 2 | No `Has`, no ZEnv — read [references/zio.md](references/zio.md) |
