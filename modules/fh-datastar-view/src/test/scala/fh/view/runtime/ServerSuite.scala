@@ -2299,12 +2299,12 @@ class ServerSuite extends munit.CatsEffectSuite {
       *
       * Deliberately NOT raced against [[settled]]. Quiet cannot tell "nothing
       * was produced" from "nothing has ARRIVED yet", so racing the two lets a
-      * slow batch be read as silence: past quiet's ~250ms floor
-      * (`drop(6)` + `sliding(4)` at 25ms) every sample reads 0, quiet wins,
-      * and `drain` hands the test an empty list for a batch that was merely in
-      * flight. That is a false pass for any assertion expecting silence and a
-      * false FAILURE for the assertion after it. The caller knows which answer
-      * it expects, so it says so.
+      * slow batch be read as silence: past quiet's ~250ms floor (`drop(6)` +
+      * `sliding(4)` at 25ms) every sample reads 0, quiet wins, and `drain`
+      * hands the test an empty list for a batch that was merely in flight. That
+      * is a false pass for any assertion expecting silence and a false FAILURE
+      * for the assertion after it. The caller knows which answer it expects, so
+      * it says so.
       */
     def silence: IO[Unit] = quiet
 
