@@ -1,4 +1,4 @@
-# `pkl project resolve <dir>` ignores the project's `evaluatorSettings.http.rewrites` (and `moduleCacheDir`); `pkl project resolve .` honors them
+# `pkl project resolve <dir>` ignores the project's `evaluatorSettings` (`http.rewrites`, `moduleCacheDir`, `allowedResources`); `pkl project resolve .` honors them
 
 ## Summary
 
@@ -101,3 +101,40 @@ the CLI's working directory, not on which project is being resolved.
   `~/.pkl/settings.pkl` (or pass `--http-rewrite`), which is honored in both
   modes — but that is per-user global state duplicating per-project
   configuration.
+
+### 0.32 makes the settings.pkl workaround insufficient
+
+`evaluatorSettings.allowedResources` is skipped in dir-argument mode for the
+same reason, and from **0.32** that is no longer cosmetic: the resource
+allowlist is now checked against the **rewritten** url as well as the original.
+A mirror served over plain http (a LAN host with no certificate) is therefore
+refused, because the defaults admit `https:` and never `http:`.
+
+The settings.pkl workaround does not cover it — `pkl:settings` has **no**
+`allowedResources` property (`Cannot find property 'allowedResources' in module
+'pkl.settings'`), so the rewrite can be supplied globally but the matching
+allowance cannot. Verified on **Pkl 0.32.1 (Linux, native)**, with the rewrite
+in `settings.pkl` and the allowlist in the project:
+
+```
+$ cd ws && pkl project resolve                   # honors the project
+Exception when making request `GET https://fh.invalid/x@1.0.0`:
+Error connecting to host `127.0.0.1`. (request was rewritten: … -> http://127.0.0.1:9/x@1.0.0)
+
+$ pkl project resolve ws --settings settings.pkl # dir-arg: project ignored
+Refusing to read resource `http://127.0.0.1:9/x@1.0.0` because it does not
+match any entry in the resource allowlist (`--allowed-resources`).
+```
+
+The only remaining lever is the `--allowed-resources` flag, which **replaces**
+the defaults rather than extending them, and must list the pre-rewrite scheme
+as well as the post-rewrite origin (both are checked):
+
+```
+pkl project resolve ws --settings settings.pkl \
+  --allowed-resources "prop:,env:,file:,modulepath:,package:,projectpackage:,https:,^http://127[.]0[.]0[.]1:9/"
+```
+
+That is not reachable from the IntelliJ plugin's sync, so on 0.32 a workspace
+whose mirror is plain http cannot be synced from the IDE at all — while the
+same project resolves fine from inside its own directory.
