@@ -72,7 +72,9 @@ object ServerApp extends IOApp {
       defaultDashboard: Option[String],
       // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
-      // `PKL_LSP_JAR`: explicit pkl-lsp jar override (else cached/downloaded).
+      // `PKL_LSP_JAR`: the pkl-lsp CLI jar the LSP subprocess runs. Staged by
+      // the build (`pkl-lsp-dist/stagePklLsp`) and pointed at by the add-on
+      // image / the `dashboardServe` alias; absent just means no LSP.
       pklLspJar: Option[String]
   )
 
@@ -212,7 +214,7 @@ object ServerApp extends IOApp {
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
         // local highlighting still work).
-        pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
+        pklLspJar <- resolvePklLspJar(config.pklLspJar).toResource
         editor = new EditorRoutes(dashboardsDir, pklLspJar, defaultSlug)
 
         _ <- watchSources(
@@ -673,66 +675,27 @@ object ServerApp extends IOApp {
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     envOr(name, default).map(s => os.Path(s, os.pwd))
 
-  private val PklLspVersion = "0.8.0"
-  private val PklLspUrl =
-    s"https://repo1.maven.org/maven2/org/pkl-lang/pkl-lsp/$PklLspVersion/" +
-      s"pkl-lsp-$PklLspVersion.jar"
-
-  /** Locate the pkl-lsp jar the LSP subprocess runs: `PKL_LSP_JAR` if set, else
-    * a cached copy under `.pkl-lsp/`, else download it from Maven Central once
-    * (the shaded CLI jar, run as `java -jar`). Returns `None` — LSP degraded,
-    * editor + local highlighting still work — if it can't be obtained.
+  /** Locate the pkl-lsp CLI jar the LSP subprocess runs. The build resolves it
+    * (`pkl-lsp-dist/stagePklLsp` -> `target/addon/pkl-lsp.jar`); the add-on
+    * image and the `dashboardServe` alias both point `PKL_LSP_JAR` at the
+    * staged copy. `None` — unset or missing — degrades to no LSP: the editor
+    * and its local highlighting still work, only completion/hover/diagnostics
+    * go away.
     */
   private def resolvePklLspJar(
-      client: java.net.http.HttpClient,
       jarOverride: Option[String]
   ): IO[Option[os.Path]] =
-    jarOverride match {
+    jarOverride.filter(_.nonEmpty) match {
+      case None =>
+        IO.println("pkl-lsp: PKL_LSP_JAR unset; LSP features disabled").as(None)
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
           case true  => IO.pure(Some(path))
           case false =>
-            IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
-        }
-      case None =>
-        val cache = os.pwd / ".pkl-lsp" / s"pkl-lsp-$PklLspVersion.jar"
-        IO.blocking(os.exists(cache)).flatMap {
-          case true  => IO.pure(Some(cache))
-          case false =>
-            downloadPklLsp(client, cache).attempt.flatMap {
-              case Right(_)  => IO.pure(Some(cache))
-              case Left(err) =>
-                IO.println(
-                  s"pkl-lsp: could not obtain jar (${err.getMessage}); " +
-                    "LSP features disabled"
-                ).as(None)
-            }
+            IO.println(
+              s"pkl-lsp: PKL_LSP_JAR=$p does not exist; LSP features disabled"
+            ).as(None)
         }
     }
-
-  /** Download the pkl-lsp jar to `dest` via the JDK http client (write to a
-    * `.part` sibling, then move — never leave a truncated jar).
-    */
-  private def downloadPklLsp(
-      client: java.net.http.HttpClient,
-      dest: os.Path
-  ): IO[Unit] =
-    IO.println(s"pkl-lsp: downloading $PklLspUrl") *>
-      IO.blocking {
-        os.makeDir.all(dest / os.up)
-        val tmp = dest / os.up / (dest.last + ".part")
-        val req = java.net.http.HttpRequest
-          .newBuilder(java.net.URI.create(PklLspUrl))
-          .build()
-        val resp = client.send(
-          req,
-          java.net.http.HttpResponse.BodyHandlers.ofFile(tmp.toNIO)
-        )
-        if (resp.statusCode() != 200) {
-          os.remove.all(tmp)
-          throw new RuntimeException(s"HTTP ${resp.statusCode()}")
-        }
-        os.move.over(tmp, dest)
-      } *> IO.println(s"pkl-lsp: cached at $dest")
 }
