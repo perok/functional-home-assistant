@@ -64,11 +64,17 @@ jobs:
       # fetched from `Server.DatastarCdn` on a miss — the same constant
       # production serves — so this only ever saves a 34KB download, never
       # decides which version is tested.
+      #
+      # Keyed on build.sbt like the Playwright cache below: one key everyone
+      # already knows to look at. The cache holds content-addressed files
+      # (AssetCache.hashName), so a stale key costs at most one re-download and
+      # never the wrong bundle — which is why the key does not need to track the
+      # URL constant.
       - name: Cache web assets
         uses: actions/cache@v4
         with:
           path: ~/.cache/fh
-          key: ${{ runner.os }}-fh-assets-${{ hashFiles('modules/fh-datastar-view/src/main/scala/fh/view/runtime/Server.scala') }}
+          key: ${{ runner.os }}-fh-assets-${{ hashFiles('**/build.sbt') }}
           restore-keys: ${{ runner.os }}-fh-assets-
 
       # Cache Playwright browsers based on lockfile
