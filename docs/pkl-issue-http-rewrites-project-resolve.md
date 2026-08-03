@@ -102,6 +102,32 @@ the CLI's working directory, not on which project is being resolved.
   modes — but that is per-user global state duplicating per-project
   configuration.
 
+### Likely root cause: no `applyFromProject` on the resolver side
+
+The evaluator side has one call that wires everything a project declares:
+
+```java
+EvaluatorBuilder.preconfigured().applyFromProject(project)  // manager, client, cache dir
+```
+
+The resolver side has no equivalent, and no builder at all:
+
+```java
+new ProjectDependenciesResolver(project, packageResolver, writer);
+PackageResolver.getInstance(securityManager, httpClient, cacheDir);  // no Project
+```
+
+`ProjectDependenciesResolver` **already receives the `Project`** — it simply does
+not use it to configure the `PackageResolver` handed to it, so the security
+manager, http client (hence `http.rewrites`) and cache dir must be re-derived by
+the caller from the very object the constructor holds. Every embedder has to
+redo `applyFromProject` by hand, and the CLI's dir-argument mode is a case of
+that wiring being omitted — which is exactly the asymmetry reported above.
+
+A resolver-side `applyFromProject` (or deriving the `PackageResolver` from the
+`Project` already passed in) would make the dir-argument case correct by
+construction, rather than depending on each call site remembering.
+
 ### 0.32 makes the settings.pkl workaround insufficient
 
 `evaluatorSettings.allowedResources` is skipped in dir-argument mode for the

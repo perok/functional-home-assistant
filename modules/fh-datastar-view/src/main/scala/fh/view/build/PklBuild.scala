@@ -48,6 +48,7 @@ object PklBuild {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val project = resolveProjectDeps(dashboardsDir)
+      // project.get.
       val evaluator =
         buildEvaluator(project, cacheDir(dashboardsDir, project))
       val module =
@@ -146,19 +147,30 @@ object PklBuild {
     * offline-by-construction. A dependency that is locked but missing from the
     * cache IS fetched during eval (verified), which is why the manifest's
     * `allowedResources` has to reach the evaluator too, via `applyFromProject`.
-    * Resolution is IN-PROCESS, and touches the network only for a REMOTE
-    * dependency that is not already in the package cache: local deps read
-    * files, and a cached remote version satisfies the resolver without a
-    * request (so add-on boots stay offline-safe — the client below is lazy and
-    * is never even built then). An uncached remote dep — a published
-    * third-party card package, or a bumped `@fh-dashboard` pin the image didn't
-    * bundle — is fetched for real, honoring the manifest's own
-    * `evaluatorSettings.http.rewrites` (the documented air-gap mechanism; how a
-    * workspace maps `fh.invalid` to a real host). If that fetch fails (offline,
-    * dead registry), the error propagates into the entry's build error verbatim
-    * — pkl names the package URI — and the resolve-before-write order below
-    * keeps the previous lockfile intact. Returns the loaded [[Project]], or
-    * `None` when there is no `PklProject` (the plain-eval path).
+    *
+    * The hand-wiring below (client, manager, cache dir) is not us
+    * reimplementing something pkl offers: there is no `applyFromProject` on the
+    * resolver side. `ProjectDependenciesResolver` takes the `Project` but does
+    * not use it to configure the `PackageResolver` it is handed, and
+    * `PackageResolver` has one factory,
+    * `getInstance(SecurityManager, HttpClient, Path)`, that never sees a
+    * project. So each of the three settings is re-derived here from the
+    * manifest — the same wiring the CLI does, and the same wiring it OMITS in
+    * `project resolve <dir>` mode
+    * (docs/pkl-issue-http-rewrites-project-resolve.md). Resolution is
+    * IN-PROCESS, and touches the network only for a REMOTE dependency that is
+    * not already in the package cache: local deps read files, and a cached
+    * remote version satisfies the resolver without a request (so add-on boots
+    * stay offline-safe — the client below is lazy and is never even built
+    * then). An uncached remote dep — a published third-party card package, or a
+    * bumped `@fh-dashboard` pin the image didn't bundle — is fetched for real,
+    * honoring the manifest's own `evaluatorSettings.http.rewrites` (the
+    * documented air-gap mechanism; how a workspace maps `fh.invalid` to a real
+    * host). If that fetch fails (offline, dead registry), the error propagates
+    * into the entry's build error verbatim — pkl names the package URI — and
+    * the resolve-before-write order below keeps the previous lockfile intact.
+    * Returns the loaded [[Project]], or `None` when there is no `PklProject`
+    * (the plain-eval path).
     */
   private def resolveProjectDeps(dashboardsDir: os.Path): Option[Project] = {
     val projectFile = dashboardsDir / "PklProject"
