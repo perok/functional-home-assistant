@@ -335,13 +335,22 @@ class Server(
     * A NEW slug also needs its publisher started, hence the supervisor.
     *
     * Ephemeral by design: this touches no file, so a restart returns the
-    * instance to its on-disk dashboards, and the file watcher's next reconcile
-    * reclaims a slug that shadows a real entry.
+    * instance to its on-disk dashboards.
+    *
+    * '''A pushed slug is never reclaimed while the process lives''', and that
+    * is deliberate — nothing else can decide that a developer is finished with
+    * one, so nothing quietly deletes it (the source watcher does not touch this
+    * registry; it only `set`s the renderers it was built with). The cost is
+    * paid per pushed slug and is not free: each new one holds a `Renderer` + a
+    * fragment log, and its supervised publisher runs a diff pass on every state
+    * batch for the life of the process. A long-lived instance that is pushed to
+    * all day accumulates both. Removing one is a USER action that does not
+    * exist yet — see TODO2.md ("an overlay to drop a pushed dashboard").
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
     (
       SignallingRef[IO].of(Renderer.fromValidated(validated)),
-      Server.freshLog.flatMap(Ref[IO].of)
+      Server.freshLog.flatMap(AtomicCell[IO].of)
     ).flatMapN { (renderer, log) =>
       val fresh = Server.LiveSlug(renderer, log)
       val slug = validated.dashboard.slug
