@@ -19,7 +19,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fs2.Stream
-import fs2.concurrent.SignallingRef
+import fs2.concurrent.{Signal, SignallingRef}
 import org.http4s.ember.server.EmberServerBuilder
 import fs2.io.file.{Watcher, Path}
 
@@ -120,26 +120,29 @@ object ServerApp extends IOApp {
       bundledLib <- bootstrap(config)
 
       _ <- (for {
-        api <- FHApi.fromEnv
+        // Resolve SERVER/SECRET ONCE, eagerly, so a missing credential crashes
+        // boot immediately — rather than being swallowed by the feed's
+        // background reconnect loop and mistaken for an unreachable HA (which
+        // would only surface as the feed's seed timeout below).
+        haEnv <- FHApi.resolveEnv.toResource
+        // ONE Home Assistant connection for the whole runtime: the self-healing
+        // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
+        // (`call_service` + state) AND the startup/occasional REST work — dump
+        // prep, dump refresh, registry watching — so there is no second,
+        // unsupervised socket that silently dies on a drop. Acquiring it blocks
+        // until its store has been filled, so it is ready to read here.
+        feed <- HaFeed.resource(FHApi.lowLevelConnectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
-        // Every top-level `*.pkl` in the dir is a dashboard; slug = filename
-        // sans ext. The library is not in the workspace — it resolves through
-        // the `@fh-dashboard` package (seeded into the cache by `bootstrap`).
-        entries <- discoverEntries(dashboardsDir).toResource
-        _ <- IO
-          .raiseWhen(entries.isEmpty)(
-            FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
-          )
-          .toResource
-
-        // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves)
-        // via the build phase, then re-evaluate every entry against the on-disk
-        // dump. The runtime calls through `DashboardBuild`, never
-        // `DataDump`/`PklDump` directly — build owns fetching + writing the
-        // dump.
-        _ <- DashboardBuild
-          .prepareDumps(api, dashboardsDir, Some(bundledLib))
-          .toResource
+        // Discover, seed the dump, and build every entry — the entry-to-renderer
+        // path shared with the test harness so it can't diverge. `bundledLib`
+        // pins the FIRST dump on a fresh workspace.
+        prepared <- prepareRenderers(
+          feed,
+          dashboardsDir,
+          Some(bundledLib)
+        ).toResource
+        entries = prepared.entries
+        built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
@@ -148,28 +151,6 @@ object ServerApp extends IOApp {
         // provider backs ONLY the route, not evaluation. Reads are by-name off
         // the pinned package in the cache, reflecting the latest dump.
         systemPkl = SystemPkl.fromDisk(dashboardsDir)
-        // Per-entry: a broken dashboard (e.g. a bad user edit before a
-        // restart) is logged and skipped, not a crash loop; only zero
-        // buildable dashboards is fatal.
-        built <- entries
-          .traverse { case (slug, entry) =>
-            buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
-              case Right(r)  => IO.pure(Some((slug, r)))
-              case Left(err) =>
-                IO.println(
-                  s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
-                ).as(None)
-            }
-          }
-          .map(_.flatten)
-          .toResource
-        _ <- IO
-          .raiseWhen(built.isEmpty)(
-            FHError.internal(
-              s"all *.pkl dashboards in $dashboardsDir failed to build"
-            )
-          )
-          .toResource
 
         // Cache the themes' external assets (CSS/JS/fonts) locally so the
         // dashboard serves them itself — offline-friendly, CDN fallback on a
@@ -187,7 +168,6 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        store <- StateStore.create(api)
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
             SignallingRef[IO].of(renderer).map(slug -> _)
@@ -197,7 +177,6 @@ object ServerApp extends IOApp {
         importsRef <- SignallingRef[IO]
           .of(watchedSet(dashboardsDir, entries, built.map(_._2._2)))
           .toResource
-        sessions <- Sessions.create.toResource
 
         // Only slugs that actually built (a skipped entry must not become
         // the default and 404 the root).
@@ -210,7 +189,7 @@ object ServerApp extends IOApp {
         refreshMutex <- Mutex[IO].toResource
         refreshDump = refreshMutex.lock.surround(
           refreshOnce(
-            api,
+            feed.api,
             dashboardsDir,
             entries,
             rendererRefs,
@@ -218,14 +197,14 @@ object ServerApp extends IOApp {
           )
         )
 
-        // Also runs the per-slug shared patch publishers in the background —
-        // the render-once fan-out every SSE connection subscribes to.
-        server <- Server.resource(
-          api,
-          store,
+        // The live Server, assembled through the SHARED kernel `liveServer` (the
+        // same one the test harness funnels through, so the wiring can't drift).
+        // Also runs the per-slug shared patch publishers in the background — the
+        // render-once fan-out every SSE connection subscribes to.
+        server <- liveServer(
+          feed,
           rendererRefs,
           defaultSlug,
-          sessions,
           assets,
           systemPkl,
           dumpRefresh = Some(refreshDump)
@@ -249,7 +228,11 @@ object ServerApp extends IOApp {
         // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
         _ <-
           if (config.watchRegistry)
-            watchRegistryEvents(api, refreshDump).compile.drain.background.void
+            watchRegistryEvents(
+              feed.api,
+              feed.healthy,
+              refreshDump
+            ).compile.drain.background.void
           else Resource.unit[IO]
         _ <- EmberServerBuilder
           .default[IO]
@@ -270,6 +253,102 @@ object ServerApp extends IOApp {
           .toResource
       } yield ()).useForever
     } yield ExitCode.Success
+
+  /** Everything [[prepareRenderers]] hands back: the FULL discovered entry list
+    * (slug -> filename, including entries that failed to build — the reload /
+    * refresh machinery can still rebuild them after a fix) and the subset that
+    * actually built into a renderer (with its import set, for watching).
+    */
+  private[runtime] case class Prepared(
+      entries: List[(String, String)],
+      built: List[(String, (Renderer, Set[os.Path]))]
+  )
+
+  /** Discover, dump, and build every dashboard — the entry-to-renderer path
+    * that precedes serving, extracted so [[run]] (production) and the test
+    * harness (`TestServer.fromWorkspace`) share it and cannot diverge.
+    *
+    * Blocks on the feed's first connect + seed (so a live template call has a
+    * connection), seeds the `@fh-home` dump ONCE from the live API
+    * ([[DashboardBuild.prepareDumps]]), then builds each entry against it —
+    * skipping (logging, not crashing) an entry that fails, exactly as
+    * production tolerates one bad user edit. Fails only when the dir has no
+    * entries, or none of them build.
+    */
+  private[runtime] def prepareRenderers(
+      feed: HaFeed,
+      dashboardsDir: os.Path,
+      bundledLib: Option[LibPackage.Artifacts]
+  ): IO[Prepared] =
+    for {
+      // Every top-level `*.pkl` is a dashboard; slug = filename sans ext. The
+      // library resolves through the `@fh-dashboard` cache package, not the dir.
+      entries <- discoverEntries(dashboardsDir)
+      _ <- IO.raiseWhen(entries.isEmpty)(
+        FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
+      )
+      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+      // the build phase, which owns fetching + packaging the dump.
+      _ <- DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
+      // Per-entry: a broken dashboard (a bad user edit before a restart) is
+      // logged and skipped, not a crash loop; only zero buildable is fatal.
+      built <- entries
+        .traverse { case (slug, entry) =>
+          buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
+            case Right(r) =>
+              // Built, but maybe not sound: report what still serves and only
+              // misbehaves (a popup with nowhere to mount).
+              r._1.warnings
+                .traverse_(w => IO.println(s"[warn] '$slug': $w"))
+                .as(Some((slug, r)))
+            case Left(err) =>
+              IO.println(
+                s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
+              ).as(None)
+          }
+        }
+        .map(_.flatten)
+      _ <- IO.raiseWhen(built.isEmpty)(
+        FHError.internal(
+          s"all *.pkl dashboards in $dashboardsDir failed to build"
+        )
+      )
+    } yield Prepared(entries, built)
+
+  /** The runtime KERNEL both [[run]] (production) and the test harness
+    * (`TestServer`) funnel through, so the live-Server wiring cannot silently
+    * diverge: wait for the feed's first connect + seed (so the store is
+    * populated before anything serves), then build the Server from it via the
+    * single [[Server.fromFeed]] constructor.
+    *
+    * What stays with the caller is deliberate, not drift: the renderer SOURCE
+    * (production evaluates Pkl against the live dump; a test uses a fixed
+    * `Dashboard`) and the serving SHELL (asset cache, editor + Ember in
+    * production; in-memory routes or a bare Ember bind in tests). The feed
+    * itself is built by the caller because production needs `feed.api` to
+    * prepare the dump BEFORE any renderer exists — everything that makes a
+    * Server a Server lives here.
+    */
+  private[runtime] def liveServer(
+      feed: HaFeed,
+      renderers: Map[String, SignallingRef[IO, Renderer]],
+      defaultSlug: String,
+      assets: AssetCache = AssetCache.empty,
+      systemPkl: SystemPkl = SystemPkl.empty,
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+  ): Resource[IO, Server] =
+    for {
+      sessions <- Sessions.create.toResource
+      server <- Server.fromFeed(
+        feed,
+        renderers,
+        defaultSlug,
+        sessions,
+        assets,
+        systemPkl,
+        dumpRefresh
+      )
+    } yield server
 
   /** `(slug, entryFilename)` for every top-level `*.pkl` in the dir,
     * slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library
@@ -327,7 +406,13 @@ object ServerApp extends IOApp {
       entries: List[(String, String)],
       imports: List[Set[os.Path]]
   ): Set[Path] =
-    (imports.flatten.toSet ++ entries.map { case (_, e) => dashboardsDir / e })
+    (imports.flatten.toSet ++
+      entries.map { case (_, e) => dashboardsDir / e } +
+      // The workspace manifest, so adding a package dependency takes effect
+      // like any other edit: the re-eval re-resolves the lockfile whenever this
+      // file's mtime has moved (`PklBuild.staleLockfile`). It is editable in the
+      // editor, so this is a real edit path, not a hypothetical one.
+      (dashboardsDir / EditorRoutes.Manifest))
       .map(fs2Path)
 
   private val watchedEvents = List(
@@ -490,29 +575,53 @@ object ServerApp extends IOApp {
   /** Registry changes come in bursts (adding one integration fires dozens of
     * `entity_registry_updated` events), so wait for quiet before refreshing. A
     * failed refresh (an HA hiccup mid-fetch) logs and keeps listening.
+    *
+    * SPANS RECONNECTS by re-subscribing, rather than by holding a subscription
+    * that survives one: each connection gets a fresh subscription, whose stream
+    * ends with that connection, and `healthy` going true again starts the next.
+    *
+    * NOTHING IS LOST IN THE GAP, and not by luck. A subscription is only ever
+    * interrupted by a disconnect (that is the only thing that moves `healthy`),
+    * and every reconnect refreshes unconditionally — so a registry event
+    * dropped during the outage, or in flight when the socket died, is
+    * re-derived rather than replayed. Re-deriving after the gap is both simpler
+    * and stricter than buffering across it: it cannot miss a change we never
+    * saw an event for. The state feed closes its own gap the same way, with the
+    * new subscription's opening full set.
+    *
+    * The refresh costs one dump render per reconnect and is otherwise a no-op,
+    * since an unchanged home has an unchanged content-version.
+    *
+    * A registry change means an entity/area/floor appeared, vanished or was
+    * renamed, which changes what the dashboards are BUILT from — so the answer
+    * is a full re-evaluation of every entry, not an incremental patch. That is
+    * deliberate: it happens a few times a year, and making it cheaper would buy
+    * nothing for a cost in machinery.
     */
   private def watchRegistryEvents(
       api: HomeAssistantApi[IO],
+      healthy: Signal[IO, Boolean],
       refresh: IO[DumpRefresh.Result]
-  ): Stream[IO, Unit] =
-    Stream
-      .emits(DumpEvents)
-      .map { eventType =>
-        Stream
-          .resource(api.rawEvents(eventType))
-          .flatMap(queue => Stream.repeatEval(queue.take))
+  ): Stream[IO, Unit] = {
+    val runRefresh = refresh.attempt.flatMap {
+      case Left(err) =>
+        IO.println(s"registry-driven dump refresh failed: ${err.getMessage}")
+      case Right(_) => IO.unit
+    }
+
+    healthy.discrete
+      .filter(identity)
+      .switchMap { _ =>
+        val events = Stream
+          .emits(DumpEvents)
+          .map(t => Stream.resource(api.rawEvents(t)).flatten)
+          .parJoinUnbounded
+          .debounce(RegistryQuiet)
+          .evalMap(_ => runRefresh)
+        // Catch up on whatever the outage hid, then watch this connection.
+        Stream.exec(runRefresh) ++ events
       }
-      .parJoinUnbounded
-      .debounce(RegistryQuiet)
-      .evalMap { _ =>
-        refresh.attempt.flatMap {
-          case Left(err) =>
-            IO.println(
-              s"registry-driven dump refresh failed: ${err.getMessage}"
-            )
-          case Right(_) => IO.unit
-        }
-      }
+  }
 
   private val RegistryQuiet = 5.seconds
 

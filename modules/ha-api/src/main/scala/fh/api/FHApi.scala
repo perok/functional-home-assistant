@@ -2,12 +2,11 @@ package fh.api
 
 import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
-import api.homeassistant.rest.restApi
 import cats.effect.IO
 import cats.effect.Resource
 import cats.syntax.all.*
 import org.http4s.Uri
-import org.http4s.jdkhttpclient.{JdkHttpClient, JdkWSClient}
+import org.http4s.jdkhttpclient.JdkWSClient
 
 import java.net.http.HttpClient
 
@@ -20,22 +19,65 @@ object FHApi {
     * inherit `run / envVars`, so relying on the process env alone is brittle —
     * the `.env` fallback is deterministic.
     */
-  def fromEnv: Resource[IO, HomeAssistantApi[IO]] = for {
-    server <- IO(lookup("SERVER"))
-      .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
-      .flatMap(s => IO(Uri.unsafeFromString(s)))
-      .toResource
-    secretToken <- IO(lookup("SECRET"))
-      .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
-      .toResource
-    // Optional WS endpoint override. The HA supervisor proxy exposes the
-    // websocket at ws://supervisor/core/websocket, not the /api/websocket
-    // path derived from SERVER.
-    serverWs <- IO(lookup("SERVER_WS"))
-      .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
-      .toResource
-    result <- from(server, secretToken, serverWs)
-  } yield result
+  def fromEnv: Resource[IO, HomeAssistantApi[IO]] =
+    fromEnvWithClose.map(_._1)
+
+  /** Like [[fromEnv]], but also exposes the connection's `awaitClosed` (an
+    * `IO[Unit]` that completes when the underlying WebSocket has died). A
+    * caller that wants to reconnect races its work against it; callers that
+    * just need the API (codegen, one-shot builds) use [[fromEnv]] and ignore
+    * it.
+    */
+  def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    resolveEnv.toResource.flatMap(connectWithClose)
+
+  /** The connection config resolved from `SERVER`/`SECRET`/`SERVER_WS` (env,
+    * then `.env`). `serverWs` is the optional WS endpoint override — the HA
+    * supervisor proxy exposes the websocket at
+    * `ws://supervisor/core/websocket`, not the `/api/websocket` path derived
+    * from `SERVER`.
+    */
+  final case class Env(server: Uri, secretToken: String, serverWs: Option[Uri])
+
+  /** Resolve + REQUIRE the connection config, failing FAST if `SERVER` or
+    * `SECRET` is missing. This is the misconfiguration boundary: a caller that
+    * hands the connection to a reconnecting supervisor ([[connectWithClose]] →
+    * [[fh.view.runtime.HaFeed]]) resolves ONCE here at boot, so a missing
+    * credential crashes immediately instead of being swallowed by the retry
+    * loop and mistaken for an unreachable-HA outage. (The socket connect that
+    * [[connectWithClose]] performs on each attempt IS the retryable part.)
+    */
+  def resolveEnv: IO[Env] =
+    for {
+      server <- IO(lookup("SERVER"))
+        .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
+        .flatMap(s => IO(Uri.unsafeFromString(s)))
+      secretToken <- IO(lookup("SECRET"))
+        .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
+      serverWs <- IO(lookup("SERVER_WS"))
+        .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
+    } yield Env(server, secretToken, serverWs)
+
+  /** The reconnectable connection for an already-resolved [[Env]] — the socket
+    * + auth only, which is what a supervisor re-`.use`s on each reconnect. Kept
+    * separate from [[resolveEnv]] so credential errors surface at boot, not on
+    * a background reconnect attempt.
+    */
+  def connectWithClose(
+      env: Env
+  ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    fromWithClose(env.server, env.secretToken, env.serverWs)
+
+  /** Like [[connectWithClose]] but yields the raw low-level WS connection
+    * (`HAWSApiLowLevel`) rather than the high-level [[HomeAssistantApi]]. The
+    * reconnecting supervisor ([[fh.view.runtime.HaFeed]]) fronts THIS with a
+    * durable facade and rebuilds the high-level API over it, so the whole API
+    * survives reconnects behind one seam.
+    */
+  def lowLevelConnectWithClose(
+      env: Env
+  ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
+    lowLevelWithClose(env.server, env.secretToken, env.serverWs)
 
   /** A config value: the process environment first (when set and non-empty),
     * then the discovered `.env`.
@@ -90,6 +132,31 @@ object FHApi {
       secretToken: String,
       wsUriOverride: Option[Uri] = None
   ): Resource[IO, HomeAssistantApi[IO]] =
+    fromWithClose(api, secretToken, wsUriOverride).map(_._1)
+
+  /** Like [[from]], but also returns the connection's `awaitClosed` signal (see
+    * [[fromEnvWithClose]]).
+    */
+  def fromWithClose(
+      api: Uri,
+      secretToken: String,
+      wsUriOverride: Option[Uri] = None
+  ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
+    lowLevelWithClose(api, secretToken, wsUriOverride).map { case (ws, close) =>
+      (HomeAssistantApi.fromWs(ws), close)
+    }
+
+  /** The single WebSocket connection + its `awaitClosed`. WS-only: one
+    * connection backs the whole API (states, services, templates,
+    * subscriptions, `call_service`) — no REST client. [[fromWithClose]] wraps
+    * this in the high-level API; [[lowLevelConnectWithClose]] hands it raw to
+    * the reconnecting supervisor.
+    */
+  def lowLevelWithClose(
+      api: Uri,
+      secretToken: String,
+      wsUriOverride: Option[Uri] = None
+  ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
     for {
       wsUri <- wsUriOverride
         .fold(utils.haUriHttpToWS[IO](api))(IO.pure)
@@ -97,20 +164,15 @@ object FHApi {
 
       // TODO should be params that are independent of underlying implementation
       httpClient <- IO(HttpClient.newHttpClient()).toResource
-      client = JdkHttpClient[IO](httpClient)
-      // import org.http4s.ember.client.EmberClientBuilder
-      // client <- EmberClientBuilder.default[IO].build
       wsClient = JdkWSClient[IO](httpClient)
 
-      api <- restApi(
-        client,
-        api,
-        secretToken
-      )
       wsApi <- HAWSApiLowLevel(
         wsClient,
         wsUri,
-        secretToken
+        secretToken,
+        // Frame tracing stays a deliberate opt-out of the default quiet, chosen
+        // at the composition root rather than hidden inside the transport.
+        debugFrames = sys.env.contains("FH_WS_DEBUG")
       )
-    } yield HomeAssistantApi.fromLowLevel(wsApi, api)
+    } yield (wsApi, wsApi.awaitClosed)
 }

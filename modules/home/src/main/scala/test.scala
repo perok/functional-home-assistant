@@ -26,8 +26,7 @@ object hello {
       .trigger(
         switchOveretasje.triggers.zha.remote_button_short_press_turn_on
       )
-      .use(_.take)
-      .void
+      .use(_.head.compile.drain)
       .timeout(2.seconds)
   }
 

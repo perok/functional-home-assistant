@@ -30,9 +30,19 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
       top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
       renderer for each new slug.
-- [ ] Disconnected indicator: a visual cue when the SSE stream drops (Datastar exposes
-      connection lifecycle; likely a small chrome/theme addition, keeping presentation in the
-      authoring layer).
+- [x] Disconnected indicator: TWO distinct failures, presented separately. (1) SSE transport
+      down (browser can't reach the server) — from Datastar's connection-lifecycle events: a
+      bridge script mirrors the `datastar-sse` document event (`error`/`retrying`/
+      `retries-failed` vs live patch messages) into `window.__fhSse`, so the banner shows
+      "Reconnecting…" and escalates to a Reload prompt once Datastar exhausts its 10 auto-retries.
+      (2) Upstream HA feed down (server can't reach HA) — the server's `srvBeat` heartbeat only
+      ticks while the HA feed is healthy, so stalled beats WITH a live transport mean HA. A
+      `data-on-interval` derives both, giving the transport priority. Structure/behavior are in
+      the server shell (`Server.page`, theme-agnostic so it always renders); the look is
+      theme-owned via `.fh-offline*` classes in each theme's `styles`. Pairs with the
+      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). NOTE: the
+      `datastar-sse` event name/shape was verified against datastar beta.11 (npm); the pinned
+      v1.0.2 (GitHub-only, unreachable here) still needs a browser check.
 - [ ] Registry-change refresh: a renamed entity / new area / new entity never reaches the dump
       (fetched once at startup). Subscribe to the HA registry-updated WS events, re-fetch the
       dump, re-evaluate entries — same machinery as source-file live reload, different trigger.
@@ -55,6 +65,23 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Event coalescing under state_changed bursts: debounce/batch, collapsing repeated touches
       of the same node into one render+push (already flagged as FUTURE in Server.scala). Do
       after the shared-fanout refactor — it changes where batching goes.
+- [ ] Skip the SSE keepalive on direct LAN connections. `Server.KeepAliveInterval` sends a comment
+      every 25s to every connection, but a direct LAN connection needs none of it — and we could
+      TELL: the ingress hop announces itself (`X-Ingress-Path`, already read for the `<base href>`)
+      and a reverse proxy conventionally sets `X-Forwarded-*`, so it could be sent only to
+      connections that arrived through a hop, per-connection, since the request is right there.
+      Deliberately not done: the win is ~2 KB/hour, while a wrong guess is a connection that
+      silently drops once a minute — the failure nobody reports because it still works.
+- [ ] Retain `FragmentLog` mutations by live cursor, not by age. `FragmentLog.Retention` (1 hour)
+      is a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
+      connection still holds. `Sessions` is already keyed by `conn`, so each could report its
+      last-sent version and the log evict everything below their minimum — retaining exactly
+      what is still reachable and no more. Two caveats kept it out of the first cut. It
+      reintroduces per-connection server state, which ADR 0011 otherwise avoids — acceptable
+      only because it would be for RETENTION, never correctness, which is what separates it
+      from the rejected per-client mirror. And a wedged connection would pin the log open
+      indefinitely, so the age bound has to survive as a floor: the real rule is
+      `min(live cursors)` clamped by a duration, not one or the other.
 
 ## Parked (deliberately not doing, with reasons)
 

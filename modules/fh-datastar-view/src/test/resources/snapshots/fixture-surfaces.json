@@ -4,6 +4,11 @@
     "children" : [
       {
         "card" : "tabs",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
           {
             "card" : "tab",
@@ -11,9 +16,9 @@
             ],
             "kind" : "component",
             "slots" : {
-              "active" : "$tab_@@NODE_ID@@ == 0",
+              "active" : "$ui_@@NODE_ID@@ == 0",
               "label" : "Temp",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $tab_@@NODE_ID@@ = 0; document.cookie = 'fhui_@@NODE_ID@@=0;path=/;max-age=31536000;samesite=lax'"
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $ui_@@NODE_ID@@ = 0"
             }
           },
           {
@@ -22,9 +27,9 @@
             ],
             "kind" : "component",
             "slots" : {
-              "active" : "$tab_@@NODE_ID@@ == 1",
+              "active" : "$ui_@@NODE_ID@@ == 1",
               "label" : "Light",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $tab_@@NODE_ID@@ = 1; document.cookie = 'fhui_@@NODE_ID@@=1;path=/;max-age=31536000;samesite=lax'"
+              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $ui_@@NODE_ID@@ = 1"
             }
           }
         ],
@@ -109,6 +114,11 @@
       },
       {
         "card" : "ifhost",
+        "cell" : {
+          "classes" : [
+            "fh-cols-full"
+          ]
+        },
         "children" : [
         ],
         "inlineSurfaces" : {
@@ -226,10 +236,9 @@
   "cards" : {
     "button" : {
       "slots" : [
-        "label",
-        "onclick"
+        "label"
       ],
-      "template" : "<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>"
+      "template" : "{{#href}}<a class=\"button card\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"card\" data-on:click=\"{{{onclick}}}\">{{label}}</button>{{/href}}"
     },
     "entityCard" : {
       "slots" : [
@@ -240,29 +249,34 @@
       "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "fhcol" : {
+      "mount" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "fhgrid" : {
+      "mount" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
-      "template" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "fhrow" : {
+      "mount" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
-      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "ifhost" : {
+      "mount" : "<div id=\"{{mountId}}\">{{{branch}}}</div>",
       "slots" : [
       ],
-      "template" : "<div id=\"{{id}}\">{{{branch}}}</div>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "popup" : {
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
-      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close')\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
+      "template" : "{{{self}}}{{{mount}}}"
     },
     "sectionTitle" : {
       "slots" : [
@@ -281,7 +295,7 @@
         "key",
         "entity_id"
       ],
-      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ val_{{id}}: {{value}} }\"\n      data-bind=\"val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
+      "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ _val_{{id}}: {{value}} }\"\n      data-bind=\"_val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}})\" />\n    <span></span>\n  </div>\n</article>"
     },
     "tab" : {
       "slots" : [
@@ -293,9 +307,11 @@
       "wrapAsCell" : false
     },
     "tabs" : {
+      "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}} }\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\">\n  <div class=\"tabs\">\n    {{#children}}{{{html}}}{{/children}}\n  </div>\n  <div id=\"{{id}}_panel\" class=\"tab-panel\" data-signals=\"{ tab_{{id}}: {{bakeIndex}} }\">\n    {{{panel}}}\n  </div>\n</div>"
+      "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
     }
   },
   "surfaces" : {

@@ -51,6 +51,9 @@ object server {
     override def getMessage = s"code=$code\n$message"
   }
 
+  /** A received frame: the `id` the transport routes on, plus the raw payload.
+    * The body is decoded lazily by the command, never by the transport.
+    */
   case class WSCommandPhaseServerPayload(id: Int, payload: Json) {
     lazy val parsedPayload: Decoder.Result[WSCommandPhaseServer] =
       payload.as[WSCommandPhaseServer]
@@ -59,18 +62,23 @@ object server {
     given Decoder[WSCommandPhaseServerPayload] = Decoder.instance { cursor =>
       cursor
         .get[Int]("id")
-        .map(id => WSCommandPhaseServerPayload(id, cursor.top.get))
+        // `cursor.value`, NOT `cursor.top`: a coalesced frame is an ARRAY of
+        // payloads, and `top` would hand every element the whole array.
+        .map(id => WSCommandPhaseServerPayload(id, cursor.value))
     }
   }
+
+  /** The typed body of a server frame (the id lives on the envelope above). */
   enum WSCommandPhaseServer derives ConfiguredDecoder {
     case result(
-        id: Int,
         success: Boolean,
         result: Option[Json],
         error: Option[Json]
     )
-    case event(id: Int, event: Event)
-    // TODO trigger is still keyed by "event"
-    case trigger(id: Int, event: Json)
+    // Raw `event`-field JSON: payload shapes are type-specific, so the
+    // subscriber decodes what it asked for.
+    case event(event: Json)
+    case trigger(event: Json)
+    case pong()
   }
 }

@@ -48,9 +48,12 @@
 ///      then style the visual classes from the roster above on top of the
 ///      tokens.
 ///   5. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
-///      `id="dashboard"` (the navigate/reload swap target; enforced by
+///      `id="dashboard"` (the reload swap target; enforced by
 ///      Dashboard.validate) and, if the dashboard uses popups, host a
-///      `<div id="popups"></div>` overlay mount.
+///      `<div id="popups">{{{popups}}}</div>` overlay mount. The hole is where
+///      a popup being RESTORED on a refresh is baked, so it is on screen with
+///      the first paint instead of arriving when the stream connects; leave it
+///      out and the dialog still works, it just pops in a moment late.
 ///   6. An entry opts in with `theme = (import "lib/theme-<name>.pkl").theme`.
 module theme
 

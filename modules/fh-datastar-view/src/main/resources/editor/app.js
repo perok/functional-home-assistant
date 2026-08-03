@@ -192,7 +192,8 @@ async function loadFiles() {
     const li = document.createElement("li")
     li.textContent = f.name
     li.dataset.name = f.name
-    if (f.name.startsWith("lib/")) li.classList.add("lib")
+    // Dim what is not a previewable dashboard: the lib sources and PklProject.
+    if (!f.slug) li.classList.add("aux")
     li.addEventListener("click", () => openFile(f))
     list.appendChild(li)
     if (f.slug) {

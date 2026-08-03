@@ -30,7 +30,7 @@ know.
 1. **Universal wrapper.** `Renderer.render` wraps EVERY component — containers
    included, static and dynamic, main page and surfaces — in
    `<div class="fh-cell" id="…">` (`Renderer.scala`). One invariant replaces
-   the old conditional: every node is an addressable morph target, and every
+   the old conditional: every node is addressable, and every
    direct child of a container is a real `.fh-cell` box. The wrapper stays
    backend-owned (a single string concatenation around the rendered template;
    ids are pure tree-path strings computed before templating — no HTML
@@ -41,7 +41,7 @@ know.
    styles tab bars via the structural selector `.tabs > a`. Everything that
    rides on the wrapper is unusable on such a card, and would fail *silently*
    at render time — so `Dashboard.validate` rejects the three shapes loudly:
-   live-entity slots (an unwrapped node has no morph target, its pushed
+   live-entity slots (an unwrapped node has nothing to patch, so its pushed
    patches could never match), authored `cell` params (no wrapper to carry
    the classes), and use as a dynamic-group case (per-entity children are
    always wrapped — they ARE the patch targets).
@@ -111,6 +111,58 @@ anyway (dynamic child ids, the group root), and the "all grid children are
 cells" invariant would depend on every card's root class list instead of one
 backend-emitted class. Same CSS work, weaker invariants, one less `<div>`.
 
+### The cell is the layout item; the patch target may be inside it
+
+"Every node is a cell" originally meant two things at once: the cell is the
+layout box, AND the cell is the Datastar morph target. Those separated when
+containers gained a **self/mount split** (ADR 0011's statement (1)): a container
+renders its own presentation (`self`) and the place its children go (`mount`) as
+SIBLINGS, so that patching what a container shows cannot re-render what it holds.
+A tabs card ticking a live value in its header must not re-send the panel below
+it.
+
+So the mapping is now one function, in one direction only:
+
+> `patchTargetId(nodeId)` = `nodeId` for a leaf, `nodeId + "-self"` for a card
+> that declares a `self`.
+
+The cell keeps its first job unchanged — it is the flex/grid item for every node,
+and `cell` classes still ride on it. What moved is the second job: for a card with
+a `self`, the patch aims at the `-self` element inside the cell, and the fragment
+structurally cannot contain the mount's contents.
+
+**A card with a mount and no `self` has no rendering of its own**, and therefore
+is not a patch target and not a log key. Its `.fh-cell` is a constant wrapper
+around a hole; rendering it by id renders its whole subtree, which is its
+children's business and not its own. `Dashboard.validate` already says half of
+this — it rejects a live-entity slot on such a card *because there is nothing to
+patch* — and the log follows the same rule (ADR 0011, "what is a log key").
+Dynamic group roots are in the same class, for the same reason.
+
+**A `self` may read `bakeIndex`, but not the `{{{bakeAs}}}` hole.** The second is
+statement (1) — that hole IS the mount's contents. The first is allowed, and
+costs something worth knowing: `bakeIndex` is the node's own variant id, so a
+bar that renders its active tab server-side has one rendering per member of its
+group. Such a node is rendered per connection and kept out of the log (a shared
+digest could only describe one viewer's bytes), which means it loses digest
+suppression and re-sends on every tick of an entity it binds.
+
+The variance is bounded — one variant per member of its OWN group, never a
+product over the subtree, because a node's own rendering carries no mount. The
+shipped bar highlights client-side through `$ui_<id>` instead, which needs no
+round trip and remains the better default; the server-rendered form is for when
+the selection must be right before Datastar loads.
+
+**The log key is always the node id.** `-self` is a rendering detail derived from
+it and nothing maps back, so a DOM id can never enter the log, the reverse index,
+or a cursor.
+
+This also removed an exception. A bake-group owner (`Tabs`, `If`) used to be
+denied the cell wrapper, because the cell WAS the patch target and such a node's
+patch would have carried its whole baked panel. With the two jobs separated they
+are ordinary cells — which is why `.columns(n)` on a `Tabs` works now, where
+before it was accepted and silently dropped.
+
 ### Also decided here
 
 The Pico theme was deleted rather than kept in lockstep: BeerCSS
@@ -128,6 +180,9 @@ framework-agnostic, and a new look is a sibling module exporting a
   params are structural (the renderer owns the wrapper), not presentational.
 - Every node now being id-addressable improves the editor overlay
   (`.fh-cell[id]` selects everything) and future per-node tooling.
+- `wrapAsCell = false` means exactly one thing: *my root must not be wrapped in
+  a layout box*. It no longer implies "never a patch target" — that is decided
+  by card shape, via `patchTargetId`.
 - DOM depth grows by one `div` per node; inert in flow terms everywhere but
   the layout containers, where it is the point.
 - The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,

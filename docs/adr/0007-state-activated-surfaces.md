@@ -22,7 +22,7 @@ gated on live entity state. The requirements that shaped the design:
 A tabs group already has the exact shape an if/else needs: **one stable host
 element, N alternative subtrees registered as surfaces, exactly one baked in,
 the inactive ones not rendered and not streamed** (ADR 0002). The tab *bar*,
-the active-tab signal, and the cookie are authoring-layer composition the
+the active-tab signal, and its URL mirror are authoring-layer composition the
 `tabs` card adds — the backend never required them. So an if/else is a bake
 group whose member is selected by a **condition** instead of a click:
 
@@ -59,38 +59,67 @@ the Pkl helper is `entityIs(id)`.
 
 ### Shared-pass placement (the cache consequence)
 
-Because a state selection is server truth, state-activated groups ride the
-**shared per-slug pass** (render once per slug, every viewer gets the same
-patch) — the opposite placement from user-activated bake owners, which stay
-per-session because their HTML bakes the client's cookie-selected member
-(ADR 0002). `Renderer` therefore splits `bakeOwnerIds` into
-`userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` no longer seeds
-state-activated members into a session's open set — their liveness is the
-shared pass's job.
+Because a state selection is server truth, a state-activated group's selection
+is identical for every viewer. `Renderer` splits `bakeOwnerIds` into
+`userBakeOwnerIds`/`stateBakeOwnerIds`, and `selectedSurfaces` does not seed
+state-activated members into a session's open set — their liveness is the shared
+pass's job, not a client's.
 
-Per state change, the shared pass does two things (`Server.diffPatches` grew a
-`flips` leg; mirrored in the per-session pass for state groups nested inside
-user-opened surfaces):
+That distinction outlived the split it was written for. Everything now rides one
+shared per-slug pass (ADR 0002), so the question is no longer *which pass* but
+**who a patch is addressed to**: a state surface is TRANSPARENT to the
+per-connection filter. It is never in anyone's `open` set, so tagging a node with
+one would hide it from everybody; a node inside an `If` branch nested in a tab
+panel is tagged with the tab panel instead.
+
+Per state change, the shared pass does two things:
 
 1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
    `dynamicDelta`: O(1) shortcut — the changed entity's own match must have
    flipped for some member's condition — before the full before/after
-   selection compare): re-render the host (`resolveBake` bakes the newly
-   selected member against *current* state), morph it, and **prune** the
-   group's cache entries (`bakeMemberPrefixes` — same contract as
-   `repaintGroup`), so re-revealed nodes diff from a known base. Hidden-branch
-   churn deliberately leaves stale cache entries; the flip-prune is what makes
-   that correct.
+   selection compare): record where the branch went, **prune** the group's
+   cache entries, and defer the render. Hidden-branch churn deliberately leaves
+   stale cache entries; the flip-prune is what makes that correct.
+
+   The fill itself is `Patches.fillHost` — the same primitive a tab switch and
+   a popup open use, since all three evict a host and overwrite its mount
+   (ADR 0012). It arrives as one `Inner` at the mount, not a morph of the host:
+   the host's HTML would have embedded the branch, which is exactly the welding
+   the self/mount split exists to prevent (ADR 0008).
 2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
    a nested state group contributes only through its active ancestor branch):
    patch the active members' affected components and dynamic groups against
-   the shared per-slug cache. Inactive members are never consulted — that IS
-   the no-updates guarantee.
+   the shared per-slug cache. Inactive STATE members are never consulted —
+   that IS the no-updates guarantee, and it is structural: their ids never
+   enter the selection.
+
+   Structural silence covers state members directly. A *user*-selected surface
+   nested inside an inactive branch — a tab panel inside a hidden `If` — needs
+   one more step, because `selectedSurfaces` reports a selection for every bake
+   group whether or not it is on screen, so `open` alone would keep rendering
+   it. The shared pass therefore filters each session's open set through
+   `Renderer.visibleSurface`, the visibility CHAIN (ADR 0012): every user
+   surface above a node selected AND every state surface above it active. A
+   group in an unopened tab is not merely unsent — it is never planned.
 
 The one crossing edge: a state group whose subtree contains a *user-activated*
-bake owner (tabs inside an If) — its flip must bake the session's
-cookie-selected tab, so those groups (`Renderer.sessionOnlyStateGroups`) are
-excluded from the shared flip path and handled per session.
+bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one
+thing but one thing per selection, so it cannot be rendered once for everyone.
+That is no longer a case to detect. Every flip publishes the render rather than
+its bytes (`Patches.Pending`), keyed by the `Selections` it reads; a branch with
+no user group inside it resolves to the empty key and one render still serves
+everybody. It arrives as ONE complete patch, with that viewer's panel already
+inside it.
+
+Before that, the varying branch was the special case — and, having no memo,
+the only patch in the system rendered once per *connection* rather than once
+per variant.
+
+An earlier design instead routed these groups to a per-session pass
+(`sessionOnlyStateGroups`). It did not work: the flip rendered the branch with no
+client at all, so routing it merely changed which cache it was diffed against,
+and every viewer was handed the default tab. The bug outlived the mechanism meant
+to prevent it because nothing tested two clients on different tabs across a flip.
 
 ### Authoring (Pkl)
 
@@ -138,10 +167,10 @@ group shares one bake var. Demo entry: `pkl-if.pkl`.
 
 - An inactive branch costs nothing: no render, no patch, no membership scan.
   The flip repaint is the reconciliation point (morph + cache prune).
-- Surfaces are now the single "conditionally shown subtree" primitive with two
-  activation modes; anything user-triggered stays per-session, anything
-  state-driven is shared. New conditional UI should pick a mode, not a new
-  mechanism.
+- Surfaces are the single "conditionally shown subtree" primitive with two
+  activation modes: user-triggered selections are per-client truth and decide
+  who a patch reaches, state-driven ones are server truth and reach everyone.
+  New conditional UI should pick a mode, not a new mechanism.
 - Verified by `RendererSuite` (selection/quantifiers/owner split),
   `ServerSuite` (hidden-branch silence, flip morph + prune, nesting, popup
   containment), `BuildPhaseSuite` (activation decode/validate/hoist) and

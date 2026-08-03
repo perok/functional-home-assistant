@@ -1,6 +1,5 @@
 package api.homeassistant
 
-import api.DocumentJson
 import api.homeassistant.ws.HAWSApiLowLevel
 import cats.syntax.all.*
 import api.homeassistant.ws.protocol.client.CommandPhase.*
@@ -8,52 +7,63 @@ import api.homeassistant.ws.protocol.client.TriggerData
 import api.homeassistant.ws.domain.*
 import ha.runtime.definitions.*
 import api.homeassistant.ws.protocol.server.Event
-import cats.effect.std.QueueSource
 import cats.effect.{IO, Resource}
+import fs2.Stream
 import io.circe.{Decoder, Json}
-import perok.ha.{GetStatesData, HomeAssistantApiService, ServiceDomain}
+import perok.ha.{GetStatesData, ServiceDomain}
 
 // TODO add caching of rest + json response. triggers and actions usually don't change
+//
+// The trait is effect-polymorphic in `F`: methods return `F[...]` /
+// `Resource[F, *]`, not a hardcoded `IO`. The only production instance is built
+// at `F = IO` ([[HomeAssistantApi.fromWs]]) — consumers still work against
+// `HomeAssistantApi[IO]` — but honoring `F` keeps the type honest (a test double
+// or alternative interpreter can pick another effect) and confines the effect to
+// this "machinery" boundary.
 trait HomeAssistantApi[F[_]] {
 
   /** https://developers.home-assistant.io/docs/device_registry_index/
     * @return
     */
-  def configDeviceRegistryList: IO[Map[DeviceId, Device]]
+  def configDeviceRegistryList: F[Map[DeviceId, Device]]
 
   def configEntityRegistryList
-      : IO[Map[EntityId, Entity]] // Exposes entity_id and device_id
+      : F[Map[EntityId, Entity]] // Exposes entity_id and device_id
 
-  def configEntityRegistryGet(entityId: EntityId): IO[Json]
+  def configEntityRegistryGet(entityId: EntityId): F[Json]
 
   // Not interesting
-  def manifestList(): IO[List[Manifest]]
+  def manifestList(): F[List[Manifest]]
 
   def configEntriesGet(
       type_filter: List[String] = List.empty,
       domain: Option[String] = None
-  ): IO[List[ConfigEntry]]
+  ): F[List[ConfigEntry]]
 
-  def deviceAutomationTriggerList(deviceId: DeviceId): IO[List[DeviceTrigger]]
+  def deviceAutomationTriggerList(deviceId: DeviceId): F[List[DeviceTrigger]]
 
-  def deviceAutomationActionList(deviceId: DeviceId): IO[List[Json]]
+  def deviceAutomationActionList(deviceId: DeviceId): F[List[Json]]
 
-  def deviceAutomationActionCapabilities(action: Json): IO[Json]
+  def deviceAutomationActionCapabilities(action: Json): F[Json]
 
-  def getConfigWS: IO[Json]
+  def getConfigWS: F[Json]
 
-  def getServicesWS: IO[Json]
+  /** HA's compressed state feed: the full entity set, then deltas, over ONE
+    * subscription — so live state needs no separate snapshot fetch to race
+    * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
+    */
+  def entities: Resource[F, Stream[F, EntitiesEvent]]
 
-  def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]]
+  def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
   /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
     * Event payload shapes are event-type-specific (`entity_registry_updated`
     * carries `{action, entity_id}`, not a state), so no decoding is imposed
     * here — [[event]] is the typed `state_changed` special case.
     */
-  def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]]
+  def rawEvents(eventType: String): Resource[F, Stream[F, Json]]
 
-  def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]]
+  def trigger(data: TriggerData*): Resource[F, Stream[F, Json]]
 
   /** Call a Home Assistant service/action on an entity via the WebSocket API.
     * `serviceData` carries extra parameters (e.g. `{ "brightness": 128 }`).
@@ -63,20 +73,26 @@ trait HomeAssistantApi[F[_]] {
       service: String,
       entityId: String,
       serviceData: Json
-  ): IO[Json]
+  ): F[Json]
 
-  def getStates: IO[List[GetStatesData]]
+  def getStates: F[List[GetStatesData]]
 
-  def getServices: IO[List[ServiceDomain]]
+  def getServices: F[List[ServiceDomain]]
 
   // Assumes | to_json as the end
-  def templateFunc[Body: Decoder](template: String): IO[Body]
+  def templateFunc[Body: Decoder](template: String): F[Body]
 }
 
 object HomeAssistantApi {
-  def fromLowLevel(
-      in: HAWSApiLowLevel[IO],
-      restApi: HomeAssistantApiService[IO]
+
+  /** Build the unified API over a single Home Assistant WebSocket connection.
+    * Everything — states, services, templates, subscriptions, `call_service` —
+    * rides this one transport (HA's WS API is a superset of what this app used
+    * REST for), so the whole API has exactly one connection to supervise and
+    * one place for a reconnecting facade to sit.
+    */
+  def fromWs(
+      in: HAWSApiLowLevel[IO]
   ): HomeAssistantApi[IO] =
     new HomeAssistantApi[IO] {
       def configDeviceRegistryList: IO[Map[DeviceId, Device]] =
@@ -126,16 +142,21 @@ object HomeAssistantApi {
       def deviceAutomationActionCapabilities(action: Json): IO[Json] =
         in.sendCommand(`device_automation/action/capabilities`(action))
 
-      def event(event: Option[String]): Resource[IO, QueueSource[IO, Event]] =
-        // The raw stream decoded into the state_changed shape (the only event
-        // type this method has ever subscribed to).
-        in.subscribeStream(subscribe_events(Some("state_changed")))
-          .map(_.map(json => json.as[Event].fold(throw _, identity)))
+      def entities: Resource[IO, Stream[IO, EntitiesEvent]] =
+        in.subscribeStream(subscribe_entities())
 
-      def rawEvents(eventType: String): Resource[IO, QueueSource[IO, Json]] =
+      def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
+        // The raw stream decoded into the state_changed shape (the only event
+        // type this method has ever subscribed to). `evalMapChunk` keeps the
+        // burst chunking the transport hands us.
+        in.subscribeStream(subscribe_events(Some("state_changed")))
+          .map(_.evalMapChunk(_.as[Event].liftTo[IO]))
+
+      // TODO fix into Event..
+      def rawEvents(eventType: String): Resource[IO, Stream[IO, Json]] =
         in.subscribeStream(subscribe_events(Some(eventType)))
 
-      def trigger(data: TriggerData*): Resource[IO, QueueSource[IO, Json]] =
+      def trigger(data: TriggerData*): Resource[IO, Stream[IO, Json]] =
         in.subscribeStream(subscribe_trigger(data.toList))
 
       def callService(
@@ -154,22 +175,25 @@ object HomeAssistantApi {
         )
 
       def getStates: IO[List[GetStatesData]] =
-        restApi.getStates().map(_.output)
+        in.sendCommand(`get_states`())
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
 
-      def getServicesWS: IO[Json] =
+      def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())
 
-      def getServices: IO[List[ServiceDomain]] =
-        restApi.getServicesApi().map(_.output)
-
+      // `render_template` is a subscription: subscribe, take the single initial
+      // render, release (unsubscribe). The first-event race that would have
+      // dropped that lone render is fixed in `subscribeStream`. NOTE: a
+      // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
+      // the filter output back), so `Body=Json` decodes to a `Json` string, not
+      // the structured value — a caller that wants the object parses it
+      // (`DataDump.parseIfString`).
       def templateFunc[Body: Decoder](template: String): IO[Body] =
-        restApi
-          .template(template)
-          .flatMap(_.output.decode(using DocumentJson.decoder).liftTo[IO])
-          .flatMap(_.as[Body].liftTo[IO])
+        in.subscribeStream(render_template(template))
+          .use(_.head.compile.lastOrError)
+          .flatMap(_.hcursor.downField("result").as[Body].liftTo[IO])
     }
 
   extension (service: HomeAssistantApi[IO])

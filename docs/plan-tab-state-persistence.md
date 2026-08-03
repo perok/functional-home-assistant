@@ -1,8 +1,10 @@
 # Plan: persist the active tab across reload/navigate via the cookie tier (fh-datastar-view)
 
-**Status: implemented** — the `fhui_<id>` cookie tier is live in `Server`/`Renderer` (see ADR 0005).
+**Status: implemented, then re-carried** — the selection is live in `Server`/`Renderer`, but the
+carrier is no longer a cookie: it is the `ui_<id>` signal plus its `?ui.<id>` URL mirror (ADR 0005,
+rewritten 2026-07-27). Read the ADR, not this plan's cookie mechanics.
 
-Implements the first use of [ADR 0005](adr/0005-node-state-and-the-cookie-tier.md):
+Implements the first use of [ADR 0005](adr/0005-node-state-and-the-url-mirror.md):
 make a tabs group remember which tab was selected, restored **flash-free** on
 reload and in-place navigate by reading a cookie on the GET and baking the
 selected tab directly.
