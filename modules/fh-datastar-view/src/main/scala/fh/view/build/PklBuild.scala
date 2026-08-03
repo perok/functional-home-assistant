@@ -8,7 +8,6 @@ import org.pkl.core.packages.PackageResolver
 import org.pkl.core.project.{Project, ProjectDependenciesResolver}
 import org.pkl.core.{
   Analyzer,
-  Evaluator,
   EvaluatorBuilder,
   ModuleSource,
   SecurityManagers,
@@ -47,10 +46,20 @@ object PklBuild {
   ): Either[String, SourceEval.Result] = {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
-      val project = resolveProjectDeps(dashboardsDir)
-      // project.get.
-      val evaluator =
-        buildEvaluator(project, cacheDir(dashboardsDir, project))
+      val project = loadProject(dashboardsDir)
+      // ONE builder, and pkl derives the settings from the manifest exactly
+      // once: `applyFromProject` needs no lockfile (only `evaluate` does), so
+      // the resolve below can be handed what it produced instead of a second,
+      // hand-rolled derivation of the same three values.
+      val builder = EvaluatorBuilder.preconfigured()
+      project.foreach(builder.applyFromProject)
+      project.foreach(ensureLockfile(dashboardsDir, _, builder))
+      // Same cache the resolver used — a REMOTE dep (the add-on's package-form
+      // `@fh-dashboard`) must find its pre-seeded zip here rather than in
+      // `preconfigured()`'s `~/.pkl/cache`. Set after `applyFromProject` so it
+      // wins even when the project declares no `moduleCacheDir` of its own.
+      builder.setModuleCacheDir(cacheDir(dashboardsDir, project).toNIO)
+      val evaluator = builder.build()
       val module =
         try evaluator.evaluate(ModuleSource.path(entry.toNIO))
         finally evaluator.close()
@@ -88,135 +97,96 @@ object PklBuild {
     * `package:`/`projectpackage:`, both of which pkl already allows by default.
     */
   def securityManagerFor(project: Project): org.pkl.core.SecurityManager = {
-    val settings = project.getEvaluatorSettings
+    val builder = EvaluatorBuilder.preconfigured()
+    builder.applyFromProject(project)
+    securityManagerFrom(builder)
+  }
+
+  /** The same manager, from a builder that has already had `applyFromProject`
+    * run on it — so pkl decides the two lists exactly once.
+    *
+    * `getSecurityManager` is null here: the builder holds the pattern LISTS and
+    * only materializes a manager inside `build()`. Those lists already carry
+    * pkl's defaults when the manifest declares none (verified both ways), which
+    * is why nothing falls back by hand.
+    */
+  private def securityManagerFrom(
+      builder: EvaluatorBuilder
+  ): org.pkl.core.SecurityManager =
     SecurityManagers
       .standardBuilder()
-      // standardBuilder() starts EMPTY — the defaults are not implied, and a
-      // manifest that declares neither list must still get them.
-      .addAllowedModules(
-        Option(settings.allowedModules)
-          .getOrElse(SecurityManagers.defaultAllowedModules)
-      )
-      .addAllowedResources(
-        Option(settings.allowedResources)
-          .getOrElse(SecurityManagers.defaultAllowedResources)
-      )
+      // standardBuilder() starts EMPTY — the defaults are not implied.
+      .addAllowedModules(builder.getAllowedModules)
+      .addAllowedResources(builder.getAllowedResources)
       .build()
-  }
 
-  /** The evaluator for one eval.
-    *
-    * When the dashboards dir is a Pkl project (has a `PklProject`), `project`
-    * is its loaded form and we `applyFromProject` so entries can import the
-    * `lib/` library through the `@fh-dashboard` alias and the dump through
-    * `@fh-home` (ADR 0010) — both resolved offline from the seeded cache
-    * packages. Plain relative-import evals — most unit probes, no `PklProject`
-    * — pass `None` and behave exactly as `Evaluator.preconfigured()`.
-    * `applyFromProject` also carries the manifest's `allowedResources`, which
-    * is what lets an eval fetch a package the resolve left uncached (see
-    * [[securityManagerFor]]).
+  /** The workspace's `PklProject`, loaded — or `None` for the plain-eval path
+    * (a bare `.pkl` with relative imports and no manifest).
     */
-  private def buildEvaluator(
-      project: Option[Project],
-      cache: os.Path
-  ): Evaluator = {
-    val builder = EvaluatorBuilder.preconfigured()
-    project.foreach(builder.applyFromProject)
-    // Same cache the resolver used — a REMOTE dep (the add-on's package-form
-    // `@fh-dashboard`) must find its pre-seeded zip here rather than in
-    // `preconfigured()`'s `~/.pkl/cache`. Set after `applyFromProject` so it
-    // wins even when the project declares no `moduleCacheDir` of its own.
-    builder.setModuleCacheDir(cache.toNIO)
-    builder.build()
+  private def loadProject(dashboardsDir: os.Path): Option[Project] = {
+    val projectFile = dashboardsDir / "PklProject"
+    Option.when(os.exists(projectFile))(Project.loadFromPath(projectFile.toNIO))
   }
 
-  /** If `dashboardsDir` is a Pkl project, load it and ensure its
-    * `PklProject.deps.json` lockfile exists, so `applyFromProject` can resolve
-    * the `@fh-dashboard` alias.
+  /** Write `PklProject.deps.json` if it is stale, so `applyFromProject` can
+    * resolve the `@fh-dashboard` alias.
     *
-    * **This has to run BEFORE the evaluator is built, and the lockfile has to
-    * be a FILE.** The evaluator will not produce one: it errors with
-    * "attempting to load `PklProject.deps.json`" when it is missing, and there
-    * is no way to hand it the resolved set in memory — `EvaluatorBuilder`
-    * accepts only `DeclaredDependencies`, and `ProjectDeps` (what `resolve()`
-    * returns) exposes nothing but `parse(Path)` and `writeTo(OutputStream)`.
-    * The file is the only channel. We want it on disk regardless: pkl-lsp, the
-    * `pkl` CLI and `fh` all read the same lockfile.
+    * **This must happen BEFORE `evaluate`, and the lockfile has to be a FILE.**
+    * The evaluator will not produce one: it errors with "attempting to load
+    * `PklProject.deps.json`" when it is missing, and there is no way to hand it
+    * the resolved set in memory — `EvaluatorBuilder` accepts only
+    * `DeclaredDependencies`, and `ProjectDeps` (what `resolve()` returns)
+    * exposes nothing but `parse(Path)` and `writeTo(OutputStream)`. We want it
+    * on disk regardless: pkl-lsp, the `pkl` CLI and `fh` all read it.
     *
     * The split is version SELECTION, not network access — evaluation is not
     * offline-by-construction. A dependency that is locked but missing from the
     * cache IS fetched during eval (verified), which is why the manifest's
-    * `allowedResources` has to reach the evaluator too, via `applyFromProject`.
+    * settings have to reach the evaluator too.
     *
-    * The hand-wiring below (client, manager, cache dir) is not us
-    * reimplementing something pkl offers: there is no `applyFromProject` on the
-    * resolver side. `ProjectDependenciesResolver` takes the `Project` but does
-    * not use it to configure the `PackageResolver` it is handed, and
-    * `PackageResolver` has one factory,
-    * `getInstance(SecurityManager, HttpClient, Path)`, that never sees a
-    * project. So each of the three settings is re-derived here from the
-    * manifest — the same wiring the CLI does, and the same wiring it OMITS in
-    * `project resolve <dir>` mode
-    * (docs/pkl-issue-http-rewrites-project-resolve.md). Resolution is
-    * IN-PROCESS, and touches the network only for a REMOTE dependency that is
-    * not already in the package cache: local deps read files, and a cached
-    * remote version satisfies the resolver without a request (so add-on boots
-    * stay offline-safe — the client below is lazy and is never even built
-    * then). An uncached remote dep — a published third-party card package, or a
-    * bumped `@fh-dashboard` pin the image didn't bundle — is fetched for real,
-    * honoring the manifest's own `evaluatorSettings.http.rewrites` (the
-    * documented air-gap mechanism; how a workspace maps `fh.invalid` to a real
-    * host). If that fetch fails (offline, dead registry), the error propagates
-    * into the entry's build error verbatim — pkl names the package URI — and
-    * the resolve-before-write order below keeps the previous lockfile intact.
-    * Returns the loaded [[Project]], or `None` when there is no `PklProject`
-    * (the plain-eval path).
+    * `builder` must already have had `applyFromProject` run on it, and supplies
+    * the manager and http client. That indirection exists because there is no
+    * `applyFromProject` on the resolver side: `ProjectDependenciesResolver`
+    * takes the `Project` but does not use it to configure the `PackageResolver`
+    * it is handed, whose one factory never sees a project. Harvesting the
+    * builder makes pkl derive those settings ONCE, instead of us re-deriving
+    * from the manifest — the same wiring the CLI does by hand, and the same it
+    * OMITS in `project resolve <dir>` mode
+    * (docs/pkl-issue-http-rewrites-project-resolve.md).
+    *
+    * Resolution touches the network only for a REMOTE dependency not already in
+    * the cache: local deps read files, and a cached remote version satisfies
+    * the resolver without a request, so add-on boots stay offline-safe. An
+    * uncached remote dep is fetched for real, honoring the manifest\'s own
+    * `http.rewrites`. If that fails (offline, dead registry) the error
+    * propagates into the entry\'s build error verbatim — pkl names the package
+    * URI — and the resolve-before-write order keeps the previous lockfile
+    * intact.
     */
-  private def resolveProjectDeps(dashboardsDir: os.Path): Option[Project] = {
-    val projectFile = dashboardsDir / "PklProject"
-    Option.when(os.exists(projectFile)) {
-      val project = Project.loadFromPath(projectFile.toNIO)
-      val depsJson = dashboardsDir / "PklProject.deps.json"
-      if (staleLockfile(dashboardsDir, depsJson)) {
-        val resolver = new ProjectDependenciesResolver(
-          project,
-          PackageResolver.getInstance(
-            securityManagerFor(project),
-            settingsHttpClient(project),
-            cacheDir(dashboardsDir, Some(project)).toNIO
-          ),
-          new PrintWriter(new StringWriter)
-        )
-        // Resolve fully BEFORE opening the lockfile: `FileOutputStream`
-        // truncates on open, so the old order destroyed the previous lockfile
-        // whenever resolution threw.
-        val resolved = resolver.resolve()
-        val out = new FileOutputStream(depsJson.toNIO.toFile)
-        try resolved.writeTo(out)
-        finally out.close()
-      }
-      project
+  private def ensureLockfile(
+      dashboardsDir: os.Path,
+      project: Project,
+      builder: EvaluatorBuilder
+  ): Unit = {
+    val depsJson = dashboardsDir / "PklProject.deps.json"
+    if (staleLockfile(dashboardsDir, depsJson)) {
+      val resolver = new ProjectDependenciesResolver(
+        project,
+        PackageResolver.getInstance(
+          securityManagerFrom(builder),
+          builder.getHttpClient,
+          cacheDir(dashboardsDir, Some(project)).toNIO
+        ),
+        new PrintWriter(new StringWriter)
+      )
+      // Resolve fully BEFORE opening the lockfile: `FileOutputStream`
+      // truncates on open, so the old order destroyed the previous lockfile
+      // whenever resolution threw.
+      val resolved = resolver.resolve()
+      val out = new FileOutputStream(depsJson.toNIO.toFile)
+      try resolved.writeTo(out)
+      finally out.close()
     }
-  }
-
-  /** The resolver's http client, from the manifest's own
-    * `evaluatorSettings.http` (spike-verified on 0.31.1: `setRewrites` with the
-    * settings' map reproduces what the pkl CLI does with them; a manifest
-    * without the block yields a plain client). Lazy — a fully-cached resolve
-    * never builds it — with bounded timeouts so a dead registry fails a boot in
-    * seconds, not minutes. The evaluator side needs no counterpart:
-    * `applyFromProject` already applies the same settings (spike-verified).
-    */
-  private def settingsHttpClient(project: Project): HttpClient = {
-    val builder = HttpClient
-      .builder()
-      .setConnectTimeout(java.time.Duration.ofSeconds(10))
-      .setRequestTimeout(java.time.Duration.ofSeconds(60))
-    Option(project.getEvaluatorSettings)
-      .flatMap(s => Option(s.http()))
-      .flatMap(h => Option(h.rewrites()))
-      .foreach(builder.setRewrites)
-    builder.buildLazily()
   }
 
   /** Re-resolve when the lockfile is absent OR any `PklProject` under the dir
