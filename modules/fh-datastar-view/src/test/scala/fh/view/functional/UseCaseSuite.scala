@@ -460,7 +460,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       PackageResolver.getInstance(
         // The manifest's own allowedResources, exactly as production derives
         // it — a laptop resolving from the instance goes over plain http.
-        fh.view.build.PklBuild.securityManagerFor(Some(laptopProject)),
+        fh.view.build.PklBuild.securityManagerFor(laptopProject),
         http,
         laptopCache.toNIO
       ),

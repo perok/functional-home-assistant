@@ -46,9 +46,9 @@ object LibPackage {
     * `@fh-dashboard` to, which the dump package must declare to keep module
     * identity. Read off the LOADED pkl project's declared dependencies
     * (spike-verified on 0.31.1: `getDependencies.remoteDependencies` — the
-    * record accessor; the `get`-prefixed one is deprecated as of 0.32), so
-    * pkl itself applies the amends chain — a user override in `PklProject`
-    * shadows the base default, otherwise the machine pin `base.pkl` read from
+    * record accessor; the `get`-prefixed one is deprecated as of 0.32), so pkl
+    * itself applies the amends chain — a user override in `PklProject` shadows
+    * the base default, otherwise the machine pin `base.pkl` read from
     * `.fh/pins.json` comes through. (An earlier text-regex scan of the manifest
     * matched the pin EXAMPLE in the seeded doc header — exactly the class of
     * bug delegating to the real parser removes.) `None` when the workspace has

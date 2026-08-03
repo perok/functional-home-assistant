@@ -66,8 +66,8 @@ object PklBuild {
     }
   }
 
-  /** The security manager for a resolve/analyze, taken from the workspace's own
-    * `evaluatorSettings.allowedResources`.
+  /** The security manager for dependency RESOLUTION, taken from the workspace's
+    * own `evaluatorSettings.allowedResources`.
     *
     * pkl's default allowlist admits `https:` but never plain `http:`. Through
     * 0.31 that was invisible to us, because the allowlist was checked against
@@ -78,30 +78,30 @@ object PklBuild {
     *
     * `.fh/base.pkl` is where the widening is declared — one source of truth,
     * scoped to that one instance, and the same field the `pkl` CLI and pkl-lsp
-    * read. The evaluator gets it for free via `applyFromProject`; a
-    * `PackageResolver`/`Analyzer` takes its manager as an argument, so this
-    * lifts the project's own lists into one. No project (plain-eval probes, no
-    * `PklProject`) means no package fetch, so pkl's defaults stand.
+    * read. The evaluator gets it for free via `applyFromProject`; only
+    * `PackageResolver` takes its manager as an argument, so this lifts the
+    * project's own lists into one for it.
+    *
+    * Nothing else needs it. [[importSet]]'s `Analyzer` fetches nothing (it is
+    * built with `HttpClient.dummyClient`) and reads the cache through
+    * `package:`/`projectpackage:`, both of which pkl already allows by default.
     */
-  def securityManagerFor(
-      project: Option[Project]
-  ): org.pkl.core.SecurityManager =
-    project.fold(SecurityManagers.defaultManager) { p =>
-      val settings = p.getEvaluatorSettings
-      SecurityManagers
-        .standardBuilder()
-        // standardBuilder() starts EMPTY — the defaults are not implied, and a
-        // manifest that declares neither list must still get them.
-        .addAllowedModules(
-          Option(settings.allowedModules)
-            .getOrElse(SecurityManagers.defaultAllowedModules)
-        )
-        .addAllowedResources(
-          Option(settings.allowedResources)
-            .getOrElse(SecurityManagers.defaultAllowedResources)
-        )
-        .build()
-    }
+  def securityManagerFor(project: Project): org.pkl.core.SecurityManager = {
+    val settings = project.getEvaluatorSettings
+    SecurityManagers
+      .standardBuilder()
+      // standardBuilder() starts EMPTY — the defaults are not implied, and a
+      // manifest that declares neither list must still get them.
+      .addAllowedModules(
+        Option(settings.allowedModules)
+          .getOrElse(SecurityManagers.defaultAllowedModules)
+      )
+      .addAllowedResources(
+        Option(settings.allowedResources)
+          .getOrElse(SecurityManagers.defaultAllowedResources)
+      )
+      .build()
+  }
 
   /** The evaluator for one eval.
     *
@@ -154,7 +154,7 @@ object PklBuild {
         val resolver = new ProjectDependenciesResolver(
           project,
           PackageResolver.getInstance(
-            securityManagerFor(Some(project)),
+            securityManagerFor(project),
             settingsHttpClient(project),
             cacheDir(dashboardsDir, Some(project)).toNIO
           ),
@@ -311,7 +311,11 @@ object PklBuild {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
-        securityManagerFor(project),
+        // Defaults suffice: this analyzer fetches nothing (dummyClient below)
+        // and reads the cache through package:/projectpackage:, both allowed by
+        // default. Verified by making the fallback below fatal — the precise
+        // path still succeeded for every workspace in the suite.
+        SecurityManagers.defaultManager,
         factories.asJava,
         cacheDir(dashboardsDir, project).toNIO,
         project.map(_.getDependencies).orNull,
