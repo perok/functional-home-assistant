@@ -3,22 +3,17 @@ package fh.view.runtime
 import com.samskivert.mustache.{Mustache, Template}
 import fh.view.model.{CardDef, Dashboard}
 
-/** The shared template library, pre-compiled once at startup (never on the hot
-  * path).
-  *
-  *   - templates escape their `{{slot}}` values (HTML-safe) — HA values contain
-  *     `<`, `&`, quotes; raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - the layout is a tree walked in Scala (`Renderer`), not a mustache
-  *     string.
-  *
+/** The shared template library, pre-compiled once at startup, never on the hot
+  * path. Templates escape their `{{slot}}` values because HA values contain
+  * `<`, `&` and quotes; raw author values (action URLs, ids) use `{{{...}}}`.
   * Missing slots render as empty strings rather than throwing.
-  */
-/** @param components
+  *
+  * @param components
   *   the whole card, `{{{self}}}`/`{{{mount}}}` holes included — the document
   *   path.
   * @param selves
   *   the `self` part of a container that declares one — what the patch path
-  *   renders, and the predicate that decides which path a node takes.
+  *   renders, and the predicate deciding which path a node takes.
   * @param mounts
   *   the `mount` part, rendered only by the document path and by a fill.
   */

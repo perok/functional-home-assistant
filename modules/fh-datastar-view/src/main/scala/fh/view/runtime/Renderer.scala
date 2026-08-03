@@ -1006,7 +1006,7 @@ class Renderer(
     * So a container card used as a dynamic case gets `selfId`/`mountId` off its
     * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
     * here: it is a function of the client's selection, not of the id, and it
-    * belongs to the document path alone ([[resolveBake]]).
+    * belongs to the document path alone ([[resolveBakeTraced]]).
     */
   private def structuralVars(id: NodeId): Map[String, String] =
     Map(

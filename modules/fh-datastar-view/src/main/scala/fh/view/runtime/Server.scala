@@ -31,39 +31,23 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.concurrent.duration.*
 
-/** HTTP surface for the dashboards.
+/** HTTP surface for the dashboards. Construct via [[Server.resource]], which
+  * creates the topic and runs the publishers.
   *
-  *   - `GET /` the default dashboard; `GET /d/:slug` a specific one.
-  *   - `GET /sse/dashboard/:slug/patch` the per-connection live stream of
-  *     `datastar-patch-elements` fragments. On connect it mints a `conn` id and
-  *     pushes it as a signal, so action POSTs can correlate to this stream.
-  *   - `POST /sse/action/:domain/:service/:id[/:k/:v]` call a HA service.
-  *   - `POST /sse/surface/open/:id` open a surface (popup or tab panel);
-  *     `POST /sse/popup/close` close the (at most one) open popup. Open,
-  *     switch, and close are all the same host-swap ([[swapHost]]) — evict
-  *     whatever occupies the surface's host, patch the new occupant in (or
-  *     patch it empty, for a close). The state lives in the connection's
-  *     [[Session]]; the resulting patches ride the same SSE stream. Going to
-  *     ANOTHER dashboard is not a route here — it is an ordinary document load
-  *     of `/d/:slug` (ADR 0002).
+  * Opening a surface, switching a tab and closing a popup are all one host-swap
+  * ([[swapHost]]); going to ANOTHER dashboard is not a route here at all, but
+  * an ordinary document load of `/d/:slug` (ADR 0002).
   *
-  * Live entity patches are rendered ONCE per slug by [[sharedPatchPublishers]]
-  * (one subscription to the state stream per dashboard, one diff cache) and
-  * fanned out over `sharedTopic` to every connection viewing that slug — main
-  * page and open surfaces alike. Who may see each patch is decided at the wire
-  * edge by its [[Addressed]] tag, not by re-rendering per client.
+  * Live entity patches are rendered ONCE per slug ([[sharedPatchPublishers]])
+  * and fanned out to every connection viewing it. Who may see each patch is
+  * decided at the wire edge by its [[Addressed]] tag, never by re-rendering per
+  * client. The one exception — a branch whose subtree mounts a client-selected
+  * member — rides as a [[Varying]] the connection resolves itself, and that is
+  * the entire per-connection render budget.
   *
-  * ONE thing genuinely cannot be rendered for everyone at once: a branch whose
-  * subtree mounts a client-selected member. The shared pass does not render
-  * those at all — it publishes a [[Varying]] carrying the render, and each
-  * connection performs it against its own selections at send time. That is the
-  * entire per-connection render budget, and it still arrives as ONE complete
-  * patch. Construct via [[Server.resource]], which creates the topic and runs
-  * the publishers.
-  *
-  * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
-  * dashboard at runtime (ADR 0010), which is why the registry is a `Ref` and
-  * the shared fan-out is one multiplexed topic rather than a map of them.
+  * The slug set is NOT fixed at startup: [[push]] installs a dashboard at
+  * runtime (ADR 0010), which is why the registry is a `Ref` and the fan-out is
+  * one multiplexed topic rather than a map of them.
   */
 class Server(
     api: HomeAssistantApi[IO],
@@ -378,30 +362,13 @@ class Server(
         }
     }
 
-  /** The shared per-slug render/diff for one state change: the affected static
-    * components (reverse index), the query-affected dynamic groups, plus
-    * everything the visible surfaces contribute — all rendered against the
-    * current snapshot and diffed against the slug's shared cache. Returns the
-    * SSE patches — child-scoped for a dynamic member update, per-entity
-    * insert/remove for a small membership delta, a whole-group morph otherwise
-    * (see [[diffPatches]]). No client `uiState` reaches here at all
-    * ([[Viewer.Nobody]]) — which is what lets one rendering serve every viewer.
+  /** The imperative shell around [[Patches.plan]] + [[Patches.diff]]: read the
+    * snapshot and the open sets, run the pure pass, write back the log.
     *
-    * The state-selected extension (what ADR 0002's split became):
-    *
-    *   - '''Flips''': each state group whose selection this change moves
-    *     ([[Renderer.affectedStateGroups]]) gets its HOST re-rendered —
-    *     [[Renderer]]'s bake picks the newly-selected member against CURRENT
-    *     state — morphed, and its members' cache entries pruned
-    *     ([[flipStateGroup]]). A branch whose subtree mounts a client-selected
-    *     member is not rendered here at all — it rides as a [[Varying]].
-    *   - '''Active-member liveness''': for each surface in the main-rooted
-    *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
-    *     just-flipped subtrees — their host morph re-rendered them wholesale)
-    *     patch its components binding the changed entity plus its
-    *     query-affected dynamics. Inactive members are never consulted — that
-    *     IS the hidden-branch no-updates guarantee, and it is structural: their
-    *     ids simply never enter the patch set.
+    * No client `uiState` reaches the pure pass at all, which is what lets one
+    * rendering serve every viewer. The one thing that cannot be — a branch
+    * whose subtree mounts a client-selected member — comes back as a
+    * [[Varying]] for the connection to resolve.
     */
   private[runtime] def sharedPatches(
       slug: String,
@@ -670,47 +637,6 @@ class Server(
       resp <- Ok(stream)
     } yield resp
 
-  /** What a (re)connecting client is sent before the live streams start. Three
-    * outcomes, narrowest first (ADR 0011):
-    *
-    *   1. '''Reload''' when the client's `<head>` no longer matches this
-    *      dashboard's UNPATCHABLE part ([[Renderer.headHash]]) — new
-    *      stylesheets, scripts or chrome. Nothing else is sent: the page is
-    *      about to re-render itself from scratch.
-    *   1. '''Resume''' when the cursor provably names what this DOM holds.
-    *   1. '''Repaint''' the whole body — the default, and where every doubt
-    *      lands.
-    *
-    * A stale THEME or `<title>` ([[Renderer.styleHash]]) is orthogonal to all
-    * three: it is repaired by [[headPatches]] in front of whichever outcome
-    * applies, so a re-themed dashboard no longer costs the client its scroll
-    * position and its open popup.
-    *
-    * '''The repaint is the default and every doubt falls back to it''': no
-    * cursor (a fresh page load, whose body is server-rendered anyway), an
-    * unparseable one, a cursor from a log this server no longer has (restart,
-    * renderer swap — which also covers every dashboard change, since one
-    * implies the other), a cursor from the FUTURE (a version this store never
-    * reached — a restart with a rewound counter), or one so old the log can no
-    * longer say what changed ([[FragmentLog.since]] returning `None`). A
-    * repaint is always correct and merely expensive; a wrong resume is silently
-    * stale forever.
-    *
-    * The cursor signals are re-emitted with the resume, because the resume
-    * itself brings the client up to the log's current version.
-    *
-    * '''One rule covers the surfaces too.''' Under the self/mount split a
-    * container patches its `self` alone, so nothing about a tab panel's or
-    * popup's nodes is per-client: they are simply candidates, reached through
-    * the session's `open` set, and sent only if they actually differ
-    * ([[Patches.resume]]) — no painting them fresh on every resume. An open
-    * popup needs no branch of its own either — a body repaint replaces
-    * `#dashboard` only, and `#popups` lives in the chrome outside it, so the
-    * dialog is never disturbed.
-    *
-    * The log is read ONCE, outside any `modify`, so a reconnect never
-    * serializes against the live diff path.
-    */
   /** The version a resume should ask for, which is NOT always the cursor's.
     *
     * `FragmentLog.since` uses `>=` because a cursor pushed alongside a patch
@@ -730,6 +656,22 @@ class Server(
   private def resumeFrom(req: Request[IO], c: Server.Cursor): Long =
     if (Server.hasSignals(req)) c.version else c.version + 1
 
+  /** What a (re)connecting client is sent before the live streams start. Three
+    * outcomes, narrowest first (ADR 0011): '''reload''' when the `<head>`'s
+    * unpatchable part moved ([[Renderer.headHash]]) and nothing else is worth
+    * sending; '''resume''' when the cursor provably names what this DOM holds;
+    * '''repaint''' the whole body.
+    *
+    * A stale theme or `<title>` ([[Renderer.styleHash]]) is orthogonal to all
+    * three and is repaired by [[headPatches]] in front of whichever applies, so
+    * a re-themed dashboard does not cost the client its scroll position.
+    *
+    * '''The repaint is where every doubt lands.''' It is always correct and
+    * merely expensive, where a wrong resume is silently stale forever.
+    *
+    * The log is read ONCE, outside any `modify`, so a reconnect never
+    * serializes against the live diff path.
+    */
   private def openingPatches(
       slug: String,
       live: Server.LiveSlug,
@@ -747,11 +689,12 @@ class Server(
             if (cursor.exists(_.styleHash != renderer.styleHash))
               Server.headPatches(renderer, slug)
             else Nil
-          // `Patches.resume` is TOTAL now — a container whose history aged out is
-          // answered with a fill for THAT mount, not a refusal. So the only
+          // `Patches.resume` is TOTAL — a container whose history aged out is
+          // answered with a fill for THAT mount, not a refusal — so the only
           // reasons left to repaint the body are the genuinely global ones
-          // checked here: no cursor at all, a cursor minted against another log,
-          // or one ahead of this store.
+          // checked here: no cursor at all, a cursor minted against another log
+          // (a restart or a renderer swap, which is every dashboard change), or
+          // one ahead of this store (a restart with a rewound counter).
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
             .map(c =>
@@ -771,10 +714,10 @@ class Server(
             PatchMode.Inner,
             Some("#dashboard")
           )
-          // An open popup needs no restore branch of its own any more: its nodes
-          // are in `open`, so the resume rule reconciles them on their own ids,
-          // and a body repaint replaces `#dashboard` only — `#popups` lives in
-          // the chrome outside it, so the dialog is never disturbed.
+          // An open popup needs no restore branch of its own: its nodes are in
+          // `open`, so the resume rule reconciles them on their own ids, and a
+          // body repaint replaces `#dashboard` only — `#popups` lives in the
+          // chrome outside it, so the dialog is never disturbed.
           //
           // What DOES need saying is a claim this dashboard no longer recognises
           // (its surface renamed or removed): that dialog belongs to nothing, is
@@ -1803,11 +1746,7 @@ object Server {
       .flatMap(io.circe.parser.parse(_).toOption)
       .map(_.hcursor)
 
-  /** The resume signals as one patch-signals event. Emitted on connect and
-    * after every shared patch batch, so a client's cursor names what it has
-    * actually been sent.
-    */
-  /** The WHOLE cursor: three facts that identify which renderer and which log a
+  /** The WHOLE cursor: three facts identifying which renderer and which log a
     * client's DOM belongs to, plus where it has got to.
     *
     * Sent only where the first three can actually change — on connect, and on a
@@ -1890,17 +1829,14 @@ object Server {
   val DatastarCdn: String =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
 
-  /** Escape a string for interpolation into HTML text/attribute content (the
-    * page `<title>`). Ampersand first so the entity replacements aren't
-    * double-escaped.
-    */
-  /** Escape a string for interpolation into a single-quoted JS string literal
-    * (a seeded signal value inside a Datastar expression). Backslash first, or
-    * the escapes we add would themselves be escaped.
+  /** For a single-quoted JS string literal (a seeded signal value inside a
+    * Datastar expression). Backslash FIRST, or the escapes added here would
+    * themselves be escaped.
     */
   private[runtime] def escapeJsString(s: String): String =
     s.replace("\\", "\\\\").replace("'", "\\'")
 
+  /** Ampersand FIRST, or the entity replacements are double-escaped. */
   def escapeHtml(s: String): String =
     s.replace("&", "&amp;")
       .replace("<", "&lt;")
