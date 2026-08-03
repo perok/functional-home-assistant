@@ -2283,16 +2283,32 @@ class ServerSuite extends munit.CatsEffectSuite {
     def drain: IO[List[ServerSentEvent]] =
       seen.getAndSet(Vector.empty).map(_.toList)
 
-    /** Wait for this client's stream to go QUIET — not for it to move.
+    /** Wait until this client has the WHOLE of what a change produced for it.
       *
-      * "This produced nothing for me" is a real and important answer (a hidden
-      * branch, a value that renders identically, a surface someone else is
-      * viewing), so waiting for movement would hang on exactly the cases worth
-      * asserting. Quiet needs a floor of observation to mean anything, hence
-      * the minimum window; after that it is a stability check rather than a
-      * fixed sleep, so a slow step still gets however long it needs.
+      * The batch announces its own end: the pass appends the cursor signal
+      * last, and that signal is untagged, so every connection receives it even
+      * when every element patch in the batch was filtered away from this one.
+      * Seeing a cursor therefore means "the batch is complete", exactly — no
+      * sampling, no window.
+      *
+      * The fallback is for the one case with no signal to wait for: a batch
+      * that produced nothing at all (every node suppressed by its digest)
+      * appends no cursor, because there is nothing to advance a client past.
+      * "This produced nothing for me" is a real and important answer, so that
+      * case falls back to observing quiet — and it is only ever reached by
+      * assertions whose expected answer is already `Nil`.
       */
     def settled: IO[Unit] =
+      IO.race(untilCursor, quiet).void.timeout(15.seconds)
+
+    private def untilCursor: IO[Unit] =
+      fs2.Stream
+        .repeatEval(seen.get <* IO.sleep(5.millis))
+        .find(_.exists(isCursor))
+        .compile
+        .drain
+
+    private def quiet: IO[Unit] =
       fs2.Stream
         .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
         .drop(6)
@@ -2305,7 +2321,6 @@ class ServerSuite extends munit.CatsEffectSuite {
         .find(w => w.toList.distinct.sizeIs == 1)
         .compile
         .drain
-        .timeout(15.seconds)
   }
 
   /** A booted server plus however many connected clients a test wants.
