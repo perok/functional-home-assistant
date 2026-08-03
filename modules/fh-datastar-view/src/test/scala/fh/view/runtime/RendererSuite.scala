@@ -20,12 +20,12 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  /** The affected dynamic ids with the membership delta dropped — a shape only
+  /** The affected dynamic ids with the touched entities dropped — a shape only
     * these tests want, so it lives here rather than as production API.
     */
   extension (r: Renderer)
     private def affectedDynamicIds(change: StateChange): List[String] =
-      r.affectedDynamics(change).map(_._1)
+      r.affectedDynamics(List(change)).map(_._1)
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -1559,29 +1559,48 @@ class RendererSuite extends munit.FunSuite {
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
     def high(id: String) =
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
-    // prev ∧ cur -> InPlace
+    // Matching either side touches the group, and the entity that did it is
+    // named — WHICH way it moved is the frame's question, not one change's.
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), low("s.b"))),
-      List("c" -> DynamicDelta.InPlace)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(low("s.b")), low("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
-    // ¬prev ∧ cur -> Added (both a high->low flip and a newly-seen match)
+    // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(high("s.b")), low("s.b"))),
-      List("c" -> DynamicDelta.Added)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(high("s.b")), low("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", None, low("s.b"))),
-      List("c" -> DynamicDelta.Added)
+      r.affectedDynamics(List(StateChange("s.b", None, low("s.b")))),
+      List("c" -> List("s.b"))
     )
-    // prev ∧ ¬cur -> Removed
+    // prev ∧ ¬cur
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), high("s.b"))),
-      List("c" -> DynamicDelta.Removed)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(low("s.b")), high("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
-      r.affectedDynamics(StateChange("s.z", Some(high("s.z")), high("s.z"))),
+      r.affectedDynamics(
+        List(StateChange("s.z", Some(high("s.z")), high("s.z")))
+      ),
       Nil
+    )
+    // One frame, several entities: ONE entry naming both.
+    assertEquals(
+      r.affectedDynamics(
+        List(
+          StateChange("s.b", Some(high("s.b")), low("s.b")),
+          StateChange("s.c", Some(low("s.c")), high("s.c"))
+        )
+      ),
+      List("c" -> List("s.b", "s.c"))
     )
   }
 

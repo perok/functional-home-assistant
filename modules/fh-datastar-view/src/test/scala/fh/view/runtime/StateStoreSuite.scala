@@ -32,7 +32,7 @@ class StateStoreSuite extends munit.FunSuite {
       _ <- store.update(st("a", "1"))
       _ <- store.update(st("b", "on"))
       out <- collected.joinWithNever
-    } yield out).timeout(10.seconds).unsafeRunSync()
+    } yield out.flatten).timeout(10.seconds).unsafeRunSync()
 
     // Only `b` (new) came through; the identical re-apply of `a` was dropped.
     assertEquals(changes.map(_.entityId), List("b"))
@@ -54,7 +54,7 @@ class StateStoreSuite extends munit.FunSuite {
       _ <- store.update(attrs("b", "off", "brightness", "0")) // changed
       _ <- store.update(st("c", "42")) // appeared during the outage
       out <- collected.joinWithNever
-    } yield out).timeout(10.seconds).unsafeRunSync()
+    } yield out.flatten).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(changes.map(_.entityId), List("b", "c"))
     // The change carries the pre-outage value, so a dynamic group can tell it

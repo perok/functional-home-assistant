@@ -411,7 +411,7 @@ class Server(
       slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
-      change: StateChange
+      changes: List[StateChange]
   ): IO[List[Directed]] =
     (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
       (store, millis, opens) =>
@@ -428,7 +428,7 @@ class Server(
           renderer,
           store.entities,
           Stamp(store.version, millis),
-          change,
+          changes,
           visible
         )
         log

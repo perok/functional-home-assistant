@@ -27,21 +27,6 @@ import fh.view.model.{
   */
 private[runtime] type Selections = Map[NodeId, Int]
 
-/** How one state change moves the changed entity across a dynamic group's
-  * membership boundary — the two query-match booleans (before ∧ after) kept
-  * apart instead of collapsed to a single "touched" flag, so the live-patch
-  * path can narrow a whole-group re-render down to a per-entity patch.
-  *
-  *   - [[InPlace]] (`prev ∧ cur`): the entity was and still is a member — its
-  *     card is re-rendered and outer-morphed in place (the hot path). Covers a
-  *     case-branch switch for free (the child id doesn't encode the branch).
-  *   - [[Added]] (`¬prev ∧ cur`): the entity newly matches — a member joins.
-  *   - [[Removed]] (`prev ∧ ¬cur`): the entity no longer matches — a member
-  *     leaves.
-  */
-enum DynamicDelta:
-  case InPlace, Added, Removed
-
 /** Renders the recursive dashboard layout tree from current entity state.
   *
   * Every node is a `Component` referencing a shared template by name; a
@@ -180,52 +165,50 @@ class Renderer(
       id -> d.query
     }
 
-  /** How a state change moves the changed entity across one dynamic group's
-    * membership boundary, or `None` when it leaves the group untouched. Derived
-    * from the group's *query* match before vs after the change: `prev ∧ cur` is
-    * an in-place update of a member ([[DynamicDelta.InPlace]]), `¬prev ∧ cur` a
-    * join ([[DynamicDelta.Added]]), `prev ∧ ¬cur` a leave
-    * ([[DynamicDelta.Removed]]); matching neither side changes nothing
-    * (`None`). The two booleans are kept apart (rather than collapsed to
-    * "touched") so the Server can patch a member in place vs. add/remove it
-    * per-entity.
+  /** Whether `change` touches this dynamic group at all — i.e. whether the
+    * group's *query* matched the entity before or after it. Matching neither
+    * side leaves the group alone.
+    *
+    * It used to answer the finer question (joined / left / updated in place),
+    * which a single change can decide but a FRAME cannot: two entities can move
+    * in opposite directions in one tick. The membership compare in
+    * `Patches.renderDynamicGroup` answers it for the frame as a whole, over the
+    * before/after member lists, so this only has to select the groups worth
+    * looking at.
     */
-  private def dynamicDelta(
-      id: NodeId,
-      change: StateChange
-  ): Option[DynamicDelta] = {
+  private def touchesDynamic(id: NodeId, change: StateChange): Boolean = {
     val query = dynamicQueries.getOrElse(id, None)
     def matchesQuery(st: EntityState): Boolean =
       query.forall(Renderer.matches(_, st))
-    val prev = change.previous.exists(matchesQuery)
-    val cur = matchesQuery(change.current)
-    (prev, cur) match {
-      case (true, true)   => Some(DynamicDelta.InPlace)
-      case (false, true)  => Some(DynamicDelta.Added)
-      case (true, false)  => Some(DynamicDelta.Removed)
-      case (false, false) => None
-    }
+    change.previous.exists(matchesQuery) || matchesQuery(change.current)
   }
 
-  /** Main-page dynamic containers this change affects, each with the membership
-    * delta ([[dynamicDelta]]) so the caller can pick a per-entity patch vs. a
-    * whole-group repaint. Unrelated entities are filtered out, sparing the
-    * whole-group re-scan + re-render on every event.
+  /** Main-page dynamic containers this frame touches, each with the changed
+    * entities that touched it.
     */
-  def affectedDynamics(change: StateChange): List[(NodeId, DynamicDelta)] =
-    mainIndex.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
+  def affectedDynamics(
+      changes: List[StateChange]
+  ): List[(NodeId, List[String])] =
+    mainIndex.dynamicIds.flatMap(id => touchedBy(id, changes))
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(
       surfaceId: String,
-      change: StateChange
-  ): List[(NodeId, DynamicDelta)] =
+      changes: List[StateChange]
+  ): List[(NodeId, List[String])] =
     surfaceIndexes
       .get(surfaceId)
       .toList
-      .flatMap(
-        _.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
-      )
+      .flatMap(_.dynamicIds.flatMap(id => touchedBy(id, changes)))
+
+  private def touchedBy(
+      id: NodeId,
+      changes: List[StateChange]
+  ): Option[(NodeId, List[String])] =
+    changes.filter(touchesDynamic(id, _)).map(_.entityId) match {
+      case Nil     => None
+      case touched => Some(id -> touched)
+    }
 
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
@@ -562,6 +545,12 @@ class Renderer(
     * the shortcut: its mere appearance can move an `all`/`none` aggregate
     * without any per-entity flip.
     */
+  private def conditionTouched(
+      gid: NodeId,
+      changes: List[StateChange]
+  ): Boolean =
+    changes.exists(conditionTouched(gid, _))
+
   private def conditionTouched(gid: NodeId, change: StateChange): Boolean =
     change.previous match {
       case None       => true
@@ -587,11 +576,11 @@ class Renderer(
     * returned host and prunes its members' cache entries.
     */
   def affectedStateGroups(
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
   ): List[NodeId] =
-    affectedStateGroupsFrom("", change, before, states)
+    affectedStateGroupsFrom("", changes, before, states)
 
   /** Like [[affectedStateGroups]], rooted at one surface's content tree — the
     * per-session variant for state groups inside an OPEN (user) surface, whose
@@ -599,26 +588,26 @@ class Renderer(
     */
   def affectedStateGroupsIn(
       surfaceId: String,
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
   ): List[NodeId] =
-    affectedStateGroupsFrom(surfaceId, change, before, states)
+    affectedStateGroupsFrom(surfaceId, changes, before, states)
 
   private def affectedStateGroupsFrom(
       root: String,
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
   ): List[NodeId] =
     stateGidsAtRoot(root).flatMap { gid =>
       val flipped =
-        conditionTouched(gid, change) &&
+        conditionTouched(gid, changes) &&
           resolveActiveByState(gid, before) != resolveActiveByState(gid, states)
       // Recurse into the CURRENTLY selected member only: nested groups in the
       // inactive branch are not in any client's DOM.
       val nested = resolveActiveByState(gid, states).toList.flatMap(idx =>
-        affectedStateGroupsFrom(bakeGroup(gid)(idx), change, before, states)
+        affectedStateGroupsFrom(bakeGroup(gid)(idx), changes, before, states)
       )
       (if (flipped) List(gid) else Nil) ++ nested
     }

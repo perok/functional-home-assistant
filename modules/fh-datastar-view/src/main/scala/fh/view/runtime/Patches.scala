@@ -169,9 +169,10 @@ private[runtime] object Patches {
       // is computed lazily, once per variant somebody actually holds — see
       // `Server.varyingPatches`.
       varyingIds: List[(NodeId, Option[String])],
-      dynamics: List[(NodeId, Option[String], DynamicDelta)],
+      // Each affected group with the entities this frame moved inside it.
+      dynamics: List[(NodeId, Option[String], List[String])],
       flips: List[(NodeId, Option[String])],
-      change: StateChange,
+      changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       // When `states` was read (see [[Stamp]]), applied to every fragment and
@@ -181,22 +182,29 @@ private[runtime] object Patches {
       stamp: Stamp
   )
 
-  /** The snapshot as it was BEFORE this change — the current snapshot with the
-    * changed entity rewound to its `previous` value (or dropped when it was
-    * newly seen). Lets a dynamic group compute its membership before vs. after
-    * from a single [[StateChange]], without the store tracking prior snapshots.
+  /** The snapshot as it was BEFORE this FRAME — the current snapshot with every
+    * entity the frame moved rewound to its `previous` value (or dropped, when
+    * it was newly seen). Lets a dynamic group compute its membership before vs.
+    * after without the store tracking prior snapshots.
+    *
+    * All of them, not one: rewinding a single entity while its frame-mates hold
+    * their new values describes an instant that never existed, and a condition
+    * reading two of them would be asked about it.
     */
   def beforeSnapshot(
       states: Map[String, EntityState],
-      change: StateChange
+      changes: List[StateChange]
   ): Map[String, EntityState] =
-    change.previous.fold(states - change.entityId)(p =>
-      states.updated(change.entityId, p)
-    )
+    changes.foldLeft(states) { (acc, change) =>
+      change.previous.fold(acc - change.entityId)(p =>
+        acc.updated(change.entityId, p)
+      )
+    }
 
-  /** Select what `change` touches for EVERY client on this dashboard, against
-    * `states` — one pass, whose patches are then addressed per client by their
-    * [[Addressed]] tag rather than re-selected per connection.
+  /** Select what one FRAME of changes touches for EVERY client on this
+    * dashboard, against `states` — one pass, whose patches are then addressed
+    * per client by their [[Addressed]] tag rather than re-selected per
+    * connection.
     *
     * `visible` is the union of the connected clients' open surfaces. It is a
     * render GATE, not a correctness input: a surface nobody has open is not
@@ -204,7 +212,7 @@ private[runtime] object Patches {
     * tag still hides each patch from clients who cannot see it); erring narrow
     * would drop an update someone needed.
     *
-    *   - '''Flips''': each state group whose selection this change moves gets
+    *   - '''Flips''': each state group whose selection this frame moves gets
     *     its HOST re-rendered ([[Renderer]]'s bake picks the newly-selected
     *     member against CURRENT state), morphed, and its members' cache entries
     *     pruned ([[flipStateGroup]]).
@@ -225,32 +233,41 @@ private[runtime] object Patches {
       renderer: Renderer,
       states: Map[String, EntityState],
       stamp: Stamp,
-      change: StateChange,
+      changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
-    val before = beforeSnapshot(states, change)
-    val flips = (renderer.affectedStateGroups(change, before, states) ++
+    val before = beforeSnapshot(states, changes)
+    val flips = (renderer.affectedStateGroups(changes, before, states) ++
       visible.toList.flatMap(sid =>
-        renderer.affectedStateGroupsIn(sid, change, before, states)
+        renderer.affectedStateGroupsIn(sid, changes, before, states)
       )).distinct
     val flipped = flips.toSet
     val activeSids = renderer.activeStateSurfaces(states, flipped) ++
       visible.flatMap(renderer.activeStateSurfacesIn(_, states, flipped))
     val sids = (visible ++ activeSids).toList
-    val staticIds =
-      (renderer.componentsFor(change.entityId).toList ++
-        sids.flatMap(sid =>
-          renderer.surfaceComponentsFor(sid, change.entityId).toList
-        )).distinct.filterNot(flipped)
+    val staticIds = changes
+      .flatMap(c =>
+        renderer.componentsFor(c.entityId).toList ++
+          sids.flatMap(sid =>
+            renderer.surfaceComponentsFor(sid, c.entityId).toList
+          )
+      )
+      .distinct
+      .filterNot(flipped)
+    // One entry per group, however many of the frame's entities moved inside
+    // it: the membership question is asked once, at the frame boundary.
     val dynamics =
-      (renderer.affectedDynamics(change) ++
-        sids.flatMap(renderer.affectedSurfaceDynamics(_, change))).distinct
+      (renderer.affectedDynamics(changes) ++
+        sids.flatMap(renderer.affectedSurfaceDynamics(_, changes)))
+        .groupMapReduce(_._1)(_._2)(_ ++ _)
+        .toList
+        .map { case (gid, touched) => (gid, touched.distinct) }
     request(
       renderer,
       staticIds,
       dynamics,
       flips,
-      change,
+      changes,
       states,
       before,
       stamp
@@ -267,9 +284,9 @@ private[runtime] object Patches {
   private def request(
       renderer: Renderer,
       staticIds: List[NodeId],
-      dynamics: List[(NodeId, DynamicDelta)],
+      dynamics: List[(NodeId, List[String])],
       flips: List[NodeId],
-      change: StateChange,
+      changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       stamp: Stamp
@@ -281,7 +298,7 @@ private[runtime] object Patches {
       varying.map(id => id -> tag(id)),
       dynamics.map { case (gid, d) => (gid, tag(gid), d) },
       flips.map(gid => gid -> tag(gid)),
-      change,
+      changes,
       states,
       before,
       stamp
@@ -352,14 +369,13 @@ private[runtime] object Patches {
       }
     val (finalLog, dynPatches) =
       req.dynamics.foldLeft((logAfterStatic, List.empty[Directed])) {
-        case ((c, acc), (gid, surface, delta)) =>
+        case ((c, acc), (gid, surface, touched)) =>
           val (c2, ps) =
             renderDynamicGroup(
               renderer,
               c,
               gid,
-              delta,
-              req.change,
+              touched,
               req.states,
               req.before,
               at
@@ -798,60 +814,50 @@ private[runtime] object Patches {
         departed.map(id => Patch.Remove(renderer.elementId(id))).toList
     }
 
-  /** Patch one affected dynamic group. [[DynamicDelta.InPlace]] re-renders the
-    * changed entity's single child and morphs it (unless a case change actually
-    * moved membership — then it falls through to the membership path). An add
-    * or remove diffs the group's rendered membership before vs. after and
-    * either patches the delta per-entity or repaints the whole group
-    * ([[renderMembershipChange]]).
+  /** Patch one affected dynamic group, for the whole frame.
+    *
+    * The membership question is asked ONCE, at the frame boundary: the group's
+    * rendered members before vs. after. Unmoved means every entity the frame
+    * touched here is still exactly where it was, so each gets an in-place morph
+    * of its own card. Moved means reconcile ([[renderMembershipChange]]) —
+    * once, however many entities did the moving.
+    *
+    * Per entity, this could not be answered: two entities can cross the query
+    * boundary in opposite directions in one tick, and each single-entity view
+    * of that reports a membership change the frame did not make.
     */
   private def renderDynamicGroup(
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
-      delta: DynamicDelta,
-      change: StateChange,
+      touched: List[String],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       at: Stamp
-  ): (FragmentLog, List[Patch]) =
-    delta match {
-      case DynamicDelta.InPlace =>
-        // The query boundary was not crossed. Normally re-render just this
-        // entity's card; but a case that gained/lost this entity moves the
-        // rendered membership even at a fixed query match, so reconcile against
-        // the actual member lists and fall through if they differ.
-        val membersBefore = renderer.dynamicMembers(gid, before)
-        val membersAfter = renderer.dynamicMembers(gid, states)
-        if (membersBefore == membersAfter)
-          renderer.renderDynamicChild(gid, change.entityId, states) match {
-            case None => (log, Nil) // not a current member — nothing to do
-            case Some(html) =>
-              val cid = renderer.dynamicChildId(gid, change.entityId)
-              if (log.holds(cid, html)) (log, Nil)
-              else (log.set(cid, html, at.version), List(Patch.Morph(html)))
-          }
-        else
-          renderMembershipChange(
-            renderer,
-            log,
-            gid,
-            membersBefore,
-            membersAfter,
-            states,
-            at
-          )
-      case DynamicDelta.Added | DynamicDelta.Removed =>
-        renderMembershipChange(
-          renderer,
-          log,
-          gid,
-          renderer.dynamicMembers(gid, before),
-          renderer.dynamicMembers(gid, states),
-          states,
-          at
-        )
-    }
+  ): (FragmentLog, List[Patch]) = {
+    val membersBefore = renderer.dynamicMembers(gid, before)
+    val membersAfter = renderer.dynamicMembers(gid, states)
+    if (membersBefore != membersAfter)
+      renderMembershipChange(
+        renderer,
+        log,
+        gid,
+        membersBefore,
+        membersAfter,
+        states,
+        at
+      )
+    else
+      touched.foldLeft((log, List.empty[Patch])) { case ((c, acc), entityId) =>
+        renderer.renderDynamicChild(gid, entityId, states) match {
+          case None       => (c, acc) // not a current member
+          case Some(html) =>
+            val cid = renderer.dynamicChildId(gid, entityId)
+            if (c.holds(cid, html)) (c, acc)
+            else (c.set(cid, html, at.version), acc :+ Patch.Morph(html))
+        }
+      }
+  }
 
   /** Apply a membership change to a dynamic group. When the churn (entities
     * added + removed) is a small enough fraction of the group's rendered size

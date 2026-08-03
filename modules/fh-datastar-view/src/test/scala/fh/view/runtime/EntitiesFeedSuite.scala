@@ -225,7 +225,7 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
         }
         .flatMap(_.embedNever)
     } yield assertEquals(
-      published.map(c => (c.entityId, c.current.state)),
+      published.flatten.map(c => (c.entityId, c.current.state)),
       List(("sensor.ams", "99"))
     )
   }

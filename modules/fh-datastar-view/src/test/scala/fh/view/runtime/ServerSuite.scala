@@ -913,7 +913,7 @@ class ServerSuite extends munit.CatsEffectSuite {
               "dashboard",
               renderer,
               cache,
-              change
+              List(change)
             )
             events <- received(patches, store)
             // AFTER forcing: a deferred render writes its digests when a viewer
@@ -1150,7 +1150,12 @@ class ServerSuite extends munit.CatsEffectSuite {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(Map.empty))
             // ONE render for the slug; who sees it is the tag's job.
-            shared <- server.sharedPatches("dashboard", renderer, cache, change)
+            shared <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              cache,
+              List(change)
+            )
           } yield ready(shared)
         }
     } yield out)
@@ -1197,7 +1202,12 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- sessions.register("conn", session)
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(Map.empty))
-            ps <- server.sharedPatches("dashboard", renderer, cache, change)
+            ps <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              cache,
+              List(change)
+            )
           } yield ready(ps)
         }
     } yield patches)
@@ -1306,7 +1316,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           "dashboard",
           renderer,
           cache,
-          StateChange(next.entityId, prev, next)
+          List(StateChange(next.entityId, prev, next))
         )
         events <- received(patches, store)
       } yield events).timeout(30.seconds)
@@ -1327,7 +1337,7 @@ class ServerSuite extends munit.CatsEffectSuite {
               "dashboard",
               renderer,
               cache,
-              StateChange(next.entityId, prev, next)
+              List(StateChange(next.entityId, prev, next))
             )
           } yield acc ++ ds
         }
@@ -1734,7 +1744,12 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
             cache <- Ref[IO].of(seedLog(Map.empty))
-            shared <- server.sharedPatches("dashboard", renderer, cache, change)
+            shared <- server.sharedPatches(
+              "dashboard",
+              renderer,
+              cache,
+              List(change)
+            )
             events <- received(shared, store)
           } yield (shared, events)
         }
@@ -2346,6 +2361,13 @@ class ServerSuite extends munit.CatsEffectSuite {
     /** Apply one change and wait for EVERY client to fall quiet. */
     def change(next: EntityState): IO[Unit] =
       store.update(next) *> clients.get.flatMap(_.traverse_(_.settled))
+
+    /** ONE HA frame carrying several entities — a single store update, as the
+      * feed delivers it.
+      */
+    def frame(nexts: List[EntityState]): IO[Unit] =
+      store.update(nexts.map(Ingest.Replace(_))) *>
+        clients.get.flatMap(_.traverse_(_.settled))
   }
 
   private def liveWorld(
@@ -2669,10 +2691,12 @@ class ServerSuite extends munit.CatsEffectSuite {
               "dashboard",
               renderer,
               live.log,
-              StateChange(
-                "sensor.a",
-                Some(es("sensor.a", "cold")),
-                es("sensor.a", "cold")
+              List(
+                StateChange(
+                  "sensor.a",
+                  Some(es("sensor.a", "cold")),
+                  es("sensor.a", "cold")
+                )
               )
             )
           } yield (beforeFill, afterFill, ready(same))
@@ -2779,10 +2803,12 @@ class ServerSuite extends munit.CatsEffectSuite {
         r,
         armed,
         Stamp(2L, 0L),
-        StateChange(
-          "alarm.h",
-          Some(es("alarm.h", "disarmed")),
-          es("alarm.h", "armed")
+        List(
+          StateChange(
+            "alarm.h",
+            Some(es("alarm.h", "disarmed")),
+            es("alarm.h", "armed")
+          )
         ),
         Set.empty
       )
@@ -3197,6 +3223,53 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("one frame is ONE batch: both elements, one cursor") {
+    // An HA frame carries many entity diffs and the store applies it in one
+    // update, bumping the version once. Publishing per entity split that
+    // instant into N passes, each ending with its own copy of the SAME cursor —
+    // observable on the wire as `storeVersion: 150` twice.
+    val twoCards = Dashboard(
+      cards = Map(
+        "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      ),
+      card = LayoutNode.Component(
+        "col",
+        children = List(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.a")))
+          ),
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.b")))
+          )
+        )
+      )
+    )
+    liveClient(
+      twoCards,
+      Map(
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { (world, client) =>
+      for {
+        _ <- client.drain
+        _ <- world.frame(List(es("sensor.a", "A1"), es("sensor.b", "B1")))
+        seen <- client.drain
+      } yield {
+        // Both entities' nodes are patched...
+        val elements = domEvents(seen).flatMap(_._3)
+        assert(elements.exists(_.contains("A1")), clue = seen)
+        assert(elements.exists(_.contains("B1")), clue = seen)
+        // ...and the frame ends ONCE. A second cursor here means the pass ran
+        // twice over one instant.
+        assertEquals(seen.count(isCursor), 1, clue = seen)
+      }
+    }
+  }
+
   test("viewers SHARING a selection each get the fill, not just the first") {
     // What is memoised is the VERDICT, not the render. Share the render and the
     // first viewer to force it writes the digest, so the second is told its
@@ -3243,9 +3316,11 @@ class ServerSuite extends munit.CatsEffectSuite {
         )
         assert(
           back2.exists(_.renderString.contains("A0")),
-          clue =
-            ("the SECOND viewer on that selection must get it too — a shared " +
-              "render would have let the first consume it", back2)
+          clue = (
+            "the SECOND viewer on that selection must get it too — a shared " +
+              "render would have let the first consume it",
+            back2
+          )
         )
         // Not vacuous by way of everyone getting everything: the other
         // selection still gets its own panel and neither of the others'.

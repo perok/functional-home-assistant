@@ -90,7 +90,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         // A real change -> published.
         _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
         change <- firstChange.joinWithNever
-      } yield change.current.state
+      } yield change.head.current.state
     }.assertEquals("13.1")
   }
 

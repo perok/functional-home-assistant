@@ -140,7 +140,9 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         one <- text(p, "#one")
         three <- text(p, "#three")
         _ <- IO(assertEquals(one, "NEW1", "the first element must morph"))
-        _ <- IO(assertEquals(three, "NEW3", "so must the second, by its own id"))
+        _ <- IO(
+          assertEquals(three, "NEW3", "so must the second, by its own id")
+        )
         // Not a wholesale body replace: an element the patch does not mention
         // keeps what it had, and keeps its POSITION between the two.
         two <- text(p, "#two")
