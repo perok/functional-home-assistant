@@ -3,7 +3,7 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
-import cats.effect.std.{AtomicCell, Supervisor}
+import cats.effect.std.Supervisor
 import cats.syntax.all.*
 import fh.view.build.{
   AddonBootstrap,
@@ -382,7 +382,7 @@ class Server(
   private[runtime] def sharedPatches(
       slug: String,
       renderer: Renderer,
-      log: AtomicCell[IO, FragmentLog],
+      log: Ref[IO, FragmentLog],
       changes: List[StateChange]
   ): IO[List[Directed]] =
     (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
@@ -1355,21 +1355,12 @@ object Server {
     * has to be reachable from a reconnecting connection ([[Server.sseStream]]),
     * not just from the publisher fiber that writes it.
     *
-    * The log cell is stable per slug; a renderer swap replaces its CONTENTS
-    * with a freshly-identified log ([[Server.publisherFor]]) rather than the
-    * cell.
-    *
-    * '''`AtomicCell`, not `Ref`''': the functions modifying this are pure but
-    * NOT cheap — [[Patches.diff]] renders every affected node and digests the
-    * bytes. A `Ref.modify` is a CAS loop, so under the contention this cell
-    * actually sees (the publisher fiber, a connection forcing a pending
-    * variant, an action POST filling a host, a page load seeding it) a losing
-    * writer re-runs that whole render. `AtomicCell` serialises writers on a
-    * mutex instead, so the work happens once per writer; `get` stays lock-free.
+    * The log ref is stable per slug; a renderer swap replaces its CONTENTS with
+    * a freshly-identified log ([[Server.publisherFor]]) rather than the ref.
     */
   private[runtime] case class LiveSlug(
       renderer: SignallingRef[IO, Renderer],
-      log: AtomicCell[IO, FragmentLog]
+      log: Ref[IO, FragmentLog]
   )
 
   /** An empty log with a fresh identity. Minted per slug at startup and again
@@ -1404,9 +1395,7 @@ object Server {
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList
         .traverse { case (slug, r) =>
-          freshLog
-            .flatMap(AtomicCell[IO].of)
-            .map(log => slug -> LiveSlug(r, log))
+          freshLog.flatMap(Ref[IO].of).map(log => slug -> LiveSlug(r, log))
         }
         .map(_.toMap)
         .toResource

@@ -4,7 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.effect.IO
 import cats.effect.kernel.Ref
-import cats.effect.std.{AtomicCell, Supervisor}
+import cats.effect.std.Supervisor
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
@@ -908,7 +908,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         .use { server =>
           for {
             renderer <- ref.get
-            cache <- AtomicCell[IO].of(seedLog(seedCache))
+            cache <- Ref[IO].of(seedLog(seedCache))
             patches <- server.sharedPatches(
               "dashboard",
               renderer,
@@ -1148,7 +1148,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- viewingT1.open.set(Set("c_t1"))
             _ <- sessions.register("b", viewingT1)
             renderer <- ref.get
-            cache <- AtomicCell[IO].of(seedLog(Map.empty))
+            cache <- Ref[IO].of(seedLog(Map.empty))
             // ONE render for the slug; who sees it is the tag's job.
             shared <- server.sharedPatches(
               "dashboard",
@@ -1201,7 +1201,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
             renderer <- ref.get
-            cache <- AtomicCell[IO].of(seedLog(Map.empty))
+            cache <- Ref[IO].of(seedLog(Map.empty))
             ps <- server.sharedPatches(
               "dashboard",
               renderer,
@@ -1306,7 +1306,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       store: StateStore,
       val server: Server,
       renderer: Renderer,
-      cache: AtomicCell[IO, FragmentLog]
+      cache: Ref[IO, FragmentLog]
   ) {
     private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
       (for {
@@ -1421,7 +1421,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
         fake <- FakeHomeAssistant.create(Nil)
-        slugLog <- Server.freshLog.flatMap(AtomicCell[IO].of)
+        slugLog <- Server.freshLog.flatMap(Ref[IO].of)
         registry <- Ref[IO].of(
           Map("dashboard" -> Server.LiveSlug(ref, slugLog))
         )
@@ -1743,7 +1743,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
-            cache <- AtomicCell[IO].of(seedLog(Map.empty))
+            cache <- Ref[IO].of(seedLog(Map.empty))
             shared <- server.sharedPatches(
               "dashboard",
               renderer,
