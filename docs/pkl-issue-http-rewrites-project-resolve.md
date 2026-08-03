@@ -135,6 +135,13 @@ pkl project resolve ws --settings settings.pkl \
   --allowed-resources "prop:,env:,file:,modulepath:,package:,projectpackage:,https:,^http://127[.]0[.]0[.]1:9/"
 ```
 
-That is not reachable from the IntelliJ plugin's sync, so on 0.32 a workspace
-whose mirror is plain http cannot be synced from the IDE at all — while the
-same project resolves fine from inside its own directory.
+That is not reachable from the IntelliJ plugin's sync UI, so on 0.32 a workspace
+whose mirror is plain http cannot be synced from the IDE — while the same
+project resolves fine from inside its own directory.
+
+Our workaround is `scripts/pkl-fh`: the plugin is configured with a path to a
+Pkl executable, so that path can be a wrapper which forwards every argument and
+injects `--http-rewrite` + `--allowed-resources`, read from the workspace's own
+`.fh/machine.json`. It only injects for the subcommands that accept the flags,
+so `--version`/`format` still pass through. That works, but it is a workaround
+for configuration the project already declares and the resolver already loaded.

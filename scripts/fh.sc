@@ -493,10 +493,10 @@ def pklUserSettings: Path =
   * From pkl 0.32 this is NOT sufficient on its own for an http instance: the
   * resource allowlist is checked against the rewritten url too, dir-arg mode
   * skips the project's `allowedResources` the same way it skips the rewrites,
-  * and `pkl:settings` has no `allowedResources` property to lift it into. The
-  * IDE has no way to pass `--allowed-resources`, so IDE sync stays broken there
-  * while `fh pull` and a resolve from inside the workspace both work (verified
-  * on 0.32.1; see docs/pkl-issue-http-rewrites-project-resolve.md).
+  * and `pkl:settings` has no `allowedResources` property to lift it into. Only
+  * the command line can carry it, so point the IDE's Pkl executable at
+  * `scripts/pkl-fh`, which injects both flags (verified on 0.32.1; see
+  * docs/pkl-issue-http-rewrites-project-resolve.md).
   */
 def lspFixContent(url: String): String =
   s"""amends "pkl:settings"
@@ -538,8 +538,8 @@ def writeLspFix(settings: Path, rawUrl: String): IO[Unit] = IO.blocking {
     println(
       s"wrote $settings — `pkl project resolve <dir>` now reaches this " +
         s"workspace's packages via $url (instance must be up). On pkl 0.32+ " +
-        "an http instance also needs an allowlist the IDE cannot pass, so " +
-        "resolve from inside the workspace if IDE sync still refuses."
+        "an http instance ALSO needs an allowlist that only the command line " +
+        "carries: point the IDE's Pkl executable at scripts/pkl-fh."
     )
 }
 
