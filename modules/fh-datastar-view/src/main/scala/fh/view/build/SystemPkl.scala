@@ -90,19 +90,25 @@ object SystemPkl {
       def module(name: String): IO[String] =
         name match {
           case "dump.pkl" =>
-            Pins.homeVersion(dashboardsDir) match {
+            // Every disk touch on this path is `IO.blocking`: these routes are
+            // served from the same pool that renders fragments, and a dump zip
+            // is not small.
+            IO.blocking(Pins.homeVersion(dashboardsDir)).flatMap {
               case None =>
                 FHError
                   .notFound("no dump yet — this home has not been built")
                   .raiseError[IO, String]
               case Some(version) =>
                 val ref = PackageRef(DumpPackage.Name, version)
-                readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
-                  .liftTo[IO](
+                IO.blocking(
+                  readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
+                ).flatMap(
+                  _.liftTo[IO](
                     FHError.notFound(
                       s"dump package $version is not in the cache"
                     )
                   )
+                )
             }
           case "hass.pkl" =>
             FHError
@@ -121,12 +127,13 @@ object SystemPkl {
       // un-bootstrapped workspace), not a state a correctly-started home can
       // reach — hence [[FHError.internal]], not [[FHError.notFound]].
       override def packagesIndex: IO[String] =
-        DumpPackage
-          .index(dashboardsDir)
-          .liftTo[IO](
-            FHError.internal(
-              "package index unavailable — this workspace was not " +
-                "bootstrapped (no lib package seeded / no dump written)"
+        IO.blocking(DumpPackage.index(dashboardsDir))
+          .flatMap(
+            _.liftTo[IO](
+              FHError.internal(
+                "package index unavailable — this workspace was not " +
+                  "bootstrapped (no lib package seeded / no dump written)"
+              )
             )
           )
       override def packageArtifact(file: String): IO[Array[Byte]] = {
@@ -143,11 +150,10 @@ object SystemPkl {
             .raiseError[IO, Array[Byte]]
         else {
           val path = PackageRef.entryDir(cache, base) / s"$base$suffix"
-          if (os.exists(path)) IO.pure(os.read.bytes(path))
-          else
-            FHError
-              .notFound(s"no such artifact: $file")
-              .raiseError[IO, Array[Byte]]
+          IO.blocking(Option.when(os.exists(path))(os.read.bytes(path)))
+            .flatMap(
+              _.liftTo[IO](FHError.notFound(s"no such artifact: $file"))
+            )
         }
       }
     }

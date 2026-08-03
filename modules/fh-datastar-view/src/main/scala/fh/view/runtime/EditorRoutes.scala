@@ -55,9 +55,14 @@ final class EditorRoutes(
         serveAsset(req, asset)
 
       case GET -> Root / "edit" / "files" =>
-        Ok(listFiles).map(
-          _.withContentType(`Content-Type`(MediaType.application.json))
-        )
+        // `listFiles` walks the dashboards dir — blocking, so it must not run
+        // on the pool that renders fragments.
+        IO.blocking(listFiles)
+          .flatMap(
+            Ok(_).map(
+              _.withContentType(`Content-Type`(MediaType.application.json))
+            )
+          )
 
       case req @ GET -> "edit" /: "file" /: rest =>
         resolveEditable(rest) match {
