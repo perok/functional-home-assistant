@@ -61,7 +61,7 @@ lazy val `ha-api` = project // todo add api layer here as well
     ),
     libraryDependencies ++= Seq(
       "org.scalameta" %% "munit" % "1.3.3" % Test,
-      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test
+      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test
     )
   )
 
