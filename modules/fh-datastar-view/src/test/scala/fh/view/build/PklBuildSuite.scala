@@ -246,6 +246,13 @@ class PklBuildSuite extends munit.FunSuite {
          |      ["https://fh.invalid/"] = "http://127.0.0.1:$port/"
          |    }
          |  }
+         |  // This rewrite points somewhere base.pkl's instance-scoped entry
+         |  // does not cover, so the origin has to be allowed too — exactly what
+         |  // a user adding their own registry must do. Amending a Listing
+         |  // APPENDS, so base.pkl's entries survive.
+         |  allowedResources {
+         |    "^http://127[.]0[.]0[.]1:$port/"
+         |  }
          |}
          |dependencies {
          |  ["thirdparty"] { uri = "package://fh.invalid/thirdparty@$version" }

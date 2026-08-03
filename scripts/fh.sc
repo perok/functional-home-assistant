@@ -137,13 +137,39 @@ def projectHttpClient(
     }
     .build()
 
+/** The manifest's own `allowedResources`/`allowedModules`, lifted into a
+  * security manager.
+  *
+  * From pkl 0.32 the resource allowlist is checked against the REWRITTEN url,
+  * and `.fh/base.pkl` rewrites `package://fh.invalid/…` to this instance's LAN
+  * address — plain http, since a home add-on has no certificate. base.pkl
+  * therefore allows exactly that one origin; `applyFromProject` gives the
+  * evaluator those lists, but `PackageResolver` takes its manager as an
+  * argument, so resolution has to be handed the same thing.
+  */
+def securityManagerFor(
+    project: org.pkl.core.project.Project
+): org.pkl.core.SecurityManager =
+  val settings = project.getEvaluatorSettings
+  org.pkl.core.SecurityManagers
+    .standardBuilder()
+    // standardBuilder() starts EMPTY — the defaults are not implied.
+    .addAllowedModules(
+      Option(settings.allowedModules)
+        .getOrElse(org.pkl.core.SecurityManagers.defaultAllowedModules)
+    )
+    .addAllowedResources(
+      Option(settings.allowedResources)
+        .getOrElse(org.pkl.core.SecurityManagers.defaultAllowedResources)
+    )
+    .build()
+
 /** `pkl project resolve`, in-process: resolve the manifest's dependencies from
   * the instance (packages land in the machine.json cache) and write the
   * lockfile. Client and cache both come off the loaded project, so what the
   * manifest declares is what resolution uses.
   */
 def resolveDeps(): IO[Unit] = IO.blocking {
-  import org.pkl.core.SecurityManagers
   import org.pkl.core.packages.PackageResolver
   import org.pkl.core.project.ProjectDependenciesResolver
   val project = loadProject()
@@ -155,7 +181,7 @@ def resolveDeps(): IO[Unit] = IO.blocking {
   val resolver = new ProjectDependenciesResolver(
     project,
     PackageResolver.getInstance(
-      SecurityManagers.defaultManager,
+      securityManagerFor(project),
       projectHttpClient(project),
       cache
     ),

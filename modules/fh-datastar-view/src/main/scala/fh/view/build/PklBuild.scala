@@ -66,6 +66,43 @@ object PklBuild {
     }
   }
 
+  /** The security manager for a resolve/analyze, taken from the workspace's own
+    * `evaluatorSettings.allowedResources`.
+    *
+    * pkl's default allowlist admits `https:` but never plain `http:`. Through
+    * 0.31 that was invisible to us, because the allowlist was checked against
+    * the `package://fh.invalid/…` URI the author wrote — which matches
+    * `package:`. Since 0.32 the check runs on the POST-rewrite URL, and ADR
+    * 0010 rewrites that authority to the instance's LAN address, which is plain
+    * http. So `defaultManager` now refuses every package fetch.
+    *
+    * `.fh/base.pkl` is where the widening is declared — one source of truth,
+    * scoped to that one instance, and the same field the `pkl` CLI and pkl-lsp
+    * read. The evaluator gets it for free via `applyFromProject`; a
+    * `PackageResolver`/`Analyzer` takes its manager as an argument, so this
+    * lifts the project's own lists into one. No project (plain-eval probes, no
+    * `PklProject`) means no package fetch, so pkl's defaults stand.
+    */
+  def securityManagerFor(
+      project: Option[Project]
+  ): org.pkl.core.SecurityManager =
+    project.fold(SecurityManagers.defaultManager) { p =>
+      val settings = p.getEvaluatorSettings
+      SecurityManagers
+        .standardBuilder()
+        // standardBuilder() starts EMPTY — the defaults are not implied, and a
+        // manifest that declares neither list must still get them.
+        .addAllowedModules(
+          Option(settings.allowedModules)
+            .getOrElse(SecurityManagers.defaultAllowedModules)
+        )
+        .addAllowedResources(
+          Option(settings.allowedResources)
+            .getOrElse(SecurityManagers.defaultAllowedResources)
+        )
+        .build()
+    }
+
   /** The evaluator for one eval.
     *
     * When the dashboards dir is a Pkl project (has a `PklProject`), `project`
@@ -73,9 +110,10 @@ object PklBuild {
     * `lib/` library through the `@fh-dashboard` alias and the dump through
     * `@fh-home` (ADR 0010) — both resolved offline from the seeded cache
     * packages. Plain relative-import evals — most unit probes, no `PklProject`
-    * — pass `None` and behave exactly as `Evaluator.preconfigured()`. No Pkl
-    * source imports over http, so the preconfigured allowlist (which already
-    * admits `package:`/`projectpackage:`) needs no widening.
+    * — pass `None` and behave exactly as `Evaluator.preconfigured()`.
+    * `applyFromProject` also carries the manifest's `allowedResources`, which
+    * is what lets an eval fetch a package the resolve left uncached (see
+    * [[securityManagerFor]]).
     */
   private def buildEvaluator(
       project: Option[Project],
@@ -116,7 +154,7 @@ object PklBuild {
         val resolver = new ProjectDependenciesResolver(
           project,
           PackageResolver.getInstance(
-            SecurityManagers.defaultManager,
+            securityManagerFor(Some(project)),
             settingsHttpClient(project),
             cacheDir(dashboardsDir, Some(project)).toNIO
           ),
@@ -273,7 +311,7 @@ object PklBuild {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
-        SecurityManagers.defaultManager,
+        securityManagerFor(project),
         factories.asJava,
         cacheDir(dashboardsDir, project).toNIO,
         project.map(_.getDependencies).orNull,
