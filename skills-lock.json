@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "scala-code-optimizer": {
+      "source": "abh80/skills",
+      "sourceType": "github",
+      "skillPath": "scala-code-optimizer/SKILL.md",
+      "computedHash": "12b9c2ca8af1a75cdb2388ad3df98c2e984cd577cb7af732a580b85724245661"
+    },
+    "scala-fp": {
+      "source": "abh80/skills",
+      "sourceType": "github",
+      "skillPath": "scala-fp/SKILL.md",
+      "computedHash": "f1f96f3323d6658935c2e7a7dd92c1e0cc714062f6b77bb88c5db3791126d1fa"
+    },
+    "scala-weaver-test": {
+      "source": "sanssushi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/scala-weaver-test/SKILL.md",
+      "computedHash": "8bc14f4566cd2346b25f2481c7966a8b7b4779fc18c3918528db1000f8fcdc0b"
+    },
+    "scala3-syntax": {
+      "source": "sanssushi/skills",
+      "sourceType": "github",
+      "skillPath": "skills/scala3-syntax/SKILL.md",
+      "computedHash": "b074c97b4d6111c5a2d1a8e2f6ec3946741de55d0ab64caa6ea03fc5d2ad17da"
+    }
+  }
+}

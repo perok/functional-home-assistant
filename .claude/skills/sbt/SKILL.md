@@ -1,11 +1,11 @@
-## Metadata
-name: SBT build tool tips
-description: My own tips to you
+---
+name: sbt
+description: sbt build-tool tips specific to this repo — invocation flags and gotchas that differ from sbt defaults. Use when running, scripting, or troubleshooting sbt commands here.
+---
 
 ## Overview
 
-These are my own notes to you
-
+My own notes to you.
 
 ## General
 

@@ -21,6 +21,7 @@
     ]
   },
   "enabledPlugins": {
-    "frontend-design@claude-plugins-official": false
+    "frontend-design@claude-plugins-official": false,
+    "scalex@scalex-marketplace": true
   }
 }

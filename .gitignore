@@ -76,3 +76,6 @@ modules/fh-datastar-view/editor-src/node_modules/
 modules/fh-datastar-view/src/main/resources/editor/vendor.js
 .pkl-cli/
 .scalex/
+
+# runtime asset cache when the server is run from the repo root
+/assets-cache/
