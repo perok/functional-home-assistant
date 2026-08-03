@@ -13,11 +13,10 @@ import scala.concurrent.duration.*
 
 /** A self-healing Home Assistant connection feeding a [[StateStore]].
   *
-  * The upstream HA WebSocket used to silently freeze the whole dashboard on a
-  * single dropped connection: `state_changed` events stopped arriving,
-  * `call_service` hung forever on the dead socket, and nothing re-established
-  * the link. The connection now keeps itself alive with idle HA ping/pong and
-  * reports its own death via `awaitClosed`
+  * A dropped upstream WebSocket freezes the whole dashboard — no state arrives
+  * and `call_service` hangs on the dead socket — and nothing in the socket's
+  * own API says it died. So the connection keeps itself alive with idle HA
+  * ping/pong and reports its own death via `awaitClosed`
   * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
   *
   * This supervises the whole connection resource. On every (re)connect it
@@ -130,9 +129,9 @@ object HaFeed {
     *
     * The wait is UNCONDITIONAL, which is the whole reason this cannot spin —
     * however a connection ended, however fast. That is what a rate limit gives
-    * that a retry policy did not: a policy has to be told which endings count,
-    * and the ending that reconnected instantly was the one nobody thought to
-    * name (a peer that accepts, auths and closes politely, over and over).
+    * over a retry policy: a policy has to be told which endings count, so it
+    * spins on the ending nobody thought to enumerate (a peer that accepts,
+    * auths and closes politely, over and over).
     *
     * `meteredStartImmediately` also hands us, for free, the two properties a
     * backoff needs bookkeeping for. The first attempt is immediate, so boot is
@@ -269,15 +268,12 @@ object HaFeed {
     * open route, so a command raises and a subscription stream ENDS
     * ([[HAWSApiLowLevel]]).
     *
-    * It deliberately does NOT make subscriptions durable. It used to: a queue,
-    * an arm fiber and a `switchMap` re-subscribed on every connection
-    * generation. That existed to keep the dashboard's state feed alive across a
-    * reconnect — but the state feed never used it (it rides the connection
-    * being established, see [[runConnection]]), so the mechanism served one
-    * low-volume consumer while duplicating the reconnect logic the supervisor
-    * already owns. A consumer that wants to span reconnects re-subscribes off
-    * [[HaFeed.healthy]], which is three lines where it is needed and no
-    * machinery where it is not.
+    * It deliberately does NOT make subscriptions durable. Re-arming them here
+    * would duplicate the reconnect logic the supervisor already owns, and the
+    * one consumer that must span reconnects — the state feed — does not need it
+    * anyway: it rides the connection being established ([[runConnection]]). Any
+    * other consumer re-subscribes off [[HaFeed.healthy]], which is three lines
+    * where it is needed and no machinery where it is not.
     */
   private def routingFacade(
       currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]

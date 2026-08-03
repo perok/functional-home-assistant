@@ -284,12 +284,8 @@ class Server(
     * Started once per slug — at startup by [[Server.resource]], or on demand by
     * [[push]] for a slug minted at runtime.
     *
-    * FUTURE (ADR): under a burst of state_changed events (HA fires them
-    * constantly), coalesce — debounce/batch the stream and re-render at most
-    * every X ms, collapsing repeated touches of the same node into one
-    * render+push. The narrowing here bounds *what* re-renders; batching would
-    * bound *how often*. (Fold this into the dynamic-groups ADR when the perf
-    * model is settled.)
+    * The narrowing here bounds *what* re-renders, never *how often* — see the
+    * event-coalescing entry in TODO2.md.
     */
   private def publisherFor(
       slug: String,
@@ -305,8 +301,8 @@ class Server(
         // Not on the FIRST arm, though. `discrete` emits the current renderer
         // immediately, and rotating there invalidates cursors for no reason —
         // the log the `LiveSlug` was created with is already this renderer's.
-        // It also raced the page route: a document served in that window
-        // advertised the old id and its first connect was refused, repainting a
+        // It also races the page route: a document served in that window would
+        // advertise the old id, get its first connect refused, and repaint a
         // body it already had.
         Stream.exec(
           IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
@@ -703,16 +699,14 @@ class Server(
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
     *
-    * '''One rule covers the surfaces too.''' A tab panel's or popup's nodes
-    * used to need painting fresh on every resume — their HTML baked a
-    * client-selected member, and their only diff cache died with the previous
-    * connection. Under the self/mount split a container patches its `self`
-    * alone, so nothing about those nodes is per-client any more: they are
-    * simply candidates, reached through the session's `open` set, and sent only
-    * if they actually differ ([[Patches.resume]]). An open popup needs no
-    * branch of its own either — a body repaint replaces `#dashboard` only, and
-    * `#popups` lives in the chrome outside it, so the dialog is never
-    * disturbed.
+    * '''One rule covers the surfaces too.''' Under the self/mount split a
+    * container patches its `self` alone, so nothing about a tab panel's or
+    * popup's nodes is per-client: they are simply candidates, reached through
+    * the session's `open` set, and sent only if they actually differ
+    * ([[Patches.resume]]) — no painting them fresh on every resume. An open
+    * popup needs no branch of its own either — a body repaint replaces
+    * `#dashboard` only, and `#popups` lives in the chrome outside it, so the
+    * dialog is never disturbed.
     *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
@@ -879,7 +873,7 @@ class Server(
     * a popup calls it with `None`, which patches the host to an empty `<div>` —
     * removing the transient popup dialog (a `popup` container card in the
     * surface content, not backend chrome). No server state tracks "is a popup
-    * open". One host-swap primitive replaces the old open/close/stack paths.
+    * open", and one host-swap primitive covers open, close and stack alike.
     *
     * A swap of the POPUP host does NOT touch the client's `ui_<hostId>` — the
     * tap that asked for the swap already set it, exactly as a tab button sets
@@ -1188,9 +1182,9 @@ class Server(
             // SHARED log.
             val open = renderer.selectedSurfaces(uiState)
             // ONE render, used twice: the bytes go to the browser and the
-            // per-node trace goes to the log. This used to walk the open
-            // surfaces a second time, node by node, purely to fingerprint what
-            // the page had just composed.
+            // per-node trace goes to the log. Fingerprinting separately means
+            // walking the open surfaces a second time, node by node, to
+            // re-derive what the page just composed.
             val painted = renderer.renderPageTraced(
               store.entities,
               uiState,
@@ -1719,9 +1713,9 @@ object Server {
     * [[Renderer.styleHash]] covers. Sent on a navigate (the dashboard changed)
     * and on a reconnect whose `styleHash` no longer matches.
     *
-    * A reload would also work and used to be what we did, but it throws away
-    * every bit of client-side state on the page — an open popup, a slider
-    * mid-drag, scroll position — to re-send a stylesheet.
+    * A reload would also work, but it throws away every bit of client-side
+    * state on the page — an open popup, a slider mid-drag, scroll position — to
+    * re-send a stylesheet.
     */
   private[runtime] def headPatches(
       renderer: Renderer,
@@ -1877,13 +1871,9 @@ object Server {
     * it is pushed on connect and on every transition (`healthy.discrete`), and
     * a client that missed one has reconnected, which re-sends it.
     *
-    * FUTURE: a direct LAN connection needs none of this, and we could TELL. The
-    * ingress hop announces itself (`X-Ingress-Path`, already read here for the
-    * `<base href>`) and a reverse proxy conventionally sets `X-Forwarded-*`, so
-    * this could be sent only to connections that arrived through a hop —
-    * per-connection, since the request is right there. Not done yet: the win is
-    * ~2 KB/hour, while a wrong guess is a connection that silently drops once a
-    * minute, which is the failure nobody reports because it still works.
+    * Sent to every connection, including direct LAN ones that need no keepalive
+    * at all — skipping those is possible but deliberately not done, see
+    * TODO2.md.
     */
   val KeepAliveInterval: FiniteDuration = 25.seconds
 

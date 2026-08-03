@@ -169,8 +169,8 @@ class Renderer(
     * group's *query* matched the entity before or after it. Matching neither
     * side leaves the group alone.
     *
-    * It used to answer the finer question (joined / left / updated in place),
-    * which a single change can decide but a FRAME cannot: two entities can move
+    * Deliberately NOT the finer question (joined / left / updated in place): a
+    * single change can decide that, but a FRAME cannot — two entities can move
     * in opposite directions in one tick. The membership compare in
     * `Patches.renderDynamicGroup` answers it for the frame as a whole, over the
     * before/after member lists, so this only has to select the groups worth
@@ -798,14 +798,14 @@ class Renderer(
     * the page follows the browser) followed by the theme's inline `styles`.
     * Empty when the theme carries no tokens or styles.
     *
-    * Deliberately OUTSIDE `#dashboard`, i.e. not part of [[renderBody]]. It
-    * used to ride inside the repainted body so that a reload or navigate
-    * swapped it too — but it is static and it is BIG: on a small demo dashboard
-    * it is 7.7 KB of the 9.6 KB a repaint sends, re-transmitted on every
-    * reconnect that cannot resume. It is now sent only when it actually
-    * changed, morphed by its stable id ([[Renderer.ThemeStyleId]]) — on a
-    * navigate to a differently-themed dashboard, and on a reconnect whose
-    * [[styleHash]] no longer matches (`Server.headPatches`).
+    * Deliberately OUTSIDE `#dashboard`, i.e. not part of [[renderBody]]. Riding
+    * inside the repainted body would let a reload or navigate swap it too, but
+    * it is static and it is BIG: on a small demo dashboard it is 7.7 KB of the
+    * 9.6 KB a repaint sends, which would be re-transmitted on every reconnect
+    * that cannot resume. So it is sent only when it actually changed, morphed
+    * by its stable id ([[Renderer.ThemeStyleId]]) — on a navigate to a
+    * differently-themed dashboard, and on a reconnect whose [[styleHash]] no
+    * longer matches (`Server.headPatches`).
     */
   val themeStyleTag: String = {
     val theme = dashboard.theme
@@ -1122,8 +1122,8 @@ class Renderer(
     *
     * ONE derivation, deliberately, because there are two places a node id comes
     * from ([[LayoutNode.pathId]] for the static tree, [[dynamicChildId]] for a
-    * group member) and they used to inject their vars separately, so a var
-    * added to one silently missed the other. The rule this makes true:
+    * group member), and injecting their vars separately means a var added to
+    * one silently misses the other. The rule this makes true:
     *
     * > Structural vars are a pure function of the node id in scope.
     *
@@ -1235,9 +1235,10 @@ class Renderer(
     *
     * '''This is not a new id — for a bake owner it IS
     * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
-    * byte-identical to the `id="{{id}}_panel"` the template used to hardcode.
-    * That removes a duplication rather than adding one: Pkl and Scala used to
-    * derive the same string independently, with nothing checking they agreed.
+    * byte-identical to the `id="{{id}}_panel"` a template would otherwise
+    * hardcode. That removes a duplication rather than adding one: the
+    * alternative has Pkl and Scala deriving the same string independently, with
+    * nothing checking they agree.
     *
     * A mount needs an id only where something FILLS it, which is exactly where
     * `bakeAs` already names it (a tab panel, an `If` branch). `Grid`/`Row`/
@@ -1374,16 +1375,15 @@ class Renderer(
         // and authored `cell` classes (fh-cols-*, …) ride on it.
         //
         // The one exception is a card that opted out via
-        // `CardDef.wrapAsCell = false`, which now means exactly one thing: my
-        // root must not be wrapped in a layout box (the tab anchors, which must
-        // stay direct children of BeerCSS's `.tabs`). It no longer implies
-        // "never a morph target" — that is decided by card shape.
+        // `CardDef.wrapAsCell = false`, which means exactly one thing: my root
+        // must not be wrapped in a layout box (the tab anchors, which must stay
+        // direct children of BeerCSS's `.tabs`). It does NOT imply "never a
+        // morph target" — that is decided by card shape.
         //
-        // A bake owner used to be denied the wrapper, because the cell WAS the
-        // morph target and a bake owner's patch would have carried its whole
-        // baked panel. The split separates the two: the cell is the layout item,
-        // the `self` element is the patch target. So `Tabs`/`If` are ordinary
-        // cells, and `.columns(n)` on them stops being silently dropped.
+        // A bake owner gets a wrapper like anything else, because the
+        // self/mount split separates the two roles: the cell is the layout
+        // item, the `self` element is the patch target. Conflating them denies
+        // `Tabs`/`If` a cell and silently drops `.columns(n)` on them.
         val wrapped =
           if (noWrapCards(c.card)) html
           else

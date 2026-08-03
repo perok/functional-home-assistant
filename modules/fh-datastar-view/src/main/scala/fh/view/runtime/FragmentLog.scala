@@ -7,13 +7,13 @@ import scala.concurrent.duration.*
 
 /** A 128-bit content digest — "did this node's HTML change?" and nothing more.
   *
-  * A digest rather than `String.hashCode` because a collision here does not cost
-  * a redundant send, it SUPPRESSES a real change: the client sits on stale HTML
-  * until something else moves it.
+  * A digest rather than `String.hashCode` because a collision here does not
+  * cost a redundant send, it SUPPRESSES a real change: the client sits on stale
+  * HTML until something else moves it.
   *
   * Hex rather than `Array[Byte]` so `==` means what it says — array equality is
-  * by reference, which in a `case class` used as a diff baseline is the bug that
-  * never shows up in a test that happens to reuse one instance.
+  * by reference, which in a `case class` used as a diff baseline is the bug
+  * that never shows up in a test that happens to reuse one instance.
   */
 private[runtime] opaque type Digest = String
 
@@ -30,9 +30,9 @@ private[runtime] object Digest {
   * Resume content comes from the current snapshot instead
   * (docs/adr/0012-one-pass-addressed-per-client.md, statement (3)).
   *
-  * The version is what makes this a ledger rather than a cache: it answers "when
-  * did each node last change", which is what lets a reconnecting client be told
-  * the difference instead of the whole body
+  * The version is what makes this a ledger rather than a cache: it answers
+  * "when did each node last change", which is what lets a reconnecting client
+  * be told the difference instead of the whole body
   * (docs/adr/0011-the-live-connection.md).
   */
 private[runtime] case class Fragment(
@@ -65,18 +65,18 @@ private[runtime] object FragmentLog {
     *
     * Sized by how long a client can be away and still be worth resuming: a
     * backgrounded phone tab is minutes to hours, past which a body repaint is
-    * the honest answer. Exceeding it costs that repaint, never correctness — see
-    * [[FragmentLog.horizon]].
+    * the honest answer. Exceeding it costs that repaint, never correctness —
+    * see [[FragmentLog.horizon]].
     */
   val Retention: FiniteDuration = 1.hour
 }
 
 /** How a container names ONE of the things in its mount.
   *
-  * Two containers keep membership — a dynamic group, whose members are entities,
-  * and a state group (an `If`), whose members are its branch surfaces — and the
-  * kind decides how a resume replays the member: an entity's card is a
-  * per-member delta that must preserve its siblings, where a branch is one
+  * Two containers keep membership — a dynamic group, whose members are
+  * entities, and a state group (an `If`), whose members are its branch surfaces
+  * — and the kind decides how a resume replays the member: an entity's card is
+  * a per-member delta that must preserve its siblings, where a branch is one
   * `Inner` over a mount holding exactly one thing.
   */
 private[runtime] enum MemberKey {
@@ -88,12 +88,12 @@ private[runtime] enum MemberKey {
   case Surface(id: String)
 }
 
-/** The last STRUCTURAL thing that happened to a node — as opposed to a change in
-  * its content, which is a [[Fragment]]. One value rather than parallel
-  * "removed"/"arrived" maps, because a node cannot be both gone and present: two
-  * maps make that invalid state representable and turn every leave-then-rejoin
-  * into a special case. Latest wins, so a rejoin is [[Placed]] replacing
-  * [[Gone]].
+/** The last STRUCTURAL thing that happened to a node — as opposed to a change
+  * in its content, which is a [[Fragment]]. One value rather than parallel
+  * "removed"/"arrived" maps, because a node cannot be both gone and present:
+  * two maps make that invalid state representable and turn every
+  * leave-then-rejoin into a special case. Latest wins, so a rejoin is
+  * [[Placed]] replacing [[Gone]].
   */
 private[runtime] enum Mutation(val at: Stamp, val container: NodeId) {
 
@@ -136,9 +136,9 @@ private[runtime] case class Resume(
     refill: List[NodeId] = Nil
 )
 
-/** The per-slug (or per-session) diff cache, versioned. The live path is a point
-  * lookup and a compare; the `since` scan happens once per reconnect, never on
-  * the hot path.
+/** The per-slug (or per-session) diff cache, versioned. The live path is a
+  * point lookup and a compare; the `since` scan happens once per reconnect,
+  * never on the hot path.
   *
   * `id` identifies THIS log. A cursor minted against a different log (a
   * restarted server, whose version counter reset to 0; a renderer hot-swap,
@@ -146,14 +146,14 @@ private[runtime] case class Resume(
   * number means nothing across logs — version 5 of one process describes
   * different state than version 5 of the next.
   *
-  * `fragments` answers "what does this node contain"; `mutations` answers "where
-  * is this node" — the structural changes NOT expressible as a morph of an
-  * element the client already has (see [[Mutation]]).
+  * `fragments` answers "what does this node contain"; `mutations` answers
+  * "where is this node" — the structural changes NOT expressible as a morph of
+  * an element the client already has (see [[Mutation]]).
   *
-  * Keying both by node id keeps the log small: a node has one latest content and
-  * one latest structural fact, however many times it churned. `fragments` holds
-  * only nodes that currently EXIST, since [[removed]] and [[invalidateWhere]]
-  * drop entries.
+  * Keying both by node id keeps the log small: a node has one latest content
+  * and one latest structural fact, however many times it churned. `fragments`
+  * holds only nodes that currently EXIST, since [[removed]] and
+  * [[invalidateWhere]] drop entries.
   *
   * `mutations` is the one place the log is not self-limiting. A
   * [[Mutation.Gone]] for a member that left and never came back has nothing to
@@ -198,8 +198,8 @@ private[runtime] case class FragmentLog(
     *
     * The cheap half of the two skips: an integer comparison that spares the
     * render entirely, where [[holds]] must render first to compare. Versions
-    * only grow and a write records the version it rendered from, so an entry can
-    * never be ahead of a later read.
+    * only grow and a write records the version it rendered from, so an entry
+    * can never be ahead of a later read.
     */
   def atLeast(nodeId: NodeId, variant: Int, version: Long): Boolean =
     fragments
@@ -222,8 +222,8 @@ private[runtime] case class FragmentLog(
   /** Whether `gid` is ESTABLISHED — i.e. the log knows what is in its mount, so
     * a membership change can be patched per-entity instead of filled wholesale.
     *
-    * A container's MEMBERS are the whole record: it logs no fragment of its own,
-    * because that fragment would contain other nodes.
+    * A container's MEMBERS are the whole record: it logs no fragment of its
+    * own, because that fragment would contain other nodes.
     */
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
@@ -281,8 +281,8 @@ private[runtime] case class FragmentLog(
         )
     }
 
-  /** Forget a node's cached HTML WITHOUT recording a removal — the node's DOM is
-    * being re-supplied by an ancestor's fresh HTML (a group repaint, a
+  /** Forget a node's cached HTML WITHOUT recording a removal — the node's DOM
+    * is being re-supplied by an ancestor's fresh HTML (a group repaint, a
     * bake-group flip), so the entry is merely stale, not gone. Replaying a
     * removal here would delete an element that ancestor legitimately restored.
     * Use [[removed]] for a node whose DOM really is being deleted.
@@ -290,12 +290,13 @@ private[runtime] case class FragmentLog(
   def invalidate(nodeId: NodeId): FragmentLog =
     copy(fragments = fragments - nodeId)
 
-  /** Invalidate a whole subtree because its ROOT is being re-stamped in the same
-    * operation. The root's fresh HTML is authoritative for everything under it,
-    * which supersedes the subtree's [[Mutation]]s as well as its fragments — a
-    * stale `Gone` would delete a member that root's HTML legitimately restored,
-    * and a stale `Placed` would insert one it already contains. Callers must
-    * actually [[set]] the root — this is not a bare `filterNot`.
+  /** Invalidate a whole subtree because its ROOT is being re-stamped in the
+    * same operation. The root's fresh HTML is authoritative for everything
+    * under it, which supersedes the subtree's [[Mutation]]s as well as its
+    * fragments — a stale `Gone` would delete a member that root's HTML
+    * legitimately restored, and a stale `Placed` would insert one it already
+    * contains. Callers must actually [[set]] the root — this is not a bare
+    * `filterNot`.
     */
   def invalidateWhere(p: NodeId => Boolean): FragmentLog =
     copy(
@@ -324,9 +325,9 @@ private[runtime] case class FragmentLog(
   ): FragmentLog =
     placed(container, member, nodeId, stamp).set(nodeId, html, stamp.version)
 
-  /** [[placed]] for a member whose bytes are NOT one thing: its subtree mounts a
-    * client-selected member, so what each viewer received differs and no single
-    * digest describes them all.
+  /** [[placed]] for a member whose bytes are NOT one thing: its subtree mounts
+    * a client-selected member, so what each viewer received differs and no
+    * single digest describes them all.
     *
     * An absent entry reads as "unknown, send it", so recording the structure
     * without the bytes costs one redundant re-send on the next tick and never a
@@ -377,15 +378,15 @@ private[runtime] case class FragmentLog(
     * would be a duplicate.
     *
     * Needed because a [[Mutation.Placed]] re-supplies a whole SUBTREE while the
-    * nodes inside it also carry `version >= cursor`: without this they each ship
-    * as a morph against an id the client's DOM does not hold yet, and only then
-    * the `remove`/`append` that actually carries them.
+    * nodes inside it also carry `version >= cursor`: without this they each
+    * ship as a morph against an id the client's DOM does not hold yet, and only
+    * then the `remove`/`append` that actually carries them.
     *
     * STRICT ancestors: a node never covers itself, or every mutation would
-    * suppress its own emission. Ancestry is a string-prefix test because ids are
-    * location-derived ([[fh.view.model.LayoutNode.pathId]]: `c`, `c_0`, `c_0_1`);
-    * the trailing `_` keeps `c_1` from matching `c_10`, and no generated id can
-    * contain the `-` a `self` element's DOM id uses.
+    * suppress its own emission. Ancestry is a string-prefix test because ids
+    * are location-derived ([[fh.view.model.LayoutNode.pathId]]: `c`, `c_0`,
+    * `c_0_1`); the trailing `_` keeps `c_1` from matching `c_10`, and no
+    * generated id can contain the `-` a `self` element's DOM id uses.
     */
   def coveredByMutation(nodeId: NodeId, moved: Set[NodeId]): Boolean =
     moved.exists(id => id != nodeId && nodeId.startsWith(id + "_"))
@@ -393,20 +394,20 @@ private[runtime] case class FragmentLog(
   /** What a client whose cursor is `v` has not seen. TOTAL: a container whose
     * history is gone yields a `refill` entry rather than a refusal, so the
     * whole-body repaint survives only for the genuinely global reasons the
-    * caller checks (no cursor, a log-id mismatch, a cursor ahead of the store, a
-    * changed head).
+    * caller checks (no cursor, a log-id mismatch, a cursor ahead of the store,
+    * a changed head).
     *
-    * `>=` rather than `>`: the cursor is pushed alongside a patch batch, and one
-    * store version can produce several batches (one [[StateChange]] each), so a
-    * client can hold version V having seen only part of it. Re-sending the whole
-    * of V is idempotent — every patch is a morph or a fresh render — and cheap,
-    * where missing half of it would be silent and permanent.
+    * `>=` rather than `>`: the cursor is pushed alongside a patch batch, and
+    * one store version can produce several batches (one [[StateChange]] each),
+    * so a client can hold version V having seen only part of it. Re-sending the
+    * whole of V is idempotent — every patch is a morph or a fresh render — and
+    * cheap, where missing half of it would be silent and permanent.
     *
     * Only the LATEST meaningful change per node survives, in three ways. Both
     * maps are keyed by node id, so repeated churn on one element collapses to
-    * one entry. A mutated node is not ALSO reported as a morph — the element may
-    * not be where (or whether) the client has it, and a morph of an absent id
-    * silently does nothing, so its content rides the mutation instead. And
+    * one entry. A mutated node is not ALSO reported as a morph — the element
+    * may not be where (or whether) the client has it, and a morph of an absent
+    * id silently does nothing, so its content rides the mutation instead. And
     * anything a MUTATION is re-supplying is dropped ([[coveredByMutation]]).
     *
     * It returns node IDS, not content: the caller renders them from the current

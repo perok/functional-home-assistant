@@ -6,7 +6,7 @@ import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
 
 /** One DOM patch the diff pass wants to send, rendered to a Datastar SSE event
-  * at the edge ([[Patch.toSse]]). The diff no longer yields a uniform "HTML to
+  * at the edge ([[Patch.toSse]]). The diff does not yield a uniform "HTML to
   * morph" — a [[Remove]] carries no HTML — so the diff pass speaks this small
   * ADT and only touches [[Datastar]] here.
   *
@@ -86,10 +86,10 @@ private[runtime] case class Varying(
 /** A render the shell has to perform LATER, per variant, because its verdict
   * needs the log and an effect.
   *
-  * The core still decides everything about it — which node, whose it is, and
-  * how to render one variant — so the only thing left outside is when to force
-  * it and what to do with the result. Before this the shell also knew how to
-  * render, which put "what goes on the wire" in two places.
+  * The core decides everything about it — which node, whose it is, and how to
+  * render one variant — so the only thing left outside is when to force it and
+  * what to do with the result. Teaching the shell to render as well would put
+  * "what goes on the wire" in two places.
   */
 private[runtime] case class Pending(
     surface: Option[String],
@@ -152,8 +152,8 @@ private[runtime] object Patches {
 
   /** A selection of what one [[StateChange]] touches, ready to [[diff]] against
     * a cache. Bundles the assembled `staticIds`/`dynamics`/`flips` with the
-    * render inputs (`change`/`states`/`before`) they are diffed with —
-    * replacing the nine-positional-argument call the pass used to make.
+    * render inputs (`change`/`states`/`before`) they are diffed with, rather
+    * than nine positional arguments at the call site.
     */
   case class DiffRequest(
       // Each selected node carries WHOSE it is: the user-selected surface it
@@ -420,13 +420,11 @@ private[runtime] object Patches {
     * viewing it, where only re-rendering can tell whether the client's DOM is
     * current.
     *
-    * That replaces two mechanisms with one. Per-session fragments used to be
-    * painted fresh on every resume (their HTML baked a client-selected member
-    * and their only diff cache died with the previous connection), and an open
-    * popup needed a restore branch of its own. Both are now just candidates:
-    * the popup's nodes are in `open`, and a container's `self` does not contain
-    * its mount, so a client returning after a long absence gets the bar's new
-    * HTML and keeps its panel.
+    * One mechanism covers what would otherwise be two special cases. A
+    * per-session fragment and an open popup are both just candidates here: the
+    * popup's nodes are in `open`, and a container's `self` does not contain its
+    * mount, so a client returning after a long absence gets the bar's new HTML
+    * and keeps its panel — no restore branch of its own.
     *
     * '''The cursor selects which nodes; the renderer decides what to send.'''
     * The cursor is never consulted for content, which is what makes filtering
@@ -590,9 +588,9 @@ private[runtime] object Patches {
     *
     * It reads the order out of `ordered` — the list [[Renderer.dynamicMembers]]
     * produced — rather than comparing entity ids. That is what keeps this
-    * correct if member order ever becomes author-chosen: the live path used to
-    * compare ids directly and silently required id-sorted membership, which
-    * disagreed with the resume path doing it positionally.
+    * correct if member order ever becomes author-chosen: comparing ids directly
+    * silently requires id-sorted membership, and disagrees with the resume
+    * path, which does it positionally.
     */
   private def insertInto(
       renderer: Renderer,
@@ -678,12 +676,11 @@ private[runtime] object Patches {
     * no `Placed`, emitted as a plain `remove` (an `Inner` of empty content is
     * not a well-formed patch).
     *
-    * It used to morph the HOST instead, whose HTML embedded the selected branch
-    * — the one place a state group's patch carried other nodes. Splitting
-    * content from structure keeps the useful half: the log records WHICH member
-    * is in the mount (identity), never what it holds. If the container's record
-    * moved when a CHILD's content changed, every child change would re-supply
-    * the container, which is exactly the problem this design exists to remove.
+    * It does NOT morph the host, whose HTML would embed the selected branch and
+    * so carry other nodes. The log records WHICH member is in the mount
+    * (identity), never what it holds: if the container's record moved when a
+    * CHILD's content changed, every child change would re-supply the container,
+    * which is exactly the problem this design exists to remove.
     *
     * Without the structural half the deletion would leave a hole: a client
     * disconnected across a flip would show the old branch '''permanently''' —
@@ -691,10 +688,10 @@ private[runtime] object Patches {
     * (silent no-ops) and nothing would remove the old ones. `selectedSurfaces`
     * does `filterNot(isStateGroup)`, so a branch is never in `open` either.
     *
-    * The prune stays, and for its original reason: hidden-branch churn
-    * deliberately leaves member entries stale (the silence guarantee), so a
-    * re-revealed node whose HTML happens to equal its pre-flip entry would be
-    * suppressed while the client's DOM has moved on.
+    * The prune is still needed: hidden-branch churn deliberately leaves member
+    * entries stale (the silence guarantee), so a re-revealed node whose HTML
+    * happens to equal its pre-flip entry would be suppressed while the client's
+    * DOM has moved on.
     */
   /** Render a batch's patches to the wire, merging what can share an event.
     *
@@ -975,11 +972,10 @@ private[runtime] object Patches {
   /** Fill a dynamic group's mount with its CURRENT members — the wholesale
     * fallback, and the last place a patch carried other nodes.
     *
-    * It used to outer-morph the group element and log that HTML under `gid`,
-    * which is exactly what made a container's fragment contain its children
-    * (and what `coveredByAncestor` existed to compensate for). A group's root
-    * element IS its mount, so the same content goes out as an `Inner` fill and
-    * no container-level fragment is written at all.
+    * A group's root element IS its mount, so the content goes out as an `Inner`
+    * fill and no container-level fragment is written at all. Outer-morphing the
+    * root and logging that HTML under `gid` would instead make a container's
+    * fragment contain its children.
     *
     * '''The fill writes each member's fingerprint.''' It re-supplies the
     * mount's contents wholesale, so without that the next live diff would

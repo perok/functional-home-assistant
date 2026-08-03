@@ -65,6 +65,13 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Event coalescing under state_changed bursts: debounce/batch, collapsing repeated touches
       of the same node into one render+push (already flagged as FUTURE in Server.scala). Do
       after the shared-fanout refactor — it changes where batching goes.
+- [ ] Skip the SSE keepalive on direct LAN connections. `Server.KeepAliveInterval` sends a comment
+      every 25s to every connection, but a direct LAN connection needs none of it — and we could
+      TELL: the ingress hop announces itself (`X-Ingress-Path`, already read for the `<base href>`)
+      and a reverse proxy conventionally sets `X-Forwarded-*`, so it could be sent only to
+      connections that arrived through a hop, per-connection, since the request is right there.
+      Deliberately not done: the win is ~2 KB/hour, while a wrong guess is a connection that
+      silently drops once a minute — the failure nobody reports because it still works.
 - [ ] Retain `FragmentLog` mutations by live cursor, not by age. `FragmentLog.Retention` (1 hour)
       is a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
       connection still holds. `Sessions` is already keyed by `conn`, so each could report its
