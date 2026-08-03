@@ -75,7 +75,11 @@ whatever surface(s) occupy a host, set the new occupant, inner-patch the host �
 or patch it to an empty `<div>` for a close (`POST /sse/popup/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set. Crossing to ANOTHER dashboard is not one of these — it is a
+session's open set, and no signal is pushed back for it — the tap that asked for
+the swap sets `ui_<hostId>` itself, exactly as a tab button sets its own. The
+popup host is a selection like any other; only its VALUE is unusual, naming a
+surface id rather than a member index, because any registered surface can appear
+there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a
 document load (below).
 
 ### Per-connection sessions over the one SSE stream
@@ -85,30 +89,57 @@ Each SSE connection mints a `conn` id and pushes it as the first
 every action `@post`, correlating the POST to its stream. A `Session` (keyed by
 `conn` in `Sessions`) holds its `slug` — **fixed**, since another dashboard is
 another document and therefore another connection — the set of **open** surface
-ids, a **control** queue the action handlers push patches into, and a
-last-rendered diff cache so only fragments whose HTML actually changed are
-pushed.
+ids, and a **control** queue the action handlers push patches into.
 
-Live entity patches are split by what they depend on. Main-page nodes that do
-**not** own a bake group are a pure function of entity state, so they are
-rendered **once per slug**: one background subscription to the state stream
-per dashboard (`Server.sharedPatchPublishers`, run by `Server.resource`)
-re-renders the affected nodes (reverse index + query-affected dynamic groups),
-diffs against a **per-slug** cache, and publishes the changed fragments on a
-per-slug topic — N viewers of one slug cost one render, not N. The topic is
-**one multiplexed** stream of slug-tagged events, so a connection subscribes
-once and drops every tag but its own; that (rather than a topic per slug) is
-what lets `push` mint a slug after a connection has opened. Only what truly
-differs per client stays in
-the per-session change loop with the session's own diff cache: each open
-surface's nodes (a closed surface is never rendered) and *user-activated*
-bake-group-owner nodes (their HTML bakes the client's selected
-member). *State-activated* groups and their active member ride the shared
-per-slug pass — their selection is server truth, identical for every viewer
-(ADR 0007). On a live-reload
-hot-swap the shared pass re-arms with the new renderer and a fresh per-slug
-cache; a change dropped in the brief swap window is repaired by the full body
-repaint every connection does on reload.
+**Live entity patches are rendered once per slug, for everyone.** One background
+subscription to the state stream per dashboard (`Server.sharedPatchPublishers`,
+run by `Server.resource`) selects what a change touches, renders it, diffs
+against a per-slug `FragmentLog`, and publishes the changed fragments on a
+per-slug topic. The topic is **one multiplexed** stream of slug-tagged events, so
+a connection subscribes once and drops every tag but its own; that (rather than a
+topic per slug) is what lets `push` mint a slug after a connection has opened.
+N viewers of one slug cost one render, not N — including viewers of an open
+popup or a selected tab, which is what distinguishes this from the earlier
+design.
+
+**Who may see a patch is a filter at the wire edge, not a second render.** Every
+patch carries the innermost user-selected surface it belongs to
+(`Patches.Addressed`), or nothing for the main page, and each connection keeps
+only what its own `open` set admits. State-activated surfaces are transparent to
+that tag: their selection is server truth, identical for every viewer (ADR 0007),
+so a node inside an `If` branch nested in a tab panel is tagged with the tab
+panel. Over-sending is safe and under-sending is not — a morph at an id the DOM
+lacks is a silent no-op — so anything the renderer cannot attribute to a
+user-selected surface stays untagged.
+
+**One rendering cannot serve everyone in exactly one case**: a flip placing a
+branch whose subtree mounts a client-selected member (tabs inside an `If`). That
+branch is published as a `Patches.Varying` carrying the render rather than its
+bytes, and each connection performs it against its own selections at send time —
+still arriving as one complete patch, with that viewer's panel already inside it.
+Rather than detect that case, every such render is published as a
+`Patches.Pending` keyed by the `Selections` it reads (ADR 0012): viewers who
+agree on those groups share one render, and a branch with no user group inside
+it resolves to the empty key, so "one rendering serves everybody" is that case
+rather than a separate path.
+
+Almost nothing else can vary: under the self/mount split (ADR 0008) a container
+patches its `self`, which holds no mount, so only a render that CREATES a
+subtree can differ per viewer.
+
+This replaced a **shared/per-session split**, in which open surfaces and
+bake-group owners were re-rendered once per connection against a per-session diff
+cache. The split was a cost model — "render shared what is cheap to share" — and
+it bought duplication of the entire diff pipeline: two selection passes, two
+caches, and a class of bug where a fragment reached one pass and not the other.
+What killed it was that its per-session half turned out not to be about clients
+at all, but about *variants*, of which the server owns the closed set. `Session`
+therefore has no diff cache: there is one log per slug, and everything that
+changes a client's DOM goes through it.
+
+On a live-reload hot-swap the shared pass re-arms with the new renderer and a
+fresh per-slug log; a change dropped in the brief swap window is repaired by the
+full body repaint every connection does on reload.
 
 ### One click slot, whole Datastar expressions
 
@@ -145,9 +176,9 @@ handler, and no `/sse/navigate` route.
 This replaced an in-place body swap over the surviving SSE stream. That design
 existed to keep one stream and one session alive across a dashboard change, and
 the reason it stopped paying is that **nothing in that session is worth
-keeping**: entity state is re-seeded from `StateStore` on connect, the diff cache
-is reset by the swap anyway, popups are cleared, and the selected tab now
-restores from the URL (ADR 0005) — so a full load re-derives the whole view with
+keeping**: entity state is re-seeded from `StateStore` on connect, the log is
+reset by the swap anyway, and both the open popup and the selected tab restore
+from the URL (ADR 0005) — so a full load re-derives the whole view with
 no flash. What it cost was real: hand-rolled history management (the Datastar
 tao's named anti-pattern), a mutable per-session slug that every render path had
 to re-read, a `<head>` the body patch could not reach (so a differently-themed
@@ -229,12 +260,28 @@ wiring, not dashboard frame.
   inferred.
 - **A theme-composed `c.popupHost()` component**: inverted the layering (theme
   → components); the host is inlined in the theme instead.
+- **A hollow mount plus a per-connection fill**: the first attempt at serving
+  viewers on different tabs from one shared render — insert the branch with its
+  tabs mount EMPTY, then have each connection fill its own. It works, and it was
+  wrong twice over: two DOM updates for one change, and a rendering "for nobody"
+  that promptly leaked a blank tab index into live markup, because a mount
+  carries client-dependent ATTRIBUTES and not merely children. Rendering the
+  branch per VARIANT (`Varying`, above) is the same idea done at the right
+  boundary.
+- **Baking whichever member the connected clients happen to agree on**: would
+  have removed the hollow mount for the common case by reading the union of
+  every session's open set. It makes the rendered bytes depend on the audience —
+  the same dashboard in the same state producing different HTML depending on who
+  is watching — for no gain over asking about variants instead.
 
 ## Consequences
 
 - Open/close are pure backend state transitions whose patches ride the one SSE
   stream; closed surfaces are free. A dashboard change is outside that model
   entirely — it is a new document, a new stream, a new session.
+- There is ONE render pipeline and one log per slug. What differs per client is
+  a filter (which patches reach it) and, in one case, a render performed at the
+  edge — never a second pass with its own cache.
 - Datastar specifics relied upon (patch modes, signal round-tripping of `conn`)
   are pinned to **v1.0.2** — re-verify on upgrade.
 - Not covered: a nav-menu UI between dashboards.

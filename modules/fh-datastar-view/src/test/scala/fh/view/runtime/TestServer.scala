@@ -3,7 +3,7 @@
 // the deterministic SSE gating needs — the same access `ServerSuite` relies on.
 package fh.view.runtime
 
-import cats.effect.{IO, Resource}
+import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{PklDump, SystemPkl}
@@ -15,6 +15,8 @@ import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.jdkhttpclient.JdkHttpClient
+
+import java.util.concurrent.TimeoutException
 
 import scala.concurrent.duration.*
 
@@ -57,11 +59,12 @@ final class TestServer(
 
   /** The two readiness gates a live SSE connection needs before a change is
     * guaranteed to reach it (topics only deliver to already-subscribed
-    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 2 for one
-    * open connection (the shared publisher's own subscription plus this
-    * connection's). The smoke suites' one gate to await before `fake.emit`.
+    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 1: the
+    * per-slug publisher is the ONLY consumer of `changes`, however many
+    * connections are open. The smoke suites' one gate to await before
+    * `fake.emit`.
     */
-  def awaitLive(subscribers: Int = 2): IO[Unit] =
+  def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
   private val app = server.routes.orNotFound
@@ -102,14 +105,93 @@ final class TestServer(
     * reaches the browser" assertion.
     *
     * `subscribers` is the number of `StateStore.changes` consumers to await
-    * before triggering (topics only reach already-subscribed consumers): the
-    * shared per-slug publisher plus one per open SSE connection — so a single
-    * connection is 2.
+    * before triggering (topics only reach already-subscribed consumers). That
+    * is the shared per-slug publisher, and only it — connections subscribe to
+    * the patch topic, not to `changes` — so one open connection is 1.
     */
+  /** Open one live SSE connection (optionally with a `query` — e.g. a
+    * `ui.<host>` tab selection), wait until its OPENING block has been
+    * delivered, then run `trigger` and return everything that arrives after it,
+    * up to and including the fragment containing `marker`.
+    *
+    * The opening/live split is the whole point. A first paint legitimately
+    * carries this client's selected tab, so an assertion about what a LIVE flip
+    * sends has to start after it — otherwise the opening satisfies the marker
+    * and the test passes without the flip happening at all. The opening ends
+    * with the cursor signal ([[Server.cursorSignals]]), which is what is
+    * watched for here.
+    */
+  private def LogIdSignalName = Server.LogIdSignal
+
+  def observeLive(
+      marker: String,
+      trigger: IO[Unit],
+      query: String = "",
+      // Below munit's per-test timeout on purpose: whichever fires first owns
+      // the error message, and this one can say what actually arrived.
+      timeout: FiniteDuration = 10.seconds
+  ): IO[String] =
+    run(
+      Request[IO](
+        Method.GET,
+        Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
+      )
+    ).flatMap { resp =>
+      for {
+        opened <- Deferred[IO, Unit]
+        live <- Ref[IO].of("")
+        fiber <- resp.body
+          .through(fs2.text.utf8.decode)
+          .evalMap { chunk =>
+            opened.tryGet.flatMap {
+              case Some(_) => live.updateAndGet(_ + chunk)
+              case None    =>
+                IO.whenA(chunk.contains(Server.LogIdSignal))(
+                  opened.complete(()).void
+                ).as("")
+            }
+          }
+          .exists(_.contains(marker))
+          .compile
+          .drain
+          .start
+        _ <- opened.get.timeout(timeout).adaptError {
+          case _: TimeoutException =>
+            new AssertionError(
+              s"the opening block never completed (no $LogIdSignalName signal)"
+            )
+        }
+        // BOTH gates, and they are different questions. The connection being
+        // subscribed to the patch topic says it can receive; the per-slug
+        // publisher being subscribed to the store says the change will be
+        // rendered at all. A topic delivers only to CURRENT subscribers, so a
+        // change emitted before the publisher attaches is published to nobody
+        // and simply lost — intermittently, under load, which is exactly how
+        // this read as a flaky test rather than a missing gate.
+        _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- trigger
+        // Report what DID arrive. A bare timeout here says only "the marker
+        // never came", which is the least useful half of the story — whether
+        // nothing arrived, or the wrong thing did, is the whole diagnosis.
+        _ <- fiber.joinWithNever.timeout(timeout).recoverWith {
+          case _: TimeoutException =>
+            live.get.flatMap(seen =>
+              IO.raiseError(
+                new AssertionError(
+                  s"never saw '$marker' after the opening block; received:\n$seen"
+                )
+              )
+            )
+        }
+        text <- live.get
+      } yield text
+    }
+
   def observePatch(
       marker: String,
       trigger: IO[Unit],
-      subscribers: Int = 2,
+      subscribers: Int = 1,
       timeout: FiniteDuration = 30.seconds
   ): IO[Unit] =
     run(Request[IO](Method.GET, patchUri)).flatMap { resp =>
@@ -121,10 +203,11 @@ final class TestServer(
         .drain
       for {
         fiber <- seen.start
-        // Both the store's change publishers AND this connection's shared-topic
+        // Both the store's change publisher AND this connection's shared-topic
         // subscription must be live before we emit (topics only reach current
-        // subscribers): the shared per-slug publisher + this session on
-        // `changes`, and this connection on the slug's shared topic.
+        // subscribers). A connection no longer consumes `changes` itself —
+        // there is ONE pass — so the counts are: the per-slug publisher here,
+        // and this connection on the slug's shared topic below.
         _ <- store.changeSubscribers.filter(_ >= subscribers).head.compile.drain
         _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
         _ <- trigger

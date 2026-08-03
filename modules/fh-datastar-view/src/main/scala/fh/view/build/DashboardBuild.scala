@@ -189,6 +189,13 @@ object DashboardBuild {
       )
     )
 
+  // The registry id an inline surface is lifted to. Named because it is needed
+  // twice — to lift the surface, and to derive the id namespace its content is
+  // walked under — and those two MUST agree or the surface's nodes are indexed
+  // under ids nothing refers to.
+  private def surfaceId(idBase: String, localKey: String): String =
+    s"${idBase}_$localKey"
+
   // Returns the rewritten node and the surfaces collected from it (and its
   // subtree). `idBase` is the node's position-derived id namespace.
   private def walk(node: Json, idBase: String): (Json, List[(String, Json)]) =
@@ -213,12 +220,22 @@ object DashboardBuild {
           case Some(marker) =>
             // Resolve nested inline surfaces inside each panel first, so the
             // only `NodeIdToken`s left in this subtree belong to THIS node.
+            //
+            // The panel's content is walked under the id namespace the RENDERER
+            // will give it — `surfacePrefix(sid) + pathId(Nil)`, exactly as the
+            // already-registered branch above does. It is not `<idBase>_<key>_c`:
+            // that reads like the same thing and is not, so a surface-owning
+            // card nested inside a panel (tabs inside an `If` branch) came out
+            // with a `bakeInto` naming a node that does not exist — an unbaked
+            // host, a blank `bakeIndex`, and a mount id colliding with the
+            // node's own cell.
             val resolved = marker.toList.map { case (key, sd) =>
               val sdObj = sd.asObject.getOrElse(JsonObject.empty)
               val (content, nested) =
                 walk(
                   sdObj(ContentKey).getOrElse(Json.Null),
-                  s"${idBase}_${key}_c"
+                  LayoutNode.surfacePrefix(surfaceId(idBase, key)) +
+                    LayoutNode.pathId(Nil)
                 )
               (key, sdObj.add(ContentKey, content), nested)
             }
@@ -239,7 +256,7 @@ object DashboardBuild {
               .getOrElse(JsonObject.empty)
               .toList
               .map { case (key, sd) =>
-                s"${idBase}_$key" -> surfaceOf(
+                surfaceId(idBase, key) -> surfaceOf(
                   sd.asObject.getOrElse(JsonObject.empty)
                 )
               }

@@ -3,7 +3,7 @@ package fh.view.smoke
 import cats.effect.{IO, Resource}
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
-import fh.view.runtime.Datastar
+import fh.view.runtime.{AssetCache, Datastar, Server}
 import fs2.Stream
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -16,23 +16,25 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /** The TWO Datastar behaviours the self/mount split rests on
-  * (docs/plan-one-shared-log.md). Not a general morph exploration — only the
-  * contracts, so a failure here names exactly what broke.
+  * (docs/adr/0012-one-pass-addressed-per-client.md). Not a general morph
+  * exploration — only the contracts, so a failure here names exactly what
+  * broke.
   *
   *   1. '''Sibling isolation.''' A container card patches its OWN element
-  *      (`<nodeId>-self`), which is a SIBLING of the mount holding its children.
-  *      The whole design — "a host's change must not re-render its children" —
-  *      is that a top-level patch touches only the element matching its own id.
-  *      The control in the same test patches the PARENT instead and must wipe
-  *      the mount, so the test cannot pass vacuously.
+  *      (`<nodeId>-self`), which is a SIBLING of the mount holding its
+  *      children. The whole design — "a host's change must not re-render its
+  *      children" — is that a top-level patch touches only the element matching
+  *      its own id. The control in the same test patches the PARENT instead and
+  *      must wipe the mount, so the test cannot pass vacuously.
   *   2. '''`data-ignore-morph` is total.''' A client-owned mount (a React root,
   *      a chart) survives an ancestor morph, AND patches aimed inside it are
   *      dropped. The second half is a FEATURE here (the JS owns that DOM) where
   *      it was fatal for a server-filled panel — and the vendored docs get it
   *      wrong (`attributes.md:218` claims attribute updates still apply).
   *
-  * Pinned bundle: whatever `assets-cache` holds. On upgrade, a failure here
-  * means the split is unsafe — NOT that the test needs relaxing.
+  * Pinned bundle: whatever `Server.DatastarCdn` names, fetched into a cache. On
+  * upgrade, a failure here means the split is unsafe — NOT that the test needs
+  * relaxing.
   *
   * Deliberately standalone: a bare page and an SSE stream this test fully
   * controls, so it measures Datastar and nothing of ours.
@@ -113,6 +115,44 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("ONE patch event morphs several sibling elements, each by its own id") {
+    // One HA frame changes several entities, and today that leaves the server
+    // as one SSE event per affected node. Carrying them in a single
+    // `datastar-patch-elements` is only possible if Datastar morphs each
+    // top-level element in `elements` against its own id. The local reference
+    // documents multi-LINE HTML for one element and says nothing about
+    // siblings, so this is the empirical answer.
+    val page =
+      """<div id="one">OLD1</div>
+        |<div id="two">OLD2</div>
+        |<div id="three">OLD3</div>""".stripMargin
+
+    val patches = List(
+      Datastar.patchElements(
+        """<div id="one">NEW1</div><div id="three">NEW3</div>"""
+      )
+    )
+
+    served(page, patches).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        one <- text(p, "#one")
+        three <- text(p, "#three")
+        _ <- IO(assertEquals(one, "NEW1", "the first element must morph"))
+        _ <- IO(
+          assertEquals(three, "NEW3", "so must the second, by its own id")
+        )
+        // Not a wholesale body replace: an element the patch does not mention
+        // keeps what it had, and keeps its POSITION between the two.
+        two <- text(p, "#two")
+        _ <- IO(
+          assertEquals(two, "OLD2", "an unmentioned sibling must be untouched")
+        )
+      } yield ()
+    }
+  }
+
   test("data-ignore-morph protects a client-owned mount, in both directions") {
     val page =
       """<div id="w">
@@ -167,7 +207,9 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
   }
 
   private def text(page: Page, selector: String): IO[String] =
-    IO.blocking(Option(page.querySelector(selector)).fold("<gone>")(_.innerText))
+    IO.blocking(
+      Option(page.querySelector(selector)).fold("<gone>")(_.innerText)
+    )
 
   private def eventually[A](io: IO[A], timeout: FiniteDuration = 10.seconds)(
       cond: A => Boolean
@@ -190,20 +232,46 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
   /** The bundle the app actually ships, from the on-disk asset cache — the
     * pinned version is the whole point, so this must never reach the CDN.
     */
+  /** The Datastar bundle this suite runs against — the SAME build production
+    * serves, because it comes from the same pinned constant
+    * ([[fh.view.runtime.Server.DatastarCdn]]). Nothing here restates a version,
+    * so the two cannot drift.
+    *
+    * It is read from an asset cache and downloaded once if absent. NOT from
+    * `assets-cache` in the repo: that is gitignored, so it is empty in CI and
+    * differs between developers — a contract test against "whatever this
+    * machine downloaded at some point" is pinned to nothing.
+    *
+    * The directory is `FH_ASSETS_DIR` (production's own knob) or a user cache
+    * dir, which CI caches between runs so the download happens approximately
+    * never.
+    */
   private val bundle: IO[String] = IO.blocking {
-    val dir = LazyList
-      .iterate(os.pwd)(_ / os.up)
-      .take(4)
-      .flatMap(d =>
-        List(d / "assets-cache", d / "modules" / "fh-datastar-view" / "assets-cache")
+    val dir = sys.env
+      .get("FH_ASSETS_DIR")
+      .map(os.Path(_, os.pwd))
+      .getOrElse(
+        os.Path(
+          net.harawata.appdirs.AppDirsFactory.getInstance
+            .getUserCacheDir("fh", "0.0.1", "perok")
+        ) / "assets"
       )
-      .find(os.exists)
-      .getOrElse(sys.error(s"no assets-cache found from ${os.pwd}"))
-    os.read(
-      os.list(dir)
-        .find(_.last.endsWith("datastar.js"))
-        .getOrElse(sys.error(s"no datastar.js in $dir"))
-    )
+    val file = dir / AssetCache.hashName(Server.DatastarCdn)
+    if (!os.exists(file)) {
+      os.makeDir.all(dir)
+      val res = java.net.http.HttpClient
+        .newHttpClient()
+        .send(
+          java.net.http.HttpRequest
+            .newBuilder(java.net.URI.create(Server.DatastarCdn))
+            .build(),
+          java.net.http.HttpResponse.BodyHandlers.ofString()
+        )
+      if (res.statusCode() != 200)
+        sys.error(s"GET ${Server.DatastarCdn} -> ${res.statusCode()}")
+      os.write.over(file, res.body())
+    }
+    os.read(file)
   }
 
   private def served(
@@ -247,4 +315,47 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
         IO.blocking(p.close())
       )
     } yield (page, bound.baseUri)
+
+  test("__ifmissing only seeds a signal nothing has read yet") {
+    // Why the tabs seed asserts instead of initialising. Datastar creates a
+    // signal the moment an expression READS one, so an `__ifmissing` seed that
+    // appears after any reader finds the key already present — as "" — and
+    // correctly declines. A tabs bar reads `$ui_<id>` and renders BEFORE the
+    // panel that seeds it, so the seed would never fire.
+    val page =
+      """<div id="reader" data-text="$late"></div>
+        |<div data-signals__ifmissing="{ late: 1 }"></div>
+        |<div id="reader2" data-text="$asserted"></div>
+        |<div data-signals="{ asserted: 1 }"></div>
+        |<div id="together" data-signals__ifmissing="{ own: 1 }" data-text="$own"></div>
+        |<div data-signals__ifmissing="{ kid: 1 }"><span id="child" data-text="$kid"></span></div>""".stripMargin
+
+    served(page, Nil).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        late <- text(p, "#reader")
+        asserted <- text(p, "#reader2")
+        own <- text(p, "#together")
+        kid <- text(p, "#child")
+        _ <- IO {
+          // Read first, seeded after: never initialised.
+          assertEquals(
+            late,
+            "",
+            "__ifmissing must not seed an already-read signal"
+          )
+          // The same shape with a plain seed: asserted, so it lands.
+          assertEquals(
+            asserted,
+            "1",
+            "a plain seed asserts regardless of readers"
+          )
+          // On ONE element, signals apply before the reader — so it works.
+          assertEquals(own, "1", "same-element seed beats its own reader")
+          println(s"SPIKE|parent-seeds-child-reads = '$kid'")
+        }
+      } yield ()
+    }
+  }
 }

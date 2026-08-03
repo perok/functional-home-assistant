@@ -15,9 +15,17 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, row, st}
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
+
+  /** The affected dynamic ids with the touched entities dropped — a shape only
+    * these tests want, so it lives here rather than as production API.
+    */
+  extension (r: Renderer)
+    private def affectedDynamicIds(change: StateChange): List[String] =
+      r.affectedDynamics(List(change)).map(_._1)
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -41,14 +49,35 @@ class RendererSuite extends munit.FunSuite {
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
+    // SPLIT, like the shipped `Tabs`: the bar is the card's own presentation
+    // (`self`), the panel is where the selected tab is mounted, and they are
+    // siblings. Minimal markup, real SHAPE — shape is what the engine dispatches
+    // on (`hasSelf` picks what a patch renders and targets), so a fixture that
+    // mimicked Tabs while unsplit would be a different KIND of card.
     "tabs" -> CardDef(
-      """<div class="fh-col tabs"><div class="fh-row tabbar">{{#children}}{{{html}}}{{/children}}</div><div id="{{id}}_panel" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>"""
+      template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
+      self = Some(
+        """<div id="{{selfId}}" class="fh-row tabbar">""" +
+          """{{#children}}{{{html}}}{{/children}}</div>"""
+      ),
+      mount = Some(
+        """<div id="{{mountId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
+      )
     ),
     // Like `tabs`, but the bake-owning component ALSO binds a live entity via a
     // `{{title}}` slot — so it is morph-wrapped and re-rendered on that entity's
     // state change. Exercises that a live node patch re-bakes the SELECTED tab.
+    // THE shape the split exists for: a container with a mount AND a live slot
+    // ("a tab bar with the current temperature in its header"). Its patch is the
+    // `self` alone, so a title tick cannot re-render the panel.
     "tabsLive" -> CardDef(
-      """<div class="tabs"><span>{{title}}</span><div id="{{id}}_panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      template = """<div>{{{self}}}{{{mount}}}</div>""",
+      self = Some(
+        """<div id="{{selfId}}" class="tabs"><span>{{title}}</span></div>"""
+      ),
+      mount = Some(
+        """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
+      ),
       slots = List("title")
     )
   )
@@ -391,9 +420,9 @@ class RendererSuite extends munit.FunSuite {
       ),
       cell = Some(Cell(classes = List("fh-cols-full")))
     )
-    val html = renderer(dyn)
-      .renderNodeById("c", Map("light.a" -> st("light.a", "on")))
-      .get
+    // Rendered through the document path: a dynamic group root composes its
+    // members, so it has no rendering of its OWN and is not addressable by id.
+    val html = renderer(dyn).renderBody(Map("light.a" -> st("light.a", "on")))
     assertEquals(
       html,
       """<div class="fh-cell fh-group fh-cols-full" id="c">""" +
@@ -568,7 +597,7 @@ class RendererSuite extends munit.FunSuite {
     // morph target (itself a cell, plus `fh-group`); each child is ALSO wrapped
     // in its own id'd `fh-cell` (the per-entity patch target)
     // `<groupId>_<sanitized entity>`.
-    val html = r.renderNodeById("c", states).get
+    val html = r.renderBody(states)
     assert(
       html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
       clue = html
@@ -694,7 +723,7 @@ class RendererSuite extends munit.FunSuite {
           "friendly_name" -> Json.fromString("Lamp")
         )
       )
-    val html = renderer(dyn).renderNodeById("c", states).get
+    val html = renderer(dyn).renderBody(states)
     assert(html.contains("<button>Fixed</button>"), clue = html)
     assert(!html.contains("Lamp"), clue = html)
   }
@@ -1005,7 +1034,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "renderNodeById re-bakes the uiState-selected tab of a live bake-owning node"
+    "a live bake owner patches its header alone; the bake is document-path only"
   ) {
     // A `tabsLive` component (id "c") owns a bake group AND binds a live entity
     // (`sensor.title`). On a live SSE patch the node is re-rendered by id — it
@@ -1046,17 +1075,24 @@ class RendererSuite extends munit.FunSuite {
     // The live entity binds "c" so the node is morph-wrapped and re-renderable.
     assertEquals(rr.componentsFor("sensor.title"), Set("c"))
 
-    // Default (no selection) bakes the FIRST tab (index 0 → sensor.a → AA).
-    val dflt = rr.renderNodeById("c", states).get
-    assert(dflt.startsWith("""<div class="fh-cell" id="c">"""), clue = dflt)
+    // THE contract, and the reason the whole design exists: a live tick on the
+    // host patches its `self` — the header — and carries NOTHING of the panel.
+    // A change to the title cannot re-render what the tabs host holds.
+    val patch = rr.renderNodeById("c", states).get
+    assertEquals(
+      patch,
+      """<div id="c-self" class="tabs"><span>Live</span></div>"""
+    )
+
+    // Which member is baked was the ONLY thing that made this per-client, and it
+    // lives on the document path alone now. There the selection still decides:
+    // no uiState bakes tab 0, `c -> 1` bakes tab 1, signal seed included.
+    val dflt = rr.renderBody(states)
     assert(dflt.contains("tab_c: 0"), clue = dflt)
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    // The ui state selects tab 1 → the SECOND tab is baked (sensor.b → BB), and
-    // the panel signal is seeded to 1. This is the bug the change fixes: without
-    // threading uiState the live patch would re-bake the default tab.
-    val sel = rr.renderNodeById("c", states, uiState = Map("c" -> "1")).get
+    val sel = rr.renderBody(states, Map("c" -> "1"))
     assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
@@ -1136,7 +1172,13 @@ class RendererSuite extends munit.FunSuite {
   // The If host: a plain component card with one {{{branch}}} bake hole — no
   // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
-    cards + ("ifhost" -> CardDef("""<div id="{{id}}">{{{branch}}}</div>"""))
+    // Mirrors lib/components.pkl's `If`: a pure mount, no `self` — an If has no
+    // presentation of its own. The cell wrapper (which the backend owns) is the
+    // node's id'd element; the mount's id is `Surface.hostId`.
+    cards + ("ifhost" -> CardDef(
+      template = "{{{self}}}{{{mount}}}",
+      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+    ))
 
   /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
     * sensor.a card) is active while alarm.h == armed, with an always-true
@@ -1206,8 +1248,15 @@ class RendererSuite extends munit.FunSuite {
     val states = armedStates("disarmed")
     assertEquals(r.resolveActiveByState("c", states), None)
     // The host still renders its wrapper — with empty branch content, so a
-    // matching branch appearing later has its patch target in the DOM.
-    assertEquals(r.renderNodeById("c", states).get, """<div id="c"></div>""")
+    // matching branch appearing later has its patch target in the DOM. Both
+    // boxes: the cell (the node's own element) and the mount inside it. Through
+    // the document path: an If is a pure mount, so it has no rendering of its
+    // own and `renderNodeById` refuses it.
+    assertEquals(
+      r.renderBody(states),
+      """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
+    )
+    assertEquals(r.renderNodeById("c", states), None)
   }
 
   test("resolveActiveByState quantifiers: any = ∃, none = ∄, all = ∀") {
@@ -1264,8 +1313,141 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
   }
 
+  /** The shape W18's card-shape test could not see: a container that splices
+    * `{{#children}}` into its `template` with no mount at all — the pre-split
+    * container. It passes "has no mount", so it looked like a node with its own
+    * rendering, while its rendering carries whatever its children's mounts
+    * hold.
+    *
+    * Found by accident: W18's first test fixture was exactly this, and the test
+    * still failed after the fix.
+    */
+  test("a node whose CHILDREN carry a mount has no rendering of its own") {
+    def dash(container: CardDef) = Dashboard(
+      cards =
+        Map(
+          "box" -> container,
+          "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+          "tabs" -> CardDef(
+            template = "{{{self}}}{{{mount}}}",
+            self = Some("""<div id="{{selfId}}">bar</div>"""),
+            mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+          )
+        ),
+      card = LayoutNode
+        .Component("box", children = List(LayoutNode.Component("tabs"))),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some("sensor.a")))
+          ),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    val states = Map("sensor.a" -> st("sensor.a", "A0"))
+
+    // The PRE-SPLIT shape: children in `template`, no mount anywhere on the
+    // card itself.
+    val preSplit = Renderer.create(
+      dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
+    )
+    assertEquals(preSplit.renderNodeById("c", states), None)
+    // ...and a card with a `self` whose CHILD owns the bake group — the same
+    // failure from the other direction.
+    val selfWithBakingChild = Renderer.create(
+      dash(
+        CardDef(
+          template = "{{{self}}}",
+          self = Some(
+            """<div id="{{selfId}}">{{#children}}{{{html}}}{{/children}}</div>"""
+          )
+        )
+      )
+    )
+    assertEquals(selfWithBakingChild.renderNodeById("c", states), None)
+
+    // Non-vacuous: the same container with a LEAF child keeps its own
+    // rendering, because nothing under it holds a mount.
+    val plain = Renderer.create(
+      Dashboard(
+        cards = Map(
+          "box" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+          "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+        ),
+        card = LayoutNode
+          .Component(
+            "box",
+            children = List(
+              LayoutNode.Component(
+                "card",
+                slots = Map("state" -> SlotSource(Some("sensor.a")))
+              )
+            )
+          )
+      )
+    )
+    assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
+  }
+
+  test("a self reads the selection only when it uses the TAG") {
+    def cards(self: String) = Map(
+      "col" -> CardDef(
+        template = "{{{mount}}}",
+        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+      ),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        self = Some(self),
+        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+      )
+    )
+    def dash(self: String) = Dashboard(
+      cards = cards(self),
+      card = LayoutNode
+        .Component("col", children = List(LayoutNode.Component("tabs"))),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    // A real tag — including the triple-stache form, since a numeric index
+    // escapes to itself and an author may well write it that way.
+    assert(
+      Renderer
+        .create(dash("""<div id="{{selfId}}" class="a-{{bakeIndex}}"></div>"""))
+        .nodeVariesByViewer("c_0")
+    )
+    assert(
+      Renderer
+        .create(dash("""<div id="{{selfId}}">{{{ bakeIndex }}}</div>"""))
+        .nodeVariesByViewer("c_0")
+    )
+    // The word, but not the value: a comment and a class name are not reads,
+    // and treating them as such makes the card per-viewer forever.
+    assert(
+      !Renderer
+        .create(
+          dash(
+            """<div id="{{selfId}}" class="bakeIndex"><!-- bakeIndex --></div>"""
+          )
+        )
+        .nodeVariesByViewer("c_0")
+    )
+  }
+
   test(
-    "sessionOnlyStateGroups: a user-selected owner inside a branch flags the group"
+    "surfaceVariesByViewer: a user mount under a branch makes it per-viewer"
   ) {
     // The then-branch content is a `tabs` owner (a user-selected bake group
     // baked into the branch's content root `s_c_then__c`) — so the If's host
@@ -1290,12 +1472,75 @@ class RendererSuite extends munit.FunSuite {
         )
       )
     )
-    assertEquals(Renderer.create(d).sessionOnlyStateGroups, Set("c"))
-    // A branch with no user owner anywhere stays shared.
-    assertEquals(
-      Renderer.create(ifDashboard()).sessionOnlyStateGroups,
-      Set.empty[String]
+    // The then-branch holds a tabs host, so its HTML is not one thing — it is
+    // one thing per selection, and the shared pass must not render it.
+    assert(Renderer.create(d).surfaceVariesByViewer("c_then"))
+    // A branch with no user mount anywhere is one rendering serving everyone.
+    assert(!Renderer.create(ifDashboard()).surfaceVariesByViewer("c_then"))
+  }
+
+  test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
+    // Two chains hanging off the main page, each two surfaces deep:
+    //   main -> t0 (user)  -> if host -> b0 (state)
+    //   main -> sx (state) -> tabs    -> u0 (user)
+    // The containing surface is where a surface's HOST node sits, so t0's If
+    // host is `s_t0__c` and sx's tabs host is `s_sx__c`.
+    val d = Dashboard(
+      ifCards,
+      col(
+        LayoutNode.Component("tabs"), // c_0 — hosts the user surface t0
+        LayoutNode.Component("ifhost") // c_1 — hosts the state surface sx
+      ),
+      surfaces = Map(
+        "t0" -> Surface(
+          LayoutNode.Component("ifhost"),
+          bakeInto = Some("c_0"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        ),
+        "b0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
+          bakeInto = Some("s_t0__c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(always)
+        ),
+        "sx" -> Surface(
+          LayoutNode.Component("tabs"),
+          bakeInto = Some("c_1"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(always)
+        ),
+        "u0" -> Surface(
+          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.b")))),
+          bakeInto = Some("s_sx__c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
     )
+    val r = Renderer.create(d)
+
+    // A user surface is its own tag — it is exactly what hides content.
+    assertEquals(r.userSurfaceOf("t0"), Some("t0"))
+    assertEquals(r.userSurfaceOf("u0"), Some("u0"))
+    // A state surface hides nothing (every client sees the same branch), so the
+    // walk passes THROUGH it to whatever encloses it...
+    assertEquals(r.userSurfaceOf("b0"), Some("t0"))
+    // ...and reaching the main page means "no user surface above me".
+    assertEquals(r.userSurfaceOf("sx"), None)
+
+    // The same, entered by node: a node is tagged by the tree it was indexed
+    // from, which is NOT derivable from its id (`s_b0__c` names only b0).
+    assertEquals(r.userSurfaceOfNode("s_b0__c"), Some("t0"))
+    assertEquals(r.userSurfaceOfNode("s_u0__c"), Some("u0"))
+    assertEquals(r.userSurfaceOfNode("s_sx__c"), None)
+    assertEquals(r.userSurfaceOfNode("c"), None)
+    // An id no tree owns has no tag to give.
+    assertEquals(r.userSurfaceOfNode("c_nope"), None)
   }
 
   test("affectedDynamics surfaces the membership delta per group") {
@@ -1314,29 +1559,123 @@ class RendererSuite extends munit.FunSuite {
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
     def high(id: String) =
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
-    // prev ∧ cur -> InPlace
+    // Matching either side touches the group, and the entity that did it is
+    // named — WHICH way it moved is the frame's question, not one change's.
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), low("s.b"))),
-      List("c" -> DynamicDelta.InPlace)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(low("s.b")), low("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
-    // ¬prev ∧ cur -> Added (both a high->low flip and a newly-seen match)
+    // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(high("s.b")), low("s.b"))),
-      List("c" -> DynamicDelta.Added)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(high("s.b")), low("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", None, low("s.b"))),
-      List("c" -> DynamicDelta.Added)
+      r.affectedDynamics(List(StateChange("s.b", None, low("s.b")))),
+      List("c" -> List("s.b"))
     )
-    // prev ∧ ¬cur -> Removed
+    // prev ∧ ¬cur
     assertEquals(
-      r.affectedDynamics(StateChange("s.b", Some(low("s.b")), high("s.b"))),
-      List("c" -> DynamicDelta.Removed)
+      r.affectedDynamics(
+        List(StateChange("s.b", Some(low("s.b")), high("s.b")))
+      ),
+      List("c" -> List("s.b"))
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
-      r.affectedDynamics(StateChange("s.z", Some(high("s.z")), high("s.z"))),
+      r.affectedDynamics(
+        List(StateChange("s.z", Some(high("s.z")), high("s.z")))
+      ),
       Nil
     )
+    // One frame, several entities: ONE entry naming both.
+    assertEquals(
+      r.affectedDynamics(
+        List(
+          StateChange("s.b", Some(high("s.b")), low("s.b")),
+          StateChange("s.c", Some(low("s.c")), high("s.c"))
+        )
+      ),
+      List("c" -> List("s.b", "s.c"))
+    )
+  }
+
+  // ---- the self/mount split (docs/adr/0012-one-pass-addressed-per-client.md) ----
+
+  /** A container that declares both parts AND binds a live entity — the shape
+    * the split exists for ("a tab bar with the current temperature in its
+    * header"). The mount holds the child; the self holds the live header.
+    */
+  private val splitCards = cards + ("split" -> CardDef(
+    template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
+    self = Some("""<div id="{{selfId}}" class="bar">{{state}}</div>"""),
+    // No `{{mountId}}`: a mount needs an id only where something FILLS it, which
+    // is where `bakeAs` names it. This card has no bake group, like Grid/Row.
+    mount = Some(
+      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div>"""
+    ),
+    slots = List("state")
+  ))
+
+  private def splitRenderer: Renderer =
+    Renderer.create(
+      Dashboard(
+        splitCards,
+        LayoutNode.Component(
+          "split",
+          slots = Map("state" -> SlotSource(Some("sensor.t"))),
+          children = List(
+            LayoutNode.Component("btn", Map("label" -> lit("inside")))
+          )
+        )
+      )
+    )
+
+  test("the document path renders both parts, the child inside the mount") {
+    val html = splitRenderer.renderBody(Map("sensor.t" -> st("sensor.t", "21")))
+    // The cell wrapper owns the node id, the self part owns its own — disjoint,
+    // one owner each.
+    assert(html.contains("""class="fh-cell" id="c""""), clue = html)
+    assert(html.contains("""id="c-self""""), clue = html)
+    assert(html.contains("21"), clue = html)
+    assert(html.contains("inside"), clue = html)
+  }
+
+  test("a container's patch render is its self element alone — statement (1)") {
+    val r = splitRenderer
+    val patch =
+      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21"))).get
+    // What it IS: the self element, with the live value.
+    assert(patch.startsWith("""<div id="c-self""""), clue = patch)
+    assert(patch.contains("21"), clue = patch)
+    // What it is NOT — the point of the whole design. The mount's id does not
+    // appear at all, so this fragment cannot disturb what the mount holds, and
+    // neither does the cell wrapper (which contains the mount).
+    assert(!patch.contains("panel"), clue = patch)
+    assert(!patch.contains("inside"), clue = patch)
+    assert(!patch.contains("fh-cell"), clue = patch)
+  }
+
+  test(
+    "patchTargetId aims at the self element for a container, the node for a leaf"
+  ) {
+    val r = splitRenderer
+    assertEquals(r.patchTargetId("c"), "c-self")
+    // The child is a leaf: its whole rendering IS its patch.
+    assertEquals(r.patchTargetId("c_0"), "c_0")
+    // Nothing maps back — the log key stays the node id.
+    assertEquals(r.elementId("c"), "c")
+  }
+
+  test(
+    "mountId IS Surface.hostId — the template stops deriving it separately"
+  ) {
+    val r = Renderer.create(tabsDashboard)
+    assertEquals(r.mountId("c"), "c_panel")
+    assertEquals(r.mountId("c"), r.surface("c_t0").get.hostId)
   }
 }

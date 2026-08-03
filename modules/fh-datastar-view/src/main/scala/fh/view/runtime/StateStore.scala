@@ -3,7 +3,6 @@ package fh.view.runtime
 import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.IO
 import cats.effect.kernel.Ref
-import cats.syntax.all.*
 import fs2.{Chunk, Stream}
 import fs2.concurrent.Topic
 import io.circe.Json
@@ -167,7 +166,7 @@ private[runtime] case class StoreState(
   */
 class StateStore private (
     ref: Ref[IO, StoreState],
-    topic: Topic[IO, StateChange]
+    topic: Topic[IO, List[StateChange]]
 ) {
 
   def snapshot: IO[Map[String, EntityState]] = ref.get.map(_.entities)
@@ -181,7 +180,15 @@ class StateStore private (
   /** The current version alone, for asserting the clock's behaviour. */
   private[runtime] def version: IO[Long] = ref.get.map(_.version)
 
-  /** Stream of state changes (entity + its previous/current value).
+  /** Stream of state changes, ONE ELEMENT PER FRAME — every entity an HA event
+    * carried, together.
+    *
+    * The frame is the unit because the version is: [[update]] applies a frame
+    * in one ref update and bumps the version once, so publishing per entity
+    * handed the diff pass N views of a single instant. Each ran its own pass,
+    * ended its own patch batch with its own (identical) cursor, and
+    * reconstructed a "before" holding every OTHER entity's NEW value — a state
+    * that never existed.
     *
     * UNBOUNDED, and that is a correctness requirement rather than a capacity
     * choice: `Topic.publish1` sends to every subscriber's channel in turn and
@@ -196,7 +203,7 @@ class StateStore private (
     * (60s by default), so a peer that stops reading is torn down and this
     * subscription released with it.
     */
-  def changes: Stream[IO, StateChange] = topic.subscribeUnbounded
+  def changes: Stream[IO, List[StateChange]] = topic.subscribeUnbounded
 
   /** Apply a batch of `subscribe_entities` frames — a burst arrives as one
     * chunk and lands in one [[update]], so the ref is touched once per batch
@@ -284,7 +291,7 @@ class StateStore private (
           changes.reverse
         )
       }
-      .flatMap(_.traverse_(topic.publish1))
+      .flatMap(cs => IO.whenA(cs.nonEmpty)(topic.publish1(cs).void))
 
   /** Current number of `changes` subscribers, as a signal stream — a test seam
     * to await subscriptions deterministically (topic publishes reach only
@@ -356,7 +363,7 @@ object StateStore {
   ): IO[StateStore] =
     for {
       ref <- Ref[IO].of(StoreState(initial, 0L))
-      topic <- Topic[IO, StateChange]
+      topic <- Topic[IO, List[StateChange]]
     } yield new StateStore(ref, topic)
 
 }

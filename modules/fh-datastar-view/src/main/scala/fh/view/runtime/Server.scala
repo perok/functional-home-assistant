@@ -13,7 +13,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.Dashboard
+import fh.view.model.{Dashboard, DomId, NodeId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef, Topic}
 import io.circe.Json
@@ -47,17 +47,19 @@ import scala.concurrent.duration.*
   *     ANOTHER dashboard is not a route here — it is an ordinary document load
   *     of `/d/:slug` (ADR 0002).
   *
-  * Live entity patches are split by what they depend on. Main-page nodes whose
-  * HTML is a pure function of entity state — including STATE-selected bake
-  * groups (If/else hosts and their active branches, whose selection is server
-  * truth) — are rendered ONCE per slug by [[sharedPatchPublishers]] (one
-  * subscription to the state stream per dashboard, per-slug diff cache) and
-  * fanned out to every connection viewing that slug over `sharedTopic`. Only
-  * what truly differs per client stays per-session in [[changedPatches]]:
-  * open-surface nodes and USER bake-group-owner nodes (their HTML depends on
-  * the client's `uiState`), plus the state groups those pull in (nested in an
-  * open popup, or with a user owner in a branch). Construct via
-  * [[Server.resource]], which creates the topic and runs the publishers.
+  * Live entity patches are rendered ONCE per slug by [[sharedPatchPublishers]]
+  * (one subscription to the state stream per dashboard, one diff cache) and
+  * fanned out over `sharedTopic` to every connection viewing that slug — main
+  * page and open surfaces alike. Who may see each patch is decided at the wire
+  * edge by its [[Addressed]] tag, not by re-rendering per client.
+  *
+  * ONE thing genuinely cannot be rendered for everyone at once: a branch whose
+  * subtree mounts a client-selected member. The shared pass does not render
+  * those at all — it publishes a [[Varying]] carrying the render, and each
+  * connection performs it against its own selections at send time. That is the
+  * entire per-connection render budget, and it still arrives as ONE complete
+  * patch. Construct via [[Server.resource]], which creates the topic and runs
+  * the publishers.
   *
   * The slug set is NOT fixed at startup: [[push]] installs a pre-evaluated
   * dashboard at runtime (ADR 0010), which is why the registry is a `Ref` and
@@ -81,7 +83,7 @@ class Server(
     // subscribes when it opens, so a per-slug map would freeze the slug set at
     // connect time and a slug pushed later could never reach an open
     // connection. Tagging is what lets `push` mint a slug at runtime.
-    sharedTopic: Topic[IO, (String, ServerSentEvent)],
+    sharedTopic: Topic[IO, (String, Directed)],
     // Starts the per-slug shared-patch publisher for a slug minted by `push`.
     // Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -244,7 +246,7 @@ class Server(
     */
   private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
     io.handleErrorWith {
-      case e: FHError => IO.pure(FHError.response(e))
+      case e: FHError => FHError.logged(e)
       case err        => InternalServerError(err.getMessage)
     }
 
@@ -255,6 +257,13 @@ class Server(
   private def rendererFor(slug: String): IO[Option[Renderer]] =
     liveFor(slug).flatMap(_.traverse(_.renderer.get))
 
+  /** Test seam: the live state for one slug (its renderer signal + its log), so
+    * a suite can assert on what a path wrote to the ledger rather than only on
+    * what reached the wire.
+    */
+  private[runtime] def liveSlug(slug: String): IO[Server.LiveSlug] =
+    liveFor(slug).map(_.getOrElse(sys.error(s"no live slug '$slug'")))
+
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
     renderers.get.map(_.get(slug))
 
@@ -262,11 +271,10 @@ class Server(
     * stream, one diff cache, publishing slug-tagged patches to [[sharedTopic]]
     * — so each affected main-page fragment is rendered ONCE per state change
     * and fanned out to every connection viewing the slug, instead of N viewers
-    * doing N identical renders. Only nodes whose HTML is a pure function of
-    * entity state qualify: USER bake-group owners (uiState-dependent) are
-    * excluded and stay per-session ([[changedPatches]]); STATE-selected groups
-    * qualify and are handled here — selection flips and active-branch liveness
-    * included (see [[sharedPatches]]).
+    * doing N identical renders. EVERYTHING qualifies: a node's rendering is a
+    * pure function of entity state once a mount's contents are no longer part
+    * of it (statement (1) of the self/mount split), so bake-group owners, their
+    * selection flips and active-branch liveness are all handled here.
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
     * renderer and a FRESH per-slug diff cache. A change landing in the brief
@@ -287,18 +295,27 @@ class Server(
       slug: String,
       live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    live.renderer.discrete
-      .switchMap { renderer =>
-        // A fresh log IDENTITY per swap, in the ref every connection reads: a
+    live.renderer.discrete.zipWithIndex
+      .switchMap { case (renderer, arm) =>
+        // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
         // cursor issued against the previous renderer's log names versions this
         // one never had, so it must not be resumable
         // (docs/adr/0011-the-live-connection.md).
-        Stream.exec(Server.freshLog.flatMap(live.log.set)) ++
+        //
+        // Not on the FIRST arm, though. `discrete` emits the current renderer
+        // immediately, and rotating there invalidates cursors for no reason —
+        // the log the `LiveSlug` was created with is already this renderer's.
+        // It also raced the page route: a document served in that window
+        // advertised the old id and its first connect was refused, repainting a
+        // body it already had.
+        Stream.exec(
+          IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
+        ) ++
           stateStore.changes
-            .evalMap(sharedPatches(renderer, live.log, _))
+            .evalMap(sharedPatches(slug, renderer, live.log, _))
             .flatMap(Stream.emits)
       }
-      .map(sse => (slug, sse))
+      .map(addressed => (slug, addressed))
       .through(sharedTopic.publish)
 
   /** Start every currently-registered slug's publisher. Slugs pushed later get
@@ -365,69 +382,171 @@ class Server(
         }
     }
 
-  /** The shared per-slug render/diff for one state change: the affected
-    * main-page static components (reverse index, minus the USER bake-group
-    * owners), the query-affected dynamic groups, plus everything state-selected
-    * surfaces contribute — all rendered against the current snapshot and diffed
-    * against the slug's shared cache. Returns the SSE patches — child-scoped
-    * for a dynamic member update, per-entity insert/remove for a small
-    * membership delta, a whole-group morph otherwise (see [[diffPatches]]). No
-    * `uiState`: by construction these nodes don't read it.
+  /** The shared per-slug render/diff for one state change: the affected static
+    * components (reverse index), the query-affected dynamic groups, plus
+    * everything the visible surfaces contribute — all rendered against the
+    * current snapshot and diffed against the slug's shared cache. Returns the
+    * SSE patches — child-scoped for a dynamic member update, per-entity
+    * insert/remove for a small membership delta, a whole-group morph otherwise
+    * (see [[diffPatches]]). No client `uiState` reaches here at all
+    * ([[Viewer.Nobody]]) — which is what lets one rendering serve every viewer.
     *
-    * The state-selected extension (ADR 0002's shared/per-session split, cut by
-    * activation mode):
+    * The state-selected extension (what ADR 0002's split became):
     *
     *   - '''Flips''': each state group whose selection this change moves
-    *     ([[Renderer.affectedStateGroups]], main-rooted; minus the session-only
-    *     ones, whose branch HTML bakes a client-selected member and therefore
-    *     rides [[changedPatches]]) gets its HOST re-rendered — [[Renderer]]'s
-    *     bake picks the newly-selected member against CURRENT state — morphed,
-    *     and its members' cache entries pruned ([[flipStateGroup]]).
+    *     ([[Renderer.affectedStateGroups]]) gets its HOST re-rendered —
+    *     [[Renderer]]'s bake picks the newly-selected member against CURRENT
+    *     state — morphed, and its members' cache entries pruned
+    *     ([[flipStateGroup]]). A branch whose subtree mounts a client-selected
+    *     member is not rendered here at all — it rides as a [[Varying]].
     *   - '''Active-member liveness''': for each surface in the main-rooted
     *     transitive active set ([[Renderer.activeStateSurfaces]], excluding
-    *     just-flipped subtrees — their host morph re-rendered them wholesale —
-    *     and session-only subtrees) patch its components binding the changed
-    *     entity plus its query-affected dynamics. Inactive members are never
-    *     consulted — that IS the hidden-branch no-updates guarantee, and it is
-    *     structural: their ids simply never enter the patch set.
+    *     just-flipped subtrees — their host morph re-rendered them wholesale)
+    *     patch its components binding the changed entity plus its
+    *     query-affected dynamics. Inactive members are never consulted — that
+    *     IS the hidden-branch no-updates guarantee, and it is structural: their
+    *     ids simply never enter the patch set.
     */
   private[runtime] def sharedPatches(
+      slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
-      change: StateChange
-  ): IO[List[ServerSentEvent]] =
-    (stateStore.current, Server.stampNow).flatMapN { (store, millis) =>
-      val req = Patches.plan(
-        renderer,
-        store.entities,
-        Stamp(store.version, millis),
-        change,
-        Patches.Scope.Shared
-      )
-      // The log's id is read INSIDE the modify, so the cursor names the log the
-      // batch was diffed against — never one a concurrent renderer swap rotated
-      // in, which would leave the client quoting a log its version was not from.
-      log
-        .modify { l =>
-          val (next, patches) = Patches.diff(renderer, l, req)
-          (next, (next.id, patches))
-        }
-        .map { case (logId, patches) =>
-          // Advance the clients' cursor to what they were just sent — but only when
-          // something WAS sent. A batch that emitted nothing leaves every cursor
-          // where it was, so a later resume re-sends a superset of what that client
-          // needs (harmless: every fragment patch is an idempotent morph), which is
-          // the right direction to err in.
-          if (patches.isEmpty) patches
-          else
-            patches :+ Server.cursorSignals(renderer, logId, req.stamp.version)
-        }
+      changes: List[StateChange]
+  ): IO[List[Directed]] =
+    (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
+      (store, millis, opens) =>
+        // What is worth rendering: the surfaces some client can actually SEE,
+        // not merely has selected. A tab panel inside a hidden `If` branch is in
+        // its client's open set and on nobody's screen — rendering it is pure
+        // waste, and the waste is per tick of every entity it binds. Each
+        // session is filtered against its OWN set before the union, because a
+        // chain is one client's.
+        val visible = opens
+          .flatMap(o => o.filter(renderer.visibleSurface(_, o, store.entities)))
+          .toSet
+        val req = Patches.plan(
+          renderer,
+          store.entities,
+          Stamp(store.version, millis),
+          changes,
+          visible
+        )
+        log
+          .modify { l =>
+            val (l2, ready, pending) = Patches.diff(renderer, l, req)
+            (l2, (ready, pending))
+          }
+          .flatMap { case (ready, pending) =>
+            // Each pending render becomes ONE memo: the first connection
+            // holding a variant forces it, compares against that variant's
+            // digest, records the result and returns the verdict; every later
+            // connection on the SAME variant is handed that verdict. Memoising
+            // the verdict rather than the render is what stops the second
+            // viewer being told "unchanged" because the first one consumed it.
+            //
+            // Lazy on purpose: a variant nobody holds is never rendered.
+            pending
+              .traverse { p =>
+                Memo
+                  // Keyed by VARIANT alone. Keying on the snapshot too would
+                  // put a whole `StoreState` in this map and hold it for the
+                  // life of the batch — the retention that reading at force
+                  // time exists to avoid — and would stop two connections on
+                  // one variant sharing a verdict the moment a tick separated
+                  // them.
+                  .keyed[Selections, Option[ServerSentEvent]] { sel =>
+                    stateStore.current.flatMap { now =>
+                      log.get.flatMap { before =>
+                        // Cheap skip first. Every node this render would write
+                        // is already recorded at or past this version, so the
+                        // digests already describe what it would produce — no
+                        // need to produce it. This is what collapses several
+                        // queued batches that all touch one node.
+                        // Superseded first: this item's selection moved again
+                        // before its connection reached it, so its bytes are
+                        // not merely redundant but briefly WRONG. The item
+                        // behind it in the same queue carries what belongs.
+                        val stale = p.placing.exists(before.isGone)
+                        val known = p.keys.nonEmpty && p.keys.forall(id =>
+                          before.atLeast(
+                            id,
+                            renderer.variantIn(id, sel),
+                            now.version
+                          )
+                        )
+                        if (stale || known) IO.pure(None)
+                        else
+                          p.render(sel, now.entities) match {
+                            case None    => IO.pure(None)
+                            case Some(r) =>
+                              log.modify { l =>
+                                // And the digest, for the other question: the
+                                // version moved but the rendering did not. A
+                                // fill answers it per node, never over its
+                                // composed bytes.
+                                val unchanged = r.own.nonEmpty && r.own.forall {
+                                  case (id, html) =>
+                                    l.holds(
+                                      id,
+                                      html,
+                                      renderer.variantIn(id, sel)
+                                    )
+                                }
+                                if (unchanged) (l, None)
+                                else
+                                  (
+                                    r.own.foldLeft(l) {
+                                      case (acc, (id, html)) =>
+                                        acc.set(
+                                          id,
+                                          html,
+                                          now.version,
+                                          renderer.variantIn(id, sel)
+                                        )
+                                    },
+                                    Some(r.patch.toSse)
+                                  )
+                              }
+                          }
+                      }
+                    }
+                  }
+                  .map(memo =>
+                    Varying(
+                      p.surface,
+                      (ui: Map[String, String], _: StoreState) =>
+                        memo(p.selections(ui))
+                    )
+                  )
+              }
+              .map(ready ++ _)
+          }
+          .map { patches =>
+            // Advance the clients' cursor to what they were just sent — but only when
+            // something WAS sent. A batch that emitted nothing leaves every cursor
+            // where it was, so a later resume re-sends a superset of what that client
+            // needs (harmless: every fragment patch is an idempotent morph), which is
+            // the right direction to err in.
+            //
+            // Only the part that CHANGED rides along. `headHash`, `styleHash` and
+            // `logId` are constant for the life of a renderer, so re-sending them
+            // on every batch is bytes on every patch of every connection — and
+            // every signal a client holds is serialised back into every request it
+            // makes. All three are (re)established where they can actually change:
+            // on connect, and on a renderer swap ([[reloadRepaints]]).
+            if (patches.isEmpty) patches
+            else
+              patches :+ Addressed(
+                None,
+                Server.versionSignal(req.stamp.version)
+              )
+          }
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
-    * main-page patches, this session's own entity-change patches (open surfaces
-    * + bake-group owners), the session control channel (popup/navigate
-    * patches), live-reload body repaints, and a heartbeat.
+    * patches (filtered to what this client can see, with any [[Reveal]] filled
+    * for it), the session control channel (popup/navigate patches), live-reload
+    * body repaints, and a heartbeat.
     */
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
@@ -437,15 +556,16 @@ class Server(
       _ <- sessions.register(conn, session)
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
-      // Seed the open set with this client's selected tab panels (from its
-      // signals) plus the popup it says it still has open (from its signal — see
-      // [[Server.PopupSignal]]), so BOTH receive live updates from the first
-      // paint and a reconnect does not silently orphan the dialog on screen.
+      // Seed the open set from this client's ui state — its selected tab
+      // panels AND the popup it says it still has open, which is now the same
+      // kind of selection read from the same map — so all of them receive live
+      // updates from the first paint and a reconnect does not silently orphan
+      // the dialog on screen.
       // Warn on any off ui-state value.
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
-            r.selectedSurfaces(uiState) ++ Server.claimedPopup(req, r)
+            r.selectedSurfaces(uiState)
           )
       }
       // On (re)connect, heal whatever the DOM missed while the stream was down —
@@ -462,13 +582,6 @@ class Server(
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
-      // What truly differs per client: open-surface nodes and user
-      // bake-group-owner nodes (plus the state groups those pull in),
-      // re-rendered per state change with this session's uiState/open set and
-      // diffed against its own cache.
-      patches = stateStore.changes
-        .evalMap(changedPatches(session, _, uiState))
-        .flatMap(Stream.emits)
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState)
       // Emit `haDown` on connect (the initial `discrete` value) and on every
@@ -508,13 +621,46 @@ class Server(
       live = Stream
         .resource(sharedTopic.subscribeAwaitUnbounded)
         .flatMap { tagged =>
+          // Two filters, and they are different questions. The slug decides
+          // whether this patch is about the dashboard this connection is
+          // viewing at all; the surface tag decides whether THIS client can see
+          // the part of it that changed. `open` is read per patch rather than
+          // captured, because a tab select moves it mid-stream.
           val shared =
-            tagged.collect { case (s, sse) if s == session.slug => sse }
+            tagged
+              .collect { case (s, a) if s == session.slug => a }
+              .evalFilter(a => session.open.get.map(a.visibleTo))
+              // Ready bytes pass through; a Varying is the one item this
+              // connection renders itself, because only it knows which member
+              // its viewer has mounted. `open` is the live selection — a tab
+              // clicked mid-connection moves it, while the `uiState` this
+              // connection arrived with does not.
+              .evalMap {
+                case Addressed(_, event) => IO.pure(Option(event))
+                case Varying(_, resolve) =>
+                  // Read at FORCE time, entities and version together: a queued
+                  // item renders the state that exists when it is finally sent,
+                  // not the one its batch was diffed at — anything older is
+                  // about to be superseded by an item already behind it.
+                  (
+                    rendererFor(session.slug),
+                    session.open.get,
+                    stateStore.current
+                  ).flatMapN { (rendererOpt, open, now) =>
+                    rendererOpt.fold(IO.pure(Option.empty[ServerSentEvent]))(
+                      r => resolve(r.uiStateFrom(open), now)
+                    )
+                  }
+              }
+              .unNone
           Stream
-            .eval(liveOpt.traverse(openingPatches(slug, _, req, uiState)))
+            .eval(
+              session.open.get.flatMap(open =>
+                liveOpt.traverse(openingPatches(slug, _, req, uiState, open))
+              )
+            )
             .flatMap(opening => Stream.emits(opening.toList.flatten)) ++
             shared
-              .merge(patches)
               .merge(control)
               .merge(reloads)
               .merge(haDown)
@@ -557,32 +703,45 @@ class Server(
     * The cursor signals are re-emitted with the resume, because the resume
     * itself brings the client up to the log's current version.
     *
-    * '''Per-session fragments are painted fresh, not resumed''' (ADR 0011). The
-    * shared log covers only what the shared pass renders; a tab panel's
-    * contents are per-session (their HTML bakes a client-selected member) and
-    * their only diff cache died with the previous connection. So on the resume
-    * path each per-session ROOT ([[Renderer.sessionOwnedMainIds]]) is
-    * re-rendered against current state and morphed — after the resumed
-    * fragments, so it wins over any shared ancestor in the same batch. The
-    * repaint path needs none of this: `renderBody` already bakes those subtrees
-    * with this client's `uiState`.
-    *
-    * '''A popup the client still has open is restored, not closed.''' Its
-    * content is per-session and its host lives in `theme.chrome`, OUTSIDE the
-    * `#dashboard` body, so neither the resume nor the repaint reaches it. The
-    * client names it in [[Server.PopupSignal]]; it is re-rendered fresh into
-    * the host here, and `sseStream` puts it back in the session's open set so
-    * it stays live afterwards. Only a claim this dashboard no longer recognises
-    * resets the host — that dialog belongs to nothing and cannot be revived.
+    * '''One rule covers the surfaces too.''' A tab panel's or popup's nodes
+    * used to need painting fresh on every resume — their HTML baked a
+    * client-selected member, and their only diff cache died with the previous
+    * connection. Under the self/mount split a container patches its `self`
+    * alone, so nothing about those nodes is per-client any more: they are
+    * simply candidates, reached through the session's `open` set, and sent only
+    * if they actually differ ([[Patches.resume]]). An open popup needs no
+    * branch of its own either — a body repaint replaces `#dashboard` only, and
+    * `#popups` lives in the chrome outside it, so the dialog is never
+    * disturbed.
     *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
     */
+  /** The version a resume should ask for, which is NOT always the cursor's.
+    *
+    * `FragmentLog.since` uses `>=` because a cursor pushed alongside a patch
+    * batch can be held by a client that saw only part of that store version —
+    * one version can produce several batches — so version V must be re-sent to
+    * a client claiming V.
+    *
+    * A DOCUMENT's cursor is a different kind of claim. The page was rendered
+    * from one snapshot, so it has ALL of V by construction, and asking for
+    * `>= V` hands it back everything the document already contains. It is
+    * complete through V, so it needs `> V`.
+    *
+    * The two are told apart by where the cursor came from: signals mean a
+    * reconnect ([[cursorOf]]), plain query params mean a first load
+    * ([[Restore]]).
+    */
+  private def resumeFrom(req: Request[IO], c: Server.Cursor): Long =
+    if (Server.hasSignals(req)) c.version else c.version + 1
+
   private def openingPatches(
       slug: String,
       live: Server.LiveSlug,
       req: Request[IO],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      open: Set[String]
   ): IO[List[ServerSentEvent]] =
     (live.renderer.get, live.log.get, stateStore.current).mapN {
       (renderer, log, store) =>
@@ -594,10 +753,23 @@ class Server(
             if (cursor.exists(_.styleHash != renderer.styleHash))
               Server.headPatches(renderer, slug)
             else Nil
+          // `Patches.resume` is TOTAL now — a container whose history aged out is
+          // answered with a fill for THAT mount, not a refusal. So the only
+          // reasons left to repaint the body are the genuinely global ones
+          // checked here: no cursor at all, a cursor minted against another log,
+          // or one ahead of this store.
           val resumed = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
-            .flatMap(c =>
-              Patches.resume(renderer, log, store.entities, c.version)
+            .map(c =>
+              Patches
+                .resume(
+                  renderer,
+                  log,
+                  store.entities,
+                  resumeFrom(req, c),
+                  open,
+                  uiState
+                )
             )
           // Lazy: rendering the whole body is the cost this exists to avoid.
           lazy val repaint = Datastar.patch(
@@ -605,40 +777,27 @@ class Server(
             PatchMode.Inner,
             Some("#dashboard")
           )
-          // Sorted so the emission order is deterministic (ids are
-          // location-derived, so this is document order for siblings).
-          val sessionPaint = resumed.toList.flatMap(_ =>
-            renderer.sessionOwnedMainIds.toList.sorted
-              .flatMap(renderer.renderNodeById(_, store.entities, uiState))
-              .map(Datastar.patchElements)
-          )
-          // The popup this client still has on screen: re-rendered fresh into its
-          // host, which both refreshes its values and leaves the `<dialog open>`
-          // standing. A claim the dashboard no longer recognises (its surface was
-          // renamed or removed) is the one case that resets the host instead —
-          // that dialog belongs to nothing and cannot be revived.
-          val popup = Option
-            .when(Server.popupOf(req).nonEmpty) {
-              Server
-                .claimedPopup(req, renderer)
-                .flatMap(renderer.renderSurface(_, store.entities, uiState))
-                .fold(
-                  Datastar.patch(
-                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                    PatchMode.Outer,
-                    None
-                  )
-                )(
-                  Datastar
-                    .patch(
-                      _,
-                      PatchMode.Inner,
-                      Some("#" + Dashboard.PopupHostId)
-                    )
-                )
-            }
+          // An open popup needs no restore branch of its own any more: its nodes
+          // are in `open`, so the resume rule reconciles them on their own ids,
+          // and a body repaint replaces `#dashboard` only — `#popups` lives in
+          // the chrome outside it, so the dialog is never disturbed.
+          //
+          // What DOES need saying is a claim this dashboard no longer recognises
+          // (its surface renamed or removed): that dialog belongs to nothing, is
+          // in nobody's open set, and would otherwise sit on screen forever.
+          val orphan = Option
+            .when(
+              uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+                renderer.openPopup(uiState).isEmpty
+            )(
+              Datastar.patch(
+                s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                PatchMode.Outer,
+                None
+              )
+            )
             .toList
-          head ++ resumed.getOrElse(List(repaint)) ++ sessionPaint ++ popup :+
+          head ++ resumed.getOrElse(List(repaint)) ++ orphan :+
             Server.cursorSignals(renderer, log.id, store.version)
         }
     }
@@ -671,69 +830,32 @@ class Server(
               IO.pure(List(Server.reloadPatch))
             else
               // The repaint re-bakes the body (selected tabs included), so
-              // reset the diff cache AND re-seed the open set to match. Reuses
-              // this client's selection (closed over).
-              (session.lastRendered.update(_.cleared) *>
-                session.open.set(r.selectedSurfaces(uiState)) *>
-                stateStore.snapshot)
-                .map { st =>
+              // re-seed the open set to match. Reuses this client's selection
+              // (closed over).
+              (session.open.set(r.selectedSurfaces(uiState)) *>
+                (stateStore.current, live.log.get).tupled)
+                .map { case (store, log) =>
                   val head =
                     if (previous.exists(_.styleHash != r.styleHash))
                       Server.headPatches(r, session.slug)
                     else Nil
-                  head :+ Datastar.patch(
-                    r.renderBody(st, uiState),
-                    PatchMode.Inner,
-                    Some("#dashboard")
+                  head ++ List(
+                    Datastar.patch(
+                      r.renderBody(store.entities, uiState),
+                      PatchMode.Inner,
+                      Some("#dashboard")
+                    ),
+                    // A swap rotates the log identity and can move the style
+                    // hash, and live batches carry only the version now — so
+                    // this is where the client learns the rest. Without it a
+                    // reconnect would quote a log that no longer exists and be
+                    // answered with a body repaint.
+                    Server.cursorSignals(r, log.id, store.version)
                   )
                 }
           }
           .flatMap(Stream.emits)
       }
-
-  /** Re-render the nodes a changed entity drives that are truly per-connection
-    * — for each open surface, that surface's components/dynamics, plus any
-    * main-page USER bake-group owner (its HTML bakes the client's
-    * client-selected member, so it can't be shared) — and emit only the
-    * fragments whose HTML actually changed (per-session diff). All other
-    * main-page nodes ride the shared per-slug pass ([[sharedPatchPublishers]]).
-    *
-    * State-selected surfaces are shared by default, but two shapes are
-    * per-session by nature and mirrored here (the counterpart of
-    * [[sharedPatches]]'s exclusions):
-    *
-    *   - a state group nested INSIDE an open surface (a popup only this session
-    *     has open) — per-session by containment: its flips and its active
-    *     member's liveness ride this session's diff cache;
-    *   - a [[Renderer.sessionOnlyStateGroups]] group (a user-selected owner
-    *     somewhere in a branch): its host morph bakes THIS session's
-    *     client-selected member, so its flips — and its active subtree's
-    *     liveness, which the shared pass skipped — render here with the
-    *     session's `uiState`.
-    */
-  private[runtime] def changedPatches(
-      session: Session,
-      change: StateChange,
-      uiState: Map[String, String]
-  ): IO[List[ServerSentEvent]] =
-    for {
-      renderer <- rendererFor(session.slug)
-      store <- stateStore.current
-      millis <- Server.stampNow
-      open <- session.open.get
-      out <- renderer match {
-        case None    => IO.pure(List.empty[ServerSentEvent])
-        case Some(r) =>
-          val req = Patches.plan(
-            r,
-            store.entities,
-            Stamp(store.version, millis),
-            change,
-            Patches.Scope.Session(open, uiState)
-          )
-          session.lastRendered.modify(Patches.diff(r, _, req))
-      }
-    } yield out
 
   /** Open (or switch to) a surface for this connection: resolve its host —
     * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
@@ -759,15 +881,21 @@ class Server(
     * surface content, not backend chrome). No server state tracks "is a popup
     * open". One host-swap primitive replaces the old open/close/stack paths.
     *
-    * A swap of the POPUP host also updates the client's [[Server.PopupSignal]],
-    * so the browser carries that one bit of per-session state and a reconnect
-    * can restore the dialog. Emitted here, next to the patch that made it true,
-    * so the signal cannot disagree with what is actually in the host.
+    * A swap of the POPUP host does NOT touch the client's `ui_<hostId>` — the
+    * tap that asked for the swap already set it, exactly as a tab button sets
+    * its own. One mechanism for every selection, and the browser keeps the one
+    * bit of per-session state a reconnect restores the dialog from.
+    *
+    * The fill itself — evict, render, tell the log what it put where — is
+    * [[Patches.fillHost]], shared with the state-group flip. What stays here is
+    * the half the two do NOT share: a tab switch is one client's choice, so it
+    * records no [[Mutation]], where a flip is server truth every client must be
+    * replayed.
     */
   private def swapHost(
       session: Session,
       renderer: Renderer,
-      host: String,
+      host: DomId,
       newSurface: Option[String],
       uiState: Map[String, String]
   ): IO[Unit] =
@@ -782,16 +910,42 @@ class Server(
         )
         (open -- evict) ++ newSurface.toSet
       }
-      states <- stateStore.snapshot
-      _ <- newSurface match {
-        case Some(sid) =>
-          renderer
-            .renderSurface(sid, states, uiState)
-            .traverse_(html =>
-              session.control.offer(
-                Datastar.patch(html, PatchMode.Inner, Some("#" + host))
+      // Version AND snapshot together: a fragment must never claim a version
+      // its bytes do not reflect.
+      store <- stateStore.current
+      states = store.entities
+      // The arriving surface, rendered ONCE by the shared fill primitive: the
+      // bytes go to this connection, the per-node trace goes to the log. No
+      // Mutation — this is one client's selection, not shared structure.
+      live <- liveFor(session.slug)
+      arriving <- live match {
+        case Some(l) =>
+          l.log.modify(
+            Patches
+              .fillHost(
+                renderer,
+                _,
+                host,
+                newSurface,
+                states,
+                uiState,
+                store.version
               )
+          )
+        // No live loop for this slug (no diff cache to tell): render anyway, so
+        // the swap still lands.
+        case None =>
+          IO.pure(
+            newSurface.flatMap(renderer.renderSurface(_, states, uiState))
+          )
+      }
+      _ <- newSurface match {
+        case Some(_) =>
+          arriving.traverse_(html =>
+            session.control.offer(
+              Datastar.patch(html, PatchMode.Inner, Some("#" + host))
             )
+          )
         case None =>
           session.control.offer(
             Datastar.patch(
@@ -801,10 +955,6 @@ class Server(
             )
           )
       }
-      _ <-
-        if (host == Dashboard.PopupHostId)
-          session.control.offer(Server.popupSignal(newSurface))
-        else IO.unit
     } yield ()
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
@@ -881,7 +1031,10 @@ class Server(
       case None           => NotFound()
       case Some(renderer) =>
         stateStore.snapshot.flatMap { states =>
-          val arr = Json.arr(renderer.entitiesForNode(id).map { e =>
+          // `id` is a URL segment — an untrusted CLAIM about a node id, which
+          // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
+          val entities = renderer.entitiesForNode(NodeId.derived(id))
+          val arr = Json.arr(entities.map { e =>
             states.get(e) match {
               case Some(st) =>
                 Json.obj(
@@ -936,7 +1089,7 @@ class Server(
             // exercised without the app-level FHError.handle); a non-FHError
             // is an unnamed bug and becomes a 500.
             .handleErrorWith {
-              case e: FHError => IO.pure(FHError.response(e))
+              case e: FHError => FHError.logged(e)
               case err        => InternalServerError(err.getMessage)
             }
       }
@@ -993,35 +1146,88 @@ class Server(
   }
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
-    rendererFor(slug).flatMap {
-      case None           => NotFound()
-      case Some(renderer) =>
-        val uiState = Server.uiStateOf(req)
-        // The editor embeds the dashboard as `?edit=1`; that turns on the
-        // per-node inspection overlay (Focus / Debug). Off for normal viewers.
-        val editMode = req.uri.query.params.get("edit").contains("1")
-        // What this document is showing, and so also what it must hand back on
-        // connect for the stream to agree with it.
-        val restore = Server.Restore(
-          uiState,
-          req.uri.query.params
-            .get(Server.PopupSignal)
-            .filter(p => renderer.surface(p).nonEmpty)
-        )
-        stateStore.snapshot.flatMap { states =>
-          warnAnomalies(renderer, uiState) *>
-            Ok(
-              page(
-                slug,
-                renderer.renderPage(states, uiState, restore.popup),
-                renderer.stylesheets.map(assets.rewrite),
-                renderer.scripts.map(assets.rewrite),
-                renderer.title,
-                Server.ingressPrefixOf(req),
-                restore,
-                editMode
+    liveFor(slug).flatMap {
+      case None       => NotFound()
+      case Some(live) =>
+        (live.renderer.get, live.log.get, stateStore.current).flatMapN {
+          (renderer, log, store) =>
+            val uiState = Server.uiStateOf(req)
+            // The editor embeds the dashboard as `?edit=1`; that turns on the
+            // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+            val editMode = req.uri.query.params.get("edit").contains("1")
+            // What this document is showing, and so also what it must hand back
+            // on connect for the stream to agree with it — the ui state (the
+            // open popup included) AND the version it was rendered at. That
+            // last part is what stops the first connect repainting a body the
+            // document already contains.
+            //
+            // The popup claim is NARROWED first: a document does not show a
+            // dialog this dashboard cannot serve, so it must not seed one back
+            // either — on the signal or in the connect URL.
+            val restoreUi = renderer.openPopup(uiState) match {
+              case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
+              case None      => uiState - Dashboard.PopupHostId
+            }
+            val restore = Server.Restore(
+              restoreUi,
+              Some(
+                Server.Cursor(
+                  renderer.headHash,
+                  renderer.styleHash,
+                  log.id,
+                  store.version
+                )
               )
-            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+            )
+            // Tell the log what this document put on screen, for the surfaces
+            // the client will have open. They are the resume rule's second
+            // candidate set, and with no entry at all "unknown, send it" would
+            // hand the client its own surfaces straight back. Node renders are
+            // client-independent (a container patches its `self`, and the bake
+            // lives on the document path), so this is sound to write into a
+            // SHARED log.
+            val open = renderer.selectedSurfaces(uiState)
+            // ONE render, used twice: the bytes go to the browser and the
+            // per-node trace goes to the log. This used to walk the open
+            // surfaces a second time, node by node, purely to fingerprint what
+            // the page had just composed.
+            val painted = renderer.renderPageTraced(
+              store.entities,
+              uiState,
+              renderer.openPopup(uiState)
+            )
+            // Only the OPEN SURFACES' nodes, exactly as before — the source of
+            // the bytes changed, not the scope. A main-page node deliberately
+            // starts with no entry: absence reads as "you are up to date", and
+            // for a body the server just rendered that is true. Seeding the
+            // whole page instead would make every node owed to a client whose
+            // cursor sits at this very version.
+            val seeded = open.flatMap(renderer.surfaceNodeIds)
+            val seedLog = live.log.update(l =>
+              painted.own.foldLeft(l) {
+                case (acc, (id, html)) if seeded(id) =>
+                  acc.seed(
+                    id,
+                    html,
+                    store.version,
+                    renderer.variantOf(id, uiState)
+                  )
+                case (acc, _) => acc
+              }
+            )
+            warnAnomalies(renderer, uiState) *> seedLog *>
+              Ok(
+                page(
+                  slug,
+                  painted.html,
+                  renderer.stylesheets.map(assets.rewrite),
+                  renderer.scripts.map(assets.rewrite),
+                  renderer.title,
+                  Server.ingressPrefixOf(req),
+                  restore,
+                  editMode
+                )
+              ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
     }
 
@@ -1046,7 +1252,7 @@ class Server(
       title: Option[String],
       ingressPrefix: Option[String],
       restore: Server.Restore,
-      editMode: Boolean = false
+      editMode: Boolean
   ): String = {
     val links = (
       stylesheets
@@ -1094,9 +1300,22 @@ class Server(
     // Datastar expressions read signals via `$name` (this pinned build, unlike
     // some Datastar doc examples, requires the sigil even for a bare read).
     val ha = "$" + Server.HaDownSignal
+    // How one fetch event classifies the connection: 2 = gave up, 1 = trying,
+    // 0 = fine.
     val sseState =
       "evt.detail.type === 'retries-failed' ? 2 : " +
         "(evt.detail.type === 'retrying' || evt.detail.type === 'error') ? 1 : 0"
+    // ...and 2 LATCHES. Every other fetch type classifies as 0, so without this
+    // any event following `retries-failed` cleared the banner — and since the
+    // handler is debounced, a `finished` arriving in the same 600ms window could
+    // swallow the failure before it ever painted. Either way the page went
+    // silently back to looking connected while it was not, which is the one
+    // state the banner exists to make undeniable.
+    //
+    // Terminal by design: once the retries are exhausted nothing reconnects on
+    // its own, so the only ways out are the banner's Reload button and the user
+    // reloading — both of which build a new document and a new signal store.
+    val sseLatched = s"$$_sse >= 2 ? 2 : ($sseState)"
     // Both banners ship hidden by an INLINE `display:none`, or they flash on
     // every load: the Datastar module is deferred, so the browser paints the
     // markup before `data-show` first runs. It must be inline — `data-show`
@@ -1125,12 +1344,20 @@ class Server(
     // (Datastar parses the attribute as an expression) which sits in an HTML
     // attribute. HTML-escaping alone is not enough — `&#39;` decodes back to a
     // bare `'` and closes the literal early.
-    val popupSeed =
-      Server.escapeHtml(Server.escapeJsString(restore.popup.getOrElse("")))
+    // The popup host is the ONE selection with no card template to seed it —
+    // it lives in `theme.chrome`, outside every node — so the shell declares
+    // `ui_<hostId>` and mirrors it, exactly as a tabs mount does for its own.
+    val popupSignalName = Server.UiSignalPrefix + Dashboard.PopupHostId
+    val popupParamName = Server.UiParamPrefix + Dashboard.PopupHostId
+    val popupSeed = Server.escapeHtml(
+      Server.escapeJsString(
+        restore.uiState.getOrElse(Dashboard.PopupHostId, "")
+      )
+    )
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, ${Server.PopupSignal}: '$popupSeed'}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('${Server.PopupSignal}', $$${Server.PopupSignal})"
-         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseState">
+      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed'}"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
+         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseLatched">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -1210,7 +1437,7 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topic <- Topic[IO, (String, ServerSentEvent)].toResource
+      topic <- Topic[IO, (String, Directed)].toResource
       // Pair each seeded renderer with its own fragment log here, so the caller
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList
@@ -1313,20 +1540,32 @@ object Server {
     * DEFAULT tab, and its repaint would morph the correct seed away and drag
     * the URL along with it. A reconnect is the opposite case and needs no help:
     * it re-serializes the live signal store, which wins over these params
-    * wherever both name the same fact ([[uiStateOf]], [[popupOf]]).
+    * wherever both name the same fact ([[uiStateOf]]).
     */
   private[runtime] case class Restore(
       uiState: Map[String, String],
-      popup: Option[String]
+      // What this document already SHOWS: the store version it was rendered at,
+      // and the log it belongs to. Without it the first connect has no cursor
+      // and takes the no-cursor branch, which inner-patches a body the document
+      // already contains — the whole page, sent twice, on every load.
+      cursor: Option[Cursor] = None
   ) {
 
-    /** `?ui.<id>=<v>&popup=<id>`, or `""` when there is nothing to restore.
-      * `&amp;` because this lands in an HTML attribute.
+    /** `?ui.<id>=<v>&<cursor>`, or `""` when there is nothing to restore. The
+      * open popup rides as `ui.<PopupHostId>` like any other selection. `&amp;`
+      * because this lands in an HTML attribute.
       */
     def query: String = {
       val params = uiState.toList.sorted.map { case (id, v) =>
         s"$UiParamPrefix${encode(id)}=${encode(v)}"
-      } ++ popup.map(p => s"$PopupSignal=${encode(p)}").toList
+      } ++ cursor.toList.flatMap(c =>
+        List(
+          s"$HeadHashSignal=${encode(c.headHash)}",
+          s"$StyleHashSignal=${encode(c.styleHash)}",
+          s"$LogIdSignal=${encode(c.logId)}",
+          s"$StoreVersionSignal=${c.version}"
+        )
+      )
       if (params.isEmpty) "" else params.mkString("?", "&amp;", "")
     }
 
@@ -1437,29 +1676,6 @@ object Server {
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
 
-  /** Which popup surface this client has open (`""` for none) — a fourth
-    * URL-riding signal, for the same reason as the three above and answering
-    * the one per-session question nothing else can.
-    *
-    * Without it the returning connection's open set is empty and the `<dialog
-    * open>` still standing in that DOM belongs to no session: it would never be
-    * updated again (and a body repaint cannot even remove it — the host lives
-    * in `theme.chrome`, outside `#dashboard`). Losing a popup you left open is
-    * not acceptable either; on a phone, backgrounding the tab is how you read a
-    * notification, not how you dismiss a dialog.
-    *
-    * Mirrored into the `popup` URL param like the ui-state signals
-    * ([[UrlSyncScript]]), so a REFRESH re-opens the dialog too — the signal
-    * itself dies with the document.
-    *
-    * PUSHED by the server, from the one place that changes the popup host
-    * ([[swapHost]]) plus the navigate that clears it — so it always names what
-    * the server actually rendered there, rather than what a client-side
-    * expression believed it asked for. At most one popup is open at a time (the
-    * host holds one), so a single string is the whole state.
-    */
-  val PopupSignal: String = "popup"
-
   /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
     * without navigating: set the param, or drop it when the value is empty.
     *
@@ -1472,6 +1688,12 @@ object Server {
     *
     * `replaceState`, never `pushState`: this is view state, not navigation.
     * Back should leave the dashboard, not step back through tab clicks.
+    *
+    * An empty value DROPS the param, and that is not defensive: it is how a
+    * client says "closed" (a dismissed popup). It does mean this cannot tell
+    * "cleared" from "never initialised" — Datastar creates a signal as `""` the
+    * moment an expression reads one — which is why the seeds that feed it must
+    * ASSERT rather than initialise-if-missing. See `Tabs` in components.pkl.
     *
     * A classic inline script so it is defined before the deferred Datastar
     * module evaluates the first `data-effect` that calls it.
@@ -1544,41 +1766,42 @@ object Server {
     * them a repaint.
     */
   private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
-    for {
-      c <- signalsOf(req)
-      hash <- c.get[String](HeadHashSignal).toOption
-      styleHash <- c.get[String](StyleHashSignal).toOption
-      logId <- c.get[String](LogIdSignal).toOption
-      version <- c.get[Long](StoreVersionSignal).toOption
-    } yield Cursor(hash, styleHash, logId, version)
-
-  /** The popup this client claims to have open ([[PopupSignal]]), or `None` for
-    * a client that has none.
-    *
-    * The signal is authoritative WHEN PRESENT, empty string included — that is
-    * how a client says "I closed it". Only a request that does not carry the
-    * signal at all falls back to the query param, which is the first connect
-    * ([[Restore]]); after that the signal always exists, so a stale param on a
-    * reconnect's URL can never re-open a dialog the user dismissed.
-    */
-  private[runtime] def popupOf(req: Request[IO]): Option[String] =
     signalsOf(req)
-      .flatMap(_.get[String](PopupSignal).toOption)
-      .orElse(req.uri.query.params.get(PopupSignal))
-      .filter(_.nonEmpty)
+      .flatMap(c =>
+        for {
+          hash <- c.get[String](HeadHashSignal).toOption
+          styleHash <- c.get[String](StyleHashSignal).toOption
+          logId <- c.get[String](LogIdSignal).toOption
+          version <- c.get[Long](StoreVersionSignal).toOption
+        } yield Cursor(hash, styleHash, logId, version)
+      )
+      .orElse(cursorFromQuery(req))
 
-  /** The claimed popup, narrowed to one this dashboard can actually serve: a
-    * registered surface that really does host at the popup mount. Anything else
-    * (a renamed surface, a stale claim from another dashboard, a baked panel
-    * id) is not adopted into the session's open set.
+  /** The cursor a freshly-loaded DOCUMENT hands back on its first connect
+    * ([[Restore]]), read from plain query params.
+    *
+    * Signals win where both exist, the same precedence [[uiStateOf]] and
+    * [[uiStateOf]] uses and for the same reason: a reconnect re-serialises the
+    * live signal store, and a stale param baked into the `data-init` URL at
+    * page render must never override it. Without that rule a client would
+    * resume from its ORIGINAL page version forever, and silently miss
+    * everything since.
     */
-  private[runtime] def claimedPopup(
-      req: Request[IO],
-      renderer: Renderer
-  ): Option[String] =
-    popupOf(req).filter(
-      renderer.surface(_).exists(_.hostId == Dashboard.PopupHostId)
-    )
+  private def cursorFromQuery(req: Request[IO]): Option[Cursor] = {
+    val p = req.uri.query.params
+    for {
+      hash <- p.get(HeadHashSignal)
+      styleHash <- p.get(StyleHashSignal)
+      logId <- p.get(LogIdSignal)
+      version <- p.get(StoreVersionSignal).flatMap(_.toLongOption)
+    } yield Cursor(hash, styleHash, logId, version)
+  }
+
+  /** Whether this request carries the live signal store — i.e. it is a
+    * RECONNECT rather than a freshly-loaded document's first connect.
+    */
+  private[runtime] def hasSignals(req: Request[IO]): Boolean =
+    signalsOf(req).isDefined
 
   private def signalsOf(req: Request[IO]): Option[io.circe.ACursor] =
     req.uri.query.params
@@ -1586,15 +1809,15 @@ object Server {
       .flatMap(io.circe.parser.parse(_).toOption)
       .map(_.hcursor)
 
-  /** [[PopupSignal]] as a patch-signals event: the open surface id, or `""` for
-    * a closed host.
-    */
-  private[runtime] def popupSignal(surfaceId: Option[String]): ServerSentEvent =
-    Datastar.patchSignals(s"""{"$PopupSignal":"${surfaceId.getOrElse("")}"}""")
-
   /** The resume signals as one patch-signals event. Emitted on connect and
     * after every shared patch batch, so a client's cursor names what it has
     * actually been sent.
+    */
+  /** The WHOLE cursor: three facts that identify which renderer and which log a
+    * client's DOM belongs to, plus where it has got to.
+    *
+    * Sent only where the first three can actually change — on connect, and on a
+    * renderer swap. Every live batch sends [[versionSignal]] alone.
     */
   private[runtime] def cursorSignals(
       renderer: Renderer,
@@ -1607,6 +1830,12 @@ object Server {
         s""""$LogIdSignal":"$logId",""" +
         s""""$StoreVersionSignal":$version}"""
     )
+
+  /** Just how far this client has got — the only part of the cursor a live
+    * batch moves.
+    */
+  private[runtime] def versionSignal(version: Long): ServerSentEvent =
+    Datastar.patchSignals(s"""{"$StoreVersionSignal":$version}""")
 
   /** Options for the `data-init` `@get` that opens the SSE stream.
     *

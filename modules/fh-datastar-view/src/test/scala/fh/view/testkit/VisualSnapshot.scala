@@ -39,14 +39,25 @@ object VisualSnapshot {
   private val snapshotDir =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "visual-snapshots"
 
-  /** Where a mismatch drops its `before`/`after` PNGs, side by side under a
-    * stable (gitignored) path so CI can collect them as an artifact — a local
-    * vs `ubuntu-latest` rasterization diff is only inspectable by eye, so the
-    * failing pair has to leave the machine. `.github/workflows/cicd.yml`
-    * uploads this dir on failure.
+  /** Where a mismatch drops its `before`/`after` PNGs, side by side, so CI can
+    * collect them as an artifact — a local vs `ubuntu-latest` rasterization
+    * diff is only inspectable by eye, so the failing pair has to leave the
+    * machine.
+    *
+    * `FH_VISUAL_FAILURES_DIR` names it, and CI sets it to a runner temp path it
+    * then uploads. The fallback is a gitignored dir under this module's
+    * `target`, which is right when `os.pwd` is the repo root — and that is an
+    * assumption, not a guarantee: sbt's working directory for a forked test is
+    * not something this file should be encoding. The env var is how a caller
+    * says where it wants them without this having to know.
     */
   private val failureDir =
-    os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
+    sys.env
+      .get("FH_VISUAL_FAILURES_DIR")
+      .map(os.Path(_, os.pwd))
+      .getOrElse(
+        os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
+      )
 
   /** Per-pixel YIQ color-distance tolerance (0..1); pixelmatch's default. */
   private val Threshold = 0.1

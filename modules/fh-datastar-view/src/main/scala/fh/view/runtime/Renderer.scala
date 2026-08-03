@@ -6,8 +6,10 @@ import fh.view.model.{
   Activation,
   Cell,
   Dashboard,
+  DomId,
   DynamicCase,
   LayoutNode,
+  NodeId,
   Op,
   Predicate,
   Quantifier,
@@ -15,20 +17,15 @@ import fh.view.model.{
   Surface
 }
 
-/** How one state change moves the changed entity across a dynamic group's
-  * membership boundary — the two query-match booleans (before ∧ after) kept
-  * apart instead of collapsed to a single "touched" flag, so the live-patch
-  * path can narrow a whole-group re-render down to a per-entity patch.
+/** A viewer's resolved bake-group selections: group id -> chosen member index.
   *
-  *   - [[InPlace]] (`prev ∧ cur`): the entity was and still is a member — its
-  *     card is re-rendered and outer-morphed in place (the hot path). Covers a
-  *     case-branch switch for free (the child id doesn't encode the branch).
-  *   - [[Added]] (`¬prev ∧ cur`): the entity newly matches — a member joins.
-  *   - [[Removed]] (`prev ∧ ¬cur`): the entity no longer matches — a member
-  *     leaves.
+  * The canonical form of the client's `ui_<gid>` signals — already parsed,
+  * clamped to a real member, and restricted to the groups a given render
+  * actually reads. That is what makes it a memo key: two viewers who spelled
+  * their selection differently, or who carry selections for groups this render
+  * never touches, resolve to the SAME key and share one render.
   */
-enum DynamicDelta:
-  case InPlace, Added, Removed
+private[runtime] type Selections = Map[NodeId, Int]
 
 /** Renders the recursive dashboard layout tree from current entity state.
   *
@@ -39,15 +36,14 @@ enum DynamicDelta:
   *
   * Addressable nodes get a stable, location-based id derived from their index
   * path in the tree ([[LayoutNode.pathId]]) — authors never invent ids.
-  * [[componentsFor]] + [[affectedDynamicIds]] drive the live update loop, and
+  * [[componentsFor]] + [[affectedDynamics]] drive the live update loop, and
   * [[renderNodeById]] re-renders a single patchable node.
   *
   * A dashboard's **surfaces** (popups, later tabs) are separate layout trees
   * rendered on demand by [[renderSurface]] and kept live only while a
   * connection has them open. Their node ids are namespaced (`s_<id>__…`) so
-  * they never collide with the main page; [[surfaceComponentsFor]] /
-  * [[affectedSurfaceDynamicIds]] are the surface-scoped equivalents of the
-  * main-page update indices.
+  * they never collide with the main page; [[surfaceComponentsFor]] / the
+  * surface-scoped equivalent of the main-page update index.
   */
 class Renderer(
     dashboard: Dashboard,
@@ -59,12 +55,12 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
-    val indexed: Map[String, (LayoutNode, List[Int])] = {
+    val indexed: Map[NodeId, (LayoutNode, List[Int])] = {
       def walk(
           node: LayoutNode,
           path: List[Int]
-      ): List[(String, (LayoutNode, List[Int]))] = {
-        val self = (idPrefix + LayoutNode.pathId(path)) -> (node, path)
+      ): List[(NodeId, (LayoutNode, List[Int]))] = {
+        val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
         node match {
           case c: LayoutNode.Component =>
             self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
@@ -76,7 +72,7 @@ class Renderer(
       walk(root, Nil).toMap
     }
 
-    val byEntity: Map[String, Set[String]] =
+    val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
         .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
         .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
@@ -85,7 +81,7 @@ class Renderer(
         .mapValues(_.toSet)
         .toMap
 
-    val dynamicIds: List[String] =
+    val dynamicIds: List[NodeId] =
       indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
   }
 
@@ -156,7 +152,7 @@ class Renderer(
   /** Every addressable node (main + all surfaces) keyed by its generated id,
     * paired with its path and the id prefix needed to re-render it.
     */
-  private val allIndexed: Map[String, (LayoutNode, List[Int], String)] =
+  private val allIndexed: Map[NodeId, (LayoutNode, List[Int], String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
@@ -164,63 +160,55 @@ class Renderer(
   /** Each dynamic container's query, by id (main + surfaces), for the
     * affected-by-change test. A group with no query matches every entity.
     */
-  private val dynamicQueries: Map[String, Option[Predicate]] =
+  private val dynamicQueries: Map[NodeId, Option[Predicate]] =
     allIndexed.collect { case (id, (d: LayoutNode.Dynamic, _, _)) =>
       id -> d.query
     }
 
-  /** How a state change moves the changed entity across one dynamic group's
-    * membership boundary, or `None` when it leaves the group untouched. Derived
-    * from the group's *query* match before vs after the change: `prev ∧ cur` is
-    * an in-place update of a member ([[DynamicDelta.InPlace]]), `¬prev ∧ cur` a
-    * join ([[DynamicDelta.Added]]), `prev ∧ ¬cur` a leave
-    * ([[DynamicDelta.Removed]]); matching neither side changes nothing
-    * (`None`). The two booleans are kept apart (rather than collapsed to
-    * "touched") so the Server can patch a member in place vs. add/remove it
-    * per-entity.
+  /** Whether `change` touches this dynamic group at all — i.e. whether the
+    * group's *query* matched the entity before or after it. Matching neither
+    * side leaves the group alone.
+    *
+    * It used to answer the finer question (joined / left / updated in place),
+    * which a single change can decide but a FRAME cannot: two entities can move
+    * in opposite directions in one tick. The membership compare in
+    * `Patches.renderDynamicGroup` answers it for the frame as a whole, over the
+    * before/after member lists, so this only has to select the groups worth
+    * looking at.
     */
-  private def dynamicDelta(
-      id: String,
-      change: StateChange
-  ): Option[DynamicDelta] = {
+  private def touchesDynamic(id: NodeId, change: StateChange): Boolean = {
     val query = dynamicQueries.getOrElse(id, None)
     def matchesQuery(st: EntityState): Boolean =
       query.forall(Renderer.matches(_, st))
-    val prev = change.previous.exists(matchesQuery)
-    val cur = matchesQuery(change.current)
-    (prev, cur) match {
-      case (true, true)   => Some(DynamicDelta.InPlace)
-      case (false, true)  => Some(DynamicDelta.Added)
-      case (true, false)  => Some(DynamicDelta.Removed)
-      case (false, false) => None
-    }
+    change.previous.exists(matchesQuery) || matchesQuery(change.current)
   }
 
-  /** Main-page dynamic containers this change affects, each with the membership
-    * delta ([[dynamicDelta]]) so the caller can pick a per-entity patch vs. a
-    * whole-group repaint. Unrelated entities are filtered out, sparing the
-    * whole-group re-scan + re-render on every event.
+  /** Main-page dynamic containers this frame touches, each with the changed
+    * entities that touched it.
     */
-  def affectedDynamics(change: StateChange): List[(String, DynamicDelta)] =
-    mainIndex.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
-
-  /** Just the affected main-page dynamic ids (delta dropped) — the pre-Tier-1
-    * shape, kept for callers/tests that only need the membership test.
-    */
-  def affectedDynamicIds(change: StateChange): List[String] =
-    affectedDynamics(change).map(_._1)
+  def affectedDynamics(
+      changes: List[StateChange]
+  ): List[(NodeId, List[String])] =
+    mainIndex.dynamicIds.flatMap(id => touchedBy(id, changes))
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(
       surfaceId: String,
-      change: StateChange
-  ): List[(String, DynamicDelta)] =
+      changes: List[StateChange]
+  ): List[(NodeId, List[String])] =
     surfaceIndexes
       .get(surfaceId)
       .toList
-      .flatMap(
-        _.dynamicIds.flatMap(id => dynamicDelta(id, change).map(id -> _))
-      )
+      .flatMap(_.dynamicIds.flatMap(id => touchedBy(id, changes)))
+
+  private def touchedBy(
+      id: NodeId,
+      changes: List[StateChange]
+  ): Option[(NodeId, List[String])] =
+    changes.filter(touchesDynamic(id, _)).map(_.entityId) match {
+      case Nil     => None
+      case touched => Some(id -> touched)
+    }
 
   /** The surfaces baked into component `gid`'s host, ordered by their
     * `bakeIndex` (surface id as a stable tiebreak / fallback when a member
@@ -228,7 +216,14 @@ class Renderer(
     * mode) selects among, and the first-match order (then, elseif…, else) state
     * selection walks.
     */
-  private def bakeGroup(gid: String): List[String] =
+  /** [[bakeGroup]], for the flip path: which surfaces `gid`'s mount can hold,
+    * in selection order. A state group's members are a FIXED, tiny set (its
+    * branches), which is why — unlike a dynamic group over unbounded entities —
+    * its mutations can never accumulate and it needs no eviction horizon.
+    */
+  def bakeMembers(gid: NodeId): List[String] = bakeGroup(gid)
+
+  private def bakeGroup(gid: NodeId): List[String] =
     dashboard.surfaces.toList
       .collect {
         case (sid, s) if s.bakeInto.contains(gid) => (sid, s.bakeIndex)
@@ -253,102 +248,249 @@ class Renderer(
     * never against a session's uiState/open set (the core split — ADR 0002's
     * shared/per-session cost model extended by activation mode).
     */
-  private def isStateGroup(gid: String): Boolean =
-    bakeGroup(gid).headOption.exists(sid =>
-      dashboard.surfaces
-        .get(sid)
-        .exists(_.activation match {
-          case _: Activation.State => true
-          case _                   => false
-        })
-    )
+  private def isStateGroup(gid: NodeId): Boolean =
+    bakeGroup(gid).headOption.exists(isStateSurface)
 
-  /** Component ids that own a USER-selected bake group (tabs). Their HTML
-    * depends on the client's `uiState` (the baked member is client-selected),
-    * so their live patches must stay per-session and they are EXCLUDED from the
-    * shared per-slug pass (see `Server`).
+  /** Every component id some surface bakes into. `bakeInto` is AUTHORED (a
+    * hoist-resolved relation `Dashboard.validate` checks against the registry),
+    * which is the one place a node id enters from outside the tree walk.
     */
-  val userBakeOwnerIds: Set[String] =
-    dashboard.surfaces.values
-      .flatMap(_.bakeInto)
-      .toSet
-      .filterNot(isStateGroup)
+  private val bakeOwnerIds: Set[NodeId] =
+    dashboard.surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
+
+  /** Component ids that own a USER-selected bake group (tabs). Their own
+    * rendering is shared like any other node — the client-selected member lives
+    * in the MOUNT, which a patch never carries. What is per-client is filling
+    * that mount: see [[surfaceVariesByViewer]] and `Patches.Varying`.
+    */
+  val userBakeOwnerIds: Set[NodeId] =
+    bakeOwnerIds.filterNot(isStateGroup)
 
   /** Component ids that own a STATE-selected bake group (If/else hosts). Their
     * HTML — selection included — is a pure function of entity state, so unlike
     * user-selected owners they stay IN the shared per-slug pass (rendered once
     * per slug, fanned out to every viewer).
     */
-  val stateBakeOwnerIds: Set[String] =
-    dashboard.surfaces.values
-      .flatMap(_.bakeInto)
-      .toSet
-      .filter(isStateGroup)
+  val stateBakeOwnerIds: Set[NodeId] =
+    bakeOwnerIds.filter(isStateGroup)
 
-  /** Whether a member surface's content subtree contains a user-selected bake
-    * owner, following nested state members transitively. Feeds
-    * [[sessionOnlyStateGroups]]: a user owner inside a state branch means that
-    * branch's HTML bakes a client-selected member, so the branch cannot render
-    * shared.
+  /** Whether THIS NODE's own rendering differs between viewers — i.e. whether
+    * its `self` reads `bakeIndex` while the group it owns is USER-selected.
+    *
+    * `bakeIndex` is the node's own variant id, so a bar that renders its active
+    * tab server-side (rather than through a `$ui_<id>` expression) has one
+    * rendering per member. That is legitimate and bounded — one variant per
+    * member of its OWN group, never a product over the subtree, because a
+    * node's own rendering carries no mount.
+    *
+    * Two consequences, both shared with a flip's branch fill: its patch is
+    * deferred (`Patches.Pending`) and rendered once per SELECTION rather than
+    * per connection, and its log entry carries one digest per variant instead
+    * of one for the node — so digest suppression still applies, just per
+    * viewer's selection rather than across all of them.
+    *
+    * A STATE-selected group is not affected: its selection is server truth and
+    * identical for everyone.
+    *
+    * Decided by [[Templates]] when the templates are compiled, matching a
+    * mustache TAG — not a substring of the source, which would make a card
+    * per-viewer forever because the word appears in one of its comments.
     */
-  private def subtreeHasUserOwner(sid: String): Boolean = {
-    val ids =
-      surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
-    ids.exists(userBakeOwnerIds) ||
-    ids.exists(gid =>
-      stateBakeOwnerIds(gid) && bakeGroup(gid).exists(subtreeHasUserOwner)
-    )
+  def nodeVariesByViewer(id: NodeId): Boolean =
+    allIndexed.get(id).exists {
+      case (c: LayoutNode.Component, _, _) =>
+        userBakeOwnerIds(id) && templates.selvesReadingSelection(c.card)
+      case _ => false
+    }
+
+  /** Which variant of this node a viewer holding `uiState` sees — the member
+    * index its own group selects, or 0 for the overwhelming majority of nodes,
+    * whose rendering does not vary at all.
+    *
+    * The variant space is per node and STATIC: one per member of its own group.
+    * It cannot multiply out over a subtree, because a node's own rendering
+    * never carries a descendant's mount.
+    */
+  def variantOf(id: NodeId, uiState: Map[String, String]): Int =
+    if (nodeVariesByViewer(id)) resolveActive(id, uiState)._1 else 0
+
+  /** [[variantOf]] against already-resolved [[Selections]]. A varying node IS
+    * its own group's owner ([[nodeVariesByViewer]] requires
+    * `userBakeOwnerIds`), so its own id is the key to look up.
+    */
+  def variantIn(id: NodeId, selections: Selections): Int =
+    if (nodeVariesByViewer(id)) selections.getOrElse(id, 0) else 0
+
+  /** The selections a render of THIS NODE reads: its own group's, or none.
+    *
+    * The digest variant and the render key are the same thing for a single
+    * node, which is why they were one `Int` before surfaces needed keying too.
+    */
+  def selectionsOf(id: NodeId, uiState: Map[String, String]): Selections =
+    if (nodeVariesByViewer(id)) Map(id -> resolveActive(id, uiState)._1)
+    else Map.empty
+
+  /** The selections a render of surface `sid` reads — every user-selected group
+    * under it, resolved.
+    *
+    * Wider than [[selectionsOf]] deliberately: a surface's HTML varies with any
+    * tab inside it, not just with hosts whose OWN markup reads a selection. A
+    * tabs card whose bar does not print `bakeIndex` still puts a different
+    * panel in the composed bytes.
+    */
+  def selectionsUnder(sid: String, uiState: Map[String, String]): Selections =
+    userGroupsUnder(sid).map(g => g -> resolveActive(g, uiState)._1).toMap
+
+  /** Every USER-selected bake group in `sid`'s subtree — what makes rendering
+    * it differ between viewers, and so what a per-variant render must be keyed
+    * by.
+    *
+    * The walk follows BOTH kinds of member, because a tabs card nested inside
+    * another tab's panel varies just as much as one inside an `If` branch. The
+    * visited set is not defensive tidiness: `bakeInto` is authored, so a
+    * surface can name a host inside its own subtree and the walk would not
+    * terminate.
+    */
+  def userGroupsUnder(sid: String): Set[NodeId] =
+    userGroupsBySurface.getOrElse(sid, Set.empty)
+
+  private val userGroupsBySurface: Map[String, Set[NodeId]] = {
+    def walk(sid: String, seen: Set[String]): Set[NodeId] =
+      if (seen(sid)) Set.empty
+      else {
+        val ids =
+          surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
+        ids.filter(userBakeOwnerIds) ++
+          ids
+            .filter(bakeOwnerIds)
+            .flatMap(gid => bakeGroup(gid).flatMap(walk(_, seen + sid)))
+      }
+    dashboard.surfaces.keySet.map(sid => sid -> walk(sid, Set.empty)).toMap
   }
 
-  /** State-selected groups whose member subtree contains a user-selected bake
-    * owner (tabs inside an If). Their host HTML embeds a client-selected
-    * member, so their flips must be patched PER-SESSION with that session's
-    * `uiState` — the Server excludes them from the shared flip path and mirrors
-    * them in the per-session pass instead. Every other state group is shared.
-    * Computed once per renderer (structure, not state).
+  /** Whether rendering surface `sid`'s content produces different HTML for
+    * different viewers — i.e. whether a USER-selected mount appears anywhere
+    * under it. Over-answering `true` costs a redundant per-viewer render;
+    * answering `false` wrongly hands every viewer the same tab, so it errs
+    * wide.
     */
-  val sessionOnlyStateGroups: Set[String] =
-    stateBakeOwnerIds.filter(gid => bakeGroup(gid).exists(subtreeHasUserOwner))
+  def surfaceVariesByViewer(sid: String): Boolean =
+    userGroupsUnder(sid).nonEmpty
 
-  /** The **roots of the per-session part of the main page**: main-rooted nodes
-    * whose HTML bakes a member this client selected (a `tabs` host) or a branch
-    * that transitively does. Everything under them is per-session too, and
-    * re-rendering a root re-renders its whole subtree — so this is the complete
-    * set a reconnecting client needs painted fresh, without listing the nested
-    * owners (which live in surface indexes, may not be in the DOM at all, and
-    * are covered by their root anyway).
+  private val prefixToRoot: Map[String, String] =
+    Map(mainIndex.idPrefix -> "") ++
+      surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
+
+  /** Which content tree a node lives in: `""` = the main page, `<sid>` = inside
+    * surface `<sid>`. Every node belongs to exactly one, by construction — it
+    * was indexed from that tree. This is NOT recoverable from the id itself: an
+    * id carries only its OWN surface prefix (`s_<sid>__c_0`), and a nesting is
+    * three independent prefixes with no link between them.
+    */
+  private def rootOf(id: NodeId): Option[String] =
+    allIndexed.get(id).map { case (_, _, prefix) => prefixToRoot(prefix) }
+
+  /** The surface CONTAINING this one — absent for a main-rooted surface. A
+    * surface's place in the tree is where its host node sits, so the relation
+    * is just [[rootOf]] applied to `bakeInto`; a popup (no `bakeInto`) hosts on
+    * the main page and so is main-rooted.
+    */
+  private val surfaceParent: Map[String, String] =
+    dashboard.surfaces.flatMap { case (sid, s) =>
+      s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
+    }
+
+  /** The innermost USER-selected surface containing `sid` (itself included) —
+    * the tag deciding which clients a patch from that tree may reach.
     *
-    * Main-rooted on purpose: a per-session subtree's chain of owners always
-    * bottoms out on the main page (a user owner inside a state branch makes
-    * that branch [[sessionOnlyStateGroups]]), so these roots cover every
-    * per-session node that is currently rendered.
+    * State surfaces are TRANSPARENT: a branch of an `If` is selected by entity
+    * state, identically for every client, so it hides nothing and the walk
+    * passes through it to whatever encloses it. Reaching the main page means
+    * "no user surface above me": visible to everyone.
     */
-  val sessionOwnedMainIds: Set[String] =
-    mainIndex.indexed.keySet.filter(id =>
-      userBakeOwnerIds(id) || sessionOnlyStateGroups(id)
-    )
+  def userSurfaceOf(sid: String): Option[String] =
+    if (!isStateSurface(sid)) Some(sid)
+    else surfaceParent.get(sid).flatMap(userSurfaceOf)
 
-  /** State-selected owner ids grouped by the index that contains the owner
-    * node: key `""` = the main page, key `<sid>` = inside surface `<sid>`'s
-    * content tree. This is the recursion structure of the transitive active-set
+  /** [[userSurfaceOf]] for a node, via the tree it was indexed from. */
+  def userSurfaceOfNode(id: NodeId): Option[String] =
+    rootOf(id).filter(_.nonEmpty).flatMap(userSurfaceOf)
+
+  private def isStateSurface(sid: String): Boolean =
+    dashboard.surfaces
+      .get(sid)
+      .exists(_.activation match {
+        case _: Activation.State => true
+        case _                   => false
+      })
+
+  /** Whether a STATE surface is the member its group currently selects — the
+    * state half of visibility, and a pure function of entity state.
+    */
+  private def stateSelected(
+      sid: String,
+      states: Map[String, EntityState]
+  ): Boolean =
+    dashboard.surfaces.get(sid).flatMap(_.bakeInto).exists { gid =>
+      resolveActiveByState(gid, states)
+        .flatMap(bakeMembers(gid).lift)
+        .contains(sid)
+    }
+
+  /** Can a client holding `open` actually SEE this surface — is every surface
+    * on the chain from the main page down to it currently showing?
+    *
+    * `open` alone does not answer that. `selectedSurfaces` reports a selection
+    * for every user bake group whether or not that group is on screen, so a tab
+    * panel inside a hidden `If` branch is "open" while nothing of it exists in
+    * any DOM. Answering with `open.contains` renders and pushes that panel on
+    * every tick of an entity it binds — harmless, since the morph targets an id
+    * the DOM lacks, and pure waste.
+    *
+    * So the walk goes UP: a user surface must be in `open`, a state surface
+    * must be the member its group selects, and the surface containing it must
+    * itself be visible. The visited set is for the same reason as
+    * [[surfaceVariesByViewer]]'s — `bakeInto` is authored, so the chain is not
+    * guaranteed acyclic.
+    */
+  def visibleSurface(
+      sid: String,
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): Boolean = {
+    def up(sid: String, seen: Set[String]): Boolean =
+      !seen(sid) && {
+        val here =
+          if (isStateSurface(sid)) stateSelected(sid, states) else open(sid)
+        here && surfaceParent.get(sid).forall(up(_, seen + sid))
+      }
+    up(sid, Set.empty)
+  }
+
+  /** [[visibleSurface]] for a node, via the tree it was indexed from. A
+    * main-page node is always visible; an id this renderer does not know (a
+    * dynamic group's per-entity child) is treated as visible, which is the safe
+    * direction — over-sending costs bytes, under-sending loses an update.
+    */
+  def visibleNode(
+      id: NodeId,
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): Boolean =
+    rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
+
+  /** State-selected owner ids grouped by the tree that contains the owner node
+    * ([[rootOf]]). This is the recursion structure of the transitive active-set
     * / affected-flip walks: a group is only VISIBLE through the chain of active
     * members above it, so each walk starts at one root's owners and descends
     * only into selected members.
     */
-  private val stateGidsByRoot: Map[String, List[String]] = {
-    val prefixToRoot: Map[String, String] =
-      Map(mainIndex.idPrefix -> "") ++
-        surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
+  private val stateGidsByRoot: Map[String, List[NodeId]] =
     stateBakeOwnerIds.toList.sorted
-      .flatMap(gid =>
-        allIndexed.get(gid).map { case (_, _, prefix) =>
-          prefixToRoot(prefix) -> gid
-        }
-      )
+      .flatMap(gid => rootOf(gid).map(_ -> gid))
       .groupMap(_._1)(_._2)
-  }
 
-  private def stateGidsAtRoot(root: String): List[String] =
+  private def stateGidsAtRoot(root: String): List[NodeId] =
     stateGidsByRoot.getOrElse(root, Nil)
 
   /** Whether a state condition, quantified over the WHOLE live state map,
@@ -379,7 +521,7 @@ class Renderer(
     * against a before AND after snapshot to detect a flip).
     */
   private[runtime] def resolveActiveByState(
-      gid: String,
+      gid: NodeId,
       states: Map[String, EntityState]
   ): Option[Int] = {
     val idx = bakeGroup(gid).indexWhere(sid =>
@@ -403,7 +545,13 @@ class Renderer(
     * the shortcut: its mere appearance can move an `all`/`none` aggregate
     * without any per-entity flip.
     */
-  private def conditionTouched(gid: String, change: StateChange): Boolean =
+  private def conditionTouched(
+      gid: NodeId,
+      changes: List[StateChange]
+  ): Boolean =
+    changes.exists(conditionTouched(gid, _))
+
+  private def conditionTouched(gid: NodeId, change: StateChange): Boolean =
     change.previous match {
       case None       => true
       case Some(prev) =>
@@ -425,15 +573,14 @@ class Renderer(
     * flips it in, the ancestor's host morph re-renders it fresh). Two-step per
     * group: the O(1) [[conditionTouched]] shortcut, then
     * [[resolveActiveByState]] over `before` vs `states`. The Server morphs each
-    * returned host (minus [[sessionOnlyStateGroups]] on the shared pass) and
-    * prunes its members' cache entries.
+    * returned host and prunes its members' cache entries.
     */
   def affectedStateGroups(
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
-    affectedStateGroupsFrom("", change, before, states)
+  ): List[NodeId] =
+    affectedStateGroupsFrom("", changes, before, states)
 
   /** Like [[affectedStateGroups]], rooted at one surface's content tree — the
     * per-session variant for state groups inside an OPEN (user) surface, whose
@@ -441,26 +588,26 @@ class Renderer(
     */
   def affectedStateGroupsIn(
       surfaceId: String,
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
-    affectedStateGroupsFrom(surfaceId, change, before, states)
+  ): List[NodeId] =
+    affectedStateGroupsFrom(surfaceId, changes, before, states)
 
   private def affectedStateGroupsFrom(
       root: String,
-      change: StateChange,
+      changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): List[String] =
+  ): List[NodeId] =
     stateGidsAtRoot(root).flatMap { gid =>
       val flipped =
-        conditionTouched(gid, change) &&
+        conditionTouched(gid, changes) &&
           resolveActiveByState(gid, before) != resolveActiveByState(gid, states)
       // Recurse into the CURRENTLY selected member only: nested groups in the
       // inactive branch are not in any client's DOM.
       val nested = resolveActiveByState(gid, states).toList.flatMap(idx =>
-        affectedStateGroupsFrom(bakeGroup(gid)(idx), change, before, states)
+        affectedStateGroupsFrom(bakeGroup(gid)(idx), changes, before, states)
       )
       (if (flipped) List(gid) else Nil) ++ nested
     }
@@ -472,12 +619,11 @@ class Renderer(
     * Server never consults their indices (no guard map needed; silence is
     * structural). `excluding` prunes whole subtrees: the Server passes the
     * groups it flips this round (their host morph re-renders the member
-    * wholesale — patching its parts too would double-emit) and, on the shared
-    * pass, [[sessionOnlyStateGroups]].
+    * wholesale — patching its parts too would double-emit).
     */
   def activeStateSurfaces(
       states: Map[String, EntityState],
-      excluding: Set[String] = Set.empty
+      excluding: Set[NodeId] = Set.empty
   ): Set[String] =
     activeStateSurfacesFrom("", states, excluding)
 
@@ -487,14 +633,14 @@ class Renderer(
   def activeStateSurfacesIn(
       surfaceId: String,
       states: Map[String, EntityState],
-      excluding: Set[String] = Set.empty
+      excluding: Set[NodeId] = Set.empty
   ): Set[String] =
     activeStateSurfacesFrom(surfaceId, states, excluding)
 
   private def activeStateSurfacesFrom(
       root: String,
       states: Map[String, EntityState],
-      excluding: Set[String]
+      excluding: Set[NodeId]
   ): Set[String] =
     stateGidsAtRoot(root)
       .filterNot(excluding)
@@ -505,15 +651,6 @@ class Renderer(
         }
       }
       .toSet
-
-  /** The `s_<sid>__` node-id prefixes of every member of `gid`'s bake group —
-    * the cache-prune scope for a state-group flip (host id + these prefixes,
-    * the same contract as the Server's `repaintGroup`), so a later re-revealed
-    * member diffs from a known base instead of being suppressed by a stale
-    * pre-flip entry.
-    */
-  def bakeMemberPrefixes(gid: String): List[String] =
-    bakeGroup(gid).map(Renderer.surfacePrefix)
 
   /** Resolve which member of a USER-selected group `gid` is active, given the
     * client's (untrusted) `uiState`. Parses `uiState.get(gid)` with
@@ -526,7 +663,7 @@ class Renderer(
     * here — see [[resolveActiveByState]].
     */
   private[runtime] def resolveActive(
-      gid: String,
+      gid: NodeId,
       uiState: Map[String, String]
   ): (Int, Option[String]) = {
     val members = bakeGroup(gid)
@@ -579,8 +716,31 @@ class Renderer(
         .toSet
     val fromUnbaked =
       unbaked.collect { case (sid, s) if defaultOpenUser(s) => sid }.toSet
-    fromGroups ++ fromUnbaked
+    fromGroups ++ fromUnbaked ++ openPopup(uiState)
   }
+
+  /** The popup this ui state has open, narrowed to one this dashboard can
+    * actually serve.
+    *
+    * The popup host is a selection like any other — `ui_<hostId>`, set by the
+    * open/close taps exactly as a tab button sets `ui_<id>` — so it arrives
+    * through the same map, with the same signals-beat-query precedence, and
+    * needs no channel of its own. Its VALUE is a surface id rather than a
+    * member index, because the host is not a bake group: any registered surface
+    * can appear there, and only one at a time.
+    *
+    * Narrowing is the whole reason this is a method: a claim can name a surface
+    * this dashboard renamed, removed, or never had (a stale URL, another
+    * dashboard's dialog), and adopting one would put a session in a state its
+    * renderer cannot serve.
+    */
+  def openPopup(uiState: Map[String, String]): Option[String] =
+    uiState
+      .get(Dashboard.PopupHostId)
+      .filter(_.nonEmpty)
+      .filter(sid =>
+        dashboard.surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
+      )
 
   /** Warnings for any USER-selected bake group whose `uiState` value was
     * present but off (unparseable / out of range). Pure — returns data (the
@@ -595,7 +755,7 @@ class Renderer(
       .filterNot(isStateGroup)
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
-  def componentsFor(entityId: String): Set[String] =
+  def componentsFor(entityId: String): Set[NodeId] =
     mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
   /** The live entities one node (by generated id) binds — the inverse of
@@ -603,7 +763,7 @@ class Renderer(
     * a dynamic group (its members are per-entity children with their own ids)
     * or an unknown id. Searches main + surface indices.
     */
-  def entitiesForNode(id: String): List[String] =
+  def entitiesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
       case _                                     => Nil
@@ -611,17 +771,10 @@ class Renderer(
 
   /** Main-page node ids whose HTML this entity drives, scoped to one surface.
     */
-  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[String] =
+  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
       .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
-
-  /** Like [[affectedDynamicIds]], scoped to one open surface. */
-  def affectedSurfaceDynamicIds(
-      surfaceId: String,
-      change: StateChange
-  ): List[String] =
-    affectedSurfaceDynamics(surfaceId, change).map(_._1)
 
   /** The surface's declaration (content/group/mount), if it exists. */
   def surface(surfaceId: String): Option[Surface] =
@@ -703,7 +856,17 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): String =
-    render(dashboard.card, Nil, "", states, uiState)
+    renderBodyTraced(states, uiState).html
+
+  /** [[renderBody]] with the per-node trace — including every surface BAKED
+    * into it, which is what a page load needs to seed the log for the surfaces
+    * the client can already see.
+    */
+  private[runtime] def renderBodyTraced(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): Traced =
+    traced(dashboard.card, Nil, "", states, uiState)
 
   /** The full page: [[themeStyleTag]] followed by the theme's compiled `chrome`
     * executed with `body = renderBody(...)` — a stable `#dashboard` patch
@@ -722,21 +885,41 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None
-  ): String =
-    themeStyleTag + chromeTemplate.execute(
-      Renderer.javaContext(
-        Map(
-          "body" -> renderBody(states, uiState),
-          // The dialog a refresh is restoring, baked into the host exactly as
-          // the connect would patch it — same `renderSurface` call, so the two
-          // are byte-identical and the later patch is a no-op morph.
-          "popups" -> popup
-            .flatMap(renderSurface(_, states, uiState))
-            .getOrElse("")
-        ),
-        Nil
-      )
+  ): String = renderPageTraced(states, uiState, popup).html
+
+  /** [[renderPage]] with the per-node trace of everything it painted — the
+    * body, the surfaces baked into it, and a restored popup.
+    *
+    * The page is the one render that must tell the log what it did. Every other
+    * node starts with NO entry, which reads as "you are up to date" and is
+    * true: the document was server-rendered from current state. An open surface
+    * is the exception — with no entry the first live tick would hand the client
+    * its own surface straight back — so those are seeded, and now from the
+    * render that produced them rather than from a second walk.
+    */
+  private[runtime] def renderPageTraced(
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty,
+      popup: Option[String] = None
+  ): Traced = {
+    val body = renderBodyTraced(states, uiState)
+    val dialog = popup.flatMap(renderSurfaceTraced(_, states, uiState))
+    Traced(
+      themeStyleTag + chromeTemplate.execute(
+        Renderer.javaContext(
+          Map(
+            "body" -> body.html,
+            // The dialog a refresh is restoring, baked into the host exactly as
+            // the connect would patch it — same render, so the two are
+            // byte-identical and the later patch is a no-op morph.
+            "popups" -> dialog.fold("")(_.html)
+          ),
+          Nil
+        )
+      ),
+      body.own ++ dialog.fold(Map.empty[NodeId, String])(_.own)
     )
+  }
 
   /** Render a surface's bare content, namespaced under its surface-scoped id
     * prefix (`s_<id>__…`, [[Renderer.surfacePrefix]]) so its inner nodes never
@@ -751,8 +934,18 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
+    renderSurfaceTraced(surfaceId, states, uiState).map(_.html)
+
+  /** [[renderSurface]] with the per-node trace — what a FILL uses, so the log
+    * learns what the fill put in each node without re-rendering the subtree.
+    */
+  private[runtime] def renderSurfaceTraced(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      render(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
+      traced(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
     }
 
   /** Render a single addressable node (for live SSE patches), main or surface.
@@ -761,13 +954,301 @@ class Renderer(
     * member on a live patch — not the default one.
     */
   def renderNodeById(
-      id: String,
+      id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
-    allIndexed.get(id).map { case (node, path, prefix) =>
-      render(node, path, prefix, states, uiState)
+    allIndexed.get(id).filter(_ => hasOwnRendering(id)).map {
+      // A card that declares a `self` patches through THAT element alone — no
+      // cell wrapper (the cell contains the mount) and no mount. Statement (1)
+      // made structural rather than enforced by suppression: the fragment
+      // simply cannot carry what the mount holds. Children DO ride along — a
+      // tab bar's buttons are the card's own rendering, not mounted content.
+      case (c: LayoutNode.Component, path, prefix) if hasSelf(c.card) =>
+        renderTemplateOf(
+          templates.selves(c.card),
+          structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
+          c.slots,
+          c.children.zipWithIndex.map { case (child, i) =>
+            render(child, path :+ i, prefix, states, uiState)
+          },
+          states
+        )
+      case (node, path, prefix) =>
+        render(node, path, prefix, states, uiState)
     }
+
+  /** The node id of a surface's CONTENT root (`s_<sid>__c`) — what a state
+    * group's mount holds, and therefore the thing a flip removes or places.
+    *
+    * The same scheme the build-phase hoist uses to name a surface's nodes, so a
+    * branch's build-time id and the id a flip's mutation records are one story.
+    */
+  def surfaceContentId(surfaceId: String): NodeId =
+    LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
+
+  /** Which surfaces share `host` as their mount — the eviction group a swap
+    * replaces.
+    */
+  def surfacesAt(host: DomId): Set[String] =
+    dashboard.surfaces.collect {
+      case (sid, s) if s.hostId == host => sid
+    }.toSet
+
+  /** Every addressable node inside one surface's content tree.
+    *
+    * The resume path's SECOND candidate set: a surface a client has open holds
+    * nodes the cursor alone would not name, because nothing may have rendered
+    * that surface at all while nobody was viewing it — so the log has no
+    * version to compare, and only re-rendering can tell whether the client's
+    * DOM is current.
+    */
+  def surfaceNodeIds(surfaceId: String): Set[NodeId] =
+    surfaceIndexes.get(surfaceId).fold(Set.empty)(_.indexed.keySet)
+
+  /** Every current member of a dynamic group, id and rendered HTML, in DOM
+    * order — what an `Inner` fill of the group's mount carries.
+    *
+    * Paired rather than concatenated because a fill owes the log a fingerprint
+    * per member: the mount's contents are re-supplied wholesale, so the next
+    * live diff must compare against what this fill actually put there.
+    */
+  def renderDynamicMembers(
+      groupId: NodeId,
+      states: Map[String, EntityState]
+  ): List[(NodeId, String)] =
+    dynamicMembers(groupId, states).flatMap(e =>
+      renderDynamicChild(groupId, e, states)
+        .map(dynamicChildId(groupId, e) -> _)
+    )
+
+  /** Everything currently in a container's mount, id and HTML per occupant —
+    * what a wholesale FILL carries, for either kind of container.
+    *
+    * A dynamic group's mount holds its members; a state group's holds the one
+    * active branch. Both are "what is in this mount", so they answer here
+    * rather than at each fill site.
+    */
+  /** Whether `id` is a DYNAMIC group — a mount over unboundedly many members,
+    * where position matters and a delta must preserve siblings.
+    *
+    * The distinction decides how a mount is patched. A state group's mount
+    * holds at most ONE member (a bake group has one hole), so there are no
+    * siblings to preserve and no position to fix: overwriting it IS the delta.
+    * A dynamic group's is the opposite, and gets per-member `remove`/`before`.
+    */
+  def isDynamicContainer(id: NodeId): Boolean =
+    allIndexed.get(id).exists { case (n, _, _) =>
+      n.isInstanceOf[LayoutNode.Dynamic]
+    }
+
+  def renderMount(
+      container: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): List[(NodeId, String)] =
+    allIndexed.get(container) match {
+      case Some((_: LayoutNode.Dynamic, _, _)) =>
+        renderDynamicMembers(container, states)
+      case _ =>
+        resolveActiveByState(container, states)
+          .flatMap(bakeMembers(container).lift)
+          .flatMap(sid =>
+            renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
+          )
+          .toList
+    }
+
+  /** The client selections implied by an open set — the inverse of
+    * [[selectedSurfaces]].
+    *
+    * `open` is LIVE truth: a tab click moves it mid-connection. A connection's
+    * captured `uiState` is only what it arrived with, so anything rendering for
+    * a client after connect must read the selection from here or it renders the
+    * tab that client was on when it opened the page.
+    */
+  def uiStateFrom(open: Set[String]): Map[String, String] =
+    userBakeOwnerIds.toList.flatMap { gid =>
+      bakeGroup(gid).indexWhere(open) match {
+        case -1 => None
+        case i  => Some(gid -> i.toString)
+      }
+    }.toMap
+
+  /** Render whatever node a LOG KEY names — the inverse the ledger needs.
+    *
+    * Since the log holds a digest rather than HTML, a resume renders its
+    * candidates instead of reading them back, so every key must be resolvable
+    * here. Two kinds are: a static node ([[renderNodeById]]) and one member of
+    * a dynamic group, whose ids are per-entity and deliberately NOT in the
+    * static index.
+    *
+    * `uiState` is the viewer this render is FOR. A node whose own markup reads
+    * its own selection has one rendering per member, so rendering it by id
+    * without a viewer hands everybody the default member's — which on a resume
+    * is a client's own tab being flipped out from under it.
+    *
+    * `None` means the key names nothing that exists right now — its group is
+    * gone, or the entity is no longer a member — which is exactly when there is
+    * nothing to send. That it cannot crash is the point: an unresolvable key is
+    * a fragment that can never be sent again, so it must be dropped visibly
+    * rather than taking the resume with it.
+    */
+  def renderLogged(
+      id: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty
+  ): Option[String] =
+    renderNodeById(id, states, uiState).orElse(
+      // `sanitize` is one-way, so the entity cannot be read back out of the id —
+      // it is found by re-deriving each current member's id. O(members) on a
+      // reconnect, never on the hot path.
+      allIndexed.iterator
+        .collect {
+          case (gid, (_: LayoutNode.Dynamic, _, _))
+              if id.startsWith(gid + "_") =>
+            gid
+        }
+        .flatMap(gid => dynamicMembers(gid, states).iterator.map(gid -> _))
+        .collectFirst {
+          case (gid, e) if dynamicChildId(gid, e) == id =>
+            renderDynamicChild(gid, e, states)
+        }
+        .flatten
+    )
+
+  /** The backend-injected structural template vars for one node — the ids an
+    * author never composes.
+    *
+    * ONE derivation, deliberately, because there are two places a node id comes
+    * from ([[LayoutNode.pathId]] for the static tree, [[dynamicChildId]] for a
+    * group member) and they used to inject their vars separately, so a var
+    * added to one silently missed the other. The rule this makes true:
+    *
+    * > Structural vars are a pure function of the node id in scope.
+    *
+    * So a container card used as a dynamic case gets `selfId`/`mountId` off its
+    * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
+    * here: it is a function of the client's selection, not of the id, and it
+    * belongs to the document path alone ([[resolveBake]]).
+    */
+  private def structuralVars(id: NodeId): Map[String, String] =
+    Map(
+      "id" -> id,
+      "selfId" -> Renderer.selfElementId(id),
+      "mountId" -> mountId(id)
+    )
+
+  /** Whether this node HAS a rendering of its own — the thing that decides
+    * whether it may be a log key or a patch target at all.
+    *
+    * The property, not a card shape: **a node's own rendering must contain no
+    * mount** — its own, or one belonging to markup that rides along inside it.
+    * A mount's contents are whichever member that client selected, so a node
+    * carrying one has bytes that differ per viewer.
+    *
+    * Three shapes fail it, and only the first two are what a card's own
+    * definition tells you:
+    *
+    *   - a BARE container — a mount and no `self` — whose markup is a constant
+    *     `.fh-cell` wrapper around a hole;
+    *   - a DYNAMIC group root, which composes its members (each addressable in
+    *     its own right) rather than having markup of its own;
+    *   - anything whose CHILDREN bring a mount along — a pre-split container
+    *     splicing `{{#children}}` into its `template`, or a custom card with a
+    *     `self` and a bake-owning child. Neither is reachable from the shipped
+    *     library, and neither is visible to a test on the card alone, which is
+    *     why this asks about the rendering instead.
+    *
+    * The log is per SLUG, so a digest recorded for either is one viewer's bytes
+    * presented as everyone's — and a resume re-rendering one hands that
+    * viewer's variant to whoever asks. Neither loses anything by being
+    * excluded: their children are addressable in their own right.
+    *
+    * This is not a new rule. `Dashboard.validate` already rejects a live-entity
+    * slot on a bare container BECAUSE it has no patch target; the log simply
+    * never followed suit.
+    *
+    * They keep their [[elementId]]: a structural patch still names them (a
+    * `remove` deletes that element, an `insert` anchors before it). What they
+    * lose is being rendered BY ID.
+    */
+  private def hasOwnRendering(id: NodeId): Boolean =
+    allIndexed.get(id).exists {
+      case (c: LayoutNode.Component, _, _) =>
+        // What `renderNodeById` would produce: a card with a `self` renders
+        // that element plus its children's FULL renderings; anything else
+        // renders its whole card, its own mount included.
+        if (hasSelf(c.card)) !c.children.exists(carriesMount)
+        else !carriesMount(c)
+      case (_: LayoutNode.Dynamic, _, _) => false
+    }
+
+  /** Whether rendering this node in FULL — as a parent's markup embeds it —
+    * brings a mount along, its own or a descendant's.
+    *
+    * A dynamic group does not count: its members render with no children and no
+    * bake group, so a member card's mount comes out empty and carries nobody's
+    * selection.
+    */
+  private def carriesMount(node: LayoutNode): Boolean = node match {
+    case c: LayoutNode.Component =>
+      templates.mounts.contains(c.card) || c.children.exists(carriesMount)
+    case _: LayoutNode.Dynamic => false
+  }
+
+  /** Whether a card patches through a `self` element of its own — the ONE
+    * predicate the split turns on. It picks what the patch path renders, what
+    * [[patchTargetId]] returns, and (with it) what the diff compares, so the
+    * three can never disagree.
+    */
+  private def hasSelf(card: String): Boolean = templates.selves.contains(card)
+
+  /** The DOM element a patch for `id` targets — the ONE crossing from node id
+    * to DOM id, and one-way.
+    *
+    * A container declaring a `self` targets `<id>-self`, so its patch cannot
+    * reach the sibling mount holding its children; everything else targets its
+    * own element. `-` is safe as the separator because [[Dashboard.sanitize]]
+    * maps everything outside `[A-Za-z0-9_]` to `_`, so no generated node id can
+    * contain one and no `startsWith(id + "_")` ancestry test can mistake
+    * `c_2-self` for a child of `c_2`.
+    */
+  def patchTargetId(id: NodeId): DomId =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _, _)) if hasSelf(c.card) =>
+        Renderer.selfElementId(id)
+      case _ => elementId(id)
+    }
+
+  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits. What
+    * a structural patch names: the thing a `remove` deletes and an `insert`
+    * anchors `before`. Distinct from [[patchTargetId]] on purpose: once a
+    * container patches its `self` alone, removing that element would leave the
+    * mount and its children standing, so "what I morph" and "what I am" stop
+    * being the same element.
+    */
+  def elementId(id: NodeId): DomId = DomId.derived(id)
+
+  /** The element a node's children live IN — an `Inner`/`append` target, and
+    * the `{{mountId}}` a container's `mount` part writes.
+    *
+    * '''This is not a new id — for a bake owner it IS
+    * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
+    * byte-identical to the `id="{{id}}_panel"` the template used to hardcode.
+    * That removes a duplication rather than adding one: Pkl and Scala used to
+    * derive the same string independently, with nothing checking they agreed.
+    *
+    * A mount needs an id only where something FILLS it, which is exactly where
+    * `bakeAs` already names it (a tab panel, an `If` branch). `Grid`/`Row`/
+    * `Column` mounts are never fill targets — their children arrive nested — so
+    * they fall back to the node's own id and simply never use it.
+    */
+  def mountId(id: NodeId): DomId =
+    bakeGroup(id).headOption
+      .flatMap(dashboard.surfaces.get)
+      .map(_.hostId)
+      .getOrElse(elementId(id))
 
   /** When component `id` owns a bake group (surfaces baked into it), bake the
     * SELECTED member as its `{{{bakeAs}}}` var so the host renders the active
@@ -784,24 +1265,28 @@ class Renderer(
     * byte-identical HTML. No bake group → both maps empty (absent Mustache vars
     * render empty). Returns `(baked, structural)`.
     */
-  private def resolveBake(
-      id: String,
+  private def resolveBakeTraced(
+      id: NodeId,
       uiState: Map[String, String],
       states: Map[String, EntityState]
-  ): (Map[String, String], Map[String, String]) = {
+  ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
     val group = bakeGroup(id)
-    def bakeMember(idx: Int): (Map[String, String], Map[String, String]) = {
+    def bakeMember(
+        idx: Int
+    ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
       val sid = group(idx)
       val s = dashboard.surfaces(sid)
+      // A baked member's nodes are part of what this render puts on screen, so
+      // its trace joins this one's — that is how a page load fingerprints the
+      // surfaces it baked without walking them again.
+      val member = renderSurfaceTraced(sid, states, uiState)
       (
-        Map(
-          s.bakeAs.getOrElse("") -> renderSurface(sid, states, uiState)
-            .getOrElse("")
-        ),
-        Map("bakeIndex" -> idx.toString)
+        Map(s.bakeAs.getOrElse("") -> member.fold("")(_.html)),
+        Map("bakeIndex" -> idx.toString),
+        member.fold(Map.empty[NodeId, String])(_.own)
       )
     }
-    if (group.isEmpty) (Map.empty, Map.empty)
+    if (group.isEmpty) (Map.empty, Map.empty, Map.empty)
     else if (isStateGroup(id))
       resolveActiveByState(id, states) match {
         case Some(idx) => bakeMember(idx)
@@ -813,7 +1298,7 @@ class Renderer(
           val as = group.headOption
             .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
             .getOrElse("")
-          (Map(as -> ""), Map.empty)
+          (Map(as -> ""), Map.empty, Map.empty)
       }
     else bakeMember(resolveActive(id, uiState)._1)
   }
@@ -824,53 +1309,114 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
-  ): String =
+  ): String = traced(node, path, idPrefix, states, uiState).html
+
+  /** The composed rendering, and every node's OWN html inside it.
+    *
+    * The walk already computes both — a card's `self` is built and then spliced
+    * into `template` — so the trace is a matter of not discarding it. Before
+    * this, anything that needed per-node bytes after a wholesale render (a fill
+    * fingerprinting what it just put in a mount, the page seeding the log for
+    * its open surfaces) rendered the whole subtree a SECOND time, node by node.
+    *
+    * `own` carries an entry only for nodes that have a rendering of their own
+    * ([[hasOwnRendering]]) — the same set that may be a log key — and its bytes
+    * are what [[renderNodeById]] would return for that id, which is what makes
+    * the digests comparable at all.
+    */
+  private[runtime] case class Traced(html: String, own: Map[NodeId, String])
+
+  private def traced(
+      node: LayoutNode,
+      path: List[Int],
+      idPrefix: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Traced =
     node match {
       case c: LayoutNode.Component =>
-        val id = idPrefix + LayoutNode.pathId(path)
-        val childrenHtml = c.children.zipWithIndex.map { case (child, i) =>
-          render(child, path :+ i, idPrefix, states, uiState)
+        val id = LayoutNode.nodeId(idPrefix, path)
+        val kids = c.children.zipWithIndex.map { case (child, i) =>
+          traced(child, path :+ i, idPrefix, states, uiState)
         }
-        val (baked, structural) = resolveBake(id, uiState, states)
-        // `id` is a backend-injected template var (the author never supplies it).
-        // Everything else fills from a slot, a baked surface var, or the injected
-        // `bakeIndex`.
+        val childrenHtml = kids.map(_.html)
+        val (baked, bakeIndex, bakedTrace) =
+          resolveBakeTraced(id, uiState, states)
+        // The document path renders the whole card: its two parts first, then
+        // `template` with them spliced in. A leaf card has neither part, so its
+        // `template` renders exactly as before.
+        //
+        // The `self` sees the structural vars AND `bakeIndex` — precisely what
+        // `renderNodeById` gives it, which is what lets the trace be captured
+        // here and compared there. NOT the baked member itself: that is the
+        // mount's contents, and statement (1) is that a node's own rendering
+        // never carries them.
+        val selfVars = structuralVars(id) ++ bakeIndex
+        val selfHtml = templates.selves
+          .get(c.card)
+          .map(renderTemplateOf(_, selfVars, c.slots, childrenHtml, states))
+        val vars = selfVars ++ baked
+        val mountHtml = templates.mounts
+          .get(c.card)
+          .map(renderTemplateOf(_, vars, c.slots, childrenHtml, states))
         val html = renderTemplate(
           c.card,
-          Map("id" -> id) ++ structural ++ baked,
+          vars ++ Map(
+            "self" -> selfHtml.getOrElse(""),
+            "mount" -> mountHtml.getOrElse("")
+          ),
           c.slots,
           childrenHtml,
           states
         )
-        // EVERY node is a cell: the backend owns the id'd `.fh-cell` wrapper, so
-        // templates never carry `id="{{id}}"` themselves, every node is a
-        // Datastar morph target, and containers lay their children out
-        // uniformly (`.fh-cell` is the real flex/grid item — the themes style
-        // it). Authored `cell` classes (fh-cols-*, …) ride on the
-        // wrapper. Exceptions: a card that opted out via `CardDef.wrapAsCell =
-        // false` (its root must stay a direct child of a framework-structural
-        // parent, e.g. the tab anchors), and a bake-group owner with no live
-        // entity of its own (e.g. `Tabs`, `If`) — it is never itself a morph
-        // target (only its baked panel/branch, addressed separately via
-        // `{{id}}_panel` etc., is), and it may host a card like `If`'s whose
-        // template already carries `id="{{id}}"` as the surface host
-        // swapHost/flipStateGroup address — an extra id'd wrapper there would
-        // duplicate the id and leave the flip's outer-morph patch rootless
-        // (Datastar drops a top-level element without an id). A bake-owner that
-        // ALSO binds a live entity (e.g. `tabsLive`) still needs the wrapper: it
-        // IS a morph target for its own state-driven re-render.
-        if (noWrapCards(c.card)) html
-        else if (c.liveEntities.isEmpty && bakeGroup(id).nonEmpty) html
-        else
-          s"""<div class="fh-cell${Renderer.cellClasses(
-              c.cell
-            )}" id="$id">$html</div>"""
+        // EVERY node is a cell — containers included. The backend owns the id'd
+        // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
+        // and authored `cell` classes (fh-cols-*, …) ride on it.
+        //
+        // The one exception is a card that opted out via
+        // `CardDef.wrapAsCell = false`, which now means exactly one thing: my
+        // root must not be wrapped in a layout box (the tab anchors, which must
+        // stay direct children of BeerCSS's `.tabs`). It no longer implies
+        // "never a morph target" — that is decided by card shape.
+        //
+        // A bake owner used to be denied the wrapper, because the cell WAS the
+        // morph target and a bake owner's patch would have carried its whole
+        // baked panel. The split separates the two: the cell is the layout item,
+        // the `self` element is the patch target. So `Tabs`/`If` are ordinary
+        // cells, and `.columns(n)` on them stops being silently dropped.
+        val wrapped =
+          if (noWrapCards(c.card)) html
+          else
+            s"""<div class="fh-cell${Renderer.cellClasses(
+                c.cell
+              )}" id="$id">$html</div>"""
+        // What this node contributes to the trace: its `self` when it has one,
+        // otherwise its whole (wrapped) rendering when it holds no mount, and
+        // nothing at all when it is a bare container. Mirrors `renderNodeById`
+        // exactly — including the wrapper, which that method's leaf branch also
+        // returns.
+        // A variant-bearing node IS recorded: this walk renders for ONE viewer,
+        // so its bytes are that viewer's variant and the log keys them by it.
+        // Excluding them was a leftover from before variants had entries of
+        // their own.
+        val ownHtml =
+          if (hasOwnRendering(id)) selfHtml.orElse(Some(wrapped)) else None
+        Traced(
+          wrapped,
+          kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)
+        )
       case d: LayoutNode.Dynamic =>
-        renderDynamic(idPrefix + LayoutNode.pathId(path), d, states)
+        val id = LayoutNode.nodeId(idPrefix, path)
+        // A group root composes its members and so has no own rendering; the
+        // members do, and they are what a fill must fingerprint.
+        Traced(
+          renderDynamic(id, d, states),
+          renderDynamicMembers(id, states).toMap
+        )
     }
 
   private def renderDynamic(
-      id: String,
+      id: NodeId,
       d: LayoutNode.Dynamic,
       states: Map[String, EntityState]
   ): String = {
@@ -898,8 +1444,8 @@ class Renderer(
     * the outer-morph / insert / remove target for a single group member. Shared
     * by [[renderCase]] and the Server's per-entity patch path.
     */
-  def dynamicChildId(groupId: String, entityId: String): String =
-    s"${groupId}_${Renderer.sanitize(entityId)}"
+  def dynamicChildId(groupId: NodeId, entityId: String): NodeId =
+    NodeId.derived(s"${groupId}_${Renderer.sanitize(entityId)}")
 
   /** The entity ids a dynamic group currently renders as children, in DOM order
     * (sorted by entity id, matching [[renderDynamic]]). A member is an entity
@@ -910,7 +1456,7 @@ class Renderer(
     * the add/remove churn heuristic). Unknown / non-dynamic id ⇒ empty.
     */
   def dynamicMembers(
-      groupId: String,
+      groupId: NodeId,
       states: Map[String, EntityState]
   ): List[String] =
     allIndexed.get(groupId) match {
@@ -934,7 +1480,7 @@ class Renderer(
     * query, or no case matches (i.e. the entity is not a current member).
     */
   def renderDynamicChild(
-      groupId: String,
+      groupId: NodeId,
       entityId: String,
       states: Map[String, EntityState]
   ): Option[String] =
@@ -949,7 +1495,7 @@ class Renderer(
     }
 
   private def renderCase(
-      groupId: String,
+      groupId: NodeId,
       entityId: String,
       c: DynamicCase,
       states: Map[String, EntityState]
@@ -961,7 +1507,7 @@ class Renderer(
     val slots =
       c.slots.updated("entity_id", SlotSource(literal = Some(entityId)))
     val id = dynamicChildId(groupId, entityId)
-    val html = renderTemplate(c.card, Map("id" -> id), slots, Nil, states)
+    val html = renderWhole(c.card, structuralVars(id), slots, Nil, states)
     // Each child gets the SAME id'd `.fh-cell` wrapper as a static component, so
     // it is an addressable per-entity patch target (in-place morph / insert /
     // remove) rather than only ever re-rendered as part of the whole group —
@@ -991,47 +1537,91 @@ class Renderer(
           s"unknown card '$cardName' — validate should have rejected this dashboard"
         )
       case Some(tpl) =>
-        // The card's subject entity: the `entity_id` slot resolved against its
-        // OWN entity (it DEFINES the subject, so it never inherits it). Normally
-        // a literal; a transform form (indirection) grounds on its own entityId.
-        val subject: Option[String] =
-          slots.get("entity_id").map { s =>
-            s.literal.getOrElse(resolveSlot(s.entityId, s, states))
-          }
-        val resolved = slots.map { case (slot, source) =>
-          val value = source.literal match {
-            // A constant literal: used verbatim, reading no entity and running no
-            // transform — the cheap path for a hardcoded label/action.
-            case Some(text) => text
-            case None       =>
-              // A slot's entity is its own `entityId`, or the subject when it
-              // leaves it unset (slot-level inheritance — the card's entity, or
-              // the matched entity in a dynamic case). The `entity_id` slot
-              // itself never inherits — it is the subject.
-              val srcEntity =
-                if (slot == "entity_id") source.entityId
-                else source.entityId.orElse(subject)
-              // A `reactive: false` slot is identity-derived — its transform
-              // reads only `$domain`/`$entity_id` (a service action, the
-              // slider's domain config), both immutable for the life of the
-              // entity. So its value never changes: resolve it ONCE per
-              // (entity, transform) and reuse forever. This is what keeps the
-              // dynamic render path slick — a dynamic group re-renders every
-              // matched card on every event, but those cards' action/config
-              // slots become a cache lookup, not a JSONata eval. Live slots
-              // (`reactive: true`) always re-resolve. `$entity_id` is in the key
-              // (the action URL embeds it), so two entities never collide.
-              if (!source.reactive)
-                identityCache.computeIfAbsent(
-                  (srcEntity.getOrElse(""), source.transform),
-                  _ => resolveSlot(srcEntity, source, states)
-                )
-              else resolveSlot(srcEntity, source, states)
-          }
-          slot -> value
-        }
-        tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
+        renderTemplateOf(tpl, injected, slots, childrenHtml, states)
     }
+
+  /** The DOCUMENT path's card render: both parts, then `template` with them
+    * spliced into its `{{{self}}}`/`{{{mount}}}` holes. A leaf card has
+    * neither, so its `template` renders exactly as it always did.
+    *
+    * The one place a mount is rendered as part of its own node, which is why
+    * the document path can hand a client fully-populated mounts on first paint
+    * while the patch path never touches one.
+    */
+  private def renderWhole(
+      cardName: String,
+      vars: Map[String, String],
+      slots: Map[String, SlotSource],
+      childrenHtml: List[String],
+      states: Map[String, EntityState]
+  ): String = {
+    def part(of: Map[String, Template]): String =
+      of.get(cardName)
+        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states))
+    renderTemplate(
+      cardName,
+      vars ++ Map(
+        "self" -> part(templates.selves),
+        "mount" -> part(templates.mounts)
+      ),
+      slots,
+      childrenHtml,
+      states
+    )
+  }
+
+  /** Render an already-resolved template — `template`, `self` or `mount` — with
+    * the same slot resolution for all three, so a card's parts can never
+    * disagree about what a slot means.
+    */
+  private def renderTemplateOf(
+      tpl: Template,
+      injected: Map[String, String],
+      slots: Map[String, SlotSource],
+      childrenHtml: List[String],
+      states: Map[String, EntityState]
+  ): String = {
+    // The card's subject entity: the `entity_id` slot resolved against its
+    // OWN entity (it DEFINES the subject, so it never inherits it). Normally
+    // a literal; a transform form (indirection) grounds on its own entityId.
+    val subject: Option[String] =
+      slots.get("entity_id").map { s =>
+        s.literal.getOrElse(resolveSlot(s.entityId, s, states))
+      }
+    val resolved = slots.map { case (slot, source) =>
+      val value = source.literal match {
+        // A constant literal: used verbatim, reading no entity and running no
+        // transform — the cheap path for a hardcoded label/action.
+        case Some(text) => text
+        case None       =>
+          // A slot's entity is its own `entityId`, or the subject when it
+          // leaves it unset (slot-level inheritance — the card's entity, or
+          // the matched entity in a dynamic case). The `entity_id` slot
+          // itself never inherits — it is the subject.
+          val srcEntity =
+            if (slot == "entity_id") source.entityId
+            else source.entityId.orElse(subject)
+          // A `reactive: false` slot is identity-derived — its transform
+          // reads only `$domain`/`$entity_id` (a service action, the
+          // slider's domain config), both immutable for the life of the
+          // entity. So its value never changes: resolve it ONCE per
+          // (entity, transform) and reuse forever. This is what keeps the
+          // dynamic render path slick — a dynamic group re-renders every
+          // matched card on every event, but those cards' action/config
+          // slots become a cache lookup, not a JSONata eval. Live slots
+          // (`reactive: true`) always re-resolve. `$entity_id` is in the key
+          // (the action URL embeds it), so two entities never collide.
+          if (!source.reactive)
+            identityCache.computeIfAbsent(
+              (srcEntity.getOrElse(""), source.transform),
+              _ => resolveSlot(srcEntity, source, states)
+            )
+          else resolveSlot(srcEntity, source, states)
+      }
+      slot -> value
+    }
+    tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
+  }
 
   /** Resolve a non-literal slot's value against its producing entity's state.
     * It resolves even before any state has arrived (so a `$domain` action still
@@ -1126,6 +1716,16 @@ object Renderer {
     * navigate can morph one theme into another.
     */
   val ThemeStyleId: String = "fh-theme"
+
+  /** The `self` element's DOM id for a node — `<nodeId>-self`.
+    *
+    * One derivation, used both to WRITE the id (`{{selfId}}`) and to TARGET it
+    * ([[Renderer.patchTargetId]]), so the template and the patch cannot drift
+    * apart. `-` cannot appear in a generated node id ([[LayoutNode.sanitize]]),
+    * which is what keeps the log's `startsWith(id + "_")` ancestry tests from
+    * reading `c_2-self` as a child of `c_2`.
+    */
+  def selfElementId(id: NodeId): DomId = DomId.derived(id + "-self")
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.

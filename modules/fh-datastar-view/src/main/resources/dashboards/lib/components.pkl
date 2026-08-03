@@ -72,10 +72,25 @@ abstract class LayoutNode {
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
   // Shared appender: replace `cell` with a copy carrying one more class (the
   // null default is never amended — amending a null Listing is an error).
+  //
+  // ONE SPAN PER NODE: adding an `fh-cols-*` class DROPS any it already had.
+  // Both `columns(n)` and `fullWidth()` emit a `flex-basis` rule, so with two
+  // present which one applies would be decided by the order of the rules in the
+  // stylesheet, not by the author's last word — a silently-losing override. It
+  // is also what lets a card DEFAULT its span ([[Tabs]], [[If]]) and still be
+  // overridden per node.
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
-    let (prev = if (self.cell != null) self.cell!!.classes else new Listing<String> {})
-      (self) { cell = new Cell { classes = (prev) { cls } } }
+    let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
+    let (kept = if (cls.startsWith("fh-cols-")) had.filter((c) -> !c.startsWith("fh-cols-")) else had)
+      (self) {
+        cell = new Cell {
+          classes = new Listing<String> {
+            for (c in kept) { c }
+            cls
+          }
+        }
+      }
 }
 
 abstract class Node extends LayoutNode {
@@ -90,7 +105,22 @@ abstract class Node extends LayoutNode {
   // tags/attributes are harmless whitespace, but a newline inside an
   // attribute would break it.
   hidden cardDef: CardDef
-  slots: Mapping<String, Slot|String> = new {}
+  // A LIVE slot on a bare container is a build error — the hazard the whole
+  // self/mount split exists to remove. Such a card hosts content AND would
+  // re-render on state, and having no `self` its patch would carry everything
+  // its mount holds. Declaring a `self` is the fix, and it lifts the ban.
+  //
+  // Checked at the NODE, not the card, because liveness is a property of the
+  // VALUE: `Slot|String` IS the distinction (a Pkl `String` is exactly the
+  // wire's `literal`), so [[Grid]] keeps its `class` slot — a literal — and only
+  // a genuinely reactive one is rejected. Mirrors
+  // `LayoutNode.Component.liveEntities`, subject case included (the subject
+  // counts only when `entity_id` is a literal).
+  slots: Mapping<String, Slot|String>(
+    !bareContainer(cardDef) || !toMap().values.any((v) ->
+      v is Slot && v.reactive && (v.entityId != null ||
+        (containsKey("entity_id") && this["entity_id"] is String)))
+  ) = new {}
   // Widened to LayoutNode so a container can nest either a component or a
   // dynamic group.
   children: Listing<LayoutNode> = new {}
@@ -101,18 +131,66 @@ abstract class Node extends LayoutNode {
   inlineSurfaces: Mapping<String, SurfaceDef>? = null
 }
 
-class CardDef {
-  template: String
+/// A card's markup. A LEAF card is just a `template`; a card that HOLDS other
+/// nodes splits into two parts placed at independent holes in it:
+///
+///   - `mount` — the element the children occupy. Filled as its own operation
+///     (a tab select, a popup open, a group repaint); a live patch never
+///     renders into it.
+///   - `self` — the card's own presentation: a tab bar, a header, a frame. This
+///     is what a live patch renders, under the engine's `{{selfId}}`.
+///
+/// They are SIBLINGS — `self` must not contain the `{{{mount}}}` hole — and
+/// that is the whole mechanism: a top-level patch matches only the element
+/// carrying its own id, so a patch at the self element cannot reach the mount.
+/// Hence the rule the design rests on: a node's patch carries its own rendering
+/// and NEVER the contents of a mount, so a host changing cannot re-render what
+/// it hosts (docs/adr/0012-one-pass-addressed-per-client.md).
+///
+/// A container with a `mount` and NO `self` ([[Row]]/[[Column]]/[[Grid]]) has
+/// only children to show, so its whole HTML contains them and it must never be
+/// patched — which is why a LIVE slot on that shape is a build error.
+abstract class CardDef {
+  /// The whole card. Defaults to the two parts back to back, which is right for
+  /// a container that is nothing but its mount.
+  template: String = "{{{self}}}{{{mount}}}"
   slots: Listing<String> = new {}
-  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell`
-  // layout/morph wrapper. Null (dropped by omitNullProperties, backend
-  // defaults TRUE) for every normal card; set `false` only for a card whose
-  // root must stay a direct child of a framework-structural parent (the
-  // [[TabButton]] anchors under BeerCSS's `.tabs > a`). A `false` card is
-  // never a morph target; live-entity slots, cell params, and dynamic-case
-  // use are all build errors on it (Dashboard.validate).
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell` layout
+  // wrapper. Null (dropped by omitNullProperties, backend defaults TRUE) for
+  // every normal card; set `false` only for a card whose root must stay a
+  // direct child of a framework-structural parent (the [[TabButton]] anchors
+  // under BeerCSS's `.tabs > a`). It means exactly "my root must not be wrapped
+  // in a layout box" — NOT "never a morph target", which is now decided by card
+  // shape (a container patches through its `self`).
   wrapAsCell: Boolean? = null
 }
+
+/// A card with no children: one `template`, nothing to mount.
+class LeafCard extends CardDef {}
+
+/// A card that HOLDS other nodes. Splitting the two parts into separate
+/// properties placed at independent holes is what makes "they are siblings"
+/// structural: the ONLY way to nest them would be for `self` to contain the
+/// mount hole, and the constraint below forbids exactly that.
+class ContainerCard extends CardDef {
+  /// Where child nodes go. Carries `id="{{mountId}}"` only when something FILLS
+  /// it — a tab panel, an [[If]] branch — which is exactly where a surface's
+  /// `bakeAs` names it. A plain container's children arrive nested, so its mount
+  /// needs no id.
+  mount: String
+  /// The card's own presentation, patched independently of the mount. It IS the
+  /// patch target, so it must carry the engine's `{{selfId}}`; and it must not
+  /// nest the mount, or a patch would carry the mounted content after all.
+  self: String?(this == null ||
+    (this.contains("{{selfId}}") && !this.contains("{{{mount}}}"))) = null
+}
+
+/// Whether a card holds content but has NO presentation of its own — so its
+/// whole HTML contains its children, and patching it would re-render them. Such
+/// a card must never enter a diff set, which is why a LIVE slot on it is a build
+/// error (see [[Node.slots]]).
+const local function bareContainer(d: CardDef): Boolean =
+  d is ContainerCard && d.self == null
 
 /// An on-demand render subtree the build-phase hoist lifts into the top-level
 /// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
@@ -248,13 +326,15 @@ function navigate(slug: String): Tap = new {
 
 /// Dismiss the (single, at-a-time) open popup — the id-less `POST
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.
-function closePopup(): Tap = new { onclick = "@post('sse/popup/close')" }
+/// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
+/// the signal is what a refresh and a reconnect restore from.
+function closePopup(): Tap = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
 function openPopup(surfaceId: String): Tap =
-  new { onclick = "@post('sse/surface/open/\(surfaceId)')" }
+  new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
@@ -267,7 +347,7 @@ function openPopup(surfaceId: String): Tap =
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
 // per the Pkl amend-scoping gotcha.
 function openPopupInline(body: Node): Tap = new {
-  onclick = "@post('sse/surface/open/\(NODE_ID)_self')"
+  onclick = "@post('sse/surface/open/\(NODE_ID)_self'); $ui_popups = '\(NODE_ID)_self'"
   inlineSurfaces = new Mapping {
     ["self"] = new SurfaceDef { content = new Popup { children { body } } }
   }
@@ -315,8 +395,10 @@ const local function secondarySlot(secondary: String|Expr): Slot =
 // the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends Node {
   card = "fhrow"
-  cardDef = new CardDef {
-    template = """
+  // Pure mount: the row IS where its children go, so there is no `self` and
+  // `template` stays the default. No id — nothing fills a row from outside.
+  cardDef = new ContainerCard {
+    mount = """
       <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -340,8 +422,8 @@ hidden row: Row = new Row {}
 
 class Column extends Node {
   card = "fhcol"
-  cardDef = new CardDef {
-    template = """
+  cardDef = new ContainerCard {
+    mount = """
       <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -365,8 +447,8 @@ hidden column: Column = new Column {}
 /// layout contract CSS lives in lib/theme.pkl.
 class Grid extends Node {
   card = "fhgrid"
-  cardDef = new CardDef {
-    template = """
+  cardDef = new ContainerCard {
+    mount = """
       <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -393,7 +475,7 @@ hidden grid: Grid = new Grid {}
 /// Static title text (not bound to an entity).
 class SectionTitle extends Node {
   card = "sectionTitle"
-  cardDef = new CardDef {
+  cardDef = new LeafCard {
     template = """
       <h2 class="section">{{label}}</h2>
       """
@@ -443,7 +525,7 @@ const local iconLookup: String =
 /// the domain default with a literal Material Symbols name.
 class EntityCard extends Node {
   card = "entityCard"
-  cardDef = new CardDef {
+  cardDef = new LeafCard {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{{onclick}}}"{{/tappable}}>
@@ -515,7 +597,7 @@ hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 /// entries are NOT buttons — see [[TabButton]].)
 class Button extends Node {
   card = "button"
-  cardDef = new CardDef {
+  cardDef = new LeafCard {
     // A button that GOES somewhere is an `<a href>`, not a scripted click: the
     // browser then gives it middle-click, open-in-new-tab, the status-bar
     // preview, and a working click before Datastar has even loaded. `.button`
@@ -565,7 +647,7 @@ class Button extends Node {
 /// signal.
 class TabButton extends Node {
   card = "tab"
-  cardDef = new CardDef {
+  cardDef = new LeafCard {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
     // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
@@ -593,8 +675,8 @@ class Popup extends Node {
   // `open` is static markup (a `<dialog>` without it is display:none); the
   // dialog is transient — present only while open. The ✕ posts the id-less
   // close. Ported verbatim from components.libsonnet:511.
-  cardDef = new CardDef {
-    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close')">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+  cardDef = new ContainerCard {
+    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
   }
 }
 /// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
@@ -619,18 +701,52 @@ class Tabs extends Node {
   // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
   // later change back into the URL via the page shell's `fhUrl` helper.
-  cardDef = new CardDef {
+  //
+  // The active-tab signal is SEEDED on the bar with `__ifmissing`, and mirrored
+  // to the URL from the panel below. Seeding initialises rather than asserts, so
+  // a re-render can never overwrite the tab this client actually chose — which
+  // a tab click racing a patch already in flight otherwise does.
+  //
+  // It has to be the BAR, not the panel: `__ifmissing` declines for a signal
+  // something has already READ, and this bar's buttons read `$ui_<id>` for
+  // their highlight. A parent's seed reaches its children's readers; a later
+  // sibling's does not, and the signal would stay "" forever (pinned by
+  // `DatastarMorphContractSuite`).
+  //
+  // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
+  // rendering per member, its own log entry per variant, and every path that
+  // renders it by id must know the viewer — including `Patches.resume`, which
+  // is why that had to learn the viewer first.
+  // THE self/mount split's one real user in the shipped library. The bar is the
+  // card's own presentation (`self`), the panel is where the selected tab's
+  // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
+  // touch the panel. BeerCSS already dictated this shape: its tab styling is the
+  // structural selector `.tabs > a`.
+  //
+  // The bar carries no live value today (the active highlight is client-side,
+  // `data-class` off `ui_<id>`), so the `self` machinery is not yet exercised —
+  // but this is the card a live header ("the tab bar with the current
+  // temperature") would be authored on.
+  //
+  // `{{mountId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
+  // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
+  // stop agreeing by convention.
+  cardDef = new ContainerCard {
     template = """
-      <div class="fh-col">
-        <div class="tabs">
-          {{#children}}{{{html}}}{{/children}}
-        </div>
-        <div id="{{id}}_panel" class="tab-panel" data-signals="{ ui_{{id}}: {{bakeIndex}} }" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">
-          {{{panel}}}
-        </div>
-      </div>
+      <div class="fh-col">{{{self}}}{{{mount}}}</div>
+      """
+    self = """
+      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{#children}}{{{html}}}{{/children}}</div>
+      """
+    mount = """
+      <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
       """
   }
+  // A tab bar is a section-level component, not a third of a grid row. Its own
+  // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it
+  // was accepted and then silently dropped, because a bake owner was denied the
+  // wrapper those classes ride on.
+  cell = new Cell { classes { "fh-cols-full" } }
   /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
   /// it). The Listing DEFAULT lets a tab amend into existence and add cards
   /// directly — no `new`, no `children`:
@@ -753,7 +869,7 @@ class Slider extends Node {
   // dozen sliders paid several hundred bytes per request for state only this
   // browser uses. It is read client-side into the action URL (`$_val_…`) and
   // never from a request body, so nothing server-side loses anything.
-  cardDef = new CardDef {
+  cardDef = new LeafCard {
     template = """
       <article class="card">
         <div class="slider-head"><strong>{{label}}</strong><span class="state">{{state}}</span></div>
@@ -1043,12 +1159,18 @@ const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): State
 /// bakes empty; nesting an If inside `else` is the else-if story.
 class If extends Node {
   card = "ifhost"
-  // The host is a bare wrapper with one `{{{branch}}}` bake hole (the selected
-  // member's rendered content, injected by the backend like the tabs
-  // `{{{panel}}}` — not a declared slot) — no bar, no signal, no ui state.
-  cardDef = new CardDef {
-    template = #"<div id="{{id}}">{{{branch}}}</div>"#
+  // Pure mount: one `{{{branch}}}` bake hole (the selected member's rendered
+  // content, injected by the backend like the tabs `{{{panel}}}` — not a
+  // declared slot). No `self` at all — an If has no presentation of its own, so
+  // there is nothing about it that could change without its content changing.
+  cardDef = new ContainerCard {
+    mount = #"<div id="{{mountId}}">{{{branch}}}</div>"#
   }
+  // A conditional SECTION, sized like one; its content's own layout stays the
+  // branch `Row`'s business. (Layout transparency was considered and dropped:
+  // the branch is always Row-wrapped, so it is a box regardless and could never
+  // flow into a grandparent grid.)
+  cell = new Cell { classes { "fh-cols-full" } }
   hidden condition: Predicate
   hidden quant: "any"|"none"|"all" = "any"
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is

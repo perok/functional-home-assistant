@@ -46,10 +46,23 @@ object FHError {
 
   /** The `status + message` response for one [[FHError]] — the single mapping,
     * used by both the app-level [[handle]] and any route that recovers locally.
+    *
+    * A 5xx is LOGGED on the way out. A 4xx is the caller's mistake and the
+    * response says so; a 5xx is ours, and the client sees only a status — so
+    * without this the one error worth investigating is the one that leaves no
+    * trace anywhere.
     */
   def response(e: FHError): Response[IO] =
     Response[IO](Status.fromInt(e.status).getOrElse(Status.InternalServerError))
       .withEntity(e.message)
+
+  /** [[response]], logging a 5xx first. Effectful, so the log happens once per
+    * raise rather than once per render of the response.
+    */
+  def logged(e: FHError): IO[Response[IO]] =
+    IO.whenA(e.status >= 500)(
+      IO.consoleForIO.errorln(s"[error] ${e.status}: ${e.message}")
+    ).as(response(e))
 
   /** The boundary: recover any [[FHError]] raised while serving a request into
     * its `status + message`; re-raise anything else so Ember still reports it
@@ -57,6 +70,6 @@ object FHError {
     */
   def handle(app: HttpApp[IO]): HttpApp[IO] =
     HttpApp[IO] { req =>
-      app.run(req).recoverWith { case e: FHError => IO.pure(response(e)) }
+      app.run(req).recoverWith { case e: FHError => logged(e) }
     }
 }

@@ -12,6 +12,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 /** The Tier-B system under test for the functional suite (fast, no Pkl/dump
@@ -119,7 +120,9 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        """<div class="ifhost" id="{{id}}">{{{branch}}}</div>"""
+        template = "{{{self}}}{{{mount}}}",
+        mount =
+          Some("""<div class="ifhost" id="{{mountId}}">{{{branch}}}</div>""")
       )),
       card = LayoutNode.Component("ifhost"),
       surfaces = Map(

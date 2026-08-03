@@ -7,11 +7,11 @@ import fh.view.testkit.{FixtureDashboard, HouseFixture, Scene}
 import java.net.URLDecoder
 import scala.concurrent.duration.*
 
-/** SPIKE (docs/adr/0011-the-live-connection.md, proof point 1): does a SERVER-PUSHED signal
-  * ride the reconnect URL? `conn` is already pushed via `patchSignals` on every
-  * connect, so the question needs no new production code — if the retry request
-  * carries the previous connection's `conn`, a cursor pushed the same way will
-  * come back the same way.
+/** SPIKE (docs/adr/0011-the-live-connection.md, proof point 1): does a
+  * SERVER-PUSHED signal ride the reconnect URL? `conn` is already pushed via
+  * `patchSignals` on every connect, so the question needs no new production
+  * code — if the retry request carries the previous connection's `conn`, a
+  * cursor pushed the same way will come back the same way.
   */
 class ResumeSpikeSuite extends SmokeSuite {
 

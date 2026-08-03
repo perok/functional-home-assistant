@@ -60,6 +60,23 @@ jobs:
           cache: npm
           cache-dependency-path: modules/fh-datastar-view/editor-src/package-lock.json
 
+      # The pinned Datastar bundle the morph-contract suite runs against. It is
+      # fetched from `Server.DatastarCdn` on a miss — the same constant
+      # production serves — so this only ever saves a 34KB download, never
+      # decides which version is tested.
+      #
+      # Keyed on build.sbt like the Playwright cache below: one key everyone
+      # already knows to look at. The cache holds content-addressed files
+      # (AssetCache.hashName), so a stale key costs at most one re-download and
+      # never the wrong bundle — which is why the key does not need to track the
+      # URL constant.
+      - name: Cache web assets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fh
+          key: ${{ runner.os }}-fh-assets-${{ hashFiles('**/build.sbt') }}
+          restore-keys: ${{ runner.os }}-fh-assets-
+
       # Cache Playwright browsers based on lockfile
       - name: Cache Playwright
         id: playwright-cache
@@ -81,6 +98,10 @@ jobs:
             run: scalafmt --test
 
           - name: Test
+            env:
+              # Out of the build tree, so the upload path does not depend on
+              # sbt's working directory for a forked test.
+              FH_VISUAL_FAILURES_DIR: ${{ runner.temp }}/visual-failures
             run: sbt 'fh-datastar-view/testFull'
 
           # The fh laptop script's own suite (in-process, gated on
@@ -109,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: visual-snapshot-failures
-          path: modules/fh-datastar-view/target/visual-failures/
+          path: ${{ runner.temp }}/visual-failures/
           if-no-files-found: ignore
           retention-days: 1
 
