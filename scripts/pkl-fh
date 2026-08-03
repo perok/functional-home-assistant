@@ -13,9 +13,11 @@
 # remaining lever, and the plugin does not expose it — so we wrap the executable
 # instead. See docs/pkl-issue-http-rewrites-project-resolve.md.
 #
-# Nothing is baked in: instance URLs are read from the workspaces' own
-# `.fh/machine.json`, so this keeps working when you re-point at another
-# instance, and does nothing at all outside a dashboards workspace.
+# Nothing is baked in: instance URLs come from the workspaces' own
+# `.fh/machine.json`, falling back to the rewrite in ~/.pkl/settings.pkl for the
+# commands that name no directory — so this keeps working when you re-point at
+# another instance. Widening is additive (pkl's defaults are always relisted)
+# and never names a host you have not already configured.
 set -euo pipefail
 
 # The real pkl. $FH_PKL wins; then the first `pkl` on PATH that is not this
@@ -47,6 +49,21 @@ case "${1:-} ${2:-}" in
   "eval "* | "test "* | "download-package "* | "repl "*) inject=true; skip=1 ;;
   eval | test | download-package | repl) inject=true; skip=1 ;;
 esac
+
+# Never override a flag the caller already passed. The plugin supplies its own
+# `--cache-dir ~/.pkl/cache` on `download-package`, and pkl takes the LAST
+# occurrence — so appending ours would send the download to a different cache
+# than the one the IDE then reads, which looks exactly like the bug this script
+# exists to fix. We never inject `--cache-dir` at all for the same reason:
+# whichever cache the caller picks, it has to be the only one in play.
+has_flag() {
+  local needle=$1 arg
+  shift # else the needle itself matches and every flag looks already-present
+  for arg in "$@"; do
+    [[ $arg == "$needle" || $arg == "$needle="* ]] && return 0
+  done
+  return 1
+}
 
 # The instance origins to allow.
 #
@@ -82,25 +99,40 @@ if [[ $inject == true ]]; then
     for seen in ${urls[@]+"${urls[@]}"}; do
       [[ $seen == "$url" ]] && url="" && break
     done
-    [[ -n $url ]] && urls+=("$url")
+    [[ -n $url ]] && urls+=("${url%/}/")
   done
+
+  # `download-package` carries package URIs and NO directory, so there is no
+  # workspace to read. Fall back to the rewrite `fh init-lsp-fix` already put in
+  # ~/.pkl/settings.pkl: its target names the same instance, and allowing that
+  # exact prefix is tighter than allowing the origin.
+  if [[ ${#urls[@]} -eq 0 && -f $HOME/.pkl/settings.pkl ]]; then
+    target=$(sed -n \
+      's|.*"https://fh[.]invalid/"\][[:space:]]*=[[:space:]]*"\([^"]*\)".*|\1|p' \
+      "$HOME/.pkl/settings.pkl")
+    [[ -n $target ]] && urls+=("${target%/}/")
+  fi
 fi
 
 if [[ ${#urls[@]} -gt 0 ]]; then
-  # `--allowed-resources` REPLACES pkl's defaults, so they are relisted; and the
-  # allowlist is applied to the url BEFORE and AFTER the rewrite, so `https:`
-  # has to stay alongside the instance origins. Dots become `[.]` so a pattern
-  # cannot match arbitrary characters.
-  allowed="prop:,env:,file:,modulepath:,package:,projectpackage:,https:"
-  for url in "${urls[@]}"; do
-    allowed+=",^${url//./[.]}/"
-  done
+  if ! has_flag --allowed-resources "$@"; then
+    # `--allowed-resources` REPLACES pkl's defaults, so they are relisted; and
+    # the allowlist is applied to the url BEFORE and AFTER the rewrite, so
+    # `https:` has to stay alongside the instance prefixes. Dots become `[.]` so
+    # a pattern cannot match arbitrary characters.
+    allowed="prop:,env:,file:,modulepath:,package:,projectpackage:,https:"
+    for url in "${urls[@]}"; do
+      allowed+=",^${url//./[.]}"
+    done
+    set -- "$@" --allowed-resources "$allowed"
+  fi
   # One rewrite prefix can only have one target, so the first instance wins —
-  # they agree unless workspaces genuinely point at different instances, and a
-  # rewrite already in ~/.pkl/settings.pkl takes precedence over this anyway.
-  set -- "$@" \
-    --http-rewrite "https://fh.invalid/=${urls[0]}/system/pkl/packages/" \
-    --allowed-resources "$allowed"
+  # they agree unless workspaces genuinely point at different instances. Skipped
+  # when the settings.pkl fallback supplied the url, since that IS a rewrite.
+  if ! has_flag --http-rewrite "$@" && [[ ${urls[0]} != *"/system/pkl/packages/" ]]; then
+    set -- "$@" \
+      --http-rewrite "https://fh.invalid/=${urls[0]}system/pkl/packages/"
+  fi
 fi
 
 [[ -z ${FH_PKL_DEBUG:-} ]] || echo "pkl-fh: exec $real $*" >&2

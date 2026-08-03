@@ -45,7 +45,8 @@ object LibPackage {
   /** The workspace's effective lib pin — the version the ENTRY resolves
     * `@fh-dashboard` to, which the dump package must declare to keep module
     * identity. Read off the LOADED pkl project's declared dependencies
-    * (spike-verified on 0.31.1: `getDependencies.getRemoteDependencies`), so
+    * (spike-verified on 0.31.1: `getDependencies.remoteDependencies` — the
+    * record accessor; the `get`-prefixed one is deprecated as of 0.32), so
     * pkl itself applies the amends chain — a user override in `PklProject`
     * shadows the base default, otherwise the machine pin `base.pkl` read from
     * `.fh/pins.json` comes through. (An earlier text-regex scan of the manifest
@@ -61,7 +62,7 @@ object LibPackage {
           .loadFromPath((dashboardsDir / "PklProject").toNIO)
       )
       .toOption
-      .flatMap(p => Option(p.getDependencies.getRemoteDependencies.get(Name)))
+      .flatMap(p => Option(p.getDependencies.remoteDependencies.get(Name)))
       .map(_.getPackageUri.toString)
       .flatMap(uri => PackageRef.parse(uri).map(_.version))
 
