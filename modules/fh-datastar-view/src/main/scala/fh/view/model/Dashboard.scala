@@ -125,11 +125,37 @@ object SlotSource:
   *     children are always wrapped — they ARE the patch targets).
   *     [[Dashboard.validate]] rejects the wrapper-dependent shapes on such a
   *     card: live-entity slots, `cell` params, and dynamic-case use.
+  *   - `mount` / `self`: the two named parts of a card that HOLDS other nodes —
+  *     see below.
+  *
+  * '''The self/mount split.''' A container renders in two parts, placed at
+  * independent holes in `template` (which defaults to `{{{self}}}{{{mount}}}`):
+  *
+  *   - `mount` — the element the card's children occupy. Filled as its own
+  *     operation (a tab select, a popup open, a group repaint); the patch path
+  *     never renders into it.
+  *   - `self` — the card's own presentation: a tab bar, a header, a frame. This
+  *     is what the patch path renders and diffs, under the DOM id
+  *     `<nodeId>-self`.
+  *
+  * They are '''siblings''' — `self` must not contain the mount hole — and that
+  * is the whole mechanism: a top-level patch matches only the element carrying
+  * its own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
+  * design's first rule: '''a node's patch carries its own rendering and never
+  * the contents of a mount''', so a host changing cannot re-render what it
+  * hosts (docs/adr/0012-one-pass-addressed-per-client.md).
+  *
+  * Both are optional and a leaf card sets neither. A container with a `mount`
+  * and NO `self` (`Grid`, `Row`, `Column`) has only children to show, so its
+  * whole HTML contains them — it must never be patched, which the authoring
+  * layer enforces by rejecting a *live* slot on exactly that shape.
   */
 case class CardDef(
     template: String,
     slots: List[String] = Nil,
-    wrapAsCell: Boolean = true
+    wrapAsCell: Boolean = true,
+    mount: Option[String] = None,
+    self: Option[String] = None
 ) derives ConfiguredDecoder
 
 /** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
@@ -203,8 +229,8 @@ object Quantifier:
   *
   *   - [[User]] (`{kind:"user", defaultOpen}`): shown by a user action (a popup
   *     open, a tab click), optionally from the first paint (`defaultOpen`).
-  *     Which member the client sees is per-connection state (uiState/cookie —
-  *     ADR 0005), so these surfaces render per session.
+  *     Which member the client sees is per-connection state (uiState — ADR
+  *     0005), so these surfaces render per session.
   *   - [[State]] (`{kind:"state", condition, quantifier}`): shown while its
   *     quantified `condition` holds over live entity state (an If/else branch).
   *     The choice is server truth — a pure function of entity state, identical
@@ -310,10 +336,18 @@ object LayoutNode:
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
     * authors never invent ids; underscore-joined so it is also a valid signal
-    * name (`val_{{id}}`).
+    * name (`_val_{{id}}`).
     */
-  def pathId(path: List[Int]): String =
-    if path.isEmpty then "c" else path.mkString("c_", "_", "")
+  def pathId(path: List[Int]): NodeId =
+    NodeId.derived(if path.isEmpty then "c" else path.mkString("c_", "_", ""))
+
+  /** [[pathId]] inside an id namespace — the main page's is empty, a surface's
+    * is [[surfacePrefix]]. Named rather than left as `prefix + pathId(path)` at
+    * four call sites, because the concatenation is what actually produces a
+    * [[NodeId]] and the prefix alone is not one.
+    */
+  def nodeId(prefix: String, path: List[Int]): NodeId =
+    NodeId.derived(prefix + pathId(path))
 
   /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
     * fragment — also a valid Datastar signal-name fragment.
@@ -389,17 +423,17 @@ case class Theme(
   *     keeping the shown panel/branch in the initial HTML (no round-trip). The
   *     `_panel` suffix + `panel` name live only in the authoring layer.
   *   - `activation`: HOW this surface becomes visible — see [[Activation]].
-  *     User-activated surfaces are opened by clicks / cookie selection (per
+  *     User-activated surfaces are opened by clicks / ui-state selection (per
   *     session); state-activated ones are selected by a condition over live
   *     entity state (shared, server truth). Absent on the wire ⇒
   *     `User(defaultOpen = false)`, so a plain popup declares nothing.
   */
 case class Surface(
     content: LayoutNode,
-    bakeInto: Option[String] = None,
+    bakeInto: Option[NodeId] = None,
     bakeAs: Option[String] = None,
     // A surface's position within its `bakeInto` group: the ordered member
-    // list a cookie index (user mode) selects among, and the first-match
+    // list a ui-state index (user mode) selects among, and the first-match
     // order (then, elseif…, else) state selection walks.
     bakeIndex: Option[Int] = None,
     activation: Activation = Activation.User(false)
@@ -411,8 +445,8 @@ case class Surface(
     * convention); an unbaked surface (a popup) hosts at the overlay
     * [[Dashboard.PopupHostId]].
     */
-  def hostId: String = (bakeInto, bakeAs) match
-    case (Some(into), Some(as)) => s"${into}_${as}"
+  def hostId: DomId = (bakeInto, bakeAs) match
+    case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
 
 /** The `dashboard.json` build artifact produced by the build phase.
@@ -574,8 +608,41 @@ case class Dashboard(
         )
         .toList
 
+    // A `bakeInto` must name a node that EXISTS. It is the one relation an
+    // author never writes — the hoist mints it — so a mismatch means the
+    // build's id derivation and the renderer's have drifted, and the symptom is
+    // silent: the host renders its wrapper with an empty hole, the way a
+    // state group with no matching branch legitimately does. Checking it here
+    // is what turns "the panel is blank" into a build error naming the surface.
+    val danglingBakes: List[String] = {
+      def idsOf(
+          node: LayoutNode,
+          prefix: String,
+          path: List[Int]
+      ): List[NodeId] =
+        LayoutNode.nodeId(prefix, path) :: (node match {
+          case c: LayoutNode.Component =>
+            c.children.zipWithIndex.flatMap { case (ch, i) =>
+              idsOf(ch, prefix, path :+ i)
+            }
+          case _: LayoutNode.Dynamic => Nil
+        })
+      val known: Set[NodeId] =
+        (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
+          idsOf(s.content, LayoutNode.surfacePrefix(sid), Nil)
+        }).toSet
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+        s.bakeInto
+          .filterNot(known)
+          .map(gid =>
+            s"surface '$sid' bakes into '$gid', which is not a node in this " +
+              "dashboard (main tree or any surface's content)"
+          )
+      }
+    }
+
     // A bake group's activation mode must be homogeneous: the runtime decides
-    // per GROUP whether selection is user truth (cookie, per session) or server
+    // per GROUP whether selection is user truth (per session) or server
     // truth (state condition, shared) — a group mixing both has no coherent
     // owner for that choice, so it is rejected here rather than half-working.
     val activationErrors: List[String] =
@@ -601,11 +668,46 @@ case class Dashboard(
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     chromeErrors ++
+      danglingBakes ++
       activationErrors ++
       walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")
       }
+
+  /** Non-fatal problems worth telling the author about: unlike [[validate]]'s
+    * errors the dashboard still builds and serves, it just misbehaves in a way
+    * that is hard to attribute from the browser.
+    *
+    * Both are about the popup mount, which only the THEME can place (ADR 0002),
+    * and both are silent at render time — which is why they are reported at
+    * all:
+    *
+    *   - no `id="popups"` host in the chrome and there is nowhere to patch a
+    *     popup into, so every popup tap appears to do nothing. An empty chrome
+    *     counts: the fallback frame has no host either.
+    *   - a host but no `{{{popups}}}` hole and popups work, but one being
+    *     RESTORED on a refresh cannot be baked into the first paint, so it pops
+    *     in once the stream connects.
+    */
+  def warnings: List[String] = {
+    val popupSurfaces = surfaces.toList.collect {
+      case (sid, s) if s.hostId == Dashboard.PopupHostId => sid
+    }.sorted
+    val host = s"id=\"${Dashboard.PopupHostId}\""
+    if (popupSurfaces.isEmpty) Nil
+    else if (!theme.chrome.contains(host))
+      List(
+        s"theme.chrome has no <div $host> host, so these popup surfaces can " +
+          s"never be shown: ${popupSurfaces.mkString(", ")}"
+      )
+    else if (!theme.chrome.contains("{{{popups}}}"))
+      List(
+        s"theme.chrome's <div $host> host has no {{{popups}}} hole, so a popup " +
+          "restored on a refresh arrives only once the stream connects"
+      )
+    else Nil
+  }
 
   /** Every distinct live-slot transform string in the layout and its surfaces
     * (constant `literal` slots carry no transform and are excluded). These are
@@ -672,7 +774,7 @@ object Dashboard:
     * and the patch target for `POST /sse/surface/open/:id` and
     * `POST /sse/popup/close`.
     */
-  val PopupHostId: String = "popups"
+  val PopupHostId: DomId = DomId.derived("popups")
 
   /** Backend-injected template vars available to a *static* component (the
     * author never supplies them): the stable location-based `id`.

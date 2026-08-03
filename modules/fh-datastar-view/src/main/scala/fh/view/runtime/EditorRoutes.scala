@@ -149,6 +149,17 @@ final class EditorRoutes(
       .toList
       .sortBy(_.hcursor.get[String]("name").toOption)
 
+    // The workspace's own manifest — a real author file (it declares the package
+    // dependencies), even though it has no `.pkl` extension. Editing it takes
+    // effect: `PklBuild.staleLockfile` sees the mtime move and re-resolves
+    // `PklProject.deps.json` in-process on the next build. The generated
+    // lockfile itself, and the machine-specific `.fh/` files, stay hidden.
+    val manifest = dashboardsDir / EditorRoutes.Manifest
+    val project =
+      if (os.exists(manifest))
+        List(entryJson(EditorRoutes.Manifest, manifest, None))
+      else Nil
+
     val libDir = dashboardsDir / "lib"
     val lib =
       if (os.exists(libDir))
@@ -160,22 +171,23 @@ final class EditorRoutes(
           .sortBy(_.hcursor.get[String]("name").toOption)
       else Nil
 
-    Json.arr((top ++ lib)*).noSpaces
+    Json.arr((top ++ lib ++ project)*).noSpaces
   }
 
-  /** Resolve a request path (`<name>.pkl` or `lib/<name>.pkl`) to an on-disk
-    * source under the dashboards dir, or `None` if it isn't a permitted
-    * editable file. Every segment must match [[AssetCache.SafeName]] (rejecting
-    * `..`, dot-files and slashes), the leaf must be `*.pkl` and not the
-    * generated `dump.pkl`, and only depth 1 (entries) or `lib/` depth 2 is
-    * allowed.
+  /** Resolve a request path (`<name>.pkl`, `lib/<name>.pkl`, or the workspace's
+    * `PklProject`) to an on-disk source under the dashboards dir, or `None` if
+    * it isn't a permitted editable file. Every segment must match
+    * [[AssetCache.SafeName]] (rejecting `..`, dot-files and slashes), the leaf
+    * must be `*.pkl` (or exactly `PklProject`) and not the generated
+    * `dump.pkl`, and only depth 1 (entries) or `lib/` depth 2 is allowed.
     */
   private def resolveEditable(rest: Uri.Path): Option[os.Path] = {
     val segs = rest.segments.map(_.decoded()).toList
     val ok =
       segs.nonEmpty &&
         segs.forall(AssetCache.SafeName.matches) &&
-        segs.last.endsWith(".pkl") &&
+        (segs.last.endsWith(".pkl") ||
+          segs == List(EditorRoutes.Manifest)) &&
         segs.last != "dump.pkl"
     if (!ok) None
     else
@@ -185,4 +197,13 @@ final class EditorRoutes(
         case _                    => None
       }
   }
+}
+
+object EditorRoutes {
+
+  /** The workspace's Pkl project manifest — editable (it declares the package
+    * dependencies) despite having no `.pkl` extension, which is why it needs
+    * naming rather than falling out of the `*.pkl` filters.
+    */
+  val Manifest: String = "PklProject"
 }

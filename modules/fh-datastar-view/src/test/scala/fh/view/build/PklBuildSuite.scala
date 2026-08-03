@@ -590,7 +590,9 @@ class PklBuildSuite extends munit.FunSuite {
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
-      "button" -> List("label", "onclick"),
+      // `href`/`onclick` are the two arms of one choice (anchor vs scripted
+      // click), so neither is a declared slot — only `label` always appears.
+      "button" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> List(
         "label",
@@ -958,6 +960,15 @@ class PklBuildSuite extends munit.FunSuite {
         |}
         |full = c.entityCard(x).fullWidth()
         |custom = c.entityCard(x).cellClass("my-hero")
+        |// One span per node: a later span REPLACES an earlier one (and a card's
+        |// default), because both emit a flex-basis rule and which wins would
+        |// otherwise be decided by stylesheet order, not the author's last word.
+        |respan = c.entityCard(x).columns(3).fullWidth().cellClass("hero").columns(6)
+        |// A `Tabs` DEFAULTS its span (a section, not a third of a grid row) and
+        |// is still overridable per node — before the split `.columns(n)` here
+        |// was accepted and then silently dropped, the wrapper being denied.
+        |tabsDefault = (c.tabs) { tabs { ["A"] { c.entityCard(x) } } }
+        |tabsSized = ((c.tabs) { tabs { ["A"] { c.entityCard(x) } } }).columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -969,6 +980,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(classes("builder"), Some(List("fh-cols-3", "hero")))
     assertEquals(classes("full"), Some(List("fh-cols-full")))
     assertEquals(classes("custom"), Some(List("my-hero")))
+    // The non-span class survives; only the span is replaced, last call winning.
+    assertEquals(classes("respan"), Some(List("hero", "fh-cols-6")))
+    assertEquals(classes("tabsDefault"), Some(List("fh-cols-full")))
+    assertEquals(classes("tabsSized"), Some(List("fh-cols-6")))
     // A node with no layout builders decodes with NO cell at all (the null
     // default is dropped from the wire JSON).
     val plain = probeComponent(
@@ -1108,6 +1123,22 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(plain.slots("value").entityId, None)
   }
 
+  test("a navigating button is an anchor: `href`, and no onclick at all") {
+    val nav = probeComponent("""node = c.button("Home", c.navigate("other"))""")
+    // Relative, so it resolves against the page's <base href> (ingress-safe),
+    // and it is a literal — nothing about a link depends on live state.
+    assertEquals(nav.slots("href").literal, Some("d/other"))
+    assert(!nav.slots.contains("onclick"), clue = nav.slots)
+    // Every other tap keeps the scripted-click form, and offers no href — the
+    // template's `{{^href}}` arm is what renders it.
+    val toggle = probeComponent(
+      """light: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |node = c.button("Toggle", c.toggleTap).entity(light)""".stripMargin
+    )
+    assert(!toggle.slots.contains("href"), clue = toggle.slots)
+    assert(toggle.slots("onclick").transform.contains("@post"))
+  }
+
   test("Row cssClass emits a literal `class` slot") {
     val row = probeComponent(
       """node = new c.Row {
@@ -1204,6 +1235,89 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assert(evalProj(tmp, "probe.pkl").isLeft)
+  }
+
+  // ---- the card shape is a type, so an invalid dashboard is unconstructable ----
+
+  /** Evaluate a probe that defines its own card class, and say whether Pkl took
+    * it. The three rules below are the self/mount split's structural guarantees
+    * (docs/adr/0012-one-pass-addressed-per-client.md, W2) — enforced HERE, in
+    * the authoring layer, rather than as a `Dashboard.validate` message after
+    * the fact.
+    */
+  private def cardShapeAccepted(body: String): Boolean = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |import "@fh-dashboard/hass.pkl"
+         |import "@fh-dashboard/components.pkl" as c
+         |$body
+         |""".stripMargin
+    )
+    evalProj(tmp, "probe.pkl").isRight
+  }
+
+  test("Pkl rejects a card shape that would break the self/mount split") {
+    // A `self` IS the patch target, so it must carry the engine's id — without
+    // it the patch would have no element to match and would silently vanish.
+    assert(
+      !cardShapeAccepted(
+        """class Bad extends c.Node {
+          |  card = "bad"
+          |  cardDef = new c.ContainerCard {
+          |    self = "<div>no id at all</div>"
+          |    mount = "<div>{{#children}}{{{html}}}{{/children}}</div>"
+          |  }
+          |}
+          |node = new Bad {}""".stripMargin
+      )
+    )
+    // `self` and `mount` must be SIBLINGS. Nesting the mount inside the self is
+    // the one way to break that, so it is the one thing forbidden — this is what
+    // makes "a patch never carries mounted content" structural.
+    assert(
+      !cardShapeAccepted(
+        """class Bad extends c.Node {
+          |  card = "bad"
+          |  cardDef = new c.ContainerCard {
+          |    self = #"<div id="{{selfId}}">{{{mount}}}</div>"#
+          |    mount = "<div>x</div>"
+          |  }
+          |}
+          |node = new Bad {}""".stripMargin
+      )
+    )
+    // A LIVE slot on a container with no `self`: it hosts content AND re-renders
+    // on state, so its patch would carry everything its mount holds. Declaring a
+    // `self` is the fix, and lifts the ban.
+    assert(
+      !cardShapeAccepted(
+        """class Bare extends c.Node {
+          |  card = "bare"
+          |  cardDef = new c.ContainerCard {
+          |    mount = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
+          |  }
+          |  slots { ["temp"] = new c.Slot { entityId = "sensor.t" } }
+          |}
+          |node = new Bare {}""".stripMargin
+      )
+    )
+  }
+
+  test("Pkl accepts Grid unchanged — a LITERAL slot on a bare container") {
+    // The rule is about the slot's VALUE, not the card's type. `Grid` holds its
+    // children directly AND carries a `class` slot on that same element — but
+    // the value is a plain String (the wire's `literal`), so nothing about it
+    // varies with entity state and it never reaches the reverse index. An
+    // earlier draft banned this shape by TYPE and would have rejected the
+    // library's three most basic cards.
+    assert(
+      cardShapeAccepted(
+        """node = (c.grid.cssClass("hero")) { children { c.title("x") } }"""
+      )
+    )
   }
 
   test("floorView emits one section per area-with-lights (title + sliders)") {

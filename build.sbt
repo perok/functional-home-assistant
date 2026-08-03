@@ -58,6 +58,10 @@ lazy val `ha-api` = project // todo add api layer here as well
       "io.circe" %% "circe-parser" % "0.14.16",
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
+    ),
+    libraryDependencies ++= Seq(
+      "org.scalameta" %% "munit" % "1.3.3" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.1.0" % Test
     )
   )
 

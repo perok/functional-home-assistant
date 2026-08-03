@@ -48,7 +48,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       scene
         .card(FixtureDashboard.reading(outside))
         .card(FixtureDashboard.light("Kitchen", kitchen))
-    )(_.page).map { html =>
+    )(_.page()).map { html =>
       // The numeric reading and its unit (pulled from $attr) are present...
       assert(html.contains("12.4"), clue = html)
       assert(html.contains("°C"), clue = html)
@@ -90,7 +90,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         // A real change -> published.
         _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
         change <- firstChange.joinWithNever
-      } yield change.current.state
+      } yield change.head.current.state
     }.assertEquals("13.1")
   }
 

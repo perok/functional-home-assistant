@@ -8,6 +8,10 @@ A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assis
 
 Scala 3 + Typelevel stack (cats-effect, http4s, circe, chimney) + smithy4s for the REST API. Built with **sbt 2.0.0**.
 
+## behavior
+
+Do not make anything up and ask questions if anything is unclear.
+
 ## Build & run commands
 
 ```bash
@@ -16,7 +20,9 @@ sbt test                            # INCREMENTAL in sbt 2.0 (only changed suite
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
-sbt scalafmt                        # format (scalafmt 3.9.3, scala3 dialect)
+sbt 'scalafmt; Test/scalafmt'       # format (scalafmt 3.9.3, scala3 dialect)
+                                    # BOTH: `scalafmt` alone skips test sources,
+                                    # which CI's `scalafmt --test` still checks
 sbt doCodegen                       # regenerate typed device/entity code, then format it
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
@@ -76,7 +82,12 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
    `docs/reference/datastar/` before searching the web. Attributes use colon syntax
    (`data-on:click`, not `data-on-click`).
-6. Format with `sbt scalafmt` (Scala only; there is no formatter for the Pkl sources).
+6. Format with `sbt 'scalafmt; Test/scalafmt'` (Scala only; there is no formatter for the Pkl
+   sources). **Both tasks, always** — `scalafmt` covers `Compile` only, so a test-only
+   formatting change passes locally and then fails CI, which runs the `scalafmt --test` CLI
+   over every file. Verified by misformatting a test source: `sbt scalafmt` leaves it
+   untouched, `Test/scalafmt` fixes it. Note the quotes: unquoted
+   `sbt scalafmt Test/scalafmt` is a parse error in sbt 2.0.
 
 #### Key files
 
@@ -240,12 +251,57 @@ Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-auth
 
 Intended as a Home Assistant add-on (`Dockerfile` + `entrypoint.sh`) that watches a folder for new assembly jars (via `inotifywait`) and restarts the running `java -jar`. This is early WIP/scaffolding.
 
+#### Releasing is the maintainer's call — never bump the version
+
+`version:` in `home-addon/config.yaml` is **the release trigger, not metadata**. `cd`
+publishes exactly when main names a version that is not on GHCR yet, so bumping it and
+merging to main *is* the release: container built and pushed, `vX.Y.Z` tagged, GitHub
+release created. That is deliberate design — the maintainer publishes by bumping, when
+they want to publish.
+
+So: **do not edit that line.** Not as part of unrelated work, not to "make a PR
+shippable", not because a branch's version matches something already published. An
+unchanged version on a merged PR is the NORMAL case, not a defect to report — the
+release happens later, when the maintainer decides. If a version question seems to
+matter, say so and stop; do not act on it.
+
 ## Conventions & gotchas
 
 - Generated file names sanitize device/entity names (spaces → `-`, emoji → unicode names) because the Scala compiler rejects emoji in filenames — see `ThingReference.toPath`.
 - The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
+
+## Read the compiler's warnings
+
+`-Wunused:privates`/`locals`/`params`/`imports` are ON (sbt-tpolecat), and
+`warnError` is excluded so warnings do NOT fail the build — which means they are
+easy to never see. Two consequences worth knowing:
+
+- **The compiler already finds dead private members.** Do not grep for them.
+  Grep is still needed for unused PUBLIC API, which the compiler cannot prove.
+- **When filtering test/compile output, do not filter out `[warn]`.** A run
+  reduced to `grep "==> X|Total"` hides exactly the signal that would have said
+  a helper became unreachable.
+
+## Comments: the code says what, a comment says why
+
+The runtime currently carries roughly as many comment lines as code lines. That is too many, and
+new work should not add to the ratio. Before writing a comment, try to delete the need for it — a
+better name, a smaller function, or a type usually says it better and cannot go stale.
+
+**Do not write:** a restatement of the signature or the control flow; a narration of what a
+well-named call does; a history of what the code used to be or what was tried and reverted (that
+belongs in the commit message, or in a plan/ADR if it is a decision); a section header over three
+lines of code.
+
+**Do write:** the reason a non-obvious choice was made over the obvious one; an invariant a reader
+would otherwise have to reconstruct; a trap that has actually bitten (with what it looked like);
+anything that took a spike to learn. One or two lines each — if it needs a paragraph, it is
+probably a design decision and belongs in the ADR, with the code pointing at it.
+
+A useful test: delete the comment and ask whether a competent reader would now make a mistake. If
+not, leave it deleted.
 
 ## Design principles (apply when touching existing code, not just when writing new code)
 
@@ -289,6 +345,32 @@ as standing review criteria, not a one-time cleanup that's now "done".
   `None` meaning lives only in a doc comment, `List[String]` used as an ad-hoc log/protocol, or
   functions with many same-typed positional args (extract a named `case class` request/config
   instead — see `ServerApp.Config`, the `Patches.DiffRequest` shape).
+- **Sum-type the state — but only when the flags are the SAME fact.** When several parallel
+  `Option`/`Boolean` flags encode one concept and only some combinations are valid, collapse them
+  into one ADT and derive the old projections from it ("types hold truth" applied to state). First
+  check they really are one fact, though: distinct facts want distinct shapes, and merging them
+  fakes one with the other. `current: Option[Conn]` + `healthy: Boolean` look mergeable, but
+  they're two facts — a per-connection toggle (`SignallingRef[Option[Conn]]`, whose `.isDefined`
+  IS the banner) and a one-shot "seeded at least once" latch (`Deferred[Unit]`); a 3-state `enum`
+  just fakes the latch with a state you never leave. Fusing them also over-couples: it makes the
+  banner wait for a background catch-up (reseed) that liveness never needed.
+- **One mechanism, not two parallel ones.** When two structures do variants of the same job (a
+  `Deferred` for one-shot replies + a `Queue` for streamed ones), collapse them into the single
+  primitive that subsumes both (a `Queue` you take once — the WS transport's id→`Queue` routing).
+  Uniform handling often removes a race/special-case *by construction* rather than needing a patch
+  for it.
+- **Push behavior onto the type that owns the data, not a central switchboard.** A
+  transport/dispatcher should move bytes and route by id; how to decode/interpret a message belongs
+  on the message type itself (`CommandResponse.decodeMessage`), keeping the hub format-agnostic and
+  each variant's logic next to its definition.
+- **Prefer a queue + single owner over a lock + shared mutable refs.** Serialize
+  ordering-sensitive work (id allocation, linear sends) with one consumer fiber draining a queue,
+  not `Mutex` + ref-juggling to survive cancellation. (`cats.effect.std.Hotswap` is the matching
+  tool for *resource rotation* — reconnects — but it has no readable "current" and no retry, so it
+  complements, not replaces, a state signal + backoff loop.)
+- **Refactor behind stable public signatures.** Change internals freely but keep the exposed
+  type/shape fixed (`getStates: IO[List[GetStatesData]]`, `HaFeed(api, store, healthy)`) so
+  consumers and tests stay untouched and the diff reads honestly.
 
 ### Using `scalex` for Scala navigation
 

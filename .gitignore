@@ -28,6 +28,7 @@ modules/fh-datastar-view/dashboard-local-dev/
 modules/fh-datastar-view/dashboard-local-dev-server/
 
 .semanticdb
+*.semanticdb
 
 # macOS
 .DS_Store

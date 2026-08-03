@@ -7,7 +7,7 @@
 // cards directly; the Row wrap is automatic), the build-phase hoist lifts each
 // panel into the surfaces registry (sharing one exclusivity group + one inline
 // mount), the bar buttons open them, the first tab bakes inline for an instant
-// first paint, and the active tab is tracked in a signal (+ cookie) for the
+// first paint, and the active tab is tracked in a signal (+ URL param) for the
 // highlight and reload-restore. Switching reuses the same surface open/close
 // machinery as popups.
 //

@@ -1,31 +1,68 @@
 package api.homeassistant.ws.protocol
 
+import cats.effect.IO
+import api.DocumentJson
 import api.homeassistant.ws.domain.*
-import server.WSCommandPhaseServer
+import api.homeassistant.ws.protocol.client.CommandPhase.unsubscribe_events
+import server.{WSCommandPhaseServer, WSHAError}
 import api.homeassistant.ws.utils.defaults.given
 import ha.runtime.definitions.{DeviceId, EntityId, IsDeviceTrigger}
 import io.circe.*
-import io.circe.derivation.{Configuration, ConfiguredEncoder}
+import io.circe.derivation.ConfiguredEncoder
 import io.circe.syntax.*
+import cats.syntax.all.*
+import perok.ha.{GetStatesData, ServiceDomain, ServicesData}
 
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
+  /** What a command expects back. A pure marker; decoding lives on the subtypes
+    * so the transport stays codec-agnostic (routes by id, calls the command's
+    * own decoder).
+    */
   sealed trait CommandResponse[R] {
-    val resultDecoder: Decoder[R]
+    def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R]
   }
+
   object CommandResponse {
 
-    // Everything that is a subscription in HA (meaning that unsubscribe_events works as a way to cancel the subscription)
-    trait AsStream[R] extends CommandResponse[Unit] {
-      val resultDecoder: Decoder[Unit] = Decoder.decodeUnit
-
-      /** Turn one subscription message into the stream's element (throws on a
-        * malformed message, matching the transport's decode-or-throw style).
-        */
-      def decodeMessage(payload: server.WSCommandPhaseServerPayload): R
+    trait WithFinalization[R] {
+      def finalizationMessage(
+          id: Int
+      ): CommandPhase & CommandResponse.WithSingleResponse[R]
     }
+
+    /** The first response is the result */
+    trait WithSingleResponse[R] extends CommandResponse[R]
+
+    // An HA subscription: the `result` ack (AsResult[Unit]) plus a per-event
+    // stream decoder; `unsubscribe_events` cancels it.
+    trait AsStream[R] extends AsResult[Unit] with WithFinalization[Unit] {
+      def decodeStreamMessage(
+          payload: server.WSCommandPhaseServerPayload
+      ): IO[R]
+
+      def finalizationMessage(
+          id: Int
+      ): CommandPhase & CommandResponse.WithSingleResponse[Unit] =
+        unsubscribe_events(id)
+    }
+
     object AsStream {
+
+      /** The message's `event` object, decoded into `R`. */
+      trait AsEventOf[R](using Decoder[R]) extends AsStream[R] {
+        def decodeStreamMessage(
+            payload: server.WSCommandPhaseServerPayload
+        ): IO[R] =
+          payload.parsedPayload.liftTo[IO].flatMap {
+            case WSCommandPhaseServer.event(event) => event.as[R].liftTo[IO]
+            case other                             =>
+              IO.raiseError(
+                new Exception(s"expected a event message, got: $other")
+              )
+          }
+      }
 
       /** The raw `event` object of the message, undecoded. The typed
         * [[WSCommandPhaseServer]] enum decodes `event` into the
@@ -34,28 +71,74 @@ object client {
         * `{action, …_id}`) — the raw form is the one that works for all of
         * them; callers decode what they subscribed to.
         */
-      trait AsRawEvent extends AsStream[Json] {
-        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
-          payload.payload.hcursor
-            .get[Json]("event")
-            .fold(throw _, identity)
-      }
+      trait AsEvent extends AsEventOf[Json]
 
       trait AsTrigger extends AsStream[Json] {
-        def decodeMessage(payload: server.WSCommandPhaseServerPayload): Json =
-          payload.parsedPayload.fold(
-            throw _,
-            {
-              case WSCommandPhaseServer.trigger(_, event) => event
-              case other                                  =>
-                throw new Exception(s"expected a trigger message, got: $other")
-            }
-          )
+        def decodeStreamMessage(
+            payload: server.WSCommandPhaseServerPayload
+        ): IO[Json] =
+          payload.parsedPayload.liftTo[IO].flatMap {
+            case WSCommandPhaseServer.trigger(event) => IO.pure(event)
+            case other                               =>
+              IO.raiseError(
+                new Exception(s"expected a trigger message, got: $other")
+              )
+          }
       }
     }
 
+    /** A one-shot `result`, decoded via a circe [[Decoder]]; raises HA's
+      * [[WSHAError]] on a failure frame. `get_states`/`get_services` plug a
+      * smithy-schema decoder in here, so `R` is the final typed value.
+      */
     trait AsResult[R](using val resultDecoder: Decoder[R])
-        extends CommandResponse[R]
+        extends CommandResponse.WithSingleResponse[R] {
+
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[R] =
+        payload.parsedPayload.liftTo[IO].flatMap {
+          case WSCommandPhaseServer.result(
+                true,
+                result,
+                _
+              ) =>
+            result
+              // A bare success ack carries no `result`; decode `null`, which a
+              // `Unit` result (a subscribe ack) expects.
+              .getOrElse(Json.Null)
+              .as[R](using resultDecoder)
+              .liftTo[IO]
+          case WSCommandPhaseServer.result(
+                false,
+                _,
+                error
+              ) =>
+            IO.raiseError[R](
+              error
+                .flatMap(json => json.as[WSHAError].toOption)
+                .getOrElse(
+                  new Exception(
+                    s"Result parsing failed. Error:\n$error"
+                  )
+                )
+            )
+          case other =>
+            IO.raiseError(
+              new Exception(s"expected a result message, got: $other")
+            )
+        }
+
+    }
+
+    trait AsPong extends CommandResponse.WithSingleResponse[Unit] {
+      def decodeMessage(payload: server.WSCommandPhaseServerPayload): IO[Unit] =
+        payload.parsedPayload.liftTo[IO].flatMap {
+          case WSCommandPhaseServer.pong() => IO.unit
+          case other                       =>
+            IO.raiseError(
+              new Exception(s"expected a pong message, got: $other")
+            )
+        }
+    }
   }
 
   sealed trait CommandPhase derives ConfiguredEncoder
@@ -69,9 +152,10 @@ object client {
       */
     case class CallServiceTarget(entity_id: String) derives ConfiguredEncoder
 
-    //
-    // Stuff
-    //
+    // Idle-keepalive heartbeat; HA answers with a `pong` frame (see AsPong).
+    // https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
+    case class ping() extends CommandPhase with CommandResponse.AsPong
+        derives ConfiguredEncoder
 
     // call_service https://developers.home-assistant.io/docs/api/websocket#calling-a-service-action
     // service_data carries arbitrary parameters (e.g. brightness); target is the
@@ -84,22 +168,55 @@ object client {
     ) extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
-    // TODO get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
-
-    // TODO get_config https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L515
-    // alt av devices og services og whatnot ligger under det
+    // get_config https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L515
     case class `get_config`()
         extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 
-    // TODO supported_features https://github.com/home-assistant/core/blob/f5fd49d8cb710c95cde30fc5071c20af351760b4/homeassistant/components/websocket_api/commands.py#L906
-
-    // TODO ping https://github.com/home-assistant/core/blob/a98bb96325cf50d4ca77b68573b53c253ff673e1/homeassistant/components/websocket_api/commands.py#L574 for heartbeats
+    /** The feature-enablement phase, sent once right after auth.
+      *
+      * `coalesce_messages` lets HA pack everything pending in one event-loop
+      * tick into a SINGLE frame — so a burst of entity changes arrives together
+      * instead of one frame each. Note it changes the framing UNCONDITIONALLY:
+      * once enabled, every frame is a JSON ARRAY of payloads, even a lone one
+      * (verified on 2026.7.2).
+      * https://developers.home-assistant.io/docs/api/websocket/#feature-enablement-phase
+      */
+    case class supported_features(
+        features: Map[String, Int] = Map("coalesce_messages" -> 1)
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Unit] derives ConfiguredEncoder
 
     // get_services https://developers.home-assistant.io/docs/api/websocket#fetching-service-actions
+    // HA answers `{domain: {service: ...}}`; the schema-derived decoder yields
+    // the wrapper, so the domain map is unwrapped here.
     case class `get_services`()
         extends CommandPhase
-        with CommandResponse.AsResult[Json] derives ConfiguredEncoder
+        with CommandResponse.AsResult[List[ServiceDomain]](using
+          DocumentJson.circeDecoderFor(using ServicesData.schema).map(_.value)
+        ) derives ConfiguredEncoder
+
+    // get_states https://developers.home-assistant.io/docs/api/websocket#fetching-states
+    // The WS equivalent of REST `/api/states`: the same state representation, so
+    // the result decodes with the same shape the REST leg used.
+    case class `get_states`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[GetStatesData]](using
+          DocumentJson.circeDecoderFor(using
+            smithy4s.Schema.list(GetStatesData.schema)
+          )
+        ) derives ConfiguredEncoder
+
+    // render_template https://developers.home-assistant.io/docs/api/websocket#render-a-template
+    // A SUBSCRIPTION, not a one-shot result: HA acks with `result`, then pushes
+    // `event` messages `{result, listeners}` — and re-pushes whenever a
+    // referenced entity changes. A one-shot caller subscribes, takes the first
+    // event's `result`, and releases (the generic `unsubscribe_events` cancels
+    // it). `report_errors` makes a template error arrive as an `error` event
+    // rather than silently sticking.
+    case class render_template(template: String, report_errors: Boolean = true)
+        extends CommandPhase
+        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
     //
     // Configs
@@ -178,9 +295,17 @@ object client {
     // `state_changed` shape on top of it.
     case class subscribe_events(event_type: Option[String])
         extends CommandPhase
-        with CommandResponse.AsStream.AsRawEvent derives ConfiguredEncoder
+        with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
-    // TODO subscribe_entities https://community.home-assistant.io/t/terrible-performance-on-seemingly-most-android-tablets/760318/78?u=perok
+    /** HA's compressed state feed — the full entity set on subscribe, then
+      * deltas. Replaces `get_states` + `subscribe_events state_changed` for
+      * anything tracking live state: one subscription cannot have a gap between
+      * the snapshot and the change feed. See [[EntitiesEvent]].
+      */
+    case class subscribe_entities()
+        extends CommandPhase
+        with CommandResponse.AsStream.AsEventOf[EntitiesEvent]
+        derives ConfiguredEncoder
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)

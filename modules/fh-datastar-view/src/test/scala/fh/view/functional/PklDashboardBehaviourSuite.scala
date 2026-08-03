@@ -1,22 +1,31 @@
 package fh.view.functional
 
-import fh.view.testkit.{HouseFixture, PklFixture, Scene}
+import cats.effect.IO
+import fh.view.runtime.TestServer
+import fh.view.testkit.{FixtureEntity, HouseFixture}
+
+import scala.concurrent.duration.*
 
 /** The Tier-A capstone (ADR 0009): the SAME end-to-end behaviour as
   * [[DashboardBehaviourSuite]], but the dashboard is a real Pkl entry evaluated
-  * through the genuine authoring pipeline (Pkl -> model -> renderer -> SSE)
-  * rather than a hand-built [[fh.view.model.Dashboard]]. It pins that the Pkl
-  * track and the runtime track meet: an entry authored against a
-  * [[HouseFixture]]-derived `lib/dump.pkl` renders and streams the live state
-  * the fake serves — with no live HA.
+  * through the GENUINE server build path — `TestServer.fromWorkspace` runs
+  * `ServerApp.prepareRenderers` (discover -> `prepareDumps` -> `buildEntry`)
+  * and `liveServer`, the exact sequence production's `run` uses. Nothing is
+  * stubbed but the HA socket: the dump is FETCHED from the fake's
+  * `render_template` (same fixtures `get_states` serves), so the Pkl track and
+  * the runtime track meet with no shortcut through a pre-built `Dashboard`.
   *
   * The entry is authored against `dump.entities.<key>` for the fixture
-  * entities; because the dump and the seeded state both derive from
-  * [[HouseFixture]], the two cannot drift. Both entities the entry references
-  * auto-seed through the [[Scene]] builder, exactly as the hand-built Tier-B
-  * dashboards do — the same reference-derived seeding across both tiers.
+  * entities; because the served dump and the seeded state both derive from the
+  * SAME [[FixtureEntity]] set, the two cannot drift.
   */
-class PklDashboardBehaviourSuite extends FunctionalSuite {
+class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
+
+  /** Every entity the entry references — also the fake's seed and the source of
+    * the dump it serves. One declaration feeds all three.
+    */
+  private val entities: List[FixtureEntity] =
+    List(HouseFixture.outsideTemp, HouseFixture.kitchenLight)
 
   /** A minimal real entry over two fixture entities: a numeric sensor (whose
     * `entityCard` value auto-appends the unit) and the kitchen light. Authored
@@ -37,15 +46,19 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
        |    c.title("Fixture Home")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.button("Elsewhere", c.navigate("other"))
        |  }
        |}
        |""".stripMargin
 
-  private val dashboard =
-    PklFixture.buildDashboard("fixture-home", entrySource)
+  private def withServer[A](f: TestServer => IO[A]): IO[A] =
+    TestServer
+      .fromWorkspace("fixture-home", entrySource, entities)
+      .use(f)
+      .timeout(60.seconds)
 
   test("a Pkl-built dashboard renders the seeded live state") {
-    withServer(Scene.of(dashboard))(_.page).map { html =>
+    withServer(_.page()).map { html =>
       // entityCard label = the live friendly_name; value = $state + unit.
       assert(html.contains("Outside Temperature"), clue = html)
       assert(html.contains("12.4"), clue = html)
@@ -56,8 +69,23 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
     }
   }
 
+  test("a navigating button reaches the browser as a real link") {
+    withServer(_.page()).map { html =>
+      // The whole point of ADR 0002's navigation decision, end to end: the
+      // author wrote c.navigate, and what ships is an anchor the browser can
+      // middle-click, with a relative href resolved against <base href> — no
+      // script, so it works before Datastar loads.
+      assert(
+        html.contains(
+          """<a class="button card" href="d/other">Elsewhere</a>"""
+        ),
+        clue = html
+      )
+    }
+  }
+
   test("a state change streams a fragment through the Pkl-built dashboard") {
-    withServer(Scene.of(dashboard)) { ts =>
+    withServer { ts =>
       ts.observePatch(
         marker = "13.1",
         trigger = ts.fake.emit(
@@ -66,6 +94,174 @@ class PklDashboardBehaviourSuite extends FunctionalSuite {
           HouseFixture.outsideTemp.attributes
         )
       )
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tabs inside a conditional branch
+  //
+  // The one place two selection mechanisms meet: the branch is chosen by entity
+  // state (server truth, identical for every viewer) while the tab inside it is
+  // chosen by the client. The fixture suites build the equivalent by hand, which
+  // is what let a first-paint break through the real `Tabs`/`If` cards slip past
+  // them — so this shape earns its place at Tier A, where the CARDS are the ones
+  // a user actually gets.
+  // ---------------------------------------------------------------------------
+
+  private val light = HouseFixture.kitchenLight // on
+  private val temp = HouseFixture.outsideTemp
+  private val other = HouseFixture.livingRoomLight
+
+  private val branchEntities: List[FixtureEntity] = List(light, temp, other)
+
+  /** `pkl-if`'s shape, minimised: while the kitchen light is on, show a tabs
+    * card with two panels; otherwise show a single card.
+    */
+  private val branchEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    c.title("Branch")
+       |    c
+       |      .iff(c.entityIs(dump.entities.${light.dumpKey}.entity_id).and(c.stateIs("on")))
+       |      .then((c.column) {
+       |        children {
+       |          c.title("Light is on")
+       |          (c.tabs) {
+       |            tabs {
+       |              ["Lights"] {
+       |                c.entityCard(dump.entities.${other.dumpKey})
+       |              }
+       |              ["Sensors"] {
+       |                c.entityCard(dump.entities.${temp.dumpKey})
+       |              }
+       |            }
+       |          }
+       |        }
+       |      })
+       |      .`else`(c.title("Light is off"))
+       |  }
+       |}
+       |""".stripMargin
+
+  private def withBranchServer[A](f: TestServer => IO[A]): IO[A] =
+    TestServer
+      .fromWorkspace("branch-tabs", branchEntry, branchEntities)
+      .use(f)
+      .timeout(60.seconds)
+
+  test("first paint: the branch's tab panel carries its content") {
+    withBranchServer(_.page()).map { html =>
+      // The branch is active (the light is on), so its content is baked...
+      assert(html.contains("Light is on"), clue = html)
+      // ...tab bar included...
+      assert(html.contains("Lights"), clue = html)
+      assert(html.contains("Sensors"), clue = html)
+      // ...and — the actual claim — the SELECTED panel is not empty. This is
+      // what a user sees before any script runs, so an empty mount here is a
+      // blank dashboard, not a flicker.
+      assert(html.contains("Living Room"), clue = html)
+      // The unselected panel is not rendered at all (hidden-branch silence).
+      assert(!html.contains("Outside Temperature"), clue = html)
+    }
+  }
+
+  /** The tabs host's generated id — inside the `then` branch's content tree,
+    * hence the surface prefix. Written out because it IS the contract: the
+    * hoist's `bakeInto`, the `ui.<host>` selection param and the renderer's
+    * node id are all this one string, and they silently drifted apart once.
+    */
+  private val tabsHost = "s_c_1_then__c_0_1"
+
+  test("first paint on the second tab: that panel's content, not the default") {
+    withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
+      assert(html.contains("Outside Temperature"), clue = html)
+      assert(!html.contains("Living Room"), clue = html)
+    }
+  }
+
+  test("a flip re-reveals the client's OWN tab, not the group's default") {
+    withBranchServer { ts =>
+      ts.observeLive(
+        // Only the fill can produce this: the branch is re-rendered for the
+        // slug with no client, so its tab mount arrives EMPTY.
+        marker = "Outside Temperature",
+        query = s"?ui.$tabsHost=1",
+        // Off, then on: the branch leaves and comes back, which is what
+        // re-creates the tabs mount this client has to have refilled.
+        trigger = ts.fake.emit(light.entityId, "off") *>
+          ts.fake.emit(light.entityId, "on", light.attributes)
+      ).map { live =>
+        // ONE patch, not a hollow mount followed by a fill: the branch and the
+        // panel this viewer chose arrive TOGETHER, so there is no frame in which
+        // the tabs card exists with nothing in it.
+        //
+        // Asserted as "the patch carrying the branch also carries the panel"
+        // rather than by counting patches — how many flips land after the
+        // opening block depends on when the connection finished opening, which
+        // is timing, not behaviour.
+        val branchPatch = live.linesIterator
+          .filter(_.startsWith("data: elements "))
+          .find(_.contains("Light is on"))
+        assert(branchPatch.isDefined, clue = live)
+        assert(
+          branchPatch.exists(_.contains("Outside Temperature")),
+          clue = ("the branch must arrive with this viewer's panel", live)
+        )
+        // The silent regression this guards: the default tab's content reaching
+        // a client that is not on the default tab. Not "not in the last patch"
+        // — nowhere in anything this connection was sent after opening.
+        assert(!live.contains("Living Room"), clue = live)
+      }
+    }
+  }
+
+  test("the OTHER client keeps the default tab across the same flip") {
+    withBranchServer { ts =>
+      ts.observeLive(
+        marker = "Living Room",
+        trigger = ts.fake.emit(light.entityId, "off") *>
+          ts.fake.emit(light.entityId, "on", light.attributes)
+      ).map { live =>
+        val branchPatch = live.linesIterator
+          .filter(_.startsWith("data: elements "))
+          .find(_.contains("Light is on"))
+        assert(
+          branchPatch.exists(_.contains("Living Room")),
+          clue = ("the default tab's viewer gets ITS panel", live)
+        )
+        assert(!live.contains("Outside Temperature"), clue = live)
+      }
+    }
+  }
+
+  /** A mount carries client-dependent ATTRIBUTES, not only children. The tabs
+    * mount seeds its selection signal from the baked index, so a re-revealed
+    * panel that arrives with the wrong index — or with none, which is not even
+    * valid — leaves the bar highlighting a different tab than the one on
+    * screen. Asserted on the wire because it is invisible to a content check.
+    *
+    * Since the branch is rendered for its viewer, the index is right by
+    * construction rather than corrected afterwards.
+    */
+  test("a re-revealed panel carries THIS client's selection signal") {
+    withBranchServer { ts =>
+      ts.observeLive(
+        marker = "Outside Temperature",
+        query = s"?ui.$tabsHost=1",
+        trigger = ts.fake.emit(light.entityId, "off") *>
+          ts.fake.emit(light.entityId, "on", light.attributes)
+      ).map { live =>
+        // Never a signal expression with an absent value.
+        assert(!live.contains(s"ui_$tabsHost:  }"), clue = live)
+        // The fill replaces the mount ELEMENT, so the index that lands is this
+        // client's tab, not the group's default.
+        assert(live.contains(s"ui_$tabsHost: 1 }"), clue = live)
+      }
     }
   }
 }

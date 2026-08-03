@@ -27,6 +27,38 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("tabs: a selection on the URL survives the SSE connect") {
+    withPage(scene) { (page, ts) =>
+      val panel = page.locator(".tab-panel")
+      for {
+        // The group's id is backend-derived, so read it off the first paint
+        // rather than hardcoding a path id that layout edits would shift.
+        gid <- IO
+          .blocking(panel.getAttribute("id"))
+          .map(_.stripSuffix("_panel"))
+        // …and drop the mirror the effect has already written on this load.
+        deepLink = s"${page.url().takeWhile(_ != '?')}?ui.$gid=1"
+        _ <- IO.blocking(page.navigate(deepLink))
+        // The failure this guards is a LATE one: the first paint is correct,
+        // and only the connect's repaint puts the default tab back — dragging
+        // the URL mirror down with it. So drive an unrelated change through the
+        // stream first: it is ordered AFTER everything the connect emitted, so
+        // seeing it means the repaint (if any) has already been applied.
+        _ <- ts.awaitLive()
+        _ <- ts.fake.emit(
+          HouseFixture.outsideTemp.entityId,
+          "13.1",
+          HouseFixture.outsideTemp.attributes
+        )
+        _ <- IO.blocking(
+          assertThat(page.locator("article.entity").first())
+            .containsText("13.1")
+        )
+        _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
+      } yield assertEquals(page.url(), deepLink)
+    }
+  }
+
   test("popup: a tap opens it, the close button dismisses it") {
     withPage(scene) { (page, _) =>
       val kitchenCard = page
@@ -42,6 +74,30 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(page.locator(".popup-close").click())
         _ <- IO.blocking(assertThat(popup).hasCount(0))
       } yield ()
+    }
+  }
+
+  test("popup: it survives a refresh, and is there in the first paint") {
+    withPage(scene) { (page, ts) =>
+      val kitchenCard = page
+        .locator(
+          "article.entity",
+          new Page.LocatorOptions().setHasText("Kitchen")
+        )
+      val popup = page.locator(".popup")
+      for {
+        _ <- IO.blocking(kitchenCard.click())
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+        // The tap set `$ui_popups` and the mirror wrote ?ui.popups=<id>, so the
+        // reload has something to restore — the same path a tab selection
+        // takes, which is the point of the popup no longer having its own.
+        _ <- IO.blocking(page.reload())
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+        // …and it is in the served HTML, not patched in afterwards: baked into
+        // the theme chrome's popup hole, so there is no dashboard-first,
+        // dialog-a-moment-later flash.
+        html <- ts.page("?ui.popups=detail")
+      } yield assert(html.contains("Kitchen Detail"), clue = html)
     }
   }
 
