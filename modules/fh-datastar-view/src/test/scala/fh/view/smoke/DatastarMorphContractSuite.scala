@@ -115,6 +115,42 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("ONE patch event morphs several sibling elements, each by its own id") {
+    // One HA frame changes several entities, and today that leaves the server
+    // as one SSE event per affected node. Carrying them in a single
+    // `datastar-patch-elements` is only possible if Datastar morphs each
+    // top-level element in `elements` against its own id. The local reference
+    // documents multi-LINE HTML for one element and says nothing about
+    // siblings, so this is the empirical answer.
+    val page =
+      """<div id="one">OLD1</div>
+        |<div id="two">OLD2</div>
+        |<div id="three">OLD3</div>""".stripMargin
+
+    val patches = List(
+      Datastar.patchElements(
+        """<div id="one">NEW1</div><div id="three">NEW3</div>"""
+      )
+    )
+
+    served(page, patches).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        one <- text(p, "#one")
+        three <- text(p, "#three")
+        _ <- IO(assertEquals(one, "NEW1", "the first element must morph"))
+        _ <- IO(assertEquals(three, "NEW3", "so must the second, by its own id"))
+        // Not a wholesale body replace: an element the patch does not mention
+        // keeps what it had, and keeps its POSITION between the two.
+        two <- text(p, "#two")
+        _ <- IO(
+          assertEquals(two, "OLD2", "an unmentioned sibling must be untouched")
+        )
+      } yield ()
+    }
+  }
+
   test("data-ignore-morph protects a client-owned mount, in both directions") {
     val page =
       """<div id="w">
