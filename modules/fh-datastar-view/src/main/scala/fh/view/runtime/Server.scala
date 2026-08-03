@@ -540,8 +540,8 @@ class Server(
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
-    * patches (filtered to what this client can see, with any [[Reveal]] filled
-    * for it), the session control channel (popup/navigate patches), live-reload
+    * patches (filtered to what this client can see, with any [[Varying]]
+    * resolved against its selections), the session control channel, live-reload
     * body repaints, and a heartbeat.
     */
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =

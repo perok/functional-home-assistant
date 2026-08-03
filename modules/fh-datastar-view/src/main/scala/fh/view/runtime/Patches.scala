@@ -227,7 +227,7 @@ private[runtime] object Patches {
     * Nothing here reads a client's `uiState`. The one thing that depends on it
     * — which member of a USER-selected mount a viewer chose — is not rendered
     * at all: the mount comes out empty and each connection fills its own from
-    * the [[Reveal]] this pass emits alongside the flip.
+    * the [[Pending]] this pass emits alongside the flip.
     */
   def plan(
       renderer: Renderer,
@@ -305,24 +305,10 @@ private[runtime] object Patches {
     )
   }
 
-  /** Diff a [[DiffRequest]]'s static component ids + affected dynamic groups +
-    * flipped state groups against `cache`, returning the updated cache and what
-    * to emit.
+  /** '''Flips run FIRST.''' Their prune must precede any diff that could
+    * suppress a member fragment against a pre-flip entry.
     *
-    *   - A flipped state group morphs its HOST (the newly-selected member baked
-    *     against current state) and prunes its members' cache entries
-    *     ([[flipStateGroup]]). Flips run FIRST: the prune must precede any diff
-    *     that could suppress a member fragment against a pre-flip entry.
-    *   - Static components outer-morph when their HTML actually changed.
-    *   - A dynamic group with an [[DynamicDelta.InPlace]] member re-renders and
-    *     outer-morphs that ONE child; an add/remove is patched per-entity when
-    *     the churn is a small fraction of the group, else the whole group
-    *     repaints ([[renderDynamicGroup]] applies [[Server.MaxChurnFraction]]).
-    *   - A whole-group repaint prunes that group's child cache entries so the
-    *     next per-entity patch re-establishes from a known base.
-    *
-    * Pure (all rendering is pure over `states`); the caller wraps it in the
-    * cache Ref's `modify`.
+    * Pure over `states`; the caller wraps it in the log Ref's `modify`.
     */
   def diff(
       renderer: Renderer,
@@ -577,14 +563,9 @@ private[runtime] object Patches {
       branchFills ++ places ++ refills).map(_.toSse)
   }
 
-  /** The patch that puts `html` at `entity`'s place in group `gid`: `before`
-    * the nearest member ordered after it that the client's DOM can anchor on
-    * (`anchorable`), or `append`ed into the group root when there is none.
-    *
-    * ONE anchor rule for both the live add path and the resume replay, because
+  /** ONE anchor rule for both the live add path and the resume replay, because
     * an insert is the same problem in both: name a sibling that is really
-    * there. What differs is only which siblings qualify, which is the
-    * predicate.
+    * there. What differs is only which siblings qualify, which is `anchorable`.
     *
     * It reads the order out of `ordered` — the list [[Renderer.dynamicMembers]]
     * produced — rather than comparing entity ids. That is what keeps this
@@ -622,12 +603,10 @@ private[runtime] object Patches {
     * (`resolveActive` reads the client's signal, `resolveActiveByState` reads
     * entity state), and that stays with the caller.
     *
-    * Three steps, in this order. Evict every entry for the surfaces that host
-    * here (`Renderer.surfacesAt`): the departing member's DOM is gone, so its
+    * Eviction must come first: the departing member's DOM is gone, so its
     * entries describe nothing, and a stale one would suppress a real change on
-    * the way back. Render the arrival ONCE, traced. Record what that render put
-    * in each node, so the next live tick can tell "unchanged" from "never
-    * told".
+    * the way back. The arrival is rendered ONCE and traced, so the next live
+    * tick can tell "unchanged" from "never told".
     *
     * What it does NOT do is record a [[Mutation]] — that is the caller's,
     * because the two callers disagree about what a fill MEANS. A flip is server
@@ -658,41 +637,6 @@ private[runtime] object Patches {
     }
   }
 
-  /** Patch one FLIPPED state-selected bake group — as a MEMBERSHIP DELTA, the
-    * same record a dynamic group already keeps.
-    *
-    * '''An `If` flip is a membership change on a list of one:''' the old branch
-    * is [[Mutation.Gone]], the new one is [[Mutation.Placed]] into the group's
-    * mount. Repeated flips collapse by latest-wins per node id.
-    *
-    * On the WIRE that is a single `Inner` at the mount, not a `remove` plus an
-    * `append`. A bake group has one hole, so its mount holds at most one
-    * member: there are no siblings to preserve and no position to fix, which
-    * means overwriting the mount IS the delta rather than a wholesale fallback.
-    * It is also idempotent by construction — it lands the same whether the
-    * client currently holds the old branch, the new one, or nothing, so the
-    * paired `remove` that makes a dynamic member's re-order safe buys nothing
-    * here. A condition matching NO branch is the one other shape: a `Gone` with
-    * no `Placed`, emitted as a plain `remove` (an `Inner` of empty content is
-    * not a well-formed patch).
-    *
-    * It does NOT morph the host, whose HTML would embed the selected branch and
-    * so carry other nodes. The log records WHICH member is in the mount
-    * (identity), never what it holds: if the container's record moved when a
-    * CHILD's content changed, every child change would re-supply the container,
-    * which is exactly the problem this design exists to remove.
-    *
-    * Without the structural half the deletion would leave a hole: a client
-    * disconnected across a flip would show the old branch '''permanently''' —
-    * the new branch's nodes would arrive as morphs against ids its DOM lacks
-    * (silent no-ops) and nothing would remove the old ones. `selectedSurfaces`
-    * does `filterNot(isStateGroup)`, so a branch is never in `open` either.
-    *
-    * The prune is still needed: hidden-branch churn deliberately leaves member
-    * entries stale (the silence guarantee), so a re-revealed node whose HTML
-    * happens to equal its pre-flip entry would be suppressed while the client's
-    * DOM has moved on.
-    */
   /** Render a batch's patches to the wire, merging what can share an event.
     *
     * A [[Patch.Morph]] carries no selector and no mode — it finds its target by
@@ -734,6 +678,34 @@ private[runtime] object Patches {
   private def uiFrom(sel: Selections): Map[String, String] =
     sel.map { case (gid, idx) => gid -> idx.toString }
 
+  /** '''An `If` flip is a membership change on a list of one:''' the old branch
+    * is [[Mutation.Gone]], the new one is [[Mutation.Placed]] into the mount.
+    * Repeated flips collapse by latest-wins per node id.
+    *
+    * On the wire that is a single `Inner`, not a `remove` plus an `append`. A
+    * bake group has one hole, so there are no siblings to preserve and no
+    * position to fix, and it is idempotent by construction: it lands the same
+    * whether the client holds the old branch, the new one, or nothing. A
+    * condition matching NO branch is the one other shape — a `Gone` with no
+    * `Placed`, emitted as a plain `remove`, since an `Inner` of empty content
+    * is not a well-formed patch.
+    *
+    * It does NOT morph the host, whose HTML would embed the selected branch and
+    * so carry other nodes. The log records WHICH member is in the mount, never
+    * what it holds: if a container's record moved when a CHILD's content
+    * changed, every child change would re-supply the container.
+    *
+    * Without the structural half a client disconnected across a flip would show
+    * the old branch '''permanently''' — the new branch's nodes arrive as morphs
+    * against ids its DOM lacks (silent no-ops) and nothing removes the old
+    * ones. `selectedSurfaces` does `filterNot(isStateGroup)`, so a branch is
+    * never in `open` either.
+    *
+    * The prune is load-bearing: hidden-branch churn deliberately leaves member
+    * entries stale (the silence guarantee), so a re-revealed node whose HTML
+    * happens to equal its pre-flip entry would be suppressed while the client's
+    * DOM has moved on.
+    */
   private def flipStateGroup(
       renderer: Renderer,
       log: FragmentLog,

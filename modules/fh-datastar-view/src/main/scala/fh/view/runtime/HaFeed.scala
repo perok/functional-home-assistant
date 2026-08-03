@@ -13,41 +13,25 @@ import scala.concurrent.duration.*
 
 /** A self-healing Home Assistant connection feeding a [[StateStore]].
   *
-  * A dropped upstream WebSocket freezes the whole dashboard — no state arrives
-  * and `call_service` hangs on the dead socket — and nothing in the socket's
-  * own API says it died. So the connection keeps itself alive with idle HA
-  * ping/pong and reports its own death via `awaitClosed`
+  * A dropped upstream WebSocket freezes the whole dashboard — no state arrives,
+  * `call_service` hangs on the dead socket — and nothing in the socket's own
+  * API says it died, hence idle ping/pong and `awaitClosed`
   * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
   *
-  * This supervises the whole connection resource. On every (re)connect it
-  * subscribes to HA's compressed entity feed — whose opening frame is the full
-  * entity set, so a reconnect republishes exactly the entities that changed
-  * during the outage and every connected browser catches up — and races the
-  * ingest pump against `awaitClosed`. When the connection dies it tears down
-  * and reconnects, rate-limited to one attempt per [[ReconnectDelay]].
+  * **A HaFeed value means the store is populated**: [[resource]] does not hand
+  * one out until the opening full state has been applied (or gives up loudly,
+  * [[SeedTimeout]]), so the wait has no expression in the API because it cannot
+  * be skipped. That is the FIRST fill only; [[healthy]] answers the different,
+  * ongoing question.
   *
-  *   - [[api]] is a stable facade built ONE level down, over the low-level WS
-  *     ([[HAWSApiLowLevel]]): [[HomeAssistantApi.fromWs]] regenerates the whole
-  *     API over a facade that ROUTES each call to the CURRENT live connection,
-  *     so consumers hold one value across reconnects. Anything issued while
-  *     disconnected fails fast, and a subscription stream ends when its
-  *     connection dies — a consumer that must span reconnects re-subscribes off
-  *     [[healthy]].
-  *   - [[store]] is the single [[StateStore]], refilled across reconnects.
-  *   - [[healthy]] reports whether a connection is currently live (`true` from
-  *     the moment the socket is up and subscribed, before the full set has been
-  *     applied); the Server pushes it to the browser as the `haDown` signal, so
-  *     the disconnect banner reflects an upstream freeze, not just a
+  *   - [[api]] routes each call to whatever connection is live now, so
+  *     consumers hold one value across reconnects. Issued while disconnected it
+  *     fails fast, and a subscription stream ENDS when its connection dies —
+  *     spanning reconnects means re-subscribing off [[healthy]].
+  *   - [[healthy]] is `true` from the moment the socket is up and subscribed,
+  *     before the full set has been applied. The Server pushes it as the
+  *     `haDown` signal, so the banner distinguishes an upstream freeze from a
   *     browser-side drop.
-  *
-  * A HaFeed VALUE MEANS THE STORE IS POPULATED: [[resource]] does not hand one
-  * out until the feed's opening full state has been applied (or gives up
-  * loudly, [[SeedTimeout]]). So a consumer never holds a feed it must first
-  * remember to wait on — the wait has no expression in the API because it
-  * cannot be skipped. That is only about the FIRST fill; a later reconnect
-  * re-seeds in the background and is reported by [[healthy]], which is a
-  * different question ("is the link up right now") from a one-shot "has it ever
-  * filled".
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
@@ -57,16 +41,12 @@ final case class HaFeed(
 
 object HaFeed {
 
-  /** The shortest time between two connection attempts — a RATE limit, not a
-    * backoff.
-    *
-    * Deliberately flat. Exponential backoff assumes retries are expensive or
-    * the peer is shared; this is one WebSocket to one local instance, where a
-    * failed attempt is a refused TCP connect. It also gets the main case
-    * backwards: a Home Assistant restart takes half a minute or so, by which
-    * point an escalating delay has grown to its cap — so the dashboard would
-    * stay dark for up to that long AFTER the instance is ready again. A flat
-    * second notices within a second.
+  /** A RATE limit, not a backoff, and deliberately flat. Exponential backoff
+    * assumes retries are expensive or the peer is shared; this is one WebSocket
+    * to one local instance, where a failed attempt is a refused TCP connect. It
+    * also gets the main case backwards: an HA restart takes half a minute, by
+    * which point an escalating delay has reached its cap, leaving the dashboard
+    * dark that long AFTER the instance is ready again.
     */
   private val ReconnectDelay: FiniteDuration = 1.second
 
@@ -77,40 +57,28 @@ object HaFeed {
     */
   private val SeedTimeout: FiniteDuration = 60.seconds
 
-  /** A LOW-LEVEL connection resource paired with its `awaitClosed` signal (an
-    * `IO[Unit]` that completes when the WebSocket has died) — exactly what
-    * `FHApi.lowLevelConnectWithClose` yields. The facade sits below
-    * [[HomeAssistantApi]] (over [[HAWSApiLowLevel]]) so subscriptions can be
-    * made durable in one place; the connection owns keepalive and liveness
-    * detection (idle HA ping/pong).
+  /** The `IO[Unit]` completes when the WebSocket has died —
+    * `FHApi.lowLevelConnectWithClose` yields exactly this.
     */
   type Connect = Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])]
 
-  /** Build the supervised feed. `connect` is re-`.use`d on every reconnect (a
-    * fresh WebSocket + auth each time), so pass the full connection resource
-    * (`FHApi.lowLevelConnectWithClose`), not an already-established connection.
-    *
-    * ACQUISITION BLOCKS until the store has been filled once, so what it yields
-    * is a feed that is ready to read.
+  /** `connect` is re-`.use`d on every reconnect (a fresh WebSocket + auth each
+    * time), so pass the full connection resource, not an established
+    * connection. ACQUISITION BLOCKS until the store has been filled once.
     */
   def resource(connect: Connect): Resource[IO, HaFeed] =
     for {
-      // The live connection, or None while disconnected. Drives command routing,
-      // subscription re-arm, AND the `healthy` banner (`.isDefined`).
+      // `.isDefined` IS the `healthy` banner — one toggle, not a second flag.
       connection <- SignallingRef[IO]
         .of(Option.empty[HAWSApiLowLevel[IO]])
         .toResource
-      // One-shot: completed once a feed batch has landed; gates acquisition.
       seeded <- IO.deferred[Unit].toResource
       store <- StateStore.empty.toResource
-      // The stable API: a durable facade over the current low-level connection,
-      // rebuilt into the full API by `fromWs`. Consumers hold this one value
-      // across every reconnect.
       api = HomeAssistantApi.fromWs(routingFacade(connection))
       _ <- superviseLoop(connect, connection, seeded, store).background
-      // Credentials are validated by the caller before we get here, so failing
-      // this wait means HA is configured but not answering: a clear boot error
-      // rather than a silent hang inside the reconnect loop.
+      // Credentials are validated by the caller, so failing this wait means HA
+      // is configured but not answering — a boot error rather than a silent
+      // hang inside the reconnect loop.
       _ <- seeded.get
         .timeoutTo(
           SeedTimeout,
@@ -124,23 +92,17 @@ object HaFeed {
         .toResource
     } yield HaFeed(api, store, connection.map(_.isDefined))
 
-  /** Reconnect forever: [[runConnection]] is one connection's whole lifetime,
-    * so supervising it is just "run it, wait, run it again".
+  /** The wait is UNCONDITIONAL, which is the whole reason this cannot spin,
+    * however a connection ended and however fast. A retry policy has to be told
+    * which endings count, so it spins on the one nobody thought to enumerate (a
+    * peer that accepts, auths and closes politely, over and over).
     *
-    * The wait is UNCONDITIONAL, which is the whole reason this cannot spin —
-    * however a connection ended, however fast. That is what a rate limit gives
-    * over a retry policy: a policy has to be told which endings count, so it
-    * spins on the ending nobody thought to enumerate (a peer that accepts,
-    * auths and closes politely, over and over).
+    * `meteredStartImmediately` gives the two properties a backoff needs
+    * bookkeeping for: the first attempt is immediate, and `fixedRate` DAMPENS
+    * missed ticks, so a healthy link that drops reconnects at once while a
+    * flapping one is held to one attempt per period. No lifetime to measure.
     *
-    * `meteredStartImmediately` also hands us, for free, the two properties a
-    * backoff needs bookkeeping for. The first attempt is immediate, so boot is
-    * not delayed. And `fixedRate` DAMPENS missed ticks: a connection that
-    * outlived the period is followed by an immediate tick, so a healthy link
-    * that drops reconnects at once, while a flapping one is held to one attempt
-    * per period. No lifetime to measure, nothing to reset.
-    *
-    * Cancellation is deliberately not caught by the `attempt`: that is the app
+    * Cancellation is deliberately outside the `attempt`: that is the app
     * shutting down, and it must stop the loop rather than look like another
     * reconnect.
     */
@@ -165,14 +127,12 @@ object HaFeed {
       .compile
       .drain
 
-  /** Report the connection coming and going.
-    *
-    * Keyed on CONNECTIVITY, not on why an attempt ended, because a boolean
-    * alternates: `changes` can never swallow a real transition. Keyed on the
-    * reason it can, and did — two ends with the same cause an hour apart, with
-    * a healthy connection between them, are CONSECUTIVE elements of that stream
-    * (nothing between two ends emits anything), so the second was dropped and a
-    * genuine disconnect went unlogged.
+  /** Keyed on CONNECTIVITY, not on why an attempt ended, because a boolean
+    * alternates and `changes` can never swallow a transition. Keyed on the
+    * reason it silently can: two ends with the same cause an hour apart, with a
+    * healthy connection between them, are CONSECUTIVE in that stream — nothing
+    * between two ends emits anything — so the second is deduped away and a real
+    * disconnect goes unlogged.
     */
   private def logConnectivity(
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
@@ -199,19 +159,12 @@ object HaFeed {
       _ => "closed cleanly"
     )
 
-  /** One connection's lifetime: subscribe to the entity feed on THIS
-    * connection, publish the connection as current — which routes [[api]] and
-    * flips `healthy` — then run the ingest pump raced against the connection's
-    * own `awaitClosed`. The `guarantee` clears the connection on EVERY end
-    * (clean or abnormal), so commands fail fast and the banner trips during the
-    * reconnect gap.
-    *
-    * There is no separate seeding step: `subscribe_entities` opens with the
+  /** There is no separate seeding step: `subscribe_entities` opens with the
     * full entity set, so a reconnect's catch-up IS the new subscription's first
-    * frame and nothing needs ordering against a snapshot fetch. That also makes
-    * the outage LOSSLESS without any buffering: a delta that never arrived, or
-    * one in flight when the socket died, is superseded by the next full set
-    * rather than replayed.
+    * frame, with nothing to order against a snapshot fetch. That also makes the
+    * outage LOSSLESS without buffering — a delta that never arrived, or one in
+    * flight when the socket died, is superseded by the next full set rather
+    * than replayed.
     */
   private def runConnection(
       connect: Connect,
@@ -221,13 +174,11 @@ object HaFeed {
   ): IO[Unit] =
     connect
       .use { case (ll, awaitClosed) =>
-        // A throwaway high-level view of THIS connection: the store's feed must
-        // ride the connection being established, not the durable facade.
+        // The store's feed must ride the connection being established, not the
+        // routing facade, which still points at the previous one.
         val live = HomeAssistantApi
           .fromWs(ll)
           .entities
-          // Publishing the connection is also what REPORTS it — one place owns
-          // the log line, driven off the signal ([[logConnectivity]]).
           .use(frames =>
             connection.set(Some(ll)) *> pump(frames, store, seeded)
           )
@@ -238,15 +189,12 @@ object HaFeed {
       }
       .guarantee(connection.set(None))
 
-  /** Drain the entity feed into the store, one store update per arriving CHUNK.
-    * A chunk IS a coalesced frame — the transport groups a frame's payloads by
+  /** A chunk IS a coalesced frame — the transport groups a frame's payloads by
     * subscription and hands them over whole — so a burst (an automation moving
     * a dozen entities at once) costs one `ref.modify`, not one per entity.
-    * Blocks as long as the connection lives; `runConnection` races it against
-    * `awaitClosed`, which is what ends the connection scope on death.
     *
-    * The first applied batch latches `seeded`: the feed opens with the full
-    * entity set, so "a batch has landed" IS "the store is populated".
+    * Latching `seeded` on the first batch is sound because the feed opens with
+    * the full entity set, so "a batch has landed" IS "the store is populated".
     */
   private def pump(
       frames: Stream[IO, EntitiesEvent],
@@ -259,21 +207,15 @@ object HaFeed {
       .compile
       .drain
 
-  /** A stable low-level WS that resolves to whatever connection is live now.
-    *
-    * Nothing more: it is pure routing, so that consumers can hold ONE value
-    * across reconnects instead of chasing the current connection themselves.
-    * Both methods fail fast while disconnected, and within a connection the
-    * transport itself refuses to strand a caller — a dead socket closes every
-    * open route, so a command raises and a subscription stream ENDS
-    * ([[HAWSApiLowLevel]]).
+  /** Pure routing, so consumers hold ONE value across reconnects. Nothing here
+    * strands a caller: both methods fail fast while disconnected, and within a
+    * connection a dead socket closes every open route, so a command raises and
+    * a subscription stream ENDS ([[HAWSApiLowLevel]]).
     *
     * It deliberately does NOT make subscriptions durable. Re-arming them here
-    * would duplicate the reconnect logic the supervisor already owns, and the
-    * one consumer that must span reconnects — the state feed — does not need it
-    * anyway: it rides the connection being established ([[runConnection]]). Any
-    * other consumer re-subscribes off [[HaFeed.healthy]], which is three lines
-    * where it is needed and no machinery where it is not.
+    * would duplicate the reconnect logic the supervisor owns, and the one
+    * consumer that must span reconnects — the state feed — does not need it: it
+    * rides the connection being established ([[runConnection]]).
     */
   private def routingFacade(
       currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
@@ -299,10 +241,9 @@ object HaFeed {
           case None       => Resource.eval(disconnected[Stream[IO, Result]])
         }
 
-      // The facade itself never closes — it outlives every connection. A
-      // per-connection close is observed by the supervisor via that
-      // connection's own `awaitClosed`, and by consumers as their subscription
-      // stream ending.
+      // The facade outlives every connection. A per-connection close reaches
+      // the supervisor via that connection's own `awaitClosed`, and consumers
+      // as their subscription stream ending.
       def awaitClosed: IO[Unit] = IO.never
     }
   }
