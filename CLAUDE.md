@@ -95,7 +95,7 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 |---|---|
 | `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
-| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed dump generation (rendered to text, packaged — never written as a loose file) |
+| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.32.1) + typed dump generation (rendered to text, packaged — never written as a loose file) |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path (ADR 0010): `@fh-dashboard` packaged into a persistent cache + workspace seed (write-once user files, NEVER moved/overwritten — old `lib/`/consumer left alone, delete-to-reseed to adopt package-form; the only overwrite-with-backup is a dated `.fh/pins.json.backup.<stamp>`, capped at the newest 50, via [[Pins]]). Runs on EVERY start — add-on AND local `sbt dashboardServe` (repo resources as the bundled lib, appdirs cache, workspace `dashboard-local-dev`). **One resolution mode — package-form, everywhere** (server, `BuildApp`, tests): `@fh-dashboard` AND `@fh-home` are cache packages resolved offline via `moduleCacheDir`; there is NO path-form and NO `home/` folder. The workspace scaffold is BYTE-IDENTICAL everywhere — a STATIC, machine-agnostic `.fh/base.pkl` (reads `moduleCacheDir` + the `http.rewrites` target from `.fh/machine.json`, and both pins from `.fh/pins.json`, all via `pkl:json`) + a user `PklProject` + `.gitignore`; the instance SERVES these to a laptop's `fh init` over `/system/pkl/{base.pkl,PklProject,gitignore}` (no two copies). The two per-machine values (cache dir + instance URL) live in a gitignored `.fh/machine.json` — the ONLY file that differs between the instance and a git copy. A loaded `PklProject` with no `moduleCacheDir` is a HARD ERROR (`PklBuild.cacheDir`), never a silent fallback |
 | `fh/view/build/DumpPackage.scala`, `scripts/fh` (repo root) | The dump as a content-versioned package (`fh-home@1.0.0-g<hash>`; the lib is content-versioned the same way — `fh-dashboard@<base>-g<hash>`, base from `lib/PklProject`, hash-suffix to be dropped for normal version bumps once the lib stabilizes), the ONLY form it takes anywhere: `seedFromText` builds+seeds it into the cache and rewrites `.fh/pins.json` on every dump render (server startup + `DumpRefresh`). Consumed by the instance's own eval AND laptops (via `/system/pkl/packages`). Plus the `fh` scala-cli script (`init` fetches the served scaffold verbatim + writes this laptop's `.fh/machine.json` + `.fh/pins.json`; `pull` re-pins `@fh-home`; `push`; `init-lsp-fix` writes the rewrite to `~/.pkl/settings.pkl` (the pkl CLI ignores a project's `http.rewrites` in `project resolve <dir>` mode — how IntelliJ syncs); `update`; Typelevel toolkit + decline + in-process pkl-core, installed by curl from GitHub raw, `update` sha256-compares against the repo copy; needs only scala-cli). Its own suite `scripts/fh.test.scala` (weaver) runs via `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the script gates its dispatcher behind `SCALA_TEST_MODE`. Also a CI step |
 | `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
@@ -191,12 +191,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 
 #### Pkl: verify semantics empirically, never from intuition
 
-Pkl (pinned: pkl-core **0.31.1**) has unusual semantics; wrong guesses compile into confusing
+Pkl (pinned: pkl-core **0.32.1**) has unusual semantics; wrong guesses compile into confusing
 errors. When unsure, **run a 2-minute spike** instead of reasoning from analogy: a scratch dir
 with a `lib.pkl` + `entry.pkl` and a scala-cli runner —
 
 ```scala
-//> using dep org.pkl-lang:pkl-core:0.31.1
+//> using dep org.pkl-lang:pkl-core:0.32.1
 import org.pkl.core.*
 @main def run(): Unit =
   val ev = EvaluatorBuilder.preconfigured().build()
@@ -205,8 +205,9 @@ import org.pkl.core.*
   finally ev.close()
 ```
 
-Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-authoring-ergonomics.md`,
-"Spike results"):
+Gotchas spiked on 0.31.1 and carried forward to the 0.32.1 pin — 0.32.x changed no evaluator
+semantics, and the suite still pins the ones it covers (full list with evidence:
+`docs/plan-pkl-authoring-ergonomics.md`, "Spike results"):
 
 - Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
   results (`(c.entityCard(e)) { ... }`), qualified reads (`(c.row) { ... }`), even bare

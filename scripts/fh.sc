@@ -3,7 +3,7 @@
 //> using scala 3.7.4
 //> using jvm 17
 //> using toolkit typelevel:0.2.0
-//> using dep org.pkl-lang:pkl-core:0.31.1
+//> using dep org.pkl-lang:pkl-core:0.32.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
 //> using dep net.harawata:appdirs:1.5.0
 

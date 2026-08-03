@@ -1045,7 +1045,7 @@ class Server(
     *
     * **The ETag is for clients that revalidate — which today is none of them.**
     * pkl is the primary consumer and it does no conditional requests at all:
-    * pkl-core 0.31.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
+    * pkl-core 0.32.1 contains no `If-None-Match`/`ETag`/`Cache-Control`
     * handling anywhere (verified against the jar), so its module reader
     * unconditionally GETs the full body and its only caching is the
     * per-evaluator in-memory module cache, keyed by resolved URI, which never
