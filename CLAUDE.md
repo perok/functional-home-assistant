@@ -244,6 +244,20 @@ Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-auth
 
 Intended as a Home Assistant add-on (`Dockerfile` + `entrypoint.sh`) that watches a folder for new assembly jars (via `inotifywait`) and restarts the running `java -jar`. This is early WIP/scaffolding.
 
+#### Releasing is the maintainer's call — never bump the version
+
+`version:` in `home-addon/config.yaml` is **the release trigger, not metadata**. `cd`
+publishes exactly when main names a version that is not on GHCR yet, so bumping it and
+merging to main *is* the release: container built and pushed, `vX.Y.Z` tagged, GitHub
+release created. That is deliberate design — the maintainer publishes by bumping, when
+they want to publish.
+
+So: **do not edit that line.** Not as part of unrelated work, not to "make a PR
+shippable", not because a branch's version matches something already published. An
+unchanged version on a merged PR is the NORMAL case, not a defect to report — the
+release happens later, when the maintainer decides. If a version question seems to
+matter, say so and stop; do not act on it.
+
 ## Conventions & gotchas
 
 - Generated file names sanitize device/entity names (spaces → `-`, emoji → unicode names) because the Scala compiler rejects emoji in filenames — see `ThingReference.toPath`.
