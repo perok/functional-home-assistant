@@ -20,7 +20,9 @@ sbt test                            # INCREMENTAL in sbt 2.0 (only changed suite
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
-sbt scalafmt                        # format (scalafmt 3.9.3, scala3 dialect)
+sbt 'scalafmt; Test/scalafmt'       # format (scalafmt 3.9.3, scala3 dialect)
+                                    # BOTH: `scalafmt` alone skips test sources,
+                                    # which CI's `scalafmt --test` still checks
 sbt doCodegen                       # regenerate typed device/entity code, then format it
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
@@ -80,7 +82,12 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
    `docs/reference/datastar/` before searching the web. Attributes use colon syntax
    (`data-on:click`, not `data-on-click`).
-6. Format with `sbt scalafmt` (Scala only; there is no formatter for the Pkl sources).
+6. Format with `sbt 'scalafmt; Test/scalafmt'` (Scala only; there is no formatter for the Pkl
+   sources). **Both tasks, always** — `scalafmt` covers `Compile` only, so a test-only
+   formatting change passes locally and then fails CI, which runs the `scalafmt --test` CLI
+   over every file. Verified by misformatting a test source: `sbt scalafmt` leaves it
+   untouched, `Test/scalafmt` fixes it. Note the quotes: unquoted
+   `sbt scalafmt Test/scalafmt` is a parse error in sbt 2.0.
 
 #### Key files
 
