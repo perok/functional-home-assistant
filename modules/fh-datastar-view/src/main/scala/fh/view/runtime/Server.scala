@@ -516,7 +516,6 @@ class Server(
     for {
       conn <- IO.randomUUID.map(_.toString)
       session <- Session.create(slug)
-      _ <- sessions.register(conn, session)
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set from this client's ui state — its selected tab
@@ -630,10 +629,18 @@ class Server(
               .merge(keepAlive)
         }
 
-      stream = (Stream.emit(
+      // Registration is BRACKETED to the stream rather than done in the handler
+      // above: a handler that registers and then never reaches a running body —
+      // it raised, or ember dropped the response — would leave the session in
+      // the registry for the life of the process, and every leftover one is
+      // read by `openSets` on every state batch. Acquiring here is still early
+      // enough: the `conn` signal a client needs before it can POST an action
+      // is the first element of this same stream.
+      stream = (Stream.bracket(sessions.register(conn, session))(_ =>
+        sessions.deregister(conn)
+      ) >> (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
-      ) ++ live)
-        .onFinalize(sessions.deregister(conn))
+      ) ++ live))
       resp <- Ok(stream)
     } yield resp
 
