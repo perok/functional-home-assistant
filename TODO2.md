@@ -65,6 +65,16 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Event coalescing under state_changed bursts: debounce/batch, collapsing repeated touches
       of the same node into one render+push (already flagged as FUTURE in Server.scala). Do
       after the shared-fanout refactor — it changes where batching goes.
+- [ ] Retain `FragmentLog` mutations by live cursor, not by age. `FragmentLog.Retention` (1 hour)
+      is a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
+      connection still holds. `Sessions` is already keyed by `conn`, so each could report its
+      last-sent version and the log evict everything below their minimum — retaining exactly
+      what is still reachable and no more. Two caveats kept it out of the first cut. It
+      reintroduces per-connection server state, which ADR 0011 otherwise avoids — acceptable
+      only because it would be for RETENTION, never correctness, which is what separates it
+      from the rejected per-client mirror. And a wedged connection would pin the log open
+      indefinitely, so the age bound has to survive as a floor: the real rule is
+      `min(live cursors)` clamped by a duration, not one or the other.
 
 ## Parked (deliberately not doing, with reasons)
 
