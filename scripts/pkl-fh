@@ -5,7 +5,7 @@
 # Frameworks -> Pkl). It forwards every argument to the real pkl and injects the
 # two settings a dashboards workspace needs, which the CLI otherwise drops.
 #
-# WHY this exists: `pkl project resolve <dir>` — exactly how the plugin syncs —
+# WHY this exists: `pkl project resolve <dir>…` — exactly how the plugin syncs —
 # ignores the project's own `evaluatorSettings`. Its `http.rewrites` can be
 # lifted to `~/.pkl/settings.pkl` (`fh init-lsp-fix`), but from pkl 0.32 the
 # resource allowlist is ALSO checked against the rewritten url, and `pkl:settings`
@@ -13,13 +13,14 @@
 # remaining lever, and the plugin does not expose it — so we wrap the executable
 # instead. See docs/pkl-issue-http-rewrites-project-resolve.md.
 #
-# Nothing is baked in: the instance URL is read from the workspace's own
+# Nothing is baked in: instance URLs are read from the workspaces' own
 # `.fh/machine.json`, so this keeps working when you re-point at another
 # instance, and does nothing at all outside a dashboards workspace.
 set -euo pipefail
 
-# The real pkl. $FH_PKL wins; otherwise the first `pkl` on PATH that is not this
-# script (so a symlinked/renamed copy cannot recurse into itself).
+# The real pkl. $FH_PKL wins; then the first `pkl` on PATH that is not this
+# script (so a renamed/symlinked copy cannot recurse into itself); then
+# ~/pkl-cli, where this project's CLI conventionally lives.
 self=$(readlink -f "${BASH_SOURCE[0]}")
 real=${FH_PKL:-}
 if [[ -z $real ]]; then
@@ -29,12 +30,13 @@ if [[ -z $real ]]; then
     break
   done < <(type -ap pkl || true)
 fi
+[[ -n $real || ! -x $HOME/pkl-cli ]] || real=$HOME/pkl-cli
 [[ -n $real ]] || {
   echo "pkl-fh: no real pkl found — set FH_PKL to its path" >&2
   exit 1
 }
 
-# Only inject where pkl accepts the flags (verified by RUNNING them — the
+# Only inject where pkl accepts the flags (established by RUNNING them — the
 # --help rendering is not a reliable oracle). Everything else — format, analyze,
 # --version, shell-completion — passes through untouched. `skip` is how many
 # leading words the subcommand itself occupies.
@@ -46,37 +48,60 @@ case "${1:-} ${2:-}" in
   eval | test | download-package | repl) inject=true; skip=1 ;;
 esac
 
-# The workspace: --project-dir, else the first PATH argument after the
-# subcommand (`project resolve <dir>`), else the working directory. Then walk up
-# for `.fh/`, since the plugin may name a subdirectory — and because for `eval`
-# the positional is a file, not the workspace.
+# The instance origins to allow.
 #
-# Skipping the subcommand matters: `project` is itself a plausible directory
-# name (sbt has one), so scanning from $1 picks the wrong workspace.
-ws=""
-prev=""
-for arg in "${@:skip+1}"; do
-  if [[ $prev == "--project-dir" ]]; then ws=$arg; break; fi
-  if [[ $arg == --project-dir=* ]]; then ws=${arg#*=}; break; fi
-  if [[ -z $ws && $arg != -* && -d $arg ]]; then ws=$arg; fi
-  prev=$arg
-done
-ws=$(readlink -f "${ws:-$PWD}" 2>/dev/null || echo "$PWD")
-while [[ $ws != "/" && ! -f $ws/.fh/machine.json ]]; do ws=$(dirname "$ws"); done
+# The plugin syncs EVERY project in the content root in one call — here that is
+# the lib package plus two dashboards workspaces — so this walks all of them and
+# collects each distinct instance, rather than trusting the first. The first
+# argument is routinely a project with no `.fh/` at all (the lib), and stopping
+# there is why an earlier version injected nothing.
+#
+# Each candidate walks UP as well, since the plugin may name a subdirectory of
+# the workspace.
+urls=()
+if [[ $inject == true ]]; then
+  dirs=()
+  prev=""
+  for arg in "${@:skip+1}"; do
+    if [[ $prev == "--project-dir" ]]; then dirs+=("$arg")
+    elif [[ $arg == --project-dir=* ]]; then dirs+=("${arg#*=}")
+    elif [[ $arg != -* && -d $arg ]]; then dirs+=("$arg")
+    fi
+    prev=$arg
+  done
+  [[ ${#dirs[@]} -gt 0 ]] || dirs=("$PWD")
 
-if [[ $inject == true && -f $ws/.fh/machine.json ]]; then
-  url=$(sed -n 's/.*"instanceUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$ws/.fh/machine.json")
-  if [[ -n $url ]]; then
-    # `--allowed-resources` REPLACES pkl's defaults, so they are relisted; and
-    # the allowlist is applied to the url BEFORE and AFTER the rewrite, so both
-    # `https:` and the instance origin have to be present. Dots become `[.]` so
-    # the pattern cannot match arbitrary characters.
-    origin=${url//./[.]}
-    set -- "$@" \
-      --http-rewrite "https://fh.invalid/=${url}/system/pkl/packages/" \
-      --allowed-resources "prop:,env:,file:,modulepath:,package:,projectpackage:,https:,^${origin}/"
-  fi
+  for dir in "${dirs[@]}"; do
+    d=$(readlink -f "$dir" 2>/dev/null) || continue
+    while [[ $d != "/" && ! -f $d/.fh/machine.json ]]; do d=$(dirname "$d"); done
+    [[ -f $d/.fh/machine.json ]] || continue
+    url=$(sed -n 's/.*"instanceUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "$d/.fh/machine.json")
+    [[ -n $url ]] || continue
+    # Distinct only: the same instance normally serves every workspace.
+    for seen in ${urls[@]+"${urls[@]}"}; do
+      [[ $seen == "$url" ]] && url="" && break
+    done
+    [[ -n $url ]] && urls+=("$url")
+  done
 fi
 
+if [[ ${#urls[@]} -gt 0 ]]; then
+  # `--allowed-resources` REPLACES pkl's defaults, so they are relisted; and the
+  # allowlist is applied to the url BEFORE and AFTER the rewrite, so `https:`
+  # has to stay alongside the instance origins. Dots become `[.]` so a pattern
+  # cannot match arbitrary characters.
+  allowed="prop:,env:,file:,modulepath:,package:,projectpackage:,https:"
+  for url in "${urls[@]}"; do
+    allowed+=",^${url//./[.]}/"
+  done
+  # One rewrite prefix can only have one target, so the first instance wins —
+  # they agree unless workspaces genuinely point at different instances, and a
+  # rewrite already in ~/.pkl/settings.pkl takes precedence over this anyway.
+  set -- "$@" \
+    --http-rewrite "https://fh.invalid/=${urls[0]}/system/pkl/packages/" \
+    --allowed-resources "$allowed"
+fi
+
+[[ -z ${FH_PKL_DEBUG:-} ]] || echo "pkl-fh: exec $real $*" >&2
 exec "$real" "$@"
