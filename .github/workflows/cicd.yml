@@ -71,7 +71,7 @@ jobs:
       # never the wrong bundle — which is why the key does not need to track the
       # URL constant.
       - name: Cache web assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/fh
           key: ${{ runner.os }}-fh-assets-${{ hashFiles('**/build.sbt') }}
