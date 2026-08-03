@@ -3197,6 +3197,69 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("viewers SHARING a selection each get the fill, not just the first") {
+    // What is memoised is the VERDICT, not the render. Share the render and the
+    // first viewer to force it writes the digest, so the second is told its
+    // branch is unchanged — and sits on an empty mount until something
+    // unrelated moves. Every other multi-client test here puts its clients on
+    // DIFFERENT selections, where one render each is the right answer anyway,
+    // so nothing pinned the case where sharing is the whole point.
+    //
+    // It became reachable for fills in this design: a branch used to be
+    // rendered once per connection, which cannot exhibit it.
+    liveWorld(
+      tabsInBranchDash,
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0"),
+        "sensor.z" -> es("sensor.z", "Z0")
+      )
+    ) { world =>
+      for {
+        // Two viewers on tab 0 — the same selection, so ONE render serves both.
+        firstOnT0 <- world.connect()
+        secondOnT0 <- world.connect()
+        // ...and one elsewhere, so the shared verdict is not simply "everyone".
+        onT1 <- world.connect("?ui.s_then__c=1")
+        _ <- firstOnT0.drain
+        _ <- secondOnT0.drain
+        _ <- onT1.drain
+
+        // Away and back: the return is the fill both tab-0 viewers must get.
+        _ <- world.change(es("alarm.h", "disarmed"))
+        _ <- firstOnT0.drain
+        _ <- secondOnT0.drain
+        _ <- onT1.drain
+        _ <- world.change(es("alarm.h", "armed"))
+        back1 <- firstOnT0.drain
+        back2 <- secondOnT0.drain
+        backT1 <- onT1.drain
+      } yield {
+        assert(
+          back1.exists(_.renderString.contains("A0")),
+          clue = ("the first viewer on tab 0 gets its branch", back1)
+        )
+        assert(
+          back2.exists(_.renderString.contains("A0")),
+          clue =
+            ("the SECOND viewer on that selection must get it too — a shared " +
+              "render would have let the first consume it", back2)
+        )
+        // Not vacuous by way of everyone getting everything: the other
+        // selection still gets its own panel and neither of the others'.
+        assert(
+          backT1.exists(_.renderString.contains("B0")),
+          clue = ("tab 1's viewer gets ITS panel", backT1)
+        )
+        assert(!backT1.exists(_.renderString.contains("A0")), clue = backT1)
+        assert(!back1.exists(_.renderString.contains("B0")), clue = back1)
+        assert(!back2.exists(_.renderString.contains("B0")), clue = back2)
+      }
+    }
+  }
+
   /** A connection's LIFETIME: what a late arrival is owed, and that two clients
     * on one shared pass both stay live.
     */
