@@ -2289,17 +2289,24 @@ class ServerSuite extends munit.CatsEffectSuite {
       * last, and that signal is untagged, so every connection receives it even
       * when every element patch in the batch was filtered away from this one.
       * Seeing a cursor therefore means "the batch is complete", exactly — no
-      * sampling, no window.
-      *
-      * The fallback is for the one case with no signal to wait for: a batch
-      * that produced nothing at all (every node suppressed by its digest)
-      * appends no cursor, because there is nothing to advance a client past.
-      * "This produced nothing for me" is a real and important answer, so that
-      * case falls back to observing quiet — and it is only ever reached by
-      * assertions whose expected answer is already `Nil`.
+      * sampling, no window, and no dependence on how long the server took.
       */
-    def settled: IO[Unit] =
-      IO.race(untilCursor, quiet).void.timeout(15.seconds)
+    def settled: IO[Unit] = untilCursor.timeout(15.seconds)
+
+    /** Confirm a change produced NOTHING — the one case with no cursor to wait
+      * for, since a batch that emits nothing has nothing to advance a client
+      * past.
+      *
+      * Deliberately NOT raced against [[settled]]. Quiet cannot tell "nothing
+      * was produced" from "nothing has ARRIVED yet", so racing the two lets a
+      * slow batch be read as silence: past quiet's ~250ms floor
+      * (`drop(6)` + `sliding(4)` at 25ms) every sample reads 0, quiet wins,
+      * and `drain` hands the test an empty list for a batch that was merely in
+      * flight. That is a false pass for any assertion expecting silence and a
+      * false FAILURE for the assertion after it. The caller knows which answer
+      * it expects, so it says so.
+      */
+    def silence: IO[Unit] = quiet
 
     private def untilCursor: IO[Unit] =
       fs2.Stream
@@ -2373,9 +2380,19 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- clients.update(_ :+ client)
       } yield client
 
-    /** Apply one change and wait for EVERY client to fall quiet. */
+    /** Apply one change and wait for EVERY client to receive the whole batch.
+      */
     def change(next: EntityState): IO[Unit] =
       store.update(next) *> clients.get.flatMap(_.traverse_(_.settled))
+
+    /** [[change]] for a change that must produce NO patch for anyone — a tick
+      * inside a hidden branch, or one whose HTML is digest-identical. There is
+      * no cursor to wait for, so this observes quiet instead; see
+      * [[LiveClient.silence]] for why that is a separate method rather than a
+      * fallback inside [[LiveClient.settled]].
+      */
+    def changeExpectingSilence(next: EntityState): IO[Unit] =
+      store.update(next) *> clients.get.flatMap(_.traverse_(_.silence))
 
     /** ONE HA frame carrying several entities — a single store update, as the
       * feed delivers it.
@@ -2967,7 +2984,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- c.drain
         // sensor.a is bound ONLY inside tab 0's panel, inside the hidden
         // branch. Nothing on screen shows it.
-        _ <- world.change(es("sensor.a", "A1"))
+        _ <- world.changeExpectingSilence(es("sensor.a", "A1"))
         hidden <- c.drain
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
@@ -3442,7 +3459,8 @@ class ServerSuite extends munit.CatsEffectSuite {
 
         // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
         //    Silence is structural — its ids never enter the selection.
-        hidden <- world.change(es("sensor.b", "B1")) *> client.drain
+        hidden <-
+          world.changeExpectingSilence(es("sensor.b", "B1")) *> client.drain
         _ = assertEquals(hidden, Nil, clue = hidden)
 
         // 4. The flip: ONE overwrite of the host's mount, carrying the branch
@@ -3566,7 +3584,8 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The diff's whole purpose: a change that renders identically puts
         // NOTHING on the wire — not even a cursor, since only a non-empty batch
         // carries one.
-        again <- world.change(es("sensor.a", "hot")) *> client.drain
+        again <-
+          world.changeExpectingSilence(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(again, Nil, clue = again)
       } yield ()
     }
