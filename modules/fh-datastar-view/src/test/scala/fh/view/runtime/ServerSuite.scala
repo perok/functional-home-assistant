@@ -2828,23 +2828,21 @@ class ServerSuite extends munit.CatsEffectSuite {
       "alarm.h" -> es("alarm.h", "armed"),
       "sensor.a" -> es("sensor.a", "A0")
     )
-    val (log, _, pending) = Patches.diff(
+    val req = Patches.plan(
       r,
-      FragmentLog("flip"),
-      Patches.plan(
-        r,
-        armed,
-        Stamp(2L, 0L),
-        List(
-          StateChange(
-            "alarm.h",
-            Some(es("alarm.h", "disarmed")),
-            es("alarm.h", "armed")
-          )
-        ),
-        Set.empty
-      )
+      armed,
+      Stamp(2L, 0L),
+      List(
+        StateChange(
+          "alarm.h",
+          Some(es("alarm.h", "disarmed")),
+          es("alarm.h", "armed")
+        )
+      ),
+      Set.empty
     )
+    val (log, _, pending) =
+      Patches.diff(Patches.prepare(r, req), FragmentLog("flip"), req)
     assertEquals(pending.size, 1, clue = pending)
     val fill = pending.head.render(Map.empty, armed).get
 

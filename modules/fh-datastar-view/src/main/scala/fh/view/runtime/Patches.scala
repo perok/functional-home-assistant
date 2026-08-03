@@ -135,15 +135,67 @@ private[runtime] sealed trait Directed {
   def visibleTo(open: Set[String]): Boolean = surface.forall(open)
 }
 
+/** Every rendering a [[Patches.diff]] pass is expected to ask for, produced by
+  * [[Patches.prepare]] BEFORE the log is touched.
+  *
+  * '''Why this exists''': rendering is the expensive half of a diff (a mustache
+  * template per node, then a SHA-256 over the bytes) and it does not depend on
+  * the log at all — every one of these is a pure function of `(renderer,
+  * states)`. The log only decides whether the RESULT is worth sending. Leaving
+  * the renders where the log is read makes them run inside `Ref.modify`, whose
+  * function a CAS loop may run several times, so a writer that loses the race
+  * re-renders everything to throw it away.
+  *
+  * So the renders happen here, once, outside; [[Patches.diff]] then does
+  * lookups and map updates, which is cheap enough that losing a CAS costs
+  * nothing worth avoiding.
+  *
+  * '''Misses fall through to the renderer''' rather than failing, and that is
+  * deliberate: it keeps this a cache rather than a contract, so a branch whose
+  * choice of what to render depends on the log (there is exactly one — see
+  * [[Patches.renderMembershipChange]]) stays correct without having to
+  * pre-render both of its alternatives. Such a miss renders inside the section,
+  * exactly as the whole pass used to.
+  */
+private[runtime] final class Renders(
+    val renderer: Renderer,
+    states: Map[String, EntityState],
+    before: Map[String, EntityState],
+    nodes: Map[NodeId, Option[String]],
+    children: Map[(NodeId, String), Option[String]],
+    fills: Map[NodeId, List[(NodeId, String)]],
+    membersNow: Map[NodeId, List[String]],
+    membersWas: Map[NodeId, List[String]]
+) {
+  def node(id: NodeId): Option[String] =
+    nodes.getOrElse(id, renderer.renderNodeById(id, states))
+
+  def child(gid: NodeId, entityId: String): Option[String] =
+    children.getOrElse(
+      (gid, entityId),
+      renderer.renderDynamicChild(gid, entityId, states)
+    )
+
+  def fill(gid: NodeId): List[(NodeId, String)] =
+    fills.getOrElse(gid, renderer.renderDynamicMembers(gid, states))
+
+  def membersAfter(gid: NodeId): List[String] =
+    membersNow.getOrElse(gid, renderer.dynamicMembers(gid, states))
+
+  def membersBefore(gid: NodeId): List[String] =
+    membersWas.getOrElse(gid, renderer.dynamicMembers(gid, before))
+}
+
 /** The pure diff core, lifted out of [[Server]] so it is testable without a
-  * booted server (no HA stub, no `Supervisor`, no SSE plumbing). Two entry
+  * booted server (no HA stub, no `Supervisor`, no SSE plumbing). Three entry
   * points:
   *
   *   - [[plan]] SELECTS what one state change touches — the affected static
   *     component ids, dynamic groups, and flipped state groups — for every
   *     client at once.
-  *   - [[diff]] DIFFS that selection against a cache, returning the updated
-  *     cache and what to emit.
+  *   - [[prepare]] RENDERS what that selection will need, outside the log.
+  *   - [[diff]] DIFFS the renders against a cache, returning the updated cache
+  *     and what to emit.
   *
   * Everything here is pure over the entity snapshot; the caller ([[Server]])
   * owns the `Ref`/`IO` that reads the snapshot and `modify`s the cache.
@@ -305,16 +357,102 @@ private[runtime] object Patches {
     )
   }
 
+  /** Render everything [[diff]] will ask for, so it can run outside the log's
+    * critical section. See [[Renders]] for why.
+    *
+    * This mirrors [[diff]]'s decisions, but only the ones derivable from STATE
+    * — which is all of them bar one. A group whose membership did not move
+    * renders its touched children; one whose membership moved renders either
+    * the arrivals or the whole mount, and the churn heuristic that chooses
+    * between them is pure state ([[Server.MaxChurnFraction]] over the member
+    * counts). The single decision that also reads the log — `hasChildOf`, which
+    * can downgrade an arrivals-only patch to a whole-mount fill — is left to
+    * [[diff]], and its fill renders there on the rare occasions it fires.
+    *
+    * Flips render nothing at all (see [[flipStateGroup]]), and `varyingIds`
+    * render lazily per variant, so neither appears here.
+    */
+  def prepare(renderer: Renderer, req: DiffRequest): Renders = {
+    val states = req.states
+    val nodes = req.staticIds.map { case (id, _) =>
+      id -> renderer.renderNodeById(id, states)
+    }.toMap
+
+    val membersNow = req.dynamics.map { case (gid, _, _) =>
+      gid -> renderer.dynamicMembers(gid, states)
+    }.toMap
+    val membersWas = req.dynamics.map { case (gid, _, _) =>
+      gid -> renderer.dynamicMembers(gid, req.before)
+    }.toMap
+
+    val (children, fills) =
+      req.dynamics.foldLeft(
+        (
+          Map.empty[(NodeId, String), Option[String]],
+          Map.empty[NodeId, List[(NodeId, String)]]
+        )
+      ) { case ((cs, fs), (gid, _, touched)) =>
+        val was = membersWas(gid)
+        val now = membersNow(gid)
+        if (was == now)
+          // The hot path: an in-place tick per entity this frame moved.
+          (
+            cs ++ touched.map(e =>
+              (gid, e) -> renderer.renderDynamicChild(gid, e, states)
+            ),
+            fs
+          )
+        else {
+          val added = now.filterNot(was.toSet)
+          val churn = added.size + was.filterNot(now.toSet).size
+          if (perEntityChurn(churn, was.size))
+            (
+              cs ++ added.map(e =>
+                (gid, e) -> renderer.renderDynamicChild(gid, e, states)
+              ),
+              fs
+            )
+          else (cs, fs.updated(gid, renderer.renderDynamicMembers(gid, states)))
+        }
+      }
+
+    new Renders(
+      renderer,
+      states,
+      req.before,
+      nodes,
+      children,
+      fills,
+      membersNow,
+      membersWas
+    )
+  }
+
+  /** Per-entity pays off only when the churn is a MINORITY of the group: at the
+    * boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
+    * is cheaper than juggling insert/remove patches. Strict `<` so exactly half
+    * repaints. `MaxChurnFraction` is tunable.
+    *
+    * Named because [[prepare]] and [[renderMembershipChange]] must agree on it:
+    * one decides what to render, the other what to send.
+    */
+  private def perEntityChurn(churn: Int, shown: Int): Boolean =
+    churn > 0 && churn < Server.MaxChurnFraction * shown
+
   /** '''Flips run FIRST.''' Their prune must precede any diff that could
     * suppress a member fragment against a pre-flip entry.
     *
-    * Pure over `states`; the caller wraps it in the log Ref's `modify`.
+    * Pure over `states`; the caller wraps it in the log Ref's `modify`. Takes
+    * [[Renders]] rather than a bare `Renderer` so the expensive half has
+    * already happened — everything below is lookups, digests of already-built
+    * strings, and map updates.
     */
   def diff(
-      renderer: Renderer,
+      renders: Renders,
       log: FragmentLog,
       req: DiffRequest
   ): (FragmentLog, List[Directed], List[Pending]) = {
+    val renderer = renders.renderer
     val at = req.stamp
     // Each stage carries its own patches' tag through, so a patch's audience is
     // decided once — where the node was SELECTED — and never re-derived.
@@ -340,9 +478,7 @@ private[runtime] object Patches {
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
-        renderer
-          .renderNodeById(id, req.states)
-          .map(html => (id, surface, html))
+        renders.node(id).map(html => (id, surface, html))
       }
     val (logAfterStatic, staticPatches) =
       rendered.foldLeft((logAfterFlips, List.empty[(Option[String], Patch)])) {
@@ -356,15 +492,7 @@ private[runtime] object Patches {
         (logAfterStatic, List.empty[(Option[String], Patch)])
       ) { case ((c, acc), (gid, surface, touched)) =>
         val (c2, ps) =
-          renderDynamicGroup(
-            renderer,
-            c,
-            gid,
-            touched,
-            req.states,
-            req.before,
-            at
-          )
+          renderDynamicGroup(renders, c, gid, touched, at)
         (c2, acc ++ ps.map(surface -> _))
       }
     // The per-variant renders the shell forces on demand. Described here, next
@@ -829,32 +957,22 @@ private[runtime] object Patches {
     * of that reports a membership change the frame did not make.
     */
   private def renderDynamicGroup(
-      renderer: Renderer,
+      renders: Renders,
       log: FragmentLog,
       gid: NodeId,
       touched: List[String],
-      states: Map[String, EntityState],
-      before: Map[String, EntityState],
       at: Stamp
   ): (FragmentLog, List[Patch]) = {
-    val membersBefore = renderer.dynamicMembers(gid, before)
-    val membersAfter = renderer.dynamicMembers(gid, states)
+    val membersBefore = renders.membersBefore(gid)
+    val membersAfter = renders.membersAfter(gid)
     if (membersBefore != membersAfter)
-      renderMembershipChange(
-        renderer,
-        log,
-        gid,
-        membersBefore,
-        membersAfter,
-        states,
-        at
-      )
+      renderMembershipChange(renders, log, gid, membersBefore, membersAfter, at)
     else
       touched.foldLeft((log, List.empty[Patch])) { case ((c, acc), entityId) =>
-        renderer.renderDynamicChild(gid, entityId, states) match {
+        renders.child(gid, entityId) match {
           case None       => (c, acc) // not a current member
           case Some(html) =>
-            val cid = renderer.dynamicChildId(gid, entityId)
+            val cid = renders.renderer.dynamicChildId(gid, entityId)
             if (c.holds(cid, html)) (c, acc)
             else (c.set(cid, html, at.version), acc :+ Patch.Morph(html))
         }
@@ -883,34 +1001,66 @@ private[runtime] object Patches {
     * lack that child until the next whole-group repaint — an in-place morph
     * can't heal an id absent from that client's DOM. Bounded and self-healing;
     * whole-group repaints (heavy churn / reload) re-sync every client.
+    *
+    * ==The one render this pass cannot decide in advance==
+    *
+    * [[prepare]] renders everything else before the log is read, because
+    * nothing else needs the log to know WHAT to render. This branch does. It
+    * picks between two different renderings —
+    *
+    *   - '''arrivals only''' (cheap: one card per entity that joined), or
+    *   - '''the whole mount''' ([[fillGroup]], one card per CURRENT member)
+    *
+    * — using two conditions, and they do not come from the same place:
+    *
+    *   - `perEntity` — is the churn a minority of the group? Pure state, so
+    *     [[prepare]] evaluates the same [[perEntityChurn]] and pre-renders
+    *     whichever side it names.
+    *   - `established` — does the log already hold children for this group?
+    *     Only the log knows, and it is asked here.
+    *
+    * `established` is false exactly when this group's children are not in the
+    * log: the first membership change after a renderer swap or a reload (the
+    * log is minted fresh), or after a fill pruned them. Sending arrivals then
+    * would patch against a DOM baseline the server cannot vouch for, so it
+    * repaints instead.
+    *
+    * When `perEntity` says "arrivals" and `established` says "no", the fill has
+    * not been pre-rendered and is built HERE, inside the critical section —
+    * i.e. exactly the behaviour this file had before [[prepare]] existed. That
+    * is a deliberate trade rather than an oversight: pre-rendering both sides
+    * would make every membership change pay for the whole mount, to spare a
+    * case that needs a swap/reload first and then cannot repeat (the fill it
+    * runs establishes the group). Rare, self-limiting, and correct either way —
+    * whereas guessing `established` wrong in the other direction would send a
+    * client a delta against markup it does not have.
     */
   private def renderMembershipChange(
-      renderer: Renderer,
+      renders: Renders,
       log: FragmentLog,
       gid: NodeId,
       membersBefore: List[String],
       membersAfter: List[String],
-      states: Map[String, EntityState],
       at: Stamp
   ): (FragmentLog, List[Patch]) = {
+    val renderer = renders.renderer
     val beforeSet = membersBefore.toSet
     val afterSet = membersAfter.toSet
     val added = membersAfter.filterNot(beforeSet)
     val removed = membersBefore.filterNot(afterSet)
     val churn = added.size + removed.size
-    val shown = membersBefore.size
-    // Per-entity pays off only when the churn is a MINORITY of the group: at the
-    // boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
-    // is cheaper than juggling insert/remove patches. Strict `<` so exactly half
-    // repaints. `MaxChurnFraction` is tunable.
-    val perEntity = churn > 0 && churn < Server.MaxChurnFraction * shown
+    // The same heuristic `prepare` used to decide what to pre-render.
+    val perEntity = perEntityChurn(churn, membersBefore.size)
+    // The only input to this pass that comes from the log rather than from
+    // state, and so the only reason a render can be needed that `prepare` did
+    // not do. See the class doc above.
     val established = log.hasChildOf(gid)
     // The query boundary moved but the RENDERED membership did not — an entity
     // matching the query but no case is not a member either way, so there is
     // nothing to send and nothing to fill.
     if (churn == 0) (log, Nil)
     else if (!perEntity || !established)
-      fillGroup(renderer, log, gid, states, at)
+      fillGroup(renders, log, gid, at)
     else {
       val (afterRemoves, removePatches) =
         removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
@@ -923,7 +1073,7 @@ private[runtime] object Patches {
       val (afterAdds, addPatches) =
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
           case ((c, acc), e) =>
-            renderer.renderDynamicChild(gid, e, states) match {
+            renders.child(gid, e) match {
               case None       => (c, acc) // defensive: not renderable, skip
               case Some(html) =>
                 val cid = renderer.dynamicChildId(gid, e)
@@ -959,13 +1109,13 @@ private[runtime] object Patches {
     * delta is gone.
     */
   private def fillGroup(
-      renderer: Renderer,
+      renders: Renders,
       log: FragmentLog,
       gid: NodeId,
-      states: Map[String, EntityState],
       at: Stamp
   ): (FragmentLog, List[Patch]) = {
-    val members = renderer.renderDynamicMembers(gid, states)
+    val renderer = renders.renderer
+    val members = renders.fill(gid)
     // Prune first: a member that LEFT must not keep an entry, and its stale
     // mutation must not replay against a mount this fill just re-supplied.
     val pruned = log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))

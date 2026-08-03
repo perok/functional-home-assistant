@@ -350,7 +350,7 @@ class Server(
   def push(validated: Dashboard.Validated): IO[Unit] =
     (
       SignallingRef[IO].of(Renderer.fromValidated(validated)),
-      Server.freshLog.flatMap(AtomicCell[IO].of)
+      Server.freshLog.flatMap(Ref[IO].of)
     ).flatMapN { (renderer, log) =>
       val fresh = Server.LiveSlug(renderer, log)
       val slug = validated.dashboard.slug
@@ -403,9 +403,15 @@ class Server(
           changes,
           visible
         )
+        // Render BEFORE the log is touched. `modify` runs its function under a
+        // CAS, so anything expensive in there is work a losing writer repeats
+        // and discards — and the renders do not need the log at all, only the
+        // decision of what to SEND does (see [[Renders]]). What is left inside
+        // is digest comparison and map updates.
+        val renders = Patches.prepare(renderer, req)
         log
           .modify { l =>
-            val (l2, ready, pending) = Patches.diff(renderer, l, req)
+            val (l2, ready, pending) = Patches.diff(renders, l, req)
             (l2, (ready, pending))
           }
           .flatMap { case (ready, pending) =>
