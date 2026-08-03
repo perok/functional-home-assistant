@@ -131,13 +131,28 @@ object PklBuild {
 
   /** If `dashboardsDir` is a Pkl project, load it and ensure its
     * `PklProject.deps.json` lockfile exists, so `applyFromProject` can resolve
-    * the `@fh-dashboard` alias. Resolution is IN-PROCESS, and touches the
-    * network only for a REMOTE dependency that is not already in the package
-    * cache: local deps read files, and a cached remote version satisfies the
-    * resolver without a request (so add-on boots stay offline-safe — the client
-    * below is lazy and is never even built then). An uncached remote dep — a
-    * published third-party card package, or a bumped `@fh-dashboard` pin the
-    * image didn't bundle — is fetched for real, honoring the manifest's own
+    * the `@fh-dashboard` alias.
+    *
+    * **This has to run BEFORE the evaluator is built, and the lockfile has to
+    * be a FILE.** The evaluator will not produce one: it errors with
+    * "attempting to load `PklProject.deps.json`" when it is missing, and there
+    * is no way to hand it the resolved set in memory — `EvaluatorBuilder`
+    * accepts only `DeclaredDependencies`, and `ProjectDeps` (what `resolve()`
+    * returns) exposes nothing but `parse(Path)` and `writeTo(OutputStream)`.
+    * The file is the only channel. We want it on disk regardless: pkl-lsp, the
+    * `pkl` CLI and `fh` all read the same lockfile.
+    *
+    * The split is version SELECTION, not network access — evaluation is not
+    * offline-by-construction. A dependency that is locked but missing from the
+    * cache IS fetched during eval (verified), which is why the manifest's
+    * `allowedResources` has to reach the evaluator too, via `applyFromProject`.
+    * Resolution is IN-PROCESS, and touches the network only for a REMOTE
+    * dependency that is not already in the package cache: local deps read
+    * files, and a cached remote version satisfies the resolver without a
+    * request (so add-on boots stay offline-safe — the client below is lazy and
+    * is never even built then). An uncached remote dep — a published
+    * third-party card package, or a bumped `@fh-dashboard` pin the image didn't
+    * bundle — is fetched for real, honoring the manifest's own
     * `evaluatorSettings.http.rewrites` (the documented air-gap mechanism; how a
     * workspace maps `fh.invalid` to a real host). If that fetch fails (offline,
     * dead registry), the error propagates into the entry's build error verbatim
