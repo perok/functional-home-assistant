@@ -3,7 +3,7 @@
 //> using scala 3.7.4
 //> using jvm 17
 //> using toolkit typelevel:0.2.0
-//> using dep org.pkl-lang:pkl-core:0.31.1
+//> using dep org.pkl-lang:pkl-core:0.32.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
 //> using dep net.harawata:appdirs:1.5.0
 
@@ -137,13 +137,39 @@ def projectHttpClient(
     }
     .build()
 
+/** The manifest's own `allowedResources`/`allowedModules`, lifted into a
+  * security manager.
+  *
+  * From pkl 0.32 the resource allowlist is checked against the REWRITTEN url,
+  * and `.fh/base.pkl` rewrites `package://fh.invalid/…` to this instance's LAN
+  * address — plain http, since a home add-on has no certificate. base.pkl
+  * therefore allows exactly that one origin; `applyFromProject` gives the
+  * evaluator those lists, but `PackageResolver` takes its manager as an
+  * argument, so resolution has to be handed the same thing.
+  */
+def securityManagerFor(
+    project: org.pkl.core.project.Project
+): org.pkl.core.SecurityManager =
+  val settings = project.getEvaluatorSettings
+  org.pkl.core.SecurityManagers
+    .standardBuilder()
+    // standardBuilder() starts EMPTY — the defaults are not implied.
+    .addAllowedModules(
+      Option(settings.allowedModules)
+        .getOrElse(org.pkl.core.SecurityManagers.defaultAllowedModules)
+    )
+    .addAllowedResources(
+      Option(settings.allowedResources)
+        .getOrElse(org.pkl.core.SecurityManagers.defaultAllowedResources)
+    )
+    .build()
+
 /** `pkl project resolve`, in-process: resolve the manifest's dependencies from
   * the instance (packages land in the machine.json cache) and write the
   * lockfile. Client and cache both come off the loaded project, so what the
   * manifest declares is what resolution uses.
   */
 def resolveDeps(): IO[Unit] = IO.blocking {
-  import org.pkl.core.SecurityManagers
   import org.pkl.core.packages.PackageResolver
   import org.pkl.core.project.ProjectDependenciesResolver
   val project = loadProject()
@@ -155,7 +181,7 @@ def resolveDeps(): IO[Unit] = IO.blocking {
   val resolver = new ProjectDependenciesResolver(
     project,
     PackageResolver.getInstance(
-      SecurityManagers.defaultManager,
+      securityManagerFor(project),
       projectHttpClient(project),
       cache
     ),
@@ -463,6 +489,14 @@ def pklUserSettings: Path =
   * FROM the project directory — `pkl project resolve <dir>` from elsewhere
   * (exactly how the IntelliJ plugin syncs) ignores them and dials `fh.invalid`
   * literally. User-level settings apply in both modes (verified on pkl 0.31.0).
+  *
+  * From pkl 0.32 this is NOT sufficient on its own for an http instance: the
+  * resource allowlist is checked against the rewritten url too, dir-arg mode
+  * skips the project's `allowedResources` the same way it skips the rewrites,
+  * and `pkl:settings` has no `allowedResources` property to lift it into. Only
+  * the command line can carry it, so point the IDE's Pkl executable at
+  * `scripts/pkl-fh`, which injects both flags (verified on 0.32.1; see
+  * docs/pkl-issue-http-rewrites-project-resolve.md).
   */
 def lspFixContent(url: String): String =
   s"""amends "pkl:settings"
@@ -502,8 +536,10 @@ def writeLspFix(settings: Path, rawUrl: String): IO[Unit] = IO.blocking {
     Files.createDirectories(settings.getParent)
     Files.write(settings, content.getBytes(UTF_8))
     println(
-      s"wrote $settings — `pkl project resolve` and IntelliJ/pkl-lsp sync " +
-        s"now reach this workspace's packages via $url (instance must be up)"
+      s"wrote $settings — `pkl project resolve <dir>` now reaches this " +
+        s"workspace's packages via $url (instance must be up). On pkl 0.32+ " +
+        "an http instance ALSO needs an allowlist that only the command line " +
+        "carries: point the IDE's Pkl executable at scripts/pkl-fh."
     )
 }
 

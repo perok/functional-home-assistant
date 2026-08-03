@@ -266,6 +266,27 @@ object AddonBootstrap {
        |      ["https://fh.invalid/"] = machine.instanceUrl + "/system/pkl/packages/"
        |    }
        |  }
+       |  // pkl's defaults plus THIS instance. From 0.32 the resource allowlist
+       |  // is checked against the REWRITTEN url, and the rewrite above targets
+       |  // your instance on the LAN, which has no certificate to serve — so
+       |  // without an http entry every package fetch is refused. Setting the
+       |  // field REPLACES the defaults, hence the full list.
+       |  //
+       |  // Entries are REGEXES matched against the url, so the last one grants
+       |  // exactly your instance rather than http at large: anchored at the
+       |  // start, with each dot rewritten to the class `[.]` so it matches a
+       |  // literal dot and not any character. (`///` is a doc comment — a parse
+       |  // error in an amend body — hence `//` here.)
+       |  allowedResources {
+       |    "prop:"
+       |    "env:"
+       |    "file:"
+       |    "modulepath:"
+       |    "package:"
+       |    "projectpackage:"
+       |    "https:"
+       |    "^" + machine.instanceUrl.replaceAll(".", "[.]") + "/"
+       |  }
        |}
        |
        |dependencies {

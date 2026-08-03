@@ -1,4 +1,4 @@
-# `pkl project resolve <dir>` ignores the project's `evaluatorSettings.http.rewrites` (and `moduleCacheDir`); `pkl project resolve .` honors them
+# `pkl project resolve <dir>` ignores the project's `evaluatorSettings` (`http.rewrites`, `moduleCacheDir`, `allowedResources`); `pkl project resolve .` honors them
 
 ## Summary
 
@@ -101,3 +101,73 @@ the CLI's working directory, not on which project is being resolved.
   `~/.pkl/settings.pkl` (or pass `--http-rewrite`), which is honored in both
   modes — but that is per-user global state duplicating per-project
   configuration.
+
+### Likely root cause: no `applyFromProject` on the resolver side
+
+The evaluator side has one call that wires everything a project declares:
+
+```java
+EvaluatorBuilder.preconfigured().applyFromProject(project)  // manager, client, cache dir
+```
+
+The resolver side has no equivalent, and no builder at all:
+
+```java
+new ProjectDependenciesResolver(project, packageResolver, writer);
+PackageResolver.getInstance(securityManager, httpClient, cacheDir);  // no Project
+```
+
+`ProjectDependenciesResolver` **already receives the `Project`** — it simply does
+not use it to configure the `PackageResolver` handed to it, so the security
+manager, http client (hence `http.rewrites`) and cache dir must be re-derived by
+the caller from the very object the constructor holds. Every embedder has to
+redo `applyFromProject` by hand, and the CLI's dir-argument mode is a case of
+that wiring being omitted — which is exactly the asymmetry reported above.
+
+A resolver-side `applyFromProject` (or deriving the `PackageResolver` from the
+`Project` already passed in) would make the dir-argument case correct by
+construction, rather than depending on each call site remembering.
+
+### 0.32 makes the settings.pkl workaround insufficient
+
+`evaluatorSettings.allowedResources` is skipped in dir-argument mode for the
+same reason, and from **0.32** that is no longer cosmetic: the resource
+allowlist is now checked against the **rewritten** url as well as the original.
+A mirror served over plain http (a LAN host with no certificate) is therefore
+refused, because the defaults admit `https:` and never `http:`.
+
+The settings.pkl workaround does not cover it — `pkl:settings` has **no**
+`allowedResources` property (`Cannot find property 'allowedResources' in module
+'pkl.settings'`), so the rewrite can be supplied globally but the matching
+allowance cannot. Verified on **Pkl 0.32.1 (Linux, native)**, with the rewrite
+in `settings.pkl` and the allowlist in the project:
+
+```
+$ cd ws && pkl project resolve                   # honors the project
+Exception when making request `GET https://fh.invalid/x@1.0.0`:
+Error connecting to host `127.0.0.1`. (request was rewritten: … -> http://127.0.0.1:9/x@1.0.0)
+
+$ pkl project resolve ws --settings settings.pkl # dir-arg: project ignored
+Refusing to read resource `http://127.0.0.1:9/x@1.0.0` because it does not
+match any entry in the resource allowlist (`--allowed-resources`).
+```
+
+The only remaining lever is the `--allowed-resources` flag, which **replaces**
+the defaults rather than extending them, and must list the pre-rewrite scheme
+as well as the post-rewrite origin (both are checked):
+
+```
+pkl project resolve ws --settings settings.pkl \
+  --allowed-resources "prop:,env:,file:,modulepath:,package:,projectpackage:,https:,^http://127[.]0[.]0[.]1:9/"
+```
+
+That is not reachable from the IntelliJ plugin's sync UI, so on 0.32 a workspace
+whose mirror is plain http cannot be synced from the IDE — while the same
+project resolves fine from inside its own directory.
+
+Our workaround is `scripts/pkl-fh`: the plugin is configured with a path to a
+Pkl executable, so that path can be a wrapper which forwards every argument and
+injects `--http-rewrite` + `--allowed-resources`, read from the workspace's own
+`.fh/machine.json`. It only injects for the subcommands that accept the flags,
+so `--version`/`format` still pass through. That works, but it is a workaround
+for configuration the project already declares and the resolver already loaded.

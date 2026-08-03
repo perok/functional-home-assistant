@@ -433,10 +433,34 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         java.net.URI.create(s"${base.renderString}/system/pkl/packages/")
       )
       .build()
+    // A real laptop gets this from the base.pkl `fh init` fetched, which scopes
+    // the allowance to its own instance. Here the port is only known now, so
+    // append the equivalent block before loading.
+    os.write.append(
+      laptop / "PklProject",
+      s"""|evaluatorSettings {
+          |  // Declaring the field REPLACES pkl's defaults, so they are relisted
+          |  // here (this manifest amends pkl:Project directly, not base.pkl).
+          |  allowedResources {
+          |    "prop:"
+          |    "env:"
+          |    "file:"
+          |    "modulepath:"
+          |    "package:"
+          |    "projectpackage:"
+          |    "https:"
+          |    "^${base.renderString.stripSuffix("/").replace(".", "[.]")}/"
+          |  }
+          |}
+          |""".stripMargin
+    )
+    val laptopProject = Project.loadFromPath((laptop / "PklProject").toNIO)
     val resolver = new ProjectDependenciesResolver(
-      Project.loadFromPath((laptop / "PklProject").toNIO),
+      laptopProject,
       PackageResolver.getInstance(
-        SecurityManagers.defaultManager,
+        // The manifest's own allowedResources, exactly as production derives
+        // it — a laptop resolving from the instance goes over plain http.
+        fh.view.build.PklBuild.securityManagerFor(laptopProject),
         http,
         laptopCache.toNIO
       ),
@@ -453,7 +477,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .preconfigured()
       .setHttpClient(http)
       .setModuleCacheDir(laptopCache.toNIO)
-      .applyFromProject(Project.loadFromPath((laptop / "PklProject").toNIO))
+      .applyFromProject(laptopProject)
       .build()
     try
       evaluator
