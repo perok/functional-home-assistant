@@ -59,35 +59,49 @@ Each one lands on its own and keeps the suites green.
      to carry one digest per selection to avoid claiming somebody else's tab. It also pulls two
      pieces of phase 4 forward — `conn` as a session identity, and a lifetime (`AdoptionWindow`,
      reaping a document nobody connected to).
-   - The send path decides against its own `holds`; the publisher stops rendering and pushing.
-     **The one remaining step, and it is atomic** — the live decision cannot move to the session
-     while the log still has to answer it. Execution notes, derived from reading the current code:
+   - ~~The send path decides against its own `holds`; the publisher stops rendering and pushing.~~
+     **Landed.** `Patches.record` writes the changelog (no rendering, no digests, no patches), a
+     per-slug `SignallingRef` doorbell carries the version, and each session runs the SAME
+     `Patches.resume` from `position + 1`, applies `Patches.applied`, and encodes. `Patches.diff`,
+     `flipStateGroup`, `renderDynamicGroup`, `renderMembershipChange`, `fillGroup`, `Batch`,
+     `Encoded`, `Step`, `Directed`, `Varying`, `Pending`, `Rendered` and the shared topic are gone;
+     `Addressed` lost its audience tag, because a patch is now made by the session that will send
+     it. What actually differed from the notes above:
 
-     - **`Patches.record(renderer, log, req): FragmentLog`** replaces `diff` on the publisher side.
-       Everything it needs is already pure: membership is `renderer.dynamicMembers(gid, snapshot)`
-       (what `Renders.membersBefore/After` delegate to), and a flip's selection is
-       `resolveActiveByState` against `before` vs `states`. So it writes `nodeId -> version` for
-       statics AND varyings (no variant split — nothing shared decides per viewer any more),
-       `Gone`/`Placed` for membership and flips, and the flip's subtree prune. No rendering, no
-       digests.
-     - **The churn heuristic must survive as a RECORDED fact**, or the wire changes (there is a
-       suite asserting a 50%-churn removal FILLS the mount). It maps onto `horizon`: heavy churn
-       sets `horizon(gid) = version`, which is already "any cursor below this gets a refill of this
-       container". Same for `!established` (`log.hasChildOf(gid)`, which still works once the
-       changelog keeps child ids).
-     - **`LiveSlug` gains the doorbell** — `SignallingRef[IO, Long]` set to the recorded version.
-       `.discrete` coalesces by design: several versions landing while a session renders collapse
-       into one pull.
-     - **The session's stream** replaces its `sharedTopic` subscription with the doorbell, and each
-       wake runs the SAME `Patches.resume` the connect path runs, from `position + 1` (exact
-       server-side, unlike a client cursor, which is why `since`'s `>=` does not apply here), then
-       `Patches.applied` per patch, `position := version`, `Patches.encode`, and the version signal.
-     - **Order the deletions after the flip**, in their own commit: `diff`, `prepare`, `Renders`,
-       `Varying`, `Pending`, `Memo`, `sharedTopic`, `Batch`, `Directed`/`Encoded` if nothing else
-       wants them, and `FragmentLog`'s `holds`/`atLeast`/`digestsFor`/`Fragment.digests`. Both
-       commits stay green; splitting keeps the behaviour change readable.
-     - **The render cache is NOT wired into `resume` yet.** Correctness first — `resume` renders
-       purely today. Wiring it is what restores fan-out between sessions and is worth its own step.
+     - **A live arrival is `remove` + `insert`**, not a bare insert: every client gets resume
+       semantics, and the pair is idempotent in any DOM state, which is what makes an arrival and a
+       re-order the same operation. Deliberate, and the assertions that pinned the old shape were
+       updated.
+     - **A pull always reports its position**, even when it owed this client nothing. Under a shared
+       push the cursor could only advance where a batch had been decided for everybody, so a client
+       whose patches were all filtered away still had to be told; "nothing owed" is now a per-client
+       answer, which is exactly what the cursor claims.
+     - **A body repaint CLAIMS what it painted** rather than clearing `holds`. It is the same render
+       the document makes, so it knows what it put where — and clearing instead left every open
+       surface unclaimed and re-sent on the very next pull.
+     - **`resume` filters mutations by visibility**, not only nodes. A `Gone`/`Placed` inside a
+       surface a client does not have open would patch an id its DOM lacks; harmless, but it is one
+       client's worth of another client's tab on every frame. This is where the audience tag's work
+       went.
+     - **A branch fill forgets by MOUNT, not by container prefix.** Branch content ids are
+       `s_<surface>__…`, which no prefix of the container id reaches — so the fill names the
+       surfaces at that mount (`Patches.hostEvicts`). Found by a re-reveal test going silent.
+     - **A dynamic refill establishes its members**, since `renderMount` yields one resolvable node
+       per member; a branch fill still establishes nothing, because its root has no rendering of its
+       own and a digest there could never be resolved.
+     - **A fill `touched`es the members it leaves**, or the group is never *established* again and
+       every subsequent membership change fills — each one raising the horizon past another cursor.
+     - **A tab/popup swap claims into the SESSION**, not the shared log (`Patches.hostFill`
+       replaces `fillHost`): one client switching a tab says nothing about anyone else's DOM.
+     - **Three test readiness seams were wrong** in a way the push model hid: they gated on a
+       session COUNT, which a document's session (or a previous connection's) already satisfies, so
+       a change could land in the opening repaint. They now gate on the connection's own opening
+       cursor. `Server.connectedSessions` counts ADOPTED sessions for the same reason.
+
+     Still to do, in its own commit: the dead tail this left — `Memo`, `Selections`,
+     `selectionsOf`/`selectionsUnder`, `variantIn`, `FragmentLog.isGone`, and eventually the whole
+     variant dimension (`Fragment.digests`, `holds`, `atLeast`, `digestsFor`, `Renderer.variantOf`),
+     which only the shared log needed.
 4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
    recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
    document-creates-the-session step, which is what first made two streams able to reach one

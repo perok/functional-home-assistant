@@ -38,37 +38,37 @@ flowchart TB
     CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
   end
 
-  subgraph SHARED["PER SLUG — one publisher fiber each, however many viewers"]
+  subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips · varyingIds"]
-    PREP["Patches.prepare returns Renders<br/>ALL RENDERING HAPPENS HERE<br/>outside the log, so a CAS retry stays cheap<br/>through the per-slug RenderCache"]
-    DIFF["Patches.diff — inside log.modify<br/>digest compare + map updates only"]
-    TOPIC["sharedTopic · slug-tagged Batch<br/>version + items, decided WHOLE by a connection<br/>ONE topic for all slugs, so a connection<br/>holds ONE subscription whatever is pushed later"]
+    REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership + flips from state alone"]
+    BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
   end
 
   subgraph CLIENT["PER CLIENT — one SSE stream per browser tab"]
     direction TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
-    FILT["filter: slug match,<br/>then visibleTo this session's open set"]
-    RESOLVE["resolve Varying<br/>render THIS viewer's selection<br/>Memo.keyed shares one verdict<br/>between viewers who agree"]
-    MERGE["merge: shared ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
+    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE<br/>against THIS session's holds + open set"]
+    APPL["Patches.applied<br/>forget the mounts it re-supplied,<br/>claim what its bytes placed"]
+    MERGE["merge: pulls ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM"]
   end
 
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (decides the resume) + position"]
-  LOG[("FragmentLog per slug<br/>digest + version per node<br/>absence means: unknown, send it")]
+  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has) + position"]
+  LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
-  HA --> PUMP --> STORE --> CH --> PLAN --> PREP --> DIFF --> TOPIC
-  TOPIC --> FILT --> RESOLVE --> MERGE --> SSE
+  HA --> PUMP --> STORE --> CH --> PLAN --> REC --> BELL
+  BELL --> PULL --> APPL --> MERGE --> SSE
   OPEN --> MERGE
-  DIFF <-.->|read and write| LOG
-  RESOLVE <-.->|digest write at force time| LOG
+  REC -.->|writes| LOG
+  PULL <-.->|since position| LOG
   OPEN <-.->|since cursor| LOG
+  APPL <-.->|holds| SESS
   ACT --> SESS
   SESS -->|per-connection control queue| MERGE
-  ACT -.->|fillHost writes the log| LOG
-  SESS -.->|openSets: which surfaces are worth rendering| PLAN
+  ACT -.->|hostFill claims into holds| SESS
+  SESS -.->|openSets: which surfaces are worth recording| PLAN
 
   classDef global fill:#e0f2fe,stroke:#0369a1,color:#0f172a
   classDef shared fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
@@ -76,13 +76,19 @@ flowchart TB
   classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
   classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
   class PUMP,STORE,CH global
-  class PLAN,PREP,DIFF,TOPIC shared
-  class OPEN,FILT,RESOLVE,MERGE,SSE client
+  class PLAN,REC,BELL shared
+  class OPEN,PULL,APPL,MERGE,SSE client
   class LOG,SESS store
   class HA,ACT ext
 ```
 
-The publisher is **one fiber per slug** (`Server.publisherFor`), re-armed by `switchMap` on every
+**Nothing is pushed.** A frame is recorded once per slug; every byte is produced by the session that
+will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
+`position + 1` — one mechanism, not two — which is why there is no audience tag on a patch and no
+per-client filter at the wire edge: a patch exists only because the session that will send it asked
+for it, against its own open set and its own record of its own DOM.
+
+The recorder is **one fiber per slug** (`Server.publisherFor`), re-armed by `switchMap` on every
 renderer swap — and a swap past the first mints a fresh log identity, so cursors issued against the
 old renderer cannot be resumed.
 
@@ -90,8 +96,8 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, `sharedTopic`, the `Sessions` registry |
-| Per slug | dashboard | the publisher fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog` |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
+| Per slug | dashboard | the recorder fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog`, the doorbell |
 | Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
@@ -112,9 +118,9 @@ open ONE WebSocket to Home Assistant, subscribe_entities
 create ONE StateStore              // for every dashboard, not one each
 evaluate every *.pkl entry         // slug = filename
   per slug: one Renderer in a SignallingRef   // hot-swapped on file edit
-  per slug: one FragmentLog with a fresh id, in a Ref
-create ONE sharedTopic  (slug-tagged)  and ONE Sessions registry
-for each slug: start a publisher fiber
+  per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
+create ONE Sessions registry
+for each slug: start a recorder fiber
   // STARTS IMMEDIATELY, and runs whether or not a browser ever connects
 ```
 
@@ -132,12 +138,15 @@ GET /d/:slug
 GET /sse/dashboard/:slug/patch
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
-  subscribe ONCE to sharedTopic                       // all slugs, filtered per patch
   opening patches, narrowest that is still correct:
       resume   if the cursor's logId matches and nothing structural moved
-      repaint  if it does not
+      repaint  if it does not      // claims what it painted, same as the document
       reload   if the document itself is stale
-  then stream: shared patches ▸ control ▸ reloads ▸ haDown ▸ keepAlive
+    ...then position = the snapshot they were rendered from
+  then stream: pulls ▸ control ▸ reloads ▸ haDown ▸ keepAlive
+    // no subscription to acquire, so no window to nest around: the doorbell
+    // hands a new watcher its current value, so a frame recorded before this
+    // stream existed still wakes it
 
 on disconnect
   deregister IMMEDIATELY, but only if this stream still OWNS the session —
@@ -155,28 +164,36 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
                                              // a deduped re-seed keeps its old one
   publish List[StateChange] on `changes`
 
-every slug's publisher wakes            // whether or not that slug has any viewer
+every slug's recorder wakes             // whether or not that slug has any viewer
   read snapshot+version together, wall clock, and sessions.openSets(slug)
     visible = surfaces some session can actually SEE  // widens what is considered
-  plan     -> staticIds, dynamics, flips, varyingIds
-  prepare  -> render everything            // OUTSIDE the log
-  log.modify:
-      flips first    -> evict, record Gone/Placed, defer the bytes
-      static         -> digest holds? skip : set + Morph
-      dynamics       -> tick per entity, or membership delta, or whole-mount fill
-      varying        -> Pending, rendered later per distinct selection
-  publish slug-tagged patches to sharedTopic
+  plan    -> staticIds, dynamics, flips, varyingIds
+  record  -> the changelog, and nothing else:
+      flips first    -> evict the departed branch, record Gone/Placed
+      static+varying -> node -> version                 // no variant split
+      dynamics       -> touched members, or Gone/Placed, or a filled mount
+                        (the churn heuristic survives as `filled`, which raises
+                         the container's horizon — "any cursor below this gets
+                         this mount")
+  ring the doorbell with the version          // AFTER the log is written, or a
+                                              // session could set its position
+                                              // past changes it never saw
 
-each connection
-  drop other slugs; drop what its open set cannot see
-  force any Varying against ITS OWN selections (memoised across equal selections)
+each connection wakes and PULLS
+  resume(log, holds, snapshot, position + 1, open, its own ui-state)
+      -> render the candidates; send the ones whose digest is not what it holds
+  applied  -> forget the mounts those patches re-supplied, claim what they placed
+  position = the version it woke for, and say so    // ALWAYS, even when it was
+                                                    // owed nothing: "nothing owed"
+                                                    // is now a per-client answer
   write bytes
 ```
 
 ### The log
 
 ```
-keyed by node id: digest per variant + the version it was rendered from
+keyed by node id: the version it last moved at   // no digests: what a CLIENT
+                                                 // holds is the session's answer
   a later write overwrites — latest wins, and a version never goes backwards
 mutations: Gone / Placed per node, latest wins
 pruned by WALL CLOCK: mutations older than FragmentLog.Retention (1h) are evicted
@@ -187,18 +204,28 @@ absence means "unknown, send it" — so dropping an entry is ALWAYS safe
 
 ### Reconnect
 
+Same call as a live pull; only the cursor differs.
+
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
   different logId, or version ahead of the store, or head moved -> full repaint
   otherwise since(version):
-      nodes   whose logged version >= cursor   -> rendered NOW from the current snapshot
+      nodes   whose logged version >= cursor   -> rendered NOW, sent if the digest
+                                                  is not what this client holds
       moved   Gone/Placed                      -> replayed as remove + insert
       refill  containers whose history aged out -> whole mount
 ```
 
+A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
+claiming: a client can hold version V having seen only part of it, where a position is what this
+server itself last sent.
+
 ---
 
-## 3. Inside `Patches.diff` — the four kinds, and where each is rendered
+## 3. Inside `Patches.record` — the four kinds, and what each writes
+
+Nothing here renders. Everything it needs is state: membership is
+`Renderer.dynamicMembers`, and a flip's selection is `resolveActiveByState`.
 
 ```mermaid
 flowchart TB
@@ -209,100 +236,116 @@ flowchart TB
   REQ --> DYN["DYNAMICS<br/>a query-driven group was touched"]
   REQ --> VAR["VARYING IDS<br/>markup that reads its OWN viewer's selection"]
 
-  FLIP --> FLIPW["renders NOTHING<br/>evict the old branch, record<br/>Gone / Placed mutations<br/>runs FIRST: its prune must precede<br/>any diff that could suppress a member"]
-  FLIPW --> PEND
+  FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
-  STAT --> STATW["prepare already rendered it<br/>log holds this html? skip<br/>otherwise set digest + Morph"]
+  STAT --> STATW["touched: node -&gt; version"]
+  VAR --> STATW
 
   DYN --> SAME{"membership<br/>moved?"}
-  SAME -->|no| TICK["in-place tick per touched entity<br/>renders.child, then same skip-or-Morph"]
-  SAME -->|yes| CHURN{"churn a MINORITY?<br/>perEntityChurn<br/>PURE STATE"}
-  CHURN -->|no, heavy churn| FILL["fillGroup — whole mount<br/>Insert Inner + prune child entries<br/>prepare pre-rendered this"]
-  CHURN -->|yes| EST{"log.hasChildOf gid<br/>ONLY THE LOG KNOWS"}
-  EST -->|yes, established| DELTA["arrivals only<br/>Remove per departure<br/>Insert before successor per arrival<br/>prepare pre-rendered these"]
-  EST -->|no, fresh log after swap or reload| FILL2["fillGroup — renders INSIDE<br/>the critical section<br/>the one prepare miss"]
+  SAME -->|no| TICK["touched, per current member the frame moved"]
+  SAME -->|yes| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
+  CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
+  CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
+  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival"]
+  EST -->|no, fresh log after swap or fill| FILL
 
-  VAR --> PEND["Pending — deferred<br/>one render per DISTINCT selection,<br/>forced only if a connection holds it"]
-  PEND --> VARY["Varying, resolved per connection"]
-
-  STATW --> OUT["Addressed: a Patch, its tag, and<br/>what its bytes establish (nodeId -&gt; digest)<br/>encoded per CONNECTION, not here"]
+  FLIPW --> OUT["the CHANGELOG.<br/>Each session turns it into patches for itself,<br/>in Patches.resume"]
+  STATW --> OUT
   TICK --> OUT
   FILL --> OUT
   DELTA --> OUT
-  FILL2 --> OUT
 
-  classDef nothing fill:#f1f5f9,stroke:#64748b,color:#0f172a
-  classDef pre fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
-  classDef inside fill:#fee2e2,stroke:#b91c1c,color:#0f172a
-  classDef defer fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef write fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
   classDef q fill:#fef3c7,stroke:#b45309,color:#0f172a
-  class FLIPW nothing
-  class STATW,TICK,FILL,DELTA pre
-  class FILL2 inside
-  class PEND,VARY defer
+  class FLIPW,STATW,TICK,FILL,DELTA write
   class SAME,CHURN,EST q
 ```
 
-**Legend**
+**A varying node is no longer a kind of its own here.** Its version moves like any other node's, and
+the render that reads a viewer's selection happens where the viewer is. That is the whole of what
+`Varying`/`Pending`/`Memo` used to buy, for free.
 
-| Colour | Meaning |
-|---|---|
-| Blue | rendered by `prepare`, before the log is touched |
-| Red | rendered *inside* `log.modify` — the single case `prepare` cannot predict |
-| Green | deferred: rendered per distinct viewer selection, only if someone holds it |
-| Grey | renders nothing at all |
+**The churn heuristic had to survive the loss of the render**, or the wire would move: heavy churn
+still fills the mount rather than patching members. It is recorded as `FragmentLog.filled`, which
+raises the container's `horizon` — already the mechanism for "no delta describes this, send the
+mount" — so `resume` reaches the same patch from the other side. A fill also `touched`es the members
+it leaves, because those entries are what keep the group *established* for the next membership
+change.
 
 ---
 
-## 4. Why the flip renders nothing
+## 4. Why the flip records nothing but structure
 
 A flip is server truth — the branch every viewer must move to — but *which* branch a given viewer
-has mounted, and what belongs inside it, depends on selections below it. So the shared pass does the
-part that is identical for everyone (evict the departed branch, record where it went) and defers the
-bytes to a `Pending`, which each connection forces for its own selection. A branch no connected
-viewer reaches is never rendered at all.
+has mounted, and what belongs inside it, depends on selections below it. So the recorder does the
+part that is identical for everyone (evict the departed branch, record where it went) and each
+session fills the mount for its own selection when it pulls. A branch no connected viewer reaches is
+never rendered at all.
 
-That is the same mechanism as `varyingIds`, not a second path.
+That is the same mechanism as every other node, not a second path — which is the point: it used to
+need a deferred render (`Pending`) and a memo to share one verdict between viewers who agreed,
+because the *pass* was shared. Once the render moved to the viewer, both disappeared.
+
+**A branch fill forgets by MOUNT, not by prefix.** A branch's content ids are `s_<surface>__…`,
+which no prefix of the container's id reaches, so the patch names the surfaces at that mount
+(`Patches.hostEvicts`) as what it made unknown. A dynamic mount's children *are* `gid_…`, so there
+the container's id is the right root.
 
 ---
 
-## 5. The two rendering lanes, side by side
+## 5. What each scope renders
 
-| | Shared (per slug) | Per client (per connection) |
+| | Per slug (the recorder) | Per client (the pull) |
 |---|---|---|
-| Runs on | one publisher fiber per slug | that connection's own SSE fiber |
+| Runs on | one recorder fiber per slug | that connection's own SSE fiber |
 | Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
-| Renders | static nodes, dynamic ticks, group fills and arrivals | `Varying` nodes, opening paint, resume |
-| Writes the log | yes, in `log.modify` | yes, at force time and on surface fills |
-| Cost of N viewers | ×1 | ×(distinct selections), not ×N — `Memo.keyed` |
+| Renders | **nothing** | everything: opening paint, live pulls, resume |
+| Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` and `position` |
+| Cost of N viewers | ×1 | ×N — see §8 |
+
+The last row is the one regression this shape currently carries: a slug used to render each affected
+fragment once per frame however many viewers it had. Wiring the per-slug `RenderCache` into
+`Patches.resume` is what brings it back, and `ServerSuite`'s "rendered per viewer" test holds the
+number visible until it does.
 
 ---
 
-## 6. Reconnect: the pull path
+## 6. The pull path
+
+The same call serves a live tick and a reconnect. What differs is only where the cursor came from.
 
 ```mermaid
 flowchart LR
-  RC["client reconnects<br/>carrying a cursor + logId"] --> Q{"same logId?<br/>cursor not ahead of the store?<br/>same head hash?"}
-  Q -->|no| REPAINT["full body repaint<br/>from the current snapshot"]
-  Q -->|yes| SINCE["FragmentLog.since v"]
+  RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash"}
+  Q -->|no| REPAINT["full body repaint<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
+  Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
   SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
+  N --> HOLD{"is this what<br/>the client holds?"}
+  HOLD -->|yes| DROP["send nothing"]
+  HOLD -->|no| SEND["Morph, establishing the digest"]
 
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef bad fill:#fee2e2,stroke:#b91c1c,color:#0f172a
-  class N,M ok
+  class N,M,SEND,DROP ok
   class REPAINT,R bad
 ```
 
-The log stores **digests and versions, never HTML** — a resume renders from the current snapshot,
+The log stores **versions and structure, never HTML** — a pull renders from the current snapshot,
 which is by construction at least as fresh as anything the log could have held. That is why a
 missing entry is always safe: it reads as "unknown, send it", costing bytes and never staleness.
 
-The second question a resume asks — *does this client already have these bytes?* — is answered by
-the **session's own `holds`**, not by the log: it is seeded by the document that created the session
-and updated wherever a patch is kept. The log's digests still answer it for the LIVE pass, and that
-is the remaining half of the split (`docs/plan-session-pulled-changelog.md`).
+The second question — *does this client already have these bytes?* — is answered by the **session's
+own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
+a repaint, which paints the same thing), and updated wherever bytes are sent to this client:
+`Patches.applied` for a pull, `Patches.hostFill` for a tab or popup swap. Never from what another
+client was told.
+
+**Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
+have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
+client's worth of another client's tab on every frame. That test (`Renderer.visibleNode` on the
+container) is where the old audience tag's work now happens.
 
 Mutations age out after `FragmentLog.Retention` = 1 hour; a container whose history has aged past a
 client's cursor yields a `refill` rather than a refusal.
@@ -317,37 +360,37 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 |---|---|
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
-| per-slug publisher | `runtime/Server.scala` · `publisherFor`, `sharedPatchPublishers` |
+| per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
-| all shared rendering | `runtime/Patches.scala` · `prepare`, class `Renders` |
-| the render cache | `runtime/RenderCache.scala` — per slug, one generation per node, created per publisher arm |
-| the critical section | `runtime/Patches.scala` · `diff` (called inside `Server.sharedPatches`) |
-| flips | `runtime/Patches.scala` · `flipStateGroup` |
-| dynamic groups | `runtime/Patches.scala` · `renderDynamicGroup`, `renderMembershipChange`, `fillGroup` |
-| deferred per-viewer renders | `runtime/Patches.scala` · `Pending` / `Varying`; `runtime/Memo.scala` |
-| the log | `runtime/FragmentLog.scala` |
-| SSE stream + fan-out | `runtime/Server.scala` · `sseStream` |
-| opening paint / resume | `runtime/Server.scala` · `openingPatches`; `runtime/Patches.scala` · `resume` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost` |
+| what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
+| the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
+| the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
+| a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
+| what a client holds | `runtime/Sessions.scala` · `Session.holds` / `position` |
+| SSE stream | `runtime/Server.scala` · `sseStream` |
+| opening paint | `runtime/Server.scala` · `openingPatches` |
+| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `reapUnadopted`; `runtime/Sessions.scala` · `Session.adopt` |
-| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderDynamicChild`, `renderDynamicMembers` |
+| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderLogged`, `renderMount`, `renderDynamicChild` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
+| the render cache | `runtime/RenderCache.scala` + `Patches.prepare` — **currently off the path**, waiting to be wired into `resume` |
 
 ## 8. Known open questions
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **Nobody is watching.** The publisher runs from boot and `plan` does not gate main-page nodes on
-  viewers, so with every browser closed each frame still renders every affected fragment into a
-  topic with no subscribers. Measured at 0 CPU ticks over 90 s idle on a real instance, so this is
-  architecture rather than a live cost. Gating on subscriber count needs one correctness move with
-  it: mint a fresh log identity on the 0→1 transition, or a client returning with a pre-gap cursor
-  resumes against a log that never recorded the gap.
-- **`prepare` vs `hasChildOf`.** The single render `prepare` cannot predict (§2, the red box). The
-  alternative — pre-render both sides — makes every membership change pay for the whole mount.
-- **Pull instead of push.** Being designed — see [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md).
-  The two objections that used to block it (losing digest suppression, losing the shared render) are
-  answered there by a per-slug render cache and a per-session digest map.
+- **Nobody is watching.** The recorder runs from boot, so with every browser closed each frame is
+  still planned and written to a changelog nobody reads. Much cheaper than it was — nothing renders
+  — but still not free. Gating on session count needs one correctness move with it: mint a fresh log
+  identity on the 0→1 transition, or a client returning with a pre-gap cursor resumes against a log
+  that never recorded the gap.
+- **The fan-out.** N viewers of one slug now render N times (§5). The per-slug `RenderCache` exists
+  and is keyed correctly; wiring it into `Patches.resume` is the next step in
+  [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md).
+- **A pull always reports its position**, even when it owed the client nothing — one small signal
+  per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
+  one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy
+  instance is unmeasured.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
@@ -355,19 +398,13 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 ## 9. In progress
 
-The pipeline above is being reshaped: the publisher stops rendering and pushing, and each session
-pulls what it is owed from a changelog, deciding for itself what is worth sending.
+The reshaping this file describes — the recorder, the doorbell, the per-session pull — **has
+landed**. Its document, [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md),
+covers what is left: wiring the render cache into `resume`, session lifetime (linger after
+disconnect, a staleness bound, gating recording on a slug having viewers), and maintained dynamic
+membership. Nothing in §1–§8 describes code that does not exist.
 
-That work has its own document — **[`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md)**
-— because it is not current state and this file is. As phases land, the shape moves into §1–§8 above
-and the plan shrinks. Nothing else in this file describes code that does not exist.
-
-**Phases 0 and 1 have landed**, and are in the sources above: `EntityState.contentVersion` (the
-per-entity stamp, §2), `Renderer.renderInputs` (what keys a cached render), and `RenderCache`, which
-`Patches.prepare` now renders through (§1, §7). The pipeline's SHAPE is unchanged — still one
-publisher, still push, still the same bytes on the wire — so nothing else in this file moves.
-
-Two findings worth carrying here rather than leaving in the plan:
+Two findings from the cache phase, worth carrying here rather than leaving in the plan:
 
 - An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
   on the RESOLVED selection rather than on what the selection reads.

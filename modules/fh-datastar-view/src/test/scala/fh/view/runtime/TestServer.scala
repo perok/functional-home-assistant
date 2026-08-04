@@ -1,5 +1,5 @@
 // In `fh.view.runtime` (not `testkit`) so it can reach the `private[runtime]`
-// readiness seams (`StateStore.changeSubscribers`, `Server.sharedSubscribers`)
+// readiness seams (`StateStore.changeSubscribers`, `Server.connectedSessions`)
 // the deterministic SSE gating needs — the same access `ServerSuite` relies on.
 package fh.view.runtime
 
@@ -55,7 +55,7 @@ final class TestServer(
     * from the way [[observePatch]]'s callers can).
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
-    server.sharedSubscribers.filter(_ >= n).head.compile.drain
+    server.connectedSessions.filter(_ >= n).head.compile.drain
 
   /** The two readiness gates a live SSE connection needs before a change is
     * guaranteed to reach it (topics only deliver to already-subscribed
@@ -137,21 +137,26 @@ final class TestServer(
         Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
       )
     ).flatMap { resp =>
+      // Everything is accumulated and the split computed on the WHOLE text,
+      // rather than routing chunk-by-chunk: the opening cursor and the first
+      // patch can share a chunk, and a router that decides per chunk drops
+      // whatever followed the cursor inside it.
+      def liveOf(text: String): String = {
+        val at = text.indexOf(Server.LogIdSignal)
+        if (at < 0) "" else text.drop(at)
+      }
       for {
         opened <- Deferred[IO, Unit]
-        live <- Ref[IO].of("")
+        all <- Ref[IO].of("")
         fiber <- resp.body
           .through(fs2.text.utf8.decode)
-          .evalMap { chunk =>
-            opened.tryGet.flatMap {
-              case Some(_) => live.updateAndGet(_ + chunk)
-              case None    =>
-                IO.whenA(chunk.contains(Server.LogIdSignal))(
-                  opened.complete(()).void
-                ).as("")
-            }
-          }
-          .exists(_.contains(marker))
+          .evalMap(chunk => all.updateAndGet(_ + chunk))
+          .evalTap(text =>
+            IO.whenA(text.contains(Server.LogIdSignal))(
+              opened.complete(()).void
+            )
+          )
+          .exists(text => liveOf(text).contains(marker))
           .compile
           .drain
           .start
@@ -168,7 +173,7 @@ final class TestServer(
         // change emitted before the publisher attaches is published to nobody
         // and simply lost — intermittently, under load, which is exactly how
         // this read as a flaky test rather than a missing gate.
-        _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- server.connectedSessions.filter(_ >= 1).head.compile.drain
         _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
         _ <- trigger
         // Report what DID arrive. A bare timeout here says only "the marker
@@ -176,15 +181,17 @@ final class TestServer(
         // nothing arrived, or the wrong thing did, is the whole diagnosis.
         _ <- fiber.joinWithNever.timeout(timeout).recoverWith {
           case _: TimeoutException =>
-            live.get.flatMap(seen =>
-              IO.raiseError(
-                new AssertionError(
-                  s"never saw '$marker' after the opening block; received:\n$seen"
+            all.get
+              .map(liveOf)
+              .flatMap(seen =>
+                IO.raiseError(
+                  new AssertionError(
+                    s"never saw '$marker' after the opening block; received:\n$seen"
+                  )
                 )
               )
-            )
         }
-        text <- live.get
+        text <- all.get.map(liveOf)
       } yield text
     }
 
@@ -195,21 +202,29 @@ final class TestServer(
       timeout: FiniteDuration = 30.seconds
   ): IO[Unit] =
     run(Request[IO](Method.GET, patchUri)).flatMap { resp =>
-      val seen = resp.body
-        .through(fs2.text.utf8.decode)
-        .scan("")(_ + _)
-        .exists(_.contains(marker))
-        .compile
-        .drain
       for {
-        fiber <- seen.start
-        // Both the store's change publisher AND this connection's shared-topic
-        // subscription must be live before we emit (topics only reach current
-        // subscribers). A connection no longer consumes `changes` itself —
-        // there is ONE pass — so the counts are: the per-slug publisher here,
-        // and this connection on the slug's shared topic below.
+        // THIS connection's opening block is finished when its cursor arrives.
+        // Gating on a session COUNT instead is not enough: a previous
+        // `observePatch`'s connection can still be registered, so the count is
+        // already met while this one has not read the snapshot — and a change
+        // triggered in that window lands in the opening repaint, which never
+        // carries a `mode remove` or any other delta shape a test looks for.
+        opened <- Deferred[IO, Unit]
+        fiber <- resp.body
+          .through(fs2.text.utf8.decode)
+          .scan("")(_ + _)
+          .evalTap(text =>
+            IO.whenA(text.contains(Server.StoreVersionSignal))(
+              opened.complete(()).void
+            )
+          )
+          .exists(_.contains(marker))
+          .compile
+          .drain
+          .start
+        // The recorder must be on the store's changes before we emit.
         _ <- store.changeSubscribers.filter(_ >= subscribers).head.compile.drain
-        _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+        _ <- opened.get.timeout(timeout)
         _ <- trigger
         _ <- fiber.joinWithNever.timeout(timeout)
       } yield ()

@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.kernel.Ref
+import fs2.Stream
 import cats.syntax.all.*
 import cats.effect.std.Queue
 import fh.view.model.NodeId
@@ -16,22 +17,18 @@ import org.http4s.ServerSentEvent
   *   - `slug`: which dashboard this connection views — fixed for its lifetime,
   *     because going to another dashboard is an ordinary document load (ADR
   *     0002) and therefore a new connection.
-  *   - `open`: the surface ids (popups) this client currently has open. The
-  *     change-loop renders + pushes a surface's nodes only while it's in here,
-  *     so a closed popup costs nothing.
+  *   - `open`: the surface ids (popups) this client currently has open. A
+  *     surface's nodes are recorded and rendered only while it is in here, so a
+  *     closed popup costs nothing.
   *   - `control`: server-pushed patches destined for *this* connection's stream
   *     — popup mount/remove (the entity-change loop can't carry them, as
   *     they're triggered by action POSTs on other fibers).
   *   - `holds`: what THIS client's DOM has, per node — the digest of the bytes
-  *     it was last sent, seeded by the document's own render. The per-session
-  *     answer to "is this worth sending?", which one shared [[FragmentLog]]
-  *     answers on everyone's behalf today.
+  *     it was last sent, seeded by the document's own render. The answer to "is
+  *     this worth sending?", asked per client rather than on everyone's behalf.
   *   - `position`: how far this session has been served, as a store version.
+  *     The cursor its pull loop resumes from.
   *   - `epoch`: which stream owns it — see [[adopt]].
-  *
-  * `holds` decides the RESUME; the live pass still asks the shared log
-  * (docs/plan-session-pulled-changelog.md). `position` is written and not yet
-  * read — it becomes the cursor the pull loop reads from.
   *
   * What goes wrong with a per-client record is that it drifts from what the
   * client actually has, so there is exactly one rule: it is written where bytes
@@ -73,7 +70,22 @@ object Session {
   * POST (a separate request, carrying `conn` among its Datastar signals) can
   * find and drive the SSE stream it belongs to.
   */
-final class Sessions(ref: Ref[IO, Map[String, Session]]) {
+final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
+
+  /** How many sessions have a live STREAM — the readiness seam a test needs
+    * before it moves an entity.
+    *
+    * Adopted, not merely registered: a document registers its session before
+    * any stream exists ([[Session.adopt]]), so a bare count is met while the
+    * browser has not connected yet, and a change in that window is observable
+    * only as a first paint. A `SignallingRef` rather than a `Ref` for exactly
+    * this; nothing in the server watches it.
+    */
+  def liveStreams: Stream[IO, Int] =
+    ref.discrete.evalMap(
+      _.values.toList.traverse(_.epoch.get).map(_.count(_ > 0))
+    )
+
   def register(conn: String, session: Session): IO[Unit] =
     ref.update(_.updated(conn, session))
 
@@ -81,8 +93,8 @@ final class Sessions(ref: Ref[IO, Map[String, Session]]) {
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
 
-  /** Every live session viewing `slug`. What the shared pass needs today is
-    * their open sets; the pull loop needs the sessions themselves.
+  /** Every live session viewing `slug` — their open sets are the recording
+    * pass's render gate.
     */
   def forSlug(slug: String): IO[List[Session]] =
     ref.get.map(_.values.filter(_.slug == slug).toList)
@@ -99,5 +111,5 @@ final class Sessions(ref: Ref[IO, Map[String, Session]]) {
 
 object Sessions {
   def create: IO[Sessions] =
-    Ref[IO].of(Map.empty[String, Session]).map(new Sessions(_))
+    SignallingRef[IO].of(Map.empty[String, Session]).map(new Sessions(_))
 }

@@ -221,6 +221,39 @@ private[runtime] case class FragmentLog(
         )
     }
 
+  /** [[set]] without a digest: the changelog records THAT a node moved, and the
+    * session that pulls it decides whether the bytes are worth sending against
+    * its own record.
+    *
+    * An existing entry keeps its digests rather than dropping them, so a log
+    * written by both paths cannot answer [[holds]] with a stale claim.
+    */
+  def touched(nodeId: NodeId, at: Long): FragmentLog =
+    fragments.get(nodeId) match {
+      case Some(f) if f.version > at => this
+      case Some(f)                   =>
+        copy(fragments = fragments.updated(nodeId, f.copy(version = at)))
+      case None =>
+        copy(fragments = fragments.updated(nodeId, Fragment(Map.empty, at)))
+    }
+
+  /** This container's mount was re-supplied wholesale at `at`, so no delta
+    * describes it any more: drop what is under it and raise its [[horizon]]
+    * past this version, which is how [[since]] turns any older cursor into a
+    * refill.
+    *
+    * `at + 1`, matching [[evicting]]: a cursor is complete only from just after
+    * the version whose detail was discarded — and a session pulling THIS
+    * version asks with `v = at`, so `v < h` has to still be true for it.
+    */
+  def filled(container: NodeId, at: Long): FragmentLog =
+    invalidateWhere(k => k == container || k.startsWith(container + "_"))
+      .copy(horizon =
+        horizon.updatedWith(container)(prev =>
+          Some(math.max(prev.getOrElse(0L), at + 1))
+        )
+      )
+
   /** For a node whose DOM an ancestor is RE-SUPPLYING (a group repaint, a
     * bake-group flip) — stale, not gone. Recording a removal here would delete
     * an element that ancestor legitimately restored. Use [[removed]] when the

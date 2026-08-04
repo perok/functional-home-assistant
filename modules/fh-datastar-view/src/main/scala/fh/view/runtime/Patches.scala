@@ -33,32 +33,17 @@ private[runtime] enum Patch:
       Datastar.patch(html, mode, Some(target.selector))
     case Patch.Remove(target) => Datastar.remove(target.selector)
 
-/** One patch and WHO it is for.
+/** One patch, and what it does to the record of the client it is going to.
   *
-  * `None` means the main page: every connection sees it. `Some(sid)` means the
-  * patch belongs inside a user-selected surface, and only a connection with
-  * that surface open should receive it.
-  *
-  * The tag names the innermost USER-selected surface, and that qualifier is
-  * load-bearing. `Renderer.selectedSurfaces` does `filterNot(isStateGroup)`, so
-  * a state-activated branch is never in anyone's `open` set — its visibility is
-  * server-decided and identical for every client. Tagging a node with a state
-  * surface would therefore filter its patches away from EVERYONE. State
-  * surfaces are transparent here: a node inside an `If` branch nested in a tab
-  * panel is tagged with the tab panel.
-  *
-  * Over-sending is safe and under-sending is not: a morph at an id the DOM
-  * lacks is a silent no-op, so the filter can only ever cost bytes. That
-  * asymmetry is why anything the renderer cannot attribute to a user-selected
-  * surface stays untagged.
+  * There is no audience tag any more, and its absence is the point: a patch is
+  * produced BY the session that will send it ([[Patches.resume]]), against that
+  * session's own open set and own `holds`, so there is nobody left to hide it
+  * from. What used to be a shared patch plus a surface filter is now simply a
+  * patch nobody else was offered.
   *
   * `establishes` is what this patch's BYTES put in the client's DOM: one entry
-  * per node the patch renders, digest included. Today the shared
-  * [[FragmentLog]] already knows — [[Patches.diff]] wrote it in the same step
-  * that produced the patch — so nothing reads this yet. It is here because that
-  * ceases to be true one step from now: when a session decides against its OWN
-  * `holds` rather than the shared log, the only thing that can tell it what it
-  * just sent is the patch it sent (docs/plan-session-pulled-changelog.md).
+  * per node the patch renders, digest included. It is the only thing that can
+  * tell a session what it just sent.
   *
   * `invalidates` names mounts this patch RE-SUPPLIED. The self/mount split
   * means an ordinary morph can never touch a child — a container's patch
@@ -70,11 +55,9 @@ private[runtime] enum Patch:
   * refill, a body repaint): those nodes are still on screen showing fill-time
   * bytes while `holds` claims older ones, and a value coming round again would
   * be suppressed against a DOM that never had it. A fill that DOES trace what
-  * it painted ([[fillGroup]]) covers itself through `establishes`, and its
-  * roots only clear members the fill deleted — kept anyway, so that "after
-  * applying a patch, `holds` describes the DOM" holds without a per-site
-  * exception. Same prune [[FragmentLog.invalidateWhere]] does for the shared
-  * log.
+  * it painted covers itself through `establishes`, and its roots only clear
+  * members the fill deleted — kept anyway, so that "after applying a patch,
+  * `holds` describes the DOM" holds without a per-site exception.
   *
   * A [[Patch.Remove]] needs neither: it places no bytes, and a stale claim for
   * an element that is GONE costs at most a morph at a missing id, which the
@@ -82,161 +65,24 @@ private[runtime] enum Patch:
   * afresh.
   */
 private[runtime] case class Addressed(
-    surface: Option[String],
     patch: Patch,
     establishes: Map[NodeId, Digest] = Map.empty,
     // Roots, applied by prefix — a mount and everything under it.
     invalidates: Set[NodeId] = Set.empty
-) extends Directed
-
-/** One diff pass's output, with the store version it was diffed at.
-  *
-  * The version travels WITH the items rather than as one of them: a session
-  * advances its `position` to what it was just served, and digging that out of
-  * an encoded cursor signal at the end of the list would be reading the wire
-  * format back.
-  */
-private[runtime] case class Batch(version: Long, items: List[Directed]) {
-  def nonEmpty: Boolean = items.nonEmpty
-}
-
-/** Something already in wire form, and so never merged with anything: the
-  * resume cursor's signal. Distinct from [[Addressed]] because the difference
-  * is exactly whether the send path may still combine it with its neighbour.
-  */
-private[runtime] case class Encoded(
-    surface: Option[String],
-    event: ServerSentEvent
-) extends Directed
-
-/** One item of a batch that survived a connection's filters, on its way to the
-  * wire — the input to [[Patches.encode]].
-  */
-private[runtime] enum Step {
-
-  /** A patch that may still be combined with an adjacent one. */
-  case Mergeable(surface: Option[String], patch: Patch)
-
-  /** Bytes: a resolved [[Varying]] or an [[Encoded]]. A barrier by nature. */
-  case Ready(event: ServerSentEvent)
-}
-
-/** A patch whose BYTES depend on which member the viewer has mounted.
-  *
-  * A flip inserts a whole branch, and if a tabs card sits inside it, that
-  * branch's HTML is not one thing — it is one thing per selection. So the
-  * shared pass does not render it at all: it carries the render, and each
-  * connection performs it against its own selections at send time.
-  *
-  * This is the ONLY per-viewer rendering in the system, and it is the
-  * irreducible one. Everything else about the branch — that it flipped, when,
-  * and which member won — was decided by entity state and is identical for
-  * everybody.
-  *
-  * `resolve` yields a DECISION, not a render: for a node compared against the
-  * log it may be "nothing to send". And it is memoised per [[Selections]], not
-  * per connection — two viewers holding the same selection must both receive
-  * the patch, so what is computed once is the verdict, which is then handed to
-  * everyone who resolves to that key.
-  *
-  * Every one of these is built from a [[Pending]], in one place in the shell. A
-  * branch fill and a single varying node differ only in how many nodes their
-  * render writes.
-  */
-private[runtime] case class Varying(
-    surface: Option[String],
-    resolve: (Map[String, String], StoreState) => IO[Option[ServerSentEvent]]
-) extends Directed
-
-/** A render the shell has to perform LATER, per variant, because its verdict
-  * needs the log and an effect.
-  *
-  * The core decides everything about it — which node, whose it is, and how to
-  * render one variant — so the only thing left outside is when to force it and
-  * what to do with the result. Teaching the shell to render as well would put
-  * "what goes on the wire" in two places.
-  */
-private[runtime] case class Pending(
-    surface: Option[String],
-    // The nodes whose digests this render writes — known BEFORE rendering, so
-    // the version prune can skip the render entirely.
-    keys: List[NodeId],
-    // The member this render puts in a mount, when it fills one. A queued fill
-    // can be SUPERSEDED — the selection moved again before this connection got
-    // to its item — and then its bytes are not merely redundant but wrong for a
-    // moment, until the item behind it corrects them. `None` for a node morph,
-    // which fills nothing and so cannot be overtaken.
-    placing: Option[NodeId],
-    // This client's selections, narrowed to the ones this render reads. Two
-    // viewers who agree on those share one render however else they differ.
-    selections: Map[String, String] => Selections,
-    // Takes the snapshot to render FROM, rather than closing over the batch's.
-    // A queued item is forced whenever its connection gets to it, and by then
-    // newer state may exist — which is the state worth sending, since anything
-    // older is about to be superseded by an item already behind it in the same
-    // queue.
-    render: (Selections, Map[String, EntityState]) => Option[Rendered]
 )
 
-/** What a pending render produced: the patch, and what it put in each node.
+/** A frame's renders, done once and through the per-slug [[RenderCache]].
   *
-  * The two travel together because the log owes a digest for exactly what went
-  * on the wire. A single-node morph carries one entry; a fill carries one per
-  * node it placed — which is what lets a fill be suppressed and resumed by the
-  * same per-node rules as everything else, without ever fingerprinting a
-  * composed subtree under one id.
-  */
-private[runtime] case class Rendered(patch: Patch, own: Map[NodeId, String])
-
-/** Something the shared pass produced, plus who may see it. Either already
-  * bytes ([[Addressed]]) or a render one connection performs for itself
-  * ([[Varying]]) — the only two kinds there are, because a client's own
-  * selection is the only thing a per-slug render cannot know.
-  */
-private[runtime] sealed trait Directed {
-  def surface: Option[String]
-
-  /** `Option.forall` over the single tag is the whole visibility test. */
-  def visibleTo(open: Set[String]): Boolean = surface.forall(open)
-}
-
-/** Every rendering a [[Patches.diff]] pass is expected to ask for, produced by
-  * [[Patches.prepare]] BEFORE the log is touched.
+  * '''Currently off the server's path.''' The publisher renders nothing at all
+  * now ([[Patches.record]]); the renders happen in each session's
+  * [[Patches.resume]], and wiring this cache into THAT is the next step — it is
+  * what restores the fan-out between sessions viewing one slug
+  * (docs/plan-session-pulled-changelog.md). Kept rather than deleted and
+  * rewritten, because the keying it exercises ([[Renderer.renderInputs]],
+  * `RenderInputsSuite`) is what that step needs to still hold.
   *
-  * '''Why this exists''': rendering is the expensive half of a diff (a mustache
-  * template per node, then a SHA-256 over the bytes) and it does not depend on
-  * the log at all — every one of these is a pure function of `(renderer,
-  * states)`. The log only decides whether the RESULT is worth sending. Leaving
-  * the renders where the log is read makes them run inside `Ref.modify`, whose
-  * function a CAS loop may run several times, so a writer that loses the race
-  * re-renders everything to throw it away.
-  *
-  * So the renders happen here, once, outside; [[Patches.diff]] then does
-  * lookups and map updates, which is cheap enough that losing a CAS costs
-  * nothing worth avoiding.
-  *
-  * '''Misses fall through to the renderer''' rather than failing, and that is
-  * deliberate: it keeps this a cache rather than a contract, so a branch whose
-  * choice of what to render depends on the log (there is exactly one — see
-  * [[Patches.renderMembershipChange]]) stays correct without having to
-  * pre-render both of its alternatives. Such a miss renders inside the section,
-  * exactly as the whole pass used to.
-  *
-  * '''This renders no more eagerly than the pass already did.''' The shared
-  * pass never consulted the log to decide WHETHER to render — it rendered every
-  * affected node and asked the log only whether the bytes were worth sending —
-  * so moving those renders earlier changes when they run, not how many. The
-  * genuinely lazy renders are elsewhere and stay there: a `Pending` variant is
-  * rendered only for a selection some connection actually holds
-  * (`Server.varyingPatches` via `Memo`), guarded by [[FragmentLog.atLeast]],
-  * which skips even that on a version it already has. Neither passes through
-  * here, and flips render nothing at all.
-  *
-  * The one case that does MORE work than before: a membership change where the
-  * churn heuristic says "arrivals" but the group turns out not to be
-  * established renders the arrivals here and then the fill inside the section.
-  * Bounded (arrivals are a minority by definition of that heuristic) and it
-  * cannot repeat — see [[Patches.renderMembershipChange]].
+  * '''Misses fall through to the renderer''' rather than failing, which keeps
+  * this a cache rather than a contract.
   */
 private[runtime] final class Renders(
     val renderer: Renderer,
@@ -272,27 +118,25 @@ private[runtime] final class Renders(
     membersWas.getOrElse(gid, renderer.dynamicMembers(gid, before))
 }
 
-/** The pure diff core, lifted out of [[Server]] so it is testable without a
-  * booted server (no HA stub, no `Supervisor`, no SSE plumbing). Three entry
-  * points:
+/** The pure core, lifted out of [[Server]] so it is testable without a booted
+  * server (no HA stub, no `Supervisor`, no SSE plumbing). Two paths meet here,
+  * and they no longer share a pass:
   *
-  *   - [[plan]] SELECTS what one state change touches — the affected static
-  *     component ids, dynamic groups, and flipped state groups — for every
-  *     client at once.
-  *   - [[prepare]] RENDERS what that selection will need, outside the log and
-  *     through the per-slug [[RenderCache]].
-  *   - [[diff]] DIFFS the renders against a cache, returning the updated cache
-  *     and what to emit.
+  *   - the PUBLISHER, once per slug per frame: [[plan]] SELECTS what one state
+  *     change touches, [[record]] writes that to the changelog. No rendering.
+  *   - the SESSION, once per connection: [[resume]] renders what THIS client is
+  *     owed from `position + 1`, [[applied]] folds the result into its record,
+  *     [[encode]] puts it on the wire.
   *
   * Everything here is pure over the entity snapshot; the caller ([[Server]])
-  * owns the `Ref`/`IO` that reads the snapshot and `modify`s the cache.
+  * owns the `Ref`/`IO` that reads the snapshot and updates the log.
   */
 private[runtime] object Patches {
 
-  /** A selection of what one [[StateChange]] touches, ready to [[diff]] against
-    * a cache. Bundles the assembled `staticIds`/`dynamics`/`flips` with the
-    * render inputs (`change`/`states`/`before`) they are diffed with, rather
-    * than nine positional arguments at the call site.
+  /** A selection of what one [[StateChange]] touches, ready for [[record]].
+    * Bundles the assembled `staticIds`/`dynamics`/`flips` with the render
+    * inputs (`change`/`states`/`before`) they are diffed with, rather than nine
+    * positional arguments at the call site.
     */
   case class DiffRequest(
       // Each selected node carries WHOSE it is: the user-selected surface it
@@ -366,7 +210,7 @@ private[runtime] object Patches {
     * Nothing here reads a client's `uiState`. The one thing that depends on it
     * — which member of a USER-selected mount a viewer chose — is not rendered
     * at all: the mount comes out empty and each connection fills its own from
-    * the [[Pending]] this pass emits alongside the flip.
+    * the mount's own [[Mutation]], which each session fills for itself.
     */
   def plan(
       renderer: Renderer,
@@ -444,20 +288,14 @@ private[runtime] object Patches {
     )
   }
 
-  /** Render everything [[diff]] will ask for, so it can run outside the log's
-    * critical section. See [[Renders]] for why.
+  /** Render a frame's affected nodes through the cache. See [[Renders]] for why
+    * this is currently unwired.
     *
-    * This mirrors [[diff]]'s decisions, but only the ones derivable from STATE
-    * — which is all of them bar one. A group whose membership did not move
-    * renders its touched children; one whose membership moved renders either
-    * the arrivals or the whole mount, and the churn heuristic that chooses
-    * between them is pure state ([[Server.MaxChurnFraction]] over the member
-    * counts). The single decision that also reads the log — `hasChildOf`, which
-    * can downgrade an arrivals-only patch to a whole-mount fill — is left to
-    * [[diff]], and its fill renders there on the rare occasions it fires.
-    *
-    * Flips render nothing at all (see [[flipStateGroup]]), and `varyingIds`
-    * render lazily per variant, so neither appears here.
+    * It mirrors what a frame needs rendered, from STATE alone. A group whose
+    * membership did not move renders its touched children; one whose membership
+    * moved renders either the arrivals or the whole mount, and the churn
+    * heuristic that chooses between them is pure state
+    * ([[Server.MaxChurnFraction]] over the member counts).
     */
   def prepare(
       renderer: Renderer,
@@ -567,89 +405,129 @@ private[runtime] object Patches {
     * is cheaper than juggling insert/remove patches. Strict `<` so exactly half
     * repaints. `MaxChurnFraction` is tunable.
     *
-    * Named because [[prepare]] and [[renderMembershipChange]] must agree on it:
-    * one decides what to render, the other what to send.
+    * Named because [[prepare]] and [[recordDynamic]] must agree on it: one
+    * decides what to render, the other what to record.
     */
   private def perEntityChurn(churn: Int, shown: Int): Boolean =
     churn > 0 && churn < Server.MaxChurnFraction * shown
 
-  /** '''Flips run FIRST.''' Their prune must precede any diff that could
-    * suppress a member fragment against a pre-flip entry.
-    *
-    * Pure over `states`; the caller wraps it in the log Ref's `modify`. Takes
-    * [[Renders]] rather than a bare `Renderer` so the expensive half has
-    * already happened — everything below is lookups, digests of already-built
-    * strings, and map updates.
-    */
-  def diff(
-      renders: Renders,
+  def record(
+      renderer: Renderer,
       log: FragmentLog,
       req: DiffRequest
-  ): (FragmentLog, List[Directed], List[Pending]) = {
-    val renderer = renders.renderer
+  ): FragmentLog = {
     val at = req.stamp
-    // Each stage carries its own patches' tag through, so a patch's audience is
-    // decided once — where the node was SELECTED — and never re-derived.
-    val (logAfterFlips, flipPatches, flipPending) =
-      req.flips.foldLeft(
-        (log, List.empty[Addressed], List.empty[Pending])
-      ) { case ((c, acc, deferred), (gid, surface)) =>
-        val (c2, ps, pending) =
-          flipStateGroup(
-            renderer,
-            c,
-            gid,
-            surface,
-            req.before,
-            req.states,
-            at
-          )
-        (c2, acc ++ ps, deferred ++ pending)
-      }
-    val rendered =
-      req.staticIds.flatMap { case (id, surface) =>
-        renders.node(id).map(bytes => (id, surface, bytes))
-      }
-    val (logAfterStatic, staticPatches) =
-      rendered.foldLeft((logAfterFlips, List.empty[Addressed])) {
-        case ((c, acc), (id, surface, bytes)) =>
-          if (c.holds(id, bytes.digest)) (c, acc)
-          else
-            (
-              c.set(id, bytes.digest, at.version),
-              acc :+ Addressed(
-                surface,
-                Patch.Morph(bytes.html),
-                Map(id -> bytes.digest)
-              )
-            )
-      }
-    val (finalLog, dynPatches) =
-      req.dynamics.foldLeft((logAfterStatic, List.empty[Addressed])) {
-        case ((c, acc), (gid, surface, touched)) =>
-          val (c2, ps) =
-            renderDynamicGroup(renders, c, gid, surface, touched, at)
-          (c2, acc ++ ps)
-      }
-    // The per-variant renders the shell forces on demand. Described here, next
-    // to everything else that decides what goes on the wire.
-    val pending = req.varyingIds.map { case (id, surface) =>
-      Pending(
-        surface,
-        List(id),
-        None,
-        renderer.selectionsOf(id, _),
-        (sel, states) =>
-          renderer
-            .renderNodeById(id, states, uiFrom(sel))
-            .map(html => Rendered(Patch.Morph(html), Map(id -> html)))
+    // Flips first: their prune must precede anything that could be suppressed
+    // against a pre-flip entry.
+    val afterFlips = req.flips.foldLeft(log) { case (l, (gid, _)) =>
+      recordFlip(renderer, l, gid, req.before, req.states, at)
+    }
+    // A varying node is no longer a kind of its own here: its version moves like
+    // any other, and the per-viewer render happens where the viewer is.
+    val afterNodes = (req.staticIds ++ req.varyingIds).foldLeft(afterFlips) {
+      case (l, (id, _)) => l.touched(id, at.version)
+    }
+    req.dynamics.foldLeft(afterNodes) { case (l, (gid, _, touched)) =>
+      recordDynamic(renderer, l, gid, touched, req.before, req.states, at)
+    }
+  }
+
+  /** [[flipStateGroup]] with the render taken out: evict the departing branch's
+    * entries and record WHERE the branch went. [[resume]]'s branch fill is the
+    * other half.
+    */
+  private def recordFlip(
+      renderer: Renderer,
+      log: FragmentLog,
+      gid: NodeId,
+      before: Map[String, EntityState],
+      states: Map[String, EntityState],
+      at: Stamp
+  ): FragmentLog = {
+    def memberAt(snapshot: Map[String, EntityState]): Option[String] =
+      renderer
+        .resolveActiveByState(gid, snapshot)
+        .flatMap(renderer.bakeMembers(gid).lift)
+    val was = memberAt(before)
+    val now = memberAt(states)
+    if (was == now) log
+    else {
+      // The departing branch's nodes are not merely stale, they are unmounted:
+      // a morph at one would land nowhere, and the changelog must stop naming
+      // them.
+      val evicted =
+        log.invalidateWhere(hostEvicts(renderer, renderer.mountId(gid)))
+      val withGone = was
+        .map(renderer.surfaceContentId)
+        .foldLeft(evicted)(_.removed(gid, _, at))
+      now.foldLeft(withGone)((acc, sid) =>
+        acc.placed(
+          gid,
+          MemberKey.Surface(sid),
+          renderer.surfaceContentId(sid),
+          at
+        )
       )
     }
-    (
-      finalLog,
-      flipPatches ++ staticPatches ++ dynPatches,
-      flipPending ++ pending
-    )
+  }
+
+  /** The membership question, asked ONCE per frame — per entity it could not be
+    * answered, since two entities can cross the query boundary in opposite
+    * directions in one tick, and each single-entity view of that reports a
+    * change the frame did not make.
+    *
+    * Two conditions still choose between a per-member delta and a whole-mount
+    * fill, and they come from different places: `perEntityChurn` is pure state,
+    * where `hasChildOf` asks whether the log holds children to patch AGAINST —
+    * false after a renderer swap or a fill, and a delta then patches against a
+    * baseline nobody can vouch for.
+    */
+  private def recordDynamic(
+      renderer: Renderer,
+      log: FragmentLog,
+      gid: NodeId,
+      touched: List[String],
+      before: Map[String, EntityState],
+      states: Map[String, EntityState],
+      at: Stamp
+  ): FragmentLog = {
+    val was = renderer.dynamicMembers(gid, before)
+    val now = renderer.dynamicMembers(gid, states)
+    if (was == now)
+      touched
+        .filter(now.contains)
+        .foldLeft(log)((l, e) =>
+          l.touched(renderer.dynamicChildId(gid, e), at.version)
+        )
+    else {
+      val nowSet = now.toSet
+      val added = now.filterNot(was.toSet)
+      val removed = was.filterNot(nowSet)
+      val churn = added.size + removed.size
+      // The query boundary moved but the RENDERED membership did not.
+      if (churn == 0) log
+      else if (!perEntityChurn(churn, was.size) || !log.hasChildOf(gid))
+        // Touched as well as filled: the fill re-supplies the mount, and the
+        // entries it leaves are what make the group ESTABLISHED for the next
+        // membership change. Without them every change fills, and every fill
+        // raises the horizon past another cursor.
+        now.foldLeft(log.filled(gid, at.version))((l, e) =>
+          l.touched(renderer.dynamicChildId(gid, e), at.version)
+        )
+      else {
+        val afterRemoves = removed.foldLeft(log)((l, e) =>
+          l.removed(gid, renderer.dynamicChildId(gid, e), at)
+        )
+        added.sorted.foldLeft(afterRemoves) { (l, e) =>
+          val cid = renderer.dynamicChildId(gid, e)
+          // Touched as well as placed: the mutation is what a resume replays,
+          // but the fragment entry is what keeps the group ESTABLISHED for the
+          // next membership change. `since` reports a resupplied node once, so
+          // this adds no patch.
+          l.placed(gid, MemberKey.Entity(e), cid, at).touched(cid, at.version)
+        }
+      }
+    }
   }
 
   /** Everything a client resuming at cursor `v` is owed, as patches carrying
@@ -668,16 +546,17 @@ private[runtime] object Patches {
     * '''ONE rule, one candidate set, one snapshot:'''
     *
     * > Candidates = nodes whose logged version is `>= v`, plus every node in an
-    * > OPEN surface. Render each from the current snapshot, and send it when >
-    * `version >= v || fingerprint != stored`, a MISSING entry counting as >
-    * "send".
+    * > OPEN surface. Render each from the current snapshot, and send it when
+    * its > fingerprint differs from what this viewer holds — a MISSING entry >
+    * counting as "send".
     *
-    * The two disjuncts are two different ignorances. `version >= v` means the
-    * node changed at or after the cursor, so the client may never have applied
-    * it — send what we have now, which is at least as new. `fingerprint !=
-    * stored` is the UNTRACKED case: a surface nothing rendered while nobody was
-    * viewing it, where only re-rendering can tell whether the client's DOM is
-    * current.
+    * The two candidate sets are two different ignorances. `version >= v` means
+    * the node changed at or after the cursor, so the client may never have
+    * applied it. An open surface is the UNTRACKED case: nothing rendered it
+    * while nobody was viewing it, so only re-rendering can tell whether the
+    * client's DOM is current. Both then ask the same question of the same
+    * record, which is what makes this the live path as well as the resume one —
+    * a session pulling one frame is a resume from `position + 1`.
     *
     * One mechanism covers what would otherwise be two special cases. A
     * per-session fragment and an open popup are both just candidates here: the
@@ -721,7 +600,18 @@ private[runtime] object Patches {
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
   ): List[Addressed] = {
-    val owed = log.since(v)
+    val all = log.since(v)
+    // Only what this client can SEE. A mutation inside a surface it does not
+    // have open would patch an id its DOM lacks — a silent no-op, so this only
+    // ever costs bytes, but it is one client's worth of another client's tab on
+    // every frame. This is where the audience tag used to do its work, asked
+    // now of the container itself.
+    val owed = all.copy(
+      moved = all.moved.filter { case (_, m) =>
+        renderer.visibleNode(m.container, open, states)
+      },
+      refill = all.refill.filter(renderer.visibleNode(_, open, states))
+    )
     // Split by CONTAINER KIND, because the two mounts want different tools: a
     // dynamic group's needs per-member deltas that preserve siblings, a state
     // group's holds one member and is simply overwritten.
@@ -747,7 +637,14 @@ private[runtime] object Patches {
             .map(_._2)
             .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
-        ).map(Addressed(None, _, invalidates = Set(gid)))
+        ).map(
+          // A branch's content ids are `s_<surface>__…`, which no prefix of the
+          // container's id reaches — so the mount says which nodes it holds.
+          Addressed(
+            _,
+            invalidates = hostEvicts(renderer, renderer.mountId(gid))
+          )
+        )
       }
     val places = dynamic
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
@@ -779,9 +676,8 @@ private[runtime] object Patches {
                 // descending by position means a node's successor was either
                 // already in the client's DOM or placed a moment ago.
                 List(
-                  Addressed(None, Patch.Remove(renderer.elementId(nodeId))),
+                  Addressed(Patch.Remove(renderer.elementId(nodeId))),
                   Addressed(
-                    None,
                     insertInto(
                       renderer,
                       gid,
@@ -802,14 +698,24 @@ private[runtime] object Patches {
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
+      val members = renderer.renderMount(gid, states, uiState)
       Addressed(
-        None,
         Patch.Insert(
-          renderer.renderMount(gid, states, uiState).map(_._2).mkString,
+          members.map(_._2).mkString,
           PatchMode.Inner,
           renderer.mountId(gid)
         ),
-        invalidates = Set(gid)
+        // A DYNAMIC mount's contents are one resolvable node per member, so the
+        // fill can say what it put in each and the next tick can tell
+        // "unchanged" from "never told". A state group's is one composed
+        // subtree under a root with no rendering of its own — a digest there
+        // could never be resolved, so it claims nothing and pays a redundant
+        // patch instead.
+        if (renderer.isDynamicContainer(gid))
+          members.map { case (id, html) => id -> Digest.of(html) }.toMap
+        else Map.empty,
+        if (renderer.isDynamicContainer(gid)) Set(gid)
+        else hostEvicts(renderer, renderer.mountId(gid))
       )
     }
     // The second candidate set: an open surface's nodes, which the cursor alone
@@ -828,37 +734,46 @@ private[runtime] object Patches {
           log.coveredByMutation(id, owed.moved.map(_._1).toSet ++ owed.refill)
       )
       .sorted
-      .flatMap(id =>
-        renderer.renderLogged(id, states, uiState).flatMap { html =>
-          // Compared against what THIS viewer holds — another viewer's digest
-          // says nothing about this DOM, which is why `holds` arrives already
-          // narrowed to one client rather than as the shared log.
-          // A MISSING entry counts as "send": unknown, so tell the client.
-          val digest = Digest.of(html)
-          Option.when(!holds.get(id).contains(digest))(
-            Addressed(None, Patch.Morph(html), Map(id -> digest))
-          )
-        }
-      )
+      .flatMap(morph(renderer, holds, states, uiState, _))
     owed.nodes
       // The cursor names every node that changed, across every surface — it
       // knows nothing about who is looking. A morph at an id this client's DOM
       // lacks is a silent no-op, so this only ever cost bytes; it is still one
       // client's worth of another client's tab on every reconnect.
       .filter(renderer.visibleNode(_, open, states))
-      .flatMap(id =>
-        renderer
-          .renderLogged(id, states, uiState)
-          .map(html =>
-            Addressed(None, Patch.Morph(html), Map(id -> Digest.of(html)))
-          )
-      ) ++
+      // The log is a Map, so its order is nobody's; ids are location-derived,
+      // so sorting them is document order among siblings.
+      .sorted
+      .flatMap(morph(renderer, holds, states, uiState, _)) ++
       fromOpen ++
       gone.toList.sorted.map(id =>
-        Addressed(None, Patch.Remove(renderer.elementId(id)))
+        Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
       branchFills ++ places ++ refills
   }
+
+  /** Render one node and send it only if it is not what this viewer already
+    * holds — the whole suppression rule, in the one place both candidate sets
+    * go through.
+    *
+    * Compared against what THIS viewer holds: another viewer's digest says
+    * nothing about this DOM, which is why `holds` arrives already narrowed to
+    * one client. A MISSING entry counts as "send" — unknown, so tell the
+    * client.
+    */
+  private def morph(
+      renderer: Renderer,
+      holds: Map[NodeId, Digest],
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      id: NodeId
+  ): Option[Addressed] =
+    renderer.renderLogged(id, states, uiState).flatMap { html =>
+      val digest = Digest.of(html)
+      Option.when(!holds.get(id).contains(digest))(
+        Addressed(Patch.Morph(html), Map(id -> digest))
+      )
+    }
 
   /** ONE anchor rule for both the live add path and the resume replay, because
     * an insert is the same problem in both: name a sibling that is really
@@ -889,69 +804,54 @@ private[runtime] object Patches {
         Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
     }
 
-  /** Fill `host` with `arriving`'s rendering, and tell the log what it put
-    * there. THE fill primitive: a tab switch, a popup open and a state-group
-    * flip are the same operation, differing only in who chose the member.
+  /** Fill `host` with `arriving`'s rendering, as a patch that knows what it
+    * placed. THE fill primitive for a client's own selection: a tab switch and
+    * a popup open are the same operation, differing only in who chose.
     *
-    * The model already says so — a tab panel and an `If` branch are both
-    * surfaces with `bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.mountId`
-    * derives a group's mount from its members' `Surface.hostId` — so both
-    * callers name the same host the same way. Only the SELECTOR differs
-    * (`resolveActive` reads the client's signal, `resolveActiveByState` reads
-    * entity state), and that stays with the caller.
+    * It touches no shared structure, and that is the change of ownership the
+    * pull model makes: one client switching a tab says nothing about anyone
+    * else's DOM, so the eviction and the trace both belong to that session's
+    * `holds` — via [[applied]], exactly like any other patch it is sent.
     *
-    * Eviction must come first: the departing member's DOM is gone, so its
-    * entries describe nothing, and a stale one would suppress a real change on
-    * the way back. The arrival is rendered ONCE and traced, so the next live
-    * tick can tell "unchanged" from "never told".
+    * Eviction is in `invalidates` rather than done first-and-separately: the
+    * departing member's DOM is gone, so its claims describe nothing, and a
+    * stale one would suppress a real change on the way back.
     *
-    * What it does NOT do is record a [[Mutation]] — that is the caller's,
-    * because the two callers disagree about what a fill MEANS. A flip is server
-    * truth for every viewer, so it is a membership change the log must replay
-    * to a client that missed it. A tab switch is one client's choice, and
-    * asserting it as shared structure would replay one viewer's selection to
-    * everybody.
+    * A state-group FLIP is the other caller of the same idea and does not come
+    * through here: it is server truth for every viewer, so it is recorded as a
+    * [[Mutation]] ([[recordFlip]]) and each session fills for itself.
     */
-  private[runtime] def fillHost(
+  private[runtime] def hostFill(
       renderer: Renderer,
-      log: FragmentLog,
       host: DomId,
       arriving: Option[String],
       states: Map[String, EntityState],
-      uiState: Map[String, String],
-      version: Long
-  ): (FragmentLog, Option[String]) = {
-    val resupplied =
-      (renderer.surfacesAt(host) ++ arriving).flatMap(renderer.surfaceNodeIds)
-    val pruned = log.invalidateWhere(resupplied)
-    arriving.flatMap(renderer.renderSurfaceTraced(_, states, uiState)) match {
-      case None    => (pruned, None)
-      case Some(t) =>
-        val recorded = t.own.foldLeft(pruned) { case (l, (id, html)) =>
-          l.set(id, Digest.of(html), version, renderer.variantOf(id, uiState))
-        }
-        (recorded, Some(t.html))
-    }
-  }
+      uiState: Map[String, String]
+  ): Option[(Addressed, String)] =
+    arriving
+      .flatMap(renderer.renderSurfaceTraced(_, states, uiState))
+      .map { t =>
+        (
+          Addressed(
+            Patch.Insert(t.html, PatchMode.Inner, host),
+            t.own.map { case (id, html) => id -> Digest.of(html) },
+            (renderer.surfacesAt(host) ++ arriving)
+              .flatMap(renderer.surfaceNodeIds)
+          ),
+          t.html
+        )
+      }
 
-  /** Combine what a connection is actually sending, then put it on the wire.
-    *
-    * '''This runs per connection, after its filters, and that is the point.'''
-    * Merging is a property of one client's outgoing stream: which patches a
-    * client keeps is its own answer, so a merge performed before that decision
-    * would bake one client's choices into everyone's bytes.
-    *
-    * Two constraints, both load-bearing:
-    *
-    *   - '''Same tag only.''' The tag is what keeps a popup's patch from
-    *     reaching a client without it open. Merging across tags would weld a
-    *     tagged patch to an untagged one and leak it to everybody.
-    *   - '''Adjacent only.''' An [[Patch.Insert]]/[[Patch.Remove]] names its
-    *     own target and cannot join, but it is also a BARRIER: a morph after an
-    *     insert may target the element that insert just created, and reordering
-    *     across it would aim the morph at an id the DOM does not hold yet — a
-    *     silent no-op. A [[Step.Ready]] is a barrier for the same reason.
+  /** What a host swap makes UNKNOWN when nothing arrives — a popup closing, a
+    * flip whose condition now matches no branch. Same set [[hostFill]] carries
+    * in its `invalidates`, without the bytes.
     */
+  private[runtime] def hostEvicts(
+      renderer: Renderer,
+      host: DomId
+  ): Set[NodeId] =
+    renderer.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
+
   /** Apply what a patch did to one client's record: forget the mounts it
     * re-supplied, then claim what its bytes placed.
     *
@@ -974,147 +874,24 @@ private[runtime] object Patches {
          patch.invalidates.exists(r => id == r || id.startsWith(r + "_"))
        }) ++ patch.establishes
 
-  def encode(steps: List[Step]): List[ServerSentEvent] =
-    steps
-      .foldLeft(List.empty[Step]) {
-        case (
-              Step.Mergeable(prevTag, Patch.Morph(before)) :: rest,
-              Step.Mergeable(tag, Patch.Morph(next))
-            ) if prevTag == tag =>
-          Step.Mergeable(tag, Patch.Morph(before + next)) :: rest
+  /** Combine adjacent morphs, then put them on the wire.
+    *
+    * Merging is still a property of ONE client's outgoing stream — it just no
+    * longer needs saying, because the list already is one client's. What
+    * survives is the barrier rule: an [[Patch.Insert]]/[[Patch.Remove]] names
+    * its own target and cannot join, and a morph after an insert may target the
+    * element that insert created, so nothing may be reordered across one.
+    */
+  def encode(patches: List[Addressed]): List[ServerSentEvent] =
+    patches
+      .map(_.patch)
+      .foldLeft(List.empty[Patch]) {
+        case (Patch.Morph(before) :: rest, Patch.Morph(next)) =>
+          Patch.Morph(before + next) :: rest
         case (acc, one) => one :: acc
       }
       .reverse
-      .map {
-        case Step.Mergeable(_, p) => p.toSse
-        case Step.Ready(event)    => event
-      }
-
-  /** [[Selections]] spelled as the ui-state a render reads. Canonical by
-    * construction — every value is an in-range index — which is what makes two
-    * viewers with differently-spelled but equivalent signals share one render.
-    */
-  private def uiFrom(sel: Selections): Map[String, String] =
-    sel.map { case (gid, idx) => gid -> idx.toString }
-
-  /** '''An `If` flip is a membership change on a list of one:''' the old branch
-    * is [[Mutation.Gone]], the new one is [[Mutation.Placed]] into the mount.
-    * Repeated flips collapse by latest-wins per node id.
-    *
-    * On the wire that is a single `Inner`, not a `remove` plus an `append`. A
-    * bake group has one hole, so there are no siblings to preserve and no
-    * position to fix, and it is idempotent by construction: it lands the same
-    * whether the client holds the old branch, the new one, or nothing. A
-    * condition matching NO branch is the one other shape — a `Gone` with no
-    * `Placed`, emitted as a plain `remove`, since an `Inner` of empty content
-    * is not a well-formed patch.
-    *
-    * It does NOT morph the host, whose HTML would embed the selected branch and
-    * so carry other nodes. The log records WHICH member is in the mount, never
-    * what it holds: if a container's record moved when a CHILD's content
-    * changed, every child change would re-supply the container.
-    *
-    * Without the structural half a client disconnected across a flip would show
-    * the old branch '''permanently''' — the new branch's nodes arrive as morphs
-    * against ids its DOM lacks (silent no-ops) and nothing removes the old
-    * ones. `selectedSurfaces` does `filterNot(isStateGroup)`, so a branch is
-    * never in `open` either.
-    *
-    * The prune is load-bearing: hidden-branch churn deliberately leaves member
-    * entries stale (the silence guarantee), so a re-revealed node whose HTML
-    * happens to equal its pre-flip entry would be suppressed while the client's
-    * DOM has moved on.
-    */
-  private def flipStateGroup(
-      renderer: Renderer,
-      log: FragmentLog,
-      gid: NodeId,
-      surface: Option[String],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState],
-      at: Stamp
-  ): (FragmentLog, List[Addressed], Option[Pending]) = {
-    def memberAt(
-        snapshot: Map[String, EntityState]
-    ): Option[String] =
-      renderer
-        .resolveActiveByState(gid, snapshot)
-        .flatMap(renderer.bakeMembers(gid).lift)
-    val was = memberAt(before)
-    val now = memberAt(states)
-    // Defensive: the caller only passes groups whose selection actually moved.
-    if (was == now) (log, Nil, None)
-    else {
-      val host = renderer.mountId(gid)
-      val departed = was.map(renderer.surfaceContentId)
-      // The mutation names WHERE the branch went; [[fillHost]] tells the log
-      // what the fill put in each node it placed. Recording the composed
-      // subtree under the branch's ROOT instead writes a digest for a node with
-      // no rendering of its own, so nothing can ever resolve it and the fill's
-      // members go unfingerprinted.
-      def structure(l: FragmentLog): FragmentLog = {
-        val withGone = departed.foldLeft(l)(_.removed(gid, _, at))
-        now.foldLeft(withGone)((acc, sid) =>
-          acc.placed(
-            gid,
-            MemberKey.Surface(sid),
-            renderer.surfaceContentId(sid),
-            at
-          )
-        )
-      }
-      // Nothing is rendered HERE. The shared pass evicts (a fill with no
-      // arrival) and records where the branch went; the render is deferred, one
-      // per distinct selection. A branch nobody's selection reaches inside
-      // resolves to the empty key, so "one rendering serves every viewer" is
-      // that case of the same mechanism rather than a second path — and it is
-      // no longer rendered at all when nobody is connected to receive it.
-      val (evicted, _) =
-        fillHost(renderer, log, host, None, states, Map.empty, at.version)
-      val logged = structure(evicted)
-      now match {
-        case Some(sid) =>
-          (
-            logged,
-            Nil,
-            Some(
-              Pending(
-                surface,
-                // No version prune for a fill: what it writes is every
-                // own-rendering node in the composed subtree, which is not
-                // knowable until it is rendered (`surfaceNodeIds` is the wrong
-                // set — it counts bare containers, which never carry an entry,
-                // so the prune could only ever answer "no"). Nothing is lost:
-                // the supersede check drops a fill a later flip replaced, and
-                // the memo collapses viewers who share a selection, which
-                // together are every case a repeated fill arises from.
-                Nil,
-                Some(renderer.surfaceContentId(sid)),
-                renderer.selectionsUnder(sid, _),
-                (sel, now) =>
-                  renderer
-                    .renderSurfaceTraced(sid, now, uiFrom(sel))
-                    .map(t =>
-                      Rendered(
-                        Patch.Insert(t.html, PatchMode.Inner, host),
-                        t.own
-                      )
-                    )
-              )
-            )
-          )
-        // No member holds: nothing to render, just the departure — which
-        // establishes nothing, since it places no bytes.
-        case None =>
-          (
-            logged,
-            branchPatch(renderer, gid, None, departed)
-              .map(Addressed(surface, _)),
-            None
-          )
-      }
-    }
-  }
+      .map(_.toSse)
 
   /** Put `content` in a STATE group's mount — one patch, whatever the client's
     * DOM currently holds there.
@@ -1124,9 +901,6 @@ private[runtime] object Patches {
     * branch, the new one, or an empty host). `departed` is only consulted when
     * nothing holds now: an `Inner` of empty content is not a well-formed patch,
     * so the emptying case stays a `remove` of the branch that left.
-    *
-    * Shared by the live flip and the resume replay, so a client that missed a
-    * flip gets byte-identical treatment to one that did not.
     */
   private def branchPatch(
       renderer: Renderer,
@@ -1141,228 +915,4 @@ private[runtime] object Patches {
         departed.map(id => Patch.Remove(renderer.elementId(id))).toList
     }
 
-  /** Patch one affected dynamic group, for the whole frame.
-    *
-    * The membership question is asked ONCE, at the frame boundary: the group's
-    * rendered members before vs. after. Unmoved means every entity the frame
-    * touched here is still exactly where it was, so each gets an in-place morph
-    * of its own card. Moved means reconcile ([[renderMembershipChange]]) —
-    * once, however many entities did the moving.
-    *
-    * Per entity, this could not be answered: two entities can cross the query
-    * boundary in opposite directions in one tick, and each single-entity view
-    * of that reports a membership change the frame did not make.
-    */
-  private def renderDynamicGroup(
-      renders: Renders,
-      log: FragmentLog,
-      gid: NodeId,
-      surface: Option[String],
-      touched: List[String],
-      at: Stamp
-  ): (FragmentLog, List[Addressed]) = {
-    val membersBefore = renders.membersBefore(gid)
-    val membersAfter = renders.membersAfter(gid)
-    if (membersBefore != membersAfter)
-      renderMembershipChange(
-        renders,
-        log,
-        gid,
-        surface,
-        membersBefore,
-        membersAfter,
-        at
-      )
-    else
-      touched.foldLeft((log, List.empty[Addressed])) {
-        case ((c, acc), entityId) =>
-          renders.child(gid, entityId) match {
-            case None        => (c, acc) // not a current member
-            case Some(bytes) =>
-              val cid = renders.renderer.dynamicChildId(gid, entityId)
-              if (c.holds(cid, bytes.digest)) (c, acc)
-              else
-                (
-                  c.set(cid, bytes.digest, at.version),
-                  acc :+ Addressed(
-                    surface,
-                    Patch.Morph(bytes.html),
-                    Map(cid -> bytes.digest)
-                  )
-                )
-          }
-      }
-  }
-
-  /** Apply a membership change to a dynamic group. When the churn (entities
-    * added + removed) is a small enough fraction of the group's rendered size
-    * ([[Server.MaxChurnFraction]]) AND the group is already established in the
-    * cache, patch the delta per-entity: a `remove` patch per departed member
-    * and an `insert` (`before` its successor in DOM order, or `append` into the
-    * group) per new member. Otherwise — heavy churn, an empty/last-member
-    * group, or a group not yet in the cache (post-reload) — repaint the whole
-    * group and prune its child cache entries, so a client re-establishes from a
-    * known base.
-    *
-    * Resume bookkeeping: departures are tombstoned (they replay verbatim), an
-    * arrival marks the group structural (its `insert` cannot be replayed) — see
-    * [[FragmentLog]].
-    *
-    * Idempotency: the per-entity path fires only for an ESTABLISHED group, so
-    * the first membership change after a renderer reload (fresh cache) always
-    * repaints; a `remove` of an already-absent id is a no-op (see
-    * [[Datastar.remove]]). Residual race: a client that missed an `insert` in
-    * the connect gap (subscribed to the shared topic just after the patch) will
-    * lack that child until the next whole-group repaint — an in-place morph
-    * can't heal an id absent from that client's DOM. Bounded and self-healing;
-    * whole-group repaints (heavy churn / reload) re-sync every client.
-    *
-    * ==The one render this pass cannot decide in advance==
-    *
-    * [[prepare]] renders everything else before the log is read, because
-    * nothing else needs the log to know WHAT to render. This branch does. It
-    * picks between two different renderings —
-    *
-    *   - '''arrivals only''' (cheap: one card per entity that joined), or
-    *   - '''the whole mount''' ([[fillGroup]], one card per CURRENT member)
-    *
-    * — using two conditions, and they do not come from the same place:
-    *
-    *   - `perEntity` — is the churn a minority of the group? Pure state, so
-    *     [[prepare]] evaluates the same [[perEntityChurn]] and pre-renders
-    *     whichever side it names.
-    *   - `established` — does the log already hold children for this group?
-    *     Only the log knows, and it is asked here.
-    *
-    * `established` is false exactly when this group's children are not in the
-    * log: the first membership change after a renderer swap or a reload (the
-    * log is minted fresh), or after a fill pruned them. Sending arrivals then
-    * would patch against a DOM baseline the server cannot vouch for, so it
-    * repaints instead.
-    *
-    * When `perEntity` says "arrivals" and `established` says "no", the fill has
-    * not been pre-rendered and is built HERE, inside the critical section —
-    * i.e. exactly the behaviour this file had before [[prepare]] existed. That
-    * is a deliberate trade rather than an oversight: pre-rendering both sides
-    * would make every membership change pay for the whole mount, to spare a
-    * case that needs a swap/reload first and then cannot repeat (the fill it
-    * runs establishes the group). Rare, self-limiting, and correct either way —
-    * whereas guessing `established` wrong in the other direction would send a
-    * client a delta against markup it does not have.
-    */
-  private def renderMembershipChange(
-      renders: Renders,
-      log: FragmentLog,
-      gid: NodeId,
-      surface: Option[String],
-      membersBefore: List[String],
-      membersAfter: List[String],
-      at: Stamp
-  ): (FragmentLog, List[Addressed]) = {
-    val renderer = renders.renderer
-    val beforeSet = membersBefore.toSet
-    val afterSet = membersAfter.toSet
-    val added = membersAfter.filterNot(beforeSet)
-    val removed = membersBefore.filterNot(afterSet)
-    val churn = added.size + removed.size
-    // The same heuristic `prepare` used to decide what to pre-render.
-    val perEntity = perEntityChurn(churn, membersBefore.size)
-    // The only input to this pass that comes from the log rather than from
-    // state, and so the only reason a render can be needed that `prepare` did
-    // not do. See the class doc above.
-    val established = log.hasChildOf(gid)
-    // The query boundary moved but the RENDERED membership did not — an entity
-    // matching the query but no case is not a member either way, so there is
-    // nothing to send and nothing to fill.
-    if (churn == 0) (log, Nil)
-    else if (!perEntity || !established)
-      fillGroup(renders, log, gid, surface, at)
-    else {
-      val (afterRemoves, removePatches) =
-        removed.foldLeft((log, List.empty[Addressed])) { case ((c, acc), e) =>
-          val cid = renderer.dynamicChildId(gid, e)
-          (
-            c.removed(gid, cid, at),
-            acc :+ Addressed(surface, Patch.Remove(renderer.elementId(cid)))
-          )
-        }
-      val (afterAdds, addPatches) =
-        added.sorted.foldLeft((afterRemoves, List.empty[Addressed])) {
-          case ((c, acc), e) =>
-            renders.child(gid, e) match {
-              case None        => (c, acc) // defensive: not renderable, skip
-              case Some(bytes) =>
-                val cid = renderer.dynamicChildId(gid, e)
-                // Anchor only on members ALREADY in the client's DOM, i.e.
-                // pre-change ones: a co-arrival may not be inserted yet.
-                val patch = insertInto(
-                  renderer,
-                  gid,
-                  membersAfter,
-                  e,
-                  beforeSet,
-                  bytes.html
-                )
-                (
-                  c.placed(gid, MemberKey.Entity(e), cid, bytes.digest, at),
-                  acc :+ Addressed(surface, patch, Map(cid -> bytes.digest))
-                )
-            }
-        }
-      (afterAdds, removePatches ++ addPatches)
-    }
-  }
-
-  /** Fill a dynamic group's mount with its CURRENT members — the wholesale
-    * fallback, and the last place a patch carried other nodes.
-    *
-    * A group's root element IS its mount, so the content goes out as an `Inner`
-    * fill and no container-level fragment is written at all. Outer-morphing the
-    * root and logging that HTML under `gid` would instead make a container's
-    * fragment contain its children.
-    *
-    * '''The fill writes each member's fingerprint.''' It re-supplies the
-    * mount's contents wholesale, so without that the next live diff would
-    * compare against a baseline the client never had and suppress a real
-    * change. Which is also why `Inner` and not something partial: it is
-    * all-or-nothing over the mount's children — a named-but-empty child is
-    * wiped, an omitted one deleted (`DatastarMorphContractSuite`) — so a fill
-    * cannot preserve siblings and is reached only where the knowledge for a
-    * delta is gone.
-    */
-  private def fillGroup(
-      renders: Renders,
-      log: FragmentLog,
-      gid: NodeId,
-      surface: Option[String],
-      at: Stamp
-  ): (FragmentLog, List[Addressed]) = {
-    val renderer = renders.renderer
-    val members = renders.fill(gid)
-    // Prune first: a member that LEFT must not keep an entry, and its stale
-    // mutation must not replay against a mount this fill just re-supplied.
-    val pruned = log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
-    val stamped = members.foldLeft(pruned) { case (l, (cid, bytes)) =>
-      l.set(cid, bytes.digest, at.version)
-    }
-    (
-      stamped,
-      List(
-        Addressed(
-          surface,
-          Patch.Insert(
-            members.map(_._2.html).mkString,
-            PatchMode.Inner,
-            renderer.mountId(gid)
-          ),
-          // A fill is the one patch that places SEVERAL nodes, which is why
-          // `establishes` is a map rather than a single entry.
-          members.map { case (cid, bytes) => cid -> bytes.digest }.toMap,
-          // ...and the one that also UNPLACES: a member that left is inside the
-          // mount this `Inner` just overwrote, so its claim has to go with it.
-          Set(gid)
-        )
-      )
-    )
-  }
 }

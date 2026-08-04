@@ -192,7 +192,6 @@ class ResumePatchesSuite extends munit.FunSuite {
     val after = Patches.applied(
       holds,
       Addressed(
-        None,
         Patch.Morph("<ignored/>"),
         establishes = Map(("c_1": NodeId) -> Digest.of("<fresh/>")),
         invalidates = Set[NodeId]("c_1")
