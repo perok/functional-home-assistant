@@ -647,12 +647,22 @@ Worth recording so they are not re-invented as work:
 - **Ordering across sessions.** Sessions render on their own fibers and can sit at different
   positions. Nothing above depends on them agreeing, but that should be stated as an invariant
   rather than assumed.
-- ~~**What a session FORGETS.**~~ **Answered: nothing has to.** A digest is an optimisation around
-  redundant pushes, not part of the machinery that decides what a client is owed — that is the
-  changelog's `nodeId -> version`, which must be right. So the two sides are not symmetric: a
-  session that KEEPS a digest for a node whose DOM was removed under it costs one redundant patch
-  the next time that node moves, while one that CLAIMS a digest the client never received is
-  silently stale forever. Only the second is a bug, and `establishes` — written where a patch is
-  kept — cannot produce it. Hence no invalidation set on the patch and no mutation-reading in the
-  session: dropping an entry is always safe, so `holds` needs no bookkeeping beyond what it is
-  told it sent.
+- ~~**What a session FORGETS.**~~ **Answered: a REMOVE, nothing; a FILL, its mount.** A digest is an
+  optimisation around redundant pushes, not part of the machinery that decides what a client is
+  owed — that is the changelog's `nodeId -> version`, which must be right. So the two directions are
+  not symmetric: dropping a claim costs one redundant patch, while holding a claim the client's DOM
+  does not match is silently stale forever. The rule that falls out is one line — **a patch must
+  leave `holds` describing the DOM it just produced** — and it has exactly two cases:
+
+  - **Remove**: nothing to do. It places no bytes, and a stale claim for an element that is GONE
+    costs at most a morph at a missing id, which the client ignores. What brings it back is an
+    insert, which establishes afresh.
+  - **Fill** (`Inner` over a mount): must invalidate. Its bytes replaced everything under the mount
+    with no per-node trace, so a member's old claim outlives what it described — and if that value
+    comes round again the patch is suppressed while the client still shows the fill's version. This
+    is the prune `FragmentLog.invalidateWhere` already does for the shared log, so it is not new
+    bookkeeping, just the same fact recorded per client.
+
+  Hence `Addressed.invalidates` (roots, applied by prefix) alongside `establishes`, and
+  `Patches.applied` — forget, then claim, in that order, because a fill does both to one mount. No
+  mutation-reading in the session, and no ancestor tracking: the patch knows which mount it filled.

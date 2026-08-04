@@ -60,16 +60,25 @@ private[runtime] enum Patch:
   * `holds` rather than the shared log, the only thing that can tell it what it
   * just sent is the patch it sent (docs/plan-session-pulled-changelog.md).
   *
-  * Placements only, and nothing balances them. A [[Patch.Remove]] establishes
-  * nothing, and a session is never told to forget: a digest suppresses a
-  * redundant push, so keeping a stale one costs one patch, where claiming one
-  * the client never got is silently stale forever. Only the second is a bug,
-  * and recording at the KEEP site cannot produce it.
+  * `invalidates` names mounts this patch RE-SUPPLIED without a per-node trace:
+  * its bytes replaced everything under them, so any digest still claimed for
+  * those nodes describes a DOM that no longer exists. Dropping is the safe
+  * direction (absent reads as "send it"), and it is not optional for a fill — a
+  * node whose claimed digest happens to come round again would otherwise be
+  * suppressed while the client shows the fill's version. This is the same prune
+  * [[FragmentLog.invalidateWhere]] does for the shared log.
+  *
+  * A [[Patch.Remove]] needs neither: it places no bytes, and a stale claim for
+  * an element that is GONE costs at most a morph at a missing id, which the
+  * client silently ignores. What brings it back is an insert, which establishes
+  * afresh.
   */
 private[runtime] case class Addressed(
     surface: Option[String],
     patch: Patch,
-    establishes: Map[NodeId, Digest] = Map.empty
+    establishes: Map[NodeId, Digest] = Map.empty,
+    // Roots, applied by prefix — a mount and everything under it.
+    invalidates: Set[NodeId] = Set.empty
 ) extends Directed
 
 /** One diff pass's output, with the store version it was diffed at.
@@ -635,9 +644,18 @@ private[runtime] object Patches {
     )
   }
 
-  /** Everything a client resuming at cursor `v` is owed, as SSE events. The
-    * pure core of the resume path (ADR 0011): the caller reads the log +
-    * snapshot and writes the stream; the ordering argument lives here.
+  /** Everything a client resuming at cursor `v` is owed, as patches carrying
+    * what their bytes establish. The pure core of the resume path (ADR 0011):
+    * the caller reads the log + snapshot, records the [[Addressed.establishes]]
+    * into that session's `holds`, and writes the stream; the ordering argument
+    * lives here.
+    *
+    * Untagged — every patch here was already decided against THIS client's
+    * `open` and `holds`, so there is nobody left to hide it from.
+    *
+    * A fill establishes NOTHING and invalidates its mount: composed bytes have
+    * no per-node trace here, so the honest record is "these nodes are unknown
+    * again", which costs redundant patches and never staleness.
     *
     * '''ONE rule, one candidate set, one snapshot:'''
     *
@@ -694,7 +712,7 @@ private[runtime] object Patches {
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
-  ): List[ServerSentEvent] = {
+  ): List[Addressed] = {
     val owed = log.since(v)
     // Split by CONTAINER KIND, because the two mounts want different tools: a
     // dynamic group's needs per-member deltas that preserve siblings, a state
@@ -721,7 +739,7 @@ private[runtime] object Patches {
             .map(_._2)
             .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
-        )
+        ).map(Addressed(None, _, invalidates = Set(gid)))
       }
     val places = dynamic
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
@@ -753,8 +771,19 @@ private[runtime] object Patches {
                 // descending by position means a node's successor was either
                 // already in the client's DOM or placed a moment ago.
                 List(
-                  Patch.Remove(renderer.elementId(nodeId)),
-                  insertInto(renderer, gid, members, entityId, _ => true, html)
+                  Addressed(None, Patch.Remove(renderer.elementId(nodeId))),
+                  Addressed(
+                    None,
+                    insertInto(
+                      renderer,
+                      gid,
+                      members,
+                      entityId,
+                      _ => true,
+                      html
+                    ),
+                    Map(nodeId -> Digest.of(html))
+                  )
                 )
               }
           }
@@ -765,10 +794,14 @@ private[runtime] object Patches {
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
-      Patch.Insert(
-        renderer.renderMount(gid, states, uiState).map(_._2).mkString,
-        PatchMode.Inner,
-        renderer.mountId(gid)
+      Addressed(
+        None,
+        Patch.Insert(
+          renderer.renderMount(gid, states, uiState).map(_._2).mkString,
+          PatchMode.Inner,
+          renderer.mountId(gid)
+        ),
+        invalidates = Set(gid)
       )
     }
     // The second candidate set: an open surface's nodes, which the cursor alone
@@ -793,22 +826,30 @@ private[runtime] object Patches {
           // says nothing about this DOM, which is why `holds` arrives already
           // narrowed to one client rather than as the shared log.
           // A MISSING entry counts as "send": unknown, so tell the client.
-          Option
-            .when(!holds.get(id).contains(Digest.of(html)))(Patch.Morph(html))
+          val digest = Digest.of(html)
+          Option.when(!holds.get(id).contains(digest))(
+            Addressed(None, Patch.Morph(html), Map(id -> digest))
+          )
         }
       )
-    (owed.nodes
+    owed.nodes
       // The cursor names every node that changed, across every surface — it
       // knows nothing about who is looking. A morph at an id this client's DOM
       // lacks is a silent no-op, so this only ever cost bytes; it is still one
       // client's worth of another client's tab on every reconnect.
       .filter(renderer.visibleNode(_, open, states))
       .flatMap(id =>
-        renderer.renderLogged(id, states, uiState).map(Patch.Morph(_))
+        renderer
+          .renderLogged(id, states, uiState)
+          .map(html =>
+            Addressed(None, Patch.Morph(html), Map(id -> Digest.of(html)))
+          )
       ) ++
       fromOpen ++
-      gone.toList.sorted.map(id => Patch.Remove(renderer.elementId(id))) ++
-      branchFills ++ places ++ refills).map(_.toSse)
+      gone.toList.sorted.map(id =>
+        Addressed(None, Patch.Remove(renderer.elementId(id)))
+      ) ++
+      branchFills ++ places ++ refills
   }
 
   /** ONE anchor rule for both the live add path and the resume replay, because
@@ -903,6 +944,28 @@ private[runtime] object Patches {
     *     across it would aim the morph at an id the DOM does not hold yet — a
     *     silent no-op. A [[Step.Ready]] is a barrier for the same reason.
     */
+  /** Apply what a patch did to one client's record: forget the mounts it
+    * re-supplied, then claim what its bytes placed.
+    *
+    * That ORDER, because a fill both re-supplies a mount and places members
+    * inside it — invalidating afterwards would drop the very claims the same
+    * patch just earned.
+    *
+    * Prefix semantics on the roots, the same string test ancestry uses
+    * everywhere here ([[FragmentLog.coveredByMutation]]): ids are
+    * location-derived, and the trailing `_` keeps `c_1` from swallowing `c_10`.
+    * A root itself goes too — it is inside the DOM the fill replaced.
+    */
+  def applied(
+      holds: Map[NodeId, Digest],
+      patch: Addressed
+  ): Map[NodeId, Digest] =
+    (if (patch.invalidates.isEmpty) holds
+     else
+       holds.filterNot { case (id, _) =>
+         patch.invalidates.exists(r => id == r || id.startsWith(r + "_"))
+       }) ++ patch.establishes
+
   def encode(steps: List[Step]): List[ServerSentEvent] =
     steps
       .foldLeft(List.empty[Step]) {
@@ -1286,7 +1349,10 @@ private[runtime] object Patches {
           ),
           // A fill is the one patch that places SEVERAL nodes, which is why
           // `establishes` is a map rather than a single entry.
-          members.map { case (cid, bytes) => cid -> bytes.digest }.toMap
+          members.map { case (cid, bytes) => cid -> bytes.digest }.toMap,
+          // ...and the one that also UNPLACES: a member that left is inside the
+          // mount this `Inner` just overwrote, so its claim has to go with it.
+          Set(gid)
         )
       )
     )

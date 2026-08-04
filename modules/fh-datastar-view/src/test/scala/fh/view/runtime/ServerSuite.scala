@@ -3045,14 +3045,14 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
 
     assert(
-      owed.exists(_.renderString.contains("active-1")),
-      clue = owed.map(_.renderString)
+      owed.exists(_.patch.toSse.renderString.contains("active-1")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
     assert(
-      !owed.exists(_.renderString.contains("active-0")),
+      !owed.exists(_.patch.toSse.renderString.contains("active-0")),
       clue = (
         "a tab-1 viewer must not be sent tab 0's bar",
-        owed.map(_.renderString)
+        owed.map(_.patch.toSse.renderString)
       )
     )
   }
@@ -3089,10 +3089,10 @@ class ServerSuite extends munit.CatsEffectSuite {
       mine
     )
     assert(
-      !owed.exists(_.renderString.contains("s_t0__c")),
-      clue = owed.map(_.renderString)
+      !owed.exists(_.patch.toSse.renderString.contains("s_t0__c")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
-    assert(!owed.exists(_.renderString.contains("A1")), clue = owed)
+    assert(!owed.exists(_.patch.toSse.renderString.contains("A1")), clue = owed)
 
     // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
     //     arrive. Without this the test would pass by sending nothing, ever.
@@ -3107,8 +3107,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       mine
     )
     assert(
-      mineOwed.exists(_.renderString.contains("B1")),
-      clue = mineOwed.map(_.renderString)
+      mineOwed.exists(_.patch.toSse.renderString.contains("B1")),
+      clue = mineOwed.map(_.patch.toSse.renderString)
     )
   }
 
@@ -3180,8 +3180,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       Map.empty
     )
     assert(
-      !owed.exists(_.renderString.contains("A1")),
-      clue = owed.map(_.renderString)
+      !owed.exists(_.patch.toSse.renderString.contains("A1")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
   }
 

@@ -645,14 +645,15 @@ class Server(
                       if (!directed.visibleTo(open)) IO.pure(Option.empty[Step])
                       else
                         directed match {
-                          case Addressed(surface, patch, establishes) =>
+                          case a @ Addressed(surface, patch, _, _) =>
                             // Recorded HERE — where a patch is kept — and
                             // nowhere else, because the record has to describe
                             // this client's DOM: a patch this connection
                             // filtered out never reached it and must not be
-                            // claimed. Nothing reads it yet (see [[Session]]).
+                            // claimed. Only the RESUME reads it so far (see
+                            // [[Session]]).
                             session.holds
-                              .update(_ ++ establishes)
+                              .update(Patches.applied(_, a))
                               .as(Option(Step.Mergeable(surface, patch)))
                           case Encoded(_, event) =>
                             IO.pure(Option(Step.Ready(event)))
@@ -777,10 +778,10 @@ class Server(
       open: Set[String]
   ): IO[List[ServerSentEvent]] =
     (live.renderer.get, live.log.get, stateStore.current, session.holds.get)
-      .mapN { (renderer, log, store, holds) =>
+      .flatMapN { (renderer, log, store, holds) =>
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
-          List(Server.reloadPatch)
+          IO.pure(List(Server.reloadPatch))
         else {
           val head =
             if (cursor.exists(_.styleHash != renderer.styleHash))
@@ -832,8 +833,18 @@ class Server(
               )
             )
             .toList
-          head ++ resumed.getOrElse(List(repaint)) ++ orphan :+
-            Server.cursorSignals(renderer, log.id, store.version)
+          // What this connection is about to be told, recorded against the
+          // session before it is told: a resume's patches establish and
+          // invalidate exactly as a live one's do, and a REPAINT forgets
+          // everything — it replaces the body wholesale with no per-node trace,
+          // so every claim the document made now describes bytes that are gone.
+          val record = resumed.fold(session.holds.set(Map.empty))(patches =>
+            session.holds.update(patches.foldLeft(_)(Patches.applied))
+          )
+          record.as(
+            head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
+              orphan :+ Server.cursorSignals(renderer, log.id, store.version)
+          )
         }
       }
 

@@ -9,6 +9,7 @@ import fh.view.model.{
   Predicate,
   SlotSource
 }
+import fh.view.model.NodeId
 import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -56,7 +57,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def resume(log: FragmentLog, v: Long): List[String] =
     Patches
       .resume(renderer, log, log.digestsFor(_ => 0), states, v)
-      .map(_.renderString)
+      .map(_.patch.toSse.renderString)
 
   private val empty = FragmentLog("test")
 
@@ -172,6 +173,39 @@ class ResumePatchesSuite extends munit.FunSuite {
     assertEquals(out.size, 2, clue = out)
     assert(!out.exists(_.contains("all four")), clue = out)
     assert(out(1).contains("mode before"), clue = out)
+  }
+
+  /** What a patch does to the SESSION's record of this client's DOM. The
+    * dangerous direction is claiming a digest the client does not have, and a
+    * fill is where that happens without help: it overwrites a mount's whole
+    * subtree with no per-node trace, so a member's old claim would outlive the
+    * bytes it described and suppress that value coming round again.
+    */
+  test("a fill forgets its mount, then claims what it placed") {
+    val holds: Map[NodeId, Digest] = List(
+      "c" -> "<c/>",
+      "c_1" -> "<one/>",
+      "c_10" -> "<ten/>",
+      "c_1_0" -> "<nested/>",
+      "d_1" -> "<other/>"
+    ).map { case (id, html) => (id: NodeId) -> Digest.of(html) }.toMap
+    val after = Patches.applied(
+      holds,
+      Addressed(
+        None,
+        Patch.Morph("<ignored/>"),
+        establishes = Map(("c_1": NodeId) -> Digest.of("<fresh/>")),
+        invalidates = Set[NodeId]("c_1")
+      )
+    )
+    // The root of the fill and everything under it are unknown again...
+    assertEquals(after.get("c_1_0"), None, clue = after)
+    // ...but the same patch's own placement survives the prune it triggered.
+    assertEquals(after.get("c_1"), Some(Digest.of("<fresh/>")), clue = after)
+    // A prefix is not a sibling: `c_1` must not swallow `c_10`.
+    assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
+    assertEquals(after.get("c"), holds.get("c"), clue = after)
+    assertEquals(after.get("d_1"), holds.get("d_1"), clue = after)
   }
 
   test("a cursor past everything is owed nothing") {
