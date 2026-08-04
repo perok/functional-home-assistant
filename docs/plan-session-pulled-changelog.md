@@ -1,7 +1,7 @@
 # Plan — the session-pulled changelog
 
 > **A deferred design plan, not implemented code** — the repo convention for `docs/plan-*.md`. Read
-> it against [`rendering-pipeline.md`](rendering-pipeline.md), which describes what actually runs
+> it against [`architecture-rendering-pipeline.md`](architecture-rendering-pipeline.md), which describes what actually runs
 > today. As phases land they move INTO that file and out of this one.
 
 ## Goal, and what must not change
@@ -49,6 +49,84 @@ each session **pulls what it is owed**, and "does *this* client have it?" is ans
 
 Deliberately NOT a change to what a browser experiences: the same patches, in the same order, for
 the same reasons. This is about who decides, and when the work happens.
+
+
+## The shape, to compare against the architecture doc
+
+Same visual language as
+[`architecture-rendering-pipeline.md`](architecture-rendering-pipeline.md) §1, so the two can be read
+side by side. What is global does not move. What changes is everything after it: the per-slug lane
+stops rendering, and the session lane grows a pull loop.
+
+```mermaid
+flowchart TB
+  HA["Home Assistant · WebSocket<br/>subscribe_entities"]
+
+  subgraph GLOBAL["GLOBAL — unchanged"]
+    direction TB
+    PUMP["HaFeed.pump"]
+    STORE["StateStore.update<br/>ONE store for every dashboard<br/>version++ only on real change"]
+    CH["changes topic · list of StateChange"]
+  end
+
+  subgraph SLUG["PER SLUG — RECORDS, does not render"]
+    direction TB
+    GATE{"any session<br/>on this slug?"}
+    REC["record what moved, in log.modify<br/>nodeId -> version · Gone / Placed<br/>no rendering, no digests"]
+    GAP["gapFrom = version<br/>stop recording"]
+    SIG["SignallingRef · latest version<br/>the doorbell: coalescing by design"]
+    CACHE[("render cache · MapRef + Deferred<br/>nodeId + inputs -> html, digest<br/>single-flight, shared by every session")]
+  end
+
+  subgraph SESSION["PER SESSION — pulls what it is owed"]
+    direction TB
+    WAKE["wake on .discrete"]
+    PULL["read the changelog from `position`"]
+    PRUNE["prune P1<br/>not visible · covered by an ancestor<br/>· collapse repeats, latest wins"]
+    REND["render each survivor via the cache"]
+    CMP{"holds(node)<br/>= this digest?"}
+    DROP["drop it — this client<br/>already has these bytes"]
+    EMIT["emit, and set<br/>holds(node) = version, digest<br/>subtree too, from the trace"]
+    SEND["send changeset<br/>position = head"]
+  end
+
+  FLOOR["changelog cleanup<br/>floor = min(position) over live sessions<br/>same P1 pass<br/>a stale session releases its hold"]
+
+  HA --> PUMP --> STORE --> CH --> GATE
+  GATE -->|yes| REC --> SIG
+  GATE -->|no| GAP
+  SIG --> WAKE --> PULL --> PRUNE --> REND --> CMP
+  CMP -->|yes| DROP
+  CMP -->|no| EMIT --> SEND
+  REND <-.-> CACHE
+  PULL <-.-> REC
+  SEND --> FLOOR
+  FLOOR -.->|prunes| REC
+
+  classDef global fill:#e0f2fe,stroke:#0369a1,color:#0f172a
+  classDef shared fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
+  classDef client fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
+  classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
+  class PUMP,STORE,CH global
+  class REC,SIG,GAP,GATE shared
+  class WAKE,PULL,PRUNE,REND,CMP,DROP,EMIT,SEND client
+  class CACHE,FLOOR store
+  class HA ext
+```
+
+### Read against the architecture doc, box for box
+
+| Architecture doc §1 | Here |
+|---|---|
+| `Patches.plan` (per slug) | survives, but only to select node ids — no render inputs needed |
+| `Patches.prepare` / `Renders` (per slug) | **gone** — replaced by the render cache, which outlives the batch |
+| `Patches.diff` inside `log.modify` (per slug) | **shrinks to recording**: node → version, Gone/Placed. No digests, no patches |
+| `sharedTopic` (global, lossless fan-out) | **gone** — replaced by a per-slug `SignallingRef` doorbell |
+| `Addressed` / `Varying` / `Pending` / `Memo` | **gone** — every render is per session, so the special case dissolves |
+| filter by slug, then `visibleTo` (per client) | becomes the P1 prune, which also collapses repeats |
+| `FragmentLog` digests (per slug, shared answer) | **moves into the session** as `holds`, so the answer is per client |
+| nothing | **new**: the session gate, `gapFrom`, the floor, and the staleness bound |
 
 ## The four structures
 
@@ -151,7 +229,7 @@ else keyed by node id.
 ## The flow
 
 ```
-state change arrives  (globally, once — unchanged from `rendering-pipeline.md` §2)
+state change arrives  (globally, once — unchanged from `architecture-rendering-pipeline.md` §2)
   StateStore.update(frame); version++ only on real change
 
 for each slug that HAS AT LEAST ONE SESSION            // the gate that does not exist today
@@ -218,7 +296,7 @@ session holding an old position RAISES the floor and a client returning past it 
 the deliberate cost of exact pruning.
 
 Ordering is by **version**, never by wall clock. X is a wall-clock timer for the linger, and that is
-the only thing time is allowed to decide (`Stamp`'s split — `rendering-pipeline.md` §2).
+the only thing time is allowed to decide (`Stamp`'s split — `architecture-rendering-pipeline.md` §2).
 
 ## How we will know it worked
 
@@ -243,7 +321,7 @@ card}`), which this does not touch.
 - **Exact pruning**, on what live sessions can still ask for, rather than a one-hour wall clock.
   `Stamp.millis` stops being load-bearing (`gapFrom` replaces `horizon`).
 - **`hasChildOf` stops being a guess.** "Is this group established?" becomes "does this session's
-  `holds` have its children?" — per client, exactly. The red box in `rendering-pipeline.md` §3 goes away, and with it the
+  `holds` have its children?" — per client, exactly. The red box in `architecture-rendering-pipeline.md` §3 goes away, and with it the
   pre-render-vs-fill trade.
 - **The missed-insert race goes away.** Today a client that missed an `insert` in the connect gap
   lacks that child until a whole-group repaint, because the shared log says everyone has it. A
@@ -280,16 +358,27 @@ is the guarantee that costs:
 - `Topic.publish1` "does not complete until after the given element has been enqueued on all
   subscribers… if any subscriber is at its `maxQueued` limit, `publish1` will semantically block
   until that subscriber consumes an element." Every subscriber gets every element, which is exactly
-  why each needs a queue, and why `rendering-pipeline.md` §1 has to choose between backpressuring the publisher and growing
+  why each needs a queue, and why `architecture-rendering-pipeline.md` §1 has to choose between backpressuring the publisher and growing
   without bound.
 - `Signal.discrete` promises the opposite: "updates that are very close together may result in only
   the last update appearing in the stream… if you want to be notified about every single update, use
   a `Queue` or `Channel` instead."
 
-A pull model wants the second. The changelog already holds the data, so the signal only has to say
-"something moved" — and a session busy through three batches should wake once and pull to the head,
-which is the dropping behaviour rather than a limitation of it. Multiple subscribers are fine: each
-gets its own `discrete`.
+**What gets dropped is WAKE-UPS, never changes.** The signal carries no data — only "something
+moved, go look". Every change is in the changelog, and a session that wakes once after three batches
+pulls from its `position` to the head and sees all three batches' worth of work. Coalescing the
+notification cannot lose anything the changelog is holding.
+
+There is a second, deliberate kind of dropping one level down, and it is worth separating: the
+changelog itself is keyed by node with latest-wins, so a node that moved three times in a window is
+recorded once, at its latest version. The intermediate values ARE dropped — and should be. This is
+state synchronisation, not event delivery: the browser needs to end up showing what is true now, and
+Datastar morphs to current state. Sending it two superseded renderings on the way would be wasted
+bytes and a visible flicker. Today's pipeline already works this way (`FragmentLog.set` overwrites),
+so this is not a new property.
+
+The rule of thumb: **the changelog is the truth and never loses a node; the signal is a doorbell and
+may ring once for three deliveries.** Multiple subscribers are fine — each gets its own `discrete`.
 
 **C. What actually grows is the MUTATIONS, and the bound is the session's own staleness.** The
 `nodeId -> version` map cannot grow without bound: it is keyed by node, latest-wins, so it is O(nodes

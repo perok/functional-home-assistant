@@ -7,7 +7,7 @@ Its ADRs are in [`docs/adr/`](../../docs/adr/README.md) — they record the desi
 (entity card + JSONata transforms, surfaces/tabs, dynamic groups, the slot model) with their
 rationale. The repo-wide ADR routine is in the root `CLAUDE.md`.
 
-[`docs/rendering-pipeline.md`](../../docs/rendering-pipeline.md) is the map of the RUNTIME half —
+[`docs/architecture-rendering-pipeline.md`](../../docs/architecture-rendering-pipeline.md) is the map of the RUNTIME half —
 how a state change becomes bytes, what is shared per slug vs. per connection, and the four node
 kinds (static, dynamic, flip, varying). It is current-state and must move with the code, in the
 same commit; ADRs that change the pipeline update it too.
@@ -16,7 +16,7 @@ same commit; ADRs that change the pipeline update it too.
 
 1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006 and the "Spike results"
    section of `docs/plan-pkl-authoring-ergonomics.md` before writing any Pkl. For anything in
-   `fh/view/runtime` read `docs/rendering-pipeline.md` — and update it alongside the change.
+   `fh/view/runtime` read `docs/architecture-rendering-pipeline.md` — and update it alongside the change.
 2. Verify with `sbt 'fh-datastar-view/testFull'` — the suites build **fake dumps** in temp
    dirs and run the real library modules through the full pipeline, so **no live HA is
    needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the

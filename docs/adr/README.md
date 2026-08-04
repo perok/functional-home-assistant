@@ -10,7 +10,7 @@ is **rewritten in place** (git history keeps the archaeology); a genuinely new
 decision gets a new ADR. Do not append dated update sections.
 
 **An ADR that alters the live rendering pipeline must update
-[`../rendering-pipeline.md`](../rendering-pipeline.md) in the same change.** That
+[`../architecture-rendering-pipeline.md`](../architecture-rendering-pipeline.md) in the same change.** That
 file is the shape of the running system — the shared/per-client split, the four
 node kinds, the reconnect path — and this directory is the reasoning behind it.
 Neither substitutes for the other, and a diagram that lags the code is worse
