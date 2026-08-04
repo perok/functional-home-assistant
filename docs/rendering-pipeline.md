@@ -379,17 +379,41 @@ drops the whole map, which is the correctness story AND the eviction story for f
 
 `Deferred` behind a `MapRef` gives single-flight: the first fiber to want a key inserts an empty
 `Deferred` and renders; everyone else finds it and waits. Insertion stays a per-key operation
-instead of a whole-map CAS.
+instead of a whole-map CAS. The value is
+
+```
+Deferred[IO, Either[Throwable, (Html, Digest)]]
+```
+
+so a failed render reaches every waiter instead of stranding them. Two rules come with that, and
+both are the usual way this pattern breaks:
+
+- **Completion must survive cancellation.** `attempt` does not intercept it, so a producer cancelled
+  mid-render never completes its `Deferred` and every waiter blocks forever. Complete it from a
+  `guaranteeCase`/`onCancel`, not from the happy path.
+- **A failure must evict the key.** Leaving a `Left` in the map poisons that node for the life of
+  the renderer; evicting lets the next caller retry while the waiters that already hold it still see
+  the error.
 
 `inputs` is what the render actually reads, and nothing more:
 
 - the **content version of each entity the node binds** — `Renderer.entitiesForNode` already gives
-  the set. A per-entity version (stamped at ingest from the store's batch counter) keys far more
-  cheaply than the `EntityState` values themselves, whose equality and hashing walk the whole
-  attribute map.
+  the set. Scala does synthesize `hashCode`/`equals` for `EntityState`, so keying on the values
+  themselves would WORK; the reasons not to are cost and precision. Cost: a case class hash is
+  recomputed on every call (no memoisation) and recurses into the attributes `Map`, so every lookup
+  walks every attribute of every bound entity, where a version stamp is a `Long` compare. Precision:
+  the whole value is MORE discriminating than the render is — `lastUpdated` moves on ticks that
+  change no rendered byte, so value-keying misses on states that would render identically. A
+  per-entity version stamped at ingest moves exactly when content moves, which is the store's
+  existing definition.
 - the node's **own selections** — `Renderer.selectionsOf`, i.e. only the selections this node's
   markup reads, not the viewer's whole open set. Keying on the open set would fragment the cache
   between viewers who differ somewhere irrelevant.
+
+The asymmetry to keep in mind while choosing it: a key that is **too discriminating** costs a
+wasted render, and the digest then shows nothing changed so nothing is sent — CPU, no bug. A key
+that is **too coarse** serves a client bytes that no longer match its state, silently and
+permanently. When in doubt, over-discriminate.
 
 **Children are not part of a node's cache entry.** A node caches its OWN markup with holes where
 its children go; a second pass substitutes the children's (also cached) HTML. Otherwise any
@@ -472,6 +496,49 @@ The client stays the authority. Its cursor is the truth about what its DOM conta
 `holds` are the server's record of the last truth it was told, and a reconnect corrects them. That
 is what makes it safe for the server to prune on `position` while still handling a client that comes
 back with a different story.
+
+### A client that returns after its session was dropped
+
+The session's `holds` map is an OPTIMISATION, not the resume mechanism. Losing it degrades the
+reconnect by one rung; it does not force a repaint. The existing ladder just gains a middle step,
+and it is chosen on the CHANGELOG, not on whether the session survived:
+
+```
+cursor's logId does not match this renderer      -> reload  (a different document)
+changelog still reaches back to cursor.version
+  and no gapFrom sits above it                   -> resume: rebuild the changeset from the
+                                                    changelog + the current snapshot, exactly as
+                                                    since(v) does today. Without `holds` there is
+                                                    no per-client suppression, so the client may
+                                                    receive bytes it already had — idempotent
+                                                    morphs, so this costs bytes and nothing else.
+otherwise                                        -> repaint from the current snapshot
+```
+
+So the linger window X is not really "how long we keep a session" — it is **how long we keep the
+ability to resume that client cheaply**, which is what today's one-hour `Retention` means. Note the
+coupling it creates: the changelog floor is `min(position)` over live sessions, so dropping the last
+session holding an old position RAISES the floor and a client returning past it repaints. That is
+the deliberate cost of exact pruning.
+
+Ordering is by **version**, never by wall clock. X is a wall-clock timer for the linger, and that is
+the only thing time is allowed to decide (`Stamp`'s split, §2).
+
+### How we will know it worked
+
+The wire is the contract: the same patches, in the same order, for the same reasons. So the
+acceptance criterion is that the suites which assert on EMITTED SSE OUTPUT pass unchanged —
+`ServerSuite`'s stream tests, `DatastarMorphContractSuite`, and the functional suites over the fake
+HA (`DashboardBehaviourSuite`, `UseCaseSuite`, `PklDashboardBehaviourSuite`). A diff in any of those
+is a design question, not a test to update.
+
+Tests that construct internals WILL change — `Patches.diff`'s signature, `Server.LiveSlug`,
+`FragmentLog` — and that is fine. The distinction is worth holding on to while working: changing a
+test that names a type is refactoring; changing a test that names a byte on the wire is a behaviour
+change wearing a refactor's clothes.
+
+`PklBuildSuite`'s wire-format snapshots are unaffected — they pin the AUTHORING wire (`{cards,
+card}`), which this does not touch.
 
 ### What this buys
 
