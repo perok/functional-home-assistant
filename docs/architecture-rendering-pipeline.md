@@ -436,6 +436,13 @@ Live list — delete an entry when it is answered, and say where the answer land
   per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
   one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy
   instance is unmeasured.
+- **Membership is rescanned, and the scan is over the whole house.**
+  `Renderer.dynamicMembers` filters every entity, so a dynamic group's cost is driven by house size
+  rather than by group size: measured at 154 µs per scan for 2 000 entities and 1.9 ms for 20 000,
+  paid ~2× per frame by the recorder and ~1.3× per pulling session. The per-session share is the
+  OWNER LOOKUP for a changed member — a question the recorder had already answered — so it is
+  removable without maintaining anything. Numbers and the recommendation (memoise before
+  maintaining) are in `plan-session-pulled-changelog.md`, phase 5.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 

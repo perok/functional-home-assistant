@@ -170,7 +170,49 @@ Each one lands on its own and keeps the suites green.
    The alternative the architecture doc had floated — minting a fresh log identity on the 0->1
    transition — would have repainted every first connect to an idle dashboard, which is the
    common case, not the edge one.
-5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.
+5. **Maintained dynamic membership**, tested per change instead of rescanned per frame. **Not
+   built — measured first, and the measurement changes what should be built.**
+
+   `Renderer.dynamicMembers` filters EVERY entity in the house, so its cost is driven by house
+   size and not by group size. Measured on one dynamic group, a single-entity change, warm JIT
+   (`n` = total entities, half of them members):
+
+   | | n = 2 000 | n = 20 000 |
+   |---|---|---|
+   | one `dynamicMembers` scan | 154 µs | 1.9 ms |
+   | recorder, in-place member tick | 249 µs (~1.6 scans) | 3.5 ms |
+   | recorder, member leaves (group established) | 324 µs (~2 scans) | 4.6 ms |
+   | one session's pull, after an in-place tick | 255 µs (~1.6 scans) | 2.0 ms |
+   | one session's pull, after a member left (delta) | **28 µs** | **27 µs** |
+   | one session's pull, nothing owed | 50 µs | 28 µs |
+   | one session's pull, wholesale fill | 6.1 ms | 63 ms |
+
+   Three things fall out of that table, and only the first is what the plan expected.
+
+   - **The steady-state cost is `(2 + 1.3·S)` scans per frame** for S pulling sessions — the
+     recorder scans before and after, and each session scans again to find a changed member's
+     owner. On a 2 000-entity house that is ~0.3 ms per frame plus ~0.25 ms per viewer. Real,
+     linear in house size, and about 1% of a core at a busy 20 changes/second. Worth removing;
+     not worth risking the wire for.
+   - **A delta pull is already free** (27 µs, flat in house size). The pull side's cost is
+     entirely the OWNER LOOKUP for a changed member — a scan to answer "which group is
+     `c_light_l1` in", which the recorder already knew when it wrote the entry. That is a much
+     smaller fix than maintained membership: carry the owner, or memoise the scan per
+     `(gid, store version)` next to the render cache, and the `1.3·S` term disappears without any
+     new incremental state.
+   - **The fill path is 200× a delta and scales with the GROUP** (63 ms for 10 000 members). It is
+     entered whenever the log holds no children for a group — after a renderer swap, after a
+     previous fill, after a stretch nobody watched. That is the number worth watching on a real
+     instance, and it argues for the "a fill `touched`es the members it leaves" rule being load
+     bearing rather than tidy.
+
+   **Recommendation: memoise before maintaining.** One generation of `(gid, version) -> members`
+   per slug, filled by the recorder and read by the pulls, is the same shape as `RenderCache`,
+   needs no incremental predicate logic, and cannot disagree with the predicate because it is
+   still the predicate's own answer — where a maintained set is a second source of truth that has
+   to be right about every path that changes state. Maintained membership stays the endgame
+   (O(changed) per frame, and a sorted structure answers "successor of this arrival" directly,
+   which an author-chosen member sort will need) but it should follow the memo, not replace it.
 
 ## ADRs this will rewrite
 
