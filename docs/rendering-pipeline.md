@@ -19,6 +19,9 @@ what its viewer has selected).
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
 >   statement about §1; "prune at pull time" is a statement about §6.
+> - §9 is the ONE exception to current-state: a design in progress, fenced off and labelled. It
+>   moves into the body and disappears when it lands. Nothing else in this file describes code
+>   that does not exist.
 
 ---
 
@@ -328,9 +331,130 @@ Live list — delete an entry when it is answered, and say where the answer land
   resumes against a log that never recorded the gap.
 - **`prepare` vs `hasChildOf`.** The single render `prepare` cannot predict (§2, the red box). The
   alternative — pre-render both sides — makes every membership change pay for the whole mount.
-- **Pull instead of push.** The shared pass could record only "these ids moved at version V" and let
-  each connection render what it holds, generalising the `Varying` mechanism to every node. Trades
-  render-once-per-slug for render-once-per-distinct-selection, and moves work onto connection
-  fibers. ADR-level; wants a measurement first.
+- **Pull instead of push.** Being designed — see §9. The two objections that used to block it (losing
+  digest suppression, losing the shared render) are answered there by a global render cache and a
+  per-session digest map.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
+
+---
+
+## 9. In progress — the session-pulled changelog
+
+> **NOT IMPLEMENTED.** Everything above describes running code. This section does not: it is the
+> shape being converged on, kept here so §1–§8 can be read against it. When it lands it moves into
+> the body and this section goes away.
+
+### The shift, in one line
+
+Today the publisher **renders and pushes ready bytes**, and one shared log answers "does the client
+already have this?" on everyone's behalf. In the new shape the publisher records **what moved**,
+each session **pulls what it is owed**, and "does *this* client have it?" is answered per session.
+
+### The three structures
+
+**1. The changelog — per slug.** Today's `FragmentLog`, reduced to its record-keeping half:
+
+```
+nodeId -> version            // latest wins; a version never goes backwards
+mutations: Gone / Placed     // per node, latest wins (a node cannot be both)
+```
+
+It no longer stores digests, because it no longer answers "worth sending?" — structure 3 does.
+
+**2. The render cache — GLOBAL, shared by every session and every slug.**
+
+```
+(nodeId, inputs) -> (html, digest)
+```
+
+This is what keeps **render-once** true in a pull model: two sessions owed the same node at the same
+inputs get one render, not two. It also subsumes today's `Renders` (the batch-scoped pre-render) and
+`Memo.keyed` (the per-variant memo) — one mechanism instead of two.
+
+`inputs` is the open question, and the whole design leans on it. It must capture everything a render
+reads and nothing else, or the cache is either wrong or useless. The candidate: the versions of the
+entities the node binds — `Renderer.entitiesForNode` already gives that set — plus the viewer's
+selection for a node whose markup reads its own selection. Same inputs ⇒ same bytes is the
+invariant; if that ever fails, a client silently keeps stale markup.
+
+**Pruning:** entries key off input versions, so every entity tick strands the previous key. Needs an
+eviction policy — by age, by size, or by "no live session can still ask for this" — and a full drop
+on renderer swap, where every node id may mean something different.
+
+**3. The session's own view — per connection.**
+
+```
+position: version                                  // how far this session has been served
+seen: nodeId -> Option[(version, digest)]          // what this client's DOM actually holds
+```
+
+`None` is load-bearing: it means **this client does not have that node** — removed, or never sent —
+as distinct from "absent, unknown". That single distinction is what makes the per-session decisions
+exact rather than guessed.
+
+**Pruning:** an entry dies with its node — a removal drops it, a renderer swap clears the map.
+
+### The flow
+
+```
+state change arrives  (globally, once — unchanged from §2)
+  StateStore.update(frame); version++ only on real change
+
+for each slug that HAS AT LEAST ONE SESSION            // the gate that does not exist today
+  log.modify:                                          // cheap: no rendering in here
+      entity -> nodes via the reverse index; record nodeId -> version
+      dynamic groups: recompute membership; record Gone / Placed per member
+      state groups (if/tabs): record the branch move
+  // nothing is rendered, nothing is pushed
+
+each active session, on batch change
+  read the changelog from `position`
+  prune (P1) to what THIS session can use:
+      drop nodes it cannot see        (its open surfaces)
+      drop nodes covered by an ancestor mutation it is already being sent
+      collapse repeats — latest version per node wins
+  for each survivor:
+      html, digest = renderCache(nodeId, inputs)       // shared: one render for all sessions
+      seen(nodeId) matches digest?  -> drop it, this client already has these bytes
+      otherwise                     -> emit, and record seen(nodeId) = (version, digest)
+  send the changeset; set position = batch version
+
+after sending, run changelog cleanup
+  floor = min(position) over live sessions
+  prune (P1, the same pass) everything no session can still ask for
+```
+
+### What this buys
+
+- **No work when nobody is watching.** The gate is the session lookup, and §8's first open question
+  disappears rather than needing a subscriber-count hack.
+- **Exact pruning.** The changelog shrinks to what live sessions can still ask for, instead of
+  ageing out on a one-hour wall clock. `Stamp.millis` and `FragmentLog.horizon` both stop being
+  load-bearing.
+- **`hasChildOf` stops being a guess.** "Is this group established?" becomes "does this session's
+  `seen` hold its children?" — answered per client, exactly. The red box in §3 goes away, and with
+  it the pre-render-vs-fill trade.
+- **The missed-insert race goes away.** Today a client that missed an `insert` in the connect gap
+  lacks that child until a whole-group repaint, because the shared log says everyone has it. A
+  per-session `seen` cannot make that mistake.
+- **One caching mechanism** where there are currently two (`Renders`, `Memo`).
+
+### What it must answer
+
+- **`inputs`, precisely.** Everything rests on it. Too coarse and the cache never hits; too narrow
+  and it serves stale bytes. This wants a spike before anything else.
+- **Two pruning policies** that did not exist before, both of which leak if wrong: the render cache's
+  stranded keys, and the per-session maps.
+- **Memory:** one digest map per session per node, times sessions. Small, but no longer O(1) in
+  viewers the way one shared log is.
+- **Where the cursor lives.** A server-side `position` is what makes exact pruning possible, but the
+  client-held cursor is what survives a session the server has forgotten (a restart, a dropped
+  connection past its linger). Both, probably — server position for pruning, client cursor as the
+  authority on reconnect.
+- **Lingering sessions.** "Keep the session for X after disconnect" is what stops a reconnect
+  becoming a full repaint. It also means a session can be pruned-for while nobody is reading it,
+  which is a deliberate cost.
+- **Ordering.** Sessions now render on their own fibers rather than one publisher, so two sessions
+  can be at different positions. Nothing above depends on them agreeing, but that should be stated
+  as an invariant rather than assumed.
