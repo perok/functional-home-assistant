@@ -60,8 +60,10 @@ Each one lands on its own and keeps the suites green.
      pieces of phase 4 forward — `conn` as a session identity, and a lifetime (`AdoptionWindow`,
      reaping a document nobody connected to).
    - The send path decides against its own `holds`; the publisher stops rendering and pushing.
-4. **Session lifetime.** Linger after disconnect, displacement of a second live stream, the
-   staleness bound that releases the floor. Gate recording on a slug having sessions.
+4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
+   recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
+   document-creates-the-session step, which is what first made two streams able to reach one
+   session; the rest of this phase is still open.
 5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.
 
 ## ADRs this will rewrite

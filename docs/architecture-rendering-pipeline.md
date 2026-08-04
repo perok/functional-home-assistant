@@ -140,7 +140,9 @@ GET /sse/dashboard/:slug/patch
   then stream: shared patches ▸ control ▸ reloads ▸ haDown ▸ keepAlive
 
 on disconnect
-  deregister IMMEDIATELY — nothing lingers, no disconnected state
+  deregister IMMEDIATELY, but only if this stream still OWNS the session —
+    a displaced stream must not delete the live one's session on its way out
+  nothing lingers, no disconnected state
   the client keeps the cursor; the session's own `position`/`holds` go with it
 ```
 
