@@ -1151,10 +1151,10 @@ class Server(
             // document is the first and largest thing that puts fragments in
             // this client's DOM, and the only place that knows what they were.
             // Its `holds` therefore has ONE meaning for its whole life: bytes
-            // this client was sent. That is also what removes the variant key —
-            // this render used THIS viewer's `uiState`, where a shared log has
-            // to hold one digest per selection to avoid claiming somebody
-            // else's tab.
+            // this client was sent. It is also why no node needs a per-
+            // selection key: this render used THIS viewer's `uiState`, where a
+            // shared record would have to hold one digest per selection to
+            // avoid claiming somebody else's tab.
             session <- Session.create(slug).flatTap(_.open.set(open))
             // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
             // bearing, not tidiness: [[recordFrame]] skips a frame no session

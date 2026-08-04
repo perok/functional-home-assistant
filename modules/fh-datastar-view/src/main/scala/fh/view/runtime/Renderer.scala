@@ -251,59 +251,6 @@ class Renderer(
   val stateBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filter(isStateGroup)
 
-  /** Whether this node's `self` reads `bakeIndex` while the group it owns is
-    * USER-selected — a bar that renders its active tab server-side rather than
-    * through a `$ui_<id>` expression. Bounded: one variant per member of its
-    * OWN group, never a product over the subtree, because a node's own
-    * rendering carries no mount.
-    *
-    * Such a node's patch is deferred (`Patches.Pending`), rendered once per
-    * SELECTION rather than per connection, and its log entry carries one digest
-    * per variant — so digest suppression still applies, per selection rather
-    * than across all of them.
-    *
-    * Decided by [[Templates]] at compile time by matching a mustache TAG, not a
-    * substring of the source, which would make a card per-viewer forever
-    * because the word appears in one of its comments.
-    */
-  def nodeVariesByViewer(id: NodeId): Boolean =
-    allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) =>
-        userBakeOwnerIds(id) && templates.selvesReadingSelection(c.card)
-      case _ => false
-    }
-
-  /** What a per-variant render of `sid` must be keyed by.
-    *
-    * The walk follows BOTH kinds of member, because a tabs card nested inside
-    * another tab's panel varies just as much as one inside an `If` branch. The
-    * visited set is not defensive tidiness: `bakeInto` is authored, so a
-    * surface can name a host inside its own subtree and the walk would not
-    * terminate.
-    */
-  def userGroupsUnder(sid: String): Set[NodeId] =
-    userGroupsBySurface.getOrElse(sid, Set.empty)
-
-  private val userGroupsBySurface: Map[String, Set[NodeId]] = {
-    def walk(sid: String, seen: Set[String]): Set[NodeId] =
-      if (seen(sid)) Set.empty
-      else {
-        val ids =
-          surfaceIndexes.get(sid).map(_.indexed.keySet).getOrElse(Set.empty)
-        ids.filter(userBakeOwnerIds) ++
-          ids
-            .filter(bakeOwnerIds)
-            .flatMap(gid => bakeGroup(gid).flatMap(walk(_, seen + sid)))
-      }
-    dashboard.surfaces.keySet.map(sid => sid -> walk(sid, Set.empty)).toMap
-  }
-
-  /** Errs wide: `true` costs a redundant per-viewer render, where a wrong
-    * `false` hands every viewer the same tab.
-    */
-  def surfaceVariesByViewer(sid: String): Boolean =
-    userGroupsUnder(sid).nonEmpty
-
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
       surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }
@@ -1023,10 +970,8 @@ class Renderer(
     *     library, and neither is visible to a test on the card alone, which is
     *     why this asks about the rendering instead.
     *
-    * The log is per SLUG, so a digest recorded for either is one viewer's bytes
-    * presented as everyone's — and a resume re-rendering one hands that
-    * viewer's variant to whoever asks. Neither loses anything by being
-    * excluded: their children are addressable in their own right.
+    * Neither loses anything by being excluded: their children are addressable
+    * in their own right.
     *
     * The same rule `Dashboard.validate` enforces when it rejects a live-entity
     * slot on a bare container: no patch target.
@@ -1369,10 +1314,6 @@ class Renderer(
         // nothing at all when it is a bare container. Mirrors `renderNodeById`
         // exactly — including the wrapper, which that method's leaf branch also
         // returns.
-        // A variant-bearing node IS recorded: this walk renders for ONE viewer,
-        // so its bytes are that viewer's variant and the log keys them by it.
-        // Excluding them was a leftover from before variants had entries of
-        // their own.
         val ownHtml =
           if (hasOwnRendering(id)) selfHtml.orElse(Some(wrapped)) else None
         Traced(

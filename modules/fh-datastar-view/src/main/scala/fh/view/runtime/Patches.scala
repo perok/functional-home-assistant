@@ -147,12 +147,6 @@ private[runtime] object Patches {
       // chain of surfaces containing it (a tab panel inside an `If` branch
       // inside another tab panel is three independent prefixes).
       staticIds: List[(NodeId, Option[String])],
-      // Nodes whose OWN markup reads their own selection, so there is one
-      // rendering per member and no single answer to diff against. They never
-      // enter the pure pass: their verdict needs the log AND an effect, and it
-      // is computed lazily, once per variant somebody actually holds — see
-      // `Server.varyingPatches`.
-      varyingIds: List[(NodeId, Option[String])],
       // Each affected group with the entities this frame moved inside it.
       dynamics: List[(NodeId, Option[String], List[String])],
       flips: List[(NodeId, Option[String])],
@@ -275,10 +269,8 @@ private[runtime] object Patches {
       at: Long
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
-    val (varying, shared) = staticIds.partition(renderer.nodeVariesByViewer)
     DiffRequest(
-      shared.map(id => id -> tag(id)),
-      varying.map(id => id -> tag(id)),
+      staticIds.map(id => id -> tag(id)),
       dynamics.map { case (gid, d) => (gid, tag(gid), d) },
       flips.map(gid => gid -> tag(gid)),
       changes,
@@ -423,10 +415,8 @@ private[runtime] object Patches {
     val afterFlips = req.flips.foldLeft(log) { case (l, (gid, _)) =>
       recordFlip(renderer, l, gid, req.before, req.states, at)
     }
-    // A varying node is no longer a kind of its own here: its version moves like
-    // any other, and the per-viewer render happens where the viewer is.
-    val afterNodes = (req.staticIds ++ req.varyingIds).foldLeft(afterFlips) {
-      case (l, (id, _)) => l.touched(id, at)
+    val afterNodes = req.staticIds.foldLeft(afterFlips) { case (l, (id, _)) =>
+      l.touched(id, at)
     }
     req.dynamics.foldLeft(afterNodes) { case (l, (gid, _, touched)) =>
       recordDynamic(renderer, l, gid, touched, req.before, req.states, at)
