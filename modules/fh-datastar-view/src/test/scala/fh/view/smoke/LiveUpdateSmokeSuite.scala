@@ -13,13 +13,19 @@ class LiveUpdateSmokeSuite extends SmokeSuite {
 
   test("a live state change morphs the DOM, no reload") {
     withPage(Scene.of(FixtureDashboard.dashboard)) { (page, ts) =>
-      for {
-        _ <- ts.awaitLive()
-        _ <- ts.fake.emit(
+      def emit(state: String): IO[Unit] =
+        ts.fake.emit(
           HouseFixture.outsideTemp.entityId,
-          "13.1",
+          state,
           HouseFixture.outsideTemp.attributes
         )
+      for {
+        _ <- ts.awaitLive()
+        // Server-side liveness is not client-side readiness — see
+        // [[SmokeSuite.awaitApplying]]. Once it holds, ONE change has to be
+        // enough, which is what this test is actually about.
+        _ <- awaitApplying(page)(emit)
+        _ <- emit("13.1")
         _ <- IO.blocking(assertThat(page.locator("body")).containsText("13.1"))
       } yield ()
     }

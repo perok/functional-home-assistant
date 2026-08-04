@@ -45,11 +45,19 @@ class UiSmokeSuite extends SmokeSuite {
         // stream first: it is ordered AFTER everything the connect emitted, so
         // seeing it means the repaint (if any) has already been applied.
         _ <- ts.awaitLive()
-        _ <- ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          "13.1",
-          HouseFixture.outsideTemp.attributes
-        )
+        emit = (state: String) =>
+          ts.fake.emit(
+            HouseFixture.outsideTemp.entityId,
+            state,
+            HouseFixture.outsideTemp.attributes
+          )
+        // Server-side liveness is not client-side readiness — see
+        // [[SmokeSuite.awaitApplying]]. The change below has to be one the
+        // browser is certainly listening for, since a missed one would read
+        // here as "the repaint has not happened yet" and pass a test whose
+        // whole point is what the repaint did.
+        _ <- awaitApplying(page)(emit)
+        _ <- emit("13.1")
         _ <- IO.blocking(
           assertThat(page.locator("article.entity").first())
             .containsText("13.1")
