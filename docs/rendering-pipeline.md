@@ -556,6 +556,69 @@ card}`), which this does not touch.
 - **One caching mechanism** where there are currently two (`Renders`, `Memo`), and it survives
   across batches instead of dying with each one.
 
+### Open, and blocking
+
+Found by reading §9 back against §1–§8. The first three change the design rather than fill it in.
+
+**A. Which digest does `holds` compare?** The render cache yields a digest of a node's OWN markup —
+but the bytes on the wire are composed: a card renders "that element plus its children's FULL
+renderings" (`Renderer.hasOwnRendering`), so a container's `Morph` carries its children. Comparing
+an own-markup digest against what the client received answers the wrong question.
+
+Two ways out, and they are not equivalent:
+
+- store in `holds` the digest of what was actually SENT, computed after composition — correct, but
+  it means composing before you can tell whether anything needs sending;
+- make the digest a TREE hash: a node's effective identity is its own cache key plus its children's
+  effective identities. Then "did this subtree change?" is answered by comparing one hash, WITHOUT
+  composing, and composition happens only for what is actually going out. It also gives the
+  changelog a cheap way to skip whole unaffected subtrees.
+
+The second looks strictly better and is the reason to settle this early: it decides what the cache
+stores, which everything else keys off.
+
+**B. How does a session learn the changelog moved?** §1's `sharedTopic` is a PUSH mechanism; in a
+pull model it has no job left, but sessions still need waking. A per-slug
+`SignallingRef[IO, Version]` holding the latest recorded version is enough — sessions take
+`.discrete`, which also coalesces for free: a session busy through three batches wakes once and pulls
+to the head, instead of queueing three wake-ups. Nothing in §9 currently says this.
+
+**C. A pinned floor is the new unbounded growth.** Today a slow client grows ITS OWN queue and ember's
+write timeout tears it down (§1). In the pull model a slow or lingering session instead pins
+`min(position)`, and the changelog grows **for everyone on that slug**. That is the same failure
+moved somewhere worse — shared instead of per-client. It needs a designed bound: a session may only
+hold the floor so far back, and past that it is marked must-repaint and its position released. The
+linger window X and this bound are the same knob seen from two sides.
+
+### Decisions to make
+
+**D. Record for nodes nobody can currently see?** Recommend YES, unconditionally — a version write
+is cheap, and the alternative ("record only what some session can see") creates a trap: a session
+that opens a popup later cannot resume nodes whose changes were never recorded. Today that case is
+covered by rendering the surface fresh on open (`fillHost`); if the changelog is complete, the fill
+becomes an ordinary pull.
+
+**E. One live stream per session.** Reusing `conn` across reconnects turns it into a session
+identifier with a real lifetime, so two questions arrive with it: a reconnect that lands while the
+old stream is still alive (a partition the server has not noticed) must DISPLACE it rather than run
+two writers over one `holds` map, and `conn` becomes a longer-lived bearer token for driving that
+session than it is today.
+
+### Falls out for free
+
+Worth recording so they are not re-invented as work:
+
+- **`Varying` / `Pending` disappear.** Every render is already per-session against that session's own
+  selections, so the "this node cannot be rendered once for everyone" special case dissolves into
+  the general path. `Memo.keyed` is subsumed by the render cache.
+- **Flips lose their deferred-render machinery** for the same reason — a flip records the branch move
+  and the pull renders it.
+- **`Patches.prepare` / `Renders` is superseded** by the render cache. Not wasted: it is what
+  established that renders never needed the log, which is the premise §9 is built on.
+- **Fill-vs-delta becomes per-session**, since `established` is now per-client. Two sessions can
+  legitimately receive different patch SHAPES for the same change — worth knowing before a test
+  asserts there is only one.
+
 ### What it must answer
 
 - **`inputs`, precisely.** Everything rests on it: too coarse and the cache never hits, too narrow
