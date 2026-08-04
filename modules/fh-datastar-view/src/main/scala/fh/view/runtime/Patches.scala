@@ -156,6 +156,22 @@ private[runtime] sealed trait Directed {
   * [[Patches.renderMembershipChange]]) stays correct without having to
   * pre-render both of its alternatives. Such a miss renders inside the section,
   * exactly as the whole pass used to.
+  *
+  * '''This renders no more eagerly than the pass already did.''' The shared
+  * pass never consulted the log to decide WHETHER to render — it rendered every
+  * affected node and asked the log only whether the bytes were worth sending —
+  * so moving those renders earlier changes when they run, not how many. The
+  * genuinely lazy renders are elsewhere and stay there: a `Pending` variant is
+  * rendered only for a selection some connection actually holds
+  * (`Server.varyingPatches` via `Memo`), guarded by [[FragmentLog.atLeast]],
+  * which skips even that on a version it already has. Neither passes through
+  * here, and flips render nothing at all.
+  *
+  * The one case that does MORE work than before: a membership change where the
+  * churn heuristic says "arrivals" but the group turns out not to be
+  * established renders the arrivals here and then the fill inside the section.
+  * Bounded (arrivals are a minority by definition of that heuristic) and it
+  * cannot repeat — see [[Patches.renderMembershipChange]].
   */
 private[runtime] final class Renders(
     val renderer: Renderer,
@@ -405,7 +421,13 @@ private[runtime] object Patches {
         else {
           val added = now.filterNot(was.toSet)
           val churn = added.size + was.filterNot(now.toSet).size
-          if (perEntityChurn(churn, was.size))
+          if (churn == 0)
+            // The member LIST moved but the member SET did not, so `diff`
+            // sends nothing. Rendering a fill here would be pure waste — and
+            // this branch is where the wasteful one lives, so the guard has to
+            // be here too, not only there.
+            (cs, fs)
+          else if (perEntityChurn(churn, was.size))
             (
               cs ++ added.map(e =>
                 (gid, e) -> renderer.renderDynamicChild(gid, e, states)
