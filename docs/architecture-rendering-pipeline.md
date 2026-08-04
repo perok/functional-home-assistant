@@ -41,7 +41,7 @@ flowchart TB
   subgraph SHARED["PER SLUG — one publisher fiber each, however many viewers"]
     direction TB
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips · varyingIds"]
-    PREP["Patches.prepare returns Renders<br/>ALL RENDERING HAPPENS HERE<br/>outside the log, so a CAS retry stays cheap"]
+    PREP["Patches.prepare returns Renders<br/>ALL RENDERING HAPPENS HERE<br/>outside the log, so a CAS retry stays cheap<br/>through the per-slug RenderCache"]
     DIFF["Patches.diff — inside log.modify<br/>digest compare + map updates only"]
     TOPIC["sharedTopic · slug-tagged Directed<br/>ONE topic for all slugs, so a connection<br/>holds ONE subscription whatever is pushed later"]
   end
@@ -311,6 +311,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | per-slug publisher | `runtime/Server.scala` · `publisherFor`, `sharedPatchPublishers` |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
 | all shared rendering | `runtime/Patches.scala` · `prepare`, class `Renders` |
+| the render cache | `runtime/RenderCache.scala` — per slug, one generation per node, created per publisher arm |
 | the critical section | `runtime/Patches.scala` · `diff` (called inside `Server.sharedPatches`) |
 | flips | `runtime/Patches.scala` · `flipStateGroup` |
 | dynamic groups | `runtime/Patches.scala` · `renderDynamicGroup`, `renderMembershipChange`, `fillGroup` |
@@ -351,8 +352,14 @@ That work has its own document — **[`plan-session-pulled-changelog.md`](plan-s
 — because it is not current state and this file is. As phases land, the shape moves into §1–§8 above
 and the plan shrinks. Nothing else in this file describes code that does not exist.
 
-**Phase 0 has landed** and is the one part already in the sources: `EntityState.contentVersion` (the
-per-entity stamp, §2) and `Renderer.renderInputs` (what would key a cached render, §7). Nothing
-reads the key yet — no cache exists — so the pipeline drawn above is unchanged. The one finding
-worth carrying here: an `if`/`else` host's branch is a quantified predicate over the WHOLE entity
-map, so it is keyed on the RESOLVED selection rather than on what the selection reads.
+**Phases 0 and 1 have landed**, and are in the sources above: `EntityState.contentVersion` (the
+per-entity stamp, §2), `Renderer.renderInputs` (what keys a cached render), and `RenderCache`, which
+`Patches.prepare` now renders through (§1, §7). The pipeline's SHAPE is unchanged — still one
+publisher, still push, still the same bytes on the wire — so nothing else in this file moves.
+
+Two findings worth carrying here rather than leaving in the plan:
+
+- An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
+  on the RESOLVED selection rather than on what the selection reads.
+- The cache holds ONE generation per node, which is what bounds it: `plan` selects the nodes whose
+  entity just moved, so a `(nodeId, inputs)` key would grow forever at a near-zero hit rate.

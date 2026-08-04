@@ -20,8 +20,10 @@ Each one lands on its own and keeps the suites green.
 0. ~~**Spike `inputs`.**~~ **Landed** — see "What `inputs` turned out to be" below.
    `EntityState.contentVersion` is the per-entity stamp, `Renderer.renderInputs` is the key, and
    `RenderInputsSuite` is the adversarial check.
-1. **The render cache** (per slug, `MapRef` + `Deferred`), replacing `Patches.prepare`/`Renders` and
-   `Memo.keyed`. Still push, still one publisher — behaviour-neutral, and it proves the key.
+1. ~~**The render cache**~~ **Landed** — `RenderCache` (per slug, `MapRef` + `Deferred`), and
+   `Patches.prepare` renders through it. Behaviour-neutral: every suite asserting on emitted SSE
+   output passed untouched. `Memo.keyed` is NOT yet retired — it serves `Varying`, which phase 3
+   removes. See "What the cache turned out to need" below.
 2. **Per-session `holds`.** Move the "worth sending?" decision off the shared log onto the session.
    Still push. `established` becomes per-client here, so patch shape may differ between clients.
 3. **The pull loop.** Reduce the log to the changelog, add the per-slug `SignallingRef` wake-up,
@@ -178,7 +180,8 @@ tell you whether bytes are worth sending, and you cannot get the digest without 
 shared-versus-per-client split running through `Patches`, `hasChildOf` as a guess, `horizon`'s
 per-container completeness, and the residual missed-insert race.
 
-**Added:** single-flight caching with its failure and cancellation rules, the `holds` invariant
+**Added:** single-flight caching with its failure and cancellation rules (landed — see below), the
+`holds` invariant
 (every emitted patch updates it, subtree included), session lifetime (linger, displacement,
 staleness), floor coordination across sessions, and two-pass composition.
 
@@ -243,11 +246,14 @@ session returning across that gap must repaint rather than resume.
 **2. The render cache — per slug, living and dying with the dashboard's renderer.**
 
 ```
-(nodeId, inputs) -> Deferred[(html, digest)]
+nodeId -> (inputs, Deferred[Either[Throwable, (html, digest)]])
 ```
 
 Per slug rather than global because node ids are only meaningful within one renderer: a hot-swap
-drops the whole map, which is the correctness story AND the eviction story for free.
+drops the whole map, which is the correctness story and half the eviction story for free.
+
+Keyed by NODE, not by `(nodeId, inputs)` — see "What the cache turned out to need". The entry
+remembers the inputs it was rendered for, and a render for different inputs replaces it.
 
 `Deferred` behind a `MapRef` gives single-flight: the first fiber to want a key inserts an empty
 `Deferred` and renders; everyone else finds it and waits. Insertion stays a per-key operation
@@ -462,6 +468,43 @@ would make any descendant's tick invalidate every ancestor to the root, which is
 for the two-pass split. The suite pins it as a known, named gap. **Phase 1 closes it or the cache is
 wrong**, and `Renderer.renderTemplateOf` taking `childrenHtml` is the seam it splits at.
 
+## What the cache turned out to need
+
+Phase 1, landed. Two corrections to what was written above, both found by building it.
+
+**Keyed by node, not by `(nodeId, inputs)`.** The composite key grows without bound, in exchange for
+hits that do not happen. `Patches.plan` selects exactly the nodes binding an entity that just moved
+(`Renderer.componentsFor`), so every batch mints keys nothing will ask for again — an unbounded
+retention of HTML with a near-zero hit rate. Keyed by node, with the entry remembering the inputs it
+was rendered for, the bound is the dashboard's node count: no timer, no sweep, nothing to tune. That
+is a better answer than the short TTL argued for above, and it removes the need for `Caffeine`.
+
+Fills are where the hits actually are: a whole-mount fill IS its members' renders in DOM order
+(`Renderer.renderDynamicMembers` is defined that way), so it reuses every member that did not move.
+
+What one generation gives up is a LAGGARD — two readers at different versions evict each other.
+Nothing does that yet; the publisher is the only caller and it holds one snapshot. When sessions
+pull at their own positions (phase 3) the fix is a small FIXED number of generations per node, still
+bounded — not a return to unbounded keys.
+
+**Uncancelable production, not `guaranteeCase`.** The plan said to complete the `Deferred` from a
+cancellation handler. That covers only one of two windows: between the CAS winning and the render
+starting, nothing has run for a finalizer to hang off, and the waiters block forever. And in the
+window it does cover it can only complete with an error, so one cancelled fiber fails every waiter
+attached to it — avoiding that needs a sentinel plus a retry, a second mechanism. Making production
+uncancelable removes the state instead: the render is a pure CPU walk with no async boundary, so
+cancellation is checked before it starts and never inside, and only a WAITER stays cancelable.
+
+That argument is conditional and the code says so: move the render to a blocking pool, or split it
+with `IO.cede`, and the second window returns — then `guaranteeCase` plus a retrying waiter is right.
+
+**The lifetime came for free.** The cache needs no `Ref` and no rotation: it is created inside the
+publisher's `switchMap` arm, which already ends on a renderer swap — exactly when a node id stops
+meaning anything. Unlike the log, nothing outside the publisher reads it.
+
+**What did NOT land:** `Memo.keyed` is still there. It serves `Varying`, which phase 3 removes; the
+cache does not subsume it yet.
+
 ## Resolved by review
 
 **A. `holds` fingerprints a node's OWN markup — pass 1, before composition.** The worry that it must
@@ -560,14 +603,13 @@ Worth recording so they are not re-invented as work:
 
 - ~~**`inputs`, precisely.**~~ Answered above. What remains of it is phase 1's job: the key is only
   sound once a node's own markup stops carrying its children.
-- **Single-flight failure and cancellation.** A `Deferred` whose producer fails or is cancelled must
-  not leave waiters blocked forever: complete it with the error, or remove the key and let the next
-  caller retry. This is the standard way this pattern breaks.
+- ~~**Single-flight failure and cancellation.**~~ Answered by phase 1 — and not the way this said.
+  See "What the cache turned out to need".
 - **Composition and escaping.** Children splice unescaped today (`{{{html}}}`); a placeholder-then-
   substitute pass must not change what is escaped where, and the wire-format snapshots are the check.
-- **Max age.** Neither map is bounded by anything but lifecycle. A `Caffeine` cache behind the
-  `MapRef` facade would give size and age eviction without hand-rolling it — noted for when the
-  shape is settled, not before.
+- ~~**Max age.**~~ Answered for the render cache by keying it per node (one generation), which is a
+  hard bound needing no timer and no `Caffeine`. Still open for the session's `holds`, which phase 2
+  introduces.
 - **Ordering across sessions.** Sessions render on their own fibers and can sit at different
   positions. Nothing above depends on them agreeing, but that should be stated as an invariant
   rather than assumed.
