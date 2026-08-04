@@ -1770,8 +1770,8 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/adr/0011-the-live-connection.md) — the
-    * exact hole recording the flip structurally was meant to close.
+    * reconnect''' (docs/adr/0011-the-live-connection.md) — the exact hole
+    * recording the flip structurally was meant to close.
     *
     * Found in the running app before this test existed: `Patches.resume`
     * grouped placements by container and looked each member up by POSITION in
