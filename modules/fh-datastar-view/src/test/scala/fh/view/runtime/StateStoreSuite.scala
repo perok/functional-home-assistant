@@ -105,4 +105,53 @@ class StateStoreSuite extends munit.FunSuite {
     // clock must record it even though no node is re-rendered for it.
     assertEquals(version, 1L)
   }
+
+  test("contentVersion moves only for the entities a batch actually moved") {
+    val (a, b) = (for {
+      s <- StateStore.inMemory(Map("a" -> st("a", "1"), "b" -> st("b", "1")))
+      _ <- s.update(
+        List(Ingest.Replace(st("a", "2")), Ingest.Replace(st("b", "1")))
+      )
+      snap <- s.snapshot
+    } yield (snap("a"), snap("b"))).timeout(10.seconds).unsafeRunSync()
+
+    // `a` takes the batch's version; `b` was deduped and keeps its old stamp,
+    // which is the whole point — a render keyed on `b` must still hit.
+    assertEquals(a.contentVersion, 1L)
+    assertEquals(b.contentVersion, 0L)
+  }
+
+  test("a timestamp-only bump keeps the contentVersion") {
+    val stamp = (for {
+      s <- StateStore.inMemory(
+        Map("a" -> st("a", "1").copy(contentVersion = 7L))
+      )
+      _ <- s.update(
+        st("a", "1").copy(lastUpdated = Some(java.time.Instant.now()))
+      )
+      snap <- s.snapshot
+    } yield snap("a").contentVersion).timeout(10.seconds).unsafeRunSync()
+
+    // The stored value advances (recency), the stamp does not: nothing a
+    // template could print has changed, so a cached render is still valid.
+    assertEquals(stamp, 7L)
+  }
+
+  test("a published change carries the same stamp the store kept") {
+    val (published, stored) = (for {
+      s <- StateStore.inMemory(Map("a" -> st("a", "1")))
+      collected <- s.changes.take(1).compile.toList.start
+      _ <- s.changeSubscribers.filter(_ >= 1).head.compile.drain
+      _ <- s.update(st("a", "2"))
+      out <- collected.joinWithNever
+      snap <- s.snapshot
+    } yield (out.flatten.head.current.contentVersion, snap("a").contentVersion))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    // A StateChange whose `current` disagreed with the snapshot would key a
+    // render to a version that never existed in the store.
+    assertEquals(published, stored)
+    assertEquals(published, 1L)
+  }
 }
