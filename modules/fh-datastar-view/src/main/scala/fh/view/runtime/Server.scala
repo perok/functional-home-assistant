@@ -291,8 +291,17 @@ class Server(
         Stream.exec(
           IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
         ) ++
-          stateStore.changes
-            .evalMap(sharedPatches(slug, renderer, live.log, _))
+          // The render cache lives and dies with THIS arm, which is what makes
+          // its lifetime right for free: a node id means nothing outside the
+          // renderer that generated it, and `switchMap` tears the arm down on
+          // every swap. Nothing outside the publisher reads it, so unlike the
+          // log it needs no ref and no rotation of its own.
+          Stream
+            .eval(RenderCache.create)
+            .flatMap(cache =>
+              stateStore.changes
+                .evalMap(sharedPatches(slug, renderer, live.log, cache, _))
+            )
             .flatMap(Stream.emits)
       }
       .map(addressed => (slug, addressed))
@@ -383,6 +392,7 @@ class Server(
       slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
+      cache: RenderCache,
       changes: List[StateChange]
   ): IO[List[Directed]] =
     (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
@@ -408,12 +418,14 @@ class Server(
         // and discards — and the renders do not need the log at all, only the
         // decision of what to SEND does (see [[Renders]]). What is left inside
         // is digest comparison and map updates.
-        val renders = Patches.prepare(renderer, req)
-        log
-          .modify { l =>
-            val (l2, ready, pending) = Patches.diff(renders, l, req)
-            (l2, (ready, pending))
-          }
+        Patches
+          .prepare(renderer, cache, req)
+          .flatMap(renders =>
+            log.modify { l =>
+              val (l2, ready, pending) = Patches.diff(renders, l, req)
+              (l2, (ready, pending))
+            }
+          )
           .flatMap { case (ready, pending) =>
             // Each pending render becomes ONE memo: the first connection
             // holding a variant forces it, compares against that variant's

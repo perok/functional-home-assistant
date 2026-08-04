@@ -25,9 +25,9 @@ class RenderCacheSuite extends munit.FunSuite {
   private val other: RenderCache.Key =
     ("c_0": NodeId, RenderInputs(Map("sensor.t" -> 2L), Map.empty))
 
-  /** A render that counts its runs and blocks until the test releases it —
-    * so waiters genuinely pile up behind a producer rather than arriving after
-    * it finished, which would make single-flight untestable.
+  /** A render that counts its runs and blocks until the test releases it — so
+    * waiters genuinely pile up behind a producer rather than arriving after it
+    * finished, which would make single-flight untestable.
     */
   private class Gated(html: String) {
     private val gate = new CountDownLatch(1)
@@ -86,7 +86,10 @@ class RenderCacheSuite extends munit.FunSuite {
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
       producer <- cache(key) { val _ = g.render; throw boom }.attempt.start
-      waiters <- List.fill(4)(cache(key)("never runs").attempt).parSequence.start
+      waiters <- List
+        .fill(4)(cache(key)("never runs").attempt)
+        .parSequence
+        .start
       _ <- IO.sleep(150.millis) *> IO(g.release())
       p <- producer.joinWithNever
       w <- waiters.joinWithNever

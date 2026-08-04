@@ -33,6 +33,30 @@ import scala.concurrent.duration.*
 
 class ServerSuite extends munit.CatsEffectSuite {
 
+  /** [[Patches.prepare]] against a throwaway cache, run to a value — this suite
+    * tests the pure diff, and a fresh cache per call means every render misses,
+    * so what `diff` sees is exactly what the renderer produced.
+    */
+  private def prepared(r: Renderer, req: Patches.DiffRequest): Renders =
+    RenderCache.create
+      .flatMap(Patches.prepare(r, _, req))
+      .unsafeRunSync()(using cats.effect.unsafe.implicits.global)
+
+  extension (server: Server)
+    /** [[Server.sharedPatches]] with a cache of its own, for the same reason as
+      * [[prepared]]: these tests assert on what the renderer produces for one
+      * batch, not on reuse across batches.
+      */
+    private def sharedPatchesFresh(
+        slug: String,
+        renderer: Renderer,
+        log: Ref[IO, FragmentLog],
+        changes: List[StateChange]
+    ): IO[List[Directed]] =
+      RenderCache.create.flatMap(
+        server.sharedPatches(slug, renderer, log, _, changes)
+      )
+
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
   // into it (c_t0 default, c_t1) — the ui-state index selects among them.
   private def tabsRenderer: Renderer = {
@@ -909,7 +933,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(seedCache))
-            patches <- server.sharedPatches(
+            patches <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               cache,
@@ -1150,7 +1174,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(Map.empty))
             // ONE render for the slug; who sees it is the tag's job.
-            shared <- server.sharedPatches(
+            shared <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               cache,
@@ -1202,7 +1226,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- sessions.register("conn", session)
             renderer <- ref.get
             cache <- Ref[IO].of(seedLog(Map.empty))
-            ps <- server.sharedPatches(
+            ps <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               cache,
@@ -1312,7 +1336,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       (for {
         prev <- store.snapshot.map(_.get(next.entityId))
         _ <- store.update(next)
-        patches <- server.sharedPatches(
+        patches <- server.sharedPatchesFresh(
           "dashboard",
           renderer,
           cache,
@@ -1333,7 +1357,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           for {
             prev <- store.snapshot.map(_.get(next.entityId))
             _ <- store.update(next)
-            ds <- server.sharedPatches(
+            ds <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               cache,
@@ -1744,7 +1768,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
             cache <- Ref[IO].of(seedLog(Map.empty))
-            shared <- server.sharedPatches(
+            shared <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               cache,
@@ -2719,7 +2743,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             // this same pass, and whichever reaches the log first leaves the
             // other seeing "unchanged". The suppression under test is the log's,
             // not a race's.
-            same <- server.sharedPatches(
+            same <- server.sharedPatchesFresh(
               "dashboard",
               renderer,
               live.log,
@@ -2842,7 +2866,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       Set.empty
     )
     val (log, _, pending) =
-      Patches.diff(Patches.prepare(r, req), FragmentLog("flip"), req)
+      Patches.diff(prepared(r, req), FragmentLog("flip"), req)
     assertEquals(pending.size, 1, clue = pending)
     val fill = pending.head.render(Map.empty, armed).get
 

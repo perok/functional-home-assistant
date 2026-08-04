@@ -281,6 +281,33 @@ class RenderInputsSuite extends munit.FunSuite {
     assert(tabs.renderNodeById("c", line.head).isDefined)
   }
 
+  test("prepare routes renders through the cache and reuses the entries") {
+    // The wiring check the behaviour suites cannot make: they each build a
+    // fresh cache, so they would pass even if `prepare` never touched one.
+    val changes = List(
+      StateChange("sensor.t", Some(line(0)("sensor.t")), line(1)("sensor.t"))
+    )
+    val req =
+      Patches.plan(renderer, line(1), Stamp(1L, 0L), changes, Set.empty)
+
+    val (first, second, sizes) = (for {
+      cache <- RenderCache.create
+      a <- Patches.prepare(renderer, cache, req)
+      n1 <- cache.size
+      b <- Patches.prepare(renderer, cache, req)
+      n2 <- cache.size
+    } yield (a.node("c_0"), b.node("c_0"), (n1, n2)))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    assert(first.isDefined, clue = first)
+    assertEquals(first, second)
+    // Something was cached, and the second pass added nothing — with
+    // RenderCacheSuite's "same key does not render again", that is reuse.
+    assert(sizes._1 > 0, clue = sizes)
+    assertEquals(sizes._1, sizes._2)
+  }
+
   test("a node that composes rather than renders has no key") {
     // The dynamic group root: its members are addressable in their own right,
     // and `renderNodeById` refuses it.

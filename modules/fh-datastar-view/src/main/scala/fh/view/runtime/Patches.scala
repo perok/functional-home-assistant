@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import cats.syntax.traverse.*
 import fh.view.model.{DomId, NodeId}
 import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
@@ -209,7 +210,8 @@ private[runtime] final class Renders(
   *   - [[plan]] SELECTS what one state change touches — the affected static
   *     component ids, dynamic groups, and flipped state groups — for every
   *     client at once.
-  *   - [[prepare]] RENDERS what that selection will need, outside the log.
+  *   - [[prepare]] RENDERS what that selection will need, outside the log and
+  *     through the per-slug [[RenderCache]].
   *   - [[diff]] DIFFS the renders against a cache, returning the updated cache
   *     and what to emit.
   *
@@ -388,11 +390,12 @@ private[runtime] object Patches {
     * Flips render nothing at all (see [[flipStateGroup]]), and `varyingIds`
     * render lazily per variant, so neither appears here.
     */
-  def prepare(renderer: Renderer, req: DiffRequest): Renders = {
+  def prepare(
+      renderer: Renderer,
+      cache: RenderCache,
+      req: DiffRequest
+  ): IO[Renders] = {
     val states = req.states
-    val nodes = req.staticIds.map { case (id, _) =>
-      id -> renderer.renderNodeById(id, states)
-    }.toMap
 
     val membersNow = req.dynamics.map { case (gid, _, _) =>
       gid -> renderer.dynamicMembers(gid, states)
@@ -401,54 +404,95 @@ private[runtime] object Patches {
       gid -> renderer.dynamicMembers(gid, req.before)
     }.toMap
 
-    val (children, fills) =
-      req.dynamics.foldLeft(
-        (
-          Map.empty[(NodeId, String), Option[String]],
-          Map.empty[NodeId, List[(NodeId, String)]]
-        )
-      ) { case ((cs, fs), (gid, _, touched)) =>
+    // A member of `membersNow` is exactly an entity [[Renderer.dynamicMembers]]
+    // and [[Renderer.renderDynamicChild]] both accept — they test the same
+    // query and the same cases over the same snapshot. Asking membership first
+    // is what lets the render itself go through the cache, which returns bytes
+    // rather than an Option.
+    def child(gid: NodeId, entityId: String): IO[Option[String]] =
+      if (!membersNow(gid).contains(entityId)) IO.pure(None)
+      else
+        cache(
+          (
+            renderer.dynamicChildId(gid, entityId),
+            renderer.dynamicChildInputs(gid, entityId, states)
+          )
+        )(mustRender(renderer.renderDynamicChild(gid, entityId, states), gid))
+          .map(b => Some(b.html))
+
+    for {
+      nodes <- req.staticIds.traverse { case (id, _) =>
+        node(renderer, cache, id, states).map(id -> _)
+      }
+      // A fill IS its members' renders in DOM order
+      // ([[Renderer.renderDynamicMembers]] is defined that way), so assembling
+      // it from the same cache entries a tick uses is byte-identical AND makes
+      // a whole-mount fill reuse the per-entity renders it already paid for.
+      prepared <- req.dynamics.traverse { case (gid, _, touched) =>
         val was = membersWas(gid)
         val now = membersNow(gid)
-        if (was == now)
-          // The hot path: an in-place tick per entity this frame moved.
-          (
-            cs ++ touched.map(e =>
-              (gid, e) -> renderer.renderDynamicChild(gid, e, states)
-            ),
-            fs
-          )
+        def ticks(of: List[String]) =
+          of.traverse(e => child(gid, e).map(h => (gid, e) -> h))
+            .map(_ -> Option.empty[(NodeId, List[(NodeId, String)])])
+
+        if (was == now) ticks(touched) // the hot path: one tick per entity
         else {
           val added = now.filterNot(was.toSet)
           val churn = added.size + was.filterNot(now.toSet).size
           if (churn == 0)
-            // The member LIST moved but the member SET did not, so `diff`
-            // sends nothing. Rendering a fill here would be pure waste — and
-            // this branch is where the wasteful one lives, so the guard has to
-            // be here too, not only there.
-            (cs, fs)
-          else if (perEntityChurn(churn, was.size))
-            (
-              cs ++ added.map(e =>
-                (gid, e) -> renderer.renderDynamicChild(gid, e, states)
-              ),
-              fs
-            )
-          else (cs, fs.updated(gid, renderer.renderDynamicMembers(gid, states)))
+            // The member LIST moved but the member SET did not, so `diff` sends
+            // nothing. Rendering a fill here would be pure waste — and this
+            // branch is where the wasteful one lives, so the guard has to be
+            // here too, not only there.
+            IO.pure(Nil -> None)
+          else if (perEntityChurn(churn, was.size)) ticks(added)
+          else
+            now
+              .traverse(e =>
+                child(gid, e).map(_.map(renderer.dynamicChildId(gid, e) -> _))
+              )
+              .map(filled => Nil -> Some(gid -> filled.flatten))
         }
       }
-
-    new Renders(
+    } yield new Renders(
       renderer,
       states,
       req.before,
-      nodes,
-      children,
-      fills,
+      nodes.toMap,
+      prepared.flatMap(_._1).toMap,
+      prepared.flatMap(_._2).toMap,
       membersNow,
       membersWas
     )
   }
+
+  private def node(
+      renderer: Renderer,
+      cache: RenderCache,
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): IO[Option[String]] =
+    renderer.renderInputs(id, states, Map.empty) match {
+      // No sound key for this node — see `Renderer.renderInputs`. Rendered
+      // uncached rather than cached wrongly.
+      case None         => IO(renderer.renderNodeById(id, states))
+      case Some(inputs) =>
+        cache((id, inputs))(
+          mustRender(renderer.renderNodeById(id, states), id)
+        ).map(b => Some(b.html))
+    }
+
+  /** A key exists only where a rendering does — `renderInputs` is `Some`
+    * exactly when the node has one of its own, and a `dynamicMembers` member is
+    * exactly what `renderDynamicChild` renders. Loud rather than caching an
+    * empty string forever if those ever drift apart.
+    */
+  private def mustRender(html: Option[String], id: NodeId): String =
+    html.getOrElse(
+      throw new IllegalStateException(
+        s"'$id' has a render key but no rendering"
+      )
+    )
 
   /** Per-entity pays off only when the churn is a MINORITY of the group: at the
     * boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
