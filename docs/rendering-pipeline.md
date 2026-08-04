@@ -18,7 +18,7 @@ what its viewer has selected).
 >   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the four node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
->   statement about §1; "prune at pull time" is a statement about §5.
+>   statement about §1; "prune at pull time" is a statement about §6.
 
 ---
 
@@ -28,15 +28,19 @@ what its viewer has selected).
 flowchart TB
   HA["Home Assistant · WebSocket<br/>subscribe_entities"]
 
-  subgraph SHARED["SHARED — once per slug, however many viewers"]
+  subgraph GLOBAL["GLOBAL — exactly one per process, for ALL dashboards"]
     direction TB
-    PUMP["HaFeed.pump<br/>one HA frame = one fs2 chunk"]
-    STORE["StateStore.update<br/>ONE Ref.modify per frame<br/>version++ only if content really moved"]
+    PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>one HA frame = one fs2 chunk"]
+    STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved"]
     CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
+  end
+
+  subgraph SHARED["PER SLUG — one publisher fiber each, however many viewers"]
+    direction TB
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips · varyingIds"]
     PREP["Patches.prepare returns Renders<br/>ALL RENDERING HAPPENS HERE<br/>outside the log, so a CAS retry stays cheap"]
     DIFF["Patches.diff — inside log.modify<br/>digest compare + map updates only"]
-    TOPIC["sharedTopic · slug-tagged Directed<br/>multiplexed: ONE subscription per connection"]
+    TOPIC["sharedTopic · slug-tagged Directed<br/>ONE topic for all slugs, so a connection<br/>holds ONE subscription whatever is pushed later"]
   end
 
   subgraph CLIENT["PER CLIENT — one SSE stream per browser tab"]
@@ -63,11 +67,13 @@ flowchart TB
   ACT -.->|fillHost writes the log| LOG
   SESS -.->|openSets: which surfaces are worth rendering| PLAN
 
+  classDef global fill:#e0f2fe,stroke:#0369a1,color:#0f172a
   classDef shared fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
   classDef client fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
   classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
-  class PUMP,STORE,CH,PLAN,PREP,DIFF,TOPIC shared
+  class PUMP,STORE,CH global
+  class PLAN,PREP,DIFF,TOPIC shared
   class OPEN,FILT,RESOLVE,MERGE,SSE client
   class LOG,SESS store
   class HA,ACT ext
@@ -77,9 +83,113 @@ The publisher is **one fiber per slug** (`Server.publisherFor`), re-armed by `sw
 renderer swap — and a swap past the first mints a fresh log identity, so cursors issued against the
 old renderer cannot be resumed.
 
+**Three scopes, not two.** Getting these confused is the easiest mistake to make here:
+
+| Scope | One per | What lives there |
+|---|---|---|
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, `sharedTopic`, the `Sessions` registry |
+| Per slug | dashboard | the publisher fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog` |
+| Per connection | browser tab | the `Session` (slug, open surfaces, control queue), the SSE stream, that viewer's selections |
+
+There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
+creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
+never separate feeds.
+
 ---
 
-## 2. Inside `Patches.diff` — the four kinds, and where each is rendered
+## 2. The setup, in pseudo-code
+
+The same thing as §1, in words, because the diagram cannot show ordering and lifetime.
+
+### Boot — once per process
+
+```
+open ONE WebSocket to Home Assistant, subscribe_entities
+  the opening frame IS the full entity set, so there is no separate seeding step
+create ONE StateStore              // for every dashboard, not one each
+evaluate every *.pkl entry         // slug = filename
+  per slug: one Renderer in a SignallingRef   // hot-swapped on file edit
+  per slug: one FragmentLog with a fresh id, in a Ref
+create ONE sharedTopic  (slug-tagged)  and ONE Sessions registry
+for each slug: start a publisher fiber
+  // STARTS IMMEDIATELY, and runs whether or not a browser ever connects
+```
+
+### A browser opens a dashboard
+
+```
+GET /d/:slug
+  render the WHOLE page from the current snapshot
+  seed the log for the OPEN SURFACES' nodes only     // absent-only; a main-page
+                                                     // node deliberately gets no entry
+  embed in the page as Datastar signals: logId, storeVersion, headHash, styleHash
+
+GET /sse/dashboard/:slug/patch
+  mint conn; create Session{slug, open surfaces, control queue}
+  register it (bracketed to the stream, so a failed connect cannot leak it)
+  subscribe ONCE to sharedTopic                       // all slugs, filtered per patch
+  opening patches, narrowest that is still correct:
+      resume   if the cursor's logId matches and nothing structural moved
+      repaint  if it does not
+      reload   if the document itself is stale
+  then stream: shared patches ▸ control ▸ reloads ▸ haDown ▸ keepAlive
+
+on disconnect
+  deregister IMMEDIATELY — nothing lingers, no disconnected state
+  the client keeps the cursor; the server keeps no per-session position
+```
+
+### A state change arrives — once, globally
+
+```
+StateStore.update(frame)                    // one Ref.modify for the whole frame
+  version++ ONLY if some entity's content really moved
+  publish List[StateChange] on `changes`
+
+every slug's publisher wakes            // whether or not that slug has any viewer
+  read snapshot+version together, wall clock, and sessions.openSets(slug)
+    visible = surfaces some session can actually SEE  // widens what is considered
+  plan     -> staticIds, dynamics, flips, varyingIds
+  prepare  -> render everything            // OUTSIDE the log
+  log.modify:
+      flips first    -> evict, record Gone/Placed, defer the bytes
+      static         -> digest holds? skip : set + Morph
+      dynamics       -> tick per entity, or membership delta, or whole-mount fill
+      varying        -> Pending, rendered later per distinct selection
+  publish slug-tagged patches to sharedTopic
+
+each connection
+  drop other slugs; drop what its open set cannot see
+  force any Varying against ITS OWN selections (memoised across equal selections)
+  write bytes
+```
+
+### The log
+
+```
+keyed by node id: digest per variant + the version it was rendered from
+  a later write overwrites — latest wins, and a version never goes backwards
+mutations: Gone / Placed per node, latest wins
+pruned by WALL CLOCK: mutations older than FragmentLog.Retention (1h) are evicted
+  per-container `horizon` records the version at which its history became incomplete
+  -> a cursor below a container's horizon gets a refill instead of a delta
+absence means "unknown, send it" — so dropping an entry is ALWAYS safe
+```
+
+### Reconnect
+
+```
+client sends back its stored signals: logId, version, headHash, styleHash
+  different logId, or version ahead of the store, or head moved -> full repaint
+  otherwise since(version):
+      nodes   whose logged version >= cursor   -> rendered NOW from the current snapshot
+      moved   Gone/Placed                      -> replayed as remove + insert
+      refill  containers whose history aged out -> whole mount
+```
+
+---
+
+## 3. Inside `Patches.diff` — the four kinds, and where each is rendered
 
 ```mermaid
 flowchart TB
@@ -135,7 +245,7 @@ flowchart TB
 
 ---
 
-## 3. Why the flip renders nothing
+## 4. Why the flip renders nothing
 
 A flip is server truth — the branch every viewer must move to — but *which* branch a given viewer
 has mounted, and what belongs inside it, depends on selections below it. So the shared pass does the
@@ -147,7 +257,7 @@ That is the same mechanism as `varyingIds`, not a second path.
 
 ---
 
-## 4. The two lanes, side by side
+## 5. The two rendering lanes, side by side
 
 | | Shared (per slug) | Per client (per connection) |
 |---|---|---|
@@ -159,7 +269,7 @@ That is the same mechanism as `varyingIds`, not a second path.
 
 ---
 
-## 5. Reconnect: the pull path
+## 6. Reconnect: the pull path
 
 ```mermaid
 flowchart LR
@@ -185,7 +295,7 @@ client's cursor yields a `refill` rather than a refusal.
 
 ---
 
-## 6. Where each box lives
+## 7. Where each box lives
 
 Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
@@ -206,7 +316,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderDynamicChild`, `renderDynamicMembers` |
 
-## 7. Known open questions
+## 8. Known open questions
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
