@@ -60,13 +60,21 @@ private[runtime] enum Patch:
   * `holds` rather than the shared log, the only thing that can tell it what it
   * just sent is the patch it sent (docs/plan-session-pulled-changelog.md).
   *
-  * `invalidates` names mounts this patch RE-SUPPLIED without a per-node trace:
-  * its bytes replaced everything under them, so any digest still claimed for
-  * those nodes describes a DOM that no longer exists. Dropping is the safe
-  * direction (absent reads as "send it"), and it is not optional for a fill — a
-  * node whose claimed digest happens to come round again would otherwise be
-  * suppressed while the client shows the fill's version. This is the same prune
-  * [[FragmentLog.invalidateWhere]] does for the shared log.
+  * `invalidates` names mounts this patch RE-SUPPLIED. The self/mount split
+  * means an ordinary morph can never touch a child — a container's patch
+  * targets `<id>-self`, not the sibling mount ([[Renderer.patchTargetId]]) — so
+  * this is about the one patch that aims AT a mount: an `Inner` fill is
+  * all-or-nothing over its children by design.
+  *
+  * Load-bearing where the fill carries no per-node trace (a branch fill, a
+  * refill, a body repaint): those nodes are still on screen showing fill-time
+  * bytes while `holds` claims older ones, and a value coming round again would
+  * be suppressed against a DOM that never had it. A fill that DOES trace what
+  * it painted ([[fillGroup]]) covers itself through `establishes`, and its
+  * roots only clear members the fill deleted — kept anyway, so that "after
+  * applying a patch, `holds` describes the DOM" holds without a per-site
+  * exception. Same prune [[FragmentLog.invalidateWhere]] does for the shared
+  * log.
   *
   * A [[Patch.Remove]] needs neither: it places no bytes, and a stale claim for
   * an element that is GONE costs at most a morph at a missing id, which the

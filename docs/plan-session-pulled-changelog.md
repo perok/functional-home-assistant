@@ -657,9 +657,12 @@ Worth recording so they are not re-invented as work:
   - **Remove**: nothing to do. It places no bytes, and a stale claim for an element that is GONE
     costs at most a morph at a missing id, which the client ignores. What brings it back is an
     insert, which establishes afresh.
-  - **Fill** (`Inner` over a mount): must invalidate. Its bytes replaced everything under the mount
-    with no per-node trace, so a member's old claim outlives what it described — and if that value
-    comes round again the patch is suppressed while the client still shows the fill's version. This
+  - **Fill** (`Inner` over a mount): must invalidate. Not because patches leak into children in
+    general — the self/mount split means a container's morph targets `<id>-self` and cannot reach
+    the mount holding them — but because a fill is the one patch aimed AT a mount, and `Inner` is
+    all-or-nothing over its children. Where the fill carries no per-node trace (a branch fill, a
+    refill, a repaint) those nodes are still on screen showing fill-time bytes while `holds` claims
+    older ones, so a value coming round again is suppressed against a DOM that never had it. This
     is the prune `FragmentLog.invalidateWhere` already does for the shared log, so it is not new
     bookkeeping, just the same fact recorded per client.
 
