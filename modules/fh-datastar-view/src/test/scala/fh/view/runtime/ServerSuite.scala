@@ -62,6 +62,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     */
   private def recordAndPull(
       server: Server,
+      sessions: Sessions,
       store: StateStore,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
@@ -71,7 +72,15 @@ class ServerSuite extends munit.CatsEffectSuite {
       holds: Map[NodeId, Digest] = Map.empty,
       from: Long = 0L
   ): IO[List[Addressed]] =
-    server.recordFrame("dashboard", renderer, log, changes) *>
+    // A slug nobody is watching records nothing, so the viewer this is about
+    // to pull for has to exist before the frame does. Tests that care about a
+    // viewer's own surfaces register their own too; this one is here to open
+    // the gate.
+    Session
+      .create("dashboard")
+      .flatTap(_.open.set(open))
+      .flatMap(sessions.register("recordAndPull", _)) *>
+      server.recordFrame("dashboard", renderer, log, changes) *>
       (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
         Patches.resume(renderer, rc, l, holds, now.entities, from, open, ui)
       )
@@ -1085,6 +1094,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             log <- Ref[IO].of(seed._1)
             patches <- recordAndPull(
               server,
+              sessions,
               store,
               renderer,
               log,
@@ -1349,6 +1359,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             // Recorded ONCE for the slug; each viewer then pulls its own.
             forB <- recordAndPull(
               server,
+              sessions,
               store,
               renderer,
               log,
@@ -1416,6 +1427,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             log <- Ref[IO].of(FragmentLog("test"))
             ps <- recordAndPull(
               server,
+              sessions,
               store,
               renderer,
               log,
@@ -1520,8 +1532,17 @@ class ServerSuite extends munit.CatsEffectSuite {
       store: StateStore,
       val server: Server,
       renderer: Renderer,
-      cache: Ref[IO, FragmentLog]
+      cache: Ref[IO, FragmentLog],
+      sessions: Sessions
   ) {
+
+    /** The viewer closes its tab, so what this slug records next is what it
+      * records with nobody watching — a gap.
+      */
+    def closeViewer: IO[Unit] =
+      sessions
+        .get("harness")
+        .flatMap(_.traverse_(sessions.deregisterIf("harness", _)))
     private val holds = Ref.unsafe[IO, Map[NodeId, Digest]](Map.empty)
     private val position = Ref.unsafe[IO, Long](0L)
 
@@ -1642,6 +1663,12 @@ class ServerSuite extends munit.CatsEffectSuite {
         store <- StateStore.inMemory(initial)
         ref <- SignallingRef[IO].of(Renderer.create(dash))
         sessions <- Sessions.create
+        // The viewer this harness drains for, registered because a slug nobody
+        // is watching records nothing. Its open set is empty, matching what
+        // `drain` resumes with.
+        _ <- Session
+          .create("dashboard")
+          .flatMap(sessions.register("harness", _))
         // Stub HA: the SSE/patch path never calls it (an unexpected registry
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
@@ -1660,7 +1687,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         // The recorder writes the SLUG's log — the same one a reconnecting
         // client resumes from — so a cursor issued by `step` is valid at
         // `opening`, as in production.
-      } yield new SharedHarness(store, server, renderer, live.log))
+      } yield new SharedHarness(store, server, renderer, live.log, sessions))
         .timeout(30.seconds)
   }
 
@@ -1976,6 +2003,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             log <- Ref[IO].of(FragmentLog("test"))
             withPopup <- recordAndPull(
               server,
+              sessions,
               store,
               renderer,
               log,
@@ -2111,6 +2139,44 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(opening.contains("selector #c_light_b"), clue = opening)
       assert(opening.contains("mode remove"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
+  /** A dashboard with no browser on it is the NORMAL state of a home instance,
+    * so a slug nobody is watching records nothing at all. The cost is exactness
+    * for whoever comes back across that stretch: the versions it passed over
+    * are described nowhere, so the only honest answer to a cursor from before
+    * one is the repaint.
+    */
+  test(
+    "a stretch nobody watched records nothing, and repaints whoever returns"
+  ) {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      recorded <- h.cacheNow
+      // The tab closes...
+      _ <- h.closeViewer
+      _ <- h.step(es("sensor.a", "warm"))
+      unrecorded <- h.cacheNow
+      // ...and the client comes back holding the version it left on.
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
+    } yield {
+      assert(recorded.nonEmpty, clue = recorded)
+      assertEquals(
+        unrecorded,
+        recorded,
+        clue = "a frame nobody was watching writes nothing"
+      )
+      assert(opening.contains(BodyRepaint), clue = opening)
+      // And it is a repaint that carries the value it missed, not a stale one.
+      assert(opening.contains(">warm<"), clue = opening)
     }
   }
 
@@ -2946,6 +3012,7 @@ class ServerSuite extends munit.CatsEffectSuite {
             // suppression under test is the session's, not a race's.
             same <- recordAndPull(
               server,
+              sessions,
               store,
               renderer,
               live.log,

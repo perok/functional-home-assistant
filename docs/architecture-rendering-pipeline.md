@@ -182,8 +182,13 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
                                              // a deduped re-seed keeps its old one
   publish List[StateChange] on `changes`
 
-every slug's recorder wakes             // whether or not that slug has any viewer
+every slug's recorder wakes
   read snapshot+version together, wall clock, and sessions.openSets(slug)
+    NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
+      stop. A dashboard with no browser on it is the normal state of a home
+      instance. Safe only because a document registers its session BEFORE
+      reading the snapshot it renders from, which makes any version skipped
+      one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
   plan    -> staticIds, dynamics, flips, varyingIds
   record  -> the changelog, and nothing else:
@@ -226,7 +231,8 @@ Same call as a live pull; only the cursor differs.
 
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
-  different logId, or version ahead of the store, or head moved -> full repaint
+  different logId, version ahead of the store, head moved, or a cursor from
+    before a stretch this slug did not record -> full repaint
   otherwise since(version):
       nodes   whose logged version >= cursor   -> rendered NOW, sent if the digest
                                                   is not what this client holds
@@ -390,6 +396,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
 | the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
+| a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` / `position` |
 | SSE stream | `runtime/Server.scala` · `sseStream` |
@@ -406,11 +413,6 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **Nobody is watching.** The recorder runs from boot, so with every browser closed each frame is
-  still planned and written to a changelog nobody reads. Much cheaper than it was — nothing renders
-  — but still not free. Gating on session count needs one correctness move with it: mint a fresh log
-  identity on the 0→1 transition, or a client returning with a pre-gap cursor resumes against a log
-  that never recorded the gap.
 - **A laggard evicts the current.** One generation per node means two sessions pulling with different
   keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
   wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED

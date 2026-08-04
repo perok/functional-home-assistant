@@ -132,8 +132,8 @@ Each one lands on its own and keeps the suites green.
      contract can come to depend on what an earlier test rendered. The real server is the only place
      one is shared, which is also the only place the sharing is the point.
 
-4. **Session lifetime.** ~~Linger after disconnect~~ **landed**, the staleness bound that releases
-   the floor, and gating recording on a slug having sessions. ~~Displacement of a second live
+4. **Session lifetime.** ~~Linger after disconnect~~ and ~~gating recording on a slug having
+   sessions~~ **landed**; the staleness bound that releases the floor is what is left. ~~Displacement of a second live
    stream~~ landed with the document-creates-the-session step, which is what first made two streams
    able to reach one session.
 
@@ -144,6 +144,18 @@ Each one lands on its own and keeps the suites green.
    now names the tenure it expects to replace and decides on the same ref, so the loser sees the
    winner's answer. Two reapers (a document nobody connected to, a stream that ended) became one
    `Server.reapAfter`, differing only in which tenure they wait on.
+
+   The gate needed one thing the plan had not spelled out, and it is an ORDERING rather than a
+   structure. `gapFrom` is real (`FragmentLog.completeFrom` + `skipped`/`reaches`, and a cursor
+   below it repaints), but that only covers a client returning across a gap. The subtler hole is a
+   session created DURING one: the recorder reads the session set, finds it empty, and skips a
+   version the document is about to render at. So `pageResponse` now registers its session
+   BEFORE reading the snapshot it renders from — a frame that decided to skip did so before that
+   registration, hence before that read, so any skipped version is one the document already
+   contains and the pull for it is a no-op. Register later and that window is silent staleness.
+   The alternative the architecture doc had floated — minting a fresh log identity on the 0->1
+   transition — would have repainted every first connect to an idle dashboard, which is the
+   common case, not the edge one.
 5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.
 
 ## ADRs this will rewrite

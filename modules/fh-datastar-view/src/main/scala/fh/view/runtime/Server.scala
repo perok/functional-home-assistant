@@ -373,6 +373,18 @@ class Server(
     * pays per frame is one selection pass however many viewers it has — and
     * there is no longer anything a viewer could be told that another viewer
     * decided.
+    *
+    * '''A slug nobody is watching records nothing''' and says so
+    * ([[FragmentLog.skipped]]). A dashboard with no browser on it is the NORMAL
+    * state of a home instance, and the selection pass over every changed entity
+    * is the last thing that ran there unconditionally.
+    *
+    * That gate is safe only because of an ordering [[pageResponse]] keeps: a
+    * session is registered BEFORE the snapshot its page renders from is read. A
+    * frame that decided to skip did so before that registration, hence before
+    * that read, so the version it skipped is one the document already contains
+    * — and a pull for it is a no-op rather than a hole. Register later and the
+    * window between the two is silent staleness.
     */
   private[runtime] def recordFrame(
       slug: String,
@@ -382,21 +394,28 @@ class Server(
   ): IO[Long] =
     (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
       (store, millis, opens) =>
-        // What is worth recording: the surfaces some client can actually SEE,
-        // not merely has selected. A tab panel inside a hidden `If` branch is in
-        // its client's open set and on nobody's screen. Each session is filtered
-        // against its OWN set before the union, because a chain is one client's.
-        val visible = opens
-          .flatMap(o => o.filter(renderer.visibleSurface(_, o, store.entities)))
-          .toSet
-        val req = Patches.plan(
-          renderer,
-          store.entities,
-          Stamp(store.version, millis),
-          changes,
-          visible
-        )
-        log.update(Patches.record(renderer, _, req)).as(store.version)
+        if (opens.isEmpty)
+          log.update(_.skipped(store.version)).as(store.version)
+        else {
+          // What is worth recording: the surfaces some client can actually SEE,
+          // not merely has selected. A tab panel inside a hidden `If` branch is
+          // in its client's open set and on nobody's screen. Each session is
+          // filtered against its OWN set before the union, because a chain is
+          // one client's.
+          val visible = opens
+            .flatMap(o =>
+              o.filter(renderer.visibleSurface(_, o, store.entities))
+            )
+            .toSet
+          val req = Patches.plan(
+            renderer,
+            store.entities,
+            Stamp(store.version, millis),
+            changes,
+            visible
+          )
+          log.update(Patches.record(renderer, _, req)).as(store.version)
+        }
     }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
@@ -627,10 +646,16 @@ class Server(
           // answered with a fill for THAT mount, not a refusal — so the only
           // reasons left to repaint the body are the genuinely global ones
           // checked here: no cursor at all, a cursor minted against another log
-          // (a restart or a renderer swap, which is every dashboard change), or
-          // one ahead of this store (a restart with a rewound counter).
+          // (a restart or a renderer swap, which is every dashboard change),
+          // one ahead of this store (a restart with a rewound counter), or one
+          // from before a GAP — a stretch this slug passed over because nobody
+          // was watching it ([[FragmentLog.reaches]]), which is what a client
+          // returning after its session was reaped presents.
           val resumedIO = cursor
-            .filter(c => c.logId == log.id && c.version <= store.version)
+            .filter(c =>
+              c.logId == log.id && c.version <= store.version &&
+                log.reaches(c.version)
+            )
             .traverse(c =>
               Patches
                 .resume(
@@ -1089,9 +1114,8 @@ class Server(
         (
           live.renderer.get,
           live.log.get,
-          stateStore.current,
           IO.randomUUID.map(_.toString)
-        ).flatMapN { (renderer, log, store, conn) =>
+        ).flatMapN { (renderer, log, conn) =>
           val uiState = Server.uiStateOf(req)
           // The editor embeds the dashboard as `?edit=1`; that turns on the
           // per-node inspection overlay (Focus / Debug). Off for normal viewers.
@@ -1109,60 +1133,66 @@ class Server(
             case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
             case None      => uiState - Dashboard.PopupHostId
           }
-          val restore = Server.Restore(
-            restoreUi,
-            conn,
-            Some(
-              Server.Cursor(
-                renderer.headHash,
-                renderer.styleHash,
-                log.id,
-                store.version
+          // The surfaces this client will have open. They are the resume
+          // rule's second candidate set, and they are also what the recorder
+          // reads to decide a frame is worth recording at all — hence the
+          // ordering below.
+          val open = renderer.selectedSurfaces(uiState)
+          for {
+            // The session this document belongs to, established HERE — the
+            // document is the first and largest thing that puts fragments in
+            // this client's DOM, and the only place that knows what they were.
+            // Its `holds` therefore has ONE meaning for its whole life: bytes
+            // this client was sent. That is also what removes the variant key —
+            // this render used THIS viewer's `uiState`, where a shared log has
+            // to hold one digest per selection to avoid claiming somebody
+            // else's tab.
+            session <- Session.create(slug).flatTap(_.open.set(open))
+            // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
+            // bearing, not tidiness: [[recordFrame]] skips a frame no session
+            // is watching, so a session registered after the read could be
+            // handed a version the log never described. Registering first makes
+            // any skipped version one this page already contains — see the
+            // argument in `recordFrame`.
+            _ <- sessions.register(conn, session)
+            _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
+            store <- stateStore.current
+            // ONE render, used twice: the bytes go to the browser and the
+            // per-node trace seeds `holds`. Fingerprinting separately means
+            // walking the open surfaces a second time, node by node, to
+            // re-derive what the page just composed.
+            //
+            // Every painted node, not just the open surfaces' — the document
+            // contains all of it, so recording less would be a claim that is
+            // merely narrower, not safer.
+            painted = renderer.renderPageTraced(
+              store.entities,
+              uiState,
+              renderer.openPopup(uiState)
+            )
+            _ <- session.holds.set(painted.own.map { case (id, html) =>
+              id -> Digest.of(html)
+            })
+            _ <- session.position.set(store.version)
+            _ <- warnAnomalies(renderer, uiState)
+            // What this document is showing, and so also what it must hand
+            // back on connect for the stream to agree with it — the ui state
+            // (the open popup included) AND the version it was rendered at.
+            // That last part is what stops the first connect repainting a body
+            // the document already contains.
+            restore = Server.Restore(
+              restoreUi,
+              conn,
+              Some(
+                Server.Cursor(
+                  renderer.headHash,
+                  renderer.styleHash,
+                  log.id,
+                  store.version
+                )
               )
             )
-          )
-          // Tell the log what this document put on screen, for the surfaces
-          // the client will have open. They are the resume rule's second
-          // candidate set, and with no entry at all "unknown, send it" would
-          // hand the client its own surfaces straight back. Node renders are
-          // client-independent (a container patches its `self`, and the bake
-          // lives on the document path), so this is sound to write into a
-          // SHARED log.
-          val open = renderer.selectedSurfaces(uiState)
-          // ONE render, used twice: the bytes go to the browser and the
-          // per-node trace goes to the log. Fingerprinting separately means
-          // walking the open surfaces a second time, node by node, to
-          // re-derive what the page just composed.
-          val painted = renderer.renderPageTraced(
-            store.entities,
-            uiState,
-            renderer.openPopup(uiState)
-          )
-          // The session this document belongs to, established HERE — the
-          // document is the first and largest thing that puts fragments in
-          // this client's DOM, and the only place that knows what they were.
-          // Its `holds` therefore has ONE meaning for its whole life: bytes
-          // this client was sent. That is also what removes the variant key
-          // — this render used THIS viewer's `uiState`, where a shared log
-          // has to hold one digest per selection to avoid claiming somebody
-          // else's tab.
-          //
-          // Every painted node, not just the open surfaces' — the document
-          // contains all of it, so recording less would be a claim that is
-          // merely narrower, not safer.
-          val establish = Session
-            .create(slug)
-            .flatTap(_.open.set(open))
-            .flatTap(
-              _.holds.set(painted.own.map { case (id, html) =>
-                id -> Digest.of(html)
-              })
-            )
-            .flatTap(_.position.set(store.version))
-            .flatTap(sessions.register(conn, _))
-            .flatMap(reapAfter(conn, _, Tenure.Fresh, adoptionWindow))
-          warnAnomalies(renderer, uiState) *> establish *>
-            Ok(
+            resp <- Ok(
               page(
                 slug,
                 painted.html,
@@ -1173,7 +1203,8 @@ class Server(
                 restore,
                 editMode
               )
-            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+            )
+          } yield resp.withContentType(`Content-Type`(MediaType.text.html))
         }
     }
 

@@ -118,7 +118,14 @@ private[runtime] case class FragmentLog(
     // makes eviction safe rather than silently lossy. Per-container because that
     // is the granularity at which completeness is actually lost: one churning
     // group aging out says nothing about any other.
-    horizon: Map[NodeId, Long] = Map.empty
+    horizon: Map[NodeId, Long] = Map.empty,
+    // The oldest version this log describes AT ALL. Where `horizon` is one
+    // container's membership going incomplete, this is the whole log going
+    // incomplete: a slug nobody is watching records nothing ([[skipped]]), so
+    // the versions it passed over are described NOWHERE and no delta can span
+    // them. Answered by [[reaches]], and the only honest response to `false` is
+    // a repaint.
+    completeFrom: Long = 0
 ) {
 
   /** Whether the log knows what is in `gid`'s mount, so a membership change can
@@ -128,6 +135,26 @@ private[runtime] case class FragmentLog(
     */
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
+
+  /** This version went by unrecorded, because nobody was watching this slug.
+    *
+    * Monotone, and it is the ONLY thing a skipped frame costs: the maps stop
+    * growing while a dashboard is unwatched, and what they still hold is not
+    * wrong, merely older than the store.
+    */
+  def skipped(version: Long): FragmentLog =
+    copy(completeFrom = math.max(completeFrom, version + 1))
+
+  /** Whether a client complete through `v` can be brought up to date from this
+    * log alone.
+    *
+    * `v + 1` because a cursor is a claim about what the client HAS, not about
+    * what it is owed: a document rendered at V contains all of V, so it needs
+    * the log to describe `(V, now]` and nothing more. Reading it as `v` instead
+    * would repaint every first connect to a dashboard that had been idle — the
+    * common case, not the edge one.
+    */
+  def reaches(v: Long): Boolean = completeFrom <= v + 1
 
   /** **A fragment's version never goes backwards.**
     */
