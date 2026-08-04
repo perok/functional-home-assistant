@@ -17,8 +17,9 @@ should not be able to tell. The suites that assert on emitted SSE output are the
 
 Each one lands on its own and keeps the suites green.
 
-0. **Spike `inputs`.** What exactly keys a render, and where the per-entity content version is
-   stamped. Everything else depends on the answer; nothing else should start first.
+0. ~~**Spike `inputs`.**~~ **Landed** — see "What `inputs` turned out to be" below.
+   `EntityState.contentVersion` is the per-entity stamp, `Renderer.renderInputs` is the key, and
+   `RenderInputsSuite` is the adversarial check.
 1. **The render cache** (per slug, `MapRef` + `Deferred`), replacing `Patches.prepare`/`Renders` and
    `Memo.keyed`. Still push, still one publisher — behaviour-neutral, and it proves the key.
 2. **Per-session `holds`.** Move the "worth sending?" decision off the shared log onto the session.
@@ -266,25 +267,8 @@ both are the usual way this pattern breaks:
   the renderer; evicting lets the next caller retry while the waiters that already hold it still see
   the error.
 
-`inputs` is what the render actually reads, and nothing more:
-
-- the **content version of each entity the node binds** — `Renderer.entitiesForNode` already gives
-  the set. Scala does synthesize `hashCode`/`equals` for `EntityState`, so keying on the values
-  themselves would WORK; the reasons not to are cost and precision. Cost: a case class hash is
-  recomputed on every call (no memoisation) and recurses into the attributes `Map`, so every lookup
-  walks every attribute of every bound entity, where a version stamp is a `Long` compare. Precision:
-  the whole value is MORE discriminating than the render is — `lastUpdated` moves on ticks that
-  change no rendered byte, so value-keying misses on states that would render identically. A
-  per-entity version stamped at ingest moves exactly when content moves, which is the store's
-  existing definition.
-- the node's **own selections** — `Renderer.selectionsOf`, i.e. only the selections this node's
-  markup reads, not the viewer's whole open set. Keying on the open set would fragment the cache
-  between viewers who differ somewhere irrelevant.
-
-The asymmetry to keep in mind while choosing it: a key that is **too discriminating** costs a
-wasted render, and the digest then shows nothing changed so nothing is sent — CPU, no bug. A key
-that is **too coarse** serves a client bytes that no longer match its state, silently and
-permanently. When in doubt, over-discriminate.
+See "What `inputs` turned out to be" for the answer phase 0 produced, and the two things about it
+that were not obvious from the outside.
 
 **Children are not part of a node's cache entry.** A node caches its OWN markup with holes where
 its children go; a second pass substitutes the children's (also cached) HTML. Otherwise any
@@ -427,6 +411,57 @@ card}`), which this does not touch.
 - **One caching mechanism** where there are currently two (`Renders`, `Memo`), and it survives
   across batches instead of dying with each one.
 
+## What `inputs` turned out to be
+
+Phase 0, landed. The key is `RenderInputs(entities, vars)`, produced by `Renderer.renderInputs` (and
+`dynamicChildInputs` for a group member, whose id is derived per entity rather than indexed):
+
+- **`entities`** — `entityId -> contentVersion` for each entity the node's slots bind
+  (`entitiesForNode`). An entity the snapshot does not hold has NO entry, which is a key distinct
+  from any version it could have — `resolveSlot` renders such a slot from a synthetic empty state.
+- **`vars`** — the structural vars the bake group contributes, today just `bakeIndex`.
+
+Two things were not visible from the design side.
+
+**The per-entity version did not exist.** The store had only `StoreState.version`, a per-batch
+counter — it says a batch moved, not which entity. `EntityState.contentVersion` is the new stamp,
+assigned in `StateStore.update` at the point that already decides whether to publish a
+`StateChange`. So it moves exactly when `sameContent` says content moved: a reconnect's full
+re-seed and a timestamp-only bump keep the old stamp, and a render keyed on them still hits. The
+stamp rides into the published `StateChange` too, so the snapshot and the change can never name
+different versions of one entity.
+
+**A state group's selection cannot be keyed on its sources.** The plan assumed a node's inputs were
+the entities it binds plus its own selections. That holds for a user group, but an `if/else` host's
+branch is `holds(condition, quantifier, states)` — a QUANTIFIED predicate (`any`/`none`/`all`) over
+the entire entity map. Keying on what that reads would key such a node on every entity in the
+instance, and the cache would never hit.
+
+The fix generalises, and it is the rule to apply to anything added to the key later: **key on the
+resolved value, not on the inputs it derives from.** The selection collapses to a small `Int`
+whatever produced it, so `activeBakeIndex` — split out of `resolveBakeTraced` so the key and the
+render cannot drift — is shared by both. `selectionsOf` is not used: the resolved index subsumes it,
+and unlike `selectionsOf` it also covers the state-activated case, where there is no viewer
+selection at all.
+
+**How it is checked.** Only one direction can hurt: too discriminating costs a wasted render, too
+coarse serves a client bytes that no longer match its state, silently and for as long as the entry
+lives. So `RenderInputsSuite` tests one implication — same key implies same bytes — over ALL PAIRS
+of a timeline, because the failure mode is a pair that agrees on the key and disagrees on the bytes,
+not a step. The timeline runs through a real `StateStore`, so the stamps under test are the ones the
+store assigns. Its contrapositive is the precision claim, so one loop covers both directions, and a
+separate test pins the hits that must happen (a timestamp-only re-seed, an unrelated entity, a light
+that does not move a quantified condition) so a key of "everything" cannot pass.
+
+Verified by mutation rather than by passing: dropping either half of the key makes the suite fail.
+
+**The gap it leaves, deliberately.** `renderNodeById` still splices a node's children into its own
+bytes, so a container's rendering moves while its key stands still. That is the "too coarse" failure
+in miniature — and it is why the key excludes children rather than including them: including them
+would make any descendant's tick invalidate every ancestor to the root, which is the whole reason
+for the two-pass split. The suite pins it as a known, named gap. **Phase 1 closes it or the cache is
+wrong**, and `Renderer.renderTemplateOf` taking `childrenHtml` is the seam it splits at.
+
 ## Resolved by review
 
 **A. `holds` fingerprints a node's OWN markup — pass 1, before composition.** The worry that it must
@@ -523,9 +558,8 @@ Worth recording so they are not re-invented as work:
 
 ## What it must answer
 
-- **`inputs`, precisely.** Everything rests on it: too coarse and the cache never hits, too narrow
-  and it serves stale bytes — silent staleness, the worst failure mode here. Wants a spike first,
-  including where the per-entity content version is stamped.
+- ~~**`inputs`, precisely.**~~ Answered above. What remains of it is phase 1's job: the key is only
+  sound once a node's own markup stops carrying its children.
 - **Single-flight failure and cancellation.** A `Deferred` whose producer fails or is cancelled must
   not leave waiters blocked forever: complete it with the error, or remove the key and let the next
   caller retry. This is the standard way this pattern breaks.

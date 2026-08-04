@@ -34,7 +34,7 @@ flowchart TB
   subgraph GLOBAL["GLOBAL — exactly one per process, for ALL dashboards"]
     direction TB
     PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>one HA frame = one fs2 chunk"]
-    STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved"]
+    STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved<br/>each moved entity stamped with it"]
     CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
   end
 
@@ -147,6 +147,8 @@ on disconnect
 ```
 StateStore.update(frame)                    // one Ref.modify for the whole frame
   version++ ONLY if some entity's content really moved
+  stamp each MOVED entity with that version  // EntityState.contentVersion;
+                                             // a deduped re-seed keeps its old one
   publish List[StateChange] on `changes`
 
 every slug's publisher wakes            // whether or not that slug has any viewer
@@ -318,6 +320,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | opening paint / resume | `runtime/Server.scala` · `openingPatches`; `runtime/Patches.scala` · `resume` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderDynamicChild`, `renderDynamicMembers` |
+| what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
 
 ## 8. Known open questions
 
@@ -347,3 +350,9 @@ pulls what it is owed from a changelog, deciding for itself what is worth sendin
 That work has its own document — **[`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md)**
 — because it is not current state and this file is. As phases land, the shape moves into §1–§8 above
 and the plan shrinks. Nothing else in this file describes code that does not exist.
+
+**Phase 0 has landed** and is the one part already in the sources: `EntityState.contentVersion` (the
+per-entity stamp, §2) and `Renderer.renderInputs` (what would key a cached render, §7). Nothing
+reads the key yet — no cache exists — so the pipeline drawn above is unchanged. The one finding
+worth carrying here: an `if`/`else` host's branch is a quantified predicate over the WHOLE entity
+map, so it is keyed on the RESOLVED selection rather than on what the selection reads.
