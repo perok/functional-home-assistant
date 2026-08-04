@@ -67,7 +67,7 @@ class Server(
     // subscribes when it opens, so a per-slug map would freeze the slug set at
     // connect time and a slug pushed later could never reach an open
     // connection. Tagging is what lets `push` mint a slug at runtime.
-    sharedTopic: Topic[IO, (String, Directed)],
+    sharedTopic: Topic[IO, (String, List[Directed])],
     // Starts the per-slug shared-patch publisher for a slug minted by `push`.
     // Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -302,9 +302,12 @@ class Server(
               stateStore.changes
                 .evalMap(sharedPatches(slug, renderer, live.log, cache, _))
             )
-            .flatMap(Stream.emits)
+            // A BATCH stays one element: merging is per connection and can only
+            // combine what that connection kept, so the send path needs to see
+            // a batch whole rather than as a stream of loose patches.
+            .filter(_.nonEmpty)
       }
-      .map(addressed => (slug, addressed))
+      .map(batch => (slug, batch))
       .through(sharedTopic.publish)
 
   /** Start every currently-registered slug's publisher. Slugs pushed later get
@@ -526,7 +529,7 @@ class Server(
             // on connect, and on a renderer swap ([[reloadRepaints]]).
             if (patches.isEmpty) patches
             else
-              patches :+ Addressed(
+              patches :+ Encoded(
                 None,
                 Server.versionSignal(req.stamp.version)
               )
@@ -617,31 +620,43 @@ class Server(
           // captured, because a tab select moves it mid-stream.
           val shared =
             tagged
-              .collect { case (s, a) if s == session.slug => a }
-              .evalFilter(a => session.open.get.map(a.visibleTo))
-              // Ready bytes pass through; a Varying is the one item this
-              // connection renders itself, because only it knows which member
-              // its viewer has mounted. `open` is the live selection — a tab
-              // clicked mid-connection moves it, while the `uiState` this
-              // connection arrived with does not.
-              .evalMap {
-                case Addressed(_, event) => IO.pure(Option(event))
-                case Varying(_, resolve) =>
-                  // Read at FORCE time, entities and version together: a queued
-                  // item renders the state that exists when it is finally sent,
-                  // not the one its batch was diffed at — anything older is
-                  // about to be superseded by an item already behind it.
-                  (
-                    rendererFor(session.slug),
-                    session.open.get,
-                    stateStore.current
-                  ).flatMapN { (rendererOpt, open, now) =>
-                    rendererOpt.fold(IO.pure(Option.empty[ServerSentEvent]))(
-                      r => resolve(r.uiStateFrom(open), now)
-                    )
+              .collect { case (s, batch) if s == session.slug => batch }
+              // A batch is decided WHOLE, then merged, because merging may only
+              // combine what this connection kept ([[Patches.encode]]).
+              .evalMap { batch =>
+                batch
+                  .traverse { directed =>
+                    session.open.get.flatMap { open =>
+                      if (!directed.visibleTo(open)) IO.pure(Option.empty[Step])
+                      else
+                        directed match {
+                          case Addressed(surface, patch) =>
+                            IO.pure(Option(Step.Mergeable(surface, patch)))
+                          case Encoded(_, event) =>
+                            IO.pure(Option(Step.Ready(event)))
+                          // The one item this connection renders itself,
+                          // because only it knows which member its viewer has
+                          // mounted. Read at FORCE time, entities and version
+                          // together: a queued item renders the state that
+                          // exists when it is finally sent, not the one its
+                          // batch was diffed at — anything older is about to be
+                          // superseded by an item already behind it.
+                          case Varying(_, resolve) =>
+                            (
+                              rendererFor(session.slug),
+                              session.open.get,
+                              stateStore.current
+                            ).flatMapN { (rendererOpt, sel, now) =>
+                              rendererOpt.fold(
+                                IO.pure(Option.empty[ServerSentEvent])
+                              )(r => resolve(r.uiStateFrom(sel), now))
+                            }.map(_.map(Step.Ready(_)))
+                        }
+                    }
                   }
+                  .map(steps => Patches.encode(steps.flatten))
               }
-              .unNone
+              .flatMap(Stream.emits)
           Stream
             .eval(
               session.open.get.flatMap(open =>
@@ -1408,7 +1423,7 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topic <- Topic[IO, (String, Directed)].toResource
+      topic <- Topic[IO, (String, List[Directed])].toResource
       // Pair each seeded renderer with its own fragment log here, so the caller
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList

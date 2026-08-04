@@ -54,8 +54,29 @@ private[runtime] enum Patch:
   */
 private[runtime] case class Addressed(
     surface: Option[String],
+    patch: Patch
+) extends Directed
+
+/** Something already in wire form, and so never merged with anything: the
+  * resume cursor's signal. Distinct from [[Addressed]] because the difference
+  * is exactly whether the send path may still combine it with its neighbour.
+  */
+private[runtime] case class Encoded(
+    surface: Option[String],
     event: ServerSentEvent
 ) extends Directed
+
+/** One item of a batch that survived a connection's filters, on its way to the
+  * wire — the input to [[Patches.encode]].
+  */
+private[runtime] enum Step {
+
+  /** A patch that may still be combined with an adjacent one. */
+  case Mergeable(surface: Option[String], patch: Patch)
+
+  /** Bytes: a resolved [[Varying]] or an [[Encoded]]. A barrier by nature. */
+  case Ready(event: ServerSentEvent)
+}
 
 /** A patch whose BYTES depend on which member the viewer has mounted.
   *
@@ -860,17 +881,41 @@ private[runtime] object Patches {
   private def addressed(
       patches: List[(Option[String], Patch)]
   ): List[Directed] =
-    patches
-      .foldLeft(List.empty[(Option[String], Patch)]) {
+    patches.map { case (tag, p) => Addressed(tag, p) }
+
+  /** Combine what a connection is actually sending, then put it on the wire.
+    *
+    * '''This runs per connection, after its filters, and that is the point.'''
+    * Merging is a property of one client's outgoing stream: which patches a
+    * client keeps is its own answer, so a merge performed before that decision
+    * would bake one client's choices into everyone's bytes.
+    *
+    * Two constraints, both load-bearing:
+    *
+    *   - '''Same tag only.''' The tag is what keeps a popup's patch from
+    *     reaching a client without it open. Merging across tags would weld a
+    *     tagged patch to an untagged one and leak it to everybody.
+    *   - '''Adjacent only.''' An [[Patch.Insert]]/[[Patch.Remove]] names its
+    *     own target and cannot join, but it is also a BARRIER: a morph after an
+    *     insert may target the element that insert just created, and reordering
+    *     across it would aim the morph at an id the DOM does not hold yet — a
+    *     silent no-op. A [[Step.Ready]] is a barrier for the same reason.
+    */
+  def encode(steps: List[Step]): List[ServerSentEvent] =
+    steps
+      .foldLeft(List.empty[Step]) {
         case (
-              (prevTag, Patch.Morph(before)) :: rest,
-              (tag, Patch.Morph(next))
+              Step.Mergeable(prevTag, Patch.Morph(before)) :: rest,
+              Step.Mergeable(tag, Patch.Morph(next))
             ) if prevTag == tag =>
-          (tag, Patch.Morph(before + next)) :: rest
+          Step.Mergeable(tag, Patch.Morph(before + next)) :: rest
         case (acc, one) => one :: acc
       }
       .reverse
-      .map { case (tag, p) => Addressed(tag, p.toSse) }
+      .map {
+        case Step.Mergeable(_, p) => p.toSse
+        case Step.Ready(event)    => event
+      }
 
   /** [[Selections]] spelled as the ui-state a render reads. Canonical by
     * construction — every value is an in-range index — which is what makes two

@@ -1450,7 +1450,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         registry <- Ref[IO].of(
           Map("dashboard" -> Server.LiveSlug(ref, slugLog))
         )
-        topic <- Topic[IO, (String, Directed)]
+        topic <- Topic[IO, (String, List[Directed])]
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,
@@ -1782,9 +1782,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       .timeout(30.seconds)
       .map { case (shared, events) =>
         // The shared pass carries the inner flip's delta — once, for the slug.
+        // The resume cursor is an `Encoded`, so "not the cursor" is a type
+        // test rather than a predicate over rendered bytes.
         val tagged = shared.filter {
-          case a: Addressed => !isCursor(a.event)
-          case _            => true
+          case _: Encoded => false
+          case _          => true
         }
         assertEquals(tagged.size, 1, clue = tagged)
         // Addressed to the popup: a client with it open sees it, one without
@@ -2230,8 +2232,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     * what a test asserting on BYTES wants. A `Reveal` is not bytes: it is the
     * instruction one connection finishes for itself, so it is not here.
     */
+  /** An [[Addressed]] carries a [[Patch]] now — merging and encoding are the
+    * connection's job ([[Patches.encode]]) — so the bytes this suite asserts on
+    * are derived rather than stored. The resume cursor is an [[Encoded]], so
+    * "not the cursor" is the type rather than a predicate.
+    */
+  extension (a: Addressed) private def event: ServerSentEvent = a.patch.toSse
+
   private def ready(out: List[Directed]): List[Addressed] =
-    out.collect { case a: Addressed if !isCursor(a.event) => a }
+    out.collect { case a: Addressed => a }
 
   /** What ONE connection receives from a batch: the already-addressed bytes,
     * plus the per-viewer renders it forces for itself.
@@ -2249,8 +2258,9 @@ class ServerSuite extends munit.CatsEffectSuite {
     store.current
       .flatMap(now =>
         out.traverse {
-          case a: Addressed => IO.pure(Option(a.event))
-          case v: Varying   => v.resolve(ui, now)
+          case a: Addressed      => IO.pure(Option(a.event))
+          case Encoded(_, event) => IO.pure(Option(event))
+          case v: Varying        => v.resolve(ui, now)
         }
       )
       .map(_.flatten)

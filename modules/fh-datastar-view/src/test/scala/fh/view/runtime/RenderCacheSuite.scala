@@ -33,6 +33,14 @@ class RenderCacheSuite extends munit.FunSuite {
     val runs = new AtomicInteger(0)
     def render: String = { runs.incrementAndGet(); gate.await(); html }
     def release(): Unit = gate.countDown()
+
+    /** Both fibers race for the same key, and the one a test calls "the waiter"
+      * can perfectly well win the CAS and render ITS string. Waiting for the
+      * producer to be inside `render` is what makes which-is-which a fact
+      * rather than a hope.
+      */
+    def started: IO[Unit] =
+      IO(runs.get()).iterateUntil(_ > 0).void
   }
 
   test("concurrent callers for one key cost exactly one render") {
@@ -144,8 +152,9 @@ class RenderCacheSuite extends munit.FunSuite {
     val (out, again, n) = (for {
       cache <- RenderCache.create
       producer <- cache(id, v1)(g.render).start
+      _ <- g.started
       waiter <- cache(id, v1)("never runs").start
-      _ <- IO.sleep(150.millis)
+      _ <- IO.sleep(100.millis)
       _ <- waiter.cancel
       _ <- IO(g.release())
       p <- producer.joinWithNever
@@ -169,8 +178,9 @@ class RenderCacheSuite extends munit.FunSuite {
     val (waited, n) = (for {
       cache <- RenderCache.create
       producer <- cache(id, v1)(g.render).start
+      _ <- g.started
       waiter <- cache(id, v1)("never runs").start
-      _ <- IO.sleep(150.millis)
+      _ <- IO.sleep(100.millis)
       _ <- producer.cancel.start
       _ <- IO.sleep(50.millis) *> IO(g.release())
       w <- waiter.joinWithNever
