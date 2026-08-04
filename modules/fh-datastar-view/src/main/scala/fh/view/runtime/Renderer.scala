@@ -25,6 +25,20 @@ import fh.view.model.{
   */
 private[runtime] type Selections = Map[NodeId, Int]
 
+/** What a node's own rendering reads, reduced to a comparable value — see
+  * [[Renderer.renderInputs]] for what goes in each half and why.
+  *
+  * The asymmetry to hold on to whenever this changes: a key that is TOO
+  * DISCRIMINATING costs a wasted render, and the digest then shows nothing
+  * moved so nothing is sent — CPU, no bug. A key that is TOO COARSE serves a
+  * client bytes that no longer match its state, silently and permanently. When
+  * in doubt, over-discriminate.
+  */
+case class RenderInputs(
+    entities: Map[String, Long],
+    vars: Map[String, String]
+) derives CanEqual
+
 /** A container is just a Component whose template splices its rendered
   * `children` (`{{#children}}{{{html}}}{{/children}}`), so container kinds
   * (row, column, grid, …) are templates rather than cases here.
@@ -1158,20 +1172,109 @@ class Renderer(
       )
     }
     if (group.isEmpty) (Map.empty, Map.empty, Map.empty)
-    else if (isStateGroup(id))
-      resolveActiveByState(id, states) match {
+    else
+      activeBakeIndex(id, uiState, states) match {
         case Some(idx) => bakeMember(idx)
         case None      =>
-          // No branch matches: the host's {{{bakeAs}}} var is explicitly the
-          // empty string (all members share one bakeAs — they bake into one
-          // hole), so the wrapper renders empty instead of leaving the var
-          // absent-but-meaningful.
+          // A state group with no matching branch: the host's {{{bakeAs}}} var
+          // is explicitly the empty string (all members share one bakeAs — they
+          // bake into one hole), so the wrapper renders empty instead of
+          // leaving the var absent-but-meaningful.
           val as = group.headOption
             .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
             .getOrElse("")
           (Map(as -> ""), Map.empty, Map.empty)
       }
-    else bakeMember(resolveActive(id, uiState)._1)
+  }
+
+  /** WHICH member of `id`'s bake group is selected, dispatching on activation
+    * mode — the one thing a bake owner's own rendering reads beyond its slots.
+    * `None` for a node that owns no group, and for a state group whose branches
+    * all fail.
+    *
+    * Split out of [[resolveBakeTraced]] because [[renderInputs]] needs the
+    * selection WITHOUT rendering the member it selects. Sharing it is what
+    * makes the cache key honest: a key derived independently could drift from
+    * the render it claims to describe.
+    */
+  private def activeBakeIndex(
+      id: NodeId,
+      uiState: Map[String, String],
+      states: Map[String, EntityState]
+  ): Option[Int] =
+    if (bakeGroup(id).isEmpty) None
+    else if (isStateGroup(id)) resolveActiveByState(id, states)
+    else Some(resolveActive(id, uiState)._1)
+
+  /** Everything a node's OWN rendering reads, as a comparable value — the key a
+    * render cache needs (docs/plan-session-pulled-changelog.md).
+    *
+    * Two parts, and the split is the point:
+    *
+    *   - `entities` — the CONTENT VERSION of each entity the node's slots bind
+    *     ([[entitiesForNode]]). A version rather than the value because
+    *     [[EntityState]]'s synthesized `hashCode` recurses into the attribute
+    *     map on every lookup, and because it is MORE discriminating than the
+    *     render is: `lastUpdated` moves on ticks that change no rendered byte.
+    *     An entity the snapshot does not hold has NO entry, which is a distinct
+    *     key from any version it could have — [[resolveSlot]] renders such a
+    *     slot from a synthetic empty state.
+    *   - `vars` — the structural vars the bake group contributes (`bakeIndex`),
+    *     taken as the RESOLVED value rather than the inputs it derives from.
+    *     That is what keeps the key small where it could not otherwise be: a
+    *     state group's branch is a QUANTIFIED predicate over the whole entity
+    *     map ([[holds]]), so keying on its sources would key on every entity.
+    *
+    * Deliberately NOT included: the node's children. A node's own markup has
+    * holes where they go, and composition substitutes their (separately keyed)
+    * bytes. Including them would make any descendant's tick invalidate every
+    * ancestor to the root. Today's [[renderNodeById]] still splices children
+    * eagerly, so this key describes the POST-SPLIT render — see phase 1 of the
+    * plan.
+    */
+  def renderInputs(
+      id: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): RenderInputs =
+    RenderInputs(
+      entitiesForNode(id)
+        .flatMap(e => states.get(e).map(e -> _.contentVersion))
+        .toMap,
+      activeBakeIndex(id, uiState, states)
+        .fold(Map.empty[String, String])(i => Map("bakeIndex" -> i.toString))
+    )
+
+  /** [[renderInputs]] for one member of a dynamic group — a node that has no
+    * entry in the layout tree, because its id is derived per entity.
+    *
+    * Its whole rendering grounds on the ONE entity it was dispatched for: the
+    * group's `query`, the `case` picked, and every inheriting slot bind to it.
+    * A slot naming some OTHER entity is the only way another one gets in, and
+    * those are taken across every case rather than the matched one — the
+    * over-discriminating side of the trade, for a key that does not depend on
+    * re-running the dispatch.
+    */
+  def dynamicChildInputs(
+      groupId: NodeId,
+      entityId: String,
+      states: Map[String, EntityState]
+  ): RenderInputs = {
+    val bound = allIndexed.get(groupId) match {
+      case Some((d: LayoutNode.Dynamic, _, _)) =>
+        entityId :: d.cases.toList.flatMap(
+          _.slots.values.toList
+            .filter(s => s.reactive && s.literal.isEmpty)
+            .flatMap(_.entityId)
+        )
+      case _ => Nil
+    }
+    RenderInputs(
+      bound.distinct
+        .flatMap(e => states.get(e).map(e -> _.contentVersion))
+        .toMap,
+      Map.empty
+    )
   }
 
   private def render(
