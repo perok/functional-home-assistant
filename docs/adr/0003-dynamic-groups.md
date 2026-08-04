@@ -67,30 +67,41 @@ leaf builders stay shared because both static and dynamic use call them.
 ### Re-render only when a change touches the query
 
 Membership is data-dependent, so a dynamic container can't be reverse-indexed
-by entity like static components. But it does **not** re-render on every
+by entity like static components. But it is **not** re-examined on every
 event: the state stream carries `StateChange(entityId, previous, current)`, and
-a group re-renders only when the changed entity matched its query **before or
-after** the change (`Renderer.affectedDynamicIds`) — covering add (¬prev ∧
+a group is considered only when the changed entity matched its query **before or
+after** the change (`Renderer.affectedDynamics`) — covering add (¬prev ∧
 cur), remove (prev ∧ ¬cur), and in-place update (prev ∧ cur), while an
 unrelated entity's change is skipped (the group's HTML would be identical).
 
-This test is **stateless** — no per-group membership cache. A shared member-set
-cache would have to mirror the rendered-HTML diff caches, which live at two
-levels (per-slug for the shared main-page pass, per-session for open-surface
-nodes — ADR 0002), and a cache that hasn't rendered a removal yet must not skip
-it; testing old-or-new match needs no shared state and is correct wherever the
-diff cache lives. The assumption it rests on: a dynamic card binds to its
+This test is **stateless** — no per-group membership cache. The membership question is
+asked once per frame, at the frame boundary, because two entities can cross the query
+boundary in opposite directions in one tick and each single-entity view of that reports
+a change the frame did not make. The assumption it rests on: a dynamic card binds to its
 matched entity (no cross-entity slots inside a case) — the current invariant.
 
-A re-render of a group re-renders every matched card, but the cards'
-action/config slots are memoized identity slots (ADR 0004), so it costs ~2 live
-JSONata evals per card. Main-page groups render once per slug in the shared
-pass regardless of viewer count — including groups inside a state-activated
-surface's active branch (ADR 0007); only groups inside a user-opened surface
-render per session (and a group inside an *inactive* state branch renders
-nowhere at all). **Future work** (flagged at the shared patch publisher in `Server`):
-coalesce/debounce event bursts — the query filter bounds *what* re-renders;
-batching would bound *how often*.
+**What a membership change costs.** The recorder writes a delta where it can: an
+in-place member tick records that one child, an arrival or departure records one
+`Mutation` per member, and only heavy churn (≥50% of rendered members) or a group the
+log holds no children for records a whole-mount fill. Nothing is rendered while
+recording; each session renders what it is owed when it pulls (ADR 0012), through the
+per-slug render cache, so N viewers of one group cost one render of each changed member.
+A group inside a surface no session has open is not recorded at all, and one inside an
+inactive state branch (ADR 0007) is structurally silent.
+
+Two costs remain, and they are the honest ones:
+
+- **The scan is O(entities) per affecting change**, twice (before and after), because
+  membership is recomputed rather than maintained. Maintaining it — testing each incoming
+  change against each group's predicate and keeping a sorted member set — is O(changed)
+  per frame and would also answer "successor of this arrival" directly, which is what an
+  `insert before` needs. Planned, not built.
+- **A re-rendered card re-evaluates its slots**, though the action/config slots are
+  memoized identity slots (ADR 0004), so it costs ~2 live JSONata evals per card.
+
+Burst coalescing is no longer future work: a session's doorbell is a `SignallingRef` and
+`.discrete` collapses versions that land while it renders into one pull. The query
+filter bounds *what* is examined; the doorbell bounds *how often* a viewer pays for it.
 
 ## Consequences
 

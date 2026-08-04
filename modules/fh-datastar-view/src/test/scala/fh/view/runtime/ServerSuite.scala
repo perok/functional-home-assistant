@@ -1051,7 +1051,7 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   // WHICH nodes the log knows about, and when each last changed — everything
   // these contracts assert on. The log holds a version, not HTML, so there is no
-  // node -> html projection to make (docs/adr/0012-one-pass-addressed-per-client.md, statement (3));
+  // node -> html projection to make (docs/adr/0012-each-session-renders-what-it-is-owed.md);
   // what the patches CARRY is asserted on the patches themselves.
   private def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
 
@@ -1770,7 +1770,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   }
 
   /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/adr/0012-one-pass-addressed-per-client.md, T8b) — the
+    * reconnect''' (docs/adr/0011-the-live-connection.md) — the
     * exact hole recording the flip structurally was meant to close.
     *
     * Found in the running app before this test existed: `Patches.resume`

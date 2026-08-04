@@ -262,7 +262,7 @@ private[runtime] case class FragmentLog(
     *
     * Returns node IDS: the caller renders them from the current snapshot, which
     * is at least as fresh as anything the log could have stored
-    * (docs/adr/0012-one-pass-addressed-per-client.md, statement (3)).
+    * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     */
   def since(v: Long): Resume = {
     val refill = horizon.collect { case (gid, h) if v < h => gid }.toList

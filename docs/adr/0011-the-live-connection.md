@@ -19,19 +19,26 @@ fetch on `visibilitychange`: **backgrounding a phone tab closes the stream and
 returning reopens it**. Every glance at the dashboard was a full-body render,
 transfer and morph, even when nothing had changed in the meantime.
 
-Re-diffing after a reconnect cannot help, and the reason is the whole design. The
-live path already narrows work twice — a reverse index picks the nodes an entity
-touches, then a cache suppresses byte-identical re-renders — but that cache is a
-**broadcast log, not a per-client mirror**: `sharedPatchPublishers` renders once per
-slug and diffs against one cache shared by everyone viewing it. Changes a
-backgrounded phone missed were still absorbed by it — they *were* broadcast, to
-whoever was listening. So from the cache's point of view that DOM is already
-current, and the information about what this client missed exists nowhere on the
-server.
+Re-diffing after a reconnect cannot help, and the reason was the whole design at the
+time. The live path narrowed work twice — a reverse index picked the nodes an entity
+touches, then a cache suppressed byte-identical re-renders — but that cache was a
+**broadcast log, not a per-client mirror**: one render per slug, diffed against one
+cache shared by everyone viewing it. Changes a backgrounded phone missed were still
+absorbed by it — they *were* broadcast, to whoever was listening. So from the cache's
+point of view that DOM was already current, and what this client had missed existed
+nowhere on the server.
 
-Everything here is about supplying that missing information **without keeping
-per-client state**, and about the two connections' health being observable without
-either end guessing.
+Everything here is about supplying that missing information, and about the two
+connections' health being observable without either end guessing.
+
+**What has since changed, and what has not.** The rendering pass is no longer shared:
+each session pulls what it is owed and renders it (ADR 0012), so the server does now
+keep a per-client record — `Session.holds`, what this client's DOM contains. That
+record is an OPTIMISATION and never the mechanism: the client's cursor remains the
+truth about what it holds, everything below still works with `holds` empty, and losing
+a session costs bytes rather than correctness. The design that follows is unchanged by
+it; what changed is that the question "does this client already have these bytes?" now
+has somewhere exact to be asked.
 
 Be honest about the size of the win: on a fast LAN it is invisible. It is a
 mobile/slow-link optimisation plus a DOM-stability improvement, not a bug fix.
@@ -65,8 +72,9 @@ group, not the body.
 
 ### The cursor: four client-carried values
 
-The client carries what it holds; the server keeps one versioned log per slug,
-shared by every client, and **no per-client memory between connections**.
+The client carries what it holds; the server keeps one versioned log per slug, shared
+by every client. A session's own record (`holds`, `position`) sits alongside it and can
+be discarded at any time — see the context note above.
 
 | value | question it answers | on mismatch |
 |---|---|---|
@@ -120,21 +128,31 @@ The per-slug log carries a version, turning "what did we last broadcast" into
 "when did each node last change":
 
 ```scala
-case class Stamp(version: Long, millis: Long)      // logical clock + wall clock
-case class Fragment(digest: Digest, version: Long) // a fingerprint, never the bytes
-
 enum MemberKey:                                    // what occupies a mount, and how to render it
   case Entity(id: String)                          //   a dynamic group's member
   case Surface(id: String)                         //   a state group's branch
 
-enum Mutation(val at: Stamp, val container: NodeId):   // last STRUCTURAL fact about a node
-  case Gone(in: NodeId, stamp: Stamp)                  // its element was deleted
-  case Placed(in: NodeId, member: MemberKey, stamp: Stamp)  // belongs at its current position
+enum Mutation(val version: Long, val container: NodeId):  // last STRUCTURAL fact about a node
+  case Gone(in: NodeId, at: Long)                         // its element was deleted
+  case Placed(in: NodeId, member: MemberKey, at: Long)    // belongs at its current position
 
-case class FragmentLog(id, fragments: …, mutations: …, horizon: Map[NodeId, Long])
+case class FragmentLog(
+  id,
+  fragments:    Map[NodeId, Long],                 // node -> the version it last moved at
+  mutations:    Map[NodeId, Mutation],
+  horizon:      Map[NodeId, Long],                 // per container: membership history is
+                                                   //   complete only from here up
+  completeFrom: Long                               // the whole log: complete only from here up
+)
 def since(v: Long): Resume                         // TOTAL — see "the horizon is per container"
-case class Resume(nodes: Set[NodeId], moved: …, refill: Set[NodeId])
+def reaches(v: Long): Boolean                      // false across a stretch nobody watched
+case class Resume(nodes: List[NodeId], moved: …, refill: List[NodeId])
 ```
+
+**There is no content in the changelog at all** — not the bytes, not a digest of them.
+`fragments` holds a version and nothing else, so the log answers only *when did this
+node last move*. What a given client HOLDS is that client's own record (`Session.holds`,
+ADR 0012), which is the only place that question can be answered exactly.
 
 `fragments` answers *when did this node's content last change*; `mutations`
 answers *where is this node* — the changes not expressible as a morph of an
@@ -158,48 +176,35 @@ has no patch target*.
 
 The reason it matters is that the log is per SLUG. Rendering a bare container by id renders its
 whole subtree, mounts included, so its bytes depend on which member each descendant mount has
-selected — and whichever the log holds is wrong for somebody.
+selected — and whichever a shared structure recorded would be wrong for somebody.
 
-**Variance, where it exists, is local.** The only thing that can make a node's own html differ
-between viewers is its own group's selection (`bakeIndex` — that node's variant id). Never a
-descendant's, since own html excludes mount contents. So a variant-bearing node keys
-`(nodeId, bakeIndex)`: one entry per member, no product over the subtree. The rule to keep true is
-that a node's own rendering contains no mount — its own, or a child's.
+**A node whose own html differs between viewers needs no special treatment**, and that is
+worth saying because it used to need a great deal. The only thing that can vary it is its
+own group's selection (`{{bakeIndex}}` in a `self`); never a descendant's, since own html
+excludes mount contents. Since the session renders what it is owed, it renders that node
+with its own `uiState` and records the digest in its own `holds` — no variant key, no
+second entry, nothing shared to disagree about. The rule to keep true is unchanged: a
+node's own rendering contains no mount, its own or a child's.
 
-**The log records WHEN, never WHAT.** A `Fragment` holds a digest, not HTML, and
-content is always rendered now. Three things follow. The log cannot go stale
-against the renderer, because it stores nothing a renderer swap could
-invalidate. The snapshot a resume renders from is by definition at least as
-fresh as anything the log could have kept, so a client that missed five ticks
-gets the fifth and not the first. And — the property worth the most — **a path
-unsure of what it put in a client's DOM can simply drop the entry**, because an
-absent entry reads as "unknown, send it". The worst outcome of dropping is a
-redundant re-send; the worst outcome of a wrong entry is a suppressed change,
-which is silent and permanent. Everything that mutates the DOM without knowing
-its own bytes exactly (a mount fill, a per-viewer branch placement) uses that
-escape rather than recording a digest that would be true for one client only.
+**The log records WHEN, never WHAT.** Content is always rendered now. Three things
+follow. The log cannot go stale against the renderer, because it stores nothing a
+renderer swap could invalidate. The snapshot a resume renders from is by definition at
+least as fresh as anything the log could have kept, so a client that missed five ticks
+gets the fifth and not the first. And — the property worth the most — **a path unsure of
+what it put in a client's DOM can simply drop the entry**, because an absent entry reads
+as "unknown, send it". The worst outcome of dropping is a redundant re-send; the worst
+outcome of a wrong entry is a suppressed change, which is silent and permanent.
+Everything that mutates the DOM without knowing its own bytes exactly (a mount fill, a
+branch placement) uses that escape.
 
-**Two skips, and neither subsumes the other.** A node can be spared a re-send
-for two different reasons, and it is worth keeping them apart:
-
-  - the **version prune** — *a later write already covered this node*. If its
-    entry's version is at or past the version being rendered from, nothing can
-    have changed since, so it is skipped WITHOUT rendering. This is what
-    collapses several queued batches that all touch one node.
-  - the **digest** — *the content did not actually change*. This catches the tick
-    that moves an entity without moving what a node displays, which the version
-    prune cannot see.
-
-The prune is an integer comparison and the digest costs a render, so the prune
-goes first.
-
-**Two fields, two jobs, and they are not interchangeable.** `version` serves the RESUME path —
-`since(cursor)` uses it to decide what a returning client is owed, and nothing on the live path
-reads it. `digest` serves the LIVE path — re-render, compare, skip when the bytes are identical —
-and its only purpose is to not re-send. A consequence worth stating because it looks like an
-optimisation and is not: a node re-rendered to the same bytes must NOT have its version advanced.
-That would make it mean "when did we last look", `since` would over-report, and returning clients
-would be sent morphs for nodes that never changed.
+**The version and the digest answer different questions, and the split survived the flip
+into the sessions.** A node's `fragments` version says *this node moved at V* — the
+changelog's whole content, and what `since(cursor)` reads to decide what a returning
+client is owed. A digest says *these are the bytes it has*, and lives per session
+(`Session.holds`). A consequence worth stating because it looks like an optimisation and
+is not: a node re-rendered to the same bytes must NOT have its version advanced. That
+would make the version mean "when did we last look", `since` would over-report, and
+returning clients would be sent morphs for nodes that never changed.
 
 Digests are compared, never inspected, and are held as hex rather than
 `Array[Byte]` — array equality is by reference, so the map would have quietly
@@ -249,12 +254,13 @@ no-op.
 > level down when parallel `tombstones`/`arrivals` maps became a single
 > `Mutation` sum. The same argument applies here and has not been examined.
 >
-> What keeps them apart today is eviction: `mutations` age out against a
-> retention window and `fragments` do not, so a single map would need a
-> per-case retention rule. Whether that is worse than two maps with a hand-held
-> invariant is the open question.
+> What keeps them apart today is pruning: `mutations` are dropped below the floor
+> and `fragments` are not (they describe nodes that currently exist, so there is
+> no history in them to drop), which a single map would need a per-case rule for.
+> Whether that is worse than two maps with a hand-held invariant is the open
+> question.
 
-### Eviction: `fragments` self-limits, `mutations` does not
+### Pruning: `fragments` self-limits, `mutations` does not
 
 Keying by node id is what keeps the log small: a node has one latest content and one
 latest structural fact however often it churned, so a hyperactive sensor cannot flood
@@ -267,23 +273,35 @@ member of any group — bounded by entity count rather than dashboard size, and 
 with elapsed time rather than complexity. A `dynamic` group over "every light that is
 on" will, over a week, name every light in the house.
 
-So mutations are **aged out** (`FragmentLog.Retention`, 1 hour) and the log carries a
-**`horizon`**: the oldest version `mutations` is complete for, raised past everything
-evicted — **per container**, because one group ageing out says nothing about any
-other. A cursor below a container's horizon does not repaint the page; it puts
-that container in `Resume.refill` and the client is sent that ONE mount's
-contents wholesale. Age rather than an entry cap
-because the real question is "how long can a client be away and still be worth
-resuming" — minutes to hours for a backgrounded tab — where a count is only a proxy;
-and a cap is redundant anyway, since the id-keyed map already bounds burst churn.
+So mutations are **pruned below the floor** — the lowest `position` any live session
+holds (`Sessions.floor`) — and the log carries a **`horizon`**: the oldest version
+`mutations` is complete for, raised past everything dropped, **per container**, because
+one group being pruned says nothing about any other. A cursor below a container's
+horizon does not repaint the page; it puts that container in `Resume.refill` and the
+client is sent that ONE mount's contents wholesale.
 
-**Retention is why `Stamp` carries two clocks.** `version` orders everything and is
-the only clock any correctness argument rests on; `millis` only ages mutations out.
-They are never compared to each other and never order the same thing, so this does
-not reintroduce the two-clocks-in-one-ordering problem that ruled out `last_updated`
-above. A clock step (NTP, a host waking from suspend) can widen or narrow a retention
-window but cannot corrupt a cursor comparison. The caller reads the clock once per
-diff and passes it in, so the log stays pure.
+The floor is exact where the rule it replaced was a guess. A mutation below it cannot
+appear in any resume any session will ever run, so keeping it buys nothing; a mutation
+above it may still be owed. The rule it replaced was a wall clock (keep an hour), which
+answered "how long might a client be away" with a number rather than with the answer.
+Dropping a mutation still raises the horizon, because a CLIENT cursor is NOT bounded by
+the floor: a client returning after its session was reaped can present anything, and
+must get that mount refilled rather than silence.
+
+**Nothing in the log reads a clock.** A version orders everything and is the only clock
+any correctness argument rests on. The wall clock that used to age mutations out is gone
+with the rule that needed it, which also retired the two-field `Stamp` that existed to
+keep the two apart. The only thing wall time still decides anywhere in the runtime is
+how long a session lingers after its stream ends — and that decides how cheap a
+reconnect is, never what is correct.
+
+**A slug nobody is watching records nothing**, which is the other half of the same
+question. The recorder reads the session set it already reads for visibility; with none,
+it writes one number (`completeFrom`) and drops the history that number makes
+unreachable. A client returning across such a stretch is answered by `reaches` — false,
+so it repaints. That gate is safe only because a document registers its session BEFORE
+reading the snapshot it renders from: a frame that decided to skip did so before that
+read, so any skipped version is one that page already contains.
 
 Two properties worth keeping. **`since` is TOTAL**: it returns a `Resume` rather
 than an `Option`, because there is no longer a cursor it cannot answer. What used
@@ -294,23 +312,20 @@ update is a fallback, never a design choice.* The failure mode it replaced was a
 phone foregrounding after an hour and being served its entire dashboard because
 one dynamic group had aged out.
 
-And eviction is per-log and therefore per-slug, and a log dies on renderer swap
-anyway, so there is no reaper and no cross-connection bookkeeping.
+And pruning is per-log and therefore per-slug, and a log dies on renderer swap anyway,
+so there is no reaper and no cross-connection bookkeeping.
 
-> **FUTURE — retention by live cursors.** The age bound is a blunt stand-in. The
-> precise rule is to truncate below the OLDEST cursor any live connection holds:
-> `Sessions` is already keyed by `conn`, so each could report its last-sent version
-> and the log could evict everything below their minimum. Two caveats, the second
-> being why the age bound must survive rather than be replaced: it reintroduces
-> per-connection server state (acceptable only because it would serve RETENTION,
-> never correctness — which is what separates it from the rejected per-client
-> mirror), and a wedged connection would pin the log open indefinitely. The real
-> rule is `min(live cursors)` **clamped** by the age bound, not one or the other.
+The caveat the floor comes with, stated plainly: a session that stops advancing pins the
+log open. What bounds it is the session's own lifetime — a stream that ends starts a
+linger, and a linger that expires drops the session, which releases the floor. So the
+clamp the age bound used to provide is now the reaper, in the one place where "how long
+do we keep this" is genuinely a wall-clock question.
 
-**Hot-path cost is unchanged:** the live path only does `log.holds(nodeId, html)`
-— one digest compare — O(1) before and after. The `version >= V` scan is resume-only — once per
-reconnect over a few hundred entries — so it needs no index, and it must read the log
-once OUTSIDE the `Ref.modify` so a reconnect never serialises against the live diff.
+**Cost:** the `version >= V` scan is per pull, over a map bounded by the dashboard's node
+count, and the log is read once OUTSIDE any `Ref.modify` so a pull never serialises
+against the recorder. The record and the prune happen in ONE update, so no reader ever
+sees a state where the frame has landed but the history it makes prunable has not been
+dropped.
 
 ### Structural changes: one mutation per node
 
@@ -417,9 +432,11 @@ cursor and keeps client behaviour in the page shell where the rest of it lives.
 the nodes the cursor names (`version >= V`) UNION the nodes of the surfaces this
 client has open — the second set because the cursor alone cannot name them: a
 surface's nodes may not have changed since the client's cursor and still be absent
-from its DOM. Each candidate is rendered once from the current snapshot and sent
-when its version is at or past the cursor OR its digest differs from what the log
-holds, with a MISSING entry counting as "send". Nothing is special-cased by kind.
+from its DOM. Each candidate is rendered once from the current snapshot and sent unless
+this SESSION's `holds` already names those exact bytes, with a missing entry counting as
+"send". Nothing is special-cased by kind. This is the same call a live tick makes — a
+tick is a resume from `position + 1` — so there is one path to be right about rather
+than two that must agree.
 
 That subsumes what used to be three branches. There is no per-session repaint
 step: a tab panel is simply a surface in `open`, so its nodes are candidates like
@@ -431,8 +448,8 @@ body repaint replaces `#dashboard` only, while the popup host lives in
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
 change. That is sound because of an invariant every reveal path holds:
 
-> **Every reveal is an unconditional complete fill.** `swapHost` renders the arriving surface whole
-> and inner-patches the host; a flip's `Varying` inserts the whole branch. Neither consults a
+> **Every reveal is an unconditional complete fill.** A host swap renders the arriving surface
+> whole and inner-patches the host; a flip's placement inserts the whole branch. Neither consults a
 > version, and nothing incremental ever depends on what a client missed while a subtree was hidden.
 
 So "I have everything through V" needs to be true only of what the client can SEE; anything it
@@ -465,13 +482,17 @@ a later cursor and the client claims a version whose changes it never applied �
 `since` will never re-send them, because those fragments are stamped below the
 cursor. Stale forever, with nothing observable at the time of the mistake.
 
-So both broadcast topics are subscribed **unbounded** (`Server`'s shared patch topic,
-`StateStore.changes`), and for a second reason as well: `Topic.publish1` sends to each
-subscriber's channel in turn and blocks on a full one, so a bounded subscription lets
-one slow browser stall the publisher for *everyone*. On the shared topic — one
-multiplexed topic across all slugs — that is every viewer of every dashboard; on
-`StateStore.changes` it is worse, because blocking there stalls `HaFeed.pump` and the
-store stops updating at all.
+`StateStore.changes` is therefore subscribed **unbounded**, and for a second reason as
+well: `Topic.publish1` sends to each subscriber's channel in turn and blocks on a full
+one, so a bounded subscription there would let one stalled recorder stop `HaFeed.pump`
+and with it the store.
+
+The patch side no longer has a topic to reason about. Nothing is pushed: the recorder
+rings a per-slug `SignallingRef` and each session pulls (ADR 0012), so a slow client
+holds up only itself. Coalescing is the RIGHT behaviour there rather than a loss —
+`.discrete` collapses versions that land while a session is rendering into one pull, and
+that pull is computed against the current snapshot, which is what a slow client should
+get.
 
 What is bounded is the **connection**, not the queue: ember gives every socket write
 an idle timeout (60s by default), so a peer that stops reading is torn down and its
@@ -488,11 +509,12 @@ re-derived per kind of end. It also stops a non-200 (a slug since deleted) leavi
 frozen page with no indication: the retries run out and the "connection lost" banner
 appears.
 
-**Subscribe before reading the snapshot.** `openingPatches` and the shared
-subscription are nested in that order inside the stream, so a change published
-between them is queued for the connection rather than published to nobody. Erring
-the other way is safe: a change caught by both arrives once in the opening paint and
-once as a patch, and a patch is an idempotent morph.
+**There is no subscription to nest around any more.** The old ordering rule —
+subscribe, then read the snapshot, so a change landing between the two is queued rather
+than published to nobody — is gone with the topic: a `SignallingRef` hands a new watcher
+its current value, so a frame recorded before this stream existed still wakes it. Erring
+the other way remains safe anyway: a change caught by both the opening paint and a pull
+arrives twice, and a patch is an idempotent morph.
 
 ### Keepalives, and the two health concepts
 
@@ -581,35 +603,20 @@ is why they are hardening rather than gates:
 2. **A parent and a child changing at different versions resume in the right order.**
    The silent failure is a stale container reverting a fresh child; only ordering
    prevents it. Unit-covered in `FragmentLogSuite`.
-3. **A cursor older than the retention window repaints rather than resuming.**
-   Unit-covered via the horizon; what a browser adds is that the repaint restores a
+3. **A cursor the log can no longer speak for repaints rather than resuming** — a
+   container pruned past it, or a stretch this slug did not record at all. Unit-covered
+   via the horizon and `reaches`; what a browser adds is that the repaint restores a
    correct DOM from an arbitrarily stale one.
 
 ## Deferred
 
-**The per-viewer render memo, and a cache across batches.** The per-session pass
-is gone (ADR 0002): everything is rendered once per slug and addressed by a tag,
-so the payload this section used to be about — a tabbed dashboard re-sending its
-visible panel on every reconnect — is no longer re-sent at all.
-
-What survives of the idea is smaller and sharper. Exactly one render can differ
-between viewers: a flip placing a branch whose subtree mounts a client-selected
-member. It is performed per connection, un-memoised, so K viewers of such a flip
-cost K renders.
-
-The **batch-scoped memo** that fixes that is not a separate piece of work: it is
-the other half of rendering lazily, which is the visibility work in
-docs/adr/0012-one-pass-addressed-per-client.md (W13). Skipping a render only pays if you can decide
-"nobody can see this" BEFORE rendering, and once you can, the memo is what stops
-two viewers of the same variant rendering it twice. It needs no eviction policy —
-it lives and dies with the published item, by ordinary reachability — and it must
-NOT be keyed on the store version, which is a global counter: one humidity sensor
-would invalidate every node on every dashboard.
-
-Separately deferred, measurement-gated: a **cache across batches**,
-`(state, node, variant) -> HTML`. That one wants `SoftReference`; a plain
-`WeakReference` entry dies at the next GC regardless of memory pressure, so it
-would cache essentially nothing.
+~~**The per-viewer render memo.**~~ **Landed**, and as one mechanism rather than the two
+this section anticipated. Every session renders for itself, and `RenderCache` (per slug,
+single-flight, one generation per node, keyed by the renderer plus what the render READ)
+is what keeps N sessions woken by one ring from rendering the same node N times. It is
+deliberately NOT keyed on the store version — a global counter, so one humidity sensor
+would invalidate every node on every dashboard — which is the one warning from the
+original note that survived into the implementation. See ADR 0012.
 
 **Advancing a client's cursor on quiet ticks.** A batch that emits nothing sends
 no cursor, so a long quiet stretch leaves a client claiming an old version and a
@@ -632,28 +639,32 @@ faithfully wrote empty, which is how a deep link lost its selection. Seeding
 from the BAR works: a parent's seed reaches its children's readers. Both halves
 are pinned by `DatastarMorphContractSuite`.
 
-It cost one prerequisite. `{{bakeIndex}}` in a `self` makes every tabs node
-variant-bearing (ADR 0012), so every path rendering one BY ID has to know the
-viewer — and `resume` did not; it would have handed a tab-1 client a bar drawn
-at the default index. `renderLogged` now takes the viewer, and `fromOpen`
-compares against that viewer's variant rather than variant 0.
+It cost one prerequisite. `{{bakeIndex}}` in a `self` makes a tabs node's own html
+depend on the selection, so every path rendering one BY ID has to know the viewer — and
+`resume` did not; it would have handed a tab-1 client a bar drawn at the default index.
+Every render path now takes the viewer's `uiState`, which is also what made the variant
+machinery unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually
 chose, which closes the race between a tab click and a patch already in flight.
 
 ## Rejected along the way (still guarding the design)
 
-- **A server-side mirror of each client's DOM.** Per-client server state instead of a
-  client-carried value, and the bookkeeping is most of the work — tens of KB per
-  client, recorded on every broadcast. The one log per slug deliberately cannot say
-  what any individual browser received; the cursor is how that question gets
-  answered without keeping the answer.
-- **Persisting the session id across the reconnect.** Cheaper than it looks, now that
-  `conn` is known to survive the refetch — but the value that would have had to
-  outlive the connection was a per-session *cache*, so the grace window/reaper/cap
-  came back unchanged, and it would not have removed the cursor. Moot since that
-  cache stopped existing: a `Session` now holds only its slug, its open set, and a
-  control queue, none of which is worth carrying across a drop.
+- **A server-side mirror of each client's DOM *as the resume mechanism*.** This is the
+  rejection worth reading carefully, because the shape it rejected now exists: a session
+  DOES keep a node-to-digest record of what its client holds. What stays rejected is
+  depending on it. The cursor is what a resume is computed from, everything works with
+  that record empty, and losing it degrades a reconnect by one rung (redundant bytes)
+  rather than breaking it. A mirror the design could not do without would have to be
+  durable, reconciled, and correct across a server restart; a mirror it can throw away
+  costs nothing to be wrong about.
+- ~~**Persisting the session id across the reconnect.**~~ **Adopted**, once there was
+  something worth carrying. The original rejection was about a per-session *cache* whose
+  grace window/reaper/cap were most of the work for a value that did not remove the
+  cursor — and it was written when a `Session` held only a slug, an open set and a
+  control queue. Now it holds `holds` and `position`, so a reconnect inside the linger
+  window is told what moved instead of being repainted, and the grace window/reaper the
+  rejection worried about is one `Tenure` value with guarded transitions (ADR 0012).
 - **An entity-level cursor + re-render on resume.** Superseded by the fragment log,
   which is strictly better: no re-render, and it fixes the departing-member hole this
   could only paper over by repainting every dynamic group, because a predicate tested
@@ -677,7 +688,11 @@ chose, which closes the race between a tab click and a patch already in flight.
   `retry` mode's post-body semantics, `ifmissing`, `datastar-fetch` detail types,
   patching elements inside `<head>` by id) are pinned to **v1.0.2** and were read off
   the bundle rather than the docs. Re-verify on upgrade.
-- A resume is bounded by retention: past `FragmentLog.Retention` a client repaints.
-- The server holds no per-client state between connections, so scaling viewers costs
-  one unbounded subscription and one variant render each — the latter being what the
-  deferred variant log would collapse.
+- A resume is bounded by what live sessions still need: below the floor, or across a
+  stretch this slug did not record, a client repaints.
+- The server holds per-client state — `holds`, `position`, an open set — for as long as
+  a session lives, which is its stream plus a linger. None of it is required for
+  correctness (see the rejection above), and none of it survives a restart.
+- Scaling viewers costs one pull each per frame; the renders behind those pulls are
+  shared through the per-slug render cache, so N viewers of one dashboard still cost one
+  render of each changed node.

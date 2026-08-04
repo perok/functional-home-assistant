@@ -72,7 +72,7 @@ per-connection filter. It is never in anyone's `open` set, so tagging a node wit
 one would hide it from everybody; a node inside an `If` branch nested in a tab
 panel is tagged with the tab panel instead.
 
-Per state change, the shared pass does two things:
+Per state change, the recording pass does two things:
 
 1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
    `dynamicDelta`: O(1) shortcut — the changed entity's own match must have
@@ -88,16 +88,16 @@ Per state change, the shared pass does two things:
    the self/mount split exists to prevent (ADR 0008).
 2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
    a nested state group contributes only through its active ancestor branch):
-   patch the active members' affected components and dynamic groups against
-   the shared per-slug cache. Inactive STATE members are never consulted —
+   record the active members' affected components and dynamic groups. Inactive
+   STATE members are never consulted —
    that IS the no-updates guarantee, and it is structural: their ids never
    enter the selection.
 
    Structural silence covers state members directly. A *user*-selected surface
    nested inside an inactive branch — a tab panel inside a hidden `If` — needs
    one more step, because `selectedSurfaces` reports a selection for every bake
-   group whether or not it is on screen, so `open` alone would keep rendering
-   it. The shared pass therefore filters each session's open set through
+   group whether or not it is on screen, so `open` alone would keep recording
+   it. The recorder therefore filters each session's open set through
    `Renderer.visibleSurface`, the visibility CHAIN (ADR 0012): every user
    surface above a node selected AND every state surface above it active. A
    group in an unopened tab is not merely unsent — it is never planned.
@@ -105,15 +105,11 @@ Per state change, the shared pass does two things:
 The one crossing edge: a state group whose subtree contains a *user-activated*
 bake owner (tabs inside an `If`). Its flip places a branch whose HTML is not one
 thing but one thing per selection, so it cannot be rendered once for everyone.
-That is no longer a case to detect. Every flip publishes the render rather than
-its bytes (`Patches.Pending`), keyed by the `Selections` it reads; a branch with
-no user group inside it resolves to the empty key and one render still serves
-everybody. It arrives as ONE complete patch, with that viewer's panel already
-inside it.
-
-Before that, the varying branch was the special case — and, having no memo,
-the only patch in the system rendered once per *connection* rather than once
-per variant.
+That stopped being a case at all when the session became the thing that renders
+(ADR 0012): the flip is RECORDED as a mutation, and whichever session pulls it
+performs the placement with its own selections. It arrives as ONE complete patch,
+with that viewer's panel already inside it — the same shape the old
+render-rather-than-bytes machinery produced, with nothing left to key or defer.
 
 An earlier design instead routed these groups to a per-session pass
 (`sessionOnlyStateGroups`). It did not work: the flip rendered the branch with no

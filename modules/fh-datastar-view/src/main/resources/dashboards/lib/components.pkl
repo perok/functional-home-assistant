@@ -145,7 +145,7 @@ abstract class Node extends LayoutNode {
 /// carrying its own id, so a patch at the self element cannot reach the mount.
 /// Hence the rule the design rests on: a node's patch carries its own rendering
 /// and NEVER the contents of a mount, so a host changing cannot re-render what
-/// it hosts (docs/adr/0012-one-pass-addressed-per-client.md).
+/// it hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md).
 ///
 /// A container with a `mount` and NO `self` ([[Row]]/[[Column]]/[[Grid]]) has
 /// only children to show, so its whole HTML contains them and it must never be

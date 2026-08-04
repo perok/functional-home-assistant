@@ -102,44 +102,36 @@ N viewers of one slug cost one render, not N — including viewers of an open
 popup or a selected tab, which is what distinguishes this from the earlier
 design.
 
-**Who may see a patch is a filter at the wire edge, not a second render.** Every
-patch carries the innermost user-selected surface it belongs to
-(`Patches.Addressed`), or nothing for the main page, and each connection keeps
-only what its own `open` set admits. State-activated surfaces are transparent to
-that tag: their selection is server truth, identical for every viewer (ADR 0007),
-so a node inside an `If` branch nested in a tab panel is tagged with the tab
-panel. Over-sending is safe and under-sending is not — a morph at an id the DOM
-lacks is a silent no-op — so anything the renderer cannot attribute to a
-user-selected surface stays untagged.
+**Who may see a patch is decided by the session that sends it.** Nothing is broadcast:
+the recorder writes a changelog and each connection pulls what it is owed, against its
+own open set and its own record of what its DOM holds (ADR 0012). So a patch carries no
+audience tag and passes no filter at the wire edge — it exists because the session that
+will send it asked for it. State-activated surfaces need no special handling either:
+their selection is server truth, identical for every viewer (ADR 0007), so a node inside
+an `If` branch nested in a tab panel is visible exactly when that tab panel is.
 
-**One rendering cannot serve everyone in exactly one case**: a flip placing a
-branch whose subtree mounts a client-selected member (tabs inside an `If`). That
-branch is published as a `Patches.Varying` carrying the render rather than its
-bytes, and each connection performs it against its own selections at send time —
-still arriving as one complete patch, with that viewer's panel already inside it.
-Rather than detect that case, every such render is published as a
-`Patches.Pending` keyed by the `Selections` it reads (ADR 0012): viewers who
-agree on those groups share one render, and a branch with no user group inside
-it resolves to the empty key, so "one rendering serves everybody" is that case
-rather than a separate path.
+That also dissolves the one case that used to resist a shared rendering — a flip placing
+a branch whose subtree mounts a client-selected member (tabs inside an `If`). The session
+renders it with its own selections when it pulls, so it arrives as one complete patch
+with that viewer's panel already inside it, and there is no deferred render and no memo
+keyed by what the render reads.
 
-Almost nothing else can vary: under the self/mount split (ADR 0008) a container
-patches its `self`, which holds no mount, so only a render that CREATES a
-subtree can differ per viewer.
+Almost nothing else can vary anyway: under the self/mount split (ADR 0008) a container
+patches its `self`, which holds no mount, so only a render that CREATES a subtree can
+differ per viewer.
 
-This replaced a **shared/per-session split**, in which open surfaces and
-bake-group owners were re-rendered once per connection against a per-session diff
-cache. The split was a cost model — "render shared what is cheap to share" — and
-it bought duplication of the entire diff pipeline: two selection passes, two
-caches, and a class of bug where a fragment reached one pass and not the other.
-What killed it was that its per-session half turned out not to be about clients
-at all, but about *variants*, of which the server owns the closed set. `Session`
-therefore has no diff cache: there is one log per slug, and everything that
-changes a client's DOM goes through it.
+This replaced a **shared/per-session split**, in which open surfaces and bake-group
+owners were re-rendered once per connection against a per-session diff cache, and then a
+**shared pass with an audience tag**, in which one render per slug was addressed to
+whoever could see it. Both were cost models — "render shared what is cheap to share" —
+and both bought a second vocabulary to describe who a rendering was for. What replaced
+them is not a third: N viewers still cost one render of each changed node, but through a
+per-slug render cache rather than through a shared pass, and the question "who is this
+for" has one answer — the session doing the rendering.
 
-On a live-reload hot-swap the shared pass re-arms with the new renderer and a
-fresh per-slug log; a change dropped in the brief swap window is repaired by the
-full body repaint every connection does on reload.
+On a live-reload hot-swap the recorder re-arms with the new renderer and a fresh
+per-slug log; a change dropped in the brief swap window is repaired by the full body
+repaint every connection does on reload.
 
 ### One click slot, whole Datastar expressions
 
@@ -265,14 +257,14 @@ wiring, not dashboard frame.
   tabs mount EMPTY, then have each connection fill its own. It works, and it was
   wrong twice over: two DOM updates for one change, and a rendering "for nobody"
   that promptly leaked a blank tab index into live markup, because a mount
-  carries client-dependent ATTRIBUTES and not merely children. Rendering the
-  branch per VARIANT (`Varying`, above) is the same idea done at the right
-  boundary.
+  carries client-dependent ATTRIBUTES and not merely children. Having the session
+  render the branch with its own selections, above, is the same idea done at the
+  right boundary.
 - **Baking whichever member the connected clients happen to agree on**: would
   have removed the hollow mount for the common case by reading the union of
   every session's open set. It makes the rendered bytes depend on the audience —
   the same dashboard in the same state producing different HTML depending on who
-  is watching — for no gain over asking about variants instead.
+  is watching — for no gain over letting each session render its own.
 
 ## Consequences
 

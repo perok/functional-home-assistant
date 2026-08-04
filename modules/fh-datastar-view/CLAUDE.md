@@ -8,8 +8,8 @@ Its ADRs are in [`docs/adr/`](../../docs/adr/README.md) — they record the desi
 rationale. The repo-wide ADR routine is in the root `CLAUDE.md`.
 
 [`docs/architecture-rendering-pipeline.md`](../../docs/architecture-rendering-pipeline.md) is the map of the RUNTIME half —
-how a state change becomes bytes, what is shared per slug vs. per connection, and the four node
-kinds (static, dynamic, flip, varying). It is current-state and must move with the code, in the
+how a state change becomes bytes, what is shared per slug vs. per connection, and the three node
+kinds (static, dynamic, flip). It is current-state and must move with the code, in the
 same commit; ADRs that change the pipeline update it too.
 
 #### Workflow for changes here

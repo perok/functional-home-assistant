@@ -13,9 +13,9 @@ what its viewer has selected).
 > - An **ADR that alters this pipeline must update this file too** — the ADR owns the *decision and
 >   its rationale*, this file owns *the shape of the thing*. They are not alternatives to each other.
 >   ADRs [0011](adr/0011-the-live-connection.md) and
->   [0012](adr/0012-one-pass-addressed-per-client.md) are the two that most often will;
+>   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
 >   [0003](adr/0003-dynamic-groups.md) (dynamic groups) and
->   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the four node
+>   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
 >   statement about §1; "prune at pull time" is a statement about §6.
@@ -40,7 +40,7 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips · varyingIds"]
+    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips"]
     REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership + flips from state alone"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
   end
@@ -190,10 +190,10 @@ every slug's recorder wakes
       reading the snapshot it renders from, which makes any version skipped
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
-  plan    -> staticIds, dynamics, flips, varyingIds
+  plan    -> staticIds, dynamics, flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
-      static+varying -> node -> version                 // no variant split
+      static         -> node -> version                 // no variant split
       dynamics       -> touched members, or Gone/Placed, or a filled mount
                         (the churn heuristic survives as `filled`, which raises
                          the container's horizon — "any cursor below this gets
@@ -289,9 +289,10 @@ flowchart TB
   class SAME,CHURN,EST q
 ```
 
-**A varying node is no longer a kind of its own here.** Its version moves like any other node's, and
-the render that reads a viewer's selection happens where the viewer is. That is the whole of what
-`Varying`/`Pending`/`Memo` used to buy, for free.
+**A varying node is not a kind of its own — there is no such classification left.** Its version
+moves like any other node's, and the render that reads a viewer's selection happens where the viewer
+is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, and
+`nodeVariesByViewer` went with them once `plan` stopped partitioning what `record` merged back.
 
 **The churn heuristic had to survive the loss of the render**, or the wire would move: heavy churn
 still fills the mount rather than patching members. It is recorded as `FragmentLog.filled`, which
