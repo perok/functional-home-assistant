@@ -556,53 +556,57 @@ card}`), which this does not touch.
 - **One caching mechanism** where there are currently two (`Renders`, `Memo`), and it survives
   across batches instead of dying with each one.
 
-### Open, and blocking
+### Resolved by review
 
-Found by reading §9 back against §1–§8. The first three change the design rather than fill it in.
+**A. `holds` fingerprints a node's OWN markup — pass 1, before composition.** The worry that it must
+fingerprint the composed bytes was wrong, and the reason is worth stating because it is the invariant
+the whole scheme rests on:
 
-**A. Which digest does `holds` compare?** The render cache yields a digest of a node's OWN markup —
-but the bytes on the wire are composed: a card renders "that element plus its children's FULL
-renderings" (`Renderer.hasOwnRendering`), so a container's `Morph` carries its children. Comparing
-an own-markup digest against what the client received answers the wrong question.
+> Every node is patched at its OWN dom id, so a change is always sent at the most specific node that
+> changed. An ancestor goes out only when the ancestor's own markup changed.
 
-Two ways out, and they are not equivalent:
+Under that rule an own-markup digest answers exactly the right question. A descendant's change is
+never "missed" by comparing the ancestor, because it is not the ancestor's job to carry it — the
+descendant is sent on its own.
 
-- store in `holds` the digest of what was actually SENT, computed after composition — correct, but
-  it means composing before you can tell whether anything needs sending;
-- make the digest a TREE hash: a node's effective identity is its own cache key plus its children's
-  effective identities. Then "did this subtree change?" is answered by comparing one hash, WITHOUT
-  composing, and composition happens only for what is actually going out. It also gives the
-  changelog a cheap way to skip whole unaffected subtrees.
+The one consequence to implement: when a node IS sent, its bytes ARE composed (an outer morph
+replaces the element and its subtree), so that payload re-establishes every descendant too. `holds`
+must therefore be updated for the whole subtree, from the trace of what was composed — not just for
+the node addressed. Today's code already works this way and is the model: `Patches.fillGroup` writes
+`set(cid, html)` per member, and the page paint folds `painted.own` into the log per node. The tree
+hash is not needed for correctness; keep it in mind only as an optimisation for skipping traversal
+of unaffected subtrees.
 
-The second looks strictly better and is the reason to settle this early: it decides what the cache
-stores, which everything else keys off.
+**B. `SignallingRef`, not `Topic` — and precisely because it drops things.** `Topic` is the right
+tool for multiple subscribers who must each receive EVERY element, and that contract is what forces
+the per-subscriber queue and the bounded-vs-unbounded dilemma §1 lives with today. A pull model does
+not want delivery; it wants a nudge. `SignallingRef[IO, Version]`'s `.discrete` gives the latest
+value and is free to drop intermediates, so a session busy through three batches wakes once and
+pulls straight to the head. Multiple subscribers are fine — every subscriber gets its own `discrete`.
+The changelog is the data; the signal only says "look".
 
-**B. How does a session learn the changelog moved?** §1's `sharedTopic` is a PUSH mechanism; in a
-pull model it has no job left, but sessions still need waking. A per-slug
-`SignallingRef[IO, Version]` holding the latest recorded version is enough — sessions take
-`.discrete`, which also coalesces for free: a session busy through three batches wakes once and pulls
-to the head, instead of queueing three wake-ups. Nothing in §9 currently says this.
+**C. What actually grows is the MUTATIONS, and the bound is the session's own staleness.** The
+`nodeId -> version` map cannot grow without bound: it is keyed by node, latest-wins, so it is O(nodes
+in the dashboard) however long it runs. The mutations are the ones that accumulate — one `Gone` per
+entity that has ever left a group, which is why today's log ages them out on a wall clock
+(`FragmentLog.Retention`).
 
-**C. A pinned floor is the new unbounded growth.** Today a slow client grows ITS OWN queue and ember's
-write timeout tears it down (§1). In the pull model a slow or lingering session instead pins
-`min(position)`, and the changelog grows **for everyone on that slug**. That is the same failure
-moved somewhere worse — shared instead of per-client. It needs a designed bound: a session may only
-hold the floor so far back, and past that it is marked must-repaint and its position released. The
-linger window X and this bound are the same knob seen from two sides.
+So the floor bound and the session timeout are one knob, not two: a session that has not advanced its
+`position` within X is stale — whether it is disconnected, or connected but not consuming — and
+being stale releases its hold on the floor and marks it must-repaint. One rule covers the dropped
+connection, the wedged client, and the tab left open on a sleeping laptop.
 
-### Decisions to make
+**D. Record for a surface iff at least one session has it open.** No per-surface bookkeeping is
+needed, and this is the property that makes it work: recording stops only when NO session has the
+surface open, and any session that opens it later gets a fill rendered from the current snapshot
+(today's `fillHost`), which re-establishes its `holds` for that subtree. So a session can never need
+history from a window in which it did not have the surface open. Cheap, and closer to what the code
+already does than recording everything would be.
 
-**D. Record for nodes nobody can currently see?** Recommend YES, unconditionally — a version write
-is cheap, and the alternative ("record only what some session can see") creates a trap: a session
-that opens a popup later cannot resume nodes whose changes were never recorded. Today that case is
-covered by rendering the surface fresh on open (`fillHost`); if the changelog is complete, the fill
-becomes an ordinary pull.
-
-**E. One live stream per session.** Reusing `conn` across reconnects turns it into a session
-identifier with a real lifetime, so two questions arrive with it: a reconnect that lands while the
-old stream is still alive (a partition the server has not noticed) must DISPLACE it rather than run
-two writers over one `holds` map, and `conn` becomes a longer-lived bearer token for driving that
-session than it is today.
+**E. Fits the auth story.** `conn` becomes a session identifier with a real lifetime; when auth
+arrives the session belongs to a principal and `conn` is a per-session token scoped to it. The
+displacement rule stands on its own: a second live stream for one session must displace the first,
+or two writers share one `holds` map.
 
 ### Falls out for free
 
@@ -615,9 +619,15 @@ Worth recording so they are not re-invented as work:
   and the pull renders it.
 - **`Patches.prepare` / `Renders` is superseded** by the render cache. Not wasted: it is what
   established that renders never needed the log, which is the premise §9 is built on.
-- **Fill-vs-delta becomes per-session**, since `established` is now per-client. Two sessions can
-  legitimately receive different patch SHAPES for the same change — worth knowing before a test
-  asserts there is only one.
+- **Fill-vs-delta becomes per-session.** `established` is today's `log.hasChildOf(gid)`: does the log
+  hold children for this dynamic group, and so may it be patched with a per-member delta rather than
+  a whole-mount fill? Today one shared answer serves everyone. Per-session it becomes exact: a client
+  that has had the group rendered gets the delta; one that just opened the surface, or reconnected
+  without those children, gets the fill. Same change, different patch SHAPE per client — not because
+  their versions differ, but because their DOMs do. That is strictly more correct than today, where
+  the shared answer can claim on behalf of a client that missed an `insert` (the residual race
+  documented on `renderMembershipChange`). Worth knowing before a multi-client test asserts there is
+  one right patch.
 
 ### What it must answer
 
