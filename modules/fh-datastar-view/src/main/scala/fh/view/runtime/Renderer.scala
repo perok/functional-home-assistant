@@ -17,14 +17,6 @@ import fh.view.model.{
   Surface
 }
 
-/** Group id -> chosen member index: the canonical form of the client's
-  * `ui_<gid>` signals, already parsed, clamped to a real member, and restricted
-  * to the groups a given render actually reads. That is what makes it a memo
-  * key — two viewers who spelled their selection differently, or who carry
-  * selections for groups this render never touches, resolve to the SAME key.
-  */
-private[runtime] type Selections = Map[NodeId, Int]
-
 /** What a node's own rendering reads, reduced to a comparable value — see
   * [[Renderer.renderInputs]] for what goes in each half and why.
   *
@@ -280,34 +272,6 @@ class Renderer(
         userBakeOwnerIds(id) && templates.selvesReadingSelection(c.card)
       case _ => false
     }
-
-  /** `0` for the overwhelming majority of nodes, whose rendering does not vary
-    * at all.
-    */
-  def variantOf(id: NodeId, uiState: Map[String, String]): Int =
-    if (nodeVariesByViewer(id)) resolveActive(id, uiState)._1 else 0
-
-  /** [[variantOf]] against already-resolved [[Selections]]. A varying node IS
-    * its own group's owner ([[nodeVariesByViewer]] requires
-    * `userBakeOwnerIds`), so its own id is the key to look up.
-    */
-  def variantIn(id: NodeId, selections: Selections): Int =
-    if (nodeVariesByViewer(id)) selections.getOrElse(id, 0) else 0
-
-  /** Its own group's selection, or none. For a single node the digest variant
-    * and the render key are the same thing.
-    */
-  def selectionsOf(id: NodeId, uiState: Map[String, String]): Selections =
-    if (nodeVariesByViewer(id)) Map(id -> resolveActive(id, uiState)._1)
-    else Map.empty
-
-  /** Wider than [[selectionsOf]] deliberately: a surface's HTML varies with any
-    * tab inside it, not just with hosts whose OWN markup reads a selection — a
-    * tabs card whose bar never prints `bakeIndex` still puts a different panel
-    * in the composed bytes.
-    */
-  def selectionsUnder(sid: String, uiState: Map[String, String]): Selections =
-    userGroupsUnder(sid).map(g => g -> resolveActive(g, uiState)._1).toMap
 
   /** What a per-variant render of `sid` must be keyed by.
     *

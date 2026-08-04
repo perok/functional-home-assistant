@@ -21,7 +21,6 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
-import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -1019,11 +1018,10 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
 
   // WHICH nodes the log knows about, and when each last changed — everything
-  // these contracts assert on. The log holds a digest, not HTML, so there is no
+  // these contracts assert on. The log holds a version, not HTML, so there is no
   // node -> html projection to make (docs/adr/0012-one-pass-addressed-per-client.md, statement (3));
   // what the patches CARRY is asserted on the patches themselves.
-  private def logged(log: FragmentLog): Map[NodeId, Long] =
-    log.fragments.view.mapValues(_.version).toMap
+  private def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
 
   /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
     * the resume cursor as a `patch-signals` event
@@ -3047,31 +3045,6 @@ class ServerSuite extends munit.CatsEffectSuite {
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
   }
 
-  test("a superseded batch skips its render on a version check") {
-    // Two batches queued for one slow client, both touching the same
-    // variant-bearing node. The first to be forced renders CURRENT state and
-    // records it; the second finds an entry at or past that version and skips
-    // WITHOUT rendering — the prune, not the digest, which would have had to
-    // render first to discover the same thing.
-    val r = Renderer.create(serverHighlightDash)
-    val states = Map(
-      "sensor.title" -> es("sensor.title", "T1"),
-      "sensor.a" -> es("sensor.a", "A0"),
-      "sensor.b" -> es("sensor.b", "B0")
-    )
-    val host: NodeId = "c_0"
-    val fresh = FragmentLog("prune")
-    // Nothing recorded: the render has to happen.
-    assert(!fresh.atLeast(host, 0, 7L))
-    // Recorded FROM this version: a render could only reproduce it.
-    val after = fresh.set(host, r.renderNodeById(host, states).get, 7L)
-    assert(after.atLeast(host, 0, 7L), clue = "same version is covered")
-    assert(after.atLeast(host, 0, 6L), clue = "an older read is covered too")
-    // A newer state is not covered, and neither is another variant.
-    assert(!after.atLeast(host, 0, 8L))
-    assert(!after.atLeast(host, 1, 7L), clue = "variant 1 was never recorded")
-  }
-
   test("a resume renders a variant-bearing node for THIS viewer") {
     // The hole that kept `__ifmissing` out. A node whose own markup reads its
     // own selection has one rendering per member, and `resume` renders its
@@ -3086,14 +3059,16 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
     val host: NodeId = "c_0"
     val mine = Map("c_0" -> "1")
-    // The bar moved at v5, recorded under the DEFAULT variant — i.e. by a
-    // viewer on tab 0, which is all a shared log ever holds for someone else.
-    val log = FragmentLog("w23")
-      .set(host, r.renderNodeById(host, states).get, 5L)
+    // The bar moved at v5. What this viewer is recorded as holding is the
+    // DEFAULT variant's bytes — tab 0's bar, which is what a repaint or an
+    // earlier connect on tab 0 would have left behind.
+    val log = FragmentLog("w23").touched(host, 5L)
+    val holds: Map[NodeId, Digest] =
+      Map(host -> Digest.of(r.renderNodeById(host, states).get))
     val owed = Patches.resume(
       r,
       log,
-      log.digestsFor(r.variantOf(_, mine)),
+      holds,
       states,
       1L,
       Set("t1"),
@@ -3224,12 +3199,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       "sensor.z" -> es("sensor.z", "Z0")
     )
     val tab0Node: NodeId = "s_t0__c"
-    val log = FragmentLog("w13")
-      .set(tab0Node, r.renderNodeById(tab0Node, states).get, 5L)
+    val log = FragmentLog("w13").touched(tab0Node, 5L)
     val owed = Patches.resume(
       r,
       log,
-      log.digestsFor(r.variantOf(_, Map.empty)),
+      Map.empty,
       states,
       1L,
       Set("then", "t1"),

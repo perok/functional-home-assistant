@@ -20,34 +20,7 @@ private[runtime] opaque type Digest = String
 private[runtime] object Digest {
   def of(html: String): Digest =
     LibPackage.sha256(html.getBytes("UTF-8")).take(32)
-
-  /** For suites that hand-build a log from HTML literals, the same trade
-    * [[fh.view.testkit.TestIds]] makes for [[NodeId]]: the type exists to stop
-    * the SERVER hashing the wrong thing or comparing an unhashed string, and a
-    * test writing `holds("a", "<a/>")` has no such confusion available — the
-    * literal IS the markup. Test-only, so production still cannot skip the hash
-    * by accident.
-    */
-  private[runtime] object AsHtml {
-    given Conversion[String, Digest] = Digest.of(_)
-  }
 }
-
-/** A missing entry reads as "unknown — send it", which is what makes dropping
-  * one always safe: the failure mode is redundant bytes, never silent
-  * staleness.
-  *
-  * `version` is the store version this was rendered from, and is what lets a
-  * reconnecting client be told the difference instead of the whole body
-  * (docs/adr/0011-the-live-connection.md).
-  */
-private[runtime] case class Fragment(
-    // Keyed by VARIANT. Almost every node has exactly one, keyed 0; a node whose
-    // own markup reads its OWN selection (`Renderer.nodeVariesByViewer`) has one
-    // per member of its group.
-    digests: Map[Int, Digest],
-    version: Long
-)
 
 /** One value rather than two `Long`s at every call site, which is how they get
   * swapped.
@@ -132,7 +105,12 @@ private[runtime] case class Resume(
   */
 private[runtime] case class FragmentLog(
     id: String,
-    fragments: Map[NodeId, Fragment] = Map.empty,
+    // Node -> the store version it was last known to have moved at. A missing
+    // entry reads as "unknown — send it", which is what makes dropping one
+    // always safe: the failure mode is redundant bytes, never silent staleness.
+    // Whether those bytes are worth sending is the pulling session's question,
+    // asked against its own record (`Session.holds`), not this one's.
+    fragments: Map[NodeId, Long] = Map.empty,
     mutations: Map[NodeId, Mutation] = Map.empty,
     // Per container, the oldest version for which its membership history is
     // COMPLETE. Rises as that container's mutations are evicted; a cursor below
@@ -143,50 +121,6 @@ private[runtime] case class FragmentLog(
     horizon: Map[NodeId, Long] = Map.empty
 ) {
 
-  /** Keeps the identity, so every cursor already issued stays comparable. */
-  def cleared: FragmentLog = FragmentLog(id)
-
-  /** `false` for an absent entry: unknown means send it.
-    *
-    * Takes the DIGEST, not the HTML: the bytes were hashed when they were
-    * rendered ([[NodeBytes]]), and hashing them again here — and a third time
-    * in [[set]] — was SHA-256 over every fragment two or three times per batch.
-    */
-  def holds(nodeId: NodeId, digest: Digest, variant: Int = 0): Boolean =
-    fragments.get(nodeId).exists(_.digests.get(variant).contains(digest))
-
-  /** This log flattened to what ONE viewer holds: the variant dimension exists
-    * only because the log is shared, so picking a viewer removes it.
-    *
-    * The projection a [[Session]] eventually replaces — a per-connection record
-    * is already one viewer's, so it needs no variant key at all.
-    */
-  def digestsFor(variant: NodeId => Int): Map[NodeId, Digest] =
-    fragments.flatMap { case (id, f) =>
-      f.digests.get(variant(id)).map(id -> _)
-    }
-
-  /** The cheap half of the two skips: an integer comparison that spares the
-    * render entirely, where [[holds]] must render first to compare. Sound
-    * because versions only grow and a write records the version it rendered
-    * from, so an entry can never be ahead of a later read.
-    */
-  def atLeast(nodeId: NodeId, variant: Int, version: Long): Boolean =
-    fragments
-      .get(nodeId)
-      .exists(f => f.version >= version && f.digests.contains(variant))
-
-  /** What makes a queued fill STALE: a fill is planned when a selection moves
-    * but sent when its connection reaches it, and by then a later flip may have
-    * recorded this member as [[Mutation.Gone]]. Sending it would restore a
-    * branch that no longer belongs, until the item behind it corrected the DOM.
-    */
-  def isGone(nodeId: NodeId): Boolean =
-    mutations.get(nodeId).exists {
-      case _: Mutation.Gone => true
-      case _                => false
-    }
-
   /** Whether the log knows what is in `gid`'s mount, so a membership change can
     * be patched per-entity instead of filled wholesale. Its MEMBERS are the
     * whole record: a container logs no fragment of its own, because that
@@ -195,47 +129,11 @@ private[runtime] case class FragmentLog(
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
 
-  /** **A fragment's version never goes backwards.** A variant-bearing node's
-    * entry is written lazily, when some connection first asks for that variant,
-    * so two batches can reach here out of order — a slow client forcing an old
-    * batch after a newer one was served. The stale patch it produced is still
-    * sent; the batch behind it corrects the client a moment later.
-    */
-  def set(
-      nodeId: NodeId,
-      digest: Digest,
-      at: Long,
-      variant: Int = 0
-  ): FragmentLog =
-    fragments.get(nodeId) match {
-      case Some(f) if f.version > at => this
-      case Some(f)                   =>
-        copy(
-          fragments = fragments
-            .updated(nodeId, Fragment(f.digests.updated(variant, digest), at))
-        )
-      case None =>
-        copy(
-          fragments =
-            fragments.updated(nodeId, Fragment(Map(variant -> digest), at))
-        )
-    }
-
-  /** [[set]] without a digest: the changelog records THAT a node moved, and the
-    * session that pulls it decides whether the bytes are worth sending against
-    * its own record.
-    *
-    * An existing entry keeps its digests rather than dropping them, so a log
-    * written by both paths cannot answer [[holds]] with a stale claim.
+  /** **A fragment's version never goes backwards.**
     */
   def touched(nodeId: NodeId, at: Long): FragmentLog =
-    fragments.get(nodeId) match {
-      case Some(f) if f.version > at => this
-      case Some(f)                   =>
-        copy(fragments = fragments.updated(nodeId, f.copy(version = at)))
-      case None =>
-        copy(fragments = fragments.updated(nodeId, Fragment(Map.empty, at)))
-    }
+    if (fragments.get(nodeId).exists(_ > at)) this
+    else copy(fragments = fragments.updated(nodeId, at))
 
   /** This container's mount was re-supplied wholesale at `at`, so no delta
     * describes it any more: drop what is under it and raise its [[horizon]]
@@ -254,19 +152,12 @@ private[runtime] case class FragmentLog(
         )
       )
 
-  /** For a node whose DOM an ancestor is RE-SUPPLYING (a group repaint, a
-    * bake-group flip) — stale, not gone. Recording a removal here would delete
-    * an element that ancestor legitimately restored. Use [[removed]] when the
-    * DOM really is being deleted.
-    */
-  def invalidate(nodeId: NodeId): FragmentLog =
-    copy(fragments = fragments - nodeId)
-
-  /** [[invalidate]] for a whole subtree whose ROOT is being re-stamped in the
-    * same operation, which is why it drops [[Mutation]]s too: a stale `Gone`
-    * would delete a member that root's HTML restored, a stale `Placed` insert
-    * one it already contains. Callers must actually [[set]] the root — this is
-    * not a bare `filterNot`.
+  /** Forgets a whole subtree whose ROOT is being re-stamped in the same
+    * operation — stale, not gone, which is why it drops [[Mutation]]s too: a
+    * stale `Gone` would delete a member that root's HTML restored, a stale
+    * `Placed` insert one it already contains. Callers must actually re-record
+    * the root ([[touched]]) — this is not a bare `filterNot`. Use [[removed]]
+    * when the DOM really is being deleted.
     */
   def invalidateWhere(p: NodeId => Boolean): FragmentLog =
     copy(
@@ -283,20 +174,6 @@ private[runtime] case class FragmentLog(
       mutations = mutations.updated(nodeId, Mutation.Gone(container, stamp))
     ).evicting(stamp.millis)
 
-  def placed(
-      container: NodeId,
-      member: MemberKey,
-      nodeId: NodeId,
-      digest: Digest,
-      stamp: Stamp
-  ): FragmentLog =
-    placed(container, member, nodeId, stamp).set(nodeId, digest, stamp.version)
-
-  /** [[placed]] for a member whose bytes are NOT one thing: its subtree mounts
-    * a client-selected member, so no single digest describes what every viewer
-    * received. Recording no digest costs one redundant re-send on the next
-    * tick; recording one viewer's would suppress a real change for the others.
-    */
   def placed(
       container: NodeId,
       member: MemberKey,
@@ -372,8 +249,8 @@ private[runtime] case class FragmentLog(
     val resupplied = moved.keySet ++ refill
     Resume(
       fragments.collect {
-        case (nodeId, f)
-            if f.version >= v && !resupplied.contains(nodeId) &&
+        case (nodeId, at)
+            if at >= v && !resupplied.contains(nodeId) &&
               !coveredByMutation(nodeId, resupplied) =>
           nodeId
       }.toList,

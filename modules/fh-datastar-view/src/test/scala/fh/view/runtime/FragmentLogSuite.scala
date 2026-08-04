@@ -1,7 +1,6 @@
 package fh.view.runtime
 
 import fh.view.model.NodeId
-import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 
 /** The resume cursor's pure core (docs/adr/0011-the-live-connection.md). Every
@@ -42,29 +41,19 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a cursor at the current version is owed nothing older") {
     // `>=`, so version 3 is re-sent to a cursor AT 3 (one store version can span
     // several patch batches) — but nothing older is.
-    assertEquals(log.set("a", "<a/>", 3L).owed(3L).nodes, List[NodeId]("a"))
-    assertEquals(log.set("a", "<a/>", 3L).owed(4L).nodes, Nil)
+    assertEquals(log.touched("a", 3L).owed(3L).nodes, List[NodeId]("a"))
+    assertEquals(log.touched("a", 3L).owed(4L).nodes, Nil)
   }
 
   test("the log names nodes, never their content") {
     // Statement (3): what comes back is a node id the caller renders from the
     // CURRENT snapshot — at least as fresh as anything the log could have kept,
-    // and what lets the log store a digest instead of bytes.
+    // and what lets the log store a version instead of bytes.
     val out = log
-      .set("child", "<c v=30/>", 30L)
-      .set("parent", "<p v=25/>", 25L)
+      .touched("child", 30L)
+      .touched("parent", 25L)
       .owed(1L)
     assertEquals(out.nodes.toSet, Set[NodeId]("child", "parent"))
-  }
-
-  test("the stored digest answers only 'is this still what it holds'") {
-    val l = log.set("a", "<a v=1/>", 3L)
-    assert(l.holds("a", "<a v=1/>"))
-    assert(!l.holds("a", "<a v=2/>"))
-    // An ABSENT entry holds nothing — unknown means send it, which is what makes
-    // dropping an entry always safe rather than destroying what a resume needed.
-    assert(!l.holds("b", "<b/>"))
-    assert(!l.invalidate("a").holds("a", "<a v=1/>"))
   }
 
   test("a departed member replays as a removal, not a group re-render") {
@@ -82,7 +71,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // Morphing an id the client's DOM lacks silently does nothing, so the node
     // must not leak into the morph list.
     val out =
-      log.placed("c", member("light.a"), "c_light_a", "<a/>", at(5L)).owed(1L)
+      log.placed("c", member("light.a"), "c_light_a", at(5L)).owed(1L)
     assertEquals(
       out.moved,
       List(moved("c_light_a", Mutation.Placed("c", member("light.a"), at(5L))))
@@ -99,7 +88,6 @@ class FragmentLogSuite extends munit.FunSuite {
         "c",
         member("light.a"),
         "c_light_a",
-        "<a/>",
         at(20L)
       ) // ...came back
       .owed(1L)
@@ -111,7 +99,7 @@ class FragmentLogSuite extends munit.FunSuite {
 
   test("leaving after arriving collapses the same way, to Gone") {
     val out = log
-      .placed("c", member("light.a"), "c_light_a", "<a/>", at(10L))
+      .placed("c", member("light.a"), "c_light_a", at(10L))
       .removed("c", "c_light_a", at(20L))
       .owed(1L)
     assertEquals(
@@ -140,9 +128,9 @@ class FragmentLogSuite extends munit.FunSuite {
     // leftover Placed would insert one the HTML already contains.
     val out = log
       .removed("c", "c_light_a", at(10L))
-      .placed("c", member("light.b"), "c_light_b", "<b/>", at(11L))
+      .placed("c", member("light.b"), "c_light_b", at(11L))
       .invalidateWhere(k => k == "c" || k.startsWith("c_"))
-      .set("c", "<c>both present</c>", 20L)
+      .touched("c", 20L)
       .owed(1L)
     assertEquals(out.moved, Nil)
     assertEquals(out.nodes, List[NodeId]("c"))
@@ -158,11 +146,10 @@ class FragmentLogSuite extends munit.FunSuite {
         "c_0",
         MemberKey.Surface("else"),
         "s_else__c",
-        "<branch/>",
         at(30L)
       )
-      .set("s_else__c_0", "<inner/>", 30L)
-      .set("s_else__c_1", "<inner/>", 30L)
+      .touched("s_else__c_0", 30L)
+      .touched("s_else__c_1", 30L)
     assert(flipped.coveredByMutation("s_else__c_0", Set[NodeId]("s_else__c")))
     val out = flipped.owed(20L)
     assertEquals(out.nodes, Nil, clue = out)
@@ -176,8 +163,8 @@ class FragmentLogSuite extends munit.FunSuite {
     // `self` element and never the contents of its mount, so an ancestor's entry
     // cannot carry a descendant and both are sent on their own ids.
     val out = log
-      .set("c_0_1", "<child v=20/>", 20L)
-      .set("c_0", "<parent v=25/>", 25L)
+      .touched("c_0_1", 20L)
+      .touched("c_0", 25L)
       .owed(1L)
     assertEquals(out.nodes.toSet, Set[NodeId]("c_0", "c_0_1"))
   }
@@ -203,14 +190,14 @@ class FragmentLogSuite extends munit.FunSuite {
     // the removal would delete an element that render legitimately restored.
     val out = log
       .removed("c_0", "c_0_light_a", at(20L))
-      .placed("c", MemberKey.Surface("b"), "c_0", "<branch/>", at(25L))
+      .placed("c", MemberKey.Surface("b"), "c_0", at(25L))
       .owed(1L)
     assertEquals(out.moved.map(_._1), List[NodeId]("c_0"))
   }
 
   test("a removal with no mutated ancestor is sent") {
     val out = log
-      .set("c_0", "<parent v=25/>", 25L)
+      .touched("c_0", 25L)
       .removed("c_0", "c_0_light_a", at(30L))
       .owed(1L)
     assertEquals(out.moved.map(_._1), List[NodeId]("c_0_light_a"))
@@ -220,26 +207,15 @@ class FragmentLogSuite extends munit.FunSuite {
     // The cross-map collapse: one insert, not a morph and an insert. The insert's
     // content is rendered fresh, so it is the v=30 value either way.
     val l = log
-      .placed("c", member("light.a"), "c_light_a", "<v20/>", at(20L))
-      .set("c_light_a", "<v30/>", 30L)
+      .placed("c", member("light.a"), "c_light_a", at(20L))
+      .touched("c_light_a", 30L)
     val fromBefore = l.owed(1L)
     assertEquals(fromBefore.nodes, Nil)
     assertEquals(fromBefore.moved.map(_._1), List[NodeId]("c_light_a"))
-    assert(l.holds("c_light_a", "<v30/>"))
     // A client that WAS present for the insert needs only the content morph.
     val fromAfter = l.owed(25L)
     assertEquals(fromAfter.moved, Nil)
     assertEquals(fromAfter.nodes, List[NodeId]("c_light_a"))
-  }
-
-  test("a cleared log owes nothing but keeps its identity") {
-    val before = log
-      .set("a", "<a/>", 3L)
-      .removed("c", "b", at(4L))
-      .placed("c", member("light.a"), "c_light_a", "<a/>", at(5L))
-    val after = before.cleared
-    assertEquals(after.id, before.id) // cursors already issued stay comparable
-    assertEquals(after.owed(1L), Resume(Nil, Nil), clue = after)
   }
 
   test("mutations older than the retention window are evicted") {
@@ -280,7 +256,7 @@ class FragmentLogSuite extends munit.FunSuite {
     val evicted = log
       .removed("c_0", "c_0_old", Stamp(5L, 1_000L))
       .removed("c_1", "c_1_x", Stamp(9L, 1_000L + 2 * hour))
-      .set("c_0_light_a", "<a/>", 9L)
+      .touched("c_0_light_a", 9L)
     val out = evicted.since(5L)
     assertEquals(out.refill, List[NodeId]("c_0"))
     assertEquals(out.nodes, Nil, clue = out)
@@ -301,7 +277,7 @@ class FragmentLogSuite extends munit.FunSuite {
     // window on its own.
     val churned = (1 to 1000).foldLeft(log) { (l, i) =>
       if (i % 2 == 0) l.removed("c", "c_light_a", at(i.toLong))
-      else l.placed("c", member("light.a"), "c_light_a", "<a/>", at(i.toLong))
+      else l.placed("c", member("light.a"), "c_light_a", at(i.toLong))
     }
     assertEquals(churned.mutations.size, 1)
     assertEquals(horizonOf(churned), Map.empty[String, Long])

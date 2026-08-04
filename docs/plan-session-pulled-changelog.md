@@ -98,10 +98,21 @@ Each one lands on its own and keeps the suites green.
        a change could land in the opening repaint. They now gate on the connection's own opening
        cursor. `Server.connectedSessions` counts ADOPTED sessions for the same reason.
 
-     Still to do, in its own commit: the dead tail this left — `Memo`, `Selections`,
-     `selectionsOf`/`selectionsUnder`, `variantIn`, `FragmentLog.isGone`, and eventually the whole
-     variant dimension (`Fragment.digests`, `holds`, `atLeast`, `digestsFor`, `Renderer.variantOf`),
-     which only the shared log needed.
+     ~~Still to do, in its own commit: the dead tail this left.~~ **Landed.** `Memo`, `Selections`,
+     `selectionsOf`/`selectionsUnder`, `variantIn`/`variantOf`, `FragmentLog.isGone`/`cleared`/
+     `invalidate`, and the whole variant dimension are gone. The dimension went further than the
+     note anticipated: with digests living in `Session.holds`, NOTHING wrote a digest to the log,
+     so `Fragment` itself dissolved — `fragments` is now `Map[NodeId, Long]`, node to the version
+     it last moved at, and `holds`/`set`/`atLeast`/`digestsFor` and the 5-arg `placed` went with
+     it. **The log is a changelog with no content in it at all.** Three tests were deleted with
+     their subject: "the stored digest answers only 'is this still what it holds'", "a superseded
+     batch skips its render on a version check" (the version-prune-before-render it pinned is not
+     a thing a session pull does), and "a cleared log owes nothing but keeps its identity". The
+     rest migrated verbatim — `set(id, html, v)` reads `touched(id, v)`.
+
+     Note this leaves **ADR 0012 describing a model that no longer exists** (a shared log keyed by
+     variant, `Selections` as a memo key). It was already stale after the flip; it is now stale in
+     a second way. Rewriting 0012/0011/0003 is the next doc-side step.
 4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
    recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
    document-creates-the-session step, which is what first made two streams able to reach one
