@@ -560,7 +560,7 @@ class Server(
       session <- sessions
         .get(conn)
         .flatMap(_.filter(_.slug == slug).fold(Session.create(slug))(IO.pure))
-      _ <- session.adopt
+      epoch <- session.adopt
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set from this client's ui state — its selected tab
@@ -710,11 +710,26 @@ class Server(
       // read by `openSets` on every state batch. Acquiring here is still early
       // enough: the `conn` signal a client needs before it can POST an action
       // is the first element of this same stream.
+      //
+      // The release is conditional on still OWNING the session, because a
+      // session now outlives the request that made it: a reconnect adopts the
+      // one already in the registry, and an unconditional deregister here would
+      // have the displaced stream delete the live stream's session on its way
+      // out.
       stream = (Stream.bracket(sessions.register(conn, session))(_ =>
-        sessions.deregister(conn)
+        session.epoch.get.flatMap(e =>
+          IO.whenA(e == epoch)(sessions.deregister(conn))
+        )
       ) >> (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++ live))
+        // A second live stream for one session DISPLACES the first. Two streams
+        // sharing one `holds` map is the one way this record can go wrong on
+        // its own: each would record bytes the other sent, and each would then
+        // suppress a change the client never received. Sending to a socket
+        // nobody reads is merely wasteful; claiming a digest for it is
+        // permanent staleness.
+        .interruptWhen(session.epoch.discrete.map(_ != epoch))
       resp <- Ok(stream)
     } yield resp
 

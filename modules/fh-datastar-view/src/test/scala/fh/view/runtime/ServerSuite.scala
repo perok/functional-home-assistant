@@ -3786,6 +3786,56 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  /** Two live streams on one session would each record bytes the other sent
+    * into one `holds` map, and each would then suppress a change the client
+    * never received — the one way a per-client record can go wrong by itself.
+    * So the second stream displaces the first.
+    */
+  test("a second stream for one session displaces the first") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            // Nothing ends this stream but displacement: it is the keepalive
+            // path, with no client hanging up.
+            drained <- first.body.compile.drain.start
+            second <- routes.run(Request[IO](Method.GET, url))
+            live <- second.body.compile.drain.start
+            // The join is the assertion. Without displacement the first stream
+            // runs forever and this times out.
+            _ <- drained.join
+            // ...and the second still owns the session: the displaced stream's
+            // own release must not deregister it on the way out.
+            survived <- sessions.get(conn)
+            _ <- live.cancel
+          } yield survived.isDefined
+        }
+    } yield out).timeout(30.seconds).map(assert(_))
+  }
+
   test("a document nobody connects to does not leak a session") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
