@@ -546,21 +546,25 @@ class Server(
           session.holds.get,
           session.open.get
         ).flatMapN { (renderer, log, store, holds, open) =>
-          val patches = Patches.resume(
-            renderer,
-            log,
-            holds,
-            store.entities,
-            position + 1,
-            open,
-            // The LIVE selection, not the one this connection arrived with: a
-            // tab select moves it mid-stream.
-            renderer.uiStateFrom(open)
-          )
-          session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
-            session.position
-              .set(version)
-              .as(Patches.encode(patches) :+ Server.versionSignal(version))
+          Patches
+            .resume(
+              renderer,
+              live.cache,
+              log,
+              holds,
+              store.entities,
+              position + 1,
+              open,
+              // The LIVE selection, not the one this connection arrived with: a
+              // tab select moves it mid-stream.
+              renderer.uiStateFrom(open)
+            )
+            .flatMap { patches =>
+              session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
+                session.position
+                  .set(version)
+                  .as(Patches.encode(patches) :+ Server.versionSignal(version))
+            }
         }
     }
 
@@ -623,12 +627,13 @@ class Server(
           // checked here: no cursor at all, a cursor minted against another log
           // (a restart or a renderer swap, which is every dashboard change), or
           // one ahead of this store (a restart with a rewound counter).
-          val resumed = cursor
+          val resumedIO = cursor
             .filter(c => c.logId == log.id && c.version <= store.version)
-            .map(c =>
+            .traverse(c =>
               Patches
                 .resume(
                   renderer,
+                  live.cache,
                   log,
                   holds,
                   store.entities,
@@ -677,17 +682,19 @@ class Server(
           // ...and the position with it: after these patches this client is
           // current through the snapshot they were rendered from, so its pull
           // loop starts from there rather than re-serving what it just got.
-          val record = resumed.fold(
-            session.holds.set(painted.own.map { case (id, html) =>
-              id -> Digest.of(html)
-            })
-          )(patches =>
-            session.holds.update(patches.foldLeft(_)(Patches.applied))
-          ) *> session.position.set(store.version)
-          record.as(
-            head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-              orphan :+ Server.cursorSignals(renderer, log.id, store.version)
-          )
+          resumedIO.flatMap { resumed =>
+            val record = resumed.fold(
+              session.holds.set(painted.own.map { case (id, html) =>
+                id -> Digest.of(html)
+              })
+            )(patches =>
+              session.holds.update(patches.foldLeft(_)(Patches.applied))
+            ) *> session.position.set(store.version)
+            record.as(
+              head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
+                orphan :+ Server.cursorSignals(renderer, log.id, store.version)
+            )
+          }
         }
       }
 
@@ -1312,6 +1319,11 @@ object Server {
   private[runtime] case class LiveSlug(
       renderer: SignallingRef[IO, Renderer],
       log: Ref[IO, FragmentLog],
+      // Shared by every session viewing this slug: N sessions woken by one ring
+      // of the doorbell render each node once between them. Not rotated on a
+      // renderer swap — [[RenderCache]] invalidates by renderer identity, which
+      // has no window a pull can slip through.
+      cache: RenderCache,
       // The doorbell: the newest store version this slug's changelog covers.
       // Sessions watch it and pull; nothing is pushed. `.discrete` coalescing is
       // the point — several versions landing while a session renders collapse
@@ -1322,8 +1334,11 @@ object Server {
 
   private[runtime] object LiveSlug {
     def create(renderer: SignallingRef[IO, Renderer]): IO[LiveSlug] =
-      (freshLog.flatMap(Ref[IO].of), SignallingRef[IO].of(0L))
-        .mapN(LiveSlug(renderer, _, _))
+      (
+        freshLog.flatMap(Ref[IO].of),
+        RenderCache.create,
+        SignallingRef[IO].of(0L)
+      ).mapN(LiveSlug(renderer, _, _, _))
   }
 
   /** An empty log with a fresh identity. Minted per slug at startup and again

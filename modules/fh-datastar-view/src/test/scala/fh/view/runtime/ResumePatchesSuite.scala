@@ -11,6 +11,7 @@ import fh.view.model.{
 }
 import fh.view.model.NodeId
 import fh.view.testkit.TestIds.given
+import cats.effect.unsafe.implicits.global
 import io.circe.Json
 
 /** [[Patches.resume]] — where a resuming client's group members get their
@@ -53,9 +54,14 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   private def cid(entity: String) = renderer.dynamicChildId("c", entity)
 
+  /** A FRESH cache per call: these tests are about which patches come out, not
+    * about reuse, and sharing one would make a test's expectations depend on
+    * what an earlier test happened to render.
+    */
   private def resume(log: FragmentLog, v: Long): List[String] =
-    Patches
-      .resume(renderer, log, Map.empty, states, v)
+    RenderCache.create
+      .flatMap(Patches.resume(renderer, _, log, Map.empty, states, v))
+      .unsafeRunSync()
       .map(_.patch.toSse.renderString)
 
   private val empty = FragmentLog("test")

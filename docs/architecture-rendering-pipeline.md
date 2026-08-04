@@ -301,12 +301,15 @@ the container's id is the right root.
 | Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
 | Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` and `position` |
-| Cost of N viewers | ×1 | ×N — see §8 |
+| Cost of N viewers | ×1 | ×1, via the per-slug render cache |
 
-The last row is the one regression this shape currently carries: a slug used to render each affected
-fragment once per frame however many viewers it had. Wiring the per-slug `RenderCache` into
-`Patches.resume` is what brings it back, and `ServerSuite`'s "rendered per viewer" test holds the
-number visible until it does.
+The last row is not structural any more, and that is worth being precise about. Each session renders
+for itself; what makes it ×1 is that both pulls go through one `RenderCache` keyed by what the render
+READS (`Renderer.renderInputs`), so whoever arrives first renders and the rest wait on the same slot.
+Two viewers of one dashboard have the same key for a node unless their selections differ — the hit is
+the normal case, not a lucky one. `ServerSuite`'s "rendered once between them" holds the number as a
+cost contract: a 2 there means a key is varying per viewer where it should not, or a pull is
+rendering outside the cache.
 
 ---
 
@@ -335,6 +338,10 @@ flowchart LR
 The log stores **versions and structure, never HTML** — a pull renders from the current snapshot,
 which is by construction at least as fresh as anything the log could have held. That is why a
 missing entry is always safe: it reads as "unknown, send it", costing bytes and never staleness.
+
+"Rendered now" goes through the slug's `RenderCache` (`Patches.bytes`), which is what keeps N
+sessions woken by one ring of the doorbell from rendering the same node N times. It changes no
+answer — the key is what the render reads, so a hit is the render — only who pays for it.
 
 The second question — *does this client already have these bytes?* — is answered by the **session's
 own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
@@ -373,7 +380,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `reapUnadopted`; `runtime/Sessions.scala` · `Session.adopt` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderLogged`, `renderMount`, `renderDynamicChild` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
-| the render cache | `runtime/RenderCache.scala` + `Patches.prepare` — **currently off the path**, waiting to be wired into `resume` |
+| the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
+| what a cache entry is keyed by | node id -> (renderer identity, `RenderInputs`) — one generation. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put |
 
 ## 8. Known open questions
 
@@ -384,9 +392,10 @@ Live list — delete an entry when it is answered, and say where the answer land
   — but still not free. Gating on session count needs one correctness move with it: mint a fresh log
   identity on the 0→1 transition, or a client returning with a pre-gap cursor resumes against a log
   that never recorded the gap.
-- **The fan-out.** N viewers of one slug now render N times (§5). The per-slug `RenderCache` exists
-  and is keyed correctly; wiring it into `Patches.resume` is the next step in
-  [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md).
+- **A laggard evicts the current.** One generation per node means two sessions pulling with different
+  keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
+  wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED
+  number of generations per node, not a return to unbounded keys.
 - **A pull always reports its position**, even when it owed the client nothing — one small signal
   per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
   one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy
@@ -400,9 +409,8 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 The reshaping this file describes — the recorder, the doorbell, the per-session pull — **has
 landed**. Its document, [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md),
-covers what is left: wiring the render cache into `resume`, session lifetime (linger after
-disconnect, a staleness bound, gating recording on a slug having viewers), and maintained dynamic
-membership. Nothing in §1–§8 describes code that does not exist.
+covers what is left: session lifetime (linger after disconnect, a staleness bound, gating recording
+on a slug having viewers), and maintained dynamic membership. Nothing in §1–§8 describes code that does not exist.
 
 Two findings from the cache phase, worth carrying here rather than leaving in the plan:
 

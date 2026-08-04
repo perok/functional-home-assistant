@@ -954,22 +954,31 @@ class Renderer(
       uiState: Map[String, String] = Map.empty
   ): Option[String] =
     renderNodeById(id, states, uiState).orElse(
-      // `sanitize` is one-way, so the entity cannot be read back out of the id —
-      // it is found by re-deriving each current member's id. O(members) on a
-      // reconnect, never on the hot path.
-      allIndexed.iterator
-        .collect {
-          case (gid, (_: LayoutNode.Dynamic, _, _))
-              if id.startsWith(gid + "_") =>
-            gid
-        }
-        .flatMap(gid => dynamicMembers(gid, states).iterator.map(gid -> _))
-        .collectFirst {
-          case (gid, e) if dynamicChildId(gid, e) == id =>
-            renderDynamicChild(gid, e, states)
-        }
-        .flatten
+      dynamicOwnerOf(id, states).flatMap { case (gid, e) =>
+        renderDynamicChild(gid, e, states)
+      }
     )
+
+  /** The dynamic group and member entity an id names, if it names one.
+    *
+    * `sanitize` is one-way, so the entity cannot be read back out of the id —
+    * it is found by re-deriving each current member's id. O(members), which is
+    * also why a caller that already knows the pair should not come through
+    * here.
+    */
+  def dynamicOwnerOf(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Option[(NodeId, String)] =
+    allIndexed.iterator
+      .collect {
+        case (gid, (_: LayoutNode.Dynamic, _, _)) if id.startsWith(gid + "_") =>
+          gid
+      }
+      .flatMap(gid => dynamicMembers(gid, states).iterator.map(gid -> _))
+      .collectFirst {
+        case (gid, e) if dynamicChildId(gid, e) == id => (gid, e)
+      }
 
   /** The backend-injected structural template vars for one node — the ids an
     * author never composes.

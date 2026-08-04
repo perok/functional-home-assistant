@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.traverse.*
+import cats.syntax.traverseFilter.*
 import fh.view.model.{DomId, NodeId}
 import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
@@ -321,6 +322,7 @@ private[runtime] object Patches {
       else
         cache(
           renderer.dynamicChildId(gid, entityId),
+          renderer,
           renderer.dynamicChildInputs(gid, entityId, states)
         )(mustRender(renderer.renderDynamicChild(gid, entityId, states), gid))
           .map(Some(_))
@@ -383,7 +385,7 @@ private[runtime] object Patches {
       case None =>
         IO(renderer.renderNodeById(id, states).map(NodeBytes.of))
       case Some(inputs) =>
-        cache(id, inputs)(
+        cache(id, renderer, inputs)(
           mustRender(renderer.renderNodeById(id, states), id)
         ).map(Some(_))
     }
@@ -593,13 +595,14 @@ private[runtime] object Patches {
     */
   def resume(
       renderer: Renderer,
+      cache: RenderCache,
       log: FragmentLog,
       holds: Map[NodeId, Digest],
       states: Map[String, EntityState],
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
-  ): List[Addressed] = {
+  ): IO[List[Addressed]] = {
     val all = log.since(v)
     // Only what this client can SEE. A mutation inside a surface it does not
     // have open would patch an id its DOM lacks — a silent no-op, so this only
@@ -651,7 +654,7 @@ private[runtime] object Patches {
       .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
-      .flatMap { case (gid, inGroup) =>
+      .flatTraverse { case (gid, inGroup) =>
         val members = renderer.dynamicMembers(gid, states)
         val position = members.zipWithIndex.toMap
         inGroup
@@ -664,14 +667,12 @@ private[runtime] object Patches {
             }
           }
           .sortBy { case (_, _, at) => -at }
-          .flatMap { case (nodeId, entityId, _) =>
+          .flatTraverse { case (nodeId, entityId, _) =>
             // Rendered NOW, not read back: the snapshot is at least as fresh as
             // anything the log could have kept, and it is what lets the log hold
-            // a digest instead of bytes.
-            renderer
-              .renderDynamicChild(gid, entityId, states)
-              .toList
-              .flatMap { html =>
+            // a version instead of bytes.
+            bytes(renderer, cache, nodeId, states, uiState).map(
+              _.toList.flatMap { case NodeBytes(html, digest) =>
                 // Every current member is a usable anchor here: emitting
                 // descending by position means a node's successor was either
                 // already in the client's DOM or placed a moment ago.
@@ -686,10 +687,11 @@ private[runtime] object Patches {
                       _ => true,
                       html
                     ),
-                    Map(nodeId -> Digest.of(html))
+                    Map(nodeId -> digest)
                   )
                 )
               }
+            )
           }
       }
     // Containers whose membership history no longer reaches this cursor: the
@@ -722,7 +724,7 @@ private[runtime] object Patches {
     // would not name. Sorted for a deterministic order (ids are location-derived,
     // so this is document order among siblings), and dropped when a mutation or a
     // refill is already re-supplying an ancestor.
-    val fromOpen = open.toList
+    val fromOpenIds = open.toList
       // Only what this client can actually SEE. `open` reports a selection for
       // every bake group whether or not that group is on screen, so a tab panel
       // inside a hidden `If` branch is in here and in nobody's DOM.
@@ -734,8 +736,7 @@ private[runtime] object Patches {
           log.coveredByMutation(id, owed.moved.map(_._1).toSet ++ owed.refill)
       )
       .sorted
-      .flatMap(morph(renderer, holds, states, uiState, _))
-    owed.nodes
+    val changed = owed.nodes
       // The cursor names every node that changed, across every surface — it
       // knows nothing about who is looking. A morph at an id this client's DOM
       // lacks is a silent no-op, so this only ever cost bytes; it is still one
@@ -744,12 +745,19 @@ private[runtime] object Patches {
       // The log is a Map, so its order is nobody's; ids are location-derived,
       // so sorting them is document order among siblings.
       .sorted
-      .flatMap(morph(renderer, holds, states, uiState, _)) ++
-      fromOpen ++
+    for {
+      morphs <- changed.traverseFilter(
+        morph(renderer, cache, holds, states, uiState, _)
+      )
+      open <- fromOpenIds.traverseFilter(
+        morph(renderer, cache, holds, states, uiState, _)
+      )
+      placed <- places
+    } yield morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
-      branchFills ++ places ++ refills
+      branchFills ++ placed ++ refills
   }
 
   /** Render one node and send it only if it is not what this viewer already
@@ -763,16 +771,55 @@ private[runtime] object Patches {
     */
   private def morph(
       renderer: Renderer,
+      cache: RenderCache,
       holds: Map[NodeId, Digest],
       states: Map[String, EntityState],
       uiState: Map[String, String],
       id: NodeId
-  ): Option[Addressed] =
-    renderer.renderLogged(id, states, uiState).flatMap { html =>
-      val digest = Digest.of(html)
-      Option.when(!holds.get(id).contains(digest))(
-        Addressed(Patch.Morph(html), Map(id -> digest))
-      )
+  ): IO[Option[Addressed]] =
+    bytes(renderer, cache, id, states, uiState).map(_.flatMap {
+      case NodeBytes(html, digest) =>
+        Option.when(!holds.get(id).contains(digest))(
+          Addressed(Patch.Morph(html), Map(id -> digest))
+        )
+    })
+
+  /** One node's bytes for THIS viewer, through the slug's [[RenderCache]] —
+    * which is what keeps N sessions woken by one doorbell from rendering the
+    * same node N times.
+    *
+    * Three cases, and the fallthrough is the important one: a node with a sound
+    * key ([[Renderer.renderInputs]]) goes through the cache; a dynamic group's
+    * member is keyed by [[Renderer.dynamicChildInputs]], since its id is
+    * derived per entity rather than indexed; anything else — a container whose
+    * own bytes carry its children — has no sound key and is rendered UNCACHED
+    * rather than cached wrongly.
+    */
+  private def bytes(
+      renderer: Renderer,
+      cache: RenderCache,
+      id: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): IO[Option[NodeBytes]] =
+    renderer.renderInputs(id, states, uiState) match {
+      case Some(inputs) =>
+        cache(id, renderer, inputs)(
+          mustRender(renderer.renderNodeById(id, states, uiState), id)
+        ).map(Some(_))
+      case None =>
+        renderer.dynamicOwnerOf(id, states) match {
+          case Some((gid, entityId)) =>
+            cache(
+              id,
+              renderer,
+              renderer.dynamicChildInputs(gid, entityId, states)
+            )(
+              mustRender(renderer.renderDynamicChild(gid, entityId, states), id)
+            ).map(Some(_))
+          case None =>
+            IO(renderer.renderLogged(id, states, uiState).map(NodeBytes.of))
+        }
     }
 
   /** ONE anchor rule for both the live add path and the resume replay, because

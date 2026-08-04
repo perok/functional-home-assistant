@@ -33,6 +33,26 @@ import scala.concurrent.duration.*
 
 class ServerSuite extends munit.CatsEffectSuite {
 
+  /** [[Patches.resume]] run against a FRESH cache — these contracts are about
+    * which patches come out, and a per-call cache keeps one from depending on
+    * what another test rendered. Mirrors `resume`'s own parameter list so a
+    * call site reads the same either way.
+    */
+  private def resumeNow(
+      renderer: Renderer,
+      log: FragmentLog,
+      holds: Map[NodeId, Digest],
+      states: Map[String, EntityState],
+      v: Long,
+      open: Set[String] = Set.empty,
+      uiState: Map[String, String] = Map.empty
+  ): List[Addressed] =
+    RenderCache.create
+      .flatMap(
+        Patches.resume(renderer, _, log, holds, states, v, open, uiState)
+      )
+      .unsafeRunSync()
+
   /** One frame RECORDED for the slug, then PULLED by one viewer — the whole
     * path a live change now takes, in the shape a test can assert on.
     *
@@ -52,8 +72,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       from: Long = 0L
   ): IO[List[Addressed]] =
     server.recordFrame("dashboard", renderer, log, changes) *>
-      (log.get, store.current).mapN((l, now) =>
-        Patches.resume(renderer, l, holds, now.entities, from, open, ui)
+      (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
+        Patches.resume(renderer, rc, l, holds, now.entities, from, open, ui)
       )
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
@@ -888,16 +908,20 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   /** Two connections, one change, and the render count that goes with it.
     *
-    * '''This asserts the CURRENT cost, and it is a regression the test is here
-    * to keep visible.''' Under the shared push a slug rendered once per frame
-    * however many viewers it had; now each session renders what it is owed,
-    * against its own record. Wiring the per-slug [[RenderCache]] into
-    * [[Patches.resume]] is what brings this back to 1
-    * (docs/plan-session-pulled-changelog.md), and this number is how that step
-    * will be judged.
+    * '''One render, not one per viewer.''' Each session pulls independently and
+    * renders what IT is owed, so the sharing is no longer structural — it is
+    * the per-slug [[RenderCache]], which both pulls go through: whoever gets
+    * there first renders and the other waits on the same slot. Two viewers of
+    * one dashboard have the same [[RenderInputs]] for a node unless their
+    * selections differ, which is what makes the hit the normal case rather
+    * than a lucky one.
+    *
+    * So this number is a cost contract: if it ever reads 2 again, the cache is
+    * being missed (a key that varies per viewer where it should not, or a pull
+    * that renders outside it), and the fan-out is back.
     */
   test(
-    "two connections both receive a changed fragment, rendered per viewer"
+    "two connections both receive a changed fragment, rendered once between them"
   ) {
     val marker = "shared_once_value_xq"
     val count = new AtomicInteger(0)
@@ -960,9 +984,8 @@ class ServerSuite extends munit.CatsEffectSuite {
           } yield ()
         }
     } yield count.get()
-    // ...and (b) each viewer rendered it for itself — the count the cache step
-    // must bring back down.
-    io.timeout(30.seconds).assertEquals(2)
+    // ...and (b) it was rendered ONCE between them.
+    io.timeout(30.seconds).assertEquals(1)
   }
 
   // ---------------------------------------------------------------------------
@@ -1333,16 +1356,18 @@ class ServerSuite extends munit.CatsEffectSuite {
               open = Set("c_t1"),
               ui = renderer.uiStateFrom(Set("c_t1"))
             )
-            forA <- (log.get, store.current).mapN((l, now) =>
-              Patches.resume(
-                renderer,
-                l,
-                Map.empty,
-                now.entities,
-                0L,
-                Set("c_t0"),
-                renderer.uiStateFrom(Set("c_t0"))
-              )
+            forA <- (log.get, store.current, RenderCache.create).flatMapN(
+              (l, now, rc) =>
+                Patches.resume(
+                  renderer,
+                  rc,
+                  l,
+                  Map.empty,
+                  now.entities,
+                  0L,
+                  Set("c_t0"),
+                  renderer.uiStateFrom(Set("c_t0"))
+                )
             )
           } yield (forA, forB)
         }
@@ -1514,15 +1539,17 @@ class ServerSuite extends munit.CatsEffectSuite {
 
     /** What this viewer is owed since its last pull, claimed as it goes. */
     private def drain: IO[List[ServerSentEvent]] =
-      (cache.get, store.current, holds.get, position.get).flatMapN {
-        (log, now, held, from) =>
-          val patches =
-            Patches.resume(renderer, log, held, now.entities, from + 1)
-          holds.set(patches.foldLeft(held)(Patches.applied)) *>
-            position
-              .set(now.version)
-              .as(events(patches) :+ Server.versionSignal(now.version))
-      }
+      (cache.get, store.current, holds.get, position.get, RenderCache.create)
+        .flatMapN { (log, now, held, from, rc) =>
+          Patches
+            .resume(renderer, rc, log, held, now.entities, from + 1)
+            .flatMap { patches =>
+              holds.set(patches.foldLeft(held)(Patches.applied)) *>
+                position
+                  .set(now.version)
+                  .as(events(patches) :+ Server.versionSignal(now.version))
+            }
+        }
 
     private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
       (record(next) *> drain).timeout(30.seconds)
@@ -1957,8 +1984,9 @@ class ServerSuite extends munit.CatsEffectSuite {
             )
             // The same frame, pulled by a client that does NOT have the popup
             // open — the other half of what the surface tag used to assert.
-            without <- (log.get, store.current).mapN((l, now) =>
-              Patches.resume(renderer, l, Map.empty, now.entities, 0L)
+            without <- (log.get, store.current, RenderCache.create).flatMapN(
+              (l, now, rc) =>
+                Patches.resume(renderer, rc, l, Map.empty, now.entities, 0L)
             )
           } yield (without, events(withPopup))
         }
@@ -3065,7 +3093,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Digest] =
       Map(host -> Digest.of(r.renderNodeById(host, states).get))
-    val owed = Patches.resume(
+    val owed = resumeNow(
       r,
       log,
       holds,
@@ -3110,7 +3138,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
     //     content must not reach it by ANY route.
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
-    val owed = Patches.resume(
+    val owed = resumeNow(
       r,
       seeded,
       held,
@@ -3128,7 +3156,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
     //     arrive. Without this the test would pass by sending nothing, ever.
     val tab1Moved = before.updated("sensor.b", es("sensor.b", "B1"))
-    val mineOwed = Patches.resume(
+    val mineOwed = resumeNow(
       r,
       seeded,
       held,
@@ -3200,7 +3228,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
     val tab0Node: NodeId = "s_t0__c"
     val log = FragmentLog("w13").touched(tab0Node, 5L)
-    val owed = Patches.resume(
+    val owed = resumeNow(
       r,
       log,
       Map.empty,

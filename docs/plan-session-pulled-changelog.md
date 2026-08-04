@@ -113,6 +113,25 @@ Each one lands on its own and keeps the suites green.
      Note this leaves **ADR 0012 describing a model that no longer exists** (a shared log keyed by
      variant, `Selections` as a memo key). It was already stale after the flip; it is now stale in
      a second way. Rewriting 0012/0011/0003 is the next doc-side step.
+3b. **The render cache, wired.** ~~The one live regression~~ **landed.** `Patches.resume` takes the
+   slug's `RenderCache` and returns `IO`; both candidate sets and the placement renders go through
+   one `Patches.bytes`, which picks the key: `renderInputs` for an indexed node, `dynamicChildInputs`
+   for a group member (via the new `Renderer.dynamicOwnerOf`, extracted from `renderLogged`'s own
+   scan), and NO cache for anything whose bytes carry its children. `ServerSuite`'s render-count test
+   went from 2 to 1 and is now a cost contract rather than a regression marker.
+
+   Two things this turned up that the plan had not:
+
+   - **The entry has to name its RENDERER, not just its inputs.** A dashboard edit changes the markup
+     while the entity versions it reads stay exactly where they were — so keyed on inputs alone, the
+     first viewer after a push is served the OLD dashboard's bytes, and keeps them until some entity
+     happens to move. Identity comparison (`eq`) does it, and it means the cache is NOT rotated on a
+     swap: rotating leaves a window where a pull that read the previous renderer writes into the
+     fresh map, which is the same bug with a smaller target.
+   - **Per-call caches in tests, deliberately.** Every test-side `resume` builds its own cache, so no
+     contract can come to depend on what an earlier test rendered. The real server is the only place
+     one is shared, which is also the only place the sharing is the point.
+
 4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
    recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
    document-creates-the-session step, which is what first made two streams able to reach one

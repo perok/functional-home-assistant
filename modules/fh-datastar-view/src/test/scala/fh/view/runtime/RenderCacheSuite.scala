@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
-import fh.view.model.NodeId
+import fh.view.model.{Dashboard, LayoutNode, NodeId}
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.CountDownLatch
@@ -19,6 +19,14 @@ import scala.concurrent.duration.*
   * the renderer.
   */
 class RenderCacheSuite extends munit.FunSuite {
+
+  /** The cache compares generations by IDENTITY, so what a renderer contains is
+    * irrelevant here — only that these are two different instances.
+    */
+  private def aRenderer: Renderer =
+    Renderer.create(Dashboard(Map.empty, LayoutNode.Component("card")))
+
+  private val r = aRenderer
 
   private val id: NodeId = "c_0"
   private val v1 = RenderInputs(Map("sensor.t" -> 1L), Map.empty)
@@ -47,7 +55,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>x</b>")
     val out = (for {
       cache <- RenderCache.create
-      fibers <- List.fill(5)(cache(id, v1)(g.render)).parSequence.start
+      fibers <- List.fill(5)(cache(id, r, v1)(g.render)).parSequence.start
       _ <- IO.sleep(150.millis) *> IO(g.release())
       got <- fibers.joinWithNever
     } yield got).timeout(10.seconds).unsafeRunSync()
@@ -61,8 +69,8 @@ class RenderCacheSuite extends munit.FunSuite {
     val runs = new AtomicInteger(0)
     val (a, b, n) = (for {
       cache <- RenderCache.create
-      a <- cache(id, v1) { runs.incrementAndGet(); "<i>1</i>" }
-      b <- cache(id, v1) { runs.incrementAndGet(); "<i>2</i>" }
+      a <- cache(id, r, v1) { runs.incrementAndGet(); "<i>1</i>" }
+      b <- cache(id, r, v1) { runs.incrementAndGet(); "<i>2</i>" }
       n <- cache.size
     } yield (a, b, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -80,15 +88,34 @@ class RenderCacheSuite extends munit.FunSuite {
     // that never come.
     val (a, b, sizes) = (for {
       cache <- RenderCache.create
-      a <- cache(id, v1)("<i>1</i>")
+      a <- cache(id, r, v1)("<i>1</i>")
       n1 <- cache.size
-      b <- cache(id, v2)("<i>2</i>")
+      b <- cache(id, r, v2)("<i>2</i>")
       n2 <- cache.size
     } yield (a.html, b.html, (n1, n2))).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(a, "<i>1</i>")
     assertEquals(b, "<i>2</i>")
     assertEquals(sizes, (1, 1))
+  }
+
+  test("a renderer swap invalidates every key, unchanged inputs included") {
+    // The reason the generation is the RENDERER and not the inputs alone: a
+    // dashboard edit changes the markup while the entity versions it reads stay
+    // exactly where they were. Keyed on inputs only, the first viewer after a
+    // push would be served the OLD dashboard's bytes, and would keep them until
+    // some entity happened to move.
+    val (before, after, size) = (for {
+      cache <- RenderCache.create
+      before <- cache(id, r, v1)("<i>old</i>")
+      after <- cache(id, aRenderer, v1)("<i>new</i>")
+      size <- cache.size
+    } yield (before.html, after.html, size)).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(before, "<i>old</i>")
+    assertEquals(after, "<i>new</i>")
+    // ...and the replaced generation is gone, not held alongside.
+    assertEquals(size, 1)
   }
 
   test("a superseded generation does not evict the one that replaced it") {
@@ -98,15 +125,15 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("unused")
     val (n, html) = (for {
       cache <- RenderCache.create
-      doomed <- cache(id, v1) {
+      doomed <- cache(id, r, v1) {
         val _ = g.render; throw new RuntimeException("late")
       }.attempt.start
       _ <- IO.sleep(100.millis)
-      _ <- cache(id, v2)("<i>current</i>")
+      _ <- cache(id, r, v2)("<i>current</i>")
       _ <- IO(g.release())
       _ <- doomed.joinWithNever
       n <- cache.size
-      still <- cache(id, v2)("never runs")
+      still <- cache(id, r, v2)("never runs")
     } yield (n, still.html)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(n, 1)
@@ -119,9 +146,11 @@ class RenderCacheSuite extends munit.FunSuite {
     val (results, n) = (for {
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
-      producer <- cache(id, v1) { val _ = g.render; throw boom }.attempt.start
+      producer <- cache(id, r, v1) {
+        val _ = g.render; throw boom
+      }.attempt.start
       waiters <- List
-        .fill(4)(cache(id, v1)("never runs").attempt)
+        .fill(4)(cache(id, r, v1)("never runs").attempt)
         .parSequence
         .start
       _ <- IO.sleep(150.millis) *> IO(g.release())
@@ -140,8 +169,8 @@ class RenderCacheSuite extends munit.FunSuite {
   test("the next caller after a failure renders again and succeeds") {
     val out = (for {
       cache <- RenderCache.create
-      _ <- cache(id, v1)(throw new RuntimeException("transient")).attempt
-      good <- cache(id, v1)("<b>recovered</b>")
+      _ <- cache(id, r, v1)(throw new RuntimeException("transient")).attempt
+      good <- cache(id, r, v1)("<b>recovered</b>")
     } yield good.html).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(out, "<b>recovered</b>")
@@ -151,15 +180,15 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>survived</b>")
     val (out, again, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(id, v1)(g.render).start
+      producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, v1)("never runs").start
+      waiter <- cache(id, r, v1)("never runs").start
       _ <- IO.sleep(100.millis)
       _ <- waiter.cancel
       _ <- IO(g.release())
       p <- producer.joinWithNever
       // The cancelled waiter must not have taken the entry with it.
-      again <- cache(id, v1)("never runs either")
+      again <- cache(id, r, v1)("never runs either")
       n <- cache.size
     } yield (p.html, again.html, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -177,9 +206,9 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>finished anyway</b>")
     val (waited, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(id, v1)(g.render).start
+      producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, v1)("never runs").start
+      waiter <- cache(id, r, v1)("never runs").start
       _ <- IO.sleep(100.millis)
       _ <- producer.cancel.start
       _ <- IO.sleep(50.millis) *> IO(g.release())

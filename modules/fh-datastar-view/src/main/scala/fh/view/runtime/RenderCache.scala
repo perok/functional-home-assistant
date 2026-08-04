@@ -26,22 +26,26 @@ private[runtime] object NodeBytes {
 /** Single-flight cache of rendered node bytes, keyed by what the render READS
   * ([[Renderer.renderInputs]]) — docs/plan-session-pulled-changelog.md.
   *
-  * PER SLUG, living and dying with the dashboard's renderer, because a node id
-  * is only meaningful within one renderer. A hot-swap drops the whole map,
-  * which is the correctness story and part of the eviction story in one.
+  * PER SLUG, because a node id is only meaningful within one dashboard. It
+  * OUTLIVES a renderer swap rather than being rotated with one: each entry
+  * names the renderer that filled it, so a swap invalidates by identity and the
+  * one-generation-per-node bound reclaims the space on the next ask. Rotating
+  * the map instead would leave a window where a pull that read the previous
+  * renderer writes its bytes into the fresh cache.
   *
   * The value is a [[Deferred]] rather than the bytes: the first caller to want
   * a key inserts an empty one and renders, everyone else finds it and waits, so
   * N sessions wanting the same node at the same instant cost one render.
   *
   * '''ONE GENERATION PER NODE, and that bound is not optional.''' The map is
-  * keyed by [[NodeId]] and each entry remembers the inputs it was rendered for;
-  * a render for different inputs REPLACES it. Keying by `(nodeId, inputs)`
-  * instead would grow without bound: the shared pass selects exactly the nodes
-  * binding an entity that just moved (`Renderer.componentsFor`), so every batch
-  * mints new keys and old ones are never asked for again. That is unbounded
-  * retention of HTML in exchange for hits that do not happen. Bounded by the
-  * dashboard's node count needs no timer and no sweep.
+  * keyed by [[NodeId]] and each entry remembers the renderer and inputs it was
+  * rendered for; a render for a different generation REPLACES it. Keying by
+  * `(nodeId, inputs)` instead would grow without bound: the shared pass selects
+  * exactly the nodes binding an entity that just moved
+  * (`Renderer.componentsFor`), so every batch mints new keys and old ones are
+  * never asked for again. That is unbounded retention of HTML in exchange for
+  * hits that do not happen. Bounded by the dashboard's node count needs no
+  * timer and no sweep.
   *
   * What it gives up is a laggard: two readers at different versions evict each
   * other. Nothing does that yet — the publisher is the only caller and it holds
@@ -89,7 +93,7 @@ private[runtime] final class RenderCache(
     * fairness on a large dashboard, and the second window comes back — then
     * `guaranteeCase` plus a retrying waiter IS the right answer.
     */
-  def apply(id: NodeId, inputs: RenderInputs)(
+  def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
       render: => String
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
@@ -100,9 +104,11 @@ private[runtime] final class RenderCache(
       IO.uncancelable { poll =>
         entries(id)
           .modify {
-            case hit @ Some(e) if e.inputs == inputs => (hit, poll(e.slot.get))
-            case _                                   =>
-              val entry = RenderCache.Entry(inputs, mine)
+            case hit @ Some(e)
+                if (e.renderer eq renderer) && e.inputs == inputs =>
+              (hit, poll(e.slot.get))
+            case _ =>
+              val entry = RenderCache.Entry(renderer, inputs, mine)
               (Some(entry), fill(id, entry, render))
           }
           .flatten
@@ -141,11 +147,17 @@ private[runtime] final class RenderCache(
 
 private[runtime] object RenderCache {
 
-  /** One node's current generation: the bytes, and the inputs they are for.
-    * Carrying the inputs is what makes a stale generation detectable rather
-    * than needing its own key.
+  /** One node's current generation: the bytes, the inputs they are for, and the
+    * renderer that produced them. Carrying both is what makes a stale
+    * generation detectable rather than needing its own key.
+    *
+    * The renderer is compared by IDENTITY (`eq`). Inputs alone are not enough
+    * to survive a hot swap: a dashboard edit changes the MARKUP while the
+    * entity versions it reads stay exactly where they were, so an unchanged key
+    * would answer with the previous dashboard's bytes.
     */
   private[runtime] case class Entry(
+      renderer: Renderer,
       inputs: RenderInputs,
       slot: Deferred[IO, Either[Throwable, NodeBytes]]
   )
