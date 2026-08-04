@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.NodeId
+import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 
 /** The resume cursor's pure core (docs/adr/0011-the-live-connection.md). Every

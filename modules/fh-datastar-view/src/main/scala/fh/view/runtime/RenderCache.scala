@@ -13,6 +13,16 @@ import java.util.concurrent.ConcurrentHashMap
   */
 private[runtime] case class NodeBytes(html: String, digest: Digest)
 
+private[runtime] object NodeBytes {
+
+  /** For the paths that render OUTSIDE the cache and so must hash for
+    * themselves. Everywhere else the digest arrives already computed, which is
+    * the point: the same HTML used to be hashed once to ask the log whether it
+    * held it and again to record that it now does.
+    */
+  def of(html: String): NodeBytes = NodeBytes(html, Digest.of(html))
+}
+
 /** Single-flight cache of rendered node bytes, keyed by what the render READS
   * ([[Renderer.renderInputs]]) — docs/plan-session-pulled-changelog.md.
   *

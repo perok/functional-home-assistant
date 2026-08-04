@@ -478,7 +478,7 @@ class Server(
                                   case (id, html) =>
                                     l.holds(
                                       id,
-                                      html,
+                                      Digest.of(html),
                                       renderer.variantIn(id, sel)
                                     )
                                 }
@@ -489,7 +489,7 @@ class Server(
                                       case (acc, (id, html)) =>
                                         acc.set(
                                           id,
-                                          html,
+                                          Digest.of(html),
                                           now.version,
                                           renderer.variantIn(id, sel)
                                         )
@@ -1179,7 +1179,7 @@ class Server(
                 case (acc, (id, html)) if seeded(id) =>
                   acc.seed(
                     id,
-                    html,
+                    Digest.of(html),
                     store.version,
                     renderer.variantOf(id, uiState)
                   )

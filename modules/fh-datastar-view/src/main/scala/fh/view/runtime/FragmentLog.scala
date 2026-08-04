@@ -20,6 +20,17 @@ private[runtime] opaque type Digest = String
 private[runtime] object Digest {
   def of(html: String): Digest =
     LibPackage.sha256(html.getBytes("UTF-8")).take(32)
+
+  /** For suites that hand-build a log from HTML literals, the same trade
+    * [[fh.view.testkit.TestIds]] makes for [[NodeId]]: the type exists to stop
+    * the SERVER hashing the wrong thing or comparing an unhashed string, and a
+    * test writing `holds("a", "<a/>")` has no such confusion available — the
+    * literal IS the markup. Test-only, so production still cannot skip the hash
+    * by accident.
+    */
+  private[runtime] object AsHtml {
+    given Conversion[String, Digest] = Digest.of(_)
+  }
 }
 
 /** A missing entry reads as "unknown — send it", which is what makes dropping
@@ -135,11 +146,14 @@ private[runtime] case class FragmentLog(
   /** Keeps the identity, so every cursor already issued stays comparable. */
   def cleared: FragmentLog = FragmentLog(id)
 
-  /** `false` for an absent entry: unknown means send it. */
-  def holds(nodeId: NodeId, html: String, variant: Int = 0): Boolean =
-    fragments
-      .get(nodeId)
-      .exists(_.digests.get(variant).contains(Digest.of(html)))
+  /** `false` for an absent entry: unknown means send it.
+    *
+    * Takes the DIGEST, not the HTML: the bytes were hashed when they were
+    * rendered ([[NodeBytes]]), and hashing them again here — and a third time
+    * in [[set]] — was SHA-256 over every fragment two or three times per batch.
+    */
+  def holds(nodeId: NodeId, digest: Digest, variant: Int = 0): Boolean =
+    fragments.get(nodeId).exists(_.digests.get(variant).contains(digest))
 
   /** The cheap half of the two skips: an integer comparison that spares the
     * render entirely, where [[holds]] must render first to compare. Sound
@@ -179,12 +193,12 @@ private[runtime] case class FragmentLog(
     */
   def seed(
       nodeId: NodeId,
-      html: String,
+      digest: Digest,
       at: Long,
       variant: Int = 0
   ): FragmentLog =
     if (fragments.get(nodeId).exists(_.digests.contains(variant))) this
-    else set(nodeId, html, at, variant)
+    else set(nodeId, digest, at, variant)
 
   /** **A fragment's version never goes backwards.** A variant-bearing node's
     * entry is written lazily, when some connection first asks for that variant,
@@ -194,7 +208,7 @@ private[runtime] case class FragmentLog(
     */
   def set(
       nodeId: NodeId,
-      html: String,
+      digest: Digest,
       at: Long,
       variant: Int = 0
   ): FragmentLog =
@@ -202,17 +216,13 @@ private[runtime] case class FragmentLog(
       case Some(f) if f.version > at => this
       case Some(f)                   =>
         copy(
-          fragments = fragments.updated(
-            nodeId,
-            Fragment(f.digests.updated(variant, Digest.of(html)), at)
-          )
+          fragments = fragments
+            .updated(nodeId, Fragment(f.digests.updated(variant, digest), at))
         )
       case None =>
         copy(
-          fragments = fragments.updated(
-            nodeId,
-            Fragment(Map(variant -> Digest.of(html)), at)
-          )
+          fragments =
+            fragments.updated(nodeId, Fragment(Map(variant -> digest), at))
         )
     }
 
@@ -249,10 +259,10 @@ private[runtime] case class FragmentLog(
       container: NodeId,
       member: MemberKey,
       nodeId: NodeId,
-      html: String,
+      digest: Digest,
       stamp: Stamp
   ): FragmentLog =
-    placed(container, member, nodeId, stamp).set(nodeId, html, stamp.version)
+    placed(container, member, nodeId, stamp).set(nodeId, digest, stamp.version)
 
   /** [[placed]] for a member whose bytes are NOT one thing: its subtree mounts
     * a client-selected member, so no single digest describes what every viewer

@@ -178,23 +178,28 @@ private[runtime] final class Renders(
     val renderer: Renderer,
     states: Map[String, EntityState],
     before: Map[String, EntityState],
-    nodes: Map[NodeId, Option[String]],
-    children: Map[(NodeId, String), Option[String]],
-    fills: Map[NodeId, List[(NodeId, String)]],
+    nodes: Map[NodeId, Option[NodeBytes]],
+    children: Map[(NodeId, String), Option[NodeBytes]],
+    fills: Map[NodeId, List[(NodeId, NodeBytes)]],
     membersNow: Map[NodeId, List[String]],
     membersWas: Map[NodeId, List[String]]
 ) {
-  def node(id: NodeId): Option[String] =
-    nodes.getOrElse(id, renderer.renderNodeById(id, states))
+  def node(id: NodeId): Option[NodeBytes] =
+    nodes.getOrElse(id, renderer.renderNodeById(id, states).map(NodeBytes.of))
 
-  def child(gid: NodeId, entityId: String): Option[String] =
+  def child(gid: NodeId, entityId: String): Option[NodeBytes] =
     children.getOrElse(
       (gid, entityId),
-      renderer.renderDynamicChild(gid, entityId, states)
+      renderer.renderDynamicChild(gid, entityId, states).map(NodeBytes.of)
     )
 
-  def fill(gid: NodeId): List[(NodeId, String)] =
-    fills.getOrElse(gid, renderer.renderDynamicMembers(gid, states))
+  def fill(gid: NodeId): List[(NodeId, NodeBytes)] =
+    fills.getOrElse(
+      gid,
+      renderer.renderDynamicMembers(gid, states).map { case (id, html) =>
+        id -> NodeBytes.of(html)
+      }
+    )
 
   def membersAfter(gid: NodeId): List[String] =
     membersNow.getOrElse(gid, renderer.dynamicMembers(gid, states))
@@ -409,14 +414,14 @@ private[runtime] object Patches {
     // query and the same cases over the same snapshot. Asking membership first
     // is what lets the render itself go through the cache, which returns bytes
     // rather than an Option.
-    def child(gid: NodeId, entityId: String): IO[Option[String]] =
+    def child(gid: NodeId, entityId: String): IO[Option[NodeBytes]] =
       if (!membersNow(gid).contains(entityId)) IO.pure(None)
       else
         cache(
           renderer.dynamicChildId(gid, entityId),
           renderer.dynamicChildInputs(gid, entityId, states)
         )(mustRender(renderer.renderDynamicChild(gid, entityId, states), gid))
-          .map(b => Some(b.html))
+          .map(Some(_))
 
     for {
       nodes <- req.staticIds.traverse { case (id, _) =>
@@ -431,7 +436,7 @@ private[runtime] object Patches {
         val now = membersNow(gid)
         def ticks(of: List[String]) =
           of.traverse(e => child(gid, e).map(h => (gid, e) -> h))
-            .map(_ -> Option.empty[(NodeId, List[(NodeId, String)])])
+            .map(_ -> Option.empty[(NodeId, List[(NodeId, NodeBytes)])])
 
         if (was == now) ticks(touched) // the hot path: one tick per entity
         else {
@@ -469,15 +474,16 @@ private[runtime] object Patches {
       cache: RenderCache,
       id: NodeId,
       states: Map[String, EntityState]
-  ): IO[Option[String]] =
+  ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, Map.empty) match {
       // No sound key for this node — see `Renderer.renderInputs`. Rendered
       // uncached rather than cached wrongly.
-      case None         => IO(renderer.renderNodeById(id, states))
+      case None =>
+        IO(renderer.renderNodeById(id, states).map(NodeBytes.of))
       case Some(inputs) =>
         cache(id, inputs)(
           mustRender(renderer.renderNodeById(id, states), id)
-        ).map(b => Some(b.html))
+        ).map(Some(_))
     }
 
   /** A key exists only where a rendering does — `renderInputs` is `Some`
@@ -542,14 +548,17 @@ private[runtime] object Patches {
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
-        renders.node(id).map(html => (id, surface, html))
+        renders.node(id).map(bytes => (id, surface, bytes))
       }
     val (logAfterStatic, staticPatches) =
       rendered.foldLeft((logAfterFlips, List.empty[(Option[String], Patch)])) {
-        case ((c, acc), (id, surface, html)) =>
-          if (c.holds(id, html)) (c, acc)
+        case ((c, acc), (id, surface, bytes)) =>
+          if (c.holds(id, bytes.digest)) (c, acc)
           else
-            (c.set(id, html, at.version), acc :+ (surface, Patch.Morph(html)))
+            (
+              c.set(id, bytes.digest, at.version),
+              acc :+ (surface, Patch.Morph(bytes.html))
+            )
       }
     val (finalLog, dynPatches) =
       req.dynamics.foldLeft(
@@ -736,9 +745,9 @@ private[runtime] object Patches {
           // Compared against THIS viewer's variant — the log holds one digest
           // per variant, and another viewer's says nothing about this DOM.
           // A MISSING entry counts as "send": unknown, so tell the client.
-          Option.when(!log.holds(id, html, renderer.variantOf(id, uiState)))(
-            Patch.Morph(html)
-          )
+          Option.when(
+            !log.holds(id, Digest.of(html), renderer.variantOf(id, uiState))
+          )(Patch.Morph(html))
         }
       )
     (owed.nodes
@@ -823,7 +832,7 @@ private[runtime] object Patches {
       case None    => (pruned, None)
       case Some(t) =>
         val recorded = t.own.foldLeft(pruned) { case (l, (id, html)) =>
-          l.set(id, html, version, renderer.variantOf(id, uiState))
+          l.set(id, Digest.of(html), version, renderer.variantOf(id, uiState))
         }
         (recorded, Some(t.html))
     }
@@ -1034,11 +1043,15 @@ private[runtime] object Patches {
     else
       touched.foldLeft((log, List.empty[Patch])) { case ((c, acc), entityId) =>
         renders.child(gid, entityId) match {
-          case None       => (c, acc) // not a current member
-          case Some(html) =>
+          case None        => (c, acc) // not a current member
+          case Some(bytes) =>
             val cid = renders.renderer.dynamicChildId(gid, entityId)
-            if (c.holds(cid, html)) (c, acc)
-            else (c.set(cid, html, at.version), acc :+ Patch.Morph(html))
+            if (c.holds(cid, bytes.digest)) (c, acc)
+            else
+              (
+                c.set(cid, bytes.digest, at.version),
+                acc :+ Patch.Morph(bytes.html)
+              )
         }
       }
   }
@@ -1138,15 +1151,21 @@ private[runtime] object Patches {
         added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
           case ((c, acc), e) =>
             renders.child(gid, e) match {
-              case None       => (c, acc) // defensive: not renderable, skip
-              case Some(html) =>
+              case None        => (c, acc) // defensive: not renderable, skip
+              case Some(bytes) =>
                 val cid = renderer.dynamicChildId(gid, e)
                 // Anchor only on members ALREADY in the client's DOM, i.e.
                 // pre-change ones: a co-arrival may not be inserted yet.
-                val patch =
-                  insertInto(renderer, gid, membersAfter, e, beforeSet, html)
+                val patch = insertInto(
+                  renderer,
+                  gid,
+                  membersAfter,
+                  e,
+                  beforeSet,
+                  bytes.html
+                )
                 (
-                  c.placed(gid, MemberKey.Entity(e), cid, html, at),
+                  c.placed(gid, MemberKey.Entity(e), cid, bytes.digest, at),
                   acc :+ patch
                 )
             }
@@ -1183,8 +1202,8 @@ private[runtime] object Patches {
     // Prune first: a member that LEFT must not keep an entry, and its stale
     // mutation must not replay against a mount this fill just re-supplied.
     val pruned = log.invalidateWhere(k => k == gid || k.startsWith(gid + "_"))
-    val stamped = members.foldLeft(pruned) { case (l, (cid, html)) =>
-      l.set(cid, html, at.version)
+    val stamped = members.foldLeft(pruned) { case (l, (cid, bytes)) =>
+      l.set(cid, bytes.digest, at.version)
     }
     (
       stamped,

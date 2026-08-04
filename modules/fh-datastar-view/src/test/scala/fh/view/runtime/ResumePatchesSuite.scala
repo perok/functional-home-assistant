@@ -9,6 +9,7 @@ import fh.view.model.{
   Predicate,
   SlotSource
 }
+import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 

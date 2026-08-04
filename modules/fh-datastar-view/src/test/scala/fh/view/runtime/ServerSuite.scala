@@ -21,6 +21,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
+import fh.view.runtime.Digest.AsHtml.given
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.{SignallingRef, Topic}
 import io.circe.Json
