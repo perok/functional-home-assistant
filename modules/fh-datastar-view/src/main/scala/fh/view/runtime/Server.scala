@@ -769,6 +769,9 @@ class Server(
                 .resume(
                   renderer,
                   log,
+                  // The shared log narrowed to THIS viewer, which is the shape
+                  // a session's own record already has ([[Session.holds]]).
+                  log.digestsFor(renderer.variantOf(_, uiState)),
                   store.entities,
                   resumeFrom(req, c),
                   open,

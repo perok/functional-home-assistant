@@ -47,6 +47,10 @@ Each one lands on its own and keeps the suites green.
      separately on purpose — the way a per-client record goes wrong is drifting from what the client
      has, so it is filled in and tested while the shared log is still the authority, leaving the
      next step a change of who is ASKED rather than new bookkeeping arriving at the same time.
+   - ~~`Patches.resume` asks a `holds` map, not the log~~ — it takes `Map[NodeId, Digest]`, and
+     `FragmentLog.digestsFor` projects the shared log onto one viewer at the single call site, so
+     behaviour is unchanged. The projection is where the variant dimension dies: variants exist
+     only because the log is shared, and a per-connection record is already one viewer's.
    - The send path decides against its own `holds`; the publisher stops rendering and pushing.
 4. **Session lifetime.** Linger after disconnect, displacement of a second live stream, the
    staleness bound that releases the floor. Gate recording on a slug having sessions.
@@ -633,10 +637,12 @@ Worth recording so they are not re-invented as work:
 - **Ordering across sessions.** Sessions render on their own fibers and can sit at different
   positions. Nothing above depends on them agreeing, but that should be stated as an invariant
   rather than assumed.
-- **What a session FORGETS.** `Addressed.establishes` says what a patch's bytes place; nothing yet
-  says what a `Patch.Remove` takes away, or what a fill INVALIDATES beyond the members it re-places
-  (today `fillGroup` prunes the whole `gid_` prefix before re-stamping). Both are recorded in the
-  shared log today as removals/prunes rather than as anything the patch carries. Per-session `holds`
-  needs one of the two: either the patch carries an invalidation set alongside `establishes`, or the
-  session derives it from the changelog's mutations. Decide when `holds` lands, not before — the
-  answer depends on whether a session reads the mutations at all.
+- ~~**What a session FORGETS.**~~ **Answered: nothing has to.** A digest is an optimisation around
+  redundant pushes, not part of the machinery that decides what a client is owed — that is the
+  changelog's `nodeId -> version`, which must be right. So the two sides are not symmetric: a
+  session that KEEPS a digest for a node whose DOM was removed under it costs one redundant patch
+  the next time that node moves, while one that CLAIMS a digest the client never received is
+  silently stale forever. Only the second is a bug, and `establishes` — written where a patch is
+  kept — cannot produce it. Hence no invalidation set on the patch and no mutation-reading in the
+  session: dropping an entry is always safe, so `holds` needs no bookkeeping beyond what it is
+  told it sent.

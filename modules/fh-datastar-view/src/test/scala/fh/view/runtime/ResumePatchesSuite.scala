@@ -54,7 +54,9 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def cid(entity: String) = renderer.dynamicChildId("c", entity)
 
   private def resume(log: FragmentLog, v: Long): List[String] =
-    Patches.resume(renderer, log, states, v).map(_.renderString)
+    Patches
+      .resume(renderer, log, log.digestsFor(_ => 0), states, v)
+      .map(_.renderString)
 
   private val empty = FragmentLog("test")
 

@@ -60,9 +60,11 @@ private[runtime] enum Patch:
   * `holds` rather than the shared log, the only thing that can tell it what it
   * just sent is the patch it sent (docs/plan-session-pulled-changelog.md).
   *
-  * Placements only. A [[Patch.Remove]] establishes nothing, and what a session
-  * should FORGET on one is a separate question from what it now holds — see the
-  * plan's open questions.
+  * Placements only, and nothing balances them. A [[Patch.Remove]] establishes
+  * nothing, and a session is never told to forget: a digest suppresses a
+  * redundant push, so keeping a stale one costs one patch, where claiming one
+  * the client never got is silently stale forever. Only the second is a bug,
+  * and recording at the KEEP site cannot produce it.
   */
 private[runtime] case class Addressed(
     surface: Option[String],
@@ -687,6 +689,7 @@ private[runtime] object Patches {
   def resume(
       renderer: Renderer,
       log: FragmentLog,
+      holds: Map[NodeId, Digest],
       states: Map[String, EntityState],
       v: Long,
       open: Set[String] = Set.empty,
@@ -786,12 +789,12 @@ private[runtime] object Patches {
       .sorted
       .flatMap(id =>
         renderer.renderLogged(id, states, uiState).flatMap { html =>
-          // Compared against THIS viewer's variant — the log holds one digest
-          // per variant, and another viewer's says nothing about this DOM.
+          // Compared against what THIS viewer holds — another viewer's digest
+          // says nothing about this DOM, which is why `holds` arrives already
+          // narrowed to one client rather than as the shared log.
           // A MISSING entry counts as "send": unknown, so tell the client.
-          Option.when(
-            !log.holds(id, Digest.of(html), renderer.variantOf(id, uiState))
-          )(Patch.Morph(html))
+          Option
+            .when(!holds.get(id).contains(Digest.of(html)))(Patch.Morph(html))
         }
       )
     (owed.nodes

@@ -3034,7 +3034,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     // viewer on tab 0, which is all a shared log ever holds for someone else.
     val log = FragmentLog("w23")
       .set(host, r.renderNodeById(host, states).get, 5L)
-    val owed = Patches.resume(r, log, states, 1L, Set("t1"), mine)
+    val owed = Patches.resume(
+      r,
+      log,
+      log.digestsFor(r.variantOf(_, mine)),
+      states,
+      1L,
+      Set("t1"),
+      mine
+    )
 
     assert(
       owed.exists(_.renderString.contains("active-1")),
@@ -3070,7 +3078,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
     //     content must not reach it by ANY route.
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
-    val owed = Patches.resume(r, seeded, tab0Moved, 2L, open, mine)
+    val owed = Patches.resume(
+      r,
+      seeded,
+      seeded.digestsFor(r.variantOf(_, mine)),
+      tab0Moved,
+      2L,
+      open,
+      mine
+    )
     assert(
       !owed.exists(_.renderString.contains("s_t0__c")),
       clue = owed.map(_.renderString)
@@ -3080,7 +3096,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
     //     arrive. Without this the test would pass by sending nothing, ever.
     val tab1Moved = before.updated("sensor.b", es("sensor.b", "B1"))
-    val mineOwed = Patches.resume(r, seeded, tab1Moved, 2L, open, mine)
+    val mineOwed = Patches.resume(
+      r,
+      seeded,
+      seeded.digestsFor(r.variantOf(_, mine)),
+      tab1Moved,
+      2L,
+      open,
+      mine
+    )
     assert(
       mineOwed.exists(_.renderString.contains("B1")),
       clue = mineOwed.map(_.renderString)
@@ -3145,7 +3169,15 @@ class ServerSuite extends munit.CatsEffectSuite {
     val tab0Node: NodeId = "s_t0__c"
     val log = FragmentLog("w13")
       .set(tab0Node, r.renderNodeById(tab0Node, states).get, 5L)
-    val owed = Patches.resume(r, log, states, 1L, Set("then", "t1"), Map.empty)
+    val owed = Patches.resume(
+      r,
+      log,
+      log.digestsFor(r.variantOf(_, Map.empty)),
+      states,
+      1L,
+      Set("then", "t1"),
+      Map.empty
+    )
     assert(
       !owed.exists(_.renderString.contains("A1")),
       clue = owed.map(_.renderString)

@@ -155,6 +155,17 @@ private[runtime] case class FragmentLog(
   def holds(nodeId: NodeId, digest: Digest, variant: Int = 0): Boolean =
     fragments.get(nodeId).exists(_.digests.get(variant).contains(digest))
 
+  /** This log flattened to what ONE viewer holds: the variant dimension exists
+    * only because the log is shared, so picking a viewer removes it.
+    *
+    * The projection a [[Session]] eventually replaces — a per-connection record
+    * is already one viewer's, so it needs no variant key at all.
+    */
+  def digestsFor(variant: NodeId => Int): Map[NodeId, Digest] =
+    fragments.flatMap { case (id, f) =>
+      f.digests.get(variant(id)).map(id -> _)
+    }
+
   /** The cheap half of the two skips: an integer comparison that spares the
     * render entirely, where [[holds]] must render first to compare. Sound
     * because versions only grow and a write records the version it rendered
