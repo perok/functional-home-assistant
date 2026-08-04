@@ -18,11 +18,26 @@ private[runtime] case class NodeBytes(html: String, digest: Digest)
   *
   * PER SLUG, living and dying with the dashboard's renderer, because a node id
   * is only meaningful within one renderer. A hot-swap drops the whole map,
-  * which is the correctness story and the eviction story in one.
+  * which is the correctness story and part of the eviction story in one.
   *
   * The value is a [[Deferred]] rather than the bytes: the first caller to want
   * a key inserts an empty one and renders, everyone else finds it and waits, so
   * N sessions wanting the same node at the same instant cost one render.
+  *
+  * '''ONE GENERATION PER NODE, and that bound is not optional.''' The map is
+  * keyed by [[NodeId]] and each entry remembers the inputs it was rendered for;
+  * a render for different inputs REPLACES it. Keying by `(nodeId, inputs)`
+  * instead would grow without bound: the shared pass selects exactly the nodes
+  * binding an entity that just moved (`Renderer.componentsFor`), so every batch
+  * mints new keys and old ones are never asked for again. That is unbounded
+  * retention of HTML in exchange for hits that do not happen. Bounded by the
+  * dashboard's node count needs no timer and no sweep.
+  *
+  * What it gives up is a laggard: two readers at different versions evict each
+  * other. Nothing does that yet — the publisher is the only caller and it holds
+  * one snapshot. When sessions pull at their own positions (phase 3), the fix
+  * is a small fixed number of generations per node, still bounded — NOT a
+  * return to unbounded keys.
   *
   * The map is a [[MapRef]] rather than a `Ref[IO, Map[…]]` so that a `modify`
   * retries `putIfAbsent`/`replace` for ONE key (the `ConcurrentHashMap` under
@@ -30,16 +45,17 @@ private[runtime] case class NodeBytes(html: String, digest: Digest)
   * another node's caller retry.
   */
 private[runtime] final class RenderCache(
-    entries: MapRef[IO, RenderCache.Key, Option[RenderCache.Slot]],
-    live: ConcurrentHashMap[RenderCache.Key, RenderCache.Slot]
+    entries: MapRef[IO, NodeId, Option[RenderCache.Entry]],
+    live: ConcurrentHashMap[NodeId, RenderCache.Entry]
 ) {
 
-  /** The bytes for `key`, rendering them only if nobody else already is.
+  /** The bytes for `id` at `inputs`, rendering them only if nobody else already
+    * is and the entry on hand is not already for these inputs.
     *
     * `render` is by-name and must be PURE and CPU-BOUND — it is the renderer's
     * own walk. It may be run zero times (a hit) or once, never twice for one
-    * key. That it has no async boundary is load-bearing, not incidental; see
-    * the cancellation note below before changing it.
+    * generation. That it has no async boundary is load-bearing, not incidental;
+    * see the cancellation note below before changing it.
     *
     * '''Uncancelable, and `guarantee` would not do instead.''' There are two
     * windows, and completing the slot from a `guaranteeCase` only covers one:
@@ -63,17 +79,21 @@ private[runtime] final class RenderCache(
     * fairness on a large dashboard, and the second window comes back — then
     * `guaranteeCase` plus a retrying waiter IS the right answer.
     */
-  def apply(key: RenderCache.Key)(render: => String): IO[NodeBytes] =
+  def apply(id: NodeId, inputs: RenderInputs)(
+      render: => String
+  ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
       // Only a WAITER is cancelable, and that is what `poll` marks. Note what
       // the critical section does NOT contain: `fill` is an IO VALUE here,
       // built and discarded if this attempt loses. A losing CAS costs an
-      // Option match, never a render.
+      // equality check, never a render.
       IO.uncancelable { poll =>
-        entries(key)
+        entries(id)
           .modify {
-            case taken @ Some(existing) => (taken, poll(existing.get))
-            case None                   => (Some(mine), fill(key, mine, render))
+            case hit @ Some(e) if e.inputs == inputs => (hit, poll(e.slot.get))
+            case _                                   =>
+              val entry = RenderCache.Entry(inputs, mine)
+              (Some(entry), fill(id, entry, render))
           }
           .flatten
           .rethrow
@@ -81,24 +101,29 @@ private[runtime] final class RenderCache(
     }
 
   private def fill(
-      key: RenderCache.Key,
-      mine: RenderCache.Slot,
+      id: NodeId,
+      entry: RenderCache.Entry,
       render: => String
   ): IO[Either[Throwable, NodeBytes]] =
     IO(render)
       .map(html => NodeBytes(html, Digest.of(html)))
       .attempt
       // A failure must not stay in the map: a `Left` left behind poisons that
-      // node for the life of the renderer. Evicting first and completing after
-      // is the order that matters — the next caller retries, while the waiters
-      // already holding this slot still see the error rather than hanging.
+      // node until its inputs move. Evicting first and completing after is the
+      // order that matters — the next caller retries, while the waiters already
+      // holding this slot still see the error rather than hanging.
+      //
+      // Only if the entry is still OURS: a newer generation may have replaced
+      // it while this one rendered, and dropping that would evict a live entry
+      // on the strength of a stale failure.
       .flatTap {
-        case Left(_)  => entries(key).set(None)
+        case Left(_) =>
+          entries(id).update(_.filterNot(_ eq entry))
         case Right(_) => IO.unit
       }
-      .flatTap(mine.complete(_).void)
+      .flatTap(entry.slot.complete(_).void)
 
-  /** Entry count — the seam for asserting eviction, since a `MapRef` has no
+  /** Entry count — the seam for asserting the bound, since a `MapRef` has no
     * size of its own.
     */
   def size: IO[Int] = IO(live.size)
@@ -106,15 +131,17 @@ private[runtime] final class RenderCache(
 
 private[runtime] object RenderCache {
 
-  /** A node id alone is not enough: the same node renders differently for
-    * different inputs, and both together are what one entry describes.
+  /** One node's current generation: the bytes, and the inputs they are for.
+    * Carrying the inputs is what makes a stale generation detectable rather
+    * than needing its own key.
     */
-  type Key = (NodeId, RenderInputs)
-
-  private type Slot = Deferred[IO, Either[Throwable, NodeBytes]]
+  private[runtime] case class Entry(
+      inputs: RenderInputs,
+      slot: Deferred[IO, Either[Throwable, NodeBytes]]
+  )
 
   def create: IO[RenderCache] =
-    IO(new ConcurrentHashMap[Key, Slot]()).map(chm =>
+    IO(new ConcurrentHashMap[NodeId, Entry]()).map(chm =>
       new RenderCache(MapRef.fromConcurrentHashMap(chm), chm)
     )
 }

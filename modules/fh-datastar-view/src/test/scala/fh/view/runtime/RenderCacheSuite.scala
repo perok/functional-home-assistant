@@ -20,10 +20,9 @@ import scala.concurrent.duration.*
   */
 class RenderCacheSuite extends munit.FunSuite {
 
-  private val key: RenderCache.Key =
-    ("c_0": NodeId, RenderInputs(Map("sensor.t" -> 1L), Map.empty))
-  private val other: RenderCache.Key =
-    ("c_0": NodeId, RenderInputs(Map("sensor.t" -> 2L), Map.empty))
+  private val id: NodeId = "c_0"
+  private val v1 = RenderInputs(Map("sensor.t" -> 1L), Map.empty)
+  private val v2 = RenderInputs(Map("sensor.t" -> 2L), Map.empty)
 
   /** A render that counts its runs and blocks until the test releases it — so
     * waiters genuinely pile up behind a producer rather than arriving after it
@@ -40,7 +39,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>x</b>")
     val out = (for {
       cache <- RenderCache.create
-      fibers <- List.fill(5)(cache(key)(g.render)).parSequence.start
+      fibers <- List.fill(5)(cache(id, v1)(g.render)).parSequence.start
       _ <- IO.sleep(150.millis) *> IO(g.release())
       got <- fibers.joinWithNever
     } yield got).timeout(10.seconds).unsafeRunSync()
@@ -54,8 +53,8 @@ class RenderCacheSuite extends munit.FunSuite {
     val runs = new AtomicInteger(0)
     val (a, b, n) = (for {
       cache <- RenderCache.create
-      a <- cache(key) { runs.incrementAndGet(); "<i>1</i>" }
-      b <- cache(key) { runs.incrementAndGet(); "<i>2</i>" }
+      a <- cache(id, v1) { runs.incrementAndGet(); "<i>1</i>" }
+      b <- cache(id, v1) { runs.incrementAndGet(); "<i>2</i>" }
       n <- cache.size
     } yield (a, b, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -66,17 +65,44 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(n, 1)
   }
 
-  test("different inputs for one node are different entries") {
-    val (a, b, n) = (for {
+  test("new inputs REPLACE a node's entry rather than adding one") {
+    // The bound that makes this safe to leave running for days: the shared pass
+    // selects exactly the nodes whose entity just moved, so every batch brings
+    // new inputs. Keyed by (node, inputs) this map would grow forever, for hits
+    // that never come.
+    val (a, b, sizes) = (for {
       cache <- RenderCache.create
-      a <- cache(key)("<i>1</i>")
-      b <- cache(other)("<i>2</i>")
-      n <- cache.size
-    } yield (a.html, b.html, n)).timeout(10.seconds).unsafeRunSync()
+      a <- cache(id, v1)("<i>1</i>")
+      n1 <- cache.size
+      b <- cache(id, v2)("<i>2</i>")
+      n2 <- cache.size
+    } yield (a.html, b.html, (n1, n2))).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(a, "<i>1</i>")
     assertEquals(b, "<i>2</i>")
-    assertEquals(n, 2)
+    assertEquals(sizes, (1, 1))
+  }
+
+  test("a superseded generation does not evict the one that replaced it") {
+    // A slow render that FAILS while a newer generation has already taken the
+    // node. Evicting on the strength of that stale failure would drop a live
+    // entry — hence the identity check before removing.
+    val g = new Gated("unused")
+    val (n, html) = (for {
+      cache <- RenderCache.create
+      doomed <- cache(id, v1) {
+        val _ = g.render; throw new RuntimeException("late")
+      }.attempt.start
+      _ <- IO.sleep(100.millis)
+      _ <- cache(id, v2)("<i>current</i>")
+      _ <- IO(g.release())
+      _ <- doomed.joinWithNever
+      n <- cache.size
+      still <- cache(id, v2)("never runs")
+    } yield (n, still.html)).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(n, 1)
+    assertEquals(html, "<i>current</i>")
   }
 
   test("a failed render reaches its waiters instead of stranding them") {
@@ -85,9 +111,9 @@ class RenderCacheSuite extends munit.FunSuite {
     val (results, n) = (for {
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
-      producer <- cache(key) { val _ = g.render; throw boom }.attempt.start
+      producer <- cache(id, v1) { val _ = g.render; throw boom }.attempt.start
       waiters <- List
-        .fill(4)(cache(key)("never runs").attempt)
+        .fill(4)(cache(id, v1)("never runs").attempt)
         .parSequence
         .start
       _ <- IO.sleep(150.millis) *> IO(g.release())
@@ -106,8 +132,8 @@ class RenderCacheSuite extends munit.FunSuite {
   test("the next caller after a failure renders again and succeeds") {
     val out = (for {
       cache <- RenderCache.create
-      _ <- cache(key)(throw new RuntimeException("transient")).attempt
-      good <- cache(key)("<b>recovered</b>")
+      _ <- cache(id, v1)(throw new RuntimeException("transient")).attempt
+      good <- cache(id, v1)("<b>recovered</b>")
     } yield good.html).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(out, "<b>recovered</b>")
@@ -117,14 +143,14 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>survived</b>")
     val (out, again, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(key)(g.render).start
-      waiter <- cache(key)("never runs").start
+      producer <- cache(id, v1)(g.render).start
+      waiter <- cache(id, v1)("never runs").start
       _ <- IO.sleep(150.millis)
       _ <- waiter.cancel
       _ <- IO(g.release())
       p <- producer.joinWithNever
       // The cancelled waiter must not have taken the entry with it.
-      again <- cache(key)("never runs either")
+      again <- cache(id, v1)("never runs either")
       n <- cache.size
     } yield (p.html, again.html, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -142,8 +168,8 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>finished anyway</b>")
     val (waited, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(key)(g.render).start
-      waiter <- cache(key)("never runs").start
+      producer <- cache(id, v1)(g.render).start
+      waiter <- cache(id, v1)("never runs").start
       _ <- IO.sleep(150.millis)
       _ <- producer.cancel.start
       _ <- IO.sleep(50.millis) *> IO(g.release())

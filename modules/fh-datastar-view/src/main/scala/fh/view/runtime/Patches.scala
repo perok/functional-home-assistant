@@ -413,10 +413,8 @@ private[runtime] object Patches {
       if (!membersNow(gid).contains(entityId)) IO.pure(None)
       else
         cache(
-          (
-            renderer.dynamicChildId(gid, entityId),
-            renderer.dynamicChildInputs(gid, entityId, states)
-          )
+          renderer.dynamicChildId(gid, entityId),
+          renderer.dynamicChildInputs(gid, entityId, states)
         )(mustRender(renderer.renderDynamicChild(gid, entityId, states), gid))
           .map(b => Some(b.html))
 
@@ -477,7 +475,7 @@ private[runtime] object Patches {
       // uncached rather than cached wrongly.
       case None         => IO(renderer.renderNodeById(id, states))
       case Some(inputs) =>
-        cache((id, inputs))(
+        cache(id, inputs)(
           mustRender(renderer.renderNodeById(id, states), id)
         ).map(b => Some(b.html))
     }
