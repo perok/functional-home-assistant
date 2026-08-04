@@ -66,11 +66,6 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   private val empty = FragmentLog("test")
 
-  /** Wall clock equal to the version, so nothing in these fixtures ages out —
-    * retention is [[FragmentLogSuite]]'s subject, not this one's.
-    */
-  private def at(v: Long): Stamp = Stamp(v, v)
-
   test("a placement removes then inserts, anchored on the next member") {
     // light.b is placed; a is before it and c is after, so it goes before c. The
     // paired remove is what makes this idempotent in any client DOM.
@@ -78,7 +73,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.b"),
       cid("light.b"),
-      at(5L)
+      5L
     )
     val out = resume(log, 1L)
     assertEquals(out.size, 2, clue = out)
@@ -94,7 +89,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.d"),
       cid("light.d"),
-      at(5L)
+      5L
     )
     val out = resume(log, 1L)
     assert(out(1).contains("mode append"), clue = out(1))
@@ -106,8 +101,8 @@ class ResumePatchesSuite extends munit.FunSuite {
     // descending places c (anchored on the present d) and then b (anchored on
     // the just-placed c).
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), at(5L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), at(6L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 4, clue = out)
     assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
@@ -119,8 +114,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("placement order depends on position, not on version") {
     // Same as above with the versions swapped: position, not recency, decides.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), at(9L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), at(2L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 9L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 2L)
     val out = resume(log, 1L)
     assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
     assert(out(3).contains(s"""id="${cid("light.b")}""""), clue = out)
@@ -129,7 +124,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("morphs precede mutations") {
     // Content goes first and the structural fixups land on top of it.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), at(5L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
       .touched(cid("light.a"), 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 3, clue = out)
@@ -157,7 +152,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.zz"),
       "c_light_zz",
-      at(5L)
+      5L
     )
     assertEquals(resume(log, 1L), Nil)
   }
@@ -169,7 +164,7 @@ class ResumePatchesSuite extends munit.FunSuite {
     // stale one planted by hand is not merely harmless but unresolvable: it
     // renders to nothing and drops out, while the placement still goes.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), at(5L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
       .touched("c", 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 2, clue = out)
@@ -211,8 +206,8 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("a cursor past everything is owed nothing") {
     val log = empty
-      .removed("c", cid("light.b"), at(4L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), at(5L))
+      .removed("c", cid("light.b"), 4L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 5L)
       .touched("other", 6L)
     assertEquals(resume(log, 7L), Nil)
   }

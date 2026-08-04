@@ -3,8 +3,6 @@ package fh.view.runtime
 import fh.view.build.LibPackage
 import fh.view.model.NodeId
 
-import scala.concurrent.duration.*
-
 /** A 128-bit content digest.
   *
   * Not `String.hashCode`: a collision here does not cost a redundant send, it
@@ -22,28 +20,6 @@ private[runtime] object Digest {
     LibPackage.sha256(html.getBytes("UTF-8")).take(32)
 }
 
-/** One value rather than two `Long`s at every call site, which is how they get
-  * swapped.
-  *
-  *   - `version` ORDERS everything, and is the only clock any correctness
-  *     argument rests on.
-  *   - `millis` is wall clock, used ONLY to age mutations out
-  *     ([[FragmentLog.Retention]]). Mixing the two into one ordering is what
-  *     ruled out HA's `last_updated` as the cursor
-  *     (docs/adr/0011-the-live-connection.md).
-  */
-private[runtime] case class Stamp(version: Long, millis: Long)
-
-private[runtime] object FragmentLog {
-
-  /** Sized by how long a client can be away and still be worth resuming: a
-    * backgrounded phone tab is minutes to hours, past which a body repaint is
-    * the honest answer. Exceeding it costs that repaint, never correctness —
-    * see [[FragmentLog.horizon]].
-    */
-  val Retention: FiniteDuration = 1.hour
-}
-
 /** Which kind decides how a resume replays the member: an entity's card is a
   * per-member delta that must preserve its siblings, where a branch is one
   * `Inner` over a mount holding exactly one thing.
@@ -57,9 +33,9 @@ private[runtime] enum MemberKey {
   * cannot be both: two maps make that state representable and turn every
   * leave-then-rejoin into a special case. Latest wins.
   */
-private[runtime] enum Mutation(val at: Stamp, val container: NodeId) {
+private[runtime] enum Mutation(val version: Long, val container: NodeId) {
 
-  case Gone(in: NodeId, stamp: Stamp) extends Mutation(stamp, in)
+  case Gone(in: NodeId, at: Long) extends Mutation(at, in)
 
   /** The element belongs at its CURRENT position, wherever (or whether) the
     * client currently has it. Carries the container and the [[MemberKey]]
@@ -70,14 +46,7 @@ private[runtime] enum Mutation(val at: Stamp, val container: NodeId) {
     * An arrival and a re-ordering are the same thing here, which is why an
     * author-chosen member sort needs no new case.
     */
-  case Placed(in: NodeId, member: MemberKey, stamp: Stamp)
-      extends Mutation(stamp, in)
-
-  /** The only clock a resume compares against. */
-  def version: Long = at.version
-
-  /** Retention only; orders nothing. */
-  def millis: Long = at.millis
+  case Placed(in: NodeId, member: MemberKey, at: Long) extends Mutation(at, in)
 }
 
 /** `refill` names containers whose membership history no longer reaches back to
@@ -101,7 +70,13 @@ private[runtime] case class Resume(
   * evict it, so it accumulates one entry per entity that has EVER been a member
   * of any group, growing with elapsed time rather than dashboard size. A
   * `dynamic` group over "every light that is on" will, over a week, name every
-  * light in the house. Hence [[FragmentLog.Retention]] and [[horizon]].
+  * light in the house. Hence [[pruned]] and [[horizon]].
+  *
+  * '''Nothing here reads a clock.''' A version orders everything, and it is the
+  * only clock any correctness argument rests on — which is what ruled out HA's
+  * `last_updated` as the cursor (docs/adr/0011-the-live-connection.md). What a
+  * wall clock used to decide (when a mutation is too old to keep) is now
+  * decided by what live sessions can still ask for.
   */
 private[runtime] case class FragmentLog(
     id: String,
@@ -138,12 +113,56 @@ private[runtime] case class FragmentLog(
 
   /** This version went by unrecorded, because nobody was watching this slug.
     *
-    * Monotone, and it is the ONLY thing a skipped frame costs: the maps stop
-    * growing while a dashboard is unwatched, and what they still hold is not
-    * wrong, merely older than the store.
+    * '''It also drops the history, and that is not an optimisation bolted on —
+    * it follows.''' After a skip, [[reaches]] refuses every cursor at or below
+    * it, so no client can still be answered with a delta reaching back through
+    * one; and any session that registers later has a position at least as high
+    * as the skip ([[Server.recordFrame]]'s ordering argument), so no live
+    * puller needs it either. Every entry below is therefore unreachable, and
+    * holding a dashboard's mutation history for the days it sits unwatched buys
+    * nothing.
+    *
+    * What is left is one number, which is why an idle instance costs nothing to
+    * keep recording-capable.
     */
   def skipped(version: Long): FragmentLog =
-    copy(completeFrom = math.max(completeFrom, version + 1))
+    if (completeFrom > version) this
+    else
+      FragmentLog(id = id, completeFrom = version + 1)
+
+  /** Forget every mutation no live session can still ask for.
+    *
+    * `floor` is the lowest `position` among this slug's sessions — how far
+    * behind the slowest one is. Where the old rule was a wall clock ("keep an
+    * hour"), this is exact: a mutation below the floor cannot appear in any
+    * resume any session will ever run.
+    *
+    * Dropping one still raises its container's [[horizon]], because a CLIENT
+    * cursor is not bounded by the floor — a client returning after its session
+    * was reaped can present anything, and must get that mount refilled rather
+    * than silence.
+    *
+    * `fragments` is deliberately untouched: it holds one entry per node that
+    * currently exists, not a history, so there is nothing in it to age out.
+    */
+  def pruned(floor: Long): FragmentLog = {
+    val (stale, fresh) = mutations.partition { case (_, m) =>
+      m.version < floor
+    }
+    if (stale.isEmpty) this
+    else
+      copy(
+        mutations = fresh,
+        // Each container is complete only from just after the newest thing
+        // forgotten about IT — one group being pruned says nothing about any
+        // other.
+        horizon = stale.values.foldLeft(horizon) { (h, m) =>
+          h.updatedWith(m.container)(prev =>
+            Some(math.max(prev.getOrElse(0L), m.version + 1))
+          )
+        }
+      )
+  }
 
   /** Whether a client complete through `v` can be brought up to date from this
     * log alone.
@@ -167,7 +186,7 @@ private[runtime] case class FragmentLog(
     * past this version, which is how [[since]] turns any older cursor into a
     * refill.
     *
-    * `at + 1`, matching [[evicting]]: a cursor is complete only from just after
+    * `at + 1`, matching [[pruned]]: a cursor is complete only from just after
     * the version whose detail was discarded — and a session pulling THIS
     * version asks with `v = at`, so `v < h` has to still be true for it.
     */
@@ -192,47 +211,25 @@ private[runtime] case class FragmentLog(
       mutations = mutations.filterNot { case (k, _) => p(k) }
     )
 
-  /** `container` rides along so eviction knows whose history it just made
-    * incomplete.
+  /** `container` rides along so [[pruned]] knows whose history a dropped
+    * mutation made incomplete.
     */
-  def removed(container: NodeId, nodeId: NodeId, stamp: Stamp): FragmentLog =
+  def removed(container: NodeId, nodeId: NodeId, at: Long): FragmentLog =
     copy(
       fragments = fragments - nodeId,
-      mutations = mutations.updated(nodeId, Mutation.Gone(container, stamp))
-    ).evicting(stamp.millis)
+      mutations = mutations.updated(nodeId, Mutation.Gone(container, at))
+    )
 
   def placed(
       container: NodeId,
       member: MemberKey,
       nodeId: NodeId,
-      stamp: Stamp
+      at: Long
   ): FragmentLog =
     copy(
       mutations =
-        mutations.updated(nodeId, Mutation.Placed(container, member, stamp))
-    ).evicting(stamp.millis)
-
-  /** `now` is passed in rather than read from a clock, keeping the log pure;
-    * the caller reads the clock once per diff, with the snapshot.
-    */
-  private def evicting(now: Long): FragmentLog = {
-    val cutoff = now - FragmentLog.Retention.toMillis
-    val (stale, fresh) = mutations.partition { case (_, m) =>
-      m.millis < cutoff
-    }
-    if (stale.isEmpty) this
-    else
-      copy(
-        mutations = fresh,
-        // Each container is complete only from just after the newest thing
-        // forgotten about IT — one group aging out says nothing about any other.
-        horizon = stale.values.foldLeft(horizon) { (h, m) =>
-          h.updatedWith(m.container)(prev =>
-            Some(math.max(prev.getOrElse(0L), m.version + 1))
-          )
-        }
-      )
-  }
+        mutations.updated(nodeId, Mutation.Placed(container, member, at))
+    )
 
   /** Whether a mutation in `moved` is re-supplying an ANCESTOR of `nodeId`, and
     * so carries it already. Without this, a [[Mutation.Placed]] re-supplies a

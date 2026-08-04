@@ -132,8 +132,8 @@ Each one lands on its own and keeps the suites green.
      contract can come to depend on what an earlier test rendered. The real server is the only place
      one is shared, which is also the only place the sharing is the point.
 
-4. **Session lifetime.** ~~Linger after disconnect~~ and ~~gating recording on a slug having
-   sessions~~ **landed**; the staleness bound that releases the floor is what is left. ~~Displacement of a second live
+4. ~~**Session lifetime.**~~ **Landed** — linger after disconnect, gating recording on a slug having
+   sessions, and the floor that releases the changelog. ~~Displacement of a second live
    stream~~ landed with the document-creates-the-session step, which is what first made two streams
    able to reach one session.
 
@@ -144,6 +144,20 @@ Each one lands on its own and keeps the suites green.
    now names the tenure it expects to replace and decides on the same ref, so the loser sees the
    winner's answer. Two reapers (a document nobody connected to, a stream that ended) became one
    `Server.reapAfter`, differing only in which tenure they wait on.
+
+   The floor turned out to be smaller than its write-up: `Sessions.floor(slug)` is the lowest
+   `position` among a slug's sessions, `FragmentLog.pruned(floor)` is the old `evicting` with a
+   version predicate instead of a wall-clock one, and it runs in the same `log.update` as the
+   record. What it cost was `Stamp`, which existed only to keep the two clocks apart — with the
+   wall clock gone there is one clock, so `Stamp` collapsed into the `Long` it was wrapping and
+   `Server.stampNow` went with it. `FragmentLogSuite`'s four retention tests were ported to the
+   floor rather than deleted; their subject (a container being pruned raises only its own horizon)
+   is unchanged.
+
+   One thing followed that the plan had not asked for: **a skip drops the history**. After a skip
+   no cursor at or below it is ever answered with a delta, and any session registering later has a
+   position above it — so every entry below is unreachable, and a dashboard sitting unwatched for
+   days holds one number instead of a mutation per entity that ever matched a group.
 
    The gate needed one thing the plan had not spelled out, and it is an ORDERING rather than a
    structure. `gapFrom` is real (`FragmentLog.completeFrom` + `skipped`/`reaches`, and a cursor

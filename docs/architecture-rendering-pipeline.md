@@ -183,7 +183,7 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
   publish List[StateChange] on `changes`
 
 every slug's recorder wakes
-  read snapshot+version together, wall clock, and sessions.openSets(slug)
+  read snapshot+version together, and sessions.openSets(slug) + floor(slug)
     NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
       stop. A dashboard with no browser on it is the normal state of a home
       instance. Safe only because a document registers its session BEFORE
@@ -219,9 +219,13 @@ keyed by node id: the version it last moved at   // no digests: what a CLIENT
                                                  // holds is the session's answer
   a later write overwrites — latest wins, and a version never goes backwards
 mutations: Gone / Placed per node, latest wins
-pruned by WALL CLOCK: mutations older than FragmentLog.Retention (1h) are evicted
+pruned by the FLOOR: the lowest `position` any live session holds. A mutation
+  below it cannot appear in any resume any session will ever run — exact, where
+  the rule it replaced was a one-hour wall clock
   per-container `horizon` records the version at which its history became incomplete
   -> a cursor below a container's horizon gets a refill instead of a delta
+     (a CLIENT cursor is not bounded by the floor, which is why pruning raises it)
+completeFrom: the whole log going incomplete — see the gap above
 absence means "unknown, send it" — so dropping an entry is ALWAYS safe
 ```
 
@@ -378,8 +382,10 @@ have open would patch an id its DOM lacks — a silent no-op, so it only ever co
 client's worth of another client's tab on every frame. That test (`Renderer.visibleNode` on the
 container) is where the old audience tag's work now happens.
 
-Mutations age out after `FragmentLog.Retention` = 1 hour; a container whose history has aged past a
-client's cursor yields a `refill` rather than a refusal.
+Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
+sessions); a container whose history has been pruned past a client's cursor yields a `refill` rather
+than a refusal. **Nothing in the log reads a clock** — a version orders everything, and the only
+thing wall time still decides is how long a session lingers.
 
 ---
 

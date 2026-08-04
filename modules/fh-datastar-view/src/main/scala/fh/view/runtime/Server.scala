@@ -392,8 +392,8 @@ class Server(
       log: Ref[IO, FragmentLog],
       changes: List[StateChange]
   ): IO[Long] =
-    (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
-      (store, millis, opens) =>
+    (stateStore.current, sessions.openSets(slug), sessions.floor(slug))
+      .flatMapN { (store, opens, floor) =>
         if (opens.isEmpty)
           log.update(_.skipped(store.version)).as(store.version)
         else {
@@ -410,13 +410,21 @@ class Server(
           val req = Patches.plan(
             renderer,
             store.entities,
-            Stamp(store.version, millis),
+            store.version,
             changes,
             visible
           )
-          log.update(Patches.record(renderer, _, req)).as(store.version)
+          // Written and pruned in ONE update, so the log a session reads is
+          // never one where this frame has landed but the stale history it
+          // makes prunable is still there — and, more to the point, so a
+          // concurrent write cannot be lost between two of them.
+          log
+            .update(l =>
+              floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
+            )
+            .as(store.version)
         }
-    }
+      }
 
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
     * patches (filtered to what this client can see, with any [[Varying]]
@@ -1365,13 +1373,6 @@ class Server(
 }
 
 object Server {
-
-  /** Wall clock for a [[Stamp]] — read once per diff pass, and used ONLY to age
-    * [[Mutation]]s out of a [[FragmentLog]]. Nothing is ordered by it, so a
-    * clock step (NTP, a suspended host waking) can widen or narrow a retention
-    * window but cannot corrupt a cursor comparison.
-    */
-  private[runtime] val stampNow: IO[Long] = IO.realTime.map(_.toMillis)
 
   /** One slug's live state: the hot-swappable renderer and the fragment log its
     * cursors are valid for. ONE value rather than two slug-keyed maps, because

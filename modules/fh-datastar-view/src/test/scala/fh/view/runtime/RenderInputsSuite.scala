@@ -288,7 +288,7 @@ class RenderInputsSuite extends munit.FunSuite {
       StateChange("sensor.t", Some(line(0)("sensor.t")), line(1)("sensor.t"))
     )
     val req =
-      Patches.plan(renderer, line(1), Stamp(1L, 0L), changes, Set.empty)
+      Patches.plan(renderer, line(1), 1L, changes, Set.empty)
 
     val (first, second, sizes) = (for {
       cache <- RenderCache.create

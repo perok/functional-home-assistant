@@ -173,6 +173,18 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
   def forSlug(slug: String): IO[List[Session]] =
     ref.get.map(_.values.filter(_.slug == slug).toList)
 
+  /** How far behind `slug`'s slowest session is, or `None` when nothing is
+    * watching it. The changelog below this describes changes no session can
+    * still ask for ([[FragmentLog.pruned]]).
+    *
+    * A session that has just been registered but whose document has not
+    * finished rendering reads `0` and pins the floor there for the length of
+    * one page render. That is the safe direction — it keeps history nobody
+    * needs, where the other way round would drop history someone does.
+    */
+  def floor(slug: String): IO[Option[Long]] =
+    forSlug(slug).flatMap(_.traverse(_.position.get)).map(_.minOption)
+
   /** Each connection's open set SEPARATELY, because visibility is a property of
     * one client's chain of selections: a surface is only really on screen if
     * everything containing it is, and that is answered against the same

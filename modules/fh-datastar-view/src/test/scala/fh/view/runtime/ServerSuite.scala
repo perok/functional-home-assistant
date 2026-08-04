@@ -2169,15 +2169,64 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     } yield {
       assert(recorded.nonEmpty, clue = recorded)
+      // Nothing written — and the history that frame made unreachable dropped
+      // with it, since no cursor below a gap is ever answered with a delta.
       assertEquals(
         unrecorded,
-        recorded,
-        clue = "a frame nobody was watching writes nothing"
+        Map.empty[NodeId, Long],
+        clue = "a frame nobody was watching writes nothing, and forgets"
       )
       assert(opening.contains(BodyRepaint), clue = opening)
       // And it is a repaint that carries the value it missed, not a stale one.
       assert(opening.contains(">warm<"), clue = opening)
     }
+  }
+
+  /** The changelog's only unbounded part is its mutations — a `Gone` for a
+    * member that never returns has nothing to remove it. What removes them is
+    * the FLOOR: the lowest position any live session holds, so a mutation below
+    * it cannot appear in any resume any session will ever run. Exact, where the
+    * rule it replaced was a one-hour wall clock.
+    */
+  test("recording prunes what no live session can still ask for") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            // One viewer, served through version 7.
+            session <- Session.create("dashboard")
+            _ <- session.position.set(7L)
+            _ <- sessions.register("conn", session)
+            live <- server.liveSlug("dashboard")
+            // Two members left the group, one long before that viewer's
+            // position and one after it.
+            _ <- live.log.update(
+              _.removed("c", "c_old", 2L).removed("c", "c_new", 9L)
+            )
+            renderer <- ref.get
+            _ <- server.recordFrame("dashboard", renderer, live.log, Nil)
+            log <- live.log.get
+          } yield log
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { log =>
+        assertEquals(log.mutations.keySet, Set[NodeId]("c_new"))
+        // Dropped, not silently lost: a CLIENT cursor is not bounded by the
+        // floor, so one below this gets that mount refilled.
+        assertEquals(log.since(2L).refill, List[NodeId]("c"))
+      }
   }
 
   test("every doubt about the cursor falls back to the full body repaint") {

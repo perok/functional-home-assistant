@@ -159,11 +159,10 @@ private[runtime] object Patches {
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      // When `states` was read (see [[Stamp]]), applied to every fragment and
-      // mutation this request records. The version is read atomically WITH the
-      // snapshot, so a fragment can never claim a version its HTML does not
-      // reflect.
-      stamp: Stamp
+      // The store version `states` was read at, applied to every fragment and
+      // mutation this request records. Read atomically WITH the snapshot, so a
+      // fragment can never claim a version its HTML does not reflect.
+      at: Long
   )
 
   /** The snapshot as it was BEFORE this FRAME — the current snapshot with every
@@ -216,7 +215,7 @@ private[runtime] object Patches {
   def plan(
       renderer: Renderer,
       states: Map[String, EntityState],
-      stamp: Stamp,
+      at: Long,
       changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
@@ -254,7 +253,7 @@ private[runtime] object Patches {
       changes,
       states,
       before,
-      stamp
+      at
     )
   }
 
@@ -273,7 +272,7 @@ private[runtime] object Patches {
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      stamp: Stamp
+      at: Long
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
     val (varying, shared) = staticIds.partition(renderer.nodeVariesByViewer)
@@ -285,7 +284,7 @@ private[runtime] object Patches {
       changes,
       states,
       before,
-      stamp
+      at
     )
   }
 
@@ -418,7 +417,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       req: DiffRequest
   ): FragmentLog = {
-    val at = req.stamp
+    val at = req.at
     // Flips first: their prune must precede anything that could be suppressed
     // against a pre-flip entry.
     val afterFlips = req.flips.foldLeft(log) { case (l, (gid, _)) =>
@@ -427,7 +426,7 @@ private[runtime] object Patches {
     // A varying node is no longer a kind of its own here: its version moves like
     // any other, and the per-viewer render happens where the viewer is.
     val afterNodes = (req.staticIds ++ req.varyingIds).foldLeft(afterFlips) {
-      case (l, (id, _)) => l.touched(id, at.version)
+      case (l, (id, _)) => l.touched(id, at)
     }
     req.dynamics.foldLeft(afterNodes) { case (l, (gid, _, touched)) =>
       recordDynamic(renderer, l, gid, touched, req.before, req.states, at)
@@ -444,7 +443,7 @@ private[runtime] object Patches {
       gid: NodeId,
       before: Map[String, EntityState],
       states: Map[String, EntityState],
-      at: Stamp
+      at: Long
   ): FragmentLog = {
     def memberAt(snapshot: Map[String, EntityState]): Option[String] =
       renderer
@@ -491,16 +490,14 @@ private[runtime] object Patches {
       touched: List[String],
       before: Map[String, EntityState],
       states: Map[String, EntityState],
-      at: Stamp
+      at: Long
   ): FragmentLog = {
     val was = renderer.dynamicMembers(gid, before)
     val now = renderer.dynamicMembers(gid, states)
     if (was == now)
       touched
         .filter(now.contains)
-        .foldLeft(log)((l, e) =>
-          l.touched(renderer.dynamicChildId(gid, e), at.version)
-        )
+        .foldLeft(log)((l, e) => l.touched(renderer.dynamicChildId(gid, e), at))
     else {
       val nowSet = now.toSet
       val added = now.filterNot(was.toSet)
@@ -513,8 +510,8 @@ private[runtime] object Patches {
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
         // raises the horizon past another cursor.
-        now.foldLeft(log.filled(gid, at.version))((l, e) =>
-          l.touched(renderer.dynamicChildId(gid, e), at.version)
+        now.foldLeft(log.filled(gid, at))((l, e) =>
+          l.touched(renderer.dynamicChildId(gid, e), at)
         )
       else {
         val afterRemoves = removed.foldLeft(log)((l, e) =>
@@ -526,7 +523,7 @@ private[runtime] object Patches {
           // but the fragment entry is what keeps the group ESTABLISHED for the
           // next membership change. `since` reports a resupplied node once, so
           // this adds no patch.
-          l.placed(gid, MemberKey.Entity(e), cid, at).touched(cid, at.version)
+          l.placed(gid, MemberKey.Entity(e), cid, at).touched(cid, at)
         }
       }
     }
