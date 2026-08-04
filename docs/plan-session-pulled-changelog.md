@@ -24,10 +24,24 @@ Each one lands on its own and keeps the suites green.
    `Patches.prepare` renders through it. Behaviour-neutral: every suite asserting on emitted SSE
    output passed untouched. `Memo.keyed` is NOT yet retired — it serves `Varying`, which phase 3
    removes. See "What the cache turned out to need" below.
-2. **Per-session `holds`.** Move the "worth sending?" decision off the shared log onto the session.
-   Still push. `established` becomes per-client here, so patch shape may differ between clients.
-3. **The pull loop.** Reduce the log to the changelog, add the per-slug `SignallingRef` wake-up,
-   sessions pull. Retire `sharedTopic`, `Varying`/`Pending` and the flip's deferred render.
+2+3. **Per-session `holds`, and the pull loop.** Taken as ONE change, deliberately: the end-state
+   architecture is easier to review than the intermediate, where a per-session decision still feeds
+   a shared push. Move the "worth sending?" decision off the shared log onto the session
+   (`established` becomes per-client, so patch shape may legitimately differ between clients);
+   reduce the log to the changelog; add the per-slug `SignallingRef` wake-up; sessions pull. Retire
+   `sharedTopic`, `Varying`/`Pending`/`Memo` and the flip's deferred render.
+
+   Landing in steps, each green:
+   - ~~Merge and encode per connection, not per slug~~ — `Addressed` carries a `Patch`, `Encoded`
+     splits off for the resume cursor, the topic carries batches, `Patches.encode` folds and
+     encodes inside the connection's stream. Merging must not bake one client's filters into
+     everyone's bytes, so it has to move before the decision does.
+   - ~~`Addressed` carries `establishes: Map[NodeId, Digest]`~~ — what a patch's bytes put in the
+     DOM, at every producing site. Nothing reads it yet; the shared log still knows. It is the
+     handle a per-session `holds` needs, since after the split the only thing that can tell a
+     session what it just sent is the patch it sent.
+   - `Session` gains `holds` + `position`; the send path decides against its own `holds`.
+   - The publisher stops rendering and pushing.
 4. **Session lifetime.** Linger after disconnect, displacement of a second live stream, the
    staleness bound that releases the floor. Gate recording on a slug having sessions.
 5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.
@@ -613,3 +627,10 @@ Worth recording so they are not re-invented as work:
 - **Ordering across sessions.** Sessions render on their own fibers and can sit at different
   positions. Nothing above depends on them agreeing, but that should be stated as an invariant
   rather than assumed.
+- **What a session FORGETS.** `Addressed.establishes` says what a patch's bytes place; nothing yet
+  says what a `Patch.Remove` takes away, or what a fill INVALIDATES beyond the members it re-places
+  (today `fillGroup` prunes the whole `gid_` prefix before re-stamping). Both are recorded in the
+  shared log today as removals/prunes rather than as anything the patch carries. Per-session `holds`
+  needs one of the two: either the patch carries an invalidation set alongside `establishes`, or the
+  session derives it from the changelog's mutations. Decide when `holds` lands, not before — the
+  answer depends on whether a session reads the mutations at all.

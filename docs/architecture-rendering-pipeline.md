@@ -221,7 +221,7 @@ flowchart TB
   VAR --> PEND["Pending — deferred<br/>one render per DISTINCT selection,<br/>forced only if a connection holds it"]
   PEND --> VARY["Varying, resolved per connection"]
 
-  STATW --> OUT["Addressed: ready bytes, fanned out"]
+  STATW --> OUT["Addressed: a Patch, its tag, and<br/>what its bytes establish (nodeId -&gt; digest)<br/>encoded per CONNECTION, not here"]
   TICK --> OUT
   FILL --> OUT
   DELTA --> OUT

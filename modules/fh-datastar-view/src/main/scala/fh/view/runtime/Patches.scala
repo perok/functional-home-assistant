@@ -51,10 +51,23 @@ private[runtime] enum Patch:
   * lacks is a silent no-op, so the filter can only ever cost bytes. That
   * asymmetry is why anything the renderer cannot attribute to a user-selected
   * surface stays untagged.
+  *
+  * `establishes` is what this patch's BYTES put in the client's DOM: one entry
+  * per node the patch renders, digest included. Today the shared
+  * [[FragmentLog]] already knows — [[Patches.diff]] wrote it in the same step
+  * that produced the patch — so nothing reads this yet. It is here because that
+  * ceases to be true one step from now: when a session decides against its OWN
+  * `holds` rather than the shared log, the only thing that can tell it what it
+  * just sent is the patch it sent (docs/plan-session-pulled-changelog.md).
+  *
+  * Placements only. A [[Patch.Remove]] establishes nothing, and what a session
+  * should FORGET on one is a separate question from what it now holds — see the
+  * plan's open questions.
   */
 private[runtime] case class Addressed(
     surface: Option[String],
-    patch: Patch
+    patch: Patch,
+    establishes: Map[NodeId, Digest] = Map.empty
 ) extends Directed
 
 /** Something already in wire form, and so never merged with anything: the
@@ -549,7 +562,7 @@ private[runtime] object Patches {
     // decided once — where the node was SELECTED — and never re-derived.
     val (logAfterFlips, flipPatches, flipPending) =
       req.flips.foldLeft(
-        (log, List.empty[(Option[String], Patch)], List.empty[Pending])
+        (log, List.empty[Addressed], List.empty[Pending])
       ) { case ((c, acc, deferred), (gid, surface)) =>
         val (c2, ps, pending) =
           flipStateGroup(
@@ -561,33 +574,32 @@ private[runtime] object Patches {
             req.states,
             at
           )
-        (
-          c2,
-          acc ++ ps.map(surface -> _),
-          deferred ++ pending
-        )
+        (c2, acc ++ ps, deferred ++ pending)
       }
     val rendered =
       req.staticIds.flatMap { case (id, surface) =>
         renders.node(id).map(bytes => (id, surface, bytes))
       }
     val (logAfterStatic, staticPatches) =
-      rendered.foldLeft((logAfterFlips, List.empty[(Option[String], Patch)])) {
+      rendered.foldLeft((logAfterFlips, List.empty[Addressed])) {
         case ((c, acc), (id, surface, bytes)) =>
           if (c.holds(id, bytes.digest)) (c, acc)
           else
             (
               c.set(id, bytes.digest, at.version),
-              acc :+ (surface, Patch.Morph(bytes.html))
+              acc :+ Addressed(
+                surface,
+                Patch.Morph(bytes.html),
+                Map(id -> bytes.digest)
+              )
             )
       }
     val (finalLog, dynPatches) =
-      req.dynamics.foldLeft(
-        (logAfterStatic, List.empty[(Option[String], Patch)])
-      ) { case ((c, acc), (gid, surface, touched)) =>
-        val (c2, ps) =
-          renderDynamicGroup(renders, c, gid, touched, at)
-        (c2, acc ++ ps.map(surface -> _))
+      req.dynamics.foldLeft((logAfterStatic, List.empty[Addressed])) {
+        case ((c, acc), (gid, surface, touched)) =>
+          val (c2, ps) =
+            renderDynamicGroup(renders, c, gid, surface, touched, at)
+          (c2, acc ++ ps)
       }
     // The per-variant renders the shell forces on demand. Described here, next
     // to everything else that decides what goes on the wire.
@@ -605,7 +617,7 @@ private[runtime] object Patches {
     }
     (
       finalLog,
-      addressed(flipPatches ++ staticPatches ++ dynPatches),
+      flipPatches ++ staticPatches ++ dynPatches,
       flipPending ++ pending
     )
   }
@@ -859,30 +871,6 @@ private[runtime] object Patches {
     }
   }
 
-  /** Render a batch's patches to the wire, merging what can share an event.
-    *
-    * A [[Patch.Morph]] carries no selector and no mode — it finds its target by
-    * the id inside its own HTML — so any run of them is one
-    * `datastar-patch-elements` carrying several top-level elements, each
-    * morphed against its own id (pinned in `DatastarMorphContractSuite`). One
-    * HA frame touching a dozen entities is then one event instead of a dozen.
-    *
-    * Two constraints, both load-bearing:
-    *
-    *   - '''Same tag only.''' The tag is what keeps a popup's patch from
-    *     reaching a client without it open. Merging across tags would weld a
-    *     tagged patch to an untagged one and leak it to everybody.
-    *   - '''Adjacent only.''' An [[Patch.Insert]]/[[Patch.Remove]] names its
-    *     own target and cannot join, but it is also a BARRIER: a morph after an
-    *     insert may target the element that insert just created, and reordering
-    *     across it would aim the morph at an id the DOM does not hold yet — a
-    *     silent no-op.
-    */
-  private def addressed(
-      patches: List[(Option[String], Patch)]
-  ): List[Directed] =
-    patches.map { case (tag, p) => Addressed(tag, p) }
-
   /** Combine what a connection is actually sending, then put it on the wire.
     *
     * '''This runs per connection, after its filters, and that is the point.'''
@@ -960,7 +948,7 @@ private[runtime] object Patches {
       before: Map[String, EntityState],
       states: Map[String, EntityState],
       at: Stamp
-  ): (FragmentLog, List[Patch], Option[Pending]) = {
+  ): (FragmentLog, List[Addressed], Option[Pending]) = {
     def memberAt(
         snapshot: Map[String, EntityState]
     ): Option[String] =
@@ -1030,9 +1018,15 @@ private[runtime] object Patches {
               )
             )
           )
-        // No member holds: nothing to render, just the departure.
+        // No member holds: nothing to render, just the departure — which
+        // establishes nothing, since it places no bytes.
         case None =>
-          (logged, branchPatch(renderer, gid, None, departed), None)
+          (
+            logged,
+            branchPatch(renderer, gid, None, departed)
+              .map(Addressed(surface, _)),
+            None
+          )
       }
     }
   }
@@ -1078,26 +1072,40 @@ private[runtime] object Patches {
       renders: Renders,
       log: FragmentLog,
       gid: NodeId,
+      surface: Option[String],
       touched: List[String],
       at: Stamp
-  ): (FragmentLog, List[Patch]) = {
+  ): (FragmentLog, List[Addressed]) = {
     val membersBefore = renders.membersBefore(gid)
     val membersAfter = renders.membersAfter(gid)
     if (membersBefore != membersAfter)
-      renderMembershipChange(renders, log, gid, membersBefore, membersAfter, at)
+      renderMembershipChange(
+        renders,
+        log,
+        gid,
+        surface,
+        membersBefore,
+        membersAfter,
+        at
+      )
     else
-      touched.foldLeft((log, List.empty[Patch])) { case ((c, acc), entityId) =>
-        renders.child(gid, entityId) match {
-          case None        => (c, acc) // not a current member
-          case Some(bytes) =>
-            val cid = renders.renderer.dynamicChildId(gid, entityId)
-            if (c.holds(cid, bytes.digest)) (c, acc)
-            else
-              (
-                c.set(cid, bytes.digest, at.version),
-                acc :+ Patch.Morph(bytes.html)
-              )
-        }
+      touched.foldLeft((log, List.empty[Addressed])) {
+        case ((c, acc), entityId) =>
+          renders.child(gid, entityId) match {
+            case None        => (c, acc) // not a current member
+            case Some(bytes) =>
+              val cid = renders.renderer.dynamicChildId(gid, entityId)
+              if (c.holds(cid, bytes.digest)) (c, acc)
+              else
+                (
+                  c.set(cid, bytes.digest, at.version),
+                  acc :+ Addressed(
+                    surface,
+                    Patch.Morph(bytes.html),
+                    Map(cid -> bytes.digest)
+                  )
+                )
+          }
       }
   }
 
@@ -1161,10 +1169,11 @@ private[runtime] object Patches {
       renders: Renders,
       log: FragmentLog,
       gid: NodeId,
+      surface: Option[String],
       membersBefore: List[String],
       membersAfter: List[String],
       at: Stamp
-  ): (FragmentLog, List[Patch]) = {
+  ): (FragmentLog, List[Addressed]) = {
     val renderer = renders.renderer
     val beforeSet = membersBefore.toSet
     val afterSet = membersAfter.toSet
@@ -1182,18 +1191,18 @@ private[runtime] object Patches {
     // nothing to send and nothing to fill.
     if (churn == 0) (log, Nil)
     else if (!perEntity || !established)
-      fillGroup(renders, log, gid, at)
+      fillGroup(renders, log, gid, surface, at)
     else {
       val (afterRemoves, removePatches) =
-        removed.foldLeft((log, List.empty[Patch])) { case ((c, acc), e) =>
+        removed.foldLeft((log, List.empty[Addressed])) { case ((c, acc), e) =>
           val cid = renderer.dynamicChildId(gid, e)
           (
             c.removed(gid, cid, at),
-            acc :+ Patch.Remove(renderer.elementId(cid))
+            acc :+ Addressed(surface, Patch.Remove(renderer.elementId(cid)))
           )
         }
       val (afterAdds, addPatches) =
-        added.sorted.foldLeft((afterRemoves, List.empty[Patch])) {
+        added.sorted.foldLeft((afterRemoves, List.empty[Addressed])) {
           case ((c, acc), e) =>
             renders.child(gid, e) match {
               case None        => (c, acc) // defensive: not renderable, skip
@@ -1211,7 +1220,7 @@ private[runtime] object Patches {
                 )
                 (
                   c.placed(gid, MemberKey.Entity(e), cid, bytes.digest, at),
-                  acc :+ patch
+                  acc :+ Addressed(surface, patch, Map(cid -> bytes.digest))
                 )
             }
         }
@@ -1240,8 +1249,9 @@ private[runtime] object Patches {
       renders: Renders,
       log: FragmentLog,
       gid: NodeId,
+      surface: Option[String],
       at: Stamp
-  ): (FragmentLog, List[Patch]) = {
+  ): (FragmentLog, List[Addressed]) = {
     val renderer = renders.renderer
     val members = renders.fill(gid)
     // Prune first: a member that LEFT must not keep an entry, and its stale
@@ -1253,10 +1263,16 @@ private[runtime] object Patches {
     (
       stamped,
       List(
-        Patch.Insert(
-          members.map(_._2).mkString,
-          PatchMode.Inner,
-          renderer.mountId(gid)
+        Addressed(
+          surface,
+          Patch.Insert(
+            members.map(_._2.html).mkString,
+            PatchMode.Inner,
+            renderer.mountId(gid)
+          ),
+          // A fill is the one patch that places SEVERAL nodes, which is why
+          // `establishes` is a map rather than a single entry.
+          members.map { case (cid, bytes) => cid -> bytes.digest }.toMap
         )
       )
     )

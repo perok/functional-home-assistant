@@ -1072,6 +1072,25 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(p.contains("selector #c"), clue = p)
       assert(p.contains("""id="c_light_a""""), clue = p)
       assert(!p.contains("""id="c_light_b""""), clue = p)
+      // The payload is the members' MARKUP and nothing else. Asserting an id is
+      // CONTAINED cannot see a wrapper around it: when `renders.fill` started
+      // yielding `NodeBytes`, this line concatenated those instead of their
+      // `.html` and put `NodeBytes(<div id="c_light_a">…,<digest>)` on the wire
+      // — with every containment assertion above still green.
+      assertEquals(
+        p.linesIterator
+          .collect {
+            case l if l.startsWith("data: elements ") =>
+              l.drop("data: elements ".length)
+          }
+          .mkString("\n"),
+        Renderer
+          .create(dynDash)
+          .renderDynamicMembers("c", after)
+          .map(_._2)
+          .mkString,
+        clue = p
+      )
       // The departed member's entry is gone and the surviving one is
       // RE-FINGERPRINTED: the fill re-supplied the mount wholesale, so without
       // that the next live diff would compare against a baseline the client never

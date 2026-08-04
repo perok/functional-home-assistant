@@ -630,7 +630,7 @@ class Server(
                       if (!directed.visibleTo(open)) IO.pure(Option.empty[Step])
                       else
                         directed match {
-                          case Addressed(surface, patch) =>
+                          case Addressed(surface, patch, _) =>
                             IO.pure(Option(Step.Mergeable(surface, patch)))
                           case Encoded(_, event) =>
                             IO.pure(Option(Step.Ready(event)))
