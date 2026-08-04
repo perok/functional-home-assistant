@@ -70,6 +70,17 @@ private[runtime] case class Addressed(
     establishes: Map[NodeId, Digest] = Map.empty
 ) extends Directed
 
+/** One diff pass's output, with the store version it was diffed at.
+  *
+  * The version travels WITH the items rather than as one of them: a session
+  * advances its `position` to what it was just served, and digging that out of
+  * an encoded cursor signal at the end of the list would be reading the wire
+  * format back.
+  */
+private[runtime] case class Batch(version: Long, items: List[Directed]) {
+  def nonEmpty: Boolean = items.nonEmpty
+}
+
 /** Something already in wire form, and so never merged with anything: the
   * resume cursor's signal. Distinct from [[Addressed]] because the difference
   * is exactly whether the send path may still combine it with its neighbour.

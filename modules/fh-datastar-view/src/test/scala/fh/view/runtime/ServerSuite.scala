@@ -54,9 +54,9 @@ class ServerSuite extends munit.CatsEffectSuite {
         log: Ref[IO, FragmentLog],
         changes: List[StateChange]
     ): IO[List[Directed]] =
-      RenderCache.create.flatMap(
-        server.sharedPatches(slug, renderer, log, _, changes)
-      )
+      RenderCache.create
+        .flatMap(server.sharedPatches(slug, renderer, log, _, changes))
+        .map(_.items)
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
   // into it (c_t0 default, c_t1) — the ui-state index selects among them.
@@ -671,6 +671,83 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
     )
   )
+
+  test("a session records what its own connection was actually sent") {
+    // The per-session record is written but not yet read — the shared log still
+    // decides — so nothing else in the suite would notice it drifting from what
+    // the client holds. This is the check that it does not: the digest it keeps
+    // must be the digest of the bytes that went out, and the position must be
+    // the version they were rendered at.
+    val io = for {
+      store <- StateStore.inMemory(
+        Map(
+          "sensor.a" -> EntityState("sensor.a", "a0", Map.empty),
+          "sensor.b" -> EntityState("sensor.b", "b0", Map.empty)
+        )
+      )
+      ref <- SignallingRef[IO].of(Renderer.create(twoLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          server.routes.orNotFound
+            .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+            .flatMap { resp =>
+              resp.body.compile.drain.background.surround {
+                for {
+                  // BOTH subscriptions, and they are different ones: the
+                  // publisher's to the STORE, and this connection's to the
+                  // topic. Waiting only for the latter passes when the suite
+                  // runs alone and loses the update to a not-yet-subscribed
+                  // publisher when it runs under load.
+                  _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+                  _ <- server.sharedSubscribers
+                    .filter(_ >= 1)
+                    .head
+                    .compile
+                    .drain
+                  _ <- store.update(EntityState("sensor.a", "a1", Map.empty))
+                  session <- (IO.sleep(5.millis) *>
+                    sessions.forSlug("dashboard").map(_.headOption))
+                    .iterateUntil(_.isDefined)
+                    .map(_.get)
+                  // The position is advanced AFTER the batch's items are
+                  // recorded, so waiting on it means both are settled — waiting
+                  // on `holds` instead would race the position's write.
+                  at <- (IO.sleep(5.millis) *> session.position.get)
+                    .iterateUntil(_ > 0)
+                  held <- session.holds.get
+                  now <- stateAndRenderer(store, ref)
+                } yield (held, at, now)
+              }
+            }
+        }
+    } yield out
+    io.timeout(30.seconds).map { case (held, at, (version, renderer, states)) =>
+      // Exactly the node that moved — not its untouched sibling, and not the
+      // container, which has no rendering of its own to hold.
+      assertEquals(held.keySet, Set[NodeId]("c_0"), clue = held)
+      assertEquals(
+        held.get("c_0"),
+        renderer.renderNodeById("c_0", states).map(Digest.of),
+        clue = held
+      )
+      assertEquals(at, version)
+    }
+  }
+
+  private def stateAndRenderer(
+      store: StateStore,
+      ref: SignallingRef[IO, Renderer]
+  ): IO[(Long, Renderer, Map[String, EntityState])] =
+    (store.current, ref.get).mapN((s, r) => (s.version, r, s.entities))
 
   test(
     "a change published during the connect handshake still reaches the connection"
@@ -1469,7 +1546,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         registry <- Ref[IO].of(
           Map("dashboard" -> Server.LiveSlug(ref, slugLog))
         )
-        topic <- Topic[IO, (String, List[Directed])]
+        topic <- Topic[IO, (String, Batch)]
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,

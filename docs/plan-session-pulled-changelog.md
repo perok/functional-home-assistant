@@ -40,8 +40,14 @@ Each one lands on its own and keeps the suites green.
      DOM, at every producing site. Nothing reads it yet; the shared log still knows. It is the
      handle a per-session `holds` needs, since after the split the only thing that can tell a
      session what it just sent is the patch it sent.
-   - `Session` gains `holds` + `position`; the send path decides against its own `holds`.
-   - The publisher stops rendering and pushing.
+   - ~~`Session` gains `holds` + `position`~~ — written from `Addressed.establishes` where a
+     connection KEEPS a patch, and from the batch's version once it has encoded one. The topic
+     carries a `Batch(version, items)` so the version travels with the items rather than being read
+     back out of an encoded cursor signal. Still not read: the shared log decides. Landed
+     separately on purpose — the way a per-client record goes wrong is drifting from what the client
+     has, so it is filled in and tested while the shared log is still the authority, leaving the
+     next step a change of who is ASKED rather than new bookkeeping arriving at the same time.
+   - The send path decides against its own `holds`; the publisher stops rendering and pushing.
 4. **Session lifetime.** Linger after disconnect, displacement of a second live stream, the
    staleness bound that releases the floor. Gate recording on a slug having sessions.
 5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.

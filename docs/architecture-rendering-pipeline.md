@@ -43,7 +43,7 @@ flowchart TB
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips · varyingIds"]
     PREP["Patches.prepare returns Renders<br/>ALL RENDERING HAPPENS HERE<br/>outside the log, so a CAS retry stays cheap<br/>through the per-slug RenderCache"]
     DIFF["Patches.diff — inside log.modify<br/>digest compare + map updates only"]
-    TOPIC["sharedTopic · slug-tagged Directed<br/>ONE topic for all slugs, so a connection<br/>holds ONE subscription whatever is pushed later"]
+    TOPIC["sharedTopic · slug-tagged Batch<br/>version + items, decided WHOLE by a connection<br/>ONE topic for all slugs, so a connection<br/>holds ONE subscription whatever is pushed later"]
   end
 
   subgraph CLIENT["PER CLIENT — one SSE stream per browser tab"]
@@ -56,7 +56,7 @@ flowchart TB
   end
 
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue"]
+  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds + position (written, not yet read)"]
   LOG[("FragmentLog per slug<br/>digest + version per node<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> PLAN --> PREP --> DIFF --> TOPIC
@@ -92,7 +92,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, `sharedTopic`, the `Sessions` registry |
 | Per slug | dashboard | the publisher fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog` |
-| Per connection | browser tab | the `Session` (slug, open surfaces, control queue), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -128,7 +128,7 @@ GET /d/:slug
   embed in the page as Datastar signals: logId, storeVersion, headHash, styleHash
 
 GET /sse/dashboard/:slug/patch
-  mint conn; create Session{slug, open surfaces, control queue}
+  mint conn; create Session{slug, open surfaces, control queue, holds, position}
   register it (bracketed to the stream, so a failed connect cannot leak it)
   subscribe ONCE to sharedTopic                       // all slugs, filtered per patch
   opening patches, narrowest that is still correct:
@@ -139,7 +139,7 @@ GET /sse/dashboard/:slug/patch
 
 on disconnect
   deregister IMMEDIATELY — nothing lingers, no disconnected state
-  the client keeps the cursor; the server keeps no per-session position
+  the client keeps the cursor; the session's own `position`/`holds` go with it
 ```
 
 ### A state change arrives — once, globally

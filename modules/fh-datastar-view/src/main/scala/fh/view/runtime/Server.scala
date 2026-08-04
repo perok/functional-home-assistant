@@ -67,7 +67,7 @@ class Server(
     // subscribes when it opens, so a per-slug map would freeze the slug set at
     // connect time and a slug pushed later could never reach an open
     // connection. Tagging is what lets `push` mint a slug at runtime.
-    sharedTopic: Topic[IO, (String, List[Directed])],
+    sharedTopic: Topic[IO, (String, Batch)],
     // Starts the per-slug shared-patch publisher for a slug minted by `push`.
     // Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -397,7 +397,7 @@ class Server(
       log: Ref[IO, FragmentLog],
       cache: RenderCache,
       changes: List[StateChange]
-  ): IO[List[Directed]] =
+  ): IO[Batch] =
     (stateStore.current, Server.stampNow, sessions.openSets(slug)).flatMapN {
       (store, millis, opens) =>
         // What is worth rendering: the surfaces some client can actually SEE,
@@ -527,12 +527,15 @@ class Server(
             // every signal a client holds is serialised back into every request it
             // makes. All three are (re)established where they can actually change:
             // on connect, and on a renderer swap ([[reloadRepaints]]).
-            if (patches.isEmpty) patches
-            else
-              patches :+ Encoded(
-                None,
-                Server.versionSignal(req.stamp.version)
-              )
+            Batch(
+              req.stamp.version,
+              if (patches.isEmpty) patches
+              else
+                patches :+ Encoded(
+                  None,
+                  Server.versionSignal(req.stamp.version)
+                )
+            )
           }
     }
 
@@ -624,14 +627,21 @@ class Server(
               // A batch is decided WHOLE, then merged, because merging may only
               // combine what this connection kept ([[Patches.encode]]).
               .evalMap { batch =>
-                batch
+                batch.items
                   .traverse { directed =>
                     session.open.get.flatMap { open =>
                       if (!directed.visibleTo(open)) IO.pure(Option.empty[Step])
                       else
                         directed match {
-                          case Addressed(surface, patch, _) =>
-                            IO.pure(Option(Step.Mergeable(surface, patch)))
+                          case Addressed(surface, patch, establishes) =>
+                            // Recorded HERE — where a patch is kept — and
+                            // nowhere else, because the record has to describe
+                            // this client's DOM: a patch this connection
+                            // filtered out never reached it and must not be
+                            // claimed. Nothing reads it yet (see [[Session]]).
+                            session.holds
+                              .update(_ ++ establishes)
+                              .as(Option(Step.Mergeable(surface, patch)))
                           case Encoded(_, event) =>
                             IO.pure(Option(Step.Ready(event)))
                           // The one item this connection renders itself,
@@ -654,7 +664,15 @@ class Server(
                         }
                     }
                   }
-                  .map(steps => Patches.encode(steps.flatten))
+                  .flatMap { steps =>
+                    // The cursor the client is about to be told, kept
+                    // server-side too. Advanced only when something was
+                    // actually sent, matching the signal that rides with it.
+                    val encoded = Patches.encode(steps.flatten)
+                    IO.whenA(encoded.nonEmpty)(
+                      session.position.set(batch.version)
+                    ).as(encoded)
+                  }
               }
               .flatMap(Stream.emits)
           Stream
@@ -1423,7 +1441,7 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
     for {
-      topic <- Topic[IO, (String, List[Directed])].toResource
+      topic <- Topic[IO, (String, Batch)].toResource
       // Pair each seeded renderer with its own fragment log here, so the caller
       // (ServerApp, tests) never has to know the log exists.
       seeded <- renderers.toList
