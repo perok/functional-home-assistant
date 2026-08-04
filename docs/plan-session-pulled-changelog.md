@@ -191,6 +191,40 @@ subtlety.** Too coarse and it serves stale bytes silently and permanently. Nothi
 has that property, and no test will notice it on a small fixture. It deserves adversarial testing,
 not a passing suite.
 
+## If viewer count ever matters
+
+The per-session cost is N prune passes and N `holds` updates. Nothing below is worth building now —
+N is tabs in a house — but the design should not paint itself out of them, so here is the ladder,
+cheapest first.
+
+**The framing that makes it a choice rather than a tradeoff:** the unit of sharing is the
+EQUIVALENCE CLASS of sessions that would receive the same bytes — same position, same visible
+surfaces, same selections. Today's design assumes exactly one class (everybody gets one shared
+render). The design in this plan assumes N classes (one per session). Neither is right in general;
+the truth is that a household's tabs mostly fall into one or two classes. **The class is the
+tunable**, and the two designs are the endpoints of one axis rather than rivals.
+
+**1. Memoise the prune by class** — the cheapest, and it costs nothing until used. Key a per-batch
+memo on `(fromVersion, visibleSurfaces, selections)` and let sessions in the same class share one
+computed changeset. This is exactly the `Memo.keyed` pattern this plan deletes for renders, applied
+one level up; four tabs on the same dashboard with the same tab selected collapse to one pass.
+
+**2. Hoist the shared part of the pull.** The per-slug fiber already knows the changelog moved. It
+can compute the parts that do not depend on a session — the slice since the OLDEST live position,
+and the latest-wins collapse — once, and hand that down; sessions then do only the cheap per-session
+filtering (visibility, ancestor coverage). Shares the work without needing classes at all.
+
+**3. Baseline plus overlay, if `holds` memory is ever the problem.** The shared log does not have to
+die. Keep one per-slug map as "what a typical client has" and give each session only its DIVERGENCE
+from it — usually empty, and non-empty exactly where today's shared answer is wrong (a client that
+missed an `insert`, one that just opened a surface). Lookup checks the overlay then the baseline.
+This recovers today's O(1)-in-viewers memory while keeping the per-client correctness that motivates
+the whole plan.
+
+Worth noting what already helps for free: `holds` as an immutable `Map` means sessions applying the
+same updates from a common ancestor share most of their internal structure, so N identical maps cost
+roughly one map plus N small paths rather than N copies.
+
 ## The four structures
 
 **1. The changelog — per slug.** Today's `FragmentLog`, reduced to its record-keeping half:
