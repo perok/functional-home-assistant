@@ -128,6 +128,69 @@ flowchart TB
 | `FragmentLog` digests (per slug, shared answer) | **moves into the session** as `holds`, so the answer is per client |
 | nothing | **new**: the session gate, `gapFrom`, the floor, and the staleness bound |
 
+## Cost and complexity, honestly
+
+This is not a performance fix, and it should not be argued for as one — the measurements taken while
+writing it (§ the architecture doc's open questions) found no CPU or RAM problem to solve. It is
+worth doing for correctness and for what it deletes. Here is the ledger.
+
+### CPU
+
+| | Today | After |
+|---|---|---|
+| A slug nobody is watching | renders every affected node, every frame | **records a few map writes, or nothing at all** |
+| A slug with N viewers | one shared render pass + one shared log write | one record pass + **N prune passes and N `holds` updates** |
+| Sharing a render between viewers | within one batch, via `Renders`/`Memo` | via the cache, and across batches — a laggard shares with a current session |
+| Knowing a render is unnecessary | must render, then compare digests | same — the digest still requires the bytes |
+
+So the shape of the cost changes: from *constant regardless of viewers* to *proportional to viewers*.
+For a household that is a clear win, because the idle case dominates. For a hypothetical fifty
+simultaneous tabs it would be a loss, and that is worth stating rather than discovering.
+
+One thing does NOT improve: suppression still requires rendering. Only the client's own `holds` can
+tell you whether bytes are worth sending, and you cannot get the digest without the bytes.
+
+### RAM
+
+- **The changelog SHRINKS.** It drops digests and keeps `nodeId -> version`, which is smaller than
+  what `FragmentLog` holds today.
+- **`holds` duplicates per session.** One digest map per connection instead of one per slug. Tens of
+  KB per session at a realistic node count — small in absolute terms, but it is now O(sessions).
+- **The render cache is the new cost, and the only one worth designing against.** It retains HTML
+  that is transient today. Grounded estimate: a rendered page measured on the live instance is
+  13–44 KB, and per-node own-markup sums to roughly that, so ~40 KB per dashboard per generation of
+  inputs. Five dashboards over ten live generations is a couple of MB — fine, but only because
+  something bounds the generations.
+
+  Which points at a design consequence: **the render cache wants to be SHORT-lived.** Its value is
+  fan-out between sessions rendering the same node around the same time; it is not a history and
+  gains nothing from retention. A small TTL keeps it a rounding error, where an unbounded one makes
+  it the largest structure in the process.
+
+  This also settles part of the `inputs` question: keyed by per-entity content VERSION, a revert to a
+  previous value produces a new key and misses. Content-hash keys would hit, at the price of hashing
+  values. With a short TTL the difference stops mattering, which is an argument for versions.
+
+### Complexity
+
+**Deleted:** `Addressed` / `Varying` / `Pending`, `Memo`, `prepare` / `Renders`, `sharedTopic`, the
+shared-versus-per-client split running through `Patches`, `hasChildOf` as a guess, `horizon`'s
+per-container completeness, and the residual missed-insert race.
+
+**Added:** single-flight caching with its failure and cancellation rules, the `holds` invariant
+(every emitted patch updates it, subtree included), session lifetime (linger, displacement,
+staleness), floor coordination across sessions, and two-pass composition.
+
+That is close to a wash in volume. What changes is the KIND: today's complexity is shared-state
+reasoning, where a wrong answer is silent and affects everyone — the missed-insert race is exactly
+that. The new complexity is per-session bookkeeping, which is more code but fails one client at a
+time and is visible when it does.
+
+The exception, and the reason phase 0 is a spike: **`inputs` is a new single point of catastrophic
+subtlety.** Too coarse and it serves stale bytes silently and permanently. Nothing in today's design
+has that property, and no test will notice it on a small fixture. It deserves adversarial testing,
+not a passing suite.
+
 ## The four structures
 
 **1. The changelog — per slug.** Today's `FragmentLog`, reduced to its record-keeping half:
