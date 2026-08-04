@@ -1225,25 +1225,53 @@ class Renderer(
     *     state group's branch is a QUANTIFIED predicate over the whole entity
     *     map ([[holds]]), so keying on its sources would key on every entity.
     *
-    * Deliberately NOT included: the node's children. A node's own markup has
-    * holes where they go, and composition substitutes their (separately keyed)
-    * bytes. Including them would make any descendant's tick invalidate every
-    * ancestor to the root. Today's [[renderNodeById]] still splices children
-    * eagerly, so this key describes the POST-SPLIT render — see phase 1 of the
-    * plan.
+    * Deliberately NOT included: the node's children. Including them would make
+    * any descendant's tick invalidate every ancestor to the root, which is the
+    * whole reason a per-node cache earns anything.
+    *
+    * `None` — NOT CACHEABLE — is what keeps that honest, and it is the reason
+    * this returns an `Option` rather than a key that a caller has to know not
+    * to trust. Two nodes get it:
+    *
+    *   - one with no rendering of its own ([[hasOwnRendering]]): a bare
+    *     container or a dynamic group root, which composes rather than renders
+    *     and is not addressable at all;
+    *   - one whose OWN bytes carry its children — [[renderNodeById]] splices
+    *     them eagerly, so its bytes move when a child's entity moves while this
+    *     key stands still. In the shipped library that is exactly `Tabs`, whose
+    *     `self` is the bar and whose children are the tab buttons.
+    *
+    * The second could be turned into a `Some` by rendering own markup with
+    * HOLES where the children go and substituting their (separately keyed)
+    * bytes in a second pass — [[renderTemplateOf]] taking `childrenHtml` is the
+    * seam. That is an optimisation, not a precondition: such nodes are a
+    * handful and are not the hot path. Excluding them costs their renders and
+    * can never be wrong; including them without the split would be silently
+    * wrong.
     */
   def renderInputs(
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String]
-  ): RenderInputs =
-    RenderInputs(
-      entitiesForNode(id)
-        .flatMap(e => states.get(e).map(e -> _.contentVersion))
-        .toMap,
-      activeBakeIndex(id, uiState, states)
-        .fold(Map.empty[String, String])(i => Map("bakeIndex" -> i.toString))
-    )
+  ): Option[RenderInputs] =
+    Option
+      .when(hasOwnRendering(id) && !ownBytesCarryChildren(id))(
+        RenderInputs(
+          entitiesForNode(id)
+            .flatMap(e => states.get(e).map(e -> _.contentVersion))
+            .toMap,
+          activeBakeIndex(id, uiState, states)
+            .fold(Map.empty[String, String])(i =>
+              Map("bakeIndex" -> i.toString)
+            )
+        )
+      )
+
+  private def ownBytesCarryChildren(id: NodeId): Boolean =
+    allIndexed.get(id).exists {
+      case (c: LayoutNode.Component, _, _) => c.children.nonEmpty
+      case _                               => false
+    }
 
   /** [[renderInputs]] for one member of a dynamic group — a node that has no
     * entry in the layout tree, because its id is derived per entity.

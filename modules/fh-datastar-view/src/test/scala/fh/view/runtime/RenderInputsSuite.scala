@@ -26,14 +26,14 @@ import scala.concurrent.duration.*
   *
   * Only one direction can hurt. A key that is too DISCRIMINATING costs a wasted
   * render and nothing else. A key that is too COARSE serves a client bytes that
-  * no longer match its state — silently, and for as long as the entry lives.
-  * So the property under test is one implication:
+  * no longer match its state — silently, and for as long as the entry lives. So
+  * the property under test is one implication:
   *
-  * {{{ renderInputs(a) == renderInputs(b)  =>  render(a) == render(b) }}}
+  * {{{renderInputs(a) == renderInputs(b)  =>  render(a) == render(b)}}}
   *
   * and it is checked over ALL PAIRS of a timeline, because the failure mode is
-  * a pair that agrees on the key and disagrees on the bytes — not a step.
-  * (Its contrapositive is the precision claim, so one loop covers both.)
+  * a pair that agrees on the key and disagrees on the bytes — not a step. (Its
+  * contrapositive is the precision claim, so one loop covers both.)
   *
   * The timeline is driven through a real [[StateStore]] rather than
   * hand-written `contentVersion`s: the stamp under test is the one the store
@@ -54,7 +54,9 @@ class RenderInputsSuite extends munit.FunSuite {
     // once.
     "banner" -> CardDef(
       template = """<div>{{{self}}}{{{mount}}}</div>""",
-      self = Some("""<div id="{{selfId}}"><b>{{title}}</b><i>{{bakeIndex}}</i></div>"""),
+      self = Some(
+        """<div id="{{selfId}}"><b>{{title}}</b><i>{{bakeIndex}}</i></div>"""
+      ),
       mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>"""),
       slots = List("title")
     ),
@@ -138,7 +140,9 @@ class RenderInputsSuite extends munit.FunSuite {
   /** Every step's snapshot, the starting one included — as the store stamps
     * them.
     */
-  private def timeline(steps: List[EntityState]): List[Map[String, EntityState]] =
+  private def timeline(
+      steps: List[EntityState]
+  ): List[Map[String, EntityState]] =
     (for {
       store <- StateStore.inMemory(initial)
       first <- store.snapshot
@@ -151,7 +155,9 @@ class RenderInputsSuite extends munit.FunSuite {
     // A re-seed of the SAME content with a fresher timestamp: stored, deduped,
     // and so no node's key may move.
     st("sensor.t", "12.9", "unit_of_measurement" -> Json.fromString("°C"))
-      .copy(lastUpdated = Some(java.time.Instant.parse("2026-08-04T10:00:00Z"))),
+      .copy(lastUpdated =
+        Some(java.time.Instant.parse("2026-08-04T10:00:00Z"))
+      ),
     // An entity only c_1 binds.
     st("sensor.other", "2"),
     // Flips c_2's bake group (Any) AND changes a dynamic member's case.
@@ -178,12 +184,13 @@ class RenderInputsSuite extends munit.FunSuite {
       id <- ids
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
-      if renderer.renderInputs(id, a, Map.empty) ==
-        renderer.renderInputs(id, b, Map.empty)
+      key <- renderer.renderInputs(id, a, Map.empty).toList
+      if renderer.renderInputs(id, b, Map.empty).contains(key)
     } assertEquals(
       renderer.renderNodeById(id, a),
       renderer.renderNodeById(id, b),
-      clue = s"$id keyed identically at steps $i and $j but rendered differently"
+      clue =
+        s"$id keyed identically at steps $i and $j but rendered differently"
     )
   }
 
@@ -204,7 +211,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   test("the key is not trivially discriminating — it hits where it must") {
     def key(id: NodeId, at: Int) =
-      renderer.renderInputs(id, line(at), Map.empty)
+      renderer.renderInputs(id, line(at), Map.empty).get
 
     // A timestamp-only re-seed (step 2) keys the same as the content change
     // before it. Without this the cache would miss on every HA reconnect.
@@ -219,8 +226,11 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("an absent entity keys differently from any version it could hold") {
-    val absent = renderer.renderInputs("c_0", Map.empty, Map.empty)
-    assertNotEquals(absent, renderer.renderInputs("c_0", line.head, Map.empty))
+    val absent = renderer.renderInputs("c_0", Map.empty, Map.empty).get
+    assertNotEquals(
+      absent,
+      renderer.renderInputs("c_0", line.head, Map.empty).get
+    )
     // Not merely different — it carries no entry at all, so no stamp can
     // collide with it.
     assertEquals(absent.entities, Map.empty[String, Long])
@@ -235,22 +245,46 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  /** The gap phase 1 closes, pinned so it is a decision rather than a surprise:
-    * today [[Renderer.renderNodeById]] splices a node's children into its own
-    * bytes, so a container's rendering moves when a child's entity moves while
-    * its own key stands still. That is exactly the "too coarse" failure — and
-    * the reason the key deliberately excludes children is that the render must
-    * be split first (own markup with holes, then composition).
-    */
-  test("a container's bytes still depend on children the key excludes") {
-    val root: NodeId = "c"
-    assertEquals(
-      renderer.renderInputs(root, line.head, Map.empty),
-      renderer.renderInputs(root, line.last, Map.empty)
-    )
+  test("a node whose own bytes carry its children has NO key") {
+    // The root column splices its children, so its rendering moves when any
+    // descendant's entity moves. The key excludes children by design, so the
+    // only sound answer is that it cannot be cached at all — the difference
+    // between a `None` and a key a caller must know not to trust.
+    assertEquals(renderer.renderInputs("c", line.head, Map.empty), None)
     assertNotEquals(
       renderer.renderBody(line.head),
       renderer.renderBody(line.last)
     )
+  }
+
+  test("a bake owner with tab-bar children has no key either") {
+    // `Tabs`' shape: a `self` (the bar) whose children are the tab buttons. It
+    // is the one node in the shipped library this excludes, and the reason the
+    // rule is about the RENDERING rather than about container-ness.
+    val tabs = Renderer.create(
+      Dashboard(
+        cards,
+        LayoutNode.Component(
+          "banner",
+          slots = Map("title" -> SlotSource(Some("sensor.t"))),
+          children = List(
+            LayoutNode.Component("btn", Map("label" -> lit("A")))
+          )
+        ),
+        surfaces = dashboard.surfaces.map { case (sid, s) =>
+          sid -> s.copy(bakeInto = Some("c"))
+        }
+      )
+    )
+    assertEquals(tabs.renderInputs("c", line.head, Map.empty), None)
+    // Still renderable and still a patch target — it just pays for its render.
+    assert(tabs.renderNodeById("c", line.head).isDefined)
+  }
+
+  test("a node that composes rather than renders has no key") {
+    // The dynamic group root: its members are addressable in their own right,
+    // and `renderNodeById` refuses it.
+    assertEquals(renderer.renderInputs("c_3", line.head, Map.empty), None)
+    assertEquals(renderer.renderNodeById("c_3", line.head), None)
   }
 }
