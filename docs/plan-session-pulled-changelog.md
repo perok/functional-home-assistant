@@ -60,6 +60,34 @@ Each one lands on its own and keeps the suites green.
      pieces of phase 4 forward — `conn` as a session identity, and a lifetime (`AdoptionWindow`,
      reaping a document nobody connected to).
    - The send path decides against its own `holds`; the publisher stops rendering and pushing.
+     **The one remaining step, and it is atomic** — the live decision cannot move to the session
+     while the log still has to answer it. Execution notes, derived from reading the current code:
+
+     - **`Patches.record(renderer, log, req): FragmentLog`** replaces `diff` on the publisher side.
+       Everything it needs is already pure: membership is `renderer.dynamicMembers(gid, snapshot)`
+       (what `Renders.membersBefore/After` delegate to), and a flip's selection is
+       `resolveActiveByState` against `before` vs `states`. So it writes `nodeId -> version` for
+       statics AND varyings (no variant split — nothing shared decides per viewer any more),
+       `Gone`/`Placed` for membership and flips, and the flip's subtree prune. No rendering, no
+       digests.
+     - **The churn heuristic must survive as a RECORDED fact**, or the wire changes (there is a
+       suite asserting a 50%-churn removal FILLS the mount). It maps onto `horizon`: heavy churn
+       sets `horizon(gid) = version`, which is already "any cursor below this gets a refill of this
+       container". Same for `!established` (`log.hasChildOf(gid)`, which still works once the
+       changelog keeps child ids).
+     - **`LiveSlug` gains the doorbell** — `SignallingRef[IO, Long]` set to the recorded version.
+       `.discrete` coalesces by design: several versions landing while a session renders collapse
+       into one pull.
+     - **The session's stream** replaces its `sharedTopic` subscription with the doorbell, and each
+       wake runs the SAME `Patches.resume` the connect path runs, from `position + 1` (exact
+       server-side, unlike a client cursor, which is why `since`'s `>=` does not apply here), then
+       `Patches.applied` per patch, `position := version`, `Patches.encode`, and the version signal.
+     - **Order the deletions after the flip**, in their own commit: `diff`, `prepare`, `Renders`,
+       `Varying`, `Pending`, `Memo`, `sharedTopic`, `Batch`, `Directed`/`Encoded` if nothing else
+       wants them, and `FragmentLog`'s `holds`/`atLeast`/`digestsFor`/`Fragment.digests`. Both
+       commits stay green; splitting keeps the behaviour change readable.
+     - **The render cache is NOT wired into `resume` yet.** Correctness first — `resume` renders
+       purely today. Wiring it is what restores fan-out between sessions and is worth its own step.
 4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
    recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
    document-creates-the-session step, which is what first made two streams able to reach one
