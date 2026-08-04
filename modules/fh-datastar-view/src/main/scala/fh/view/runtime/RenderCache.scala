@@ -17,14 +17,17 @@ private[runtime] case class NodeBytes(html: String, digest: Digest)
   * ([[Renderer.renderInputs]]) — docs/plan-session-pulled-changelog.md.
   *
   * PER SLUG, living and dying with the dashboard's renderer, because a node id
-  * is only meaningful within one renderer. A hot-swap drops the whole map, which
-  * is the correctness story and the eviction story in one.
+  * is only meaningful within one renderer. A hot-swap drops the whole map,
+  * which is the correctness story and the eviction story in one.
   *
-  * The value is a [[Deferred]] rather than the bytes: the first caller to want a
-  * key inserts an empty one and renders, everyone else finds it and waits, so N
-  * sessions wanting the same node at the same instant cost one render. Insertion
-  * is per key ([[MapRef]]) rather than a CAS over the whole map, so a slow render
-  * never makes another key's caller retry.
+  * The value is a [[Deferred]] rather than the bytes: the first caller to want
+  * a key inserts an empty one and renders, everyone else finds it and waits, so
+  * N sessions wanting the same node at the same instant cost one render.
+  *
+  * The map is a [[MapRef]] rather than a `Ref[IO, Map[…]]` so that a `modify`
+  * retries `putIfAbsent`/`replace` for ONE key (the `ConcurrentHashMap` under
+  * it) instead of CAS-ing the whole map: contention on one node never makes
+  * another node's caller retry.
   */
 private[runtime] final class RenderCache(
     entries: MapRef[IO, RenderCache.Key, Option[RenderCache.Slot]],
@@ -33,18 +36,39 @@ private[runtime] final class RenderCache(
 
   /** The bytes for `key`, rendering them only if nobody else already is.
     *
-    * `render` is by-name and must be PURE — it is the renderer's own pure walk,
-    * and it may be run zero times (a hit) or once, never twice for one key.
+    * `render` is by-name and must be PURE and CPU-BOUND — it is the renderer's
+    * own walk. It may be run zero times (a hit) or once, never twice for one
+    * key. That it has no async boundary is load-bearing, not incidental; see
+    * the cancellation note below before changing it.
+    *
+    * '''Uncancelable, and `guarantee` would not do instead.''' There are two
+    * windows, and completing the slot from a `guaranteeCase` only covers one:
+    *
+    *   - between the CAS winning and [[fill]] STARTING, `mine` is in the map,
+    *     uncompleted, and nothing has run — so a `guarantee` on `fill` never
+    *     fires either, and waiters block forever. This window exists whatever
+    *     the render does;
+    *   - during the render, `guaranteeCase` does work — but it can only
+    *     complete with an ERROR, so one cancelled fiber fails every waiter
+    *     attached to it. Avoiding that needs a "producer cancelled" sentinel
+    *     and a retry in the waiters: a second mechanism to survive a state,
+    *     where being uncancelable means never entering it.
+    *
+    * The cost is bounded by one render, and cats-effect checks cancellation
+    * BEFORE a delay rather than inside one, so a pure walk is uninterruptible
+    * mid-way regardless — this buys the invariant for almost nothing.
+    *
+    * '''The condition to re-check:''' that argument holds because the render is
+    * pure CPU. Move it to a blocking pool, or split it with `IO.cede` for
+    * fairness on a large dashboard, and the second window comes back — then
+    * `guaranteeCase` plus a retrying waiter IS the right answer.
     */
   def apply(key: RenderCache.Key)(render: => String): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
-      // Uncancelable around the claim: cancelled between inserting `mine` and
-      // starting the render, the key would hold a Deferred nobody ever
-      // completes and every later caller would block on it forever. Production
-      // itself is a pure CPU walk with no async boundary to interrupt, so
-      // making it uncancelable costs nothing and removes the failure mode by
-      // construction rather than patching it in an onCancel. Only a WAITER is
-      // cancelable, and that is `poll`ed.
+      // Only a WAITER is cancelable, and that is what `poll` marks. Note what
+      // the critical section does NOT contain: `fill` is an IO VALUE here,
+      // built and discarded if this attempt loses. A losing CAS costs an
+      // Option match, never a render.
       IO.uncancelable { poll =>
         entries(key)
           .modify {
