@@ -89,7 +89,10 @@ class Server(
     // (fetch + validate-then-swap + renderer reload, wired by ServerApp —
     // see [[DumpRefresh]]). None (tests, BuildApp-less setups) makes the
     // route a 404.
-    dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+    dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+    // How long a document's session waits to be adopted ([[Server.AdoptionWindow]]).
+    // A parameter only so a suite can watch the reap without waiting 30s.
+    adoptionWindow: FiniteDuration = Server.AdoptionWindow
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -547,8 +550,17 @@ class Server(
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
     for {
-      conn <- IO.randomUUID.map(_.toString)
-      session <- Session.create(slug)
+      // The session was established by the document this stream belongs to,
+      // which is where its `holds` came from. A `conn` naming nothing — a
+      // reaped session, a bookmarked SSE URL, a server restart — is not an
+      // error: a fresh session is minted under the SAME id, so the client keeps
+      // the `conn` it already has and only loses the suppression its `holds`
+      // would have given (bytes, never staleness).
+      conn <- Server.connOf(req).fold(IO.randomUUID.map(_.toString))(IO.pure)
+      session <- sessions
+        .get(conn)
+        .flatMap(_.filter(_.slug == slug).fold(Session.create(slug))(IO.pure))
+      _ <- session.adopt
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set from this client's ui state — its selected tab
@@ -678,7 +690,9 @@ class Server(
           Stream
             .eval(
               session.open.get.flatMap(open =>
-                liveOpt.traverse(openingPatches(slug, _, req, uiState, open))
+                liveOpt.traverse(
+                  openingPatches(slug, _, session, req, uiState, open)
+                )
               )
             )
             .flatMap(opening => Stream.emits(opening.toList.flatten)) ++
@@ -742,12 +756,13 @@ class Server(
   private def openingPatches(
       slug: String,
       live: Server.LiveSlug,
+      session: Session,
       req: Request[IO],
       uiState: Map[String, String],
       open: Set[String]
   ): IO[List[ServerSentEvent]] =
-    (live.renderer.get, live.log.get, stateStore.current).mapN {
-      (renderer, log, store) =>
+    (live.renderer.get, live.log.get, stateStore.current, session.holds.get)
+      .mapN { (renderer, log, store, holds) =>
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
           List(Server.reloadPatch)
@@ -769,9 +784,7 @@ class Server(
                 .resume(
                   renderer,
                   log,
-                  // The shared log narrowed to THIS viewer, which is the shape
-                  // a session's own record already has ([[Session.holds]]).
-                  log.digestsFor(renderer.variantOf(_, uiState)),
+                  holds,
                   store.entities,
                   resumeFrom(req, c),
                   open,
@@ -807,7 +820,7 @@ class Server(
           head ++ resumed.getOrElse(List(repaint)) ++ orphan :+
             Server.cursorSignals(renderer, log.id, store.version)
         }
-    }
+      }
 
   /** Live-reload body repaints for one connection: watch the ONE renderer this
     * connection views (its slug is fixed for the connection's lifetime — going
@@ -994,6 +1007,29 @@ class Server(
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String](Server.ConnSignal).toOption
 
+  /** Drop a session whose document never opened a stream — a page closed or
+    * navigated away from before `data-init` fired, or a crawler.
+    *
+    * Necessary because the document, not the stream, now creates the session:
+    * without this every such load would leave one in the registry for the life
+    * of the process, and every one of them is read by [[Sessions.openSets]] on
+    * every state batch.
+    *
+    * Keyed on the epoch rather than on presence, so it cannot race a stream
+    * that is starting: a session someone adopted is left alone, and one whose
+    * stream has already ENDED was deregistered by that stream's bracket.
+    */
+  private def reapUnadopted(conn: String): IO[Unit] =
+    supervisor
+      .supervise(
+        IO.sleep(adoptionWindow) *>
+          sessions
+            .get(conn)
+            .flatMap(_.traverse(_.epoch.get))
+            .flatMap(e => IO.whenA(e.contains(0))(sessions.deregister(conn)))
+      )
+      .void
+
   /** Log every bake-group anomaly [[Renderer.uiStateAnomalies]] reports for
     * this client's `uiState` (an off/hand-edited URL). Renderer stays pure — it
     * returns the warnings, the Server logs them.
@@ -1156,85 +1192,93 @@ class Server(
     liveFor(slug).flatMap {
       case None       => NotFound()
       case Some(live) =>
-        (live.renderer.get, live.log.get, stateStore.current).flatMapN {
-          (renderer, log, store) =>
-            val uiState = Server.uiStateOf(req)
-            // The editor embeds the dashboard as `?edit=1`; that turns on the
-            // per-node inspection overlay (Focus / Debug). Off for normal viewers.
-            val editMode = req.uri.query.params.get("edit").contains("1")
-            // What this document is showing, and so also what it must hand back
-            // on connect for the stream to agree with it — the ui state (the
-            // open popup included) AND the version it was rendered at. That
-            // last part is what stops the first connect repainting a body the
-            // document already contains.
-            //
-            // The popup claim is NARROWED first: a document does not show a
-            // dialog this dashboard cannot serve, so it must not seed one back
-            // either — on the signal or in the connect URL.
-            val restoreUi = renderer.openPopup(uiState) match {
-              case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
-              case None      => uiState - Dashboard.PopupHostId
-            }
-            val restore = Server.Restore(
-              restoreUi,
-              Some(
-                Server.Cursor(
-                  renderer.headHash,
-                  renderer.styleHash,
-                  log.id,
-                  store.version
-                )
+        (
+          live.renderer.get,
+          live.log.get,
+          stateStore.current,
+          IO.randomUUID.map(_.toString)
+        ).flatMapN { (renderer, log, store, conn) =>
+          val uiState = Server.uiStateOf(req)
+          // The editor embeds the dashboard as `?edit=1`; that turns on the
+          // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+          val editMode = req.uri.query.params.get("edit").contains("1")
+          // What this document is showing, and so also what it must hand back
+          // on connect for the stream to agree with it — the ui state (the
+          // open popup included) AND the version it was rendered at. That
+          // last part is what stops the first connect repainting a body the
+          // document already contains.
+          //
+          // The popup claim is NARROWED first: a document does not show a
+          // dialog this dashboard cannot serve, so it must not seed one back
+          // either — on the signal or in the connect URL.
+          val restoreUi = renderer.openPopup(uiState) match {
+            case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
+            case None      => uiState - Dashboard.PopupHostId
+          }
+          val restore = Server.Restore(
+            restoreUi,
+            conn,
+            Some(
+              Server.Cursor(
+                renderer.headHash,
+                renderer.styleHash,
+                log.id,
+                store.version
               )
             )
-            // Tell the log what this document put on screen, for the surfaces
-            // the client will have open. They are the resume rule's second
-            // candidate set, and with no entry at all "unknown, send it" would
-            // hand the client its own surfaces straight back. Node renders are
-            // client-independent (a container patches its `self`, and the bake
-            // lives on the document path), so this is sound to write into a
-            // SHARED log.
-            val open = renderer.selectedSurfaces(uiState)
-            // ONE render, used twice: the bytes go to the browser and the
-            // per-node trace goes to the log. Fingerprinting separately means
-            // walking the open surfaces a second time, node by node, to
-            // re-derive what the page just composed.
-            val painted = renderer.renderPageTraced(
-              store.entities,
-              uiState,
-              renderer.openPopup(uiState)
+          )
+          // Tell the log what this document put on screen, for the surfaces
+          // the client will have open. They are the resume rule's second
+          // candidate set, and with no entry at all "unknown, send it" would
+          // hand the client its own surfaces straight back. Node renders are
+          // client-independent (a container patches its `self`, and the bake
+          // lives on the document path), so this is sound to write into a
+          // SHARED log.
+          val open = renderer.selectedSurfaces(uiState)
+          // ONE render, used twice: the bytes go to the browser and the
+          // per-node trace goes to the log. Fingerprinting separately means
+          // walking the open surfaces a second time, node by node, to
+          // re-derive what the page just composed.
+          val painted = renderer.renderPageTraced(
+            store.entities,
+            uiState,
+            renderer.openPopup(uiState)
+          )
+          // The session this document belongs to, established HERE — the
+          // document is the first and largest thing that puts fragments in
+          // this client's DOM, and the only place that knows what they were.
+          // Its `holds` therefore has ONE meaning for its whole life: bytes
+          // this client was sent. That is also what removes the variant key
+          // — this render used THIS viewer's `uiState`, where a shared log
+          // has to hold one digest per selection to avoid claiming somebody
+          // else's tab.
+          //
+          // Every painted node, not just the open surfaces' — the document
+          // contains all of it, so recording less would be a claim that is
+          // merely narrower, not safer.
+          val establish = Session
+            .create(slug)
+            .flatTap(_.open.set(open))
+            .flatTap(
+              _.holds.set(painted.own.map { case (id, html) =>
+                id -> Digest.of(html)
+              })
             )
-            // Only the OPEN SURFACES' nodes, exactly as before — the source of
-            // the bytes changed, not the scope. A main-page node deliberately
-            // starts with no entry: absence reads as "you are up to date", and
-            // for a body the server just rendered that is true. Seeding the
-            // whole page instead would make every node owed to a client whose
-            // cursor sits at this very version.
-            val seeded = open.flatMap(renderer.surfaceNodeIds)
-            val seedLog = live.log.update(l =>
-              painted.own.foldLeft(l) {
-                case (acc, (id, html)) if seeded(id) =>
-                  acc.seed(
-                    id,
-                    Digest.of(html),
-                    store.version,
-                    renderer.variantOf(id, uiState)
-                  )
-                case (acc, _) => acc
-              }
-            )
-            warnAnomalies(renderer, uiState) *> seedLog *>
-              Ok(
-                page(
-                  slug,
-                  painted.html,
-                  renderer.stylesheets.map(assets.rewrite),
-                  renderer.scripts.map(assets.rewrite),
-                  renderer.title,
-                  Server.ingressPrefixOf(req),
-                  restore,
-                  editMode
-                )
-              ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+            .flatTap(_.position.set(store.version))
+            .flatMap(sessions.register(conn, _)) *> reapUnadopted(conn)
+          warnAnomalies(renderer, uiState) *> establish *>
+            Ok(
+              page(
+                slug,
+                painted.html,
+                renderer.stylesheets.map(assets.rewrite),
+                renderer.scripts.map(assets.rewrite),
+                renderer.title,
+                Server.ingressPrefixOf(req),
+                restore,
+                editMode
+              )
+            ).map(_.withContentType(`Content-Type`(MediaType.text.html)))
         }
     }
 
@@ -1441,7 +1485,8 @@ object Server {
       assets: AssetCache = AssetCache.empty,
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      adoptionWindow: FiniteDuration = AdoptionWindow
   ): Resource[IO, Server] =
     for {
       topic <- Topic[IO, (String, Batch)].toResource
@@ -1466,7 +1511,8 @@ object Server {
         assets,
         healthy,
         systemPkl,
-        dumpRefresh
+        dumpRefresh,
+        adoptionWindow
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -1551,6 +1597,10 @@ object Server {
     */
   private[runtime] case class Restore(
       uiState: Map[String, String],
+      // The session this document just established, minted HERE because the
+      // document is the first thing that puts fragments in this client's DOM
+      // and the only place that knows what they were.
+      conn: String,
       // What this document already SHOWS: the store version it was rendered at,
       // and the log it belongs to. Without it the first connect has no cursor
       // and takes the no-cursor branch, which inner-patches a body the document
@@ -1558,9 +1608,10 @@ object Server {
       cursor: Option[Cursor] = None
   ) {
 
-    /** `?ui.<id>=<v>&<cursor>`, or `""` when there is nothing to restore. The
-      * open popup rides as `ui.<PopupHostId>` like any other selection. `&amp;`
-      * because this lands in an HTML attribute.
+    /** `?ui.<id>=<v>&<cursor>&conn=<id>`. Never empty — every document names
+      * the session it established. The open popup rides as `ui.<PopupHostId>`
+      * like any other selection. `&amp;` because this lands in an HTML
+      * attribute.
       */
     def query: String = {
       val params = uiState.toList.sorted.map { case (id, v) =>
@@ -1572,8 +1623,8 @@ object Server {
           s"$LogIdSignal=${encode(c.logId)}",
           s"$StoreVersionSignal=${c.version}"
         )
-      )
-      if (params.isEmpty) "" else params.mkString("?", "&amp;", "")
+      ) :+ s"$ConnSignal=${encode(conn)}"
+      params.mkString("?", "&amp;", "")
     }
 
     private def encode(s: String): String =
@@ -1810,6 +1861,20 @@ object Server {
   private[runtime] def hasSignals(req: Request[IO]): Boolean =
     signalsOf(req).isDefined
 
+  /** Which session this request belongs to. Signals first, then the plain query
+    * param, for the reason [[cursorOf]] gives: a reconnect re-serialises the
+    * live store, and the param baked into the `data-init` URL at page render is
+    * the FIRST connect's carrier only.
+    *
+    * A reconnect naming a session that is gone is not an error — a fresh one is
+    * minted under the same id, and the client keeps the `conn` it already has.
+    */
+  private[runtime] def connOf(req: Request[IO]): Option[String] =
+    signalsOf(req)
+      .flatMap(_.get[String](ConnSignal).toOption)
+      .orElse(req.uri.query.params.get(ConnSignal))
+      .filter(_.nonEmpty)
+
   private def signalsOf(req: Request[IO]): Option[io.circe.ACursor] =
     req.uri.query.params
       .get("datastar")
@@ -1885,6 +1950,15 @@ object Server {
     * TODO2.md.
     */
   val KeepAliveInterval: FiniteDuration = 25.seconds
+
+  /** How long a document's session waits for the stream that should adopt it
+    * ([[Session.adopt]]). Sized by the gap between a page rendering and
+    * `data-init` firing — a parse, a module load, one round trip — so seconds
+    * with room to spare, not minutes. Too short only costs the client its
+    * `holds` seed (bytes on its first patch); too long is a session per
+    * abandoned load, read by every state batch until it expires.
+    */
+  val AdoptionWindow: FiniteDuration = 30.seconds
 
   /** The keepalive itself: an SSE comment, carrying no data, no event type and
     * no signal — just bytes on the wire. See [[KeepAliveInterval]].

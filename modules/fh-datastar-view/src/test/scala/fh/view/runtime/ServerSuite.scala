@@ -3064,16 +3064,17 @@ class ServerSuite extends munit.CatsEffectSuite {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    // The page seeds the log for the open surfaces' nodes, exactly as
-    // `pageResponse` does — by id, with no viewer.
-    val ids =
-      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
-    val seeded = ids.foldLeft(FragmentLog("w18")) { (l, id) =>
-      r.renderLogged(id, before).fold(l)(h => l.seed(id, h, 1L))
-    }
     // This viewer holds tab 1.
     val open = Set("det", "t1")
     val mine = Map("s_det__c_0" -> "1")
+    // What this viewer's DOCUMENT put on screen, exactly as `pageResponse`
+    // records it: rendered at ITS ui state, straight into its own session.
+    val ids =
+      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
+    val seeded = FragmentLog("w18")
+    val held = ids.flatMap { id =>
+      r.renderLogged(id, before, mine).map(h => id -> Digest.of(h))
+    }.toMap
 
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
     //     content must not reach it by ANY route.
@@ -3081,7 +3082,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val owed = Patches.resume(
       r,
       seeded,
-      seeded.digestsFor(r.variantOf(_, mine)),
+      held,
       tab0Moved,
       2L,
       open,
@@ -3099,7 +3100,7 @@ class ServerSuite extends munit.CatsEffectSuite {
     val mineOwed = Patches.resume(
       r,
       seeded,
-      seeded.digestsFor(r.variantOf(_, mine)),
+      held,
       tab1Moved,
       2L,
       open,
@@ -3717,6 +3718,113 @@ class ServerSuite extends munit.CatsEffectSuite {
         )
         assert(isCursor(opening(1)), clue = opening(1))
       }
+  }
+
+  /** The document, not the stream, creates the session — because the page
+    * render is the first thing that puts fragments in this client's DOM and the
+    * only place that knows what they were. So the suppression the test above
+    * asserts end to end has a per-client record behind it, not a shared one.
+    */
+  test("the document establishes the session its stream then adopts") {
+    val dash = mixedTabsDash
+    val initial = Map(
+      "sensor.shared" -> es("sensor.shared", "cold"),
+      "sensor.a" -> es("sensor.a", "warm")
+    )
+    (for {
+      store <- StateStore.inMemory(initial)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            sseUrl = page
+              .split("""data-init="@get\('""")(1)
+              .split("'")(0)
+              .replace("&amp;", "&")
+            // The id the document minted, which the URL it advertises carries.
+            conn = Uri
+              .unsafeFromString("/" + sseUrl)
+              .query
+              .params(Server.ConnSignal)
+            established <- sessions.get(conn)
+            held <- established.traverse(_.holds.get)
+            // ...and the stream takes THAT session rather than making its own.
+            _ <- routes
+              .run(Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl)))
+              .flatMap(sseFrom(_)(isCursor))
+            // Read off the object the DOCUMENT made: an epoch of 1 there is
+            // the proof the stream took that session rather than minting one.
+            epoch <- established.traverse(_.epoch.get)
+            renderer <- ref.get
+            snapshot <- store.current
+          } yield (held, epoch, renderer, snapshot)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (held, epoch, renderer, snapshot) =>
+        // Its own render, node by node — not a projection of anyone else's.
+        val body = renderer.renderNodeById("c_0", snapshot.entities)
+        assertEquals(
+          held.flatMap(_.get("c_0")),
+          body.map(Digest.of),
+          clue = held
+        )
+        assertEquals(epoch, Some(1), clue = "the stream adopted it")
+      }
+  }
+
+  test("a document nobody connects to does not leak a session") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          adoptionWindow = 50.millis
+        )
+        .use { server =>
+          for {
+            page <- server.routes.orNotFound
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            conn = Uri
+              .unsafeFromString(
+                "/" + page
+                  .split("""data-init="@get\('""")(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              .query
+              .params(Server.ConnSignal)
+            // Present the moment the document is served — a stream opening a
+            // beat later must find it.
+            before <- sessions.get(conn)
+            // ...and gone once the window passes with nobody adopting it,
+            // because every live session is read on every state batch.
+            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
+              .iterateWhile(_.isDefined)
+          } yield before.isDefined
+        }
+    } yield out).timeout(30.seconds).map(assert(_))
   }
 
   test("end to end: a leaf tick, then the same value again") {

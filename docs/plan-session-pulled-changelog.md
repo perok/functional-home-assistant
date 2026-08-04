@@ -51,6 +51,14 @@ Each one lands on its own and keeps the suites green.
      `FragmentLog.digestsFor` projects the shared log onto one viewer at the single call site, so
      behaviour is unchanged. The projection is where the variant dimension dies: variants exist
      only because the log is shared, and a per-connection record is already one viewer's.
+   - ~~The DOCUMENT creates the session~~ — `pageResponse` mints `conn`, builds the `Session`, seeds
+     `holds` from its own `painted.own`, and advertises `conn` on the `data-init` URL; the stream
+     ADOPTS that session (`Session.adopt`, an epoch) instead of minting one. The resume now decides
+     against `session.holds`, and `FragmentLog.seed` is gone. This is the only shape in which the
+     variant dimension dies: the page rendered at THIS viewer's `uiState`, where a shared seed has
+     to carry one digest per selection to avoid claiming somebody else's tab. It also pulls two
+     pieces of phase 4 forward — `conn` as a session identity, and a lifetime (`AdoptionWindow`,
+     reaping a document nobody connected to).
    - The send path decides against its own `holds`; the publisher stops rendering and pushing.
 4. **Session lifetime.** Linger after disconnect, displacement of a second live stream, the
    staleness bound that releases the floor. Gate recording on a slug having sessions.

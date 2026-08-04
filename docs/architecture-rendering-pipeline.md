@@ -56,7 +56,7 @@ flowchart TB
   end
 
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds + position (written, not yet read)"]
+  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (decides the resume) + position"]
   LOG[("FragmentLog per slug<br/>digest + version per node<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> PLAN --> PREP --> DIFF --> TOPIC
@@ -92,7 +92,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, `sharedTopic`, the `Sessions` registry |
 | Per slug | dashboard | the publisher fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog` |
-| Per connection | browser tab | the `Session` (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -123,13 +123,15 @@ for each slug: start a publisher fiber
 ```
 GET /d/:slug
   render the WHOLE page from the current snapshot
-  seed the log for the OPEN SURFACES' nodes only     // absent-only; a main-page
-                                                     // node deliberately gets no entry
+  mint conn; create Session{slug, open surfaces, control queue, holds, position}
+  holds = the digest of every node this render painted   // what THIS client's DOM has
+  register it, and schedule a reap if no stream adopts it within AdoptionWindow
   embed in the page as Datastar signals: logId, storeVersion, headHash, styleHash
+  ...and conn, on the data-init URL the page advertises
 
 GET /sse/dashboard/:slug/patch
-  mint conn; create Session{slug, open surfaces, control queue, holds, position}
-  register it (bracketed to the stream, so a failed connect cannot leak it)
+  adopt the session that URL's conn names (epoch++); mint one under the same id
+    if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
   subscribe ONCE to sharedTopic                       // all slugs, filtered per patch
   opening patches, narrowest that is still correct:
       resume   if the cursor's logId matches and nothing structural moved
@@ -295,6 +297,11 @@ The log stores **digests and versions, never HTML** — a resume renders from th
 which is by construction at least as fresh as anything the log could have held. That is why a
 missing entry is always safe: it reads as "unknown, send it", costing bytes and never staleness.
 
+The second question a resume asks — *does this client already have these bytes?* — is answered by
+the **session's own `holds`**, not by the log: it is seeded by the document that created the session
+and updated wherever a patch is kept. The log's digests still answer it for the LIVE pass, and that
+is the remaining half of the split (`docs/plan-session-pulled-changelog.md`).
+
 Mutations age out after `FragmentLog.Retention` = 1 hour; a container whose history has aged past a
 client's cursor yields a `refill` rather than a refusal.
 
@@ -320,6 +327,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | SSE stream + fan-out | `runtime/Server.scala` · `sseStream` |
 | opening paint / resume | `runtime/Server.scala` · `openingPatches`; `runtime/Patches.scala` · `resume` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost` |
+| a document establishes a session | `runtime/Server.scala` · `pageResponse`, `reapUnadopted`; `runtime/Sessions.scala` · `Session.adopt` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderDynamicChild`, `renderDynamicMembers` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
 

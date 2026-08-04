@@ -195,22 +195,6 @@ private[runtime] case class FragmentLog(
   def hasChildOf(gid: NodeId): Boolean =
     fragments.keysIterator.exists(_.startsWith(gid + "_"))
 
-  /** For the DOCUMENT path. Left unrecorded, a client's first connect is
-    * offered every node of every open surface as a candidate, so the page
-    * arrives twice.
-    *
-    * Absent-only because the log is SHARED and this snapshot may already be
-    * behind: a newer entry from the live pass describes the DOM better.
-    */
-  def seed(
-      nodeId: NodeId,
-      digest: Digest,
-      at: Long,
-      variant: Int = 0
-  ): FragmentLog =
-    if (fragments.get(nodeId).exists(_.digests.contains(variant))) this
-    else set(nodeId, digest, at, variant)
-
   /** **A fragment's version never goes backwards.** A variant-bearing node's
     * entry is written lazily, when some connection first asks for that variant,
     * so two batches can reach here out of order — a slow client forcing an old

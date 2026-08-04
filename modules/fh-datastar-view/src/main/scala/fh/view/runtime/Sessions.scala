@@ -5,9 +5,13 @@ import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import cats.effect.std.Queue
 import fh.view.model.NodeId
+import fs2.concurrent.SignallingRef
 import org.http4s.ServerSentEvent
 
-/** One connected dashboard client — i.e. one live SSE stream.
+/** One dashboard client. Created by the DOCUMENT it loaded, not by the SSE
+  * stream that follows: the page render is the first thing that puts fragments
+  * in this client's DOM, so it is the only place that can say what they were. A
+  * stream adopts the session its `conn` names ([[adopt]]).
   *
   *   - `slug`: which dashboard this connection views — fixed for its lifetime,
   *     because going to another dashboard is an ordinary document load (ADR
@@ -19,27 +23,40 @@ import org.http4s.ServerSentEvent
   *     — popup mount/remove (the entity-change loop can't carry them, as
   *     they're triggered by action POSTs on other fibers).
   *   - `holds`: what THIS client's DOM has, per node — the digest of the bytes
-  *     it was last sent. The per-session answer to "is this worth sending?",
-  *     which one shared [[FragmentLog]] answers on everyone's behalf today.
+  *     it was last sent, seeded by the document's own render. The per-session
+  *     answer to "is this worth sending?", which one shared [[FragmentLog]]
+  *     answers on everyone's behalf today.
   *   - `position`: how far this session has been served, as a store version.
+  *   - `epoch`: which stream owns it — see [[adopt]].
   *
-  * '''`holds` and `position` are written but not yet read''' — the shared log
-  * still decides. They are populated first, and separately, because the thing
-  * that goes wrong with a per-client record is that it drifts from what the
-  * client actually has: every patch that changes the DOM must update it in the
-  * same step, or the map lies (and leaks) for the life of the session. Getting
-  * that filled in and tested while the shared log is still the authority means
-  * the step that flips the decision over is a one-line change of who is asked,
-  * not a new bookkeeping mechanism arriving at the same time
-  * (docs/plan-session-pulled-changelog.md, structure 3).
+  * `holds` decides the RESUME; the live pass still asks the shared log
+  * (docs/plan-session-pulled-changelog.md). `position` is written and not yet
+  * read — it becomes the cursor the pull loop reads from.
+  *
+  * What goes wrong with a per-client record is that it drifts from what the
+  * client actually has, so there is exactly one rule: it is written where bytes
+  * are SENT to this client — the document's own render here, and
+  * [[Addressed.establishes]] where a connection keeps a patch. Never from what
+  * some other client was told, and never from what a shared structure believes.
   */
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
     control: Queue[IO, ServerSentEvent],
     holds: Ref[IO, Map[NodeId, Digest]],
-    position: Ref[IO, Long]
-)
+    position: Ref[IO, Long],
+    epoch: SignallingRef[IO, Int]
+) {
+
+  /** Take this session's stream. Returns the epoch the caller now owns — every
+    * earlier one is superseded and must stop, or two streams would write one
+    * `holds` map and each would suppress what the other was owed.
+    *
+    * `0` means nobody has ever connected, which is what tells the reaper a page
+    * load was abandoned before it opened a stream.
+    */
+  def adopt: IO[Int] = epoch.updateAndGet(_ + 1)
+}
 
 object Session {
   def create(slug: String): IO[Session] =
@@ -48,7 +65,8 @@ object Session {
       q <- Queue.unbounded[IO, ServerSentEvent]
       h <- Ref[IO].of(Map.empty[NodeId, Digest])
       p <- Ref[IO].of(0L)
-    } yield Session(slug, o, q, h, p)
+      e <- SignallingRef[IO].of(0)
+    } yield Session(slug, o, q, h, p, e)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action
