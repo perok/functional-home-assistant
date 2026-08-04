@@ -149,11 +149,29 @@ GET /sse/dashboard/:slug/patch
     // stream existed still wakes it
 
 on disconnect
-  deregister IMMEDIATELY, but only if this stream still OWNS the session —
-    a displaced stream must not delete the live one's session on its way out
-  nothing lingers, no disconnected state
-  the client keeps the cursor; the session's own `position`/`holds` go with it
+  release the session into a LINGER (Tenure.Lingering), but only if this stream
+    still OWNS it — a displaced stream must not put the live one out to pasture
+  it stays registered and recorded for, so a client back inside LingerWindow
+    resumes against its own holds instead of paying for a repaint
+  after the window, the reaper drops it — but only from exactly the tenure it
+    expected, so a reconnect that lands while the reaper sleeps simply wins
 ```
+
+A session's whole life is one value (`Tenure`), walked in order:
+
+```
+Fresh ──(a stream adopts)──▸ Held(1) ──(that stream ends)──▸ Lingering(1)
+  │                             ▲                                │
+  │                             └────(a reconnect adopts)─────────┤
+  └──(AdoptionWindow passes)──▸ Reaped ◂──(LingerWindow passes)───┘
+```
+
+Every transition names the tenure it expects to replace, which is what makes
+the reaper unable to race a stream: both decide on the same ref, so the loser
+sees the winner's answer rather than acting on a stale read. `Held` is also the
+only state that counts as a live stream (`Sessions.liveStreams`, the readiness
+seam tests wait on) — a lingering session is registered and has nobody to send
+to.
 
 ### A state change arrives — once, globally
 
@@ -377,7 +395,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | SSE stream | `runtime/Server.scala` · `sseStream` |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
-| a document establishes a session | `runtime/Server.scala` · `pageResponse`, `reapUnadopted`; `runtime/Sessions.scala` · `Session.adopt` |
+| a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
+| a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`; `runtime/Server.scala` · `reapAfter`, `AdoptionWindow`, `LingerWindow` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderLogged`, `renderMount`, `renderDynamicChild` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
@@ -409,8 +428,8 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 The reshaping this file describes — the recorder, the doorbell, the per-session pull — **has
 landed**. Its document, [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md),
-covers what is left: session lifetime (linger after disconnect, a staleness bound, gating recording
-on a slug having viewers), and maintained dynamic membership. Nothing in §1–§8 describes code that does not exist.
+covers what is left of session lifetime (a staleness bound, gating recording on a slug having
+viewers) and maintained dynamic membership. The linger has landed — see `Tenure` above. Nothing in §1–§8 describes code that does not exist.
 
 Two findings from the cache phase, worth carrying here rather than leaving in the plan:
 

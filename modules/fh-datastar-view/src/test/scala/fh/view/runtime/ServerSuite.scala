@@ -44,8 +44,8 @@ class ServerSuite extends munit.CatsEffectSuite {
       holds: Map[NodeId, Digest],
       states: Map[String, EntityState],
       v: Long,
-      open: Set[String] = Set.empty,
-      uiState: Map[String, String] = Map.empty
+      open: Set[String],
+      uiState: Map[String, String]
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
@@ -913,8 +913,8 @@ class ServerSuite extends munit.CatsEffectSuite {
     * the per-slug [[RenderCache]], which both pulls go through: whoever gets
     * there first renders and the other waits on the same slot. Two viewers of
     * one dashboard have the same [[RenderInputs]] for a node unless their
-    * selections differ, which is what makes the hit the normal case rather
-    * than a lucky one.
+    * selections differ, which is what makes the hit the normal case rather than
+    * a lucky one.
     *
     * So this number is a cost contract: if it ever reads 2 again, the cache is
     * being missed (a key that varies per viewer where it should not, or a pull
@@ -3825,9 +3825,11 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- routes
               .run(Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl)))
               .flatMap(sseFrom(_)(isCursor))
-            // Read off the object the DOCUMENT made: an epoch of 1 there is
+            // Read off the object the DOCUMENT made: a FIRST epoch there is
             // the proof the stream took that session rather than minting one.
-            epoch <- established.traverse(_.epoch.get)
+            // Lingering by now, since this stream has read its opening block
+            // and ended.
+            epoch <- established.traverse(_.tenure.get)
             renderer <- ref.get
             snapshot <- store.current
           } yield (held, epoch, renderer, snapshot)
@@ -3842,7 +3844,11 @@ class ServerSuite extends munit.CatsEffectSuite {
           body.map(Digest.of),
           clue = held
         )
-        assertEquals(epoch, Some(1), clue = "the stream adopted it")
+        assertEquals(
+          epoch,
+          Some(Tenure.Lingering(1): Tenure),
+          clue = "the stream adopted it"
+        )
       }
   }
 
@@ -3894,6 +3900,125 @@ class ServerSuite extends munit.CatsEffectSuite {
           } yield survived.isDefined
         }
     } yield out).timeout(30.seconds).map(assert(_))
+  }
+
+  /** A dropped SSE stream is the NORMAL case, not a goodbye: a phone sleeping,
+    * a lid closing, a wifi handover. The session outlives it, so the client
+    * that comes back is told what moved rather than repainted — and it is the
+    * SAME session, because a new one under the same `conn` would have an empty
+    * `holds` and could only claim what it re-sent.
+    */
+  test(
+    "a dropped stream leaves its session lingering, and a reconnect takes it back"
+  ) {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          // Sleeps, because a bare retry loop starves the very fibers it is
+          // waiting on when the runtime has few threads.
+          def awaitTenure(conn: String, t: Tenure): IO[Unit] =
+            (IO.sleep(5.millis) *> sessions
+              .get(conn)
+              .flatMap(_.traverse(_.tenure.get)))
+              .iterateUntil(_.contains(t))
+              .void
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            reading <- first.body.compile.drain.start
+            _ <- awaitTenure(conn, Tenure.Held(1))
+            // The client hangs up.
+            _ <- reading.cancel
+            _ <- awaitTenure(conn, Tenure.Lingering(1))
+            before <- sessions.get(conn)
+            heldBefore <- before.traverse(_.holds.get)
+            // ...and comes back to the same URL, as Datastar's own retry does.
+            second <- routes.run(Request[IO](Method.GET, url))
+            live <- second.body.compile.drain.start
+            _ <- awaitTenure(conn, Tenure.Held(2))
+            after <- sessions.get(conn)
+            _ <- live.cancel
+          } yield (before, after, heldBefore)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (before, after, heldBefore) =>
+        assert(
+          before.isDefined && after.exists(a => before.exists(_ eq a)),
+          clue = "the reconnect adopted the very session the drop left behind"
+        )
+        // What makes that worth doing: the record of this client's DOM, which
+        // the document seeded and a fresh session could not have.
+        assert(heldBefore.exists(_.nonEmpty), clue = heldBefore)
+      }
+  }
+
+  /** The other end of the same window: a client that never comes back must not
+    * cost a map read on every state batch for the life of the process.
+    */
+  test("a session nobody comes back for is reaped") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          lingerWindow = 50.millis
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            reading <- first.body.compile.drain.start
+            _ <- (IO.sleep(5.millis) *> sessions
+              .get(conn)
+              .flatMap(_.traverse(_.tenure.get)))
+              .iterateUntil(_.contains(Tenure.Held(1)))
+            _ <- reading.cancel
+            // Registered while it lingers — that IS the point of the window —
+            // and gone once it closes.
+            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
+              .iterateWhile(_.isDefined)
+          } yield ()
+        }
+    } yield out).timeout(30.seconds).void
   }
 
   test("a document nobody connects to does not leak a session") {

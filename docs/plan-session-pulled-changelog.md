@@ -132,10 +132,18 @@ Each one lands on its own and keeps the suites green.
      contract can come to depend on what an earlier test rendered. The real server is the only place
      one is shared, which is also the only place the sharing is the point.
 
-4. **Session lifetime.** Linger after disconnect, the staleness bound that releases the floor. Gate
-   recording on a slug having sessions. ~~Displacement of a second live stream~~ landed with the
-   document-creates-the-session step, which is what first made two streams able to reach one
-   session; the rest of this phase is still open.
+4. **Session lifetime.** ~~Linger after disconnect~~ **landed**, the staleness bound that releases
+   the floor, and gating recording on a slug having sessions. ~~Displacement of a second live
+   stream~~ landed with the document-creates-the-session step, which is what first made two streams
+   able to reach one session.
+
+   The linger turned three parallel questions — adopted? connected? dropped? — into one `Tenure`
+   value (`Fresh -> Held(e) -> Lingering(e) -> Held(e+1) -> ... -> Reaped`), which is what closed
+   the race the plan had not noticed: the old reaper READ an epoch and then deregistered, so a
+   reconnect landing in between left a live stream nothing was registered under. Every transition
+   now names the tenure it expects to replace and decides on the same ref, so the loser sees the
+   winner's answer. Two reapers (a document nobody connected to, a stream that ended) became one
+   `Server.reapAfter`, differing only in which tenure they wait on.
 5. **Maintained dynamic membership**, tested per change instead of rescanned per frame.
 
 ## ADRs this will rewrite

@@ -81,7 +81,10 @@ class Server(
     dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
     // How long a document's session waits to be adopted ([[Server.AdoptionWindow]]).
     // A parameter only so a suite can watch the reap without waiting 30s.
-    adoptionWindow: FiniteDuration = Server.AdoptionWindow
+    adoptionWindow: FiniteDuration = Server.AdoptionWindow,
+    // How long a session outlives its stream ([[Server.LingerWindow]]). Same
+    // reason it is a parameter.
+    lingerWindow: FiniteDuration = Server.LingerWindow
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -411,10 +414,8 @@ class Server(
       // the `conn` it already has and only loses the suppression its `holds`
       // would have given (bytes, never staleness).
       conn <- Server.connOf(req).fold(IO.randomUUID.map(_.toString))(IO.pure)
-      session <- sessions
-        .get(conn)
-        .flatMap(_.filter(_.slug == slug).fold(Session.create(slug))(IO.pure))
-      epoch <- session.adopt
+      adopted <- adoptOrMint(slug, conn)
+      (session, epoch) = adopted
       liveOpt <- liveFor(slug)
       rendererOpt <- liveOpt.traverse(_.renderer.get)
       // Seed the open set from this client's ui state — its selected tab
@@ -490,15 +491,16 @@ class Server(
       // enough: the `conn` signal a client needs before it can POST an action
       // is the first element of this same stream.
       //
-      // The release is conditional on still OWNING the session, because a
-      // session now outlives the request that made it: a reconnect adopts the
-      // one already in the registry, and an unconditional deregister here would
-      // have the displaced stream delete the live stream's session on its way
-      // out.
+      // The release does not deregister: it hands the session to the LINGER
+      // ([[Session.release]]), so a client that drops and comes back inside the
+      // window resumes against its own `holds` instead of being repainted.
+      // Conditional on still owning it, because a displaced stream releases
+      // after its successor has already taken over and must not put a live
+      // session out to pasture on its way out.
       stream = (Stream.bracket(sessions.register(conn, session))(_ =>
-        session.epoch.get.flatMap(e =>
-          IO.whenA(e == epoch)(sessions.deregister(conn))
-        )
+        session
+          .release(epoch)
+          .flatMap(_.traverse_(reapAfter(conn, session, _, lingerWindow)))
       ) >> (Stream.emit(
         Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
       ) ++ live))
@@ -508,7 +510,7 @@ class Server(
         // suppress a change the client never received. Sending to a socket
         // nobody reads is merely wasteful; claiming a digest for it is
         // permanent staleness.
-        .interruptWhen(session.epoch.discrete.map(_ != epoch))
+        .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
       resp <- Ok(stream)
     } yield resp
 
@@ -867,26 +869,58 @@ class Server(
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String](Server.ConnSignal).toOption
 
-  /** Drop a session whose document never opened a stream — a page closed or
-    * navigated away from before `data-init` fired, or a crawler.
+  /** The stream that owns `conn` for this request, and the epoch it now holds.
     *
-    * Necessary because the document, not the stream, now creates the session:
-    * without this every such load would leave one in the registry for the life
-    * of the process, and every one of them is read by [[Sessions.openSets]] on
-    * every state batch.
+    * A `conn` naming nothing — a reaped session, a bookmarked SSE URL, a server
+    * restart, or a client that changed dashboards — is not an error: a fresh
+    * session is minted under the SAME id, so the client keeps the `conn` it
+    * already has and loses only the suppression its `holds` would have given
+    * (bytes, never staleness).
     *
-    * Keyed on the epoch rather than on presence, so it cannot race a stream
-    * that is starting: a session someone adopted is left alone, and one whose
-    * stream has already ENDED was deregistered by that stream's bracket.
+    * A registered session can also be reaped between the lookup and the adopt,
+    * which [[Session.adopt]] reports rather than hides — the reaper is allowed
+    * to win that race precisely because losing it costs one fatter patch.
     */
-  private def reapUnadopted(conn: String): IO[Unit] =
+  private def adoptOrMint(slug: String, conn: String): IO[(Session, Int)] =
+    sessions
+      .get(conn)
+      .map(_.filter(_.slug == slug))
+      .flatMap(_.flatTraverse(s => s.adopt.map(_.map(s -> _))))
+      .flatMap {
+        case Some(adopted) => IO.pure(adopted)
+        // A session minted by its own stream is Held(1) from birth.
+        case None => Session.create(slug).flatTap(_.adopt).map(_ -> 1)
+      }
+
+  /** Drop `conn`'s session once `after` has passed, unless its tenure has moved
+    * off `expected` in the meantime. Both reasons a session waits to die use
+    * this: a document that never opened a stream ([[Tenure.Fresh]]) and a
+    * stream that ended ([[Tenure.Lingering]]). One mechanism, because they are
+    * the same question asked about different states.
+    *
+    * Necessary because the document, not the stream, creates the session:
+    * without this, every abandoned page load would leave one in the registry
+    * for the life of the process, and every one of them is read by
+    * [[Sessions.openSets]] on every state batch.
+    *
+    * It cannot race a stream that is starting. [[Session.relinquish]] and
+    * [[Session.adopt]] both decide on the same ref, so a reconnect that lands
+    * while this sleeps makes the transition fail rather than merely making this
+    * read stale — and only a reaper that WON the transition touches the
+    * registry, by identity ([[Sessions.deregisterIf]]).
+    */
+  private def reapAfter(
+      conn: String,
+      session: Session,
+      expected: Tenure,
+      after: FiniteDuration
+  ): IO[Unit] =
     supervisor
       .supervise(
-        IO.sleep(adoptionWindow) *>
-          sessions
-            .get(conn)
-            .flatMap(_.traverse(_.epoch.get))
-            .flatMap(e => IO.whenA(e.contains(0))(sessions.deregister(conn)))
+        IO.sleep(after) *>
+          session
+            .relinquish(expected)
+            .flatMap(IO.whenA(_)(sessions.deregisterIf(conn, session)))
       )
       .void
 
@@ -1125,7 +1159,8 @@ class Server(
               })
             )
             .flatTap(_.position.set(store.version))
-            .flatMap(sessions.register(conn, _)) *> reapUnadopted(conn)
+            .flatTap(sessions.register(conn, _))
+            .flatMap(reapAfter(conn, _, Tenure.Fresh, adoptionWindow))
           warnAnomalies(renderer, uiState) *> establish *>
             Ok(
               page(
@@ -1367,7 +1402,8 @@ object Server {
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      adoptionWindow: FiniteDuration = AdoptionWindow
+      adoptionWindow: FiniteDuration = AdoptionWindow,
+      lingerWindow: FiniteDuration = LingerWindow
   ): Resource[IO, Server] =
     for {
       // Pair each seeded renderer with its own fragment log here, so the caller
@@ -1389,7 +1425,8 @@ object Server {
         healthy,
         systemPkl,
         dumpRefresh,
-        adoptionWindow
+        adoptionWindow,
+        lingerWindow
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -1836,6 +1873,24 @@ object Server {
     * abandoned load, read by every state batch until it expires.
     */
   val AdoptionWindow: FiniteDuration = 30.seconds
+
+  /** How long a session outlives the stream that was holding it
+    * ([[Tenure.Lingering]]).
+    *
+    * It is not really "how long we keep a session" — it is '''how long a
+    * returning client can be told only what moved.''' A drop costs the client
+    * nothing but bytes: without a session its reconnect still resumes off the
+    * changelog, and only without THAT does it repaint. So this is sized by how
+    * long a dashboard is realistically away and still worth the exactness — a
+    * phone waking, a laptop lid, a wifi handover — not by how long the client
+    * might live.
+    *
+    * The cost of too long is one map per absent client, read by every state
+    * batch and keeping its slug recording. The cost of too short is a fatter
+    * first patch. Neither is a correctness edge, which is why this is a plain
+    * constant and not a policy.
+    */
+  val LingerWindow: FiniteDuration = 2.minutes
 
   /** The keepalive itself: an SSE comment, carrying no data, no event type and
     * no signal — just bytes on the wire. See [[KeepAliveInterval]].

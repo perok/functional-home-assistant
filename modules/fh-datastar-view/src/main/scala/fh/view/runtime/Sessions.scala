@@ -9,6 +9,40 @@ import fh.view.model.NodeId
 import fs2.concurrent.SignallingRef
 import org.http4s.ServerSentEvent
 
+/** Who owns a session right now, as ONE value rather than parallel
+  * "adopted?"/"connected?"/"dropped?" flags — they are the same fact, and a
+  * session's whole life is a walk through these in order:
+  *
+  * {{{
+  * Fresh -> Held(1) -> Lingering(1) -> Held(2) -> ... -> Reaped
+  * }}}
+  *
+  * Every transition is guarded by the tenure it expects to replace
+  * ([[Session.adopt]], [[Session.release]], [[Session.relinquish]]), which is
+  * what makes the reaper unable to race a stream: both ask the same ref, so
+  * whoever loses sees the other's answer instead of acting on a stale read.
+  * Separate flags would make "reaped but held" representable and turn that race
+  * back into a window.
+  *
+  *   - `Fresh` — a document made it; nothing has connected. A page abandoned
+  *     before `data-init` fires never leaves this state, which is what the
+  *     adoption reaper looks for.
+  *   - `Held(epoch)` — one stream owns it. The epoch is what a stream compares
+  *     against to notice it has been DISPLACED by a later one.
+  *   - `Lingering(epoch)` — its stream ended and nobody has taken it since. The
+  *     session is still live and still recorded for: this is the window in
+  *     which a reconnect costs only what moved.
+  *   - `Reaped` — dropped. Terminal, and refused by [[Session.adopt]], so a
+  *     stream that lost the race to the reaper mints a new session instead of
+  *     adopting a corpse nothing is registered under.
+  */
+enum Tenure derives CanEqual {
+  case Fresh
+  case Held(epoch: Int)
+  case Lingering(epoch: Int)
+  case Reaped
+}
+
 /** One dashboard client. Created by the DOCUMENT it loaded, not by the SSE
   * stream that follows: the page render is the first thing that puts fragments
   * in this client's DOM, so it is the only place that can say what they were. A
@@ -28,7 +62,7 @@ import org.http4s.ServerSentEvent
   *     this worth sending?", asked per client rather than on everyone's behalf.
   *   - `position`: how far this session has been served, as a store version.
   *     The cursor its pull loop resumes from.
-  *   - `epoch`: which stream owns it — see [[adopt]].
+  *   - `tenure`: who owns it and whether it is still alive — see [[Tenure]].
   *
   * What goes wrong with a per-client record is that it drifts from what the
   * client actually has, so there is exactly one rule: it is written where bytes
@@ -42,17 +76,45 @@ case class Session(
     control: Queue[IO, ServerSentEvent],
     holds: Ref[IO, Map[NodeId, Digest]],
     position: Ref[IO, Long],
-    epoch: SignallingRef[IO, Int]
+    tenure: SignallingRef[IO, Tenure]
 ) {
 
-  /** Take this session's stream. Returns the epoch the caller now owns — every
-    * earlier one is superseded and must stop, or two streams would write one
-    * `holds` map and each would suppress what the other was owed.
-    *
-    * `0` means nobody has ever connected, which is what tells the reaper a page
-    * load was abandoned before it opened a stream.
+  /** Take this session's stream. Returns the epoch the caller now owns, or
+    * `None` if it has already been [[Tenure.Reaped]] — every earlier epoch is
+    * superseded and must stop, or two streams would write one `holds` map and
+    * each would suppress what the other was owed.
     */
-  def adopt: IO[Int] = epoch.updateAndGet(_ + 1)
+  def adopt: IO[Option[Int]] =
+    tenure.modify {
+      case Tenure.Reaped       => (Tenure.Reaped, None)
+      case Tenure.Fresh        => (Tenure.Held(1), Some(1))
+      case Tenure.Held(e)      => (Tenure.Held(e + 1), Some(e + 1))
+      case Tenure.Lingering(e) => (Tenure.Held(e + 1), Some(e + 1))
+    }
+
+  /** This stream is done; start the linger. A no-op unless `epoch` is still the
+    * one holding it — a DISPLACED stream releases after its successor already
+    * took over, and must not put a live session out to pasture on its way out.
+    *
+    * Returns the tenure the reaper should then expect to find, so the caller
+    * cannot schedule a reap against a state this never reached.
+    */
+  def release(epoch: Int): IO[Option[Tenure]] =
+    tenure.modify {
+      case Tenure.Held(e) if e == epoch =>
+        (Tenure.Lingering(e), Some(Tenure.Lingering(e)))
+      case t => (t, None)
+    }
+
+  /** Drop it for good, but only from exactly `expected`. `false` means someone
+    * reconnected (or a later stream took it) while the reaper slept, and the
+    * caller must leave the registry alone.
+    */
+  def relinquish(expected: Tenure): IO[Boolean] =
+    tenure.modify {
+      case t if t == expected => (Tenure.Reaped, true)
+      case t                  => (t, false)
+    }
 }
 
 object Session {
@@ -62,8 +124,8 @@ object Session {
       q <- Queue.unbounded[IO, ServerSentEvent]
       h <- Ref[IO].of(Map.empty[NodeId, Digest])
       p <- Ref[IO].of(0L)
-      e <- SignallingRef[IO].of(0)
-    } yield Session(slug, o, q, h, p, e)
+      t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
+    } yield Session(slug, o, q, h, p, t)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action
@@ -75,21 +137,33 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
   /** How many sessions have a live STREAM — the readiness seam a test needs
     * before it moves an entity.
     *
-    * Adopted, not merely registered: a document registers its session before
-    * any stream exists ([[Session.adopt]]), so a bare count is met while the
-    * browser has not connected yet, and a change in that window is observable
-    * only as a first paint. A `SignallingRef` rather than a `Ref` for exactly
-    * this; nothing in the server watches it.
+    * [[Tenure.Held]] exactly: a document registers its session before any
+    * stream exists, so counting registrations is met while the browser has not
+    * connected yet, and a change in that window is observable only as a first
+    * paint. A LINGERING session does not count either, for the same reason read
+    * the other way round — it is still registered, still recorded for, and has
+    * nobody to send to. A `SignallingRef` rather than a `Ref` for exactly this;
+    * nothing in the server watches it.
     */
   def liveStreams: Stream[IO, Int] =
     ref.discrete.evalMap(
-      _.values.toList.traverse(_.epoch.get).map(_.count(_ > 0))
+      _.values.toList
+        .traverse(_.tenure.get)
+        .map(_.count {
+          case Tenure.Held(_) => true
+          case _              => false
+        })
     )
 
   def register(conn: String, session: Session): IO[Unit] =
     ref.update(_.updated(conn, session))
 
-  def deregister(conn: String): IO[Unit] = ref.update(_ - conn)
+  /** Only if `conn` still names THIS session. A reaper wakes into a world where
+    * its `conn` may have been re-used by a later document, and dropping that
+    * one would unroute a live client.
+    */
+  def deregisterIf(conn: String, session: Session): IO[Unit] =
+    ref.update(_.filterNot { case (k, v) => k == conn && (v eq session) })
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
 
