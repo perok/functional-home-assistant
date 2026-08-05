@@ -258,8 +258,7 @@ Each one lands on its own and keeps the suites green.
 
    **What it costs, and the shape agreed for it:** the authored graph stays a STATIC map computed
    once from the `Dashboard` (`Renderer.allIndexed` today); the dynamic part is a `Ref` beside it
-   that membership edits. Getting that structure clean is the phase, and it belongs in its own PR
-   rather than riding on this one.
+   that membership edits. Getting that structure clean IS the phase.
 
    Two things constrain it, and both were found by looking at what already keys on renderer
    IDENTITY. `publisherFor` rotates the changelog on every renderer emission and `reloadRepaints`
