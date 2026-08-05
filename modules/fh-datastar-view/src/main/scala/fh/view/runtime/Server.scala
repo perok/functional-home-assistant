@@ -16,7 +16,7 @@ import fh.view.FHError
 import fh.view.model.{Dashboard, DomId, NodeId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import io.circe.Json
+import io.circe.{Decoder, Json}
 import org.http4s.*
 import org.http4s.dsl.io.*
 import org.http4s.headers.{
@@ -484,6 +484,9 @@ class Server(
       // updates from the first paint and a reconnect does not silently orphan
       // the dialog on screen.
       // Warn on any off ui-state value.
+      _ <- Server
+        .cursorAnomaly(req)
+        .traverse_(w => IO.println(s"[warn] $w"))
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
@@ -1898,6 +1901,42 @@ object Server {
       version: Long
   )
 
+  /** The cursor as ONE required shape rather than four independent lookups.
+    *
+    * The difference is what a PARTIAL payload does. Four `toOption` reads make
+    * a missing field indistinguishable from a missing store, so a signal
+    * payload carrying three of the four quietly falls through to the document's
+    * query params — whose version is frozen at page render, so every reconnect
+    * resumes from the original version and re-derives the whole page. `holds`
+    * suppresses most of it, which is precisely why nobody would notice. A
+    * decoder makes that case a `Left`, which [[cursorAnomaly]] can report.
+    */
+  private val cursorDecoder: Decoder[Cursor] =
+    Decoder.forProduct4[Cursor, String, String, String, Long](
+      HeadHashSignal,
+      StyleHashSignal,
+      LogIdSignal,
+      StoreVersionSignal
+    )(Cursor.apply)
+
+  /** A request that carries a live signal store but no readable cursor in it.
+    *
+    * Not the same as a first connect, which carries no store at all
+    * ([[hasSignals]]) and legitimately uses the query params. This one HAS a
+    * store and the cursor is not in it — a client-side signal filter that
+    * excluded it, or a page from a previous release — and the only symptom is a
+    * resume that is quietly larger than it should be, forever.
+    */
+  private[runtime] def cursorAnomaly(req: Request[IO]): Option[String] =
+    signalsOf(req)
+      .flatMap(_.as(using cursorDecoder).left.toOption)
+      .map(f =>
+        "reconnect carried a signal store with no readable cursor " +
+          s"(${f.getMessage}) — resuming from the document's frozen params " +
+          "instead. Check the client's filterSignals: the four cursor signals " +
+          "must reach the SSE GET."
+      )
+
   /** Read the cursor off the GET signal payload. Datastar serializes the signal
     * store into a `datastar` query param on every GET action, which is how the
     * cursor survives the visibility refetch that closes and reopens the stream
@@ -1909,14 +1948,7 @@ object Server {
     */
   private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
     signalsOf(req)
-      .flatMap(c =>
-        for {
-          hash <- c.get[String](HeadHashSignal).toOption
-          styleHash <- c.get[String](StyleHashSignal).toOption
-          logId <- c.get[String](LogIdSignal).toOption
-          version <- c.get[Long](StoreVersionSignal).toOption
-        } yield Cursor(hash, styleHash, logId, version)
-      )
+      .flatMap(_.as(using cursorDecoder).toOption)
       .orElse(cursorFromQuery(req))
 
   /** The cursor a freshly-loaded DOCUMENT hands back on its first connect
