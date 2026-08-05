@@ -156,6 +156,23 @@ Cheapest first:
    non-empty exactly where a shared answer would have been wrong. Recovers O(1)-in-viewers memory
    while keeping the per-client correctness that motivates this ADR.
 
+## Deferred — what `conn` becomes when there is auth
+
+`conn` is a session identifier with a real lifetime now, which is the shape auth wants: the session
+belongs to a PRINCIPAL, and `conn` becomes a per-session token scoped to it.
+
+What must not happen is `conn` becoming the user id. A session owns `holds` — a record of what ONE
+DOM contains — and a user has many tabs. Give them one identity and either the displacement rule
+throws them out of their own other tab, or they share a `holds` map that describes two different
+DOMs, which is the silent-staleness failure this whole design exists to remove. The displacement
+rule stands on its own for the same reason: two live streams on one session means two writers on
+one `holds`.
+
+The scopes are genuinely different, and that is the thing to hold on to: `holds` and `position` are
+per-DOM and can never be keyed coarser than a tab, where the open set and ui-state are per-VIEWER
+and could reasonably follow a user across tabs or devices. Merging them would fake one with the
+other.
+
 ## Rejected along the way (still guarding the design)
 
 - **A hollow mount plus a per-connection fill.** The first attempt at serving viewers on
