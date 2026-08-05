@@ -201,7 +201,8 @@ every slug's recorder wakes
       reading the snapshot it renders from, which makes any version skipped
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
-  plan    -> staticIds, dynamics, flips
+  plan    -> staticIds (members included — they are in the reverse index),
+             dynamics (which groups to ask about MEMBERSHIP), flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version                 // no variant split
@@ -273,7 +274,7 @@ flowchart TB
 
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["DYNAMICS<br/>a query-driven group was touched"]
+  REQ --> DYN["DYNAMICS<br/>a query-driven group whose MEMBERSHIP may have moved"]
   REQ --> VAR["VARYING IDS<br/>markup that reads its OWN viewer's selection"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
@@ -282,7 +283,7 @@ flowchart TB
   VAR --> STATW
 
   DYN --> SAME{"membership<br/>moved?"}
-  SAME -->|no| TICK["touched, per current member the frame moved"]
+  SAME -->|no| TICK["touched, per member whose CASE was replaced<br/>(a member that merely ticked came in as a STATIC ID)"]
   SAME -->|yes| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
   CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
   CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
@@ -350,6 +351,13 @@ other node does.
 
 Three properties hold it up, and each fails silently if broken:
 
+- **A member is selected like any other node.** `componentsFor` includes members binding the
+  entity, so a member re-renders because something it binds moved — the group's query is asked
+  about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
+  did, silently), and `rootOf` must resolve a member through its group or a member inside a
+  surface reaches clients who do not have it open. The one case the index cannot cover is a
+  switch to a card binding nothing live: no edge names it, so `syncMembers` reports the members
+  it REPLACED and the recorder touches those by id.
 - **Ids are key-derived, never positional.** A positional id renames every node below an arrival,
   which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
   member list, which is also what an insert anchor reads); the key is the IDENTITY. `MemberKey` is

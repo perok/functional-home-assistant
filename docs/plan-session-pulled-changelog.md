@@ -310,12 +310,33 @@ Each one lands on its own and keeps the suites green.
    is that an `r` frame does not always have a registry event behind it, so nothing guarantees that
    reload — ADR 0003's open section, and the one thing the member graph is owed.
 
-   ### Left deliberately
+   ### Selection, too — the half that made it a deletion
 
-   The reverse index (`componentsFor`) does NOT yet include a member's other bindings. Adding them
-   is what ADR 0003's retired invariant unlocks — a member card reading a second entity and ticking
-   on it — but it changes which patches are emitted, where everything above is wire-identical. It
-   is a capability, and it should land as one.
+   Materialising the member fixed how it is RENDERED; it did not, at first, change how it is
+   SELECTED. That still ran through the group's query: `affectedDynamics` asked "was this group
+   touched", and `recordDynamic` had a branch that touched each member the frame moved. Wiring
+   members into the reverse index (`componentsFor`/`surfaceComponentsFor`) removes that branch —
+   a member is found because something it binds moved, exactly as a static component is — and
+   `DiffRequest.dynamics` stops carrying entity lists, leaving the query with the one question it
+   was always about.
+
+   Three things came out of doing it:
+
+   - **`rootOf` has to resolve a member through its group.** It returned `None` for a member id,
+     which `userSurfaceOfNode` tags as main-page and `visibleNode` treats as visible to everyone.
+     Harmless while members were only ever selected by their group's query; wrong the moment they
+     arrive as static ids inside a surface, where it leaks one client's tab into another's stream.
+   - **The reverse index cannot cover a case switch to a card binding nothing live.** No entity
+     edge names it, and its bytes moved. So `syncMembers` reports the members it REPLACED
+     (`MemberDelta.replaced`) and the recorder touches those by id — sound because a member's id
+     exists whatever the card does, `Dashboard.validate` having already rejected a
+     `wrapAsCell = false` card as a dynamic case so that every member has its own element.
+   - **One deliberate wire change, and it is a correction.** A case slot naming a second entity
+     (`SlotSource(entityId = Some(...))`) was authorable, was accounted for in the old cache key,
+     and silently never ticked — the only selector was a query that entity does not match. It
+     ticks now, with its own test. Everything else is byte-identical, and no existing assertion
+     moved except `affectedDynamics`, whose return type lost the entity list it no longer
+     produces.
 
 
 ## ADRs this will rewrite

@@ -64,15 +64,18 @@ fallback (the full model + the fluent predicate helpers — `domainIs`/`stateIs`
 `deviceClassIs`/`stateBelow`/`attrBelow`/`lowBattery`/… — are ADR 0006). The
 leaf builders stay shared because both static and dynamic use call them.
 
-### Re-render only when a change touches the query
+### The query decides MEMBERSHIP; the reverse index decides re-render
 
-Membership is data-dependent, so a dynamic container can't be reverse-indexed
-by entity like static components. But it is **not** re-examined on every
-event: the state stream carries `StateChange(entityId, previous, current)`, and
-a group is considered only when the changed entity matched its query **before or
-after** the change (`Renderer.affectedDynamics`) — covering add (¬prev ∧
-cur), remove (prev ∧ ¬cur), and in-place update (prev ∧ cur), while an
-unrelated entity's change is skipped (the group's HTML would be identical).
+A group's `query` is consulted only for the question it is about: could this
+frame have moved who belongs? The state stream carries
+`StateChange(entityId, previous, current)`, and a group is considered when the
+changed entity matched its query **before or after** the change
+(`Renderer.affectedDynamics`) — covering add (¬prev ∧ cur) and remove
+(prev ∧ ¬cur) — while an unrelated entity's change skips it.
+
+Re-rendering an existing member is a different question, and it is no longer
+asked here. A member is a node in the graph with real bindings, so it is
+reverse-indexed by entity exactly like a static component.
 
 The membership question is still asked once per frame, at the frame boundary, because two
 entities can cross the query boundary in opposite directions in one tick and each
@@ -82,16 +85,27 @@ holds the answer: members are **materialised into the node graph**
 `Component` under a key-derived id, carrying its matched entity as a literal `entity_id`
 slot — the binding `renderCase` used to set on every render.
 
-That retires the invariant this used to rest on. "A dynamic card binds to its matched
+**That retires the invariant this used to rest on.** "A dynamic card binds to its matched
 entity (no cross-entity slots inside a case)" was needed because a member had no entry in
 the reverse index and so could only be reached through its group's query. A materialised
-member is an ordinary node, so a case reading a SECOND entity is now expressible; the tick
-driver still runs off the query alone, so wiring members into `componentsFor` is the
-remaining step, and it is a capability rather than a fix.
+member IS in the reverse index (`componentsFor`/`surfaceComponentsFor` include members
+binding the entity), so the query is now asked one question only — did MEMBERSHIP move —
+and a member that merely re-renders is found the way a static component is found.
+
+A case slot naming a second entity was authorable all along and silently never ticked; it
+does now, which is the one place this moved the wire. The ordinary case — a member bound
+only to its matched entity — emits exactly what it did before, because that entity is the
+member's `subjectEntity` and every inheriting slot resolves to it.
+
+One thing the reverse index cannot cover, and it is worth naming because it is silent: a
+case switch whose ARRIVING card binds nothing live contributes no entity edge, so nothing
+would name it while its bytes moved. The member's ID is the sound handle — it exists
+whatever the card does, since `Dashboard.validate` rejects a `wrapAsCell = false` card as a
+dynamic case precisely so every member has its own element — so `syncMembers` reports the
+members it REPLACED and the recorder touches those by id.
 
 **What a membership change costs.** The recorder writes a delta where it can: an
-in-place member tick records that one child, an arrival or departure records one
-`Mutation` per member, and only heavy churn (≥50% of rendered members) or a group the
+arrival or departure records one `Mutation` per member, and only heavy churn (≥50% of rendered members) or a group the
 log holds no children for records a whole-mount fill. Nothing is rendered while
 recording; each session renders what it is owed when it pulls (ADR 0012), through the
 per-slug render cache, so N viewers of one group cost one render of each changed member.

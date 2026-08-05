@@ -100,17 +100,19 @@ private[runtime] object Patches {
       // chain of surfaces containing it (a tab panel inside an `If` branch
       // inside another tab panel is three independent prefixes).
       staticIds: List[(NodeId, Option[String])],
-      // Each affected group with the entities this frame moved inside it.
-      dynamics: List[(NodeId, Option[String], List[String])],
+      // The affected groups. No entity list any more: a member that merely
+      // TICKED is selected by the reverse index like any other node, so what is
+      // left here is the membership question alone.
+      dynamics: List[(NodeId, Option[String])],
       flips: List[(NodeId, Option[String])],
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      // Each dynamic group's member list before and after this frame, as
+      // What this frame did to each dynamic group's membership, as
       // `Renderer.syncMembers` applied it to the graph. Carried rather than
       // re-derived because it IS the delta: recomputing it would ask the same
       // question a second time, of a graph that has already moved.
-      membership: Map[NodeId, (List[String], List[String])],
+      membership: Map[NodeId, MemberDelta],
       // The store version `states` was read at, applied to every fragment and
       // mutation this request records. Read atomically WITH the snapshot, so a
       // fragment can never claim a version its HTML does not reflect.
@@ -168,7 +170,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      membership: Map[NodeId, (List[String], List[String])],
+      membership: Map[NodeId, MemberDelta],
       at: Long,
       changes: List[StateChange],
       visible: Set[String]
@@ -194,10 +196,7 @@ private[runtime] object Patches {
     // it: the membership question is asked once, at the frame boundary.
     val dynamics =
       (renderer.affectedDynamics(changes) ++
-        sids.flatMap(renderer.affectedSurfaceDynamics(_, changes)))
-        .groupMapReduce(_._1)(_._2)(_ ++ _)
-        .toList
-        .map { case (gid, touched) => (gid, touched.distinct) }
+        sids.flatMap(renderer.affectedSurfaceDynamics(_, changes))).distinct
     request(
       renderer,
       staticIds,
@@ -221,18 +220,18 @@ private[runtime] object Patches {
   private def request(
       renderer: Renderer,
       staticIds: List[NodeId],
-      dynamics: List[(NodeId, List[String])],
+      dynamics: List[NodeId],
       flips: List[NodeId],
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      membership: Map[NodeId, (List[String], List[String])],
+      membership: Map[NodeId, MemberDelta],
       at: Long
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
     DiffRequest(
       staticIds.map(id => id -> tag(id)),
-      dynamics.map { case (gid, d) => (gid, tag(gid), d) },
+      dynamics.map(gid => gid -> tag(gid)),
       flips.map(gid => gid -> tag(gid)),
       changes,
       states,
@@ -279,9 +278,10 @@ private[runtime] object Patches {
     val afterNodes = req.staticIds.foldLeft(afterFlips) { case (l, (id, _)) =>
       l.touched(id, at)
     }
-    req.dynamics.foldLeft(afterNodes) { case (l, (gid, _, touched)) =>
-      val (was, now) = req.membership.getOrElse(gid, (Nil, Nil))
-      recordDynamic(renderer, l, gid, touched, was, now, at)
+    req.dynamics.foldLeft(afterNodes) { case (l, (gid, _)) =>
+      req.membership
+        .get(gid)
+        .fold(l)(recordDynamic(renderer, l, gid, _, at))
     }
   }
 
@@ -340,32 +340,34 @@ private[runtime] object Patches {
       renderer: Renderer,
       log: FragmentLog,
       gid: NodeId,
-      touched: List[String],
-      was: List[String],
-      now: List[String],
+      delta: MemberDelta,
       at: Long
-  ): FragmentLog =
-    if (was == now)
-      touched
-        .filter(now.contains)
-        .foldLeft(log)((l, e) => l.touched(renderer.dynamicChildId(gid, e), at))
+  ): FragmentLog = {
+    val was = delta.was
+    val now = delta.now
+    // A member whose case moved: still a member, so no structural mutation
+    // describes it, and its bytes changed. Named by id rather than found
+    // through the reverse index, which a case binding no live entity would
+    // leave empty.
+    val base = delta.replaced.toList.sorted.foldLeft(log)(_.touched(_, at))
+    if (was == now) base
     else {
       val nowSet = now.toSet
       val added = now.filterNot(was.toSet)
       val removed = was.filterNot(nowSet)
       val churn = added.size + removed.size
       // The query boundary moved but the RENDERED membership did not.
-      if (churn == 0) log
-      else if (!perEntityChurn(churn, was.size) || !log.hasChildOf(gid))
+      if (churn == 0) base
+      else if (!perEntityChurn(churn, was.size) || !base.hasChildOf(gid))
         // Touched as well as filled: the fill re-supplies the mount, and the
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
         // raises the horizon past another cursor.
-        now.foldLeft(log.filled(gid, at))((l, e) =>
+        now.foldLeft(base.filled(gid, at))((l, e) =>
           l.touched(renderer.dynamicChildId(gid, e), at)
         )
       else {
-        val afterRemoves = removed.foldLeft(log)((l, e) =>
+        val afterRemoves = removed.foldLeft(base)((l, e) =>
           l.removed(gid, renderer.dynamicChildId(gid, e), at)
         )
         added.sorted.foldLeft(afterRemoves) { (l, e) =>
@@ -378,6 +380,7 @@ private[runtime] object Patches {
         }
       }
     }
+  }
 
   /** Everything a client resuming at cursor `v` is owed, as patches carrying
     * what their bytes establish. The pure core of the resume path (ADR 0011):

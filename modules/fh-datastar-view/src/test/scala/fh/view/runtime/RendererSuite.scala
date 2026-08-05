@@ -20,12 +20,9 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  /** The affected dynamic ids with the touched entities dropped — a shape only
-    * these tests want, so it lives here rather than as production API.
-    */
   extension (r: Renderer)
     private def affectedDynamicIds(change: StateChange): List[String] =
-      r.affectedDynamics(List(change)).map(_._1)
+      r.affectedDynamics(List(change))
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -1474,31 +1471,33 @@ class RendererSuite extends munit.FunSuite {
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
     def high(id: String) =
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
-    // Matching either side touches the group, and the entity that did it is
-    // named — WHICH way it moved is the frame's question, not one change's.
+    // Matching either side selects the group. WHICH way it moved is the
+    // frame's question (`syncMembers`), not one change's — and WHICH members
+    // ticked is no longer asked here at all: a member that merely ticked is
+    // found through the reverse index, like any other node.
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     assertEquals(
       r.affectedDynamics(List(StateChange("s.b", None, low("s.b")))),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // prev ∧ ¬cur
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
@@ -1507,7 +1506,7 @@ class RendererSuite extends munit.FunSuite {
       ),
       Nil
     )
-    // One frame, several entities: ONE entry naming both.
+    // One frame, several entities: ONE entry.
     assertEquals(
       r.affectedDynamics(
         List(
@@ -1515,7 +1514,7 @@ class RendererSuite extends munit.FunSuite {
           StateChange("s.c", Some(low("s.c")), high("s.c"))
         )
       ),
-      List("c" -> List("s.b", "s.c"))
+      List("c")
     )
   }
 

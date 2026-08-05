@@ -44,9 +44,24 @@ case class RenderInputs(
   */
 private[runtime] case class Member(
     gid: NodeId,
+    // Which layout tree the member is in — `""` for the main page, else the
+    // surface id. Carried rather than looked up because it is a property of the
+    // GROUP and never changes, and because it is what decides who a member's
+    // patch may reach.
+    root: String,
     key: MemberKey,
     id: NodeId,
     node: LayoutNode.Component
+)
+
+/** What one frame did to one dynamic group's membership: the member lists the
+  * recorder compares, and the members whose NODE was swapped in place because
+  * their matched case moved.
+  */
+private[runtime] case class MemberDelta(
+    was: List[String],
+    now: List[String],
+    replaced: Set[NodeId]
 )
 
 /** One group's members in DOM order, with the entity projection the recorder
@@ -64,32 +79,56 @@ private object GroupMembers {
   def of(members: Vector[Member]): GroupMembers =
     GroupMembers(
       members,
-      members.toList.collect { case Member(_, MemberKey.Entity(e), _, _) => e }
+      members.toList.collect { case Member(_, _, MemberKey.Entity(e), _, _) =>
+        e
+      }
     )
 }
 
-/** The dynamic half of the graph: every group's members in DOM order, and the
-  * flat id index over them. Two views of one fact, updated together — the
-  * ordered vector is what an anchor reads, the flat map is what a patch target
-  * resolves through.
+/** The dynamic half of the graph: every group's members in DOM order, plus the
+  * two indices over them that the static half also keeps — id -> node, and
+  * entity -> the nodes that read it. Views of one fact, updated together.
+  *
+  * The entity index is what makes a member an ordinary node on the SELECTION
+  * side too: a member re-renders because something it binds moved, found the
+  * same way a static component is found, rather than because its group's query
+  * happened to be touched.
   */
 private final case class MemberGraph(
     byGroup: Map[NodeId, GroupMembers],
-    byId: Map[NodeId, Member]
+    byId: Map[NodeId, Member],
+    byEntity: Map[String, Vector[Member]]
 ) {
 
-  /** Install a group's members, rebuilding the id index for that group ONLY
-    * when the members actually moved — `eq` because [[Renderer.syncMembers]]
-    * returns the value it was given when a frame changed nothing.
+  /** Install a group's members, rebuilding that group's indices ONLY when the
+    * members actually moved — `eq` because [[Renderer.syncMembers]] returns the
+    * value it was given when a frame changed nothing.
     */
   def install(gid: NodeId, was: GroupMembers, now: GroupMembers): MemberGraph =
     if ((now eq was) && byGroup.contains(gid)) this
-    else
+    else {
+      val leaving = byGroup.get(gid).toVector.flatMap(_.members)
       MemberGraph(
         byGroup.updated(gid, now),
-        byId -- byGroup.get(gid).toList.flatMap(_.members.map(_.id)) ++
-          now.members.map(m => m.id -> m)
+        byId -- leaving.map(_.id) ++ now.members.map(m => m.id -> m),
+        now.members.foldLeft(leaving.foldLeft(byEntity)(drop)) { (idx, m) =>
+          m.node.liveEntities.foldLeft(idx)((acc, e) =>
+            acc.updated(e, acc.getOrElse(e, Vector.empty) :+ m)
+          )
+        }
       )
+    }
+
+  private def drop(
+      idx: Map[String, Vector[Member]],
+      m: Member
+  ): Map[String, Vector[Member]] =
+    m.node.liveEntities.foldLeft(idx) { (acc, e) =>
+      acc.get(e).map(_.filterNot(_.id == m.id)) match {
+        case Some(rest) if rest.nonEmpty => acc.updated(e, rest)
+        case _                           => acc - e
+      }
+    }
 }
 
 /** A container is just a Component whose template splices its rendered
@@ -232,7 +271,7 @@ class Renderer(
     */
   private val graph =
     new java.util.concurrent.atomic.AtomicReference(
-      MemberGraph(Map.empty, Map.empty)
+      MemberGraph(Map.empty, Map.empty, Map.empty)
     )
 
   /** A group's members in DOM order — from the graph once the stream has
@@ -294,6 +333,7 @@ class Renderer(
         val key = MemberKey.Entity(entityId)
         Member(
           gid,
+          rootOf(gid).getOrElse(""),
           key,
           memberId(gid, key),
           LayoutNode.Component(
@@ -309,8 +349,8 @@ class Renderer(
         )
       }
 
-  /** Apply one frame to EVERY dynamic group's membership, returning each
-    * group's member list before and after.
+  /** Apply one frame to EVERY dynamic group's membership, reporting what it did
+    * to each ([[MemberDelta]]).
     *
     * Only a CHANGED entity can have crossed a query or case boundary, so a
     * frame costs the number of CHANGES per group rather than a rescan of the
@@ -335,36 +375,55 @@ class Renderer(
       changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): Map[NodeId, (List[String], List[String])] =
+  ): Map[NodeId, MemberDelta] =
     dynamicGroups.map { case (gid, d) =>
       val was = groupOf(gid, before)
-      val now = changes.iterator
+      val (now, replaced) = changes.iterator
         .filter(touchesDynamic(gid, _))
         .map(_.entityId)
         .distinct
-        .foldLeft(was)(applyOne(gid, d, _, _, states))
+        .foldLeft((was, Set.empty[NodeId])) {
+          case ((group, swapped), entityId) =>
+            applyOne(gid, d, group, swapped, entityId, states)
+        }
       val _ = graph.updateAndGet(_.install(gid, was, now))
-      gid -> (was.entities, now.entities)
+      gid -> MemberDelta(was.entities, now.entities, replaced)
     }
 
-  /** One changed entity's effect on a group: it joined, it left, its case
-    * moved, or — the common case — nothing about it as a NODE changed and
-    * `group` comes back untouched.
+  /** One changed entity's effect on a group: it joined, it left, its case moved
+    * (so the node is REPLACED in place), or — the common case — nothing about
+    * it as a node changed and `group` comes back untouched.
+    *
+    * The replacement has to be reported rather than left to the reverse index.
+    * A member whose new case binds no live entity contributes no edges at all,
+    * so nothing would name it and the switch would go unrecorded while its
+    * bytes moved. The id is the sound handle: it exists for every member
+    * whatever the card does, because `Dashboard.validate` rejects a
+    * `wrapAsCell = false` card as a dynamic case precisely so that every member
+    * has its own element.
     */
   private def applyOne(
       gid: NodeId,
       d: LayoutNode.Dynamic,
       group: GroupMembers,
+      replaced: Set[NodeId],
       entityId: String,
       states: Map[String, EntityState]
-  ): GroupMembers = {
+  ): (GroupMembers, Set[NodeId]) = {
     val key = MemberKey.Entity(entityId)
+    val existing = group.members.find(_.key == key)
     val arriving = states.get(entityId).flatMap(memberOf(gid, d, entityId, _))
-    if (group.members.find(_.key == key).map(_.node) == arriving.map(_.node))
-      group
+    if (existing.map(_.node) == arriving.map(_.node)) (group, replaced)
     else {
       val without = group.members.filterNot(_.key == key)
-      GroupMembers.of(arriving.fold(without)(insertOrdered(without, _)))
+      (
+        GroupMembers.of(arriving.fold(without)(insertOrdered(without, _))),
+        // Present before AND after: an arrival or a departure is a structural
+        // mutation the changelog already carries.
+        if (existing.isDefined && arriving.isDefined)
+          replaced ++ arriving.map(_.id)
+        else replaced
+      )
     }
   }
 
@@ -407,10 +466,8 @@ class Renderer(
     *
     * Deliberately NOT the finer question (joined / left / updated in place): a
     * single change can decide that, but a FRAME cannot — two entities can move
-    * in opposite directions in one tick. The membership compare in
-    * `Patches.renderDynamicGroup` answers it for the frame as a whole, over the
-    * before/after member lists, so this only has to select the groups worth
-    * looking at.
+    * in opposite directions in one tick. [[syncMembers]] answers it for the
+    * frame as a whole, so this only has to select the groups worth looking at.
     */
   private def touchesDynamic(id: NodeId, change: StateChange): Boolean = {
     val query = dynamicQueries.getOrElse(id, None)
@@ -419,32 +476,23 @@ class Renderer(
     change.previous.exists(matchesQuery) || matchesQuery(change.current)
   }
 
-  /** Main-page dynamic containers this frame touches, each with the changed
-    * entities that touched it.
+  /** Main-page dynamic containers whose MEMBERSHIP this frame could have moved.
+    * No entity list: a member that merely ticked is found through the reverse
+    * index now, so the only question left here is which groups to ask about
+    * membership.
     */
-  def affectedDynamics(
-      changes: List[StateChange]
-  ): List[(NodeId, List[String])] =
-    mainIndex.dynamicIds.flatMap(id => touchedBy(id, changes))
+  def affectedDynamics(changes: List[StateChange]): List[NodeId] =
+    mainIndex.dynamicIds.filter(id => changes.exists(touchesDynamic(id, _)))
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(
       surfaceId: String,
       changes: List[StateChange]
-  ): List[(NodeId, List[String])] =
+  ): List[NodeId] =
     surfaceIndexes
       .get(surfaceId)
       .toList
-      .flatMap(_.dynamicIds.flatMap(id => touchedBy(id, changes)))
-
-  private def touchedBy(
-      id: NodeId,
-      changes: List[StateChange]
-  ): Option[(NodeId, List[String])] =
-    changes.filter(touchesDynamic(id, _)).map(_.entityId) match {
-      case Nil     => None
-      case touched => Some(id -> touched)
-    }
+      .flatMap(_.dynamicIds.filter(id => changes.exists(touchesDynamic(id, _))))
 
   /** [[bakeGroup]], for the flip path. A state group's members are a FIXED,
     * tiny set (its branches), which is why — unlike a dynamic group over
@@ -506,9 +554,20 @@ class Renderer(
   /** `""` = the main page, `<sid>` = inside that surface. NOT recoverable from
     * the id itself: an id carries only its OWN surface prefix (`s_<sid>__c_0`),
     * and a nesting is three independent prefixes with no link between them.
+    *
+    * A materialised member answers through its GROUP, which is the tree it is
+    * in. Without that a member id reads as "unknown", which
+    * [[userSurfaceOfNode]] tags as the main page and [[visibleNode]] treats as
+    * visible to everyone — harmless while members were only ever selected by
+    * their group's query, wrong once they are selected by the reverse index
+    * like any other node, because a member inside a surface would then reach
+    * clients who do not have it open.
     */
   private def rootOf(id: NodeId): Option[String] =
-    allIndexed.get(id).map { case (_, _, prefix) => prefixToRoot(prefix) }
+    allIndexed
+      .get(id)
+      .map { case (_, _, prefix) => prefixToRoot(prefix) }
+      .orElse(graph.get.byId.get(id).map(_.root))
 
   /** A surface's place in the tree is where its host node sits, so this is just
     * [[rootOf]] applied to `bakeInto`. A popup has no `bakeInto`, hosts on the
@@ -847,8 +906,26 @@ class Renderer(
       .filterNot(isStateGroup)
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
+  /** The main page's nodes binding `entityId` — materialised members included,
+    * which is the whole point of materialising them: a member re-renders
+    * because something it binds moved, exactly as a static component does.
+    *
+    * That covers a case slot naming a SECOND entity, which was authorable and
+    * silently never ticked: the only selector was the group's query, and a
+    * change to an entity the query does not match touches no group.
+    */
   def componentsFor(entityId: String): Set[NodeId] =
-    mainIndex.byEntity.getOrElse(entityId, Set.empty)
+    mainIndex.byEntity.getOrElse(entityId, Set.empty) ++ membersBinding(
+      entityId,
+      ""
+    )
+
+  /** Members of groups rooted in `root` that bind `entityId`. */
+  private def membersBinding(entityId: String, root: String): Set[NodeId] =
+    graph.get.byEntity
+      .getOrElse(entityId, Vector.empty)
+      .collect { case m if m.root == root => m.id }
+      .toSet
 
   /** Empty for a dynamic group — its members are per-entity children with ids
     * of their own — and for an unknown id.
@@ -856,13 +933,14 @@ class Renderer(
   def entitiesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
-      case _                                     => Nil
+      case _ => graph.get.byId.get(id).toList.flatMap(_.node.liveEntities)
     }
 
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
-      .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
+      .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty)) ++
+      membersBinding(entityId, surfaceId)
 
   def surface(surfaceId: String): Option[Surface] =
     dashboard.surfaces.get(surfaceId)

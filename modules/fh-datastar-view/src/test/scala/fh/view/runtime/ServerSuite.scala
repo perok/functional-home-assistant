@@ -1047,6 +1047,56 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  /** A case binding a SECOND entity — one the group's query does not match.
+    * Authorable all along; it just never ticked.
+    */
+  private def crossDash = Dashboard(
+    cards = Map(
+      "dot" -> CardDef(
+        "<span>{{state}}/{{extra}}</span>",
+        slots = List("state", "extra")
+      )
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "dot",
+          slots = Map(
+            "state" -> SlotSource(),
+            "extra" -> SlotSource(Some("sensor.outside"))
+          )
+        )
+      )
+    )
+  )
+
+  /** A case switch whose ARRIVING card binds nothing live — the shape that has
+    * no reverse-index edge to be found by.
+    */
+  private def literalCaseDash = Dashboard(
+    cards = Map(
+      "live" -> CardDef("<b>{{state}}</b>", slots = List("state")),
+      "plain" -> CardDef("<i>{{label}}</i>", slots = List("label"))
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+          "live",
+          slots = Map("state" -> SlotSource())
+        ),
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "plain",
+          slots = Map("label" -> SlotSource(literal = Some("off-duty")))
+        )
+      )
+    )
+  )
+
   /** Drive the shared per-slug diff for one change against `after` (the current
     * snapshot) with an optional pre-seeded cache; return the emitted SSE
     * patches (rendered to strings) and the resulting cache.
@@ -1174,6 +1224,49 @@ class ServerSuite extends munit.CatsEffectSuite {
       assertEquals(patches.size, 1, clue = patches)
       val p = patches.head
       assert(p.contains("<i>on</i>"), clue = p)
+      assert(!p.contains("<b>"), clue = p)
+    }
+  }
+
+  test("a member ticks on a SECOND entity it binds, not only on its own") {
+    // A CORRECTION, and the one place this phase moves the wire. The only
+    // selector for a member used to be its group's query, so a case slot naming
+    // an entity the query does not match — authorable, and accounted for in the
+    // old cache key — silently never re-rendered. A materialised member is in
+    // the reverse index like any node, so the entity it binds names it.
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "sensor.outside" -> st("sensor.outside", "13.1")
+    )
+    val change = StateChange(
+      "sensor.outside",
+      Some(st("sensor.outside", "12.0")),
+      after("sensor.outside")
+    )
+    runShared(crossDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("""id="c_light_a""""), clue = p)
+      assert(p.contains("on/13.1"), clue = p)
+    }
+  }
+
+  test("a case switch to a card binding NOTHING is still recorded") {
+    // The hole the reverse index cannot cover: the arriving card has no live
+    // slot, so it contributes no entity edge and nothing would name it. The
+    // member's ID is the sound handle — it exists whatever the card does — so
+    // `syncMembers` reports what it replaced and `record` touches that.
+    val after =
+      Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
+    val change = StateChange(
+      "light.a",
+      Some(st("light.a", "on", "mode" -> Json.fromString("bright"))),
+      after("light.a")
+    )
+    runShared(literalCaseDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("<i>off-duty</i>"), clue = p)
       assert(!p.contains("<b>"), clue = p)
     }
   }
