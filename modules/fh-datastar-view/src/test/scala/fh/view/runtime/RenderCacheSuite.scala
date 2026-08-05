@@ -1,12 +1,12 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import cats.effect.std.CountDownLatch
 import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
 import fh.view.model.{Dashboard, LayoutNode, NodeId}
 import fh.view.testkit.TestIds.given
 
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
@@ -32,48 +32,53 @@ class RenderCacheSuite extends munit.FunSuite {
   private val v1 = RenderInputs(Map("sensor.t" -> 1L), Map.empty)
   private val v2 = RenderInputs(Map("sensor.t" -> 2L), Map.empty)
 
-  /** A render that counts its runs and blocks until the test releases it — so
+  /** A render that counts its runs and suspends until the test releases it — so
     * waiters genuinely pile up behind a producer rather than arriving after it
     * finished, which would make single-flight untestable.
     *
-    * '''It blocks a COMPUTE WORKER, and that is a known wart.'''
-    * [[RenderCache]] documents that its render thunk must be pure and
-    * CPU-bound, and a `CountDownLatch.await()` inside an uncancelable region is
-    * neither — but the thunk is a by-name `String`, so there is no way to
-    * suspend it without changing the shape being tested. `concurrent callers
-    * for one key cost exactly one render` still times out roughly one run in
-    * ten because of it. The fix is to give this suite a runtime with slack, not
-    * a cleverer gate; it has not been done.
+    * '''It holds no thread.''' The latch is the cats-effect one, so a producer
+    * parked here is a suspended fiber. It used to be a
+    * `java.util.concurrent.CountDownLatch` awaited inside a by-name `String`,
+    * which parked a compute worker for the length of the test — and with sbt
+    * running suites in parallel that starved the fibers the test was waiting
+    * for, timing out about one run in ten.
+    *
+    * That fixture was also the standing disproof of what `RenderCache`'s doc
+    * used to claim for its by-name thunk: it blocked, from inside a
+    * `=> String`, and neither the type nor the runtime could tell.
     */
-  private class Gated(html: String) {
-    private val gate = new CountDownLatch(1)
+  private class Gated(html: String, latch: CountDownLatch[IO]) {
     val runs = new AtomicInteger(0)
-    def render: String = { runs.incrementAndGet(); gate.await(); html }
-    def release(): Unit = gate.countDown()
+
+    def render: IO[String] = IO(runs.incrementAndGet()) *> latch.await.as(html)
+    def release: IO[Unit] = latch.release
 
     /** Both fibers race for the same key, and the one a test calls "the waiter"
       * can perfectly well win the CAS and render ITS string. Waiting for the
       * producer to be inside `render` is what makes which-is-which a fact
       * rather than a hope.
       *
-      * It SLEEPS rather than spinning. `iterateUntil` on a pure `IO` never
-      * yields, so on a small pool it can starve the very fiber it is waiting
-      * for — which is a hang, not a slow test.
+      * It SLEEPS rather than spinning: `iterateUntil` on a pure `IO` never
+      * yields, so on a small pool it can starve the very fiber it waits for.
       */
     def started: IO[Unit] =
       (IO.sleep(1.millis) *> IO(runs.get())).iterateUntil(_ > 0).void
   }
 
+  private def gated(html: String): IO[Gated] =
+    CountDownLatch[IO](1).map(new Gated(html, _))
+
   test("concurrent callers for one key cost exactly one render") {
-    val g = new Gated("<b>x</b>")
-    val out = (for {
+    val (out, renders) = (for {
+      g <- gated("<b>x</b>")
       cache <- RenderCache.create
       fibers <- List.fill(5)(cache(id, r, v1)(g.render)).parSequence.start
-      _ <- IO.sleep(150.millis) *> IO(g.release())
+      _ <- g.started
+      _ <- g.release
       got <- fibers.joinWithNever
-    } yield got).timeout(10.seconds).unsafeRunSync()
+    } yield (got, g.runs.get())).timeout(10.seconds).unsafeRunSync()
 
-    assertEquals(g.runs.get(), 1)
+    assertEquals(renders, 1)
     assertEquals(out.map(_.html).distinct, List("<b>x</b>"))
     assertEquals(out.head.digest, Digest.of("<b>x</b>"))
   }
@@ -82,8 +87,8 @@ class RenderCacheSuite extends munit.FunSuite {
     val runs = new AtomicInteger(0)
     val (a, b, n) = (for {
       cache <- RenderCache.create
-      a <- cache(id, r, v1) { runs.incrementAndGet(); "<i>1</i>" }
-      b <- cache(id, r, v1) { runs.incrementAndGet(); "<i>2</i>" }
+      a <- cache(id, r, v1)(IO { runs.incrementAndGet(); "<i>1</i>" })
+      b <- cache(id, r, v1)(IO { runs.incrementAndGet(); "<i>2</i>" })
       n <- cache.size
     } yield (a, b, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -101,9 +106,9 @@ class RenderCacheSuite extends munit.FunSuite {
     // that never come.
     val (a, b, sizes) = (for {
       cache <- RenderCache.create
-      a <- cache(id, r, v1)("<i>1</i>")
+      a <- cache(id, r, v1)(IO.pure("<i>1</i>"))
       n1 <- cache.size
-      b <- cache(id, r, v2)("<i>2</i>")
+      b <- cache(id, r, v2)(IO.pure("<i>2</i>"))
       n2 <- cache.size
     } yield (a.html, b.html, (n1, n2))).timeout(10.seconds).unsafeRunSync()
 
@@ -120,8 +125,8 @@ class RenderCacheSuite extends munit.FunSuite {
     // some entity happened to move.
     val (before, after, size) = (for {
       cache <- RenderCache.create
-      before <- cache(id, r, v1)("<i>old</i>")
-      after <- cache(id, aRenderer, v1)("<i>new</i>")
+      before <- cache(id, r, v1)(IO.pure("<i>old</i>"))
+      after <- cache(id, aRenderer, v1)(IO.pure("<i>new</i>"))
       size <- cache.size
     } yield (before.html, after.html, size)).timeout(10.seconds).unsafeRunSync()
 
@@ -135,20 +140,20 @@ class RenderCacheSuite extends munit.FunSuite {
     // A slow render that FAILS while a newer generation has already taken the
     // node. Evicting on the strength of that stale failure would drop a live
     // entry — hence the identity check before removing.
-    val g = new Gated("unused")
     val (n, html) = (for {
+      g <- gated("unused")
       cache <- RenderCache.create
-      doomed <- cache(id, r, v1) {
-        val _ = g.render; throw new RuntimeException("late")
-      }.attempt.start
+      doomed <- cache(id, r, v1)(
+        g.render *> IO.raiseError[String](new RuntimeException("late"))
+      ).attempt.start
       // The doomed generation must OWN the key before the newer one takes it,
-      // or this tests nothing: a sleep says when, `started` says what.
+      // or this tests nothing.
       _ <- g.started
-      _ <- cache(id, r, v2)("<i>current</i>")
-      _ <- IO(g.release())
+      _ <- cache(id, r, v2)(IO.pure("<i>current</i>"))
+      _ <- g.release
       _ <- doomed.joinWithNever
       n <- cache.size
-      still <- cache(id, r, v2)("never runs")
+      still <- cache(id, r, v2)(IO.pure("never runs"))
     } yield (n, still.html)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(n, 1)
@@ -156,32 +161,34 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("a failed render reaches its waiters instead of stranding them") {
-    val g = new Gated("unused")
     val boom = new RuntimeException("render blew up")
     val late = new AtomicInteger(0)
-    val (results, n) = (for {
+    val (results, n, renders) = (for {
+      g <- gated("unused")
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
-      producer <- cache(id, r, v1) {
-        val _ = g.render; throw boom
-      }.attempt.start
+      producer <- cache(id, r, v1)(
+        g.render *> IO.raiseError[String](boom)
+      ).attempt.start
       // BEFORE the waiters exist. Without it they race the producer for the
       // key, and a "waiter" that wins the CAS renders its own string — which
-      // is instant, where the producer's is gated — so all five succeed and
-      // the failure under test never happens. That was a real intermittent
+      // completes at once, where the producer's is gated — so all five succeed
+      // and the failure under test never happens. That was a real intermittent
       // failure, not a hypothetical.
       _ <- g.started
       waiters <- List
-        .fill(4)(cache(id, r, v1) {
-          late.incrementAndGet(); throw boom
-        }.attempt)
+        .fill(4)(
+          cache(id, r, v1)(
+            IO(late.incrementAndGet()) *> IO.raiseError[String](boom)
+          ).attempt
+        )
         .parSequence
         .start
-      _ <- IO.sleep(150.millis) *> IO(g.release())
+      _ <- IO.sleep(150.millis) *> g.release
       p <- producer.joinWithNever
       w <- waiters.joinWithNever
       n <- cache.size
-    } yield (p :: w, n)).timeout(10.seconds).unsafeRunSync()
+    } yield (p :: w, n, g.runs.get())).timeout(10.seconds).unsafeRunSync()
 
     // Every one of them completes — with the error, not by hanging.
     assertEquals(results.length, 5)
@@ -193,32 +200,34 @@ class RenderCacheSuite extends munit.FunSuite {
     // itself and still fail, which is correct and would otherwise be
     // indistinguishable from waiting.
     assertEquals(late.get(), 0)
-    assertEquals(g.runs.get(), 1)
+    assertEquals(renders, 1)
   }
 
   test("the next caller after a failure renders again and succeeds") {
     val out = (for {
       cache <- RenderCache.create
-      _ <- cache(id, r, v1)(throw new RuntimeException("transient")).attempt
-      good <- cache(id, r, v1)("<b>recovered</b>")
+      _ <- cache(id, r, v1)(
+        IO.raiseError[String](new RuntimeException("transient"))
+      ).attempt
+      good <- cache(id, r, v1)(IO.pure("<b>recovered</b>"))
     } yield good.html).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(out, "<b>recovered</b>")
   }
 
   test("cancelling a waiter leaves the producer and the entry intact") {
-    val g = new Gated("<b>survived</b>")
     val (out, again, n) = (for {
+      g <- gated("<b>survived</b>")
       cache <- RenderCache.create
       producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, r, v1)("never runs").start
+      waiter <- cache(id, r, v1)(IO.pure("never runs")).start
       _ <- IO.sleep(100.millis)
       _ <- waiter.cancel
-      _ <- IO(g.release())
+      _ <- g.release
       p <- producer.joinWithNever
       // The cancelled waiter must not have taken the entry with it.
-      again <- cache(id, r, v1)("never runs either")
+      again <- cache(id, r, v1)(IO.pure("never runs either"))
       n <- cache.size
     } yield (p.html, again.html, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -229,25 +238,29 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("cancelling the PRODUCER still completes its waiters") {
-    // The invariant the whole design rests on. Production is uncancelable, so
-    // a cancelled producer finishes its render and completes the slot before
-    // it observes the cancellation — waiters cannot be stranded, and no
-    // onCancel has to remember to unblock them.
-    val g = new Gated("<b>finished anyway</b>")
-    val (waited, n) = (for {
+    // The invariant the whole design rests on. Production is uncancelable, so a
+    // cancelled producer finishes its render and completes the slot before it
+    // observes the cancellation — waiters cannot be stranded, and no onCancel
+    // has to remember to unblock them.
+    //
+    // Sharper now that the render is an `IO`: the producer is parked on a latch
+    // INSIDE the masked region, which is the state the mask exists to survive,
+    // and one a by-name thunk could only reach by blocking a thread.
+    val (waited, n, renders) = (for {
+      g <- gated("<b>finished anyway</b>")
       cache <- RenderCache.create
       producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, r, v1)("never runs").start
+      waiter <- cache(id, r, v1)(IO.pure("never runs")).start
       _ <- IO.sleep(100.millis)
       _ <- producer.cancel.start
-      _ <- IO.sleep(50.millis) *> IO(g.release())
+      _ <- IO.sleep(50.millis) *> g.release
       w <- waiter.joinWithNever
       n <- cache.size
-    } yield (w.html, n)).timeout(10.seconds).unsafeRunSync()
+    } yield (w.html, n, g.runs.get())).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(waited, "<b>finished anyway</b>")
-    assertEquals(g.runs.get(), 1)
+    assertEquals(renders, 1)
     assertEquals(n, 1)
   }
 }

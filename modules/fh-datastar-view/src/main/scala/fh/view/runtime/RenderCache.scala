@@ -65,43 +65,56 @@ private[runtime] final class RenderCache(
 ) {
 
   /** The bytes for `id` at `inputs`, rendering them only if nobody else already
-    * is and the entry on hand is not already for these inputs.
+    * is and the entry on hand is not already for these inputs. `render` runs
+    * zero times (a hit) or once, never twice for one generation.
     *
-    * `render` is by-name and must be PURE and CPU-BOUND — it is the renderer's
-    * own walk. It may be run zero times (a hit) or once, never twice for one
-    * generation. That it has no async boundary is load-bearing, not incidental;
-    * see the cancellation note below before changing it.
-    *
-    * '''Uncancelable, and `guarantee` would not do instead.''' There are two
-    * windows, and completing the slot from a `guaranteeCase` only covers one:
+    * '''Uncancelable, and `guarantee` would not do instead.''' The hazard is a
+    * waiter blocked forever on a slot nobody completes, and there are two
+    * windows a finalizer does not cover:
     *
     *   - between the CAS winning and [[fill]] STARTING, `mine` is in the map,
     *     uncompleted, and nothing has run — so a `guarantee` on `fill` never
-    *     fires either, and waiters block forever. This window exists whatever
-    *     the render does;
-    *   - during the render, `guaranteeCase` does work — but it can only
-    *     complete with an ERROR, so one cancelled fiber fails every waiter
-    *     attached to it. Avoiding that needs a "producer cancelled" sentinel
-    *     and a retry in the waiters: a second mechanism to survive a state,
-    *     where being uncancelable means never entering it.
+    *     fires either;
+    *   - during the render, `guaranteeCase` does fire, but can only complete
+    *     with an ERROR, so one cancelled fiber fails every waiter attached to
+    *     it. Avoiding that needs a "producer cancelled" sentinel and a retry in
+    *     the waiters: a second mechanism to survive a state, where being
+    *     uncancelable means never entering it.
     *
-    * The cost is bounded by one render, and cats-effect checks cancellation
-    * BEFORE a delay rather than inside one, so a pure walk is uninterruptible
-    * mid-way regardless — this buys the invariant for almost nothing.
+    * Only `poll(e.slot.get)` — the waiter — is cancelable, so a cancellation
+    * anywhere in the producer path is deferred until the slot is completed.
     *
-    * '''The condition to re-check:''' that argument holds because the render is
-    * pure CPU. Move it to a blocking pool, or split it with `IO.cede` for
-    * fairness on a large dashboard, and the second window comes back — then
-    * `guaranteeCase` plus a retrying waiter IS the right answer.
+    * '''What the caller owes: a render that is BOUNDED.''' It runs inside the
+    * mask, so however long it takes is how long a cancellation waits — and
+    * these calls are on session fibers (`Server.pull` -> `Patches.resume`),
+    * cancelled on disconnect and displacement, with the linger, the reap, the
+    * deregistration and the changelog's pruning floor behind that teardown.
+    *
+    * That obligation is NOT expressible here and never was. This took an
+    * `IO[String]` because it used to take a by-name `String`, which looked like
+    * it forbade suspending and did nothing of the kind: a thunk can
+    * `Thread.sleep`, take a lock or await a latch just as easily — the suite's
+    * own `Gated` fixture did exactly that — and the runtime cannot see any of
+    * it. All the by-name bought was making the effect UNTYPED, which is the
+    * worse half of the trade: `IO.blocking` and `IO.cede` become inexpressible
+    * precisely where they would be the answer.
+    *
+    * '''So bound the work, do not hide it.''' Today the only caller is
+    * `Renderer.renderNodeById` — one node's own markup, children excluded by
+    * construction ([[Renderer.renderInputs]] refuses a node whose bytes carry
+    * them), so a small walk. If that stops being true the tools are a
+    * `Semaphore` sized to the cores, `IO.evalOn` onto a sized pool, or
+    * `IO.cede` to break it up — see the `scala-fp` skill. What is not a tool is
+    * a signature that makes the cost invisible.
     */
   def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
-      render: => String
+      render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
       // Only a WAITER is cancelable, and that is what `poll` marks. Note what
       // the critical section does NOT contain: `fill` is an IO VALUE here,
-      // built and discarded if this attempt loses. A losing CAS costs an
-      // equality check, never a render.
+      // built and discarded if this attempt loses — as is `render` itself now
+      // that it is one. A losing CAS costs an equality check, never a render.
       IO.uncancelable { poll =>
         entries(id)
           .modify {
@@ -120,9 +133,9 @@ private[runtime] final class RenderCache(
   private def fill(
       id: NodeId,
       entry: RenderCache.Entry,
-      render: => String
+      render: IO[String]
   ): IO[Either[Throwable, NodeBytes]] =
-    IO(render)
+    render
       .map(html => NodeBytes(html, Digest.of(html)))
       .attempt
       // A failure must not stay in the map: a `Left` left behind poisons that

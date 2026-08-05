@@ -306,3 +306,26 @@ blocking pool is unbounded, so handing it CPU-bound work (a template compiler, a
 Pkl/Truffle evaluation) oversubscribes the cores rather than protecting them.
 Bound that work to its own sized pool with `IO.evalOn`, or break it up with
 `IO.cede`.
+
+### A by-name parameter does not make an effect go away
+
+Taking `render: => String` instead of `render: IO[String]` looks like a way to
+say "this must be pure and cheap". It says nothing of the kind. The thunk can
+`Thread.sleep`, take a lock, await a `java.util.concurrent` latch or spin for a
+minute — the compiler cannot tell, and neither can the runtime, which is the
+worse half: work parked inside a by-name thunk holds a compute worker with no
+`IO.blocking` to hint at it and no `IO.cede` available to break it up.
+
+```scala
+// looks constrained, is not: this compiles and parks a compute worker
+cache(key)( { latch.await(); html } )
+
+// honest, and now the tools apply
+cache(key)(IO.blocking(readFromDisk()))     // right pool
+cache(key)(IO.cede *> IO(bigPureWalk()))    // fair
+```
+
+So make the effect typed and bound it where it needs bounding — `Semaphore` for
+concurrency, `IO.evalOn` for the pool, `IO.cede` for fairness. An obligation the
+type cannot express ("this render must be bounded") belongs in the doc as an
+obligation, not disguised as a signature that appears to enforce it.

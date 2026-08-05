@@ -654,7 +654,7 @@ private[runtime] object Patches {
     renderer.renderInputs(id, states, uiState) match {
       case Some(inputs) =>
         cache(id, renderer, inputs)(
-          mustRender(renderer.renderNodeById(id, states, uiState), id)
+          IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
         ).map(Some(_))
       case None =>
         IO(renderer.renderNodeById(id, states, uiState).map(NodeBytes.of))
