@@ -187,6 +187,12 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
 
 every slug's recorder wakes
   read snapshot+version together, and sessions.openSets(slug) + floor(slug)
+  syncMembers -> apply the frame to EVERY dynamic group's member graph, and
+      keep each group's member list before and after. BEFORE the gate and for
+      every group, not the visible ones: the graph tracks the state stream, so
+      a frame nobody records still moves members and the next page render must
+      see them. Only a CHANGED entity can have crossed a query or case
+      boundary, so this is O(changes) per group, not a scan of the house
     NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
       stop. A dashboard with no browser on it is the normal state of a home
       instance. Safe only because a document registers its session BEFORE
@@ -255,8 +261,9 @@ server itself last sent.
 
 ## 3. Inside `Patches.record` — the four kinds, and what each writes
 
-Nothing here renders. Everything it needs is state: membership is
-`Renderer.dynamicMembers`, and a flip's selection is `resolveActiveByState`.
+Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
+and membership arrives already applied — `Renderer.syncMembers` moves the member graph for every
+dynamic group before the gate, and hands `record` each group's list before and after.
 
 ```mermaid
 flowchart TB
@@ -322,6 +329,44 @@ because the *pass* was shared. Once the render moved to the viewer, both disappe
 which no prefix of the container's id reaches, so the patch names the surfaces at that mount
 (`Patches.hostEvicts`) as what it made unknown. A dynamic mount's children *are* `gid_…`, so there
 the container's id is the right root.
+
+---
+
+## 4b. The member graph — a dynamic group's members ARE nodes
+
+The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
+from the `Dashboard`: every authored node, keyed by its location-derived id. The **dynamic** half
+(`MemberGraph`) is a group's members, and it is maintained by the state stream rather than computed.
+
+A member is a real `LayoutNode.Component` — the matched case's card, its slots plus the matched
+entity as a literal `entity_id` slot, its cell — stored under the id its `MemberKey` derives. That
+literal slot is the whole trick: `renderCase` already set it on every render, so setting it ONCE, at
+membership time, is all it takes for a member to stop being special. `renderNodeById` renders it,
+`renderInputs` keys it, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
+because nothing needs to recover an entity from an id — the node carries its own binding, as every
+other node does.
+
+Three properties hold it up, and each fails silently if broken:
+
+- **Ids are key-derived, never positional.** A positional id renames every node below an arrival,
+  which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
+  member list, which is also what an insert anchor reads); the key is the IDENTITY. `MemberKey` is
+  already a sum (`Entity` today, `Surface` for a state group's branch), so "one member is one
+  entity" stays a property of the predicate engine rather than of the id scheme.
+- **The recorder is the only writer.** A reader derives a group the stream has not reached yet but
+  never installs what it derived. Installing would let a page rendering at version 5 — while the
+  recorder is still applying the frame that produced 5 — become that frame's "before"; the frame
+  would see no membership move, and a client still at 4 would never hear about the arrival.
+- **A case switch re-materialises.** The node is state-derived, so a frame moving the matched entity
+  across a case boundary REPLACES it. Marking it changed is not enough: the card would render
+  happily, from the wrong branch, for as long as the entity stayed a member.
+
+Mutation is in place, in an `AtomicReference` on the renderer, and that is not incidental. Three
+things key on renderer IDENTITY — `publisherFor` rotates the changelog on a renderer emission,
+`reloadRepaints` repaints every connection on one, and `RenderCache` compares renderers with `eq`.
+A membership change that produced a NEW renderer would rotate the log, repaint every browser and
+flush the cache on exactly the case the graph exists to make cheap. Mutating in place keeps all
+three keyed on the dashboard, for free.
 
 ---
 
@@ -414,8 +459,9 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`; `runtime/Server.scala` · `reapAfter`, `AdoptionWindow`, `LingerWindow` |
-| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderLogged`, `renderMount`, `renderDynamicChild` |
-| what keys a render | `runtime/Renderer.scala` · `renderInputs`, `dynamicChildInputs`, `activeBakeIndex` |
+| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
+| what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
+| the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
 | what a cache entry is keyed by | node id -> (renderer identity, `RenderInputs`) — one generation. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put |
 
@@ -431,13 +477,12 @@ Live list — delete an entry when it is answered, and say where the answer land
   per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
   one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy
   instance is unmeasured.
-- **Membership is rescanned, and the scan is over the whole house.**
-  `Renderer.dynamicMembers` filters every entity, so a dynamic group's cost is driven by house size
-  rather than by group size: measured at 154 µs per scan for 2 000 entities and 1.9 ms for 20 000,
-  paid ~2× per frame by the recorder and ~1.3× per pulling session. The per-session share is the
-  OWNER LOOKUP for a changed member — a question the recorder had already answered — so it is
-  removable without maintaining anything. Numbers and the recommendation (memoise before
-  maintaining) are in `plan-session-pulled-changelog.md`, phase 5.
+- **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
+  delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
+  offers its id to `insertInto` as an anchor. The answer is to drop the `LiveSlug` outright rather
+  than to teach the delta path about it (a removal already forces a registry watch → renderer swap
+  → fresh log); the gap is that an `r` frame does not always have a registry event behind it. See
+  ADR 0003's open section.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
@@ -445,10 +490,10 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 ## 9. In progress
 
-The reshaping this file describes — the recorder, the doorbell, the per-session pull — **has
-landed**. Its document, [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md),
-covers what is left of session lifetime (a staleness bound, gating recording on a slug having
-viewers) and maintained dynamic membership. The linger has landed — see `Tenure` above. Nothing in §1–§8 describes code that does not exist.
+The reshaping this file describes — the recorder, the doorbell, the per-session pull, the session
+linger, the maintained member graph — **has landed**, and
+[`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md) is its record of what
+differed from the design notes on the way. Nothing in §1–§8 describes code that does not exist.
 
 Two findings from the cache phase, worth carrying here rather than leaving in the plan:
 

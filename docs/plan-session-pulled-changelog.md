@@ -180,15 +180,15 @@ Each one lands on its own and keeps the suites green.
    The alternative the architecture doc had floated — minting a fresh log identity on the 0->1
    transition — would have repainted every first connect to an idle dashboard, which is the
    common case, not the edge one.
-5. **Dynamic members become real nodes in the graph.** Not built. The phase was written as
+5. ~~**Dynamic members become real nodes in the graph.**~~ **Landed.** The phase was written as
    "maintain the member set instead of rescanning it", and the measurement plus a design pass
-   turned it into something larger that deletes more than it adds.
+   turned it into something that deletes more than it adds.
 
    ### What the measurement said
 
-   `Renderer.dynamicMembers` filters EVERY entity in the house, so cost tracks house size and not
-   group size. One dynamic group, a single-entity change, warm JIT (`n` = total entities, half of
-   them members):
+   `Renderer.dynamicMembers` filtered EVERY entity in the house, so cost tracked house size and
+   not group size. One dynamic group, a single-entity change, warm JIT (`n` = total entities, half
+   of them members):
 
    | | n = 2 000 | n = 20 000 |
    |---|---|---|
@@ -200,91 +200,96 @@ Each one lands on its own and keeps the suites green.
    | one session's pull, nothing owed | 50 µs | 28 µs |
    | one session's pull, wholesale fill | 6.1 ms | 63 ms |
 
-   Steady state is `(2 + 1.3·S)` scans per frame for S pulling sessions — ~0.3 ms per frame plus
-   ~0.25 ms per viewer on a 2 000-entity house, linear in house size. Real, ~1% of a core at 20
-   changes/second, and not urgent. A delta pull is already free and flat; what a session pays for
-   is an OWNER LOOKUP (which group is this child in, and which entity is it) that the recorder
-   already knew. And the fill path is 200x a delta and scales with the GROUP.
+   Steady state was `(2 + 1.3·S)` scans per frame for S pulling sessions — ~0.3 ms per frame plus
+   ~0.25 ms per viewer on a 2 000-entity house, linear in house size. What a session paid for was
+   an OWNER LOOKUP (which group is this child in, and which entity is it) that the recorder
+   already knew.
 
-   ### Why a membership cache is the wrong answer
+   ### Why a membership cache was the wrong answer
 
    The first instinct was to memoise `(gid, version) -> members` beside the render cache. It works
    and it is the wrong shape: it caches a rescan we should not be doing, and it needs a second
    structure (`childId -> entityId`) for the pull side, which is one fact stored twice.
 
-   The delta is already computed. `Renderer.affectedDynamics` tests each changed entity against
+   The delta was already computed. `Renderer.affectedDynamics` tests each changed entity against
    each affected group's predicate BEFORE and AFTER — that is exactly "joined / left / neither" —
-   and then the result is thrown away and the house rescanned twice to rebuild the same answer.
+   and then the result was thrown away and the house rescanned twice to rebuild the same answer.
 
-   ### The shape it should take
+   ### What landed
 
    **A member is materialised into the node graph when it joins, and removed when it leaves.**
-   `Renderer.renderCase` already shows this is only a matter of WHEN: it binds the matched entity
-   by setting `entity_id` as a LITERAL slot on the case's card, and every inheriting slot (the
-   label, the tap, the value) reads from there. Store that node — `Component(card, slots +
-   entity_id, cell)` under the id the member already has — and the member stops being special:
+   `Renderer.renderCase` showed this was only a matter of WHEN: it bound the matched entity by
+   setting `entity_id` as a LITERAL slot on the case's card, and every inheriting slot read from
+   there. Storing that node — `Component(card, slots + entity_id, cell)` under the member's id —
+   made the member stop being special:
 
-   - `renderNodeById` renders it, like any node. `renderDynamicChild` goes.
-   - `renderInputs` keys it, like any node. `dynamicChildInputs` goes.
-   - `Patches.dynamicOwnerOf` goes entirely: there is no reverse lookup to do, because nothing
-     needs to recover an entity from a node id — the node carries its own binding, as every other
-     node does.
-   - The reverse index (`entityId -> nodes`) gains the member's OTHER bindings too, which is a
-     capability rather than cleanup: it retires ADR 0003's "a dynamic card binds to its matched
-     entity" invariant, so a member card may read a second entity and tick on it.
-   - Order is the graph's order — the group's children list — so anchors need no sorted member
-     structure, and the patch primitives for expressing a move already exist (`insertInto`,
-     `Patch.Remove`, `PatchMode.Before`/`Append`).
+   - `renderNodeById` renders it, like any node. `renderDynamicChild` is a two-line lookup into
+     the graph, and `renderCase` is gone.
+   - `renderInputs` keys it, like any node. `dynamicChildInputs` is gone. The key is the member's
+     own bindings plus its SUBJECT — in whether or not a slot reads it, because the node is
+     state-derived and the entity that chose the case has to be able to invalidate the bytes that
+     case produced.
+   - `Patches.dynamicOwnerOf` is gone entirely, and with it the `childId -> entityId` reverse
+     lookup: nothing needs to recover an entity from a node id, because the node carries its own
+     binding as every other node does. `Patches.bytes` went from three cases to two, and
+     `renderLogged` is now `renderNodeById` and nothing else.
+   - Order is the graph's order, so anchors read a list rather than sorting one.
 
-   **The one constraint to keep:** a member's id is derived from its MEMBER KEY, never from its
-   position. Positional ids would rename every node below an arrival, which is exactly what a
-   per-member delta exists to avoid. So the graph carries two id schemes — location-derived for
-   authored nodes, key-derived for dynamic members — and that is deliberate: position is the
-   order, the key is the identity.
+   `Renderer.syncMembers` applies one frame to every group: only a CHANGED entity can have crossed
+   a query or case boundary, so it is O(changes) per group. It returns each group's list before and
+   after, which `record` takes through `DiffRequest.membership` instead of scanning twice.
 
-   Say KEY rather than entity, because "one member is one entity" should not be baked into an id
-   scheme. `MemberKey` is already the name the changelog uses for what occupies a mount
-   (`Mutation.Placed` carries one), and it is already a sum — `Entity` today, `Surface` for a state
-   group's branch. A member's id is then `gid_<sanitize(key)>`, which is byte-identical to today
-   while the key is an entity, and does not have to be revisited if a group's unit of membership
-   ever becomes a device, an area, or a canonical composite of several entities.
+   Three things the design turned on, none of them in the notes above:
 
-   The id is only half of that constraint, and the other half is worth naming so it is not
-   mistaken for solved: the PREDICATE engine still evaluates membership per entity
-   (`dynamicMembers` filters the entity map), so a member is one entity because the query says so,
-   not because the id does. Keying by `MemberKey` means the id scheme is not the thing standing in
-   the way when that changes. What a key must satisfy is unchanged either way: stable across ticks
-   (or a morph retargets a different element) and unique within its group.
+   - **A reader must never install what it derived.** The graph answers from `states` for a group
+     the stream has not reached yet — but installing that answer would let a page rendering at
+     version 5, while the recorder is still applying the frame that produced 5, become that
+     frame's "before". The frame then sees no membership move and a client still at 4 is never
+     told about the arrival. Found by four `ServerSuite` membership tests going to zero patches,
+     which is exactly what that bug looks like. `syncMembers` is the only writer.
+   - **The sync runs BEFORE the no-viewers gate, and over every group** rather than the visible
+     ones. The graph tracks the STATE STREAM: a frame that records nothing still moves members,
+     and the page that loads after it renders from the graph.
+   - **A case switch re-materialises.** The node is state-derived, so a frame moving the matched
+     entity across a case boundary REPLACES it rather than marking it changed. Silent when wrong
+     — the card renders happily, from the wrong branch, for as long as the entity stays a member
+     — so it has its own test, verified by sabotage.
 
-   **What it costs, and the shape agreed for it:** the authored graph stays a STATIC map computed
-   once from the `Dashboard` (`Renderer.allIndexed` today); the dynamic part is a `Ref` beside it
-   that membership edits. Getting that structure clean IS the phase.
+   **The id is key-derived, never positional.** Positional ids would rename every node below an
+   arrival, which is what a per-member delta exists to avoid. The graph carries two id schemes —
+   location-derived for authored nodes, key-derived for members — and that is deliberate: position
+   is the order, the key is the identity. `MemberKey` was already the name the changelog used for
+   what occupies a mount, and is already a sum (`Entity` today, `Surface` for a state group's
+   branch), so `gid_<sanitize(key)>` is byte-identical to the old scheme while the key is an
+   entity and does not have to be revisited if a group's unit of membership becomes a device, an
+   area, or a composite. The other half of that constraint is worth naming so it is not mistaken
+   for solved: the PREDICATE engine still evaluates membership per entity, so a member is one
+   entity because the query says so, not because the id does.
 
-   Two things constrain it, and both were found by looking at what already keys on renderer
-   IDENTITY. `publisherFor` rotates the changelog on every renderer emission and `reloadRepaints`
-   repaints every connection on one — so if a membership change produces a new renderer, a member
-   joining a group rotates the log and full-body-repaints every browser. `RenderCache` keys on
-   renderer identity too, so it would flush on exactly the case this phase optimises. Whatever the
-   structure, it needs a DASHBOARD identity that survives membership updates, with those three
-   keying on that rather than on the renderer value.
-
-   And a member's node definition is STATE-derived — the case comes from
-   `d.cases.find(matches(c.when, st))` — so materialising freezes the case and a case switch must
-   re-materialise. The render cache cannot serve stale bytes there (a switch means the matched
-   entity's `contentVersion` moved, so `RenderInputs` differ), but the recorder must replace the
-   node in the same frame, and a card stuck on the wrong branch fails silently. It gets its own
-   test.
+   **The graph mutates in place**, in an `AtomicReference` on the renderer, and that is what keeps
+   three identity-keyed things correct for free: `publisherFor` rotates the changelog on a renderer
+   emission, `reloadRepaints` repaints every connection on one, and `RenderCache` compares
+   renderers with `eq`. A membership change producing a NEW renderer would rotate the log, repaint
+   every browser and flush the cache on exactly the case this makes cheap.
 
    ### Entity removal is a reload, not a case
 
    An entity VANISHING produces no `StateChange` at all, and a batch of pure removals does not even
-   publish to the recorder (`StateStore.update` skips the empty publish) — so a purely
-   delta-maintained graph would keep a ghost member, and a ghost's id would be offered to
-   `insertInto` as an anchor whose element is in no DOM. The answer is not to make the delta path
-   handle it: a removal already forces a re-evaluation of everything downstream (registry watcher
-   -> renderer swap -> fresh log), so it should drop the `LiveSlug` outright. Rare, coarse, correct
-   by construction. The gap today is that an `r` frame does not always have a registry event behind
-   it, so nothing guarantees that reload — see ADR 0003's open section.
+   publish to the recorder (`StateStore.update` skips the empty publish) — so the maintained graph
+   keeps a ghost member, and a ghost's id would be offered to `insertInto` as an anchor whose
+   element is in no DOM. The answer is not to teach the delta path about it: a removal already
+   forces a re-evaluation of everything downstream (registry watcher -> renderer swap -> fresh
+   log), so it should drop the `LiveSlug` outright. Rare, coarse, correct by construction. The gap
+   is that an `r` frame does not always have a registry event behind it, so nothing guarantees that
+   reload — ADR 0003's open section, and the one thing the member graph is owed.
+
+   ### Left deliberately
+
+   The reverse index (`componentsFor`) does NOT yet include a member's other bindings. Adding them
+   is what ADR 0003's retired invariant unlocks — a member card reading a second entity and ticking
+   on it — but it changes which patches are emitted, where everything above is wire-identical. It
+   is a capability, and it should land as one.
+
 
 ## ADRs this will rewrite
 
@@ -673,8 +678,8 @@ card}`), which this does not touch.
 
 ## What `inputs` turned out to be
 
-Phase 0, landed. The key is `RenderInputs(entities, vars)`, produced by `Renderer.renderInputs` (and
-`dynamicChildInputs` for a group member, whose id is derived per entity rather than indexed):
+Phase 0, landed. The key is `RenderInputs(entities, vars)`, produced by `Renderer.renderInputs` —
+for a dynamic group's member too, since phase 5 made one a node in the graph like any other:
 
 - **`entities`** — `entityId -> contentVersion` for each entity the node's slots bind
   (`entitiesForNode`). An entity the snapshot does not hold has NO entry, which is a key distinct

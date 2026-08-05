@@ -74,11 +74,20 @@ after** the change (`Renderer.affectedDynamics`) — covering add (¬prev ∧
 cur), remove (prev ∧ ¬cur), and in-place update (prev ∧ cur), while an
 unrelated entity's change is skipped (the group's HTML would be identical).
 
-This test is **stateless** — no per-group membership cache. The membership question is
-asked once per frame, at the frame boundary, because two entities can cross the query
-boundary in opposite directions in one tick and each single-entity view of that reports
-a change the frame did not make. The assumption it rests on: a dynamic card binds to its
-matched entity (no cross-entity slots inside a case) — the current invariant.
+The membership question is still asked once per frame, at the frame boundary, because two
+entities can cross the query boundary in opposite directions in one tick and each
+single-entity view of that reports a change the frame did not make. What changed is what
+holds the answer: members are **materialised into the node graph**
+(`Renderer.syncMembers`, and `architecture-rendering-pipeline.md` §4b). A member is a real
+`Component` under a key-derived id, carrying its matched entity as a literal `entity_id`
+slot — the binding `renderCase` used to set on every render.
+
+That retires the invariant this used to rest on. "A dynamic card binds to its matched
+entity (no cross-entity slots inside a case)" was needed because a member had no entry in
+the reverse index and so could only be reached through its group's query. A materialised
+member is an ordinary node, so a case reading a SECOND entity is now expressible; the tick
+driver still runs off the query alone, so wiring members into `componentsFor` is the
+remaining step, and it is a capability rather than a fix.
 
 **What a membership change costs.** The recorder writes a delta where it can: an
 in-place member tick records that one child, an arrival or departure records one
@@ -89,15 +98,16 @@ per-slug render cache, so N viewers of one group cost one render of each changed
 A group inside a surface no session has open is not recorded at all, and one inside an
 inactive state branch (ADR 0007) is structurally silent.
 
-Two costs remain, and they are the honest ones:
+**Membership is maintained, not rescanned.** Only a CHANGED entity can have crossed a
+query or case boundary, so a frame costs O(changes) per group where the old
+`dynamicMembers` filtered every entity in the house — twice per frame for the recorder,
+and once more for each pulling session, which was paying to re-derive a member's owner
+that the recorder had already worked out. The graph also holds the member ORDER, so
+"successor of this arrival" — what an `insert before` needs — is a lookup rather than a
+sort.
 
-- **The scan is O(entities) per affecting change**, twice (before and after), because
-  membership is recomputed rather than maintained. Maintaining it — testing each incoming
-  change against each group's predicate and keeping a sorted member set — is O(changed)
-  per frame and would also answer "successor of this arrival" directly, which is what an
-  `insert before` needs. Planned, not built.
-- **A re-rendered card re-evaluates its slots**, though the action/config slots are
-  memoized identity slots (ADR 0004), so it costs ~2 live JSONata evals per card.
+One cost remains: **a re-rendered card re-evaluates its slots**, though the action/config
+slots are memoized identity slots (ADR 0004), so it costs ~2 live JSONata evals per card.
 
 Burst coalescing is no longer future work: a session's doorbell is a `SignallingRef` and
 `.discrete` collapses versions that land while it renders into one pull. The query
@@ -112,15 +122,16 @@ handled by the registry watcher re-evaluating every entry rather than by patchin
 Deliberately coarse, and right: it happens a few times a year.
 
 What is not guaranteed is the re-evaluation. An `r` frame does not always have a registry
-event behind it, so a removal can pass with the version moving and nothing rebuilt. Today
-that is harmless — membership is rescanned from the current snapshot, so a departed entity
-simply stops being a member — but it is load bearing for any design that MAINTAINS
-membership from deltas, where a removal nothing reports leaves a ghost member whose id
-would be offered as an insert anchor for an element in no DOM.
+event behind it, so a removal can pass with the version moving and nothing rebuilt. That
+used to be harmless — membership was rescanned from the current snapshot, so a departed
+entity simply stopped being a member. **With membership maintained from deltas it is not**:
+nothing reports the removal, so the graph keeps a ghost member whose id would be offered as
+an insert anchor for an element in no DOM.
 
 The intended answer is to treat a removal as a `LiveSlug` reload (fresh renderer, log and
-index), which is what the registry path already does and what the rest of the system
-already tolerates. Not built. See `plan-session-pulled-changelog.md`, phase 5.
+member graph), which is what the registry path already does and what the rest of the system
+already tolerates. Rare, coarse, correct by construction. Not built — this is the one thing
+the member graph is owed.
 
 ## Consequences
 
