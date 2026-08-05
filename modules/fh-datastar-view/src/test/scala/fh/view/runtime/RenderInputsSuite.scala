@@ -195,15 +195,24 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a dynamic member's key covers everything its case dispatch reads") {
+    // A member is a NODE now, keyed and rendered by id like any other — so this
+    // asks the same question of `renderInputs`/`renderNodeById` that the static
+    // ids above do. One renderer per step, because a member's node is
+    // state-derived: the case dispatch happens when the graph materialises the
+    // group, not on every render, so a renderer must not be asked about a
+    // snapshot it has not been moved to.
     for {
       entity <- List("light.a", "light.b")
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
-      if renderer.dynamicChildInputs("c_3", entity, a) ==
-        renderer.dynamicChildInputs("c_3", entity, b)
+      ra = Renderer.create(dashboard)
+      rb = Renderer.create(dashboard)
+      id = ra.dynamicChildId("c_3", entity)
+      key <- ra.renderInputs(id, a, Map.empty).toList
+      if rb.renderInputs(id, b, Map.empty).contains(key)
     } assertEquals(
-      renderer.renderDynamicChild("c_3", entity, a),
-      renderer.renderDynamicChild("c_3", entity, b),
+      ra.renderNodeById(id, a),
+      rb.renderNodeById(id, b),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
     )
@@ -287,8 +296,16 @@ class RenderInputsSuite extends munit.FunSuite {
     val changes = List(
       StateChange("sensor.t", Some(line(0)("sensor.t")), line(1)("sensor.t"))
     )
-    val req =
-      Patches.plan(renderer, line(1), 1L, changes, Set.empty)
+    val before = Patches.beforeSnapshot(line(1), changes)
+    val req = Patches.plan(
+      renderer,
+      line(1),
+      before,
+      renderer.syncMembers(changes, before, line(1)),
+      1L,
+      changes,
+      Set.empty
+    )
 
     val (first, second, sizes) = (for {
       cache <- RenderCache.create

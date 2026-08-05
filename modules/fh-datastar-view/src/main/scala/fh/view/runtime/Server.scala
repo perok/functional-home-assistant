@@ -394,6 +394,12 @@ class Server(
   ): IO[Long] =
     (stateStore.current, sessions.openSets(slug), sessions.floor(slug))
       .flatMapN { (store, opens, floor) =>
+        val before = Patches.beforeSnapshot(store.entities, changes)
+        // Membership is applied to the graph BEFORE the gate, and for every
+        // group rather than the visible ones: the member graph tracks the state
+        // stream, not who is watching. A frame that records nothing still moves
+        // members, and the page that loads after it renders from the graph.
+        val membership = renderer.syncMembers(changes, before, store.entities)
         if (opens.isEmpty)
           log.update(_.skipped(store.version)).as(store.version)
         else {
@@ -410,6 +416,8 @@ class Server(
           val req = Patches.plan(
             renderer,
             store.entities,
+            before,
+            membership,
             store.version,
             changes,
             visible

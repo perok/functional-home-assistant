@@ -153,6 +153,11 @@ private[runtime] object Patches {
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
+      // Each dynamic group's member list before and after this frame, as
+      // `Renderer.syncMembers` applied it to the graph. Carried rather than
+      // re-derived because it IS the delta: recomputing it would ask the same
+      // question a second time, of a graph that has already moved.
+      membership: Map[NodeId, (List[String], List[String])],
       // The store version `states` was read at, applied to every fragment and
       // mutation this request records. Read atomically WITH the snapshot, so a
       // fragment can never claim a version its HTML does not reflect.
@@ -209,11 +214,12 @@ private[runtime] object Patches {
   def plan(
       renderer: Renderer,
       states: Map[String, EntityState],
+      before: Map[String, EntityState],
+      membership: Map[NodeId, (List[String], List[String])],
       at: Long,
       changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
-    val before = beforeSnapshot(states, changes)
     val flips = (renderer.affectedStateGroups(changes, before, states) ++
       visible.toList.flatMap(sid =>
         renderer.affectedStateGroupsIn(sid, changes, before, states)
@@ -247,6 +253,7 @@ private[runtime] object Patches {
       changes,
       states,
       before,
+      membership,
       at
     )
   }
@@ -266,6 +273,7 @@ private[runtime] object Patches {
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
+      membership: Map[NodeId, (List[String], List[String])],
       at: Long
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
@@ -276,6 +284,7 @@ private[runtime] object Patches {
       changes,
       states,
       before,
+      membership,
       at
     )
   }
@@ -297,10 +306,10 @@ private[runtime] object Patches {
     val states = req.states
 
     val membersNow = req.dynamics.map { case (gid, _, _) =>
-      gid -> renderer.dynamicMembers(gid, states)
+      gid -> req.membership.get(gid).fold(List.empty[String])(_._2)
     }.toMap
     val membersWas = req.dynamics.map { case (gid, _, _) =>
-      gid -> renderer.dynamicMembers(gid, req.before)
+      gid -> req.membership.get(gid).fold(List.empty[String])(_._1)
     }.toMap
 
     // A member of `membersNow` is exactly an entity [[Renderer.dynamicMembers]]
@@ -310,13 +319,7 @@ private[runtime] object Patches {
     // rather than an Option.
     def child(gid: NodeId, entityId: String): IO[Option[NodeBytes]] =
       if (!membersNow(gid).contains(entityId)) IO.pure(None)
-      else
-        cache(
-          renderer.dynamicChildId(gid, entityId),
-          renderer,
-          renderer.dynamicChildInputs(gid, entityId, states)
-        )(mustRender(renderer.renderDynamicChild(gid, entityId, states), gid))
-          .map(Some(_))
+      else node(renderer, cache, renderer.dynamicChildId(gid, entityId), states)
 
     for {
       nodes <- req.staticIds.traverse { case (id, _) =>
@@ -419,7 +422,8 @@ private[runtime] object Patches {
       l.touched(id, at)
     }
     req.dynamics.foldLeft(afterNodes) { case (l, (gid, _, touched)) =>
-      recordDynamic(renderer, l, gid, touched, req.before, req.states, at)
+      val (was, now) = req.membership.getOrElse(gid, (Nil, Nil))
+      recordDynamic(renderer, l, gid, touched, was, now, at)
     }
   }
 
@@ -462,10 +466,11 @@ private[runtime] object Patches {
     }
   }
 
-  /** The membership question, asked ONCE per frame — per entity it could not be
-    * answered, since two entities can cross the query boundary in opposite
-    * directions in one tick, and each single-entity view of that reports a
-    * change the frame did not make.
+  /** The membership question, answered ONCE per frame — per entity it could not
+    * be, since two entities can cross the query boundary in opposite directions
+    * in one tick, and each single-entity view of that reports a change the
+    * frame did not make. `was`/`now` arrive from the graph
+    * ([[Renderer.syncMembers]]), which applied that frame.
     *
     * Two conditions still choose between a per-member delta and a whole-mount
     * fill, and they come from different places: `perEntityChurn` is pure state,
@@ -478,12 +483,10 @@ private[runtime] object Patches {
       log: FragmentLog,
       gid: NodeId,
       touched: List[String],
-      before: Map[String, EntityState],
-      states: Map[String, EntityState],
+      was: List[String],
+      now: List[String],
       at: Long
-  ): FragmentLog = {
-    val was = renderer.dynamicMembers(gid, before)
-    val now = renderer.dynamicMembers(gid, states)
+  ): FragmentLog =
     if (was == now)
       touched
         .filter(now.contains)
@@ -517,7 +520,6 @@ private[runtime] object Patches {
         }
       }
     }
-  }
 
   /** Everything a client resuming at cursor `v` is owed, as patches carrying
     * what their bytes establish. The pure core of the resume path (ADR 0011):
@@ -775,12 +777,11 @@ private[runtime] object Patches {
     * which is what keeps N sessions woken by one doorbell from rendering the
     * same node N times.
     *
-    * Three cases, and the fallthrough is the important one: a node with a sound
-    * key ([[Renderer.renderInputs]]) goes through the cache; a dynamic group's
-    * member is keyed by [[Renderer.dynamicChildInputs]], since its id is
-    * derived per entity rather than indexed; anything else — a container whose
-    * own bytes carry its children — has no sound key and is rendered UNCACHED
-    * rather than cached wrongly.
+    * Two cases: a node with a sound key ([[Renderer.renderInputs]]) goes
+    * through the cache, and anything else — a container whose own bytes carry
+    * its children — is rendered UNCACHED rather than cached wrongly. A dynamic
+    * group's member needed a third until it became a node in the graph; it is
+    * keyed and rendered by id like everything else now.
     */
   private def bytes(
       renderer: Renderer,
@@ -795,18 +796,7 @@ private[runtime] object Patches {
           mustRender(renderer.renderNodeById(id, states, uiState), id)
         ).map(Some(_))
       case None =>
-        renderer.dynamicOwnerOf(id, states) match {
-          case Some((gid, entityId)) =>
-            cache(
-              id,
-              renderer,
-              renderer.dynamicChildInputs(gid, entityId, states)
-            )(
-              mustRender(renderer.renderDynamicChild(gid, entityId, states), id)
-            ).map(Some(_))
-          case None =>
-            IO(renderer.renderLogged(id, states, uiState).map(NodeBytes.of))
-        }
+        IO(renderer.renderNodeById(id, states, uiState).map(NodeBytes.of))
     }
 
   /** ONE anchor rule for both the live add path and the resume replay, because

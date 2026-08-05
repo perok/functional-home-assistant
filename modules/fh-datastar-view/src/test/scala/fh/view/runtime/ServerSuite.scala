@@ -1021,6 +1021,32 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  /** Two cases over ONE membership: an entity that stays a member while the
+    * case it dispatches to changes (`attr:mode`), which is the only way a
+    * member's node definition moves without its membership moving.
+    */
+  private def caseDash = Dashboard(
+    cards = Map(
+      "bright" -> CardDef("<b>{{state}}</b>", slots = List("state")),
+      "dim" -> CardDef("<i>{{state}}</i>", slots = List("state"))
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+          "bright",
+          slots = Map("state" -> SlotSource())
+        ),
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "dim",
+          slots = Map("state" -> SlotSource())
+        )
+      )
+    )
+  )
+
   /** Drive the shared per-slug diff for one change against `after` (the current
     * snapshot) with an optional pre-seeded cache; return the emitted SSE
     * patches (rendered to strings) and the resulting cache.
@@ -1126,6 +1152,29 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
       assert(!p.contains("id=\"c\""), clue = p)
       assert(!p.contains("mode "), clue = p)
+    }
+  }
+
+  test(
+    "a member that switches CASE is re-materialised, not left on the old one"
+  ) {
+    // The trap materialisation creates: a member's node is state-derived, so a
+    // frame that moves the matched entity across a case boundary must REPLACE
+    // the node, not merely mark it changed. Getting this wrong is silent — the
+    // card renders happily, from the wrong branch, for as long as the entity
+    // stays a member.
+    val after =
+      Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
+    val change = StateChange(
+      "light.a",
+      Some(st("light.a", "on", "mode" -> Json.fromString("bright"))),
+      after("light.a")
+    )
+    runShared(caseDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("<i>on</i>"), clue = p)
+      assert(!p.contains("<b>"), clue = p)
     }
   }
 
