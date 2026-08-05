@@ -631,6 +631,22 @@ class Server(
     *
     * The log is read ONCE, outside any `modify`, so a reconnect never
     * serializes against the live diff path.
+    *
+    * '''The doorbell is read BEFORE the log, and that order is load bearing.'''
+    * A resume can only answer for versions the CHANGELOG describes, and the
+    * store runs ahead of it: the recorder writes the log on its own fiber, so
+    * between a change landing in the store and being recorded there is a window
+    * in which `store.version` names a change `since` cannot see. Claiming that
+    * version would tell the client it is current through a change it was never
+    * sent — and the pull that would have carried it is then skipped (`version
+    * <= position`), so it is lost until that entity next moves. Reading the
+    * doorbell first bounds the claim by what was knowable before we looked; a
+    * change recorded while we were looking is simply re-offered by the next
+    * pull, which this client's `holds` then suppresses if it turns out to have
+    * it.
+    *
+    * A REPAINT is the exception and claims the store: it renders the whole body
+    * from that snapshot, so the client provably holds all of it.
     */
   private def openingPatches(
       slug: String,
@@ -640,8 +656,14 @@ class Server(
       uiState: Map[String, String],
       open: Set[String]
   ): IO[List[ServerSentEvent]] =
-    (live.renderer.get, live.log.get, stateStore.current, session.holds.get)
-      .flatMapN { (renderer, log, store, holds) =>
+    (
+      live.doorbell.get,
+      live.renderer.get,
+      live.log.get,
+      stateStore.current,
+      session.holds.get
+    )
+      .flatMapN { (covered, renderer, log, store, holds) =>
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
           IO.pure(List(Server.reloadPatch))
@@ -714,20 +736,22 @@ class Server(
           // invalidate exactly as a live one's do, and a REPAINT forgets
           // everything — it replaces the body wholesale with no per-node trace,
           // so every claim the document made now describes bytes that are gone.
-          // ...and the position with it: after these patches this client is
-          // current through the snapshot they were rendered from, so its pull
-          // loop starts from there rather than re-serving what it just got.
+          // ...and the position with it, which is what the pull loop starts
+          // from. A repaint painted the whole snapshot, so it claims that; a
+          // resume could only answer for what the changelog covered when this
+          // connection began, so it claims THAT — see the doorbell note above.
           resumedIO.flatMap { resumed =>
+            val claim = resumed.fold(store.version)(_ => covered)
             val record = resumed.fold(
               session.holds.set(painted.own.map { case (id, html) =>
                 id -> Digest.of(html)
               })
             )(patches =>
               session.holds.update(patches.foldLeft(_)(Patches.applied))
-            ) *> session.position.set(store.version)
+            ) *> session.position.set(claim)
             record.as(
               head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                orphan :+ Server.cursorSignals(renderer, log.id, store.version)
+                orphan :+ Server.cursorSignals(renderer, log.id, claim)
             )
           }
         }

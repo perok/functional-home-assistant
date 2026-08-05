@@ -132,6 +132,16 @@ Each one lands on its own and keeps the suites green.
      contract can come to depend on what an earlier test rendered. The real server is the only place
      one is shared, which is also the only place the sharing is the point.
 
+3c. **The opening claim.** Found while chasing what looked like browser flakiness, and it was
+   neither browser nor flakiness: `openingPatches` set the session's `position` (and the client's
+   cursor) to `store.version`, but a RESUME can only answer for versions the changelog describes.
+   The recorder writes the log on its own fiber, so a browser connecting in the window between a
+   change landing in the store and being recorded was told it was current through a change it never
+   received — and the pull that would have carried it was then skipped (`version <= position`),
+   losing it until that entity next moved. A resume now claims the doorbell's value, read BEFORE
+   the log; a repaint still claims the snapshot, having painted all of it. `LiveUpdateSmokeSuite`
+   had been failing on exactly this, deterministically in isolation, and was twice written off.
+
 4. ~~**Session lifetime.**~~ **Landed** — linger after disconnect, gating recording on a slug having
    sessions, and the floor that releases the changelog. ~~Displacement of a second live
    stream~~ landed with the document-creates-the-session step, which is what first made two streams

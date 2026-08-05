@@ -2229,6 +2229,44 @@ class ServerSuite extends munit.CatsEffectSuite {
       }
   }
 
+  /** '''A resume may only claim what the CHANGELOG covered''', never what the
+    * store holds. The recorder writes the log on its own fiber, so between a
+    * change landing in the store and being recorded there is a window in which
+    * `store.version` names a change `since` cannot see. Claiming it tells the
+    * client it is current through a change it was never sent — and the pull
+    * that would have carried it is then skipped (`version <= position`), so it
+    * is lost until that entity next moves.
+    *
+    * Found by `LiveUpdateSmokeSuite`, which failed on exactly this every time
+    * and was twice written off as browser flakiness. This harness makes the
+    * window deterministic: it drives the recorder by hand and never rings the
+    * doorbell, so its changelog is permanently behind its store.
+    */
+  test("an opening resume claims the changelog's version, not the store's") {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
+    } yield {
+      // It resumed (the change is in there)...
+      assert(opening.contains(">hot<"), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+      // ...and told the client where the CHANGELOG reaches. The doorbell has
+      // never rung here, so a claim of the store's version would be a promise
+      // about a frame this connection cannot prove it sent.
+      assert(
+        opening.contains("\"" + Server.StoreVersionSignal + "\":0"),
+        clue = opening
+      )
+    }
+  }
+
   test("every doubt about the cursor falls back to the full body repaint") {
     val cold = Map("sensor.a" -> es("sensor.a", "cold"))
     def opening(

@@ -142,7 +142,10 @@ GET /sse/dashboard/:slug/patch
       resume   if the cursor's logId matches and nothing structural moved
       repaint  if it does not      // claims what it painted, same as the document
       reload   if the document itself is stale
-    ...then position = the snapshot they were rendered from
+    ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
+      value (read BEFORE the log) for a resume, since a resume can only answer
+      for versions the changelog describes; the snapshot's version for a
+      repaint, which painted all of it
   then stream: pulls ▸ control ▸ reloads ▸ haDown ▸ keepAlive
     // no subscription to acquire, so no window to nest around: the doorbell
     // hands a new watcher its current value, so a frame recorded before this
@@ -424,14 +427,6 @@ Live list — delete an entry when it is answered, and say where the answer land
   keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
   wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED
   number of generations per node, not a return to unbounded keys.
-- **A patch that lands in the first moments of a page's life is lost.** Server-side liveness is not
-  client-side readiness: the session is held, the stream is open and an HTTP client on the same URL
-  sees the patch ~50 ms after the change, but the browser drops an elements patch that arrives right
-  after `data-init` fires — and Datastar leaves no trace of its own readiness to wait on (no
-  attribute, no class, nothing reaching the DOM). The window is short and self-healing (the next
-  tick of that entity repaints it), so nothing is done about it; the browser suites gate on the
-  effect instead (`SmokeSuite.awaitApplying`). If it ever needs fixing, the fix is client-side —
-  the server has no signal that the page is listening.
 - **A pull always reports its position**, even when it owed the client nothing — one small signal
   per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
   one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy

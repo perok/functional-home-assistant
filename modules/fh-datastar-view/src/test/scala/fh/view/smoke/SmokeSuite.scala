@@ -116,39 +116,6 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
       .flatTap(_ => IO(assert(pageErrors.isEmpty, clue = pageErrors.toList)))
   }
 
-  /** Wait until this page's Datastar client is actually APPLYING patches, by
-    * driving changes through the stream until one shows up in the DOM.
-    *
-    * '''`TestServer.awaitLive` is not enough, and the difference is not
-    * theoretical.''' That gate is server-side: a session is held, the stream is
-    * open, the transport delivers (an HTTP client on the same URL sees the
-    * patch ~50 ms after the emit). But the browser drops an elements patch that
-    * arrives in the first moments after `data-init` fires, and Datastar leaves
-    * NO trace of its own readiness — no attribute, no class, no signal that
-    * reaches the DOM — so there is nothing to wait for except the effect
-    * itself.
-    *
-    * Each attempt must carry a DIFFERENT value: the store publishes only on a
-    * real change, so re-emitting one that is already current is silently a
-    * no-op and this would spin.
-    *
-    * A fixed sleep would do on a fast machine and fail on a loaded one, which
-    * is precisely the flake this replaces — the suite failed roughly half of
-    * all full runs and 100% in isolation, always for this reason.
-    */
-  def awaitApplying(page: Page)(emit: String => IO[Unit]): IO[Unit] =
-    fs2.Stream
-      .iterate(0)(_ + 1)
-      .evalMap { i =>
-        val probe = s"-9$i.9"
-        emit(probe) *> IO.sleep(100.millis) *>
-          IO.blocking(page.locator("body").textContent().contains(probe))
-      }
-      .exists(identity)
-      .compile
-      .drain
-      .timeout(20.seconds)
-
   /** Poll `io` until `cond` holds, or fail after `timeout`. The
     * [[fh.view.testkit.FakeHomeAssistant.recordedCalls]] equivalent of a
     * retrying Playwright locator assertion — for asserting on something that

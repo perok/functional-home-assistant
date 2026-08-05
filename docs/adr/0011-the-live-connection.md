@@ -417,6 +417,16 @@ outcome applies, so a re-themed dashboard costs a client its stylesheet rather t
 its scroll position and its open popup. Crossing to another dashboard needs none of
 this — it is a page load (ADR 0002).
 
+**A connection may only claim what it can prove it sent.** The store runs ahead of the
+changelog — the recorder writes it on its own fiber — so there is a window in which
+`store.version` names a change `since` cannot see. An opening RESUME therefore claims
+the doorbell's value, read BEFORE the log, and a REPAINT claims the snapshot's, because
+it painted all of it. Claiming the store's version for a resume is silent staleness of
+the precise kind this ADR exists to prevent: the client is told it is current through a
+change it never received, and the pull that would have carried it is then skipped
+(`version <= position`), so it is lost until that entity next moves. Erring low is free
+— the next pull re-offers, and `holds` suppresses whatever the client already has.
+
 `Server.openingPatches` picks in this order: **unpatchable head differs** ⇒ full page
 reload and nothing else (the page is about to re-render itself); **cursor comparable**
 ⇒ resume; **anything else** ⇒ body repaint. The repaint is the default and every doubt

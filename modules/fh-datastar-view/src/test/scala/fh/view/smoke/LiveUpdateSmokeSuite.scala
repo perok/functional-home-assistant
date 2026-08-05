@@ -8,24 +8,24 @@ import fh.view.testkit.{FixtureDashboard, HouseFixture, Scene}
   * `datastar-patch-elements` frame is not just sent on the wire (the Scala
   * functional suite already proves that end-to-end), but actually APPLIED by
   * Datastar to the live page.
+  *
+  * It is also the only test that catches a change landing in the window between
+  * a browser connecting and the recorder writing that frame — see
+  * `Server.openingPatches` on why the opening block claims the changelog's
+  * version and not the store's. This suite failed for exactly that, every time,
+  * and was twice mistaken for flakiness.
   */
 class LiveUpdateSmokeSuite extends SmokeSuite {
 
   test("a live state change morphs the DOM, no reload") {
     withPage(Scene.of(FixtureDashboard.dashboard)) { (page, ts) =>
-      def emit(state: String): IO[Unit] =
-        ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          state,
-          HouseFixture.outsideTemp.attributes
-        )
       for {
         _ <- ts.awaitLive()
-        // Server-side liveness is not client-side readiness — see
-        // [[SmokeSuite.awaitApplying]]. Once it holds, ONE change has to be
-        // enough, which is what this test is actually about.
-        _ <- awaitApplying(page)(emit)
-        _ <- emit("13.1")
+        _ <- ts.fake.emit(
+          HouseFixture.outsideTemp.entityId,
+          "13.1",
+          HouseFixture.outsideTemp.attributes
+        )
         _ <- IO.blocking(assertThat(page.locator("body")).containsText("13.1"))
       } yield ()
     }
