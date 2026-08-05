@@ -129,9 +129,11 @@ class TransformSuite extends munit.FunSuite {
   test("slider fill: --_end percent from the position attr, null-guarded") {
     // The STATIC tier the slider card bakes for a light (min 1, max 255):
     // fill = 100 - value% of the range, from the RIGHT (BeerCSS convention).
+    // UNROUNDED on purpose — beer.min.js recomputes the same percentage full
+    // precision on load, and a rounded server value twitches into place.
     val expr =
       "($v := $attr.brightness; " +
-        "$v != null ? $round(100 - (($v - 1) * 100 / (255 - 1))) : 100)"
+        "$v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)"
     assertEquals(
       run(
         expr,
@@ -150,9 +152,52 @@ class TransformSuite extends munit.FunSuite {
       ),
       "50"
     )
+    // The value that showed the blip: what beer.min.js writes is
+    // 39.37007874015748%, not 39%.
+    assertEquals(
+      run(
+        expr,
+        "on",
+        attributes = Map("brightness" -> Json.fromInt(155)),
+        entity = "light.kitchen"
+      ),
+      "39.3700787402"
+    )
     // A light that is OFF has no brightness attribute: empty fill, NOT a
     // JSONata type error leaking into the style attribute.
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
+  }
+
+  test("slider fill colour: rgb_color wins, else the kelvin ramp, else null") {
+    val expr =
+      "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 " +
+        "? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" " +
+        ": $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); " +
+        "\"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) " +
+        "& \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
+    def light(attrs: (String, Json)*): String =
+      run(expr, "on", attributes = attrs.toMap, entity = "light.kitchen")
+
+    assertEquals(
+      light("rgb_color" -> Json.arr(List(255, 10, 20).map(Json.fromInt)*)),
+      "rgb(255,10,20)"
+    )
+    assertEquals(
+      light("color_temp_kelvin" -> Json.fromInt(2700)),
+      "rgb(247,175,113)"
+    )
+    assertEquals(
+      light("color_temp_kelvin" -> Json.fromInt(6500)),
+      "rgb(201,226,255)"
+    )
+    // Clamped below the warm end rather than extrapolated past it.
+    assertEquals(
+      light("color_temp_kelvin" -> Json.fromInt(1800)),
+      "rgb(255,166,87)"
+    )
+    // Neither attribute (a cover, a fan, a light that is off): the slot's
+    // `currentcolor` default takes over.
+    assertEquals(light("brightness" -> Json.fromInt(155)), "")
   }
 
   test("slider fill: the dynamic $lookup($domain) tier resolves per match") {

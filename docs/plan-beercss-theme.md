@@ -157,7 +157,12 @@ BeerCSS's element styling applies underneath the contract classes.
      three config tiers as the other slider slots, null-guarded so an OFF
      light renders an empty fill rather than a JSONata error. Correct on
      every morph by construction; beer.min.js still repaints live during a
-     drag. Evaluation-tested in `TransformSuite` (both tiers). The `.tooltip`
+     drag — which it does by ASSIGNING `style.cssText` on the wrapper, i.e.
+     replacing that whole attribute, so the fill COLOUR (`fillColor`, a
+     light's `rgb_color` or its `color_temp_kelvin` on a warm→cool ramp)
+     rides the inner `<span>`'s own style instead. That repaint is also
+     unrounded, so `fill` must not `$round` or the track visibly twitches one
+     frame after load. Evaluation-tested in `TransformSuite` (both tiers). The `.tooltip`
      value bubble was tried and REMOVED — its value text bled through behind
      the track, and the head line already shows the live value.
    - Tabs keep BeerCSS's default even distribution. A
