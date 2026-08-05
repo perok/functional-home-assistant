@@ -434,6 +434,18 @@ class Server(
         }
       }
 
+  /** Drop the session a later document in the same tab superseded, unless a
+    * stream is still holding it ([[Session.supersede]]). Deregistered under
+    * reference equality, so a `conn` some later document happens to reuse is
+    * never unrouted.
+    */
+  private def retire(conn: String): IO[Unit] =
+    sessions.get(conn).flatMap {
+      case None    => IO.unit
+      case Some(s) =>
+        s.supersede.flatMap(IO.whenA(_)(sessions.deregisterIf(conn, s)))
+    }
+
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
     * patches (filtered to what this client can see, with any [[Varying]]
     * resolved against its selections), the session control channel, live-reload
@@ -449,6 +461,15 @@ class Server(
       // the `conn` it already has and only loses the suppression its `holds`
       // would have given (bytes, never staleness).
       conn <- Server.connOf(req).fold(IO.randomUUID.map(_.toString))(IO.pure)
+      // This tab's PREVIOUS session, named by the page that replaced it. A
+      // reload mints a fresh `conn` (the document is the only thing that can
+      // say what it painted), so without this the session it replaced sits in
+      // the registry for the whole linger window holding an old `position` —
+      // and the floor is the LOWEST position, so a handful of reloads keeps the
+      // changelog un-prunable for minutes. Retiring is all that is wanted here:
+      // the old `holds` describes a DOM that no longer exists, so there is
+      // nothing in it worth adopting.
+      _ <- Server.prevConnOf(req).filterNot(_ == conn).traverse_(retire)
       adopted <- adoptOrMint(slug, conn)
       (session, epoch) = adopted
       liveOpt <- liveFor(slug)
@@ -484,12 +505,25 @@ class Server(
       // Emit `haDown` on connect (the initial `discrete` value) and on every
       // health transition.
       haDown = healthy.discrete.changes.map(healthPatch)
+      // What this stream has actually TOLD its client, as opposed to what it
+      // has been served (`session.position`). Stream-local on purpose: it is
+      // not a session concept and nothing reads it but the heartbeat — in
+      // particular the floor must keep reading `position`, whose semantics are
+      // written up on [[Session]].
+      told <- Ref[IO].of(-1L)
       // Something for an idle connection to carry, so an intermediary doesn't
-      // reap it — a COMMENT, which no signal ever needs to know about (see
-      // [[Server.KeepAliveInterval]]).
+      // reap it — and the place the cursor catches up, since a pull that owed
+      // this client nothing now sends nothing at all. A quiet house still costs
+      // only the COMMENT (see [[Server.KeepAliveInterval]]); the signal goes out
+      // once per position change and then stops.
       keepAlive = Stream
         .awakeEvery[IO](Server.KeepAliveInterval)
-        .as(Server.keepAliveComment)
+        .evalMap(_ =>
+          (session.position.get, told.get).flatMapN { (position, sent) =>
+            if (position == sent) IO.pure(Server.keepAliveComment)
+            else told.set(position).as(Server.versionSignal(position))
+          }
+        )
 
       // This connection PULLS. The doorbell says how far its slug's changelog
       // reaches; everything else — what changed, whether this client already has
@@ -600,7 +634,16 @@ class Server(
               session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
                 session.position
                   .set(version)
-                  .as(Patches.encode(patches) :+ Server.versionSignal(version))
+                  // `position` advances whatever happened; the SIGNAL only goes
+                  // out with bytes it belongs to. A frame this client was owed
+                  // nothing for is silence on the wire, and the keepalive
+                  // carries the cursor forward within one interval — safe for
+                  // the reasons written up on [[Session.position]].
+                  .as(
+                    if (patches.isEmpty) Nil
+                    else
+                      Patches.encode(patches) :+ Server.versionSignal(version)
+                  )
             }
         }
     }
@@ -1395,6 +1438,7 @@ class Server(
       )}"></script>
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
+       |<script>fhConn('${Server.escapeJsString(restore.conn)}')</script>
        |$connBanner
        |$body
        |$editAssets
@@ -1712,6 +1756,37 @@ object Server {
   val LogIdSignal: String = "logId"
   val StoreVersionSignal: String = "storeVersion"
 
+  val PrevConnParam: String = "prev"
+
+  /** `fhConn(id)` — hand this tab's PREVIOUS session id to the stream that is
+    * about to replace it, and remember the new one for the next load.
+    *
+    * `sessionStorage` because it is the only storage with the lifetime wanted:
+    * per TAB and surviving a reload. A cookie is per browser, so two tabs on
+    * one dashboard would name the same predecessor and each would try to retire
+    * the other's live session; `localStorage` is worse for the same reason.
+    *
+    * It rewrites the `data-init` URL rather than fetching anything, so the
+    * retirement rides the connect the server was going to handle anyway — no
+    * extra request on every page load. Safe to run at that point in the parse:
+    * `<body>` exists (the tag is open), and Datastar is a deferred module, so
+    * the attribute is final before anything reads it.
+    *
+    * Silent on failure by design. Private browsing and storage-partitioned
+    * embeds can throw on `sessionStorage`, and the whole feature is an
+    * optimisation — losing it means a superseded session waits out its adoption
+    * window, which is what happened before this existed.
+    */
+  private val ConnHandoffScript: String =
+    "window.fhConn=(id)=>{try{" +
+      "const k='fh.conn',p=sessionStorage.getItem(k);" +
+      "sessionStorage.setItem(k,id);" +
+      "if(!p||p===id)return;" +
+      "const b=document.body,a=b&&b.getAttribute('data-init');" +
+      "if(a)b.setAttribute('data-init',a.replace('conn='+encodeURIComponent(id)," +
+      "'conn='+encodeURIComponent(id)+'&" + PrevConnParam + "='+encodeURIComponent(p)))" +
+      "}catch(e){}};"
+
   /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
     * without navigating: set the param, or drop it when the value is empty.
     *
@@ -1737,7 +1812,7 @@ object Server {
   val UrlSyncScript: String =
     "window.fhUrl=(k,v)=>{const u=new URL(location.href);" +
       "(v===''||v==null)?u.searchParams.delete(k):u.searchParams.set(k,v);" +
-      "history.replaceState(null,'',u)};"
+      "history.replaceState(null,'',u)};" + ConnHandoffScript
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.
@@ -1883,6 +1958,18 @@ object Server {
   private[runtime] def versionSignal(version: Long): ServerSentEvent =
     Datastar.patchSignals(s"""{"$StoreVersionSignal":$version}""")
 
+  /** The session this tab used BEFORE the document that opened this stream —
+    * written by [[UrlSyncScript]] from `sessionStorage`, which is per-tab and
+    * survives a reload, where a cookie would be per-browser and make two tabs
+    * fight over one session.
+    *
+    * It is a retirement notice, never an identity to adopt: the id is not
+    * reused, so two tabs can never end up on one session and the displacement
+    * rule keeps its narrow job (a reconnect racing its predecessor's teardown).
+    */
+  private[runtime] def prevConnOf(req: Request[IO]): Option[String] =
+    req.uri.query.params.get(PrevConnParam).filter(_.nonEmpty)
+
   /** Options for the `data-init` `@get` that opens the SSE stream.
     *
     * The default retry mode (`auto`) retries a DROPPED connection but not a
@@ -1923,6 +2010,12 @@ object Server {
     * it is pushed on connect and on every transition (`healthy.discrete`), and
     * a client that missed one has reconnected, which re-sends it.
     *
+    * The CURSOR is the one exception, and it earns it. A pull that owes this
+    * client nothing sends nothing, so the cursor would otherwise sit still
+    * while the server moved on; the heartbeat carries it instead, bounding the
+    * lag at one interval. It is emitted only when the position actually moved
+    * since this stream last said so, so a quiet night is still comments.
+    *
     * Sent to every connection, including direct LAN ones that need no keepalive
     * at all — skipping those is possible but deliberately not done, see
     * TODO2.md.
@@ -1931,12 +2024,23 @@ object Server {
 
   /** How long a document's session waits for the stream that should adopt it
     * ([[Session.adopt]]). Sized by the gap between a page rendering and
-    * `data-init` firing — a parse, a module load, one round trip — so seconds
-    * with room to spare, not minutes. Too short only costs the client its
-    * `holds` seed (bytes on its first patch); too long is a session per
-    * abandoned load, read by every state batch until it expires.
+    * `data-init` firing — a parse, a module load, one round trip — so a few
+    * seconds, not minutes.
+    *
+    * Deliberately SHORT, and shorter than [[LingerWindow]], because the two
+    * zero-stream states are not the same fact. A `Fresh` session was never
+    * adopted: either its stream is about to arrive or the load was abandoned,
+    * and abandoned is what a burst of reloads produces. A `Lingering` one had a
+    * stream and lost it, which is a phone waking or a lid closing and deserves
+    * patience. Collapsing them into one idle timer would make the common
+    * accident wait for the rare one.
+    *
+    * Too short costs only the client its `holds` seed — bytes on its first
+    * patch, never staleness. Too long is a session per abandoned load, read by
+    * every state batch and holding the changelog floor down until it expires.
+    * So this errs short.
     */
-  val AdoptionWindow: FiniteDuration = 30.seconds
+  val AdoptionWindow: FiniteDuration = 10.seconds
 
   /** How long a session outlives the stream that was holding it
     * ([[Tenure.Lingering]]).

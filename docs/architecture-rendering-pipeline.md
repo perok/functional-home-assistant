@@ -48,6 +48,7 @@ flowchart TB
   subgraph CLIENT["PER CLIENT — one SSE stream per browser tab"]
     direction TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
+    BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
     PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE<br/>against THIS session's holds + open set"]
     APPL["Patches.applied<br/>forget the mounts it re-supplied,<br/>claim what its bytes placed"]
     MERGE["merge: pulls ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
@@ -61,6 +62,7 @@ flowchart TB
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
   BELL --> PULL --> APPL --> MERGE --> SSE
   OPEN --> MERGE
+  BEAT --> MERGE
   REC -.->|writes| LOG
   PULL <-.->|since position| LOG
   OPEN <-.->|since cursor| LOG
@@ -77,7 +79,7 @@ flowchart TB
   classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
   class PUMP,STORE,CH global
   class SYNC,PLAN,REC,BELL shared
-  class OPEN,PULL,APPL,MERGE,SSE client
+  class OPEN,PULL,APPL,MERGE,SSE,BEAT client
   class LOG,SESS store
   class HA,ACT ext
 ```
@@ -136,6 +138,14 @@ GET /d/:slug
   ...and conn, on the data-init URL the page advertises
 
 GET /sse/dashboard/:slug/patch
+  retire the session `?prev=` names, if any, unless a stream is HOLDING it
+    // this tab's previous document, from sessionStorage. A reload mints a
+    // fresh conn, so without this its predecessor sits in the registry for a
+    // whole linger window holding an old position — and the floor is the
+    // LOWEST position, so a few reloads keep the changelog un-prunable.
+    // Retiring is all that is wanted: the old holds describes a DOM that no
+    // longer exists. The not-Held guard is for a DUPLICATED tab, which
+    // inherits sessionStorage and would otherwise evict a live viewer
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
   opening patches, narrowest that is still correct:
@@ -222,10 +232,13 @@ each connection wakes and PULLS
   resume(log, holds, snapshot, position + 1, open, its own ui-state)
       -> render the candidates; send the ones whose digest is not what it holds
   applied  -> forget the mounts those patches re-supplied, claim what they placed
-  position = the version it woke for, and say so    // ALWAYS, even when it was
-                                                    // owed nothing: "nothing owed"
-                                                    // is now a per-client answer
-  write bytes
+  position = the version it woke for                // ALWAYS, even when it was
+                                                    // owed nothing
+  write bytes — but ONLY if there were any: a frame this client was owed
+    nothing for is silence on the wire, cursor included. The keepalive carries
+    the cursor forward instead, so `position` may run ahead of what the client
+    holds by up to one interval. Safe, and bounded to a container refill —
+    the argument is on Session.position
 ```
 
 ### The log
@@ -479,7 +492,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | opening paint | `runtime/Server.scala` · `openingPatches` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
-| a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`; `runtime/Server.scala` · `reapAfter`, `AdoptionWindow`, `LingerWindow` |
+| a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
+| a tab handing over its session | `runtime/Server.scala` · `ConnHandoffScript` (`sessionStorage`), `PrevConnParam`, `prevConnOf`, `retire` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |
@@ -494,10 +508,6 @@ Live list — delete an entry when it is answered, and say where the answer land
   keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
   wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED
   number of generations per node, not a return to unbounded keys.
-- **A pull always reports its position**, even when it owed the client nothing — one small signal
-  per client per frame. It is what makes "nothing owed" a per-client answer rather than a shared
-  one, and what tells a browser the frame reached it. Whether that is worth the bytes on a busy
-  instance is unmeasured.
 - **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
   delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
   offers its id to `insertInto` as an anchor. The answer is to drop the `LiveSlug` outright rather

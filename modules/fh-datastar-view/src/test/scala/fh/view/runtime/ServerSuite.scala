@@ -2799,30 +2799,21 @@ class ServerSuite extends munit.CatsEffectSuite {
     def drain: IO[List[ServerSentEvent]] =
       seen.getAndSet(Vector.empty).map(_.toList)
 
-    /** Wait until this client has the WHOLE of what a change produced for it.
+    /** Wait until whatever this change produced for this client has ARRIVED.
       *
-      * The batch announces its own end: the pass appends the cursor signal
-      * last, and that signal is untagged, so every connection receives it even
-      * when every element patch in the batch was filtered away from this one.
-      * Seeing a cursor therefore means "the batch is complete", exactly — no
-      * sampling, no window, and no dependence on how long the server took.
-      */
-    def settled: IO[Unit] = untilCursor.timeout(15.seconds)
-
-    /** Confirm a change produced NOTHING — the one case with no cursor to wait
-      * for, since a batch that emits nothing has nothing to advance a client
-      * past.
+      * Quiet alone cannot tell "nothing was produced" from "nothing has arrived
+      * yet", which is why this is never used on its own: [[LiveWorld.change]]
+      * first proves SERVER-side that every session pulled the frame, and only
+      * then waits here for the bytes to land. The two together are what the
+      * cursor handshake used to give for free.
       *
-      * Deliberately NOT raced against [[settled]]. Quiet cannot tell "nothing
-      * was produced" from "nothing has ARRIVED yet", so racing the two lets a
-      * slow batch be read as silence: past quiet's ~250ms floor (`drop(6)` +
-      * `sliding(4)` at 25ms) every sample reads 0, quiet wins, and `drain`
-      * hands the test an empty list for a batch that was merely in flight. That
-      * is a false pass for any assertion expecting silence and a false FAILURE
-      * for the assertion after it. The caller knows which answer it expects, so
-      * it says so.
+      * That handshake is gone on purpose. A pull that owes a client nothing now
+      * sends nothing at all, so a cursor no longer marks the end of every batch
+      * for every connection — it marks the end of a batch that had something in
+      * it. Waiting for one would hang exactly on the clients this suite exists
+      * to check are left alone.
       */
-    def silence: IO[Unit] = quiet
+    def arrived: IO[Unit] = quiet
 
     private def untilCursor: IO[Unit] =
       fs2.Stream
@@ -2863,6 +2854,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   private class LiveWorld(
       routes: org.http4s.HttpApp[IO],
       store: StateStore,
+      sessions: Sessions,
       clients: Ref[IO, List[LiveClient]]
   ) {
 
@@ -2896,27 +2888,48 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- clients.update(_ :+ client)
       } yield client
 
-    /** Apply one change and wait for EVERY client to receive the whole batch.
+    /** Apply one change and wait until every client has whatever it was owed —
+      * including the clients owed nothing, which is most of the point here.
+      *
+      * TWO gates, and neither works alone. [[served]] proves the SERVER
+      * finished: every session pulled this version, so nothing is still in
+      * flight. [[LiveClient.arrived]] then proves the bytes landed. Before the
+      * empty-batch cursor was removed the first gate was implicit in the second
+      * — every connection got a cursor whether or not it got patches — and a
+      * single wait covered both. Now a client owed nothing receives literally
+      * nothing, so "the frame is done" has to be asked of the server.
+      *
+      * One method rather than two, because with the server gate in place there
+      * is no longer a question to answer differently: a caller expecting
+      * silence and one expecting patches wait for the same thing and then
+      * assert on what they drained.
       */
     def change(next: EntityState): IO[Unit] =
-      store.update(next) *> clients.get.flatMap(_.traverse_(_.settled))
-
-    /** [[change]] for a change that must produce no ELEMENT patch for anyone —
-      * a tick inside a hidden branch, or one whose HTML is digest-identical. A
-      * cursor still arrives (a pull reports its position either way), but
-      * waiting for one would not prove the DOM was left alone, so this observes
-      * quiet instead; see [[LiveClient.silence]] for why that is a separate
-      * method rather than a fallback inside [[LiveClient.settled]].
-      */
-    def changeExpectingSilence(next: EntityState): IO[Unit] =
-      store.update(next) *> clients.get.flatMap(_.traverse_(_.silence))
+      store.update(next) *> settle
 
     /** ONE HA frame carrying several entities — a single store update, as the
       * feed delivers it.
       */
     def frame(nexts: List[EntityState]): IO[Unit] =
-      store.update(nexts.map(Ingest.Replace(_))) *>
-        clients.get.flatMap(_.traverse_(_.settled))
+      store.update(nexts.map(Ingest.Replace(_))) *> settle
+
+    private def settle: IO[Unit] =
+      served *> clients.get.flatMap(_.traverse_(_.arrived))
+
+    /** Every session has pulled the store's current version — `floor` is the
+      * LOWEST position among them, so this is exactly "nobody is behind".
+      */
+    private def served: IO[Unit] =
+      fs2.Stream
+        .repeatEval(
+          (store.current, sessions.floor("dashboard")).flatMapN {
+            (now, floor) => IO.pure(floor.exists(_ >= now.version))
+          } <* IO.sleep(5.millis)
+        )
+        .find(identity)
+        .compile
+        .drain
+        .timeout(15.seconds)
   }
 
   private def liveWorld(
@@ -2938,9 +2951,29 @@ class ServerSuite extends munit.CatsEffectSuite {
           sessions
         )
         .use(server =>
-          use(new LiveWorld(server.routes.orNotFound, store, clients))
+          use(new LiveWorld(server.routes.orNotFound, store, sessions, clients))
         )
     } yield ()).timeout(30.seconds)
+
+  /** The `conn` a freshly-rendered document established, read off the
+    * `data-init` URL it advertises — what a browser's sessionStorage would
+    * keep.
+    */
+  private def connOfPage(routes: org.http4s.HttpApp[IO]): IO[String] =
+    routes
+      .run(Request[IO](Method.GET, uri"/d/dashboard"))
+      .flatMap(_.bodyText.compile.string)
+      .map { page =>
+        Uri
+          .unsafeFromString(
+            "/" + page
+              .split("""data-init="@get\('""")(1)
+              .split("'")(0)
+              .replace("&amp;", "&")
+          )
+          .query
+          .params(Server.ConnSignal)
+      }
 
   /** One client, for the tests that only need one. */
   private def liveClient(
@@ -3493,7 +3526,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- c.drain
         // sensor.a is bound ONLY inside tab 0's panel, inside the hidden
         // branch. Nothing on screen shows it.
-        _ <- world.changeExpectingSilence(es("sensor.a", "A1"))
+        _ <- world.change(es("sensor.a", "A1"))
         hidden <- c.drain
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
@@ -3976,7 +4009,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
         //    Silence is structural — its ids never enter the selection.
         hidden <-
-          world.changeExpectingSilence(es("sensor.b", "B1")) *> client.drain
+          world.change(es("sensor.b", "B1")) *> client.drain
         // No DOM patch. The cursor still moves — a pull reports where it got
         // to even when it owed this client nothing.
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
@@ -4198,6 +4231,136 @@ class ServerSuite extends munit.CatsEffectSuite {
     } yield out).timeout(30.seconds).map(assert(_))
   }
 
+  test("a reload's `prev` retires the session it superseded") {
+    // A reload mints a fresh `conn`, so without this the session it replaced
+    // sits in the registry for the whole linger window holding an old
+    // `position` — and the floor is the LOWEST position, so a few reloads keep
+    // the changelog un-prunable. The client names its predecessor from
+    // sessionStorage; the server drops it.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            // A document nobody connected to: Tenure.Fresh, exactly what an
+            // abandoned load leaves behind.
+            first <- connOfPage(routes)
+            before <- sessions.get(first)
+            // The reload's stream, naming its predecessor.
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.PrevConnParam}=$first"
+                )
+              )
+            )
+            live <- resp.body.compile.drain.start
+            // Read IMMEDIATELY, with no polling: the retirement happens while
+            // the handler builds its response, so it has already run by the
+            // time `resp` exists. Waiting instead would let `AdoptionWindow`
+            // reap this session on its own and the test would pass with the
+            // retirement deleted — which is exactly what a first draft did.
+            after <- sessions.get(first)
+            _ <- live.cancel
+          } yield (before.isDefined, after.isDefined)
+        }
+    } yield out).timeout(30.seconds).assertEquals((true, false))
+  }
+
+  test("`prev` never retires a session a stream is still HOLDING") {
+    // sessionStorage is copied into a duplicated tab (and, in Chrome, into one
+    // opened via target=_blank), so the predecessor a document names can belong
+    // to a tab that is very much alive. Retiring only a non-Held session makes
+    // that a no-op instead of pulling the rug from under a live viewer.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            held <- connOfPage(routes)
+            heldStream <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$held"
+                )
+              )
+            )
+            alive <- heldStream.body.compile.drain.start
+            _ <- sessions.liveStreams.filter(_ >= 1).head.compile.drain
+            // The duplicated tab: its own document, naming the live one.
+            other <- connOfPage(routes)
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$other" +
+                    s"&${Server.PrevConnParam}=$held"
+                )
+              )
+            )
+            second <- resp.body.compile.drain.start
+            _ <- IO.sleep(100.millis)
+            survived <- sessions.get(held)
+            _ <- alive.cancel *> second.cancel
+          } yield survived.isDefined
+        }
+    } yield out).timeout(30.seconds).assert
+  }
+
+  test("a frame this client is owed nothing for puts NOTHING on its wire") {
+    // Not merely "no element patches" — no events at all. The cursor used to go
+    // out on every pull, which made a quiet frame cost one signal per client;
+    // it rides the keepalive now instead. This is the contract that removal
+    // creates, and the reason `LiveWorld.change` gates on the server rather
+    // than on a cursor arriving.
+    liveWorld(
+      twoTabsDash,
+      Map(
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.c_1=1")
+        _ <- onT0.drain
+        _ <- onT1.drain
+        // Inside tab 0's panel only.
+        _ <- world.change(es("sensor.a", "A1"))
+        a0 <- onT0.drain
+        a1 <- onT1.drain
+      } yield {
+        assert(a0.nonEmpty, clue = a0)
+        assertEquals(a1, Nil, clue = ("tab 1 gets no bytes at all", a1))
+      }
+    }
+  }
+
   /** A dropped SSE stream is the NORMAL case, not a goodbye: a phone sleeping,
     * a lid closing, a wifi handover. The session outlives it, so the client
     * that comes back is told what moved rather than repainted — and it is the
@@ -4385,7 +4548,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         // NOTHING on the wire — not even a cursor, since only a non-empty batch
         // carries one.
         again <-
-          world.changeExpectingSilence(es("sensor.a", "hot")) *> client.drain
+          world.change(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(domEvents(again), Nil, clue = again)
       } yield ()
     }

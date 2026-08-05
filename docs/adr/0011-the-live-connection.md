@@ -522,6 +522,23 @@ holds up only itself. Coalescing is the RIGHT behaviour there rather than a loss
 that pull is computed against the current snapshot, which is what a slow client should
 get.
 
+**The tab hands its session over, it does not reuse it.** A reload is a complete
+re-render, so the fresh document's paint is the authoritative statement about that
+DOM and the previous session's `holds` describes something that no longer exists —
+there is nothing in it worth adopting. What the old id is good for is retirement:
+`sessionStorage` (per TAB, and surviving a reload, where a cookie would be
+per-browser and make two tabs fight over one session) carries it onto the next
+connect as `?prev=`, and the server drops that session unless a stream is still
+holding it. Without it a superseded session waits out its adoption window holding
+an old `position`, and the changelog floor is the LOWEST position, so a burst of
+reloads keeps the log un-prunable for as long as they last.
+
+Never reusing the id is what keeps the rest simple: two tabs can never land on one
+session, so `holds` always describes exactly one DOM and the displacement rule keeps
+its narrow job (a reconnect racing its predecessor's teardown). The not-Held guard
+covers the one case the browser creates on its own — a DUPLICATED tab inherits
+`sessionStorage`, so the predecessor it names may be very much alive.
+
 What is bounded is the **connection**, not the queue: ember gives every socket write
 an idle timeout (60s by default), so a peer that stops reading is torn down and its
 subscriptions released with it. A dedicated stall watchdog was tried and removed —
@@ -646,13 +663,25 @@ deliberately NOT keyed on the store version — a global counter, so one humidit
 would invalidate every node on every dashboard — which is the one warning from the
 original note that survived into the implementation. See ADR 0012.
 
-**Advancing a client's cursor on quiet ticks.** A batch that emits nothing sends
-no cursor, so a long quiet stretch leaves a client claiming an old version and a
-later reconnect re-sends a superset — harmless, and deliberately the safe
-direction to err in. The fix is a nudge: after N quiet batches, or on a timer,
-push the cursor alone. Not free — every non-`_` signal rides back on every
-subsequent request — so it is a trade against how chatty a given dashboard is,
-not an obvious win.
+~~**Advancing a client's cursor on quiet ticks.**~~ **Landed**, and it turned out to
+be the resolution of a tension rather than a nudge. A pull that owes this client
+nothing now sends nothing at all — no element patches and no cursor — and the
+25-second keepalive carries the cursor instead, emitting it only when `position`
+moved since that stream last said so. A quiet night is still comments.
+
+That leaves `position` running ahead of the client by up to one interval, which is
+safe for the reasons set out under "Nothing may be dropped" above: the client's
+cursor is the authority at reconnect, and a stale-low one costs at most a container
+refill. What it removes is a signal per client per frame on a busy dashboard, which
+is the cost the original note was weighing.
+
+It also cost a test seam, worth recording because the same trap is waiting for the
+next person: `ServerSuite`'s `LiveWorld` used the cursor as its "the batch reached
+me" marker, precisely because every connection got one whether or not it got
+patches. With that gone, a client owed nothing waits forever. The replacement is
+strictly better — gate on the SERVER having served the frame (`Sessions.floor`
+reaching the store version, i.e. every session pulled it), then wait for arrival —
+because it no longer infers completion from a wire artefact.
 
 **`data-signals__ifmissing`** — **adopted**, after the spike that explained why it
 had failed. The modifier behaves as documented; the constraint is one Datastar

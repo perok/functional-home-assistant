@@ -137,6 +137,23 @@ case class Session(
     * reconnected (or a later stream took it) while the reaper slept, and the
     * caller must leave the registry alone.
     */
+  /** Retire this session because a LATER document in the same tab has
+    * superseded it — unless a stream is still holding it.
+    *
+    * The guard is what makes the tab-storage handoff safe. `sessionStorage` is
+    * copied into a duplicated tab (and, in Chrome, into one opened via
+    * `target=_blank`), so the id a document names as its predecessor may belong
+    * to a tab that is very much alive. Retiring only a `Fresh` or `Lingering`
+    * session means that case is a no-op instead of pulling the rug from under a
+    * live viewer.
+    */
+  def supersede: IO[Boolean] =
+    tenure.modify {
+      case held: Tenure.Held => (held, false)
+      case Tenure.Reaped     => (Tenure.Reaped, false)
+      case _                 => (Tenure.Reaped, true)
+    }
+
   def relinquish(expected: Tenure): IO[Boolean] =
     tenure.modify {
       case t if t == expected => (Tenure.Reaped, true)
