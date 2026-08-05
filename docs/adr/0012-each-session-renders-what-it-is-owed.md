@@ -54,8 +54,10 @@ floor, since those viewers are owed different bytes. Measured before it: 3+3 vie
 across two tabs cost ~3.5 renders a frame against that floor of 2, trending toward one
 render per viewer. `RenderCacheContentionSuite` holds the floor and the bound both.
 
-Viewers at different STORE VERSIONS still miss, and that is free: each renders from the
-current snapshot, so a laggard's bytes were never wanted twice.
+Viewers at different STORE VERSIONS still miss, and that is NOT free — see the open
+question below. Each renders from the current snapshot, so the laggard's own render is
+work it needed; the cost is that installing it evicts the newer generation other sessions
+were about to hit.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}` in a `self`, the no-JS tab bar — is now just a node: the session renders

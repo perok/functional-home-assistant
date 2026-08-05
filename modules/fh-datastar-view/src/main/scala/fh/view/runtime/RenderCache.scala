@@ -71,12 +71,23 @@ private[runtime] object NodeBytes {
   * because those viewers are owed genuinely different bytes.
   * `RenderCacheContentionSuite` holds both numbers.
   *
-  * Note what is deliberately NOT fixed: two viewers at different STORE
-  * VERSIONS. They also miss, and that costs nothing — each renders from the
-  * current snapshot, so the older one's bytes were never wanted twice. That
-  * asymmetry is the whole reason to bucket on `vars` rather than to keep N
-  * generations of everything, which would retain N-1 dead entity versions per
-  * node for hits that never come.
+  * '''Still UNFIXED: an older generation displaces a newer one.''' Nothing here
+  * compares versions — a key matches or it does not — so a straggler pulling at
+  * an older snapshot installs its generation over the current one. Three
+  * sessions racing (newest, laggard, newest) cost three renders where two would
+  * do: the laggard's install throws away bytes the third still wanted. The
+  * waste is not the laggard's own render, which it needed; it is what that
+  * install DISCARDS.
+  *
+  * Bucketing on `vars` does not help — the stragglers share a selection and
+  * differ on the entity half — and neither does keeping N generations, which
+  * would only widen the window. The candidate fix is a dominance rule: decline
+  * to install a generation every one of whose versions is at or behind the
+  * entry already there, and render for that caller without caching. Its cost is
+  * that a CLUSTER of laggards at one old version stops sharing with each other.
+  * Not measured, and this suite's harness cannot see it — `LiveWorld.change`
+  * waits for every session before the next frame, so version skew across
+  * sessions never arises there.
   *
   * The map is a [[MapRef]] rather than a `Ref[IO, Map[…]]` so that a `modify`
   * retries `putIfAbsent`/`replace` for ONE key (the `ConcurrentHashMap` under

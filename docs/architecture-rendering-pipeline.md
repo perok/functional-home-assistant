@@ -435,9 +435,7 @@ a floor of 2, drifting toward one render per viewer as viewers piled up.
 `RenderCacheContentionSuite` holds both halves — the floor, and the bound that keeps bucketing from
 becoming a leak.
 
-Two viewers at different STORE VERSIONS still miss, deliberately. Each renders from the current
-snapshot, so the laggard's bytes were never going to be wanted twice; keeping N generations of
-entity versions would retain dead HTML for hits that never come.
+Viewers at different STORE VERSIONS still miss, and that half is **not** fixed — see §8.
 
 ---
 
@@ -522,6 +520,19 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 ## 8. Known open questions
 
 Live list — delete an entry when it is answered, and say where the answer landed.
+
+- **An older generation displaces a newer one.** The cache compares a key for equality, never
+  for order, so a session pulling at an older snapshot installs over the current entry. Three
+  sessions racing — newest, laggard, newest — cost three renders where two would do, and the
+  waste is not the laggard's own render (it needed that) but what its install DISCARDS. Purely
+  a parallelism effect: it needs sessions to be reading the store at genuinely different
+  versions. Demonstrated on `RenderCache` directly; NOT reproducible in the live harness, whose
+  `change` waits for every session before the next frame, so no test currently covers it. The
+  selection bucketing below does not touch it (the stragglers share a selection). Candidate fix:
+  decline to install a generation dominated by the entry present, and render uncached for that
+  caller — at the cost that a cluster of laggards at one version stops sharing with each other.
+  Unmeasured, and worth measuring before choosing, since the last round of reasoning-without-
+  measuring on this same cache got the mechanism wrong.
 
 - **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
   delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
