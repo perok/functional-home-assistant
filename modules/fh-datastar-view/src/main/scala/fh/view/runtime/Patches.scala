@@ -72,53 +72,6 @@ private[runtime] case class Addressed(
     invalidates: Set[NodeId] = Set.empty
 )
 
-/** A frame's renders, done once and through the per-slug [[RenderCache]].
-  *
-  * '''Currently off the server's path.''' The publisher renders nothing at all
-  * now ([[Patches.record]]); the renders happen in each session's
-  * [[Patches.resume]], and wiring this cache into THAT is the next step — it is
-  * what restores the fan-out between sessions viewing one slug
-  * (docs/plan-session-pulled-changelog.md). Kept rather than deleted and
-  * rewritten, because the keying it exercises ([[Renderer.renderInputs]],
-  * `RenderInputsSuite`) is what that step needs to still hold.
-  *
-  * '''Misses fall through to the renderer''' rather than failing, which keeps
-  * this a cache rather than a contract.
-  */
-private[runtime] final class Renders(
-    val renderer: Renderer,
-    states: Map[String, EntityState],
-    before: Map[String, EntityState],
-    nodes: Map[NodeId, Option[NodeBytes]],
-    children: Map[(NodeId, String), Option[NodeBytes]],
-    fills: Map[NodeId, List[(NodeId, NodeBytes)]],
-    membersNow: Map[NodeId, List[String]],
-    membersWas: Map[NodeId, List[String]]
-) {
-  def node(id: NodeId): Option[NodeBytes] =
-    nodes.getOrElse(id, renderer.renderNodeById(id, states).map(NodeBytes.of))
-
-  def child(gid: NodeId, entityId: String): Option[NodeBytes] =
-    children.getOrElse(
-      (gid, entityId),
-      renderer.renderDynamicChild(gid, entityId, states).map(NodeBytes.of)
-    )
-
-  def fill(gid: NodeId): List[(NodeId, NodeBytes)] =
-    fills.getOrElse(
-      gid,
-      renderer.renderDynamicMembers(gid, states).map { case (id, html) =>
-        id -> NodeBytes.of(html)
-      }
-    )
-
-  def membersAfter(gid: NodeId): List[String] =
-    membersNow.getOrElse(gid, renderer.dynamicMembers(gid, states))
-
-  def membersBefore(gid: NodeId): List[String] =
-    membersWas.getOrElse(gid, renderer.dynamicMembers(gid, before))
-}
-
 /** The pure core, lifted out of [[Server]] so it is testable without a booted
   * server (no HA stub, no `Supervisor`, no SSE plumbing). Two paths meet here,
   * and they no longer share a pass:
@@ -289,101 +242,6 @@ private[runtime] object Patches {
     )
   }
 
-  /** Render a frame's affected nodes through the cache. See [[Renders]] for why
-    * this is currently unwired.
-    *
-    * It mirrors what a frame needs rendered, from STATE alone. A group whose
-    * membership did not move renders its touched children; one whose membership
-    * moved renders either the arrivals or the whole mount, and the churn
-    * heuristic that chooses between them is pure state
-    * ([[Server.MaxChurnFraction]] over the member counts).
-    */
-  def prepare(
-      renderer: Renderer,
-      cache: RenderCache,
-      req: DiffRequest
-  ): IO[Renders] = {
-    val states = req.states
-
-    val membersNow = req.dynamics.map { case (gid, _, _) =>
-      gid -> req.membership.get(gid).fold(List.empty[String])(_._2)
-    }.toMap
-    val membersWas = req.dynamics.map { case (gid, _, _) =>
-      gid -> req.membership.get(gid).fold(List.empty[String])(_._1)
-    }.toMap
-
-    // A member of `membersNow` is exactly an entity [[Renderer.dynamicMembers]]
-    // and [[Renderer.renderDynamicChild]] both accept — they test the same
-    // query and the same cases over the same snapshot. Asking membership first
-    // is what lets the render itself go through the cache, which returns bytes
-    // rather than an Option.
-    def child(gid: NodeId, entityId: String): IO[Option[NodeBytes]] =
-      if (!membersNow(gid).contains(entityId)) IO.pure(None)
-      else node(renderer, cache, renderer.dynamicChildId(gid, entityId), states)
-
-    for {
-      nodes <- req.staticIds.traverse { case (id, _) =>
-        node(renderer, cache, id, states).map(id -> _)
-      }
-      // A fill IS its members' renders in DOM order
-      // ([[Renderer.renderDynamicMembers]] is defined that way), so assembling
-      // it from the same cache entries a tick uses is byte-identical AND makes
-      // a whole-mount fill reuse the per-entity renders it already paid for.
-      prepared <- req.dynamics.traverse { case (gid, _, touched) =>
-        val was = membersWas(gid)
-        val now = membersNow(gid)
-        def ticks(of: List[String]) =
-          of.traverse(e => child(gid, e).map(h => (gid, e) -> h))
-            .map(_ -> Option.empty[(NodeId, List[(NodeId, NodeBytes)])])
-
-        if (was == now) ticks(touched) // the hot path: one tick per entity
-        else {
-          val added = now.filterNot(was.toSet)
-          val churn = added.size + was.filterNot(now.toSet).size
-          if (churn == 0)
-            // The member LIST moved but the member SET did not, so `diff` sends
-            // nothing. Rendering a fill here would be pure waste — and this
-            // branch is where the wasteful one lives, so the guard has to be
-            // here too, not only there.
-            IO.pure(Nil -> None)
-          else if (perEntityChurn(churn, was.size)) ticks(added)
-          else
-            now
-              .traverse(e =>
-                child(gid, e).map(_.map(renderer.dynamicChildId(gid, e) -> _))
-              )
-              .map(filled => Nil -> Some(gid -> filled.flatten))
-        }
-      }
-    } yield new Renders(
-      renderer,
-      states,
-      req.before,
-      nodes.toMap,
-      prepared.flatMap(_._1).toMap,
-      prepared.flatMap(_._2).toMap,
-      membersNow,
-      membersWas
-    )
-  }
-
-  private def node(
-      renderer: Renderer,
-      cache: RenderCache,
-      id: NodeId,
-      states: Map[String, EntityState]
-  ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, states, Map.empty) match {
-      // No sound key for this node — see `Renderer.renderInputs`. Rendered
-      // uncached rather than cached wrongly.
-      case None =>
-        IO(renderer.renderNodeById(id, states).map(NodeBytes.of))
-      case Some(inputs) =>
-        cache(id, renderer, inputs)(
-          mustRender(renderer.renderNodeById(id, states), id)
-        ).map(Some(_))
-    }
-
   /** A key exists only where a rendering does — `renderInputs` is `Some`
     * exactly when the node has one of its own, and a `dynamicMembers` member is
     * exactly what `renderDynamicChild` renders. Loud rather than caching an
@@ -401,8 +259,8 @@ private[runtime] object Patches {
     * is cheaper than juggling insert/remove patches. Strict `<` so exactly half
     * repaints. `MaxChurnFraction` is tunable.
     *
-    * Named because [[prepare]] and [[recordDynamic]] must agree on it: one
-    * decides what to render, the other what to record.
+    * Named because [[recordDynamic]] and [[resume]] must agree on it: one
+    * decides what to record, the other reaches the same patch from the log.
     */
   private def perEntityChurn(churn: Int, shown: Int): Boolean =
     churn > 0 && churn < Server.MaxChurnFraction * shown
