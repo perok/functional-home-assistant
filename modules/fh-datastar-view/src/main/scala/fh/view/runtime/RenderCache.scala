@@ -103,9 +103,9 @@ private[runtime] final class RenderCache(
     * `Renderer.renderNodeById` — one node's own markup, children excluded by
     * construction ([[Renderer.renderInputs]] refuses a node whose bytes carry
     * them), so a small walk. If that stops being true the tools are a
-    * `Semaphore` sized to the cores, `IO.evalOn` onto a sized pool, or `IO.cede`
-    * to break it up — see the `scala-fp` skill. What is not a tool is a
-    * signature that makes the cost invisible.
+    * `Semaphore` sized to the cores, `IO.evalOn` onto a sized pool, or
+    * `IO.cede` to break it up — see the `scala-fp` skill. What is not a tool is
+    * a signature that makes the cost invisible.
     */
   def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
       render: IO[String]
