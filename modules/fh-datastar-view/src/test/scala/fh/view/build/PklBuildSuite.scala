@@ -608,6 +608,8 @@ class PklBuildSuite extends munit.FunSuite {
       // `href`/`onclick` are the two arms of one choice (anchor vs scripted
       // click), so neither is a declared slot — only `label` always appears.
       "button" -> List("label"),
+      // Same two arms as `button`, chip-styled and hugging its label.
+      "pill" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> List(
         "label",
@@ -984,6 +986,12 @@ class PklBuildSuite extends munit.FunSuite {
         |// was accepted and then silently dropped, the wrapper being denied.
         |tabsDefault = (c.tabs) { tabs { ["A"] { c.entityCard(x) } } }
         |tabsSized = ((c.tabs) { tabs { ["A"] { c.entityCard(x) } } }).columns(6)
+        |// `hug` is NOT a span (it is the fill/shrink question, not the how-wide
+        |// one), so it survives a span and composes with it rather than being
+        |// replaced. A Pill defaults to it, the same self-defaulted-cell move.
+        |hugged = c.entityCard(x).hug()
+        |pill = c.pill("Underetasje", c.navigate("under"))
+        |pillSized = c.pill("Underetasje", c.navigate("under")).columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -999,6 +1007,9 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(classes("respan"), Some(List("hero", "fh-cols-6")))
     assertEquals(classes("tabsDefault"), Some(List("fh-cols-full")))
     assertEquals(classes("tabsSized"), Some(List("fh-cols-6")))
+    assertEquals(classes("hugged"), Some(List("fh-hug")))
+    assertEquals(classes("pill"), Some(List("fh-hug")))
+    assertEquals(classes("pillSized"), Some(List("fh-hug", "fh-cols-6")))
     // A node with no layout builders decodes with NO cell at all (the null
     // default is dropped from the wire JSON).
     val plain = probeComponent(

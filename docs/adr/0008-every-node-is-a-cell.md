@@ -82,7 +82,12 @@ know.
 
    So `columns(n)`/`fullWidth()` are **grid-only** affordances — inside a
    row/column you don't size children, they share/fill; rows and columns nest
-   freely into each other and into grid cells. `--fh-gap` is the spacing knob;
+   freely into each other and into grid cells. Whether a cell fills its share at
+   all is a SEPARATE question from how wide that share is: `.fh-hug`
+   (`LayoutNode.hug()`) shrinks a cell to its content, so a run of them packs at
+   the container's own gap. Filling is the default because it is what a card
+   wants; hugging is what makes a row of pills read as a row of pills instead of
+   short labels rattling around in equal boxes. `--fh-gap` is the spacing knob;
    `theme.pkl` carries all of this as a reusable `const layoutCss` a theme
    interpolates at the top of its `styles` (theme-beer does) — a future theme
    reuses it or replaces the layout system wholesale, and the visual classes
@@ -90,8 +95,8 @@ know.
    use `:where()` so any authored `.fh-cols-<n>` wins on specificity.
 6. **Authoring follows HA naming.** Layout builders live on the Pkl
    `LayoutNode` base, so components and dynamic groups share them: `columns(n)`
-   (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), and the
-   `cellClass("…")` escape hatch. They append to the node's `cell.classes`
+   (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), `hug()`
+   (shrink to content), and the `cellClass("…")` escape hatch. They append to the node's `cell.classes`
    (never amending the null default) and return the base `LayoutNode` type —
    chain them AFTER card-specific builders (`c.entityCard(e).tap(…).columns(3)`).
    `caseOf` copies a render fn's `cell` onto the emitted `Case`. The `Grid`
