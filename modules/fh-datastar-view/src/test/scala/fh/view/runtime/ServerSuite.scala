@@ -4328,6 +4328,88 @@ class ServerSuite extends munit.CatsEffectSuite {
       .timeout(30.seconds)
   }
 
+  test("a first connect resumes from AFTER its document's version") {
+    // A document was rendered from one snapshot, so it has ALL of version V —
+    // asking for `>= V` hands back everything it already contains. It is
+    // complete through V, so it needs `> V`. `Server.resumeFrom` says exactly
+    // that, and told the two apart by whether the request carried signals...
+    // which a first connect DOES: Datastar sets `datastar={}` on every GET. So
+    // every page load took the reconnect branch, and the fix is `hasSignals`
+    // testing for a NON-EMPTY store.
+    //
+    // Only RENDERS can see it — the document seeds its own `holds`, so the
+    // redundant work is suppressed before it reaches the wire. And only on a
+    // COLD cache: with another session already pulling, `RenderCache` serves
+    // those nodes and `renderNodeById` is never called, which is why the gate
+    // here is held open by a document that never connects.
+    val count = new AtomicInteger(0)
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "A0")))
+      ref <- SignallingRef[IO].of(
+        new CountingRenderer(liveLeafDash, count): Renderer
+      )
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          def openDocument: IO[Uri] =
+            routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+              .map(page =>
+                Uri.unsafeFromString(
+                  "/" + page
+                    .split(SseUrlMarker)(1)
+                    .split("'")(0)
+                    .replace("&amp;", "&")
+                )
+              )
+          for {
+            // A document that never connects. Its session holds the recording
+            // gate open — a slug nobody is watching records nothing — WITHOUT
+            // pulling, so nothing warms the render cache.
+            _ <- openDocument
+            _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+            _ <- store.update(es("sensor.a", "A1"))
+            // The recorder writes on its own fiber and nothing here can observe
+            // it (no stream to watch). Sabotage is what keeps this honest:
+            // reverting `hasSignals` fails this test, which it could not do if
+            // the wait were too short.
+            _ <- IO.sleep(300.millis)
+            // Now a document rendered AT that version, and complete through it.
+            _ <- IO(count.set(0))
+            url <- openDocument
+            // `datastar={}` is what a BROWSER adds and the server-built
+            // `data-init` URL does not: Datastar serialises its signal store
+            // into every GET, and on a first connect that store is empty
+            // because `data-init` fires before the descendants' `data-signals`
+            // are merged. Without this the harness cannot see the difference at
+            // all — both branches read the query params — which is exactly why
+            // the bug survived.
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                url.withQueryParam("datastar", "{}")
+              )
+            )
+            block <- sseFrom(resp)(isCursor)
+          } yield (count.get(), block)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (renders, block) =>
+        assertEquals(renders, 0, clue = block)
+      }
+  }
+
   test("a connect does not repeat the health the document already rendered") {
     // The document renders the banner's value into the page and records it on
     // the session, so an ordinary load is already correct. Emitting it again on
