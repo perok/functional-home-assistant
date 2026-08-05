@@ -256,11 +256,25 @@ Each one lands on its own and keeps the suites green.
    the way when that changes. What a key must satisfy is unchanged either way: stable across ticks
    (or a morph retargets a different element) and unique within its group.
 
-   **What it costs:** `Renderer.allIndexed` is a `val` computed once from the `Dashboard`, and the
-   `Renderer` is an immutable value shared per slug. The index has to become live state that
-   membership edits (owned by `LiveSlug`, dying with a renderer swap exactly as the changelog
-   does), while the `Renderer` stays a pure function of dashboard + index. That split is the real
-   work in this phase, and it is what should be designed before any of it is written.
+   **What it costs, and the shape agreed for it:** the authored graph stays a STATIC map computed
+   once from the `Dashboard` (`Renderer.allIndexed` today); the dynamic part is a `Ref` beside it
+   that membership edits. Getting that structure clean is the phase, and it belongs in its own PR
+   rather than riding on this one.
+
+   Two things constrain it, and both were found by looking at what already keys on renderer
+   IDENTITY. `publisherFor` rotates the changelog on every renderer emission and `reloadRepaints`
+   repaints every connection on one — so if a membership change produces a new renderer, a member
+   joining a group rotates the log and full-body-repaints every browser. `RenderCache` keys on
+   renderer identity too, so it would flush on exactly the case this phase optimises. Whatever the
+   structure, it needs a DASHBOARD identity that survives membership updates, with those three
+   keying on that rather than on the renderer value.
+
+   And a member's node definition is STATE-derived — the case comes from
+   `d.cases.find(matches(c.when, st))` — so materialising freezes the case and a case switch must
+   re-materialise. The render cache cannot serve stale bytes there (a switch means the matched
+   entity's `contentVersion` moved, so `RenderInputs` differ), but the recorder must replace the
+   node in the same frame, and a card stuck on the wrong branch fails silently. It gets its own
+   test.
 
    ### Entity removal is a reload, not a case
 
