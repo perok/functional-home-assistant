@@ -2840,13 +2840,6 @@ class ServerSuite extends munit.CatsEffectSuite {
       */
     def arrived: IO[Unit] = quiet
 
-    private def untilCursor: IO[Unit] =
-      fs2.Stream
-        .repeatEval(seen.get <* IO.sleep(5.millis))
-        .find(_.exists(isCursor))
-        .compile
-        .drain
-
     private def quiet: IO[Unit] =
       fs2.Stream
         .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
