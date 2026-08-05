@@ -83,6 +83,22 @@ class CursorSuite extends munit.FunSuite {
     )
   }
 
+  test("an EMPTY store is a first connect, not a missing cursor") {
+    // Datastar sets the `datastar` param on every GET whatever the store holds,
+    // so a first connect arrives as `{}` — it fires `data-init` from <body>
+    // before the descendants' `data-signals` are merged. Reading "the param is
+    // here" as "this is a reconnect" makes every page load an anomaly, which is
+    // what shipped and what running it locally immediately showed.
+    val req =
+      get(params + "&datastar=" + java.net.URLEncoder.encode("{}", "UTF-8"))
+    assertEquals(Server.cursorAnomaly(req), None)
+    assertEquals(Server.hasSignals(req), false)
+    assertEquals(
+      Server.cursorOf(req),
+      Some(Server.Cursor("hq", "sq", "Lq", 3L))
+    )
+  }
+
   test("a store carrying other signals but no cursor is the same case") {
     // What a mis-specified client-side `filterSignals` looks like from here:
     // the store arrives, `conn` and the ui state are in it, the cursor is not.

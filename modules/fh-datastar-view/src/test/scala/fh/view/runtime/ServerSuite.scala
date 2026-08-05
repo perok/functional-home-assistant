@@ -2930,13 +2930,29 @@ class ServerSuite extends munit.CatsEffectSuite {
       * assert on what they drained.
       */
     def change(next: EntityState): IO[Unit] =
-      store.update(next) *> settle
+      recording *> store.update(next) *> settle
 
     /** ONE HA frame carrying several entities — a single store update, as the
       * feed delivers it.
       */
     def frame(nexts: List[EntityState]): IO[Unit] =
-      store.update(nexts.map(Ingest.Replace(_))) *> settle
+      recording *> store.update(nexts.map(Ingest.Replace(_))) *> settle
+
+    /** The slug's recorder has SUBSCRIBED to `store.changes`.
+      *
+      * A topic delivers only to current subscribers, and the recorder fiber
+      * starts asynchronously with `Server.resource` — so a `store.update` that
+      * beats it is never recorded, the doorbell never rings, and every gate
+      * after it waits out its full timeout. Connecting a client does not imply
+      * it: the stream and the recorder are different fibers.
+      */
+    private def recording: IO[Unit] =
+      store.changeSubscribers
+        .filter(_ >= 1)
+        .head
+        .compile
+        .drain
+        .timeout(15.seconds)
 
     private def settle: IO[Unit] =
       served *> clients.get.flatMap(_.traverse_(_.arrived))

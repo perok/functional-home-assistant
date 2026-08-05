@@ -1948,6 +1948,13 @@ object Server {
     */
   private[runtime] def cursorAnomaly(req: Request[IO]): Option[String] =
     signalsOf(req)
+      // Emptiness is the whole discriminator, and "has a store" is not:
+      // Datastar sets the param on every GET whatever the store holds, so a
+      // first connect arrives as `{}` — it fires `data-init` from <body> before
+      // the descendants' `data-signals` are merged, which is exactly why
+      // `Restore` puts the cursor on the URL. Treating `{}` as "a store with
+      // the cursor missing" makes every ordinary page load an anomaly.
+      .filter(_.keys.exists(_.nonEmpty))
       .flatMap(_.downField(CursorSignal).as(using cursorDecoder).left.toOption)
       .map(f =>
         "reconnect carried a signal store with no readable cursor " +
@@ -1996,11 +2003,16 @@ object Server {
   private[runtime] def cursorParam(field: String): String =
     s"$CursorSignal.$field"
 
-  /** Whether this request carries the live signal store — i.e. it is a
-    * RECONNECT rather than a freshly-loaded document's first connect.
+  /** Whether this request carries a live signal store with anything IN it —
+    * i.e. it is a RECONNECT rather than a freshly-loaded document's first
+    * connect.
+    *
+    * The emptiness test is the point: Datastar sets the `datastar` param on
+    * every GET regardless, so a first connect arrives carrying `{}`, and the
+    * presence of the param alone says nothing.
     */
   private[runtime] def hasSignals(req: Request[IO]): Boolean =
-    signalsOf(req).isDefined
+    signalsOf(req).exists(_.keys.exists(_.nonEmpty))
 
   /** Which session this request belongs to. Signals first, then the plain query
     * param, for the reason [[cursorOf]] gives: a reconnect re-serialises the
