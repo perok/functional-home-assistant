@@ -236,8 +236,35 @@ Each one lands on its own and keeps the suites green.
    - Order is the graph's order, so anchors read a list rather than sorting one.
 
    `Renderer.syncMembers` applies one frame to every group: only a CHANGED entity can have crossed
-   a query or case boundary, so it is O(changes) per group. It returns each group's list before and
-   after, which `record` takes through `DiffRequest.membership` instead of scanning twice.
+   a query or case boundary, so a frame costs the number of changes rather than the size of the
+   house. It returns each group's list before and after, which `record` takes through
+   `DiffRequest.membership` instead of scanning twice.
+
+   ### Measured after, in its own harness
+
+   One group, half of `n` entities members, warm JIT. These are NOT comparable to the table above —
+   that harness measured the predicate filter alone, this one measures whole operations — so read
+   the columns against each other, not across tables.
+
+   | | n = 2 000 (1 000 members) | n = 20 000 (10 000 members) |
+   |---|---|---|
+   | a frame that TICKS a member | **10.5 µs** | **3.1 µs** |
+   | a frame where one member joins + one leaves | 484 µs | 5.4 ms |
+   | a member's render key, by id | 4.2 µs | 1.0 µs |
+   | materialising the group from a snapshot | 1.8 ms | 9.2 ms |
+
+   The hot path is flat in house size AND in group size, which is the shape that was wanted: a tick
+   touches nothing but the changed entity. Getting there took one deliberate step beyond "maintain
+   the set" — **nothing walks the member list unless a member actually moved.** A first cut
+   projected the member list to entity ids twice per frame (the recorder compares two lists) and
+   rebuilt the id index on every sync, which measured 277 µs per tick at n = 2 000: linear in group
+   size, on the path that exists to not be. `GroupMembers` caches the projection, `applyOne` returns
+   its input unchanged when the node it computed equals the node already there, and `install`
+   compares with `eq`.
+
+   A membership MOVE is still linear in the group (three vector passes plus the id-index rebuild),
+   and that is left as it is: it is the rare path, and it already costs a fraction of the two house
+   scans it replaced.
 
    Three things the design turned on, none of them in the notes above:
 

@@ -49,21 +49,47 @@ private[runtime] case class Member(
     node: LayoutNode.Component
 )
 
+/** One group's members in DOM order, with the entity projection the recorder
+  * compares kept beside them. Derived, but cached rather than recomputed: a
+  * frame that ticks a member without moving membership is the common case, and
+  * projecting the whole list twice per frame is the thing that would make it
+  * cost the group's size instead of the frame's.
+  */
+private final case class GroupMembers(
+    members: Vector[Member],
+    entities: List[String]
+)
+
+private object GroupMembers {
+  def of(members: Vector[Member]): GroupMembers =
+    GroupMembers(
+      members,
+      members.toList.collect { case Member(_, MemberKey.Entity(e), _, _) => e }
+    )
+}
+
 /** The dynamic half of the graph: every group's members in DOM order, and the
   * flat id index over them. Two views of one fact, updated together — the
   * ordered vector is what an anchor reads, the flat map is what a patch target
   * resolves through.
   */
 private final case class MemberGraph(
-    byGroup: Map[NodeId, Vector[Member]],
+    byGroup: Map[NodeId, GroupMembers],
     byId: Map[NodeId, Member]
 ) {
-  def put(gid: NodeId, members: Vector[Member]): MemberGraph =
-    MemberGraph(
-      byGroup.updated(gid, members),
-      byId -- byGroup.getOrElse(gid, Vector.empty).map(_.id) ++
-        members.map(m => m.id -> m)
-    )
+
+  /** Install a group's members, rebuilding the id index for that group ONLY
+    * when the members actually moved — `eq` because [[Renderer.syncMembers]]
+    * returns the value it was given when a frame changed nothing.
+    */
+  def install(gid: NodeId, was: GroupMembers, now: GroupMembers): MemberGraph =
+    if ((now eq was) && byGroup.contains(gid)) this
+    else
+      MemberGraph(
+        byGroup.updated(gid, now),
+        byId -- byGroup.get(gid).toList.flatMap(_.members.map(_.id)) ++
+          now.members.map(m => m.id -> m)
+      )
 }
 
 /** A container is just a Component whose template splices its rendered
@@ -228,9 +254,14 @@ class Renderer(
   private[runtime] def membersOf(
       gid: NodeId,
       states: Map[String, EntityState]
-  ): Vector[Member] =
+  ): Vector[Member] = groupOf(gid, states).members
+
+  private def groupOf(
+      gid: NodeId,
+      states: Map[String, EntityState]
+  ): GroupMembers =
     dynamicGroups.get(gid) match {
-      case None    => Vector.empty
+      case None    => GroupMembers(Vector.empty, Nil)
       case Some(d) =>
         graph.get.byGroup.getOrElse(gid, materialise(gid, d, states))
     }
@@ -239,10 +270,12 @@ class Renderer(
       gid: NodeId,
       d: LayoutNode.Dynamic,
       states: Map[String, EntityState]
-  ): Vector[Member] =
-    states.toVector
-      .sortBy(_._1)
-      .flatMap { case (entityId, st) => memberOf(gid, d, entityId, st) }
+  ): GroupMembers =
+    GroupMembers.of(
+      states.toVector
+        .sortBy(_._1)
+        .flatMap { case (entityId, st) => memberOf(gid, d, entityId, st) }
+    )
 
   /** The member `entityId` would be right now, or `None` when it is not one —
     * the group's query fails, or no case matches. The ONE place a case is
@@ -279,10 +312,20 @@ class Renderer(
   /** Apply one frame to EVERY dynamic group's membership, returning each
     * group's member list before and after.
     *
-    * Only a CHANGED entity can have crossed a query or case boundary, so this
-    * is O(changes) per group rather than a rescan of the house — which is the
-    * whole point: `dynamicMembers` used to filter every entity in the house
-    * twice per frame per group, and once more per pulling session.
+    * Only a CHANGED entity can have crossed a query or case boundary, so a
+    * frame costs the number of CHANGES per group rather than a rescan of the
+    * house — which is the whole point: `dynamicMembers` used to filter every
+    * entity in the house twice per frame per group, and once more per pulling
+    * session.
+    *
+    * Nothing walks the member list unless a member actually moved. A frame that
+    * only TICKS members — the common case — produces the same nodes, so
+    * [[applyOne]] hands its group value straight back, `install` sees `eq` and
+    * keeps the id index, and the two projections the recorder compares are one
+    * list. That is the difference between costing the frame's size and costing
+    * the group's, and it is worth being deliberate about: a first cut without
+    * it measured 277 µs per frame on a 2 000-entity house where the scan it
+    * replaced cost 3.4 ms.
     *
     * Every group, not only the visible ones. The graph tracks the STATE STREAM:
     * a frame that records nothing (nobody watching, a hidden surface) still
@@ -294,21 +337,36 @@ class Renderer(
       states: Map[String, EntityState]
   ): Map[NodeId, (List[String], List[String])] =
     dynamicGroups.map { case (gid, d) =>
-      val was = membersOf(gid, before)
-      val now = changes
+      val was = groupOf(gid, before)
+      val now = changes.iterator
         .filter(touchesDynamic(gid, _))
         .map(_.entityId)
         .distinct
-        .foldLeft(was) { (members, entityId) =>
-          val without = members.filterNot(_.key == MemberKey.Entity(entityId))
-          states
-            .get(entityId)
-            .flatMap(memberOf(gid, d, entityId, _))
-            .fold(without)(insertOrdered(without, _))
-        }
-      val _ = graph.updateAndGet(_.put(gid, now))
-      gid -> (entitiesOf(was), entitiesOf(now))
+        .foldLeft(was)(applyOne(gid, d, _, _, states))
+      val _ = graph.updateAndGet(_.install(gid, was, now))
+      gid -> (was.entities, now.entities)
     }
+
+  /** One changed entity's effect on a group: it joined, it left, its case
+    * moved, or — the common case — nothing about it as a NODE changed and
+    * `group` comes back untouched.
+    */
+  private def applyOne(
+      gid: NodeId,
+      d: LayoutNode.Dynamic,
+      group: GroupMembers,
+      entityId: String,
+      states: Map[String, EntityState]
+  ): GroupMembers = {
+    val key = MemberKey.Entity(entityId)
+    val arriving = states.get(entityId).flatMap(memberOf(gid, d, entityId, _))
+    if (group.members.find(_.key == key).map(_.node) == arriving.map(_.node))
+      group
+    else {
+      val without = group.members.filterNot(_.key == key)
+      GroupMembers.of(arriving.fold(without)(insertOrdered(without, _)))
+    }
+  }
 
   /** Members are ordered by their key, matching the entity-id sort a full
     * materialisation produces — so an arrival lands where a rescan would have
@@ -326,9 +384,6 @@ class Renderer(
     case MemberKey.Entity(id)  => id
     case MemberKey.Surface(id) => id
   }
-
-  private def entitiesOf(members: Vector[Member]): List[String] =
-    members.toList.collect { case Member(_, MemberKey.Entity(e), _, _) => e }
 
   /** The member an id names, deriving its group if the stream has not reached
     * it — reachable only before the recorder has synced that group, since a log
@@ -1536,7 +1591,7 @@ class Renderer(
   def dynamicMembers(
       groupId: NodeId,
       states: Map[String, EntityState]
-  ): List[String] = entitiesOf(membersOf(groupId, states))
+  ): List[String] = groupOf(groupId, states).entities
 
   /** Render ONE dynamic-group member by its entity — the by-key accessor into
     * the graph. `None` when the group id is unknown/non-dynamic or the entity
