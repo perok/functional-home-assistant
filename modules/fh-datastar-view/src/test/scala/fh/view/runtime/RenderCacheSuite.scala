@@ -35,6 +35,15 @@ class RenderCacheSuite extends munit.FunSuite {
   /** A render that counts its runs and blocks until the test releases it — so
     * waiters genuinely pile up behind a producer rather than arriving after it
     * finished, which would make single-flight untestable.
+    *
+    * '''It blocks a COMPUTE WORKER, and that is a known wart.'''
+    * [[RenderCache]] documents that its render thunk must be pure and
+    * CPU-bound, and a `CountDownLatch.await()` inside an uncancelable region is
+    * neither — but the thunk is a by-name `String`, so there is no way to
+    * suspend it without changing the shape being tested. `concurrent callers
+    * for one key cost exactly one render` still times out roughly one run in
+    * ten because of it. The fix is to give this suite a runtime with slack, not
+    * a cleverer gate; it has not been done.
     */
   private class Gated(html: String) {
     private val gate = new CountDownLatch(1)
