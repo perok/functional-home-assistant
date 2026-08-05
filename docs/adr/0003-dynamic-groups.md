@@ -103,6 +103,25 @@ Burst coalescing is no longer future work: a session's doorbell is a `Signalling
 `.discrete` collapses versions that land while it renders into one pull. The query
 filter bounds *what* is examined; the doorbell bounds *how often* a viewer pays for it.
 
+## Open
+
+**An entity vanishing has no path of its own.** `StateStore` publishes no `StateChange`
+for a removal — a batch of pure removals does not even reach the recorder — because an
+entity appearing or vanishing changes what the dashboards were BUILT from, and that is
+handled by the registry watcher re-evaluating every entry rather than by patching a node.
+Deliberately coarse, and right: it happens a few times a year.
+
+What is not guaranteed is the re-evaluation. An `r` frame does not always have a registry
+event behind it, so a removal can pass with the version moving and nothing rebuilt. Today
+that is harmless — membership is rescanned from the current snapshot, so a departed entity
+simply stops being a member — but it is load bearing for any design that MAINTAINS
+membership from deltas, where a removal nothing reports leaves a ghost member whose id
+would be offered as an insert anchor for an element in no DOM.
+
+The intended answer is to treat a removal as a `LiveSlug` reload (fresh renderer, log and
+index), which is what the registry path already does and what the rest of the system
+already tolerates. Not built. See `plan-session-pulled-changelog.md`, phase 5.
+
 ## Consequences
 
 - One card library serves static and dynamic rendering; a new card type needs

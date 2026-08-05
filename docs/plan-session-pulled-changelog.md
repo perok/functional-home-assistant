@@ -180,12 +180,15 @@ Each one lands on its own and keeps the suites green.
    The alternative the architecture doc had floated — minting a fresh log identity on the 0->1
    transition — would have repainted every first connect to an idle dashboard, which is the
    common case, not the edge one.
-5. **Maintained dynamic membership**, tested per change instead of rescanned per frame. **Not
-   built — measured first, and the measurement changes what should be built.**
+5. **Dynamic members become real nodes in the graph.** Not built. The phase was written as
+   "maintain the member set instead of rescanning it", and the measurement plus a design pass
+   turned it into something larger that deletes more than it adds.
 
-   `Renderer.dynamicMembers` filters EVERY entity in the house, so its cost is driven by house
-   size and not by group size. Measured on one dynamic group, a single-entity change, warm JIT
-   (`n` = total entities, half of them members):
+   ### What the measurement said
+
+   `Renderer.dynamicMembers` filters EVERY entity in the house, so cost tracks house size and not
+   group size. One dynamic group, a single-entity change, warm JIT (`n` = total entities, half of
+   them members):
 
    | | n = 2 000 | n = 20 000 |
    |---|---|---|
@@ -197,32 +200,64 @@ Each one lands on its own and keeps the suites green.
    | one session's pull, nothing owed | 50 µs | 28 µs |
    | one session's pull, wholesale fill | 6.1 ms | 63 ms |
 
-   Three things fall out of that table, and only the first is what the plan expected.
+   Steady state is `(2 + 1.3·S)` scans per frame for S pulling sessions — ~0.3 ms per frame plus
+   ~0.25 ms per viewer on a 2 000-entity house, linear in house size. Real, ~1% of a core at 20
+   changes/second, and not urgent. A delta pull is already free and flat; what a session pays for
+   is an OWNER LOOKUP (which group is this child in, and which entity is it) that the recorder
+   already knew. And the fill path is 200x a delta and scales with the GROUP.
 
-   - **The steady-state cost is `(2 + 1.3·S)` scans per frame** for S pulling sessions — the
-     recorder scans before and after, and each session scans again to find a changed member's
-     owner. On a 2 000-entity house that is ~0.3 ms per frame plus ~0.25 ms per viewer. Real,
-     linear in house size, and about 1% of a core at a busy 20 changes/second. Worth removing;
-     not worth risking the wire for.
-   - **A delta pull is already free** (27 µs, flat in house size). The pull side's cost is
-     entirely the OWNER LOOKUP for a changed member — a scan to answer "which group is
-     `c_light_l1` in", which the recorder already knew when it wrote the entry. That is a much
-     smaller fix than maintained membership: carry the owner, or memoise the scan per
-     `(gid, store version)` next to the render cache, and the `1.3·S` term disappears without any
-     new incremental state.
-   - **The fill path is 200× a delta and scales with the GROUP** (63 ms for 10 000 members). It is
-     entered whenever the log holds no children for a group — after a renderer swap, after a
-     previous fill, after a stretch nobody watched. That is the number worth watching on a real
-     instance, and it argues for the "a fill `touched`es the members it leaves" rule being load
-     bearing rather than tidy.
+   ### Why a membership cache is the wrong answer
 
-   **Recommendation: memoise before maintaining.** One generation of `(gid, version) -> members`
-   per slug, filled by the recorder and read by the pulls, is the same shape as `RenderCache`,
-   needs no incremental predicate logic, and cannot disagree with the predicate because it is
-   still the predicate's own answer — where a maintained set is a second source of truth that has
-   to be right about every path that changes state. Maintained membership stays the endgame
-   (O(changed) per frame, and a sorted structure answers "successor of this arrival" directly,
-   which an author-chosen member sort will need) but it should follow the memo, not replace it.
+   The first instinct was to memoise `(gid, version) -> members` beside the render cache. It works
+   and it is the wrong shape: it caches a rescan we should not be doing, and it needs a second
+   structure (`childId -> entityId`) for the pull side, which is one fact stored twice.
+
+   The delta is already computed. `Renderer.affectedDynamics` tests each changed entity against
+   each affected group's predicate BEFORE and AFTER — that is exactly "joined / left / neither" —
+   and then the result is thrown away and the house rescanned twice to rebuild the same answer.
+
+   ### The shape it should take
+
+   **A member is materialised into the node graph when it joins, and removed when it leaves.**
+   `Renderer.renderCase` already shows this is only a matter of WHEN: it binds the matched entity
+   by setting `entity_id` as a LITERAL slot on the case's card, and every inheriting slot (the
+   label, the tap, the value) reads from there. Store that node — `Component(card, slots +
+   entity_id, cell)` under the id the member already has — and the member stops being special:
+
+   - `renderNodeById` renders it, like any node. `renderDynamicChild` goes.
+   - `renderInputs` keys it, like any node. `dynamicChildInputs` goes.
+   - `Patches.dynamicOwnerOf` goes entirely: there is no reverse lookup to do, because nothing
+     needs to recover an entity from a node id — the node carries its own binding, as every other
+     node does.
+   - The reverse index (`entityId -> nodes`) gains the member's OTHER bindings too, which is a
+     capability rather than cleanup: it retires ADR 0003's "a dynamic card binds to its matched
+     entity" invariant, so a member card may read a second entity and tick on it.
+   - Order is the graph's order — the group's children list — so anchors need no sorted member
+     structure, and the patch primitives for expressing a move already exist (`insertInto`,
+     `Patch.Remove`, `PatchMode.Before`/`Append`).
+
+   **The one constraint to keep:** a member's id stays ENTITY-derived (`gid_<sanitized entity>`),
+   not positional. Positional ids would rename every node below an arrival, which is exactly what
+   a per-member delta exists to avoid. So the graph carries two id schemes — location-derived for
+   authored nodes, entity-derived for dynamic members — and that is deliberate: position is the
+   order, the entity is the identity.
+
+   **What it costs:** `Renderer.allIndexed` is a `val` computed once from the `Dashboard`, and the
+   `Renderer` is an immutable value shared per slug. The index has to become live state that
+   membership edits (owned by `LiveSlug`, dying with a renderer swap exactly as the changelog
+   does), while the `Renderer` stays a pure function of dashboard + index. That split is the real
+   work in this phase, and it is what should be designed before any of it is written.
+
+   ### Entity removal is a reload, not a case
+
+   An entity VANISHING produces no `StateChange` at all, and a batch of pure removals does not even
+   publish to the recorder (`StateStore.update` skips the empty publish) — so a purely
+   delta-maintained graph would keep a ghost member, and a ghost's id would be offered to
+   `insertInto` as an anchor whose element is in no DOM. The answer is not to make the delta path
+   handle it: a removal already forces a re-evaluation of everything downstream (registry watcher
+   -> renderer swap -> fresh log), so it should drop the `LiveSlug` outright. Rare, coarse, correct
+   by construction. The gap today is that an `r` frame does not always have a registry event behind
+   it, so nothing guarantees that reload — see ADR 0003's open section.
 
 ## ADRs this will rewrite
 
