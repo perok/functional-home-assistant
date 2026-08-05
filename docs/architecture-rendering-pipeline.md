@@ -415,15 +415,29 @@ three keyed on the dashboard, for free.
 | Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
 | Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` and `position` |
-| Cost of N viewers | ×1 | ×1, via the per-slug render cache |
+| Cost of N viewers | ×1 | ×1 per distinct SELECTION, via the per-slug render cache |
 
 The last row is not structural any more, and that is worth being precise about. Each session renders
 for itself; what makes it ×1 is that both pulls go through one `RenderCache` keyed by what the render
 READS (`Renderer.renderInputs`), so whoever arrives first renders and the rest wait on the same slot.
 Two viewers of one dashboard have the same key for a node unless their selections differ — the hit is
-the normal case, not a lucky one. `ServerSuite`'s "rendered once between them" holds the number as a
-cost contract: a 2 there means a key is varying per viewer where it should not, or a pull is
+the normal case, not a lucky one. `SharedPassSuite`'s "rendered once between them" holds the number as
+a cost contract: a 2 there means a key is varying per viewer where it should not, or a pull is
 rendering outside the cache.
+
+**Viewers whose selections DO differ cost one render each, and no more than that.** A node's key has
+two halves that behave nothing alike: the entity versions churn every frame, while the resolved
+selection (`bakeIndex`) ranges over a bake group's members — a finite set fixed by the dashboard. So
+the cache holds one generation per *(node, selection)*: viewers on different tabs no longer evict
+each other, and viewers behind each tab share. That is the floor, since those viewers are owed
+genuinely different bytes. Before it, 3+3 viewers across two tabs cost ~3.5 renders a frame against
+a floor of 2, drifting toward one render per viewer as viewers piled up.
+`RenderCacheContentionSuite` holds both halves — the floor, and the bound that keeps bucketing from
+becoming a leak.
+
+Two viewers at different STORE VERSIONS still miss, deliberately. Each renders from the current
+snapshot, so the laggard's bytes were never going to be wanted twice; keeping N generations of
+entity versions would retain dead HTML for hits that never come.
 
 ---
 
@@ -503,16 +517,12 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
-| what a cache entry is keyed by | node id -> (renderer identity, `RenderInputs`) — one generation. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put |
+| what a cache entry is keyed by | node id -> renderer identity + one generation per SELECTION (`RenderInputs.vars`), each holding its entity versions. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops every selection at once |
 
 ## 8. Known open questions
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **A laggard evicts the current.** One generation per node means two sessions pulling with different
-  keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
-  wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED
-  number of generations per node, not a return to unbounded keys.
 - **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
   delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
   offers its id to `insertInto` as an anchor. The answer is to drop the `LiveSlug` outright rather
@@ -539,5 +549,7 @@ Two findings from the cache work, which sit between the ADRs and so are easy to 
 
 - An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
   on the RESOLVED selection rather than on what the selection reads.
-- The cache holds ONE generation per node, which is what bounds it: `plan` selects the nodes whose
-  entity just moved, so a `(nodeId, inputs)` key would grow forever at a near-zero hit rate.
+- The cache holds ONE generation per node PER SELECTION, and the asymmetry is the point: `plan`
+  selects the nodes whose entity just moved, so a full `(nodeId, inputs)` key would grow forever at a
+  near-zero hit rate — but the selection half of that key does not churn, and bucketing on it is what
+  stops two viewers on different tabs from evicting each other.

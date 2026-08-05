@@ -677,9 +677,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
       dash: Dashboard,
       initial: Map[String, EntityState]
   )(use: LiveWorld => IO[Unit]): IO[Unit] =
+    liveWorldOf(Renderer.create(dash), initial)(use)
+
+  /** [[liveWorld]] with the renderer supplied — for the suites that need a
+    * [[CountingRenderer]] behind the live path rather than a plain one.
+    */
+  def liveWorldOf(
+      renderer: Renderer,
+      initial: Map[String, EntityState]
+  )(use: LiveWorld => IO[Unit]): IO[Unit] =
     (for {
       store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(renderer)
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       clients <- Ref[IO].of(List.empty[LiveClient])
