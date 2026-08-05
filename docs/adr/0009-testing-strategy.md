@@ -119,6 +119,29 @@ snapshots). Anti-flake rules: never `sleep` (Playwright retrying assertions or a
 bounded `eventually` poll), drive time only through `fake.emit`, one browser per
 suite with a fresh `BrowserContext` + bound server per test.
 
+#### Known gap: every smoke suite drives ONE page, and never a reconnect
+
+`withPage` opens a single `Page` and holds it open for the test. Nothing here has
+two browsers on one dashboard at once, and nothing backgrounds a tab or lets its
+SSE stream drop and re-open. So the browser half of the loop is checked only in
+its steady state, by one observer.
+
+That is a real blind spot, not a theoretical one: both halves of the bug fixed in
+PR #76 lived in it. The page shipped `filterSignals:{include:'null'}` — so every
+reconnect arrived carrying no cursor, no `conn` and no tab selection — and a
+reconnecting session was answered from `holds` it had never acknowledged, leaving
+a returning tab permanently stale. A single always-connected page sees neither,
+and the multi-client tests that would have (`LiveStreamSuite`) are wire-level,
+where there is no Datastar client to close and reopen a stream.
+
+Closing it means two `Page`s off one `BrowserContext` (two tabs of one browser,
+which is also what shares `sessionStorage`), one acting while the other observes,
+plus a visibility round trip on the observer. Deliberately not done here: the
+server-side contract is now pinned by `AckedResumeSuite` at the level the failure
+actually lives, and this would add browser time to every CI run to re-check it
+one layer out. Worth adding when a bug is found that only a second real page can
+see.
+
 #### Known limitation: native form controls aren't snapshot-portable
 
 `ComponentVisualSuite."slider looks right"` screenshots a native
