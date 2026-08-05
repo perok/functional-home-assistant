@@ -12,7 +12,10 @@ import org.http4s.{Method, Request, Uri}
 class CursorSuite extends munit.FunSuite {
 
   private def get(query: String): Request[IO] =
-    Request[IO](Method.GET, Uri.unsafeFromString(s"/sse/dashboard/d/patch$query"))
+    Request[IO](
+      Method.GET,
+      Uri.unsafeFromString(s"/sse/dashboard/d/patch$query")
+    )
 
   private def signals(json: String): Request[IO] =
     get("?datastar=" + java.net.URLEncoder.encode(json, "UTF-8"))
@@ -26,7 +29,8 @@ class CursorSuite extends munit.FunSuite {
       s"&${Server.LogIdSignal}=Lq&${Server.StoreVersionSignal}=3"
 
   test("a complete signal cursor is read, and beats the document's params") {
-    val req = get(params + "&datastar=" + java.net.URLEncoder.encode(whole, "UTF-8"))
+    val req =
+      get(params + "&datastar=" + java.net.URLEncoder.encode(whole, "UTF-8"))
     assertEquals(
       Server.cursorOf(req),
       Some(Server.Cursor("h", "s", "L", 7L))
@@ -34,7 +38,9 @@ class CursorSuite extends munit.FunSuite {
     assertEquals(Server.cursorAnomaly(req), None)
   }
 
-  test("no signal store at all is a FIRST connect: the params are the carrier") {
+  test(
+    "no signal store at all is a FIRST connect: the params are the carrier"
+  ) {
     val req = get(params)
     assertEquals(
       Server.cursorOf(req),
@@ -45,7 +51,9 @@ class CursorSuite extends munit.FunSuite {
     assertEquals(Server.cursorAnomaly(req), None)
   }
 
-  test("a signal store with a PARTIAL cursor is reported, not silently ignored") {
+  test(
+    "a signal store with a PARTIAL cursor is reported, not silently ignored"
+  ) {
     // The failure the four-independent-`toOption` reads could not distinguish:
     // a store that is present and missing one field reads exactly like a first
     // connect, so the resume falls back to params frozen at page render and
@@ -54,8 +62,12 @@ class CursorSuite extends munit.FunSuite {
     val partial =
       s"""{"${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
         s""""${Server.LogIdSignal}":"L"}"""
-    val req = get(params + "&datastar=" + java.net.URLEncoder.encode(partial, "UTF-8"))
-    assert(Server.cursorAnomaly(req).isDefined, clue = Server.cursorAnomaly(req))
+    val req =
+      get(params + "&datastar=" + java.net.URLEncoder.encode(partial, "UTF-8"))
+    assert(
+      Server.cursorAnomaly(req).isDefined,
+      clue = Server.cursorAnomaly(req)
+    )
     // It still SERVES: falling back is the safe direction, and the warning is
     // what makes it visible rather than the only symptom being a slow instance.
     assertEquals(
