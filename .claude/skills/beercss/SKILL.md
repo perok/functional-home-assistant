@@ -55,6 +55,24 @@ Datastar SSE morphs (spike-verified); the slider fill is ALSO backend-baked
 into the template (`--_start`/`--_end` inline style) so every morph is correct
 without JS.
 
+Two traps in that repaint, both bitten:
+
+- It assigns **`style.cssText`**, so it REPLACES the `.slider` wrapper's whole
+  inline style. Nothing else may live there — the fill colour goes on the inner
+  `<span>`'s own `style` (`background:…`, which beats
+  `.slider.max>span{background:currentcolor}` by being inline).
+- It computes the percentage **unrounded**. A rounded server value therefore
+  twitches into place one frame after load (`39%` → `39.37…%`), so the baked
+  `fill` transform must not `$round`.
+
+`.slider.max` is `position:absolute;inset:0` — the whole card IS the slider, so
+anything drawn over it (`.slider-head`) needs `pointer-events:none` or it
+becomes a dead strip. It also ships `touch-action:none` + `cursor:grab`; the
+theme overrides both (`pan-y` so a slider card still scrolls, `ew-resize`
+because the control only moves sideways), and `theme.sliderHoldScript` — carried
+by the theme's `inlineScripts`, not by the server — gates touch behind a
+press-and-hold.
+
 Dashboard BEHAVIOR stays with Datastar/backend: dialogs are transient
 `<dialog open>` fragments patched into `#popups`, tab switching is our surface
 swap + `data-class` active toggling, theming is our token system. Nothing uses

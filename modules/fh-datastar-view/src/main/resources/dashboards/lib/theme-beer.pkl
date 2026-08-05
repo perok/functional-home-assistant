@@ -159,6 +159,11 @@ class BeerTheme extends themeMod.Theme {
     "\(beerCdn)/beer.min.js"
   }
 
+  // The gesture half of the touch rules below — see themeMod.sliderHoldScript.
+  inlineScripts {
+    themeMod.sliderHoldScript
+  }
+
   // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
   // Dashboard.validate) + the `#popups` overlay mount, whose hole carries a
   // popup restored on refresh so it paints with the page. `responsive` is
@@ -206,8 +211,34 @@ class BeerTheme extends themeMod.Theme {
     .entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
     /* The slider card's label line (class contract, like .card): label left,
-       live state right. */
-    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3}
+       live state right. It is PAINTED OVER the track (`.slider.max` is an
+       absolutely-positioned overlay filling the card), so it must not take the
+       pointer — without this the label and the live value are two dead strips
+       the user has to aim around. */
+    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3;pointer-events:none}
+    /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
+       "pick this up and move it anywhere". */
+    .slider.max,.slider.max>input{cursor:ew-resize}
+    .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
+    .slider.max>input::-moz-range-thumb{cursor:ew-resize}
+    /* Slide the fill to a state change instead of snapping. `inset` is what
+       BeerCSS derives from `--_start`/`--_end`, so animating it covers both the
+       server-baked value and beer.min.js's repaint; `background` covers a light
+       changing colour. Suppressed while the slider is being dragged — there the
+       fill must track the thumb frame by frame, and a transition reads as lag.
+       :active alone is not enough: a pointer drag ends with the input still
+       focused, and the echoed state should land where the user let go. */
+    .slider.max>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
+    .slider.max:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
+    /* Touch: the CSS half of the press-and-hold gate (fhSliderHold in the page
+       shell owns the timing). The range input is inert so a swipe that starts
+       on a card scrolls the list instead of setting a value, and `pan-y` keeps
+       that scroll native; the script drives the value itself once armed. */
+    @media (pointer:coarse){
+      .slider.max{touch-action:pan-y}
+      .slider.max>input{pointer-events:none}
+      .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--primary)}
+    }
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels

@@ -571,6 +571,14 @@ class PklBuildSuite extends munit.FunSuite {
       theme.get[String]("styles").toOption.exists(_.contains(".fh-row")),
       clue = result
     )
+    // The gesture half of the CSS: authored in the theme, not the server.
+    assert(
+      theme
+        .get[List[String]]("inlineScripts")
+        .toOption
+        .exists(_.exists(_.contains("pointerdown"))),
+      clue = result
+    )
   }
 
   test("components.pkl derives the card registry from the card classes") {

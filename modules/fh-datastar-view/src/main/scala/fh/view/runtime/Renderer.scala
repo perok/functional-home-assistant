@@ -197,12 +197,12 @@ class Renderer(
   private val mainIndex = new Index(dashboard.card, "")
 
   /** Does the browser's `<head>` still match the UNPATCHABLE part of this
-    * dashboard — the theme's `<link>`ed stylesheets, its module scripts, and
-    * its `chrome` frame? A mismatch is the one thing neither a body patch nor a
-    * head patch can repair (a `<link>` can be added but not un-applied, a
-    * module script cannot be re-run, and the chrome is the frame the body patch
-    * lands INSIDE), so it is the one thing worth a full page **reload**
-    * (docs/adr/0011-the-live-connection.md).
+    * dashboard — the theme's `<link>`ed stylesheets, its scripts (module and
+    * inline), and its `chrome` frame? A mismatch is the one thing neither a
+    * body patch nor a head patch can repair (a `<link>` can be added but not
+    * un-applied, a script cannot be un-run, and the chrome is the frame the
+    * body patch lands INSIDE), so it is the one thing worth a full page
+    * **reload** (docs/adr/0011-the-live-connection.md).
     *
     * The rest of the head — tokens, inline CSS, `<title>` — is [[styleHash]]
     * instead: it patches.
@@ -965,6 +965,9 @@ class Renderer(
 
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
+
+  /** Inlined as classic `<script>`, e.g. the slider's press-and-hold gate. */
+  def inlineScripts: List[String] = dashboard.theme.inlineScripts
 
   /** `None` falls back to the slug, at the caller. */
   def title: Option[String] = dashboard.title
@@ -1893,6 +1896,7 @@ object Renderer {
       (
         dashboard.theme.stylesheets,
         dashboard.theme.scripts,
+        dashboard.theme.inlineScripts,
         dashboard.theme.chrome
       ).toString
     )

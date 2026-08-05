@@ -843,6 +843,19 @@ const local function sliderLookup(get: (SliderSpec) -> Any): String =
 // (components.libsonnet:233).
 const local sliderValueLookup: String = "$lookup($attr, " + sliderLookup((s) -> s.value) + ")"
 
+// The slider fill colour from the entity's own light attributes: an explicit
+// `rgb_color` wins, else `color_temp_kelvin` interpolated over the mired-free
+// 2000K..6500K span between a warm amber and a cool white — the same ramp HA's
+// own temperature picker shows. Null for every entity that reports neither
+// (covers, fans, a light that is off), which the slot's default turns back into
+// `currentcolor`.
+const local sliderFillColor: String =
+  #"($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 "#
+  + #"? "rgb(" & $string($rgb[0]) & "," & $string($rgb[1]) & "," & $string($rgb[2]) & ")" "#
+  + #": $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); "#
+  + #""rgb(" & $string($round(255 - 54 * $t)) & "," & $string($round(166 + 60 * $t)) "#
+  + #"& "," & $string($round(87 + 168 * $t)) & ")") : null)"#
+
 // A slider config slot (action/key/min/max): author override → build-time spec
 // literal (stringified — the backend slot decoder rejects numbers) → the
 // runtime `$lookup($domain)` fallback for a spec-less ($self) slider. The
@@ -889,7 +902,7 @@ class Slider extends Node {
             data-signals="{ _val_{{id}}: {{value}} }"
             data-bind="_val_{{id}}"
             data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, \(noSignals))" />
-          <span></span>
+          <span style="background:{{fillColor}}"></span>
         </div>
       </article>
       """
@@ -934,9 +947,25 @@ class Slider extends Node {
     // edge, per BeerCSS's span/clip-path convention): 100 - value% of the
     // min..max range. Null-guarded — an absent position attribute (light off)
     // means an empty fill (end = 100), not a JSONata type error.
+    //
+    // NOT rounded: beer.min.js recomputes the same percentage unrounded on
+    // load and after every morph, so a rounded server value visibly twitched
+    // into place (brightness 155 of 1..255: `39%` baked, `39.37…%` a frame
+    // later). Full precision makes the JS rewrite a no-op.
     ["fill"] = new Slot {
-      transform = "($v := \(valueExpr); $v != null ? $round(100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) : 100)"
+      transform = "($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)"
       default = "100"
+      bypassUnavailable = false
+    }
+    // The fill COLOUR, on the `<span>`'s own style attribute — NOT the
+    // wrapper's, which beer.min.js overwrites wholesale (`style.cssText = …`)
+    // every time it repaints the fill. A light reports either an explicit
+    // `rgb_color` or a `color_temp_kelvin`, which maps onto the usual
+    // warm→cool ramp; anything else (a cover, a fan, a light that is off)
+    // yields null and the slot default hands the paint back to the theme.
+    ["fillColor"] = new Slot {
+      transform = sliderFillColor
+      default = "currentcolor"
       bypassUnavailable = false
     }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)

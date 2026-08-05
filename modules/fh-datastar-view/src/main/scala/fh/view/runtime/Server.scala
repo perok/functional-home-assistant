@@ -1359,6 +1359,7 @@ class Server(
                 painted.html,
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
+                renderer.inlineScripts,
                 renderer.title,
                 Server.ingressPrefixOf(req),
                 restore,
@@ -1388,6 +1389,7 @@ class Server(
       body: String,
       stylesheets: List[String],
       scripts: List[String],
+      inlineScripts: List[String],
       title: Option[String],
       ingressPrefix: Option[String],
       restore: Server.Restore,
@@ -1400,11 +1402,17 @@ class Server(
       // window between this render and that connect is real.
       haDown: Boolean
   ): String = {
+    // The theme's inline scripts come LAST of the three, but they are classic
+    // scripts among deferred module ones, so they still run first — which is
+    // what they are for (a document-level listener the first paint already
+    // needs). Emitted verbatim, like `styles` and `chrome`: a theme is authored
+    // source, not user input.
     val links = (
       stylesheets
         .map(href => s"""  <link rel="stylesheet" href="$href">""") ++
         scripts
-          .map(src => s"""  <script type="module" src="$src"></script>""")
+          .map(src => s"""  <script type="module" src="$src"></script>""") ++
+        inlineScripts.map(js => s"""  <script>$js</script>""")
     ).mkString("\n")
     val baseHref = ingressPrefix.fold("/")(p => s"$p/")
     val pageTitle = Server.titleTag(title, slug)

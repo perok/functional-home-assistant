@@ -382,6 +382,12 @@ object LayoutNode:
   *     the document head after the stylesheets (ES modules — deferred, run
   *     after first paint). For framework helpers the theme's CSS needs (e.g.
   *     BeerCSS's slider fill); dashboard *behavior* stays with Datastar.
+  *   - `inlineScripts`: classic `<script>` bodies, inlined in the head and run
+  *     BEFORE first paint (so they can register document-level listeners that
+  *     the first rendered element already needs). The gesture half of a CSS
+  *     interaction — the counterpart of `styles`, for what CSS alone cannot
+  *     express (see `theme.sliderHoldScript`). Trusted authored text, emitted
+  *     verbatim like `styles` and `chrome`.
   *   - `styles`: inline CSS — framework→token mapping plus the rules that style
   *     the component classes (`.card`, `.fh-row`, …) from the tokens.
   *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
@@ -400,6 +406,7 @@ case class Theme(
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
     scripts: List[String] = Nil,
+    inlineScripts: List[String] = Nil,
     styles: String = "",
     chrome: String = ""
 ) derives ConfiguredDecoder

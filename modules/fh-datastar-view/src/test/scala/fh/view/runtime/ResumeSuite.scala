@@ -488,6 +488,10 @@ class ResumeSuite extends ServerHarness {
       Theme(stylesheets = List("https://example.test/other.css"))
     )
     assertNotEquals(Renderer.create(editedTheme).headHash, base)
+    // Same for an inline script: nothing can un-run one either.
+    val editedScript =
+      liveLeafDash.copy(theme = Theme(inlineScripts = List("void 0;")))
+    assertNotEquals(Renderer.create(editedScript).headHash, base)
   }
 
   test("styleHash tracks the patchable head, and headHash ignores it") {

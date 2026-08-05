@@ -522,6 +522,19 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("a theme's inline scripts are inlined in the head, verbatim") {
+    // The gesture half of a CSS interaction (the slider's press-and-hold gate)
+    // is AUTHORED — a theme property, not a constant in this server. Emitted
+    // raw like `styles`/`chrome`: a theme is authored source, and escaping it
+    // would break the JS it is made of.
+    val js = "document.addEventListener('pointerdown',e=>{if(e.x<1)return});"
+    val dash = titleDash("home", None)
+      .copy(theme = Theme(inlineScripts = List(js)))
+    pageHtml(dash).map { html =>
+      assert(html.contains(s"<script>$js</script>"), html)
+    }
+  }
+
   test("patchElements collapses multi-line fragments to a single data line") {
     val sse = Datastar.patchElements("<div>\n  <span>x</span>\n</div>")
     assertEquals(sse.eventType, Some("datastar-patch-elements"))
