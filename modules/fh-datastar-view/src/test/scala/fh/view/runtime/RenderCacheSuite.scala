@@ -46,9 +46,13 @@ class RenderCacheSuite extends munit.FunSuite {
       * can perfectly well win the CAS and render ITS string. Waiting for the
       * producer to be inside `render` is what makes which-is-which a fact
       * rather than a hope.
+      *
+      * It SLEEPS rather than spinning. `iterateUntil` on a pure `IO` never
+      * yields, so on a small pool it can starve the very fiber it is waiting
+      * for — which is a hang, not a slow test.
       */
     def started: IO[Unit] =
-      IO(runs.get()).iterateUntil(_ > 0).void
+      (IO.sleep(1.millis) *> IO(runs.get())).iterateUntil(_ > 0).void
   }
 
   test("concurrent callers for one key cost exactly one render") {
@@ -128,7 +132,9 @@ class RenderCacheSuite extends munit.FunSuite {
       doomed <- cache(id, r, v1) {
         val _ = g.render; throw new RuntimeException("late")
       }.attempt.start
-      _ <- IO.sleep(100.millis)
+      // The doomed generation must OWN the key before the newer one takes it,
+      // or this tests nothing: a sleep says when, `started` says what.
+      _ <- g.started
       _ <- cache(id, r, v2)("<i>current</i>")
       _ <- IO(g.release())
       _ <- doomed.joinWithNever
@@ -143,14 +149,23 @@ class RenderCacheSuite extends munit.FunSuite {
   test("a failed render reaches its waiters instead of stranding them") {
     val g = new Gated("unused")
     val boom = new RuntimeException("render blew up")
+    val late = new AtomicInteger(0)
     val (results, n) = (for {
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
       producer <- cache(id, r, v1) {
         val _ = g.render; throw boom
       }.attempt.start
+      // BEFORE the waiters exist. Without it they race the producer for the
+      // key, and a "waiter" that wins the CAS renders its own string — which
+      // is instant, where the producer's is gated — so all five succeed and
+      // the failure under test never happens. That was a real intermittent
+      // failure, not a hypothetical.
+      _ <- g.started
       waiters <- List
-        .fill(4)(cache(id, r, v1)("never runs").attempt)
+        .fill(4)(cache(id, r, v1) {
+          late.incrementAndGet(); throw boom
+        }.attempt)
         .parSequence
         .start
       _ <- IO.sleep(150.millis) *> IO(g.release())
@@ -164,6 +179,12 @@ class RenderCacheSuite extends munit.FunSuite {
     assert(results.forall(_.left.exists(_.getMessage == "render blew up")))
     // And the key is gone, so the failure is not permanent.
     assertEquals(n, 0)
+    // The waiters WAITED: only the producer's render ran. `late` is what makes
+    // that a fact — a caller arriving after the eviction would render for
+    // itself and still fail, which is correct and would otherwise be
+    // indistinguishable from waiting.
+    assertEquals(late.get(), 0)
+    assertEquals(g.runs.get(), 1)
   }
 
   test("the next caller after a failure renders again and succeeds") {
