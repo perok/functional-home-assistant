@@ -328,14 +328,26 @@ class ServerSuite extends munit.CatsEffectSuite {
         Server.StyleHashSignal,
         Server.LogIdSignal,
         Server.StoreVersionSignal
-      ).foreach(p => assert(restored.contains(s"$p="), clue = (p, restored)))
+      ).foreach(f =>
+        assert(
+          restored.contains(s"${Server.cursorParam(f)}="),
+          clue = (f, restored)
+        )
+      )
       // With nothing else to restore the cursor still rides — every document
       // knows what it is showing.
-      assert(plain.contains(s"patch?${Server.HeadHashSignal}="), plain)
+      assert(
+        plain.contains(s"patch?${Server.cursorParam(Server.HeadHashSignal)}="),
+        plain
+      )
       // `always` is load-bearing, not decoration: the default retry mode
       // reconnects a DROPPED stream but treats one the server ended as
       // finished — which is how the server closes a stalled connection.
-      assert(plain.contains("{retry:'always'}"), plain)
+      assert(plain.contains("retry:'always'"), plain)
+      // ...and the cursor is asked for BACK. It is `_`-prefixed so Datastar's
+      // default filter drops it from every request; this include is what puts
+      // it on the one request that reads it.
+      assert(plain.contains("filterSignals"), plain)
     }
   }
 
@@ -1754,13 +1766,13 @@ class ServerSuite extends munit.CatsEffectSuite {
         cursor: Option[Server.Cursor],
         popup: Option[String] = None
     ): IO[String] =
-      val signals = cursor.toList.flatMap(c =>
-        List(
-          s""""${Server.HeadHashSignal}":"${c.headHash}"""",
-          s""""${Server.StyleHashSignal}":"${c.styleHash}"""",
-          s""""${Server.LogIdSignal}":"${c.logId}"""",
-          s""""${Server.StoreVersionSignal}":${c.version}"""
-        )
+      // Nested under `_cursor`, exactly as the client's store holds it.
+      val signals = cursor.toList.map(c =>
+        s""""${Server.CursorSignal}":{""" +
+          s""""${Server.HeadHashSignal}":"${c.headHash}",""" +
+          s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
+          s""""${Server.LogIdSignal}":"${c.logId}",""" +
+          s""""${Server.StoreVersionSignal}":${c.version}}"""
       ) ++ popup.map(p => s""""$PopupSig":"$p"""")
       val uri =
         if (signals.isEmpty) uri"/sse/dashboard/dashboard/patch"
@@ -2196,18 +2208,31 @@ class ServerSuite extends munit.CatsEffectSuite {
         Method.GET,
         uri"/sse/dashboard/d/patch".withQueryParam("datastar", q)
       )
+    // Nested under `_cursor`: `_`-prefixed so Datastar's default request filter
+    // keeps it off every request but the SSE GET, which asks for it back.
     assertEquals(
       Server.cursorOf(
         req(
-          """{"headHash":"h1","styleHash":"s1","logId":"L1","storeVersion":7}"""
+          """{"_cursor":{"headHash":"h1","styleHash":"s1",""" +
+            """"logId":"L1","storeVersion":7}}"""
         )
       ),
       Some(Server.Cursor("h1", "s1", "L1", 7L))
     )
     // A first load carries only the signals the page declared — no cursor.
     assertEquals(Server.cursorOf(req("""{"conn":"c","haDown":false}""")), None)
-    // Partial, garbled, and absent are all the same answer.
-    assertEquals(Server.cursorOf(req("""{"logId":"L1"}""")), None)
+    // Partial, garbled, and absent are all the same answer. (That a PARTIAL one
+    // is also reported rather than merely dropped is `CursorSuite`'s subject.)
+    assertEquals(Server.cursorOf(req("""{"_cursor":{"logId":"L1"}}""")), None)
+    // ...including the four at the TOP level, which is where they used to live.
+    assertEquals(
+      Server.cursorOf(
+        req(
+          """{"headHash":"h1","styleHash":"s1","logId":"L1","storeVersion":7}"""
+        )
+      ),
+      None
+    )
     assertEquals(Server.cursorOf(req("not json")), None)
     assertEquals(
       Server.cursorOf(Request[IO](Method.GET, uri"/sse/dashboard/d/patch")),
@@ -2916,14 +2941,24 @@ class ServerSuite extends munit.CatsEffectSuite {
     private def settle: IO[Unit] =
       served *> clients.get.flatMap(_.traverse_(_.arrived))
 
-    /** Every session has pulled the store's current version — `floor` is the
-      * LOWEST position among them, so this is exactly "nobody is behind".
+    /** Every session with a LIVE STREAM has pulled the store's current version.
+      *
+      * Not `Sessions.floor`, which is the minimum over ALL of a slug's sessions
+      * — `Lingering` and `Fresh` ones included. That is right for pruning (a
+      * lingering session may come back and resume from its position) and wrong
+      * here: a session with no stream never pulls, so its position never moves
+      * and this would wait out its whole timeout. Any test that leaves one
+      * behind then fails somewhere else entirely, intermittently.
       */
     private def served: IO[Unit] =
       fs2.Stream
         .repeatEval(
-          (store.current, sessions.floor("dashboard")).flatMapN {
-            (now, floor) => IO.pure(floor.exists(_ >= now.version))
+          (store.current, sessions.forSlug("dashboard")).flatMapN {
+            (now, all) =>
+              all
+                .traverse(s => (s.tenure.get, s.position.get).tupled)
+                .map(_.collect { case (_: Tenure.Held, at) => at })
+                .map(live => live.nonEmpty && live.forall(_ >= now.version))
           } <* IO.sleep(5.millis)
         )
         .find(identity)

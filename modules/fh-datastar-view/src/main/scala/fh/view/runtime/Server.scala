@@ -1668,10 +1668,10 @@ object Server {
         s"$UiParamPrefix${encode(id)}=${encode(v)}"
       } ++ cursor.toList.flatMap(c =>
         List(
-          s"$HeadHashSignal=${encode(c.headHash)}",
-          s"$StyleHashSignal=${encode(c.styleHash)}",
-          s"$LogIdSignal=${encode(c.logId)}",
-          s"$StoreVersionSignal=${c.version}"
+          s"${cursorParam(HeadHashSignal)}=${encode(c.headHash)}",
+          s"${cursorParam(StyleHashSignal)}=${encode(c.styleHash)}",
+          s"${cursorParam(LogIdSignal)}=${encode(c.logId)}",
+          s"${cursorParam(StoreVersionSignal)}=${c.version}"
         )
       ) :+ s"$ConnSignal=${encode(conn)}"
       params.mkString("?", "&amp;", "")
@@ -1758,6 +1758,25 @@ object Server {
     * once per connect and every reconnect is a connect.
     */
   val ConnSignal: String = "conn"
+
+  /** The namespace the resume cursor lives under, and the reason it is
+    * `_`-prefixed: Datastar's default request filter is `exclude: /(^|\.)_/`,
+    * so nesting the four cursor fields here keeps them out of every request BUT
+    * the one that reads them.
+    *
+    * They used to be four top-level signals, which meant every action POST
+    * carried them for a server that never looks. The SSE GET puts them back
+    * with an explicit `filterSignals` ([[SseOptions]]) — an include, because
+    * include and exclude are ANDed and the default exclude would otherwise
+    * still drop them.
+    *
+    * Nested rather than four `_cursor_x` names because Datastar MERGES nested
+    * objects rather than replacing them (`Nt` in the pinned bundle keeps an
+    * existing object and recurses per key), which is what lets a live batch
+    * patch `{_cursor:{storeVersion}}` without wiping the three fields it does
+    * not mention.
+    */
+  val CursorSignal: String = "_cursor"
 
   /** The Datastar signal name carrying upstream-HA liveness, PUSHED by the
     * server (it owns `healthy`). `true` means the backend can't reach Home
@@ -1929,7 +1948,7 @@ object Server {
     */
   private[runtime] def cursorAnomaly(req: Request[IO]): Option[String] =
     signalsOf(req)
-      .flatMap(_.as(using cursorDecoder).left.toOption)
+      .flatMap(_.downField(CursorSignal).as(using cursorDecoder).left.toOption)
       .map(f =>
         "reconnect carried a signal store with no readable cursor " +
           s"(${f.getMessage}) — resuming from the document's frozen params " +
@@ -1948,7 +1967,7 @@ object Server {
     */
   private[runtime] def cursorOf(req: Request[IO]): Option[Cursor] =
     signalsOf(req)
-      .flatMap(_.as(using cursorDecoder).toOption)
+      .flatMap(_.downField(CursorSignal).as(using cursorDecoder).toOption)
       .orElse(cursorFromQuery(req))
 
   /** The cursor a freshly-loaded DOCUMENT hands back on its first connect
@@ -1964,12 +1983,18 @@ object Server {
   private def cursorFromQuery(req: Request[IO]): Option[Cursor] = {
     val p = req.uri.query.params
     for {
-      hash <- p.get(HeadHashSignal)
-      styleHash <- p.get(StyleHashSignal)
-      logId <- p.get(LogIdSignal)
-      version <- p.get(StoreVersionSignal).flatMap(_.toLongOption)
+      hash <- p.get(cursorParam(HeadHashSignal))
+      styleHash <- p.get(cursorParam(StyleHashSignal))
+      logId <- p.get(cursorParam(LogIdSignal))
+      version <- p.get(cursorParam(StoreVersionSignal)).flatMap(_.toLongOption)
     } yield Cursor(hash, styleHash, logId, version)
   }
+
+  /** The `data-init` URL's name for one cursor field — the same dotted path the
+    * signal store uses, so the two carriers of one fact cannot drift apart.
+    */
+  private[runtime] def cursorParam(field: String): String =
+    s"$CursorSignal.$field"
 
   /** Whether this request carries the live signal store — i.e. it is a
     * RECONNECT rather than a freshly-loaded document's first connect.
@@ -2009,17 +2034,21 @@ object Server {
       version: Long
   ): ServerSentEvent =
     Datastar.patchSignals(
-      s"""{"$HeadHashSignal":"${renderer.headHash}",""" +
+      s"""{"$CursorSignal":{"$HeadHashSignal":"${renderer.headHash}",""" +
         s""""$StyleHashSignal":"${renderer.styleHash}",""" +
         s""""$LogIdSignal":"$logId",""" +
-        s""""$StoreVersionSignal":$version}"""
+        s""""$StoreVersionSignal":$version}}"""
     )
 
   /** Just how far this client has got — the only part of the cursor a live
     * batch moves.
     */
   private[runtime] def versionSignal(version: Long): ServerSentEvent =
-    Datastar.patchSignals(s"""{"$StoreVersionSignal":$version}""")
+    // Nested, and merged rather than replaced by the client, so naming only
+    // the version leaves the other three cursor fields standing.
+    Datastar.patchSignals(
+      s"""{"$CursorSignal":{"$StoreVersionSignal":$version}}"""
+    )
 
   /** The session this tab used BEFORE the document that opened this stream —
     * written by [[UrlSyncScript]] from `sessionStorage`, which is per-tab and
@@ -2049,7 +2078,25 @@ object Server {
     * body is consumed it retries only on `retry === "always"`; everything else
     * falls through to `finished`.
     */
-  val SseRetry: String = "{retry:'always'}"
+  val SseRetry: String =
+    s"{retry:'always',filterSignals:{include:'$SseInclude',exclude:'(?!)'}}"
+
+  /** What the SSE GET carries back, as a REGEX (Datastar compiles a string
+    * pattern with `RegExp`, it is not a glob).
+    *
+    * An include is needed at all because the cursor is `_`-prefixed and the
+    * default exclude would drop it; and once an include is given, the default
+    * exclude has to be neutralised (`(?!)` never matches) because the two are
+    * ANDed. So this list is the WHOLE of what a reconnect tells the server, and
+    * anything not named here is invisible to it — `_val_*` slider state and
+    * `_sse`/`_reload` deliberately, but also any future signal somebody adds
+    * expecting the server to see it.
+    *
+    * Getting it wrong does not fail loudly on its own, which is what
+    * [[cursorAnomaly]] is for.
+    */
+  private[runtime] val SseInclude: String =
+    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.)"
 
   /** How often an idle SSE connection is given something to carry.
     *

@@ -70,7 +70,25 @@ a design choice.** Deltas first; wholesale re-send only where the delta genuinel
 cannot be computed, and then at the smallest granularity that works — refill one
 group, not the body.
 
-### The cursor: four client-carried values
+### The cursor: four client-carried values, under one `_` namespace
+
+They live nested under `_cursor`, and the prefix is load-bearing rather than cosmetic:
+Datastar's default request filter is `exclude: /(^|\.)_/`, so nesting them there keeps
+them off every request the page makes and the SSE GET asks for them back with an explicit
+`filterSignals` include. Before that they were four top-level signals, which meant every
+action POST carried a cursor for a server that never looks at one.
+
+Two things about that, both silent when wrong and both read off the pinned bundle rather
+than the docs. `include` and `exclude` are **ANDed**, so an include alone does not defeat
+the default — the SSE options neutralise the exclude with `(?!)`, which makes that include
+the WHOLE of what a reconnect can tell the server. And nested signals **merge** rather than
+replace (`Nt` keeps an existing object and recurses per key), which is what lets a live
+batch patch `{_cursor:{storeVersion}}` without wiping the three fields it does not mention.
+
+`Server.cursorOf` reads all four as ONE decode, so a store that arrives short a field is a
+`Left` rather than an absence — `cursorAnomaly` reports it instead of falling silently back
+to the document's frozen query params, which serves correct output forever at a cost
+nothing reveals.
 
 The client carries what it holds; the server keeps one versioned log per slug, shared
 by every client. A session's own record (`holds`, `position`) sits alongside it and can

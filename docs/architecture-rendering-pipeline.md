@@ -134,8 +134,8 @@ GET /d/:slug
   mint conn; create Session{slug, open surfaces, control queue, holds, position}
   holds = the digest of every node this render painted   // what THIS client's DOM has
   register it, and schedule a reap if no stream adopts it within AdoptionWindow
-  embed in the page as Datastar signals: logId, storeVersion, headHash,
-    styleHash, conn, and haDown READ FROM `healthy` — not a hardcoded false,
+  embed in the page as Datastar signals: the cursor under `_cursor` (logId,
+    storeVersion, headHash, styleHash), conn, and haDown READ FROM `healthy` — not a hardcoded false,
     or a page loaded while HA is unreachable renders as healthy until the
     stream corrects it
   ...and conn again on the data-init URL, which is what the connect reads

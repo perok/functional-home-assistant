@@ -20,13 +20,19 @@ class CursorSuite extends munit.FunSuite {
   private def signals(json: String): Request[IO] =
     get("?datastar=" + java.net.URLEncoder.encode(json, "UTF-8"))
 
-  private val whole =
-    s"""{"${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
-      s""""${Server.LogIdSignal}":"L","${Server.StoreVersionSignal}":7}"""
+  private def store(fields: String): String =
+    s"""{"${Server.CursorSignal}":{$fields}}"""
+
+  private val whole = store(
+    s""""${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
+      s""""${Server.LogIdSignal}":"L","${Server.StoreVersionSignal}":7"""
+  )
 
   private val params =
-    s"?${Server.HeadHashSignal}=hq&${Server.StyleHashSignal}=sq" +
-      s"&${Server.LogIdSignal}=Lq&${Server.StoreVersionSignal}=3"
+    s"?${Server.cursorParam(Server.HeadHashSignal)}=hq" +
+      s"&${Server.cursorParam(Server.StyleHashSignal)}=sq" +
+      s"&${Server.cursorParam(Server.LogIdSignal)}=Lq" +
+      s"&${Server.cursorParam(Server.StoreVersionSignal)}=3"
 
   test("a complete signal cursor is read, and beats the document's params") {
     val req =
@@ -59,9 +65,10 @@ class CursorSuite extends munit.FunSuite {
     // connect, so the resume falls back to params frozen at page render and
     // re-derives the whole page on every reconnect — correct output, forever,
     // at a cost nothing reveals.
-    val partial =
-      s"""{"${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
-        s""""${Server.LogIdSignal}":"L"}"""
+    val partial = store(
+      s""""${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
+        s""""${Server.LogIdSignal}":"L""""
+    )
     val req =
       get(params + "&datastar=" + java.net.URLEncoder.encode(partial, "UTF-8"))
     assert(
@@ -82,5 +89,26 @@ class CursorSuite extends munit.FunSuite {
     val req = signals(s"""{"${Server.ConnSignal}":"c1","ui_c_0":"1"}""")
     assert(Server.cursorAnomaly(req).isDefined)
     assertEquals(Server.connOf(req), Some("c1"))
+  }
+
+  test("the SSE include actually names everything a reconnect must carry") {
+    // The include and the default exclude are ANDed, so this regex is the WHOLE
+    // of what a reconnect tells the server — and getting it wrong degrades the
+    // resume without failing anything. Pinned here rather than trusted.
+    val include = Server.SseInclude.r
+    List(
+      Server.cursorParam(Server.HeadHashSignal),
+      Server.cursorParam(Server.StyleHashSignal),
+      Server.cursorParam(Server.LogIdSignal),
+      Server.cursorParam(Server.StoreVersionSignal),
+      Server.ConnSignal,
+      Server.UiSignalPrefix + "c_0"
+    ).foreach(n =>
+      assert(include.findFirstIn(n).isDefined, clue = (n, Server.SseInclude))
+    )
+    // ...and nothing else rides along: per-connection client state stays local.
+    List("_val_c_3", Server.ReloadSignal, "_sse").foreach(n =>
+      assert(include.findFirstIn(n).isEmpty, clue = (n, Server.SseInclude))
+    )
   }
 }
