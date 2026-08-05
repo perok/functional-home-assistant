@@ -36,7 +36,9 @@ trait SystemPkl {
     * evaluates (same sha256 pin). Serves whatever versions the cache holds, so
     * a laptop pinned to an older lib than the instance still resolves.
     */
-  def packageArtifact(file: String): IO[Array[Byte]] =
+  def packageArtifact(
+      @annotation.unused file: String
+  ): IO[Array[Byte]] =
     FHError.notFound("this home serves no packages").raiseError[IO, Array[Byte]]
 
   /** The discovery document for `GET /system/pkl/packages` (no file name): the

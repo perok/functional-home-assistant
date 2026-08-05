@@ -499,7 +499,15 @@ class Server(
       // ticks. Either the cursor names precisely what this DOM holds (resume), or
       // the whole body is repainted from the current snapshot.
       // Home-Assistant-feed liveness, PUSHED from the server (it owns the
-      // `healthy` signal). This is concept 1 of the two disconnect concepts
+      // `healthy` signal). Emitted on connect as well as on transitions, even
+      // though the document now seeds the true value: the window between that
+      // render and this connect is a parse, a module load and a round trip, and
+      // health moving inside it would otherwise leave a wrong banner up until
+      // the next transition — which can be hours. One small signal per connect,
+      // and the alternative (having the client send its value back so the
+      // server can compare) costs the same bytes on every reconnect instead.
+      //
+      // This is concept 1 of the two disconnect concepts
       // (see [[Server.page]]): the backend knows when it can't reach HA, so it
       // emits the `haDown` signal directly rather than the client inferring it
       // from a stalled beat. Concept 2 (browser<->server transport) stays
@@ -511,7 +519,18 @@ class Server(
       reloads = reloadRepaints(session, uiState)
       // Emit `haDown` on connect (the initial `discrete` value) and on every
       // health transition.
-      haDown = healthy.discrete.changes.map(healthPatch)
+      // ...and only when it differs from what this client was last told. The
+      // document renders the banner's value into the page and records it on the
+      // session, so an ordinary load is already correct and needs no patch;
+      // what survives is the case this exists for, health moving between that
+      // render and this connect.
+      haDown = healthy.discrete.changes.evalMapFilter { h =>
+        val down = !h
+        session.haDown.modify {
+          case Some(`down`) => (Some(down), None)
+          case _            => (Some(down), Some(healthPatch(h)))
+        }
+      }
       // What this stream has actually TOLD its client, as opposed to what it
       // has been served (`session.position`). Stream-local on purpose: it is
       // not a session concept and nothing reads it but the heartbeat — in
@@ -1245,7 +1264,14 @@ class Server(
             // selection key: this render used THIS viewer's `uiState`, where a
             // shared record would have to hold one digest per selection to
             // avoid claiming somebody else's tab.
-            session <- Session.create(slug).flatTap(_.open.set(open))
+            // ONE read, used twice: the banner this page renders and the
+            // record of what it told this client must be the same value, or the
+            // stream will either repeat it or skip a real change.
+            live <- healthy.get
+            session <- Session
+              .create(slug)
+              .flatTap(_.open.set(open))
+              .flatTap(_.haDown.set(Some(!live)))
             // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
             // bearing, not tidiness: [[recordFrame]] skips a frame no session
             // is watching, so a session registered after the read could be
@@ -1290,10 +1316,6 @@ class Server(
                 )
               )
             )
-            // Read HERE rather than passed down from the route: the banner
-            // this seeds is part of the document, so the truthful value is the
-            // one at render time.
-            live <- healthy.get
             resp <- Ok(
               page(
                 slug,
@@ -1783,8 +1805,13 @@ object Server {
     * Assistant; the HA disconnect banner renders `data-show` off it (see
     * [[Server.page]]). Concept 1 of the two disconnect concepts — the
     * browser<->server transport (concept 2) is derived client-side instead.
+    *
+    * `_`-prefixed because the server never reads it from a request body — it
+    * WRITES it, and the page reads it in a `data-show`. Datastar's default
+    * request filter excludes `/(^|\.)_/`, so without the prefix it rode every
+    * surface-action POST for nobody.
     */
-  val HaDownSignal: String = "haDown"
+  val HaDownSignal: String = "_haDown"
 
   /** The four resume signals (docs/adr/0011-the-live-connection.md), all PUSHED
     * by the server and never declared client-side. Datastar sends every

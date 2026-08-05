@@ -509,6 +509,15 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
+- **`RenderCacheSuite` blocks a compute worker, and fails about one run in ten.** The suite
+  proves single-flight by making a render block until the test releases it — but `RenderCache`
+  documents that its render thunk must be pure and CPU-bound, and a `CountDownLatch.await()`
+  inside an uncancelable region is neither. The thunk is a by-name `String`, so there is no way
+  to suspend it without changing the shape under test. `concurrent callers for one key cost
+  exactly one render` times out on it. The fix is to give this suite a runtime with slack rather
+  than a cleverer gate; until then CI has a real chance of going red for a reason unrelated to
+  any change. (A DIFFERENT race in the same suite — callers racing the producer for the key,
+  because two tests never waited for it to hold one — is fixed and was reproducible 1 run in 6.)
 - **A laggard evicts the current.** One generation per node means two sessions pulling with different
   keys for the same node replace each other's entry rather than sharing the map. Costs renders, never
   wrong bytes (the key is compared, not assumed). Unmeasured; the fix if it bites is a small FIXED

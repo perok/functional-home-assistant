@@ -63,6 +63,12 @@ enum Tenure derives CanEqual {
   *   - `position`: how far this session has been SERVED, as a store version.
   *     The cursor its pull loop resumes from - and deliberately not the same
   *     thing as the cursor the client is holding, see below.
+  *   - `haDown`: the HA liveness this client was last TOLD, `None` when nothing
+  *     has told it. Seeded by the document, which renders the banner's initial
+  *     value into the page, and updated wherever the server emits a new one —
+  *     so the stream can skip saying what the page already says. Same shape and
+  *     the same rule as `holds`, for the one piece of client state that is not
+  *     a node.
   *   - `tenure`: who owns it and whether it is still alive — see [[Tenure]].
   *
   * What goes wrong with a per-client record is that it drifts from what the
@@ -102,6 +108,7 @@ case class Session(
     open: Ref[IO, Set[String]],
     control: Queue[IO, ServerSentEvent],
     holds: Ref[IO, Map[NodeId, Digest]],
+    haDown: Ref[IO, Option[Boolean]],
     position: Ref[IO, Long],
     tenure: SignallingRef[IO, Tenure]
 ) {
@@ -167,9 +174,13 @@ object Session {
       o <- Ref[IO].of(Set.empty[String])
       q <- Queue.unbounded[IO, ServerSentEvent]
       h <- Ref[IO].of(Map.empty[NodeId, Digest])
+      // `None`, not `Some(false)`: a session minted by a stream (a bookmarked
+      // SSE URL, a restart) has told this client nothing, and must not assume
+      // the banner it never rendered.
+      d <- Ref[IO].of(Option.empty[Boolean])
       p <- Ref[IO].of(0L)
       t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-    } yield Session(slug, o, q, h, p, t)
+    } yield Session(slug, o, q, h, d, p, t)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action

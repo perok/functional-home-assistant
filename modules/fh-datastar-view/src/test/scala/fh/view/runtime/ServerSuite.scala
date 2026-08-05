@@ -3003,6 +3003,12 @@ class ServerSuite extends munit.CatsEffectSuite {
     * `data-init` URL it advertises — what a browser's sessionStorage would
     * keep.
     */
+  /** How a document advertises its stream — the prefix of the `data-init`
+    * attribute, up to the URL itself. A REGEX, because `String.split` takes
+    * one: the `(` needs escaping or it reads as an unclosed group.
+    */
+  private val SseUrlMarker: String = """data-init="@get\('"""
+
   private def connOfPage(routes: org.http4s.HttpApp[IO]): IO[String] =
     routes
       .run(Request[IO](Method.GET, uri"/d/dashboard"))
@@ -4316,6 +4322,81 @@ class ServerSuite extends munit.CatsEffectSuite {
           assert(
             up.contains(s"${Server.HaDownSignal}: false"),
             clue = up.linesIterator.find(_.contains("data-signals"))
+          )
+        }
+      }
+      .timeout(30.seconds)
+  }
+
+  test("a connect does not repeat the health the document already rendered") {
+    // The document renders the banner's value into the page and records it on
+    // the session, so an ordinary load is already correct. Emitting it again on
+    // connect said nothing — and this is NOT caught by the opening-block tests,
+    // because `haDown` rides the merged streams and arrives after the cursor
+    // they stop on.
+    def eventsOn(healthy: Boolean): IO[List[ServerSentEvent]] =
+      for {
+        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        sessions <- Sessions.create
+        fake <- FakeHomeAssistant.create(Nil)
+        out <- Server
+          .resource(
+            HomeAssistantApi.fromWs(fake),
+            store,
+            Map("dashboard" -> ref),
+            "dashboard",
+            sessions,
+            healthy = fs2.concurrent.Signal.constant(healthy)
+          )
+          .use { server =>
+            val routes = server.routes.orNotFound
+            for {
+              page <- routes
+                .run(Request[IO](Method.GET, uri"/d/dashboard"))
+                .flatMap(_.bodyText.compile.string)
+              url = Uri.unsafeFromString(
+                "/" + page
+                  .split(SseUrlMarker)(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              resp <- routes.run(Request[IO](Method.GET, url))
+              seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+              pump <- resp.body
+                .through(ServerSentEvent.decoder[IO])
+                .evalMap(e => seen.update(_ :+ e))
+                .compile
+                .drain
+                .start
+              // Past the opening block, then a settle: `healthy.discrete` fires
+              // on SUBSCRIBE, so anything it was going to send has been sent
+              // well before this.
+              _ <- fs2.Stream
+                .repeatEval(seen.get <* IO.sleep(5.millis))
+                .find(_.exists(isCursor))
+                .compile
+                .drain
+              _ <- IO.sleep(250.millis)
+              got <- seen.get
+              _ <- pump.cancel
+            } yield got.toList
+          }
+      } yield out
+
+    (eventsOn(true), eventsOn(false))
+      .flatMapN { (up, down) =>
+        IO {
+          assert(
+            !up.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+            clue = up
+          )
+          // ...and the same when HA is DOWN: the page rendered `true`, so
+          // repeating it is just as redundant. Skipping is about agreement with
+          // the document, not about the value being false.
+          assert(
+            !down.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+            clue = down
           )
         }
       }
