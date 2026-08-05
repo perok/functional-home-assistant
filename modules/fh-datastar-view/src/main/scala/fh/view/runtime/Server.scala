@@ -460,7 +460,11 @@ class Server(
       // error: a fresh session is minted under the SAME id, so the client keeps
       // the `conn` it already has and only loses the suppression its `holds`
       // would have given (bytes, never staleness).
-      conn <- Server.connOf(req).fold(IO.randomUUID.map(_.toString))(IO.pure)
+      // `None` means this URL named no session — a bookmarked SSE endpoint, or
+      // a client whose document predates the signal. Every ordinary load
+      // carries one, because the document minted it.
+      named = Server.connOf(req)
+      conn <- named.fold(IO.randomUUID.map(_.toString))(IO.pure)
       // This tab's PREVIOUS session, named by the page that replaced it. A
       // reload mints a fresh `conn` (the document is the only thing that can
       // say what it painted), so without this the session it replaced sits in
@@ -570,8 +574,16 @@ class Server(
         session
           .release(epoch)
           .flatMap(_.traverse_(reapAfter(conn, session, _, lingerWindow)))
-      ) >> (Stream.emit(
-        Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
+        // Announced ONLY when this stream minted it. The document seeds `conn`
+        // into the page's signals and puts it on this URL, so telling an ordinary
+        // load its own id is telling it something it already said — one patch per
+        // connect, and every reconnect is a connect.
+      ) >> (Stream.emits(
+        Option
+          .when(named.isEmpty)(
+            Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
+          )
+          .toList
       ) ++ live))
         // A second live stream for one session DISPLACES the first. Two streams
         // sharing one `holds` map is the one way this record can go wrong on
@@ -1275,6 +1287,10 @@ class Server(
                 )
               )
             )
+            // Read HERE rather than passed down from the route: the banner
+            // this seeds is part of the document, so the truthful value is the
+            // one at render time.
+            live <- healthy.get
             resp <- Ok(
               page(
                 slug,
@@ -1284,7 +1300,8 @@ class Server(
                 renderer.title,
                 Server.ingressPrefixOf(req),
                 restore,
-                editMode
+                editMode,
+                haDown = !live
               )
             )
           } yield resp.withContentType(`Content-Type`(MediaType.text.html))
@@ -1312,7 +1329,14 @@ class Server(
       title: Option[String],
       ingressPrefix: Option[String],
       restore: Server.Restore,
-      editMode: Boolean
+      editMode: Boolean,
+      // Upstream HA liveness AT RENDER TIME. Seeded rather than hardcoded
+      // `false`, which is what it was: a page loaded while HA is unreachable
+      // then renders as healthy and stays that way until the stream connects
+      // and corrects it — a wrong banner on the one screen whose job is to
+      // report that. The stream still pushes the value on connect, because the
+      // window between this render and that connect is real.
+      haDown: Boolean
   ): String = {
     val links = (
       stylesheets
@@ -1415,7 +1439,8 @@ class Server(
       )
     )
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: false, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed'}"
+      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
+          .escapeJsString(restore.conn)}'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
          |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseLatched">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
@@ -1719,9 +1744,15 @@ object Server {
   private val IngressPathPattern: scala.util.matching.Regex =
     "^(/[A-Za-z0-9_-]+)+$".r
 
-  /** The Datastar signal name carrying the per-connection `conn` id: minted on
-    * SSE connect (the initial patch-signals event) and echoed back in each
-    * action POST body (`connOf`) so a POST correlates to its stream.
+  /** The Datastar signal name carrying the per-connection `conn` id, echoed
+    * back in each action POST body (`connOf`) so a POST correlates to its
+    * stream.
+    *
+    * SEEDED BY THE DOCUMENT, which is what mints it — in the page's signals and
+    * on the `data-init` URL, one value in two carriers. The stream announces it
+    * only when it had to mint one itself (a bookmarked SSE endpoint), because
+    * telling an ordinary load its own id is telling it what it already said,
+    * once per connect and every reconnect is a connect.
     */
   val ConnSignal: String = "conn"
 

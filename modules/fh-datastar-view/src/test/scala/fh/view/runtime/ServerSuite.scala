@@ -4093,19 +4093,21 @@ class ServerSuite extends munit.CatsEffectSuite {
         assert(page.contains(">cold<"), clue = page)
         assert(page.contains(">warm<"), clue = page)
         // ...so the stream sends none of it again. Stated as the WHOLE opening
-        // block, event by event: the connection id, then the cursor. Anything
-        // the server started re-sending shows up here as an extra event rather
-        // than slipping past a negative match.
-        assertEquals(
-          opening.map(_.name),
-          List(Signals, Signals),
-          clue = opening
-        )
+        // block, event by event, so anything the server started re-sending
+        // shows up here as an extra event rather than slipping past a negative
+        // match.
+        //
+        // ONE event: the cursor. The `conn` used to lead it, and no longer
+        // does — the document seeds that signal and puts it on this URL, so
+        // announcing it back was telling the client its own id. The stream
+        // still sends it when it MINTED one (a bookmarked SSE endpoint), which
+        // is not this case.
+        assertEquals(opening.map(_.name), List(Signals), clue = opening)
+        assert(isCursor(opening.head), clue = opening.head)
         assert(
-          opening.head.signals.exists(_.contains(Server.ConnSignal)),
+          !opening.head.signals.exists(_.contains(Server.ConnSignal)),
           clue = opening.head
         )
-        assert(isCursor(opening(1)), clue = opening(1))
       }
   }
 
@@ -4229,6 +4231,110 @@ class ServerSuite extends munit.CatsEffectSuite {
           } yield survived.isDefined
         }
     } yield out).timeout(30.seconds).map(assert(_))
+  }
+
+  test(
+    "a document loaded while HA is down SAYS so, without waiting to connect"
+  ) {
+    // The banner used to seed `haDown: false` as a literal, so a page loaded
+    // while HA was unreachable rendered as healthy and stayed that way until
+    // the stream connected and corrected it — a wrong banner on the one screen
+    // whose job is to report that.
+    def pageWith(healthy: Boolean): IO[String] =
+      for {
+        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        sessions <- Sessions.create
+        fake <- FakeHomeAssistant.create(Nil)
+        html <- Server
+          .resource(
+            HomeAssistantApi.fromWs(fake),
+            store,
+            Map("dashboard" -> ref),
+            "dashboard",
+            sessions,
+            healthy = fs2.concurrent.Signal.constant(healthy)
+          )
+          .use(
+            _.routes.orNotFound
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+          )
+      } yield html
+
+    (pageWith(false), pageWith(true))
+      .flatMapN { (down, up) =>
+        IO {
+          assert(
+            down.contains(s"${Server.HaDownSignal}: true"),
+            clue = down.linesIterator.find(_.contains("data-signals"))
+          )
+          assert(
+            up.contains(s"${Server.HaDownSignal}: false"),
+            clue = up.linesIterator.find(_.contains("data-signals"))
+          )
+        }
+      }
+      .timeout(30.seconds)
+  }
+
+  test(
+    "the document seeds `conn`; only a stream that MINTED one announces it"
+  ) {
+    // Every ordinary load carries `conn` on the SSE URL because the document
+    // minted it, so echoing it back said nothing. A bookmarked SSE endpoint
+    // names no session, and there the client genuinely does not know.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            conn = Uri
+              .unsafeFromString(
+                "/" + page
+                  .split("""data-init="@get\('""")(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              .query
+              .params(Server.ConnSignal)
+            // No conn at all: the bookmarked case.
+            bare <- routes
+              .run(
+                Request[IO](
+                  Method.GET,
+                  uri"/sse/dashboard/dashboard/patch"
+                )
+              )
+              .flatMap(sseFrom(_)(isCursor))
+          } yield (page, conn, bare)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (page, conn, bare) =>
+        // The page carries it as a signal, so an action POST can echo it
+        // without waiting for the stream to say what it already knows.
+        assert(page.contains(s"${Server.ConnSignal}: '$conn'"), clue = conn)
+        // ...and a stream that had to mint one still says so.
+        assert(
+          bare.exists(_.signals.exists(_.contains(Server.ConnSignal))),
+          clue = bare
+        )
+      }
   }
 
   test("a reload's `prev` retires the session it superseded") {
