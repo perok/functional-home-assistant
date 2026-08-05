@@ -10,7 +10,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
-/** Phase 1 of docs/plan-session-pulled-changelog.md.
+/** The per-slug render cache (ADR 0012).
   *
   * The cache's job is easy; the two ways this pattern breaks are not, and they
   * are what most of this suite is about. A producer that fails or is cancelled

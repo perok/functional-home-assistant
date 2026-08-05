@@ -28,7 +28,7 @@ case class EntityState(
     // [[StateStore.update]], carried over unchanged when a newer-but-identical
     // state lands. So it moves exactly when `sameContent` says something moved,
     // which makes it a `Long` stand-in for "the rendered value of this entity"
-    // (docs/plan-session-pulled-changelog.md, the `inputs` key). NOT the store
+    // ([[Renderer.renderInputs]], ADR 0012). NOT the store
     // version: entities that did not move in a batch keep their older stamp.
     contentVersion: Long = 0L
 ) {

@@ -1431,7 +1431,8 @@ class Renderer(
     else Some(resolveActive(id, uiState)._1)
 
   /** Everything a node's OWN rendering reads, as a comparable value — the key a
-    * render cache needs (docs/plan-session-pulled-changelog.md).
+    * render cache needs
+    * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     *
     * Two parts, and the split is the point:
     *

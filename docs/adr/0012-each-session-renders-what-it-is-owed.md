@@ -102,6 +102,60 @@ the render read. **The `validate` rule that would reject `{{bakeIndex}}` in a `s
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.
 
+## What it costs, honestly
+
+This is a **correctness** change, not a performance fix, and it should not be argued for as one —
+the measurements taken while designing it found no CPU or RAM problem to solve. The ledger:
+
+| | Before | After |
+|---|---|---|
+| a slug nobody is watching | rendered every affected node, every frame | records a few map writes, or nothing at all |
+| a slug with N viewers | one shared render pass + one shared log write | one record pass + N pulls, whose RENDERS are shared through the cache |
+| sharing a render | within one batch | across batches — a laggard shares with a current session |
+| knowing a render is unnecessary | render, then compare digests | unchanged: the digest still requires the bytes |
+
+So the shape of the cost moves from *constant regardless of viewers* to *proportional to viewers*
+in the pull, while the renders behind those pulls stay shared. For a household that is a clear win,
+because the idle case dominates; for fifty simultaneous tabs it would be a loss, and that is worth
+stating rather than discovering. The one thing that does NOT improve is suppression: only the
+client's own `holds` can say whether bytes are worth sending, and there is no digest without the
+bytes.
+
+RAM: the changelog SHRINKS (it dropped digests, and then content entirely), `holds` duplicates per
+session (tens of KB, now O(sessions), though immutable `Map`s applying the same updates from a
+common ancestor share most of their structure), and the render cache is the new cost — bounded at
+one generation per node, which is why it needs no timer.
+
+The complexity is close to a wash in volume. What changes is its KIND: shared-state reasoning, where
+a wrong answer is silent and affects everyone, became per-session bookkeeping, which is more code
+but fails one client at a time and is visible when it does.
+
+## Deferred — if viewer count ever matters
+
+The per-session cost is one pull each per frame. Nothing here is worth building now — N is tabs in a
+house — but the design should not paint itself out of it.
+
+**The framing that makes it a choice rather than a tradeoff:** the unit of sharing is the
+EQUIVALENCE CLASS of sessions that would receive the same bytes — same position, same visible
+surfaces, same selections. The design this ADR replaced assumed exactly one class (everybody gets
+one shared render); this one assumes N (one per session). Neither is right in general — a
+household's tabs mostly fall into one or two classes — so **the class is the tunable**, and the two
+designs are endpoints of one axis rather than rivals.
+
+Cheapest first:
+
+1. **Memoise the pull by class.** Key a per-frame memo on `(fromVersion, visibleSurfaces,
+   selections)` and let sessions in the same class share one computed changeset. Four tabs on one
+   dashboard with the same tab selected collapse to one pass. Costs nothing until used.
+2. **Hoist the shared part of the pull.** The recorder already knows the changelog moved; it could
+   compute what does not depend on a session — the slice since the OLDEST live position, the
+   latest-wins collapse — once, leaving sessions only the cheap per-session filtering. Shares the
+   work without needing classes at all.
+3. **Baseline plus overlay**, if `holds` memory is ever the problem. Keep one per-slug map as "what
+   a typical client has" and give each session only its DIVERGENCE from it — usually empty, and
+   non-empty exactly where a shared answer would have been wrong. Recovers O(1)-in-viewers memory
+   while keeping the per-client correctness that motivates this ADR.
+
 ## Rejected along the way (still guarding the design)
 
 - **A hollow mount plus a per-connection fill.** The first attempt at serving viewers on

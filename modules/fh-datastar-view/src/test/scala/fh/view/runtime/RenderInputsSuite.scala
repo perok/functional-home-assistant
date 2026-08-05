@@ -21,8 +21,7 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Phase 0 of docs/plan-session-pulled-changelog.md: is
-  * [[Renderer.renderInputs]] a sound cache key?
+/** The render key (ADR 0012): is [[Renderer.renderInputs]] a sound cache key?
   *
   * Only one direction can hurt. A key that is too DISCRIMINATING costs a wasted
   * render and nothing else. A key that is too COARSE serves a client bytes that

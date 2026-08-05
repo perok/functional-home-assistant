@@ -257,7 +257,7 @@ class Server(
     * no longer be baked into another's bytes. What it costs is the fan-out: N
     * viewers of one slug currently render N times, which is what wiring the
     * per-slug [[RenderCache]] into the resume path is for
-    * (docs/plan-session-pulled-changelog.md).
+    * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
     * renderer. A change landing in the brief switch window may be dropped —

@@ -45,23 +45,29 @@ final class TestServer(
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
 
-  /** Await 1 subscriber on the shared-patch topic — the fan-out an open SSE
-    * connection (browser or otherwise) subscribes to for main-page patches. The
-    * topic is multiplexed across slugs, so this counts connections, not viewers
-    * of this slug (every suite here drives a single dashboard). Paired with
-    * [[awaitChangeSubscribers]] as the readiness gate a browser test awaits
-    * before `fake.emit` (a browser establishes its own SSE connection
-    * asynchronously on page load, so there is no response body to read progress
-    * from the way [[observePatch]]'s callers can).
+  /** Await `n` ADOPTED sessions — a stream has taken its document's session and
+    * is live (`Tenure.Held`). There is no shared patch topic to count
+    * subscribers on: nothing is pushed, so what a test has to wait for is a
+    * connection that will PULL. Paired with [[awaitChangeSubscribers]] as the
+    * readiness gate a browser test awaits before `fake.emit` (a browser
+    * establishes its own SSE connection asynchronously on page load, so there
+    * is no response body to read progress from the way [[observePatch]]'s
+    * callers can).
+    *
+    * Counting sessions is necessary but NOT sufficient for a test that emits a
+    * change and expects it in a live patch: a session is adopted BEFORE its
+    * opening block runs, so a change emitted on this gate alone can still land
+    * in the opening repaint and never appear as a patch. A test that needs the
+    * distinction gates on the connection's own opening cursor instead — see
+    * `ServerSuite`'s "rendered once between them".
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
     server.connectedSessions.filter(_ >= n).head.compile.drain
 
   /** The two readiness gates a live SSE connection needs before a change is
-    * guaranteed to reach it (topics only deliver to already-subscribed
-    * consumers) — `subscribers` mirrors [[observePatch]]'s default of 1: the
-    * per-slug publisher is the ONLY consumer of `changes`, however many
-    * connections are open. The smoke suites' one gate to await before
+    * guaranteed to reach it — `subscribers` mirrors [[observePatch]]'s default
+    * of 1: the per-slug recorder is the ONLY consumer of `changes`, however
+    * many connections are open. The smoke suites' one gate to await before
     * `fake.emit`.
     */
   def awaitLive(subscribers: Int = 1): IO[Unit] =

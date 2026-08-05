@@ -19,9 +19,8 @@ what its viewer has selected).
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
 >   statement about §1; "prune at pull time" is a statement about §6.
-> - Everything here is current state. Work in flight lives in
->   [`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md) and moves into this file
->   as it lands — §9 is a pointer, not an exception.
+> - Everything here is current state. Work in flight lives in a `plan-*.md` and moves into this file
+>   as it lands; a plan is deleted once its decisions are in the ADRs and its shape is here.
 
 ---
 
@@ -505,19 +504,23 @@ Live list — delete an entry when it is answered, and say where the answer land
   than to teach the delta path about it (a removal already forces a registry watch → renderer swap
   → fresh log); the gap is that an `r` frame does not always have a registry event behind it. See
   ADR 0003's open section.
+- **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can
+  sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
+  against the current snapshot from that session's own cursor — but that is an invariant worth
+  writing down and testing rather than relying on.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
 ---
 
-## 9. In progress
+## 9. Two findings worth keeping at hand
 
 The reshaping this file describes — the recorder, the doorbell, the per-session pull, the session
-linger, the maintained member graph — **has landed**, and
-[`plan-session-pulled-changelog.md`](plan-session-pulled-changelog.md) is its record of what
-differed from the design notes on the way. Nothing in §1–§8 describes code that does not exist.
+linger, the maintained member graph — **has landed**; its decisions live in ADRs 0011, 0012 and
+0003, and the route it took is in the git history. Nothing in §1–§8 describes code that does not
+exist.
 
-Two findings from the cache phase, worth carrying here rather than leaving in the plan:
+Two findings from the cache work, which sit between the ADRs and so are easy to lose:
 
 - An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
   on the RESOLVED selection rather than on what the selection reads.

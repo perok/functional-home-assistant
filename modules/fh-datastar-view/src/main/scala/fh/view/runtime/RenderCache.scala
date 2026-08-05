@@ -24,7 +24,8 @@ private[runtime] object NodeBytes {
 }
 
 /** Single-flight cache of rendered node bytes, keyed by what the render READS
-  * ([[Renderer.renderInputs]]) — docs/plan-session-pulled-changelog.md.
+  * ([[Renderer.renderInputs]]) —
+  * docs/adr/0012-each-session-renders-what-it-is-owed.md.
   *
   * PER SLUG, because a node id is only meaningful within one dashboard. It
   * OUTLIVES a renderer swap rather than being rotated with one: each entry
