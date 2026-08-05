@@ -159,6 +159,11 @@ class BeerTheme extends themeMod.Theme {
     "\(beerCdn)/beer.min.js"
   }
 
+  // The gesture half of the touch rules below — see themeMod.sliderHoldScript.
+  inlineScripts {
+    themeMod.sliderHoldScript
+  }
+
   // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
   // Dashboard.validate) + the `#popups` overlay mount, whose hole carries a
   // popup restored on refresh so it paints with the page. `responsive` is

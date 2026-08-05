@@ -1359,6 +1359,7 @@ class Server(
                 painted.html,
                 renderer.stylesheets.map(assets.rewrite),
                 renderer.scripts.map(assets.rewrite),
+                renderer.inlineScripts,
                 renderer.title,
                 Server.ingressPrefixOf(req),
                 restore,
@@ -1388,6 +1389,7 @@ class Server(
       body: String,
       stylesheets: List[String],
       scripts: List[String],
+      inlineScripts: List[String],
       title: Option[String],
       ingressPrefix: Option[String],
       restore: Server.Restore,
@@ -1400,11 +1402,17 @@ class Server(
       // window between this render and that connect is real.
       haDown: Boolean
   ): String = {
+    // The theme's inline scripts come LAST of the three, but they are classic
+    // scripts among deferred module ones, so they still run first — which is
+    // what they are for (a document-level listener the first paint already
+    // needs). Emitted verbatim, like `styles` and `chrome`: a theme is authored
+    // source, not user input.
     val links = (
       stylesheets
         .map(href => s"""  <link rel="stylesheet" href="$href">""") ++
         scripts
-          .map(src => s"""  <script type="module" src="$src"></script>""")
+          .map(src => s"""  <script type="module" src="$src"></script>""") ++
+        inlineScripts.map(js => s"""  <script>$js</script>""")
     ).mkString("\n")
     val baseHref = ingressPrefix.fold("/")(p => s"$p/")
     val pageTitle = Server.titleTag(title, slug)
@@ -1518,7 +1526,7 @@ class Server(
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <base href="$baseHref">
        |  $pageTitle
-       |  <script>${Server.UrlSyncScript}${Server.SliderHoldScript}</script>
+       |  <script>${Server.UrlSyncScript}</script>
        |$links
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
@@ -1930,60 +1938,6 @@ object Server {
     "window.fhUrl=(k,v)=>{const u=new URL(location.href);" +
       "(v===''||v==null)?u.searchParams.delete(k):u.searchParams.set(k,v);" +
       "history.replaceState(null,'',u)};" + ConnHandoffScript
-
-  /** How long a touch must rest on a slider before it takes the gesture. */
-  private val SliderHoldMs = 350
-
-  /** How far it may drift in that time and still count as resting (px). */
-  private val SliderHoldSlop = 8
-
-  /** Press-and-hold before a TOUCH may move a slider, so a dashboard of slider
-    * cards is still a scrollable list. Without it every swipe that happens to
-    * start on a card sets a brightness, and a tap meant to stop a fling sets
-    * one too.
-    *
-    * The value is driven from here rather than handed to the range input after
-    * the hold, because it cannot be handed over: a synthesized `pointerdown` is
-    * untrusted, and untrusted events do not start a native drag. So the theme
-    * makes the input inert on coarse pointers (`pointer-events:none`, see
-    * lib/theme-beer.pkl) and this maps x → value itself, dispatching `input`
-    * (which repaints the fill and updates the bound signal) and, on release,
-    * `change` (the card's `data-on:change` POST). Mouse gestures are left
-    * entirely alone — `pointerType === 'mouse'` returns immediately.
-    *
-    * Keyed on `.slider.max`, which the slider CARD emits (components.pkl), not
-    * something a theme chooses — same split as the connection banners: the
-    * shell owns behavior, the theme owns the look.
-    *
-    * `touch-action` is latched when a gesture begins, so the wrapper stays
-    * `pan-y` even while armed: a vertical move still scrolls and cancels the
-    * pointer, which disarms. That is the intended escape, not a gap.
-    */
-  val SliderHoldScript: String =
-    "(()=>{const H=" + SliderHoldMs + ",S=" + SliderHoldSlop + ";" +
-      "let t=null,w=null,i=null,x0=0,y0=0,pid=0;" +
-      "const off=()=>{if(t){clearTimeout(t);t=null}" +
-      "if(w){w.classList.remove('fh-armed');try{w.releasePointerCapture(pid)}catch(e){}}" +
-      "w=null;i=null};" +
-      "const put=(cx,commit)=>{if(!w||!i)return;const r=w.getBoundingClientRect();if(!r.width)return;" +
-      "const mn=+i.min||0,mx=+i.max||100,st=+i.step||1," +
-      "p=Math.min(1,Math.max(0,(cx-r.left)/r.width))," +
-      "v=Math.min(mx,Math.max(mn,Math.round((mn+p*(mx-mn))/st)*st));" +
-      "if(v!=+i.value){i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}))}" +
-      "if(commit)i.dispatchEvent(new Event('change',{bubbles:true}))};" +
-      "document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return;" +
-      "const el=e.target&&e.target.closest&&e.target.closest('.slider.max');if(!el)return;" +
-      "off();const inp=el.querySelector('input[type=range]');if(!inp)return;" +
-      "w=el;i=inp;x0=e.clientX;y0=e.clientY;pid=e.pointerId;" +
-      "t=setTimeout(()=>{t=null;if(!w)return;w.classList.add('fh-armed');" +
-      "try{w.setPointerCapture(pid)}catch(e){}" +
-      "if(navigator.vibrate)navigator.vibrate(8);put(x0,false)},H)},true);" +
-      "document.addEventListener('pointermove',e=>{if(!w)return;" +
-      "if(t){if(Math.abs(e.clientX-x0)>S||Math.abs(e.clientY-y0)>S)off();return}" +
-      "put(e.clientX,false)},true);" +
-      "const end=e=>{if(!w)return;if(!t&&e.type==='pointerup')put(e.clientX,true);off()};" +
-      "document.addEventListener('pointerup',end,true);" +
-      "document.addEventListener('pointercancel',end,true)})();"
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.

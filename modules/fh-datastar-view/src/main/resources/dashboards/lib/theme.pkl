@@ -13,7 +13,7 @@
 /// Everything visual lives in a theme, NOT in the server. The renderer emits
 /// `tokens` as `:root` custom properties (with `tokensDark` under
 /// prefers-color-scheme:dark); the server `<link>`s `stylesheets`, injects
-/// `scripts` as ES modules, and inlines `styles`.
+/// `scripts` as ES modules, and inlines `styles` + `inlineScripts`.
 ///
 /// Contract with the components/renderer (the class names they emit):
 ///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
@@ -44,6 +44,10 @@
 ///      dashboard BEHAVIOR stays with Datastar — ship JS only for visuals
 ///      your CSS needs (e.g. BeerCSS's slider track fill), and verify its
 ///      bindings survive SSE morphs (delegated/document-level listeners do).
+///      `inlineScripts` is the same rule for JS you write yourself rather than
+///      link — a pointer gesture your rules depend on, like
+///      [[sliderHoldScript]]. Both force a page RELOAD when they change (a
+///      script cannot be un-run), unlike `styles`, which patches.
 ///   4. `styles`: start with `\(themeMod.layoutCss)` (the layout contract),
 ///      then style the visual classes from the roster above on top of the
 ///      tokens.
@@ -101,6 +105,55 @@ const local colSpans: String = new Listing {
   }
 }.toList().join("\n")
 
+/// Press-and-hold before a TOUCH may move a slider, so a dashboard of slider
+/// cards is still a scrollable list. Without it every swipe that happens to
+/// start on a card sets a brightness, and a tap meant to stop a fling sets one
+/// too. Pair it with the CSS half — on coarse pointers the range input must be
+/// `pointer-events:none` and its wrapper `touch-action:pan-y` (see
+/// theme-beer.pkl); `.fh-armed` lands on the wrapper while the hold is live,
+/// for whatever affordance the theme wants.
+///
+/// The value is driven from here rather than handed to the range input after
+/// the hold, because it cannot be handed over: a synthesized `pointerdown` is
+/// untrusted, and untrusted events do not start a native drag. So this maps
+/// x -> value itself, dispatching `input` (which repaints the fill and updates
+/// the bound signal) and, on release, `change` (the card's `data-on:change`
+/// POST). Mouse gestures are left entirely alone.
+///
+/// `touch-action` is latched when a gesture begins, so the wrapper stays
+/// `pan-y` even while armed: a vertical move still scrolls and cancels the
+/// pointer, which disarms. That is the intended escape, not a gap.
+///
+/// Keyed on `.slider.max`, which the slider CARD emits (components.pkl), so it
+/// is reusable by any theme that keeps that markup — the same deal as
+/// [[layoutCss]].
+const sliderHoldScript: String = """
+  (()=>{const H=350,S=8;
+  let t=null,w=null,i=null,x0=0,y0=0,pid=0;
+  const off=()=>{if(t){clearTimeout(t);t=null}
+  if(w){w.classList.remove('fh-armed');try{w.releasePointerCapture(pid)}catch(e){}}
+  w=null;i=null};
+  const put=(cx,commit)=>{if(!w||!i)return;const r=w.getBoundingClientRect();if(!r.width)return;
+  const mn=+i.min||0,mx=+i.max||100,st=+i.step||1,
+  p=Math.min(1,Math.max(0,(cx-r.left)/r.width)),
+  v=Math.min(mx,Math.max(mn,Math.round((mn+p*(mx-mn))/st)*st));
+  if(v!=+i.value){i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}))}
+  if(commit)i.dispatchEvent(new Event('change',{bubbles:true}))};
+  document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return;
+  const el=e.target&&e.target.closest&&e.target.closest('.slider.max');if(!el)return;
+  off();const inp=el.querySelector('input[type=range]');if(!inp)return;
+  w=el;i=inp;x0=e.clientX;y0=e.clientY;pid=e.pointerId;
+  t=setTimeout(()=>{t=null;if(!w)return;w.classList.add('fh-armed');
+  try{w.setPointerCapture(pid)}catch(e){}
+  if(navigator.vibrate)navigator.vibrate(8);put(x0,false)},H)},true);
+  document.addEventListener('pointermove',e=>{if(!w)return;
+  if(t){if(Math.abs(e.clientX-x0)>S||Math.abs(e.clientY-y0)>S)off();return}
+  put(e.clientX,false)},true);
+  const end=e=>{if(!w)return;if(!t&&e.type==='pointerup')put(e.clientX,true);off()};
+  document.addEventListener('pointerup',end,true);
+  document.addEventListener('pointercancel',end,true)})();
+  """
+
 open class Theme {
   tokens: Mapping<String, String>
   tokensDark: Mapping<String, String>
@@ -110,6 +163,12 @@ open class Theme {
   /// they run after the first paint. For framework helpers a theme's CSS needs
   /// (e.g. BeerCSS's slider fill); dashboard behavior stays Datastar's.
   scripts: Listing<String> = new {}
+  /// Classic `<script>` bodies inlined in the head, run BEFORE first paint —
+  /// the gesture half of a CSS interaction, for what CSS alone cannot express
+  /// (see [[sliderHoldScript]]). Dashboard BEHAVIOR still stays Datastar's:
+  /// this is for a pointer gesture the theme's own rules depend on, not for
+  /// talking to the server.
+  inlineScripts: Listing<String> = new {}
   styles: String
   chrome: String
 }

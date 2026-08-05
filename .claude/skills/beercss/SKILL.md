@@ -69,8 +69,9 @@ Two traps in that repaint, both bitten:
 anything drawn over it (`.slider-head`) needs `pointer-events:none` or it
 becomes a dead strip. It also ships `touch-action:none` + `cursor:grab`; the
 theme overrides both (`pan-y` so a slider card still scrolls, `ew-resize`
-because the control only moves sideways), and `Server.SliderHoldScript` gates
-touch behind a press-and-hold.
+because the control only moves sideways), and `theme.sliderHoldScript` — carried
+by the theme's `inlineScripts`, not by the server — gates touch behind a
+press-and-hold.
 
 Dashboard BEHAVIOR stays with Datastar/backend: dialogs are transient
 `<dialog open>` fragments patched into `#popups`, tab switching is our surface
