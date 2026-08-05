@@ -2101,6 +2101,34 @@ object Server {
   private[runtime] def prevConnOf(req: Request[IO]): Option[String] =
     req.uri.query.params.get(PrevConnParam).filter(_.nonEmpty)
 
+  /** What the SSE GET carries back, as a REGEX (Datastar compiles a string
+    * pattern with `RegExp`, it is not a glob).
+    *
+    * An include is needed at all because the cursor is `_`-prefixed and the
+    * default exclude would drop it; and once an include is given, the default
+    * exclude has to be neutralised (`(?!)` never matches) because the two are
+    * ANDed. So this list is the WHOLE of what a reconnect tells the server, and
+    * anything not named here is invisible to it — `_val_*` slider state and
+    * `_sse`/`_reload` deliberately, but also any future signal somebody adds
+    * expecting the server to see it.
+    *
+    * '''Declared before [[SseRetry]], which reads it.''' A `val` that names a
+    * `val` defined later in the same object reads `null` — the fields are
+    * initialised in source order and nothing warns. That shipped: every page
+    * carried `include:'null'`, a regex matching no signal name, so no reconnect
+    * carried a cursor, a `conn` or a tab selection, and a tab returning from
+    * the background resumed from the version frozen into its `data-init` at
+    * page load.
+    *
+    * Getting it wrong does not fail loudly on its own, which is what
+    * [[cursorAnomaly]] is for — except in this exact case: an include matching
+    * nothing produces an EMPTY signal store, which is what a first connect
+    * sends too, so the warning cannot fire. `ServerRoutesSuite` asserts the
+    * served page instead.
+    */
+  private[runtime] val SseInclude: String =
+    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.)"
+
   /** Options for the `data-init` `@get` that opens the SSE stream.
     *
     * The default retry mode (`auto`) retries a DROPPED connection but not a
@@ -2119,23 +2147,6 @@ object Server {
     */
   val SseRetry: String =
     s"{retry:'always',filterSignals:{include:'$SseInclude',exclude:'(?!)'}}"
-
-  /** What the SSE GET carries back, as a REGEX (Datastar compiles a string
-    * pattern with `RegExp`, it is not a glob).
-    *
-    * An include is needed at all because the cursor is `_`-prefixed and the
-    * default exclude would drop it; and once an include is given, the default
-    * exclude has to be neutralised (`(?!)` never matches) because the two are
-    * ANDed. So this list is the WHOLE of what a reconnect tells the server, and
-    * anything not named here is invisible to it — `_val_*` slider state and
-    * `_sse`/`_reload` deliberately, but also any future signal somebody adds
-    * expecting the server to see it.
-    *
-    * Getting it wrong does not fail loudly on its own, which is what
-    * [[cursorAnomaly]] is for.
-    */
-  private[runtime] val SseInclude: String =
-    s"^($ConnSignal$$|${UiSignalPrefix}|$CursorSignal\\.)"
 
   /** How often an idle SSE connection is given something to carry.
     *

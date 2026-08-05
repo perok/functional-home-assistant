@@ -250,7 +250,17 @@ class ServerRoutesSuite extends ServerHarness {
       // ...and the cursor is asked for BACK. It is `_`-prefixed so Datastar's
       // default filter drops it from every request; this include is what puts
       // it on the one request that reads it.
-      assert(plain.contains("filterSignals"), plain)
+      //
+      // The VALUE, not just the word: `SseRetry` interpolates `SseInclude`, and
+      // an object's `val` reading one declared after it gets `null` silently.
+      // That shipped `include:'null'` — a regex matching no signal name — so
+      // every reconnect arrived with no cursor, no `conn` and no tab selection.
+      // `CursorSuite` could not see it: it reads `Server.SseInclude` directly,
+      // which is correct by then. Only the served bytes carry the null.
+      assert(
+        plain.contains(s"filterSignals:{include:'${Server.SseInclude}'"),
+        clue = (Server.SseInclude, plain)
+      )
     }
   }
 
