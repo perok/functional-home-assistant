@@ -236,11 +236,25 @@ Each one lands on its own and keeps the suites green.
      structure, and the patch primitives for expressing a move already exist (`insertInto`,
      `Patch.Remove`, `PatchMode.Before`/`Append`).
 
-   **The one constraint to keep:** a member's id stays ENTITY-derived (`gid_<sanitized entity>`),
-   not positional. Positional ids would rename every node below an arrival, which is exactly what
-   a per-member delta exists to avoid. So the graph carries two id schemes — location-derived for
-   authored nodes, entity-derived for dynamic members — and that is deliberate: position is the
-   order, the entity is the identity.
+   **The one constraint to keep:** a member's id is derived from its MEMBER KEY, never from its
+   position. Positional ids would rename every node below an arrival, which is exactly what a
+   per-member delta exists to avoid. So the graph carries two id schemes — location-derived for
+   authored nodes, key-derived for dynamic members — and that is deliberate: position is the
+   order, the key is the identity.
+
+   Say KEY rather than entity, because "one member is one entity" should not be baked into an id
+   scheme. `MemberKey` is already the name the changelog uses for what occupies a mount
+   (`Mutation.Placed` carries one), and it is already a sum — `Entity` today, `Surface` for a state
+   group's branch. A member's id is then `gid_<sanitize(key)>`, which is byte-identical to today
+   while the key is an entity, and does not have to be revisited if a group's unit of membership
+   ever becomes a device, an area, or a canonical composite of several entities.
+
+   The id is only half of that constraint, and the other half is worth naming so it is not
+   mistaken for solved: the PREDICATE engine still evaluates membership per entity
+   (`dynamicMembers` filters the entity map), so a member is one entity because the query says so,
+   not because the id does. Keying by `MemberKey` means the id scheme is not the thing standing in
+   the way when that changes. What a key must satisfy is unchanged either way: stable across ticks
+   (or a morph retargets a different element) and unique within its group.
 
    **What it costs:** `Renderer.allIndexed` is a `val` computed once from the `Dashboard`, and the
    `Renderer` is an immutable value shared per slug. The index has to become live state that
