@@ -101,6 +101,37 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("scroll: the offset comes back with the dashboard") {
+    // The phone case: a viewport the dashboard overflows, scrolled down, left,
+    // and returned to. Crossing dashboards is a document load (ADR 0002) and a
+    // page holding a streaming fetch is not bfcache-eligible, so nothing but
+    // the shell's own `fhScroll` puts the offset back — which is why the
+    // journey here is a real second navigation and not a `reload()`.
+    withPage(scene, viewport = Some((390, 360))) { (page, _) =>
+      val dashboard = page.url()
+      val offset = IO.blocking(page.evaluate("scrollY").toString.toDouble)
+      for {
+        room <- IO.blocking(
+          page
+            .evaluate("document.documentElement.scrollHeight - innerHeight")
+            .toString
+            .toDouble
+        )
+        _ = assert(room >= 200d, clue = s"nothing to scroll: $room")
+        _ <- IO.blocking(page.evaluate("scrollTo(0, 200)"))
+        before <- eventually(offset)(_ == 200d)
+        // Away to somewhere else on this origin — a real unload, which is what
+        // fires `pagehide` — and then FORWARD to the dashboard again, the way a
+        // nav link goes. A new history entry, so no browser restore can be
+        // mistaken for ours.
+        origin <- IO.blocking(page.evaluate("location.origin").toString)
+        _ <- IO.blocking(page.navigate(s"$origin/not-a-dashboard"))
+        _ <- IO.blocking(page.navigate(dashboard))
+        after <- eventually(offset)(_ > 0d)
+      } yield assertEquals(after, before)
+    }
+  }
+
   test("slider: a keyboard commit posts the value-carrying action") {
     withPage(scene) { (page, ts) =>
       val slider = page.locator("input[type=range]")

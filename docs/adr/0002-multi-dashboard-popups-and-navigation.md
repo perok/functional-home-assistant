@@ -181,6 +181,32 @@ Remaining gap: only `button` renders the anchor form. A navigating `entityCard`
 falls back to the scripted click, so it is not middle-clickable; promoting it
 means wrapping its `<article>` in the template, not a backend change.
 
+#### What a page load costs, and the one thing worth carrying
+
+The argument above is that nothing in the old session is worth keeping, because
+everything the view is made of re-derives: entity state from `StateStore`, the
+open popup and the selected tab from the URL (ADR 0005). One thing does not
+re-derive, and it is not view state the server knows — the **scroll offset**.
+Returning to a long dashboard therefore landed at the top, every time.
+
+The browser cannot fix this on its own here. A document holding a streaming
+`fetch` — which every page does, that is the Datastar SSE `@get` in `data-init`
+— is not back/forward-cache eligible, so even a back button re-loads the
+document rather than restoring a live one; and a link back to the dashboard is a
+forward navigation, which starts at the top by definition.
+
+So the shell carries it: `Server.ScrollRestoreScript` (`fhScroll(slug)`) saves
+`scrollY` to `sessionStorage` on `pagehide` and re-applies it as the **last
+thing in `<body>`**, with `history.scrollRestoration='manual'` so the browser's
+own (zero) restore cannot land on top of it. Last in the body is what makes it
+invisible: the body is server-rendered and the stylesheets are render-blocking,
+so the document has its height before the closing script runs and the offset is
+set before the first paint.
+
+`sessionStorage` and not the URL mirror, deliberately — see ADR 0005's tiering.
+Per tab and per slug, so two tabs on one dashboard do not drag each other, and a
+link somebody shares does not land them mid-page.
+
 ### The generic hoist: inline surfaces + `@@NODE_ID@@`
 
 Authoring is primarily a top-level `surfaces` registry referenced by

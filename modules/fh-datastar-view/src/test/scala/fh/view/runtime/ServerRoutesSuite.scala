@@ -209,6 +209,31 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("the page restores its scroll offset, last of all") {
+    // Crossing dashboards is a document load (ADR 0002) and the page holds a
+    // streaming fetch, so the browser will neither bfcache it nor restore the
+    // offset itself — the shell has to. It must be the LAST thing in the body:
+    // the restore reads the document's height, so anything emitted after it
+    // could still move the floor.
+    for {
+      html <- pageHtml(titleDash("home", None))
+    } yield {
+      assert(html.contains("window.fhScroll="), html)
+      assert(html.contains(s"'${Server.ScrollKeyPrefix}'+s"), html)
+      // `manual`: with the browser's own `auto` restore still armed it can
+      // re-apply its offset — 0 on this path — after ours has landed.
+      assert(html.contains("history.scrollRestoration='manual'"), html)
+      val call = "<script>fhScroll('home')</script>"
+      assert(html.contains(call), html)
+      val after = html.drop(html.indexOf(call) + call.length)
+      assertEquals(
+        after.linesIterator.map(_.trim).filter(_.nonEmpty).toList,
+        List("</body>", "</html>"),
+        clue = html
+      )
+    }
+  }
+
   test("the data-init SSE URL carries what the page is showing") {
     // The first connect carries NO signals (data-init fires before Datastar has
     // merged the descendants' data-signals), so without this the server would
