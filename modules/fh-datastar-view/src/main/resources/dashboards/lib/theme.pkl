@@ -78,6 +78,13 @@ module theme
 ///     equally (`flex:1 1 0`). No 12-col spans here — sizing is share-based.
 ///   - COLUMN (`.fh-col`): a vertical flex stack whose children FILL the width.
 ///
+/// A cell normally FILLS its share — the width its container hands it — which is
+/// what every card wants. `.fh-hug` (`LayoutNode.hug()`) is the opt-out: the cell
+/// shrinks to its content, so a run of them packs at the container's own gap
+/// instead of each one rattling around inside an equal share. It is what makes a
+/// row of pills read as a row of pills; a filling card in a grid still needs a
+/// SPAN, so `fh-hug` and `fh-cols-*` are different questions and compose.
+///
 /// So `columns(n)`/`fullWidth()` are GRID-ONLY affordances; inside a row/column
 /// you don't size children, they share/fill. Rows and columns nest freely into
 /// each other and into grid cells. On narrow screens (<=640px) every grid cell
@@ -92,6 +99,7 @@ const layoutCss: String = """
   .fh-cols-full{flex-basis:100%}
   .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap}
   .fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}
+  .fh-cell.fh-hug{flex:0 0 auto}
   .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
   .fh-col>.fh-cell{width:100%}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}

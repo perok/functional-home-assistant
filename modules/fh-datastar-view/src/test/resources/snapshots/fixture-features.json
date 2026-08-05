@@ -237,6 +237,12 @@
       ],
       "template" : "{{{self}}}{{{mount}}}"
     },
+    "pill" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{{onclick}}}\">{{label}}</button>{{/href}}"
+    },
     "popup" : {
       "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [

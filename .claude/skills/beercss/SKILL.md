@@ -65,6 +65,15 @@ Two traps in that repaint, both bitten:
   twitches into place one frame after load (`39%` → `39.37…%`), so the baked
   `fill` transform must not `$round`.
 
+`.button`/`button` is `inline-flex` + **`box-sizing:content-box`**, so it sizes
+to its label and a plain `inline-size:100%` overflows by its 2rem of padding.
+The theme makes a button fill its layout cell with
+`.fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box}` — without
+it a row of nav buttons is short pills left-aligned in equal cells, spaced by
+leftover cell rather than by the gap. `.chip` is the opposite primitive and is
+already `border-box`: outlined, content-sized, pill radius — what the `pill`
+card renders, paired with an `fh-hug` cell.
+
 `.slider.max` is `position:absolute;inset:0` — the whole card IS the slider, so
 anything drawn over it (`.slider-head`) needs `pointer-events:none` or it
 becomes a dead strip. It also ships `touch-action:none` + `cursor:grab`; the

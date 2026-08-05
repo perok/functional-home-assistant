@@ -67,6 +67,10 @@ abstract class LayoutNode {
   function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
   /// Span the surrounding grid's full width (HA `columns: full`).
   function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
+  /// Shrink this cell to its content instead of filling its share. The escape
+  /// from the default every other card wants — see [[Pill]], which is this plus
+  /// chip styling.
+  function hug(): LayoutNode = addCellClass("fh-hug")
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
@@ -676,6 +680,50 @@ class TabButton extends Node {
   }
 }
 
+/// Compact tappable pill — the same two arms as [[Button]] (navigate = `<a>`,
+/// service call = `<button>`), styled as a chip and sized to its label instead
+/// of to its cell. For a run of small choices — floors, scenes, modes — where a
+/// row of full-width buttons would read as a stack of unrelated slabs.
+///
+/// Its cell defaults to `fh-hug` (the same self-defaulted-cell move [[Tabs]]
+/// makes with `fh-cols-full`), which is the whole difference in layout terms:
+/// a hugging cell packs at the container's gap, so pills in a [[Grid]] centre
+/// and wrap as one group. An author still overrides it — `columns(n)` and
+/// `fullWidth()` compose on top, and a pill that spans a grid column is a
+/// perfectly reasonable thing to ask for.
+class Pill extends Node {
+  card = "pill"
+  cardDef = new LeafCard {
+    // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
+    // and already `box-sizing:border-box` (unlike `.button`, which is
+    // content-box — see the theme's `.fh-cell>.button` rule).
+    template = """
+      {{#href}}<a class="chip" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
+      """
+    slots { "label" }
+  }
+  cell = new Cell { classes { "fh-hug" } }
+  hidden entity: hass.Entity? = null
+  hidden label: (String|Expr)? = null
+  hidden action: Tap? = null
+  hidden tap: Tap = action ?? toggleTap
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = labelSlot(entity, label)
+    when (tap.href != null) {
+      ["href"] = tap.href!!
+    } else {
+      ["onclick"] = tap.onclick
+    }
+  }
+  function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }
+  function label(l: String|Expr): Pill = let (self = this) (self) { label = l }
+  function action(a: Tap): Pill = let (self = this) (self) { action = a }
+}
+
 /// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
 /// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
 /// the id-less close. Composed INTO a surface's content, NOT applied as backend
@@ -1003,6 +1051,8 @@ tappable: Mixin<EntityCard> = new { tap = toggleTap }
 function title(t: String): SectionTitle = new SectionTitle { text = t }
 /// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
 function button(l: String, a: Tap): Button = new Button { label = l; action = a }
+/// The compact form of the same thing: `c.pill("Underetasje", c.navigate("under"))`.
+function pill(l: String, a: Tap): Pill = new Pill { label = l; action = a }
 
 // ---- floor/area composition (typed-dump driven) ----
 

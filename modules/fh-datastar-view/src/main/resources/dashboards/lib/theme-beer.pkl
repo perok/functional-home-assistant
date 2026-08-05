@@ -210,6 +210,17 @@ class BeerTheme extends themeMod.Theme {
        ships in the BeerCSS dist). */
     .entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
+    /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
+       (inline-flex, content-box), which inside a cell — always a full share of
+       its row or an n/12 grid span — left-aligns a short pill in a wide box:
+       three nav buttons on one row came out ragged, spaced by leftover cell
+       rather than by the gap. Every other card already fills its cell, so this
+       is the cell contract catching up with them, not a button special case.
+       `border-box` because BeerCSS buttons are content-box, so a bare 100%
+       would add 2rem of padding on top of it and overflow. Only a cell's own
+       root: the popup ✕ and the offline-banner button live outside the layout
+       and keep hugging their labels. */
+    .fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box}
     /* The slider card's label line (class contract, like .card): label left,
        live state right. It is PAINTED OVER the track (`.slider.max` is an
        absolutely-positioned overlay filling the card), so it must not take the
