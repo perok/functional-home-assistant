@@ -99,7 +99,7 @@ be discarded at any time — see the context note above.
 | `headHash` | does the browser's UNPATCHABLE `<head>` still match? | full page **reload** |
 | `styleHash` | and the patchable rest of it (theme CSS, `<title>`)? | two **head patches** |
 | `logId` | is this cursor even comparable? | body **repaint** |
-| `storeVersion` | how far behind is this client? | body **repaint** |
+| `storeVersion` | how far behind is this client — and did it APPLY what we last announced (`Session.told`)? | body **repaint** |
 | *(server-side)* fragment log | what changed since — and is it still retained? | body **repaint** |
 
 They ride the channel that already works: Datastar sends every non-`_`-prefixed
@@ -339,6 +339,42 @@ linger, and a linger that expires drops the session, which releases the floor. S
 clamp the age bound used to provide is now the reaper, in the one place where "how long
 do we keep this" is genuinely a wall-clock question.
 
+### How long a tab may be away, and what each step out costs
+
+Three nested windows decide what a returning client is answered with. Only the first is a
+wall clock; the others fall out of what is still recorded.
+
+| Away for | What is still true | The answer it gets |
+|---|---|---|
+| **< `LingerWindow` (2 min)** | its session survives (`holds`, `told`, `position`) | targeted resume — only what moved; or a repaint if its cursor is behind `told` |
+| **beyond that, while another viewer holds the slug** | session reaped; a fresh one is minted with empty `holds`, and the changelog still `reaches` its cursor | resume off the changelog, nothing suppressed — a fatter first patch |
+| **beyond that, with no viewer left** | the slug recorded nothing while unwatched (`skipped` moves `completeFrom`) | body repaint |
+
+Each step is correct and progressively more expensive, which is the ladder this ADR is
+built on. Note the second row needs *another* viewer: on a single-viewer dashboard — the
+common home — the last tab leaving stops the recording, so returning past the linger is
+always a repaint, however long the log would otherwise have been kept.
+
+**Why 2 minutes and not 10.** The tempting read is that a longer window is nearly free and
+saves repaints. It is not free, and the reason is that the cost and the benefit are the
+same mechanism: a lingering session keeps its slug RECORDING (it is in the set
+`recordFrame` reads) and pins `Sessions.floor` so nothing can be pruned. That retention is
+exactly what makes the cheap return possible — you cannot keep the window and drop the
+cost, and a version that stopped recording for lingering sessions would hand every
+returner a repaint anyway, which is the thing the window exists to avoid.
+
+So the question is really *how long is it worth keeping a slug recording for a viewer who
+has left*, and 2 minutes answers it for what the constant was sized for: a wifi handover,
+a lid, a phone waking. Ten minutes pays five times the retention, per absent viewer per
+slug, to widen a band whose only failure is one body render over an already-open stream —
+the same work every page load does, and morphed rather than reloaded, so scroll and open
+dialogs survive it. A deliberate multi-minute absence is precisely the case where a
+repaint is the right answer.
+
+Raise it if a real deployment shows returns clustering in the 2–10 minute band and the
+repaint being felt. It is a plain constant, not a policy, and nothing about correctness
+moves with it.
+
 **Cost:** the `version >= V` scan is per pull, over a map bounded by the dashboard's node
 count, and the log is read once OUTSIDE any `Ref.modify` so a pull never serialises
 against the recorder. The record and the prune happen in ONE update, so no reader ever
@@ -452,6 +488,44 @@ falls back to it — no cursor, an unparseable one, one from a log this server n
 has, one from the future, or one the log can no longer speak for. A repaint is always
 correct and merely expensive; a wrong resume is silently stale forever.
 
+**...and a session may only be resumed against a record the client has ACKNOWLEDGED.**
+`holds` records what was *sent*, which is not the same claim as what was *applied*. A
+stream that breaks mid-batch, or a tab frozen while its socket keeps filling, leaves a
+session claiming digests that DOM never received — and because a resume answers from
+`holds`, every later one then computes "nothing owed". The tab is stale until its user
+reloads, and nothing reports it. This shipped, and the report was "a backgrounded tab
+never catches up".
+
+The cursor is the ack, and it needs no new channel: it is server-set, but it rides
+**last** in its batch (`Server.pull`), so a client echoing version V demonstrably applied
+everything in front of it. It is measured against `Session.told` — the newest version
+this client was ever *announced*, written wherever a cursor signal goes on its wire and
+seeded by the document, which renders one into the page. Behind `told` ⇒ bytes we claimed
+were lost ⇒ `holds` is unproven ⇒ repaint.
+
+Two properties make this cheap rather than ruinous, and both are load-bearing:
+
+- **It cannot fire on an ordinary tab switch.** A visibility refetch closes the stream;
+  while it is closed nothing is sent, so `told` cannot move and the returning client's
+  echo still matches it. It resumes with what it missed, as before.
+- **The yardstick is `told`, never `position`.** A pull that owes this client nothing
+  advances the position silently and announces nothing (a batch with no bytes carries no
+  cursor), so the echo legitimately trails the position on any dashboard where an
+  unrendered entity ticks — which is every real one. Gating on `position` would repaint
+  almost every reconnect.
+
+An ack is only ever available at reconnect: Datastar serialises signals into a request,
+and the SSE GET is the only request that carries them (action POSTs send none). That is
+sufficient, because for the DOM to fall behind what we claimed, bytes must have gone
+unapplied — which means the stream broke, which means Datastar reconnects and we are
+asked. A frozen tab whose socket was never closed lost nothing: its buffered bytes are
+still there when it thaws. Loss implies a break implies an ack.
+
+A continuous ack was rejected: a POST per batch per client doubles the request count and
+still cannot see the failure, because a client that stops applying also stops acking, so
+the server observes only silence — and reading silence needs a timeout, which is the beat
+heuristic this ADR retired. An ack channel only reports on clients that are fine.
+
 The reload is a **signal** (`_reload`, turned into `window.location.reload()` by one
 `data-effect`), not a patched `<script>`: it reuses the channel already carrying the
 cursor and keeps client behaviour in the page shell where the rest of it lives.
@@ -462,7 +536,8 @@ client has open — the second set because the cursor alone cannot name them: a
 surface's nodes may not have changed since the client's cursor and still be absent
 from its DOM. Each candidate is rendered once from the current snapshot and sent unless
 this SESSION's `holds` already names those exact bytes, with a missing entry counting as
-"send". Nothing is special-cased by kind. This is the same call a live tick makes — a
+"send" — and with `holds` consulted at all only once the client's cursor has proved it
+applied what we last announced (above). Nothing is special-cased by kind. This is the same call a live tick makes — a
 tick is a resume from `position + 1` — so there is one path to be right about rather
 than two that must agree.
 

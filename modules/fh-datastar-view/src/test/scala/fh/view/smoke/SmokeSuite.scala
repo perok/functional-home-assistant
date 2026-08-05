@@ -66,7 +66,12 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
     if (playwright != null) playwright.close()
   }
 
-  /** Serve `scene`'s dashboard — seeded with the entities it references (plus
+  /** ONE page, held open for the test — see ADR 0009 §4 "Known gap": no smoke
+    * suite has two browsers on a dashboard at once, and none drops and reopens
+    * an SSE stream, so anything that only goes wrong on a reconnect or between
+    * two clients is invisible here (it has already hidden two real bugs).
+    *
+    * Serve `scene`'s dashboard — seeded with the entities it references (plus
     * any `.entity(...)` extras), auto-derived by the [[Scene]] builder so the
     * served world can't drift from the dashboard — on a freshly bound
     * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it,

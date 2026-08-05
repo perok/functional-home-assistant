@@ -100,7 +100,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
 | Per slug | dashboard | the recorder fiber, the `Renderer` (in a `SignallingRef`, hot-swapped) **and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -133,6 +133,8 @@ GET /d/:slug
   render the WHOLE page from the current snapshot
   mint conn; create Session{slug, open surfaces, control queue, holds, position}
   holds = the digest of every node this render painted   // what THIS client's DOM has
+  told  = this version — the page renders a cursor into itself, so the document
+          is the first announcement, and a reconnect is measured against it
   register it, and schedule a reap if no stream adopts it within AdoptionWindow
   embed in the page as Datastar signals: the cursor under `_cursor` (logId,
     storeVersion, headHash, styleHash), conn, and haDown READ FROM `healthy` — not a hardcoded false,
@@ -154,7 +156,9 @@ GET /sse/dashboard/:slug/patch
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
   opening patches, narrowest that is still correct:
-      resume   if the cursor's logId matches and nothing structural moved
+      resume   if the cursor's logId matches, nothing structural moved, AND the
+               cursor is not behind `told` — a client that never acknowledged
+               what we announced has `holds` we cannot answer from
       repaint  if it does not      // claims what it painted, same as the document
       reload   if the document itself is stale
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
@@ -452,7 +456,7 @@ The same call serves a live tick and a reconnect. What differs is only where the
 
 ```mermaid
 flowchart LR
-  RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash"}
+  RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash ·<br/>NOT BEHIND what we announced"}
   Q -->|no| REPAINT["full body repaint<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log"]
@@ -484,6 +488,16 @@ a repaint, which paints the same thing), and updated wherever bytes are sent to 
 `Patches.applied` for a pull, `Patches.hostFill` for a tab or popup swap. Never from what another
 client was told.
 
+**`holds` is trusted only as far as the client has ACKNOWLEDGED.** It records what was *sent*, and
+a stream that broke mid-batch — or a tab frozen while its socket kept filling — leaves it claiming
+bytes that DOM never got, after which every resume computes "nothing owed" and the tab is stale
+until its user reloads. So a reconnect's cursor is compared against `Session.told`, the newest
+version this client was ever *announced*: behind it, `holds` is unproven and the body is repainted.
+The cursor can carry that proof because it rides LAST in its batch, so echoing it means applying
+what came before it. This does NOT fire on an ordinary tab switch (a closed stream sends nothing, so
+`told` cannot move), and the yardstick is `told` rather than `position` precisely because a pull
+owing this client nothing advances the position while announcing nothing — see ADR 0011.
+
 **Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
 have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
 client's worth of another client's tab on every frame. That test (`Renderer.visibleNode` on the
@@ -491,7 +505,10 @@ container) is where the old audience tag's work now happens.
 
 Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
 sessions); a container whose history has been pruned past a client's cursor yields a `refill` rather
-than a refusal. **Nothing in the log reads a clock** — a version orders everything, and the only
+than a refusal. How long a returning tab still gets the cheap answer is three nested windows —
+`LingerWindow` (2 min, its own session survives), then the changelog's reach while another viewer
+holds the slug, then nothing, because an unwatched slug records nothing. ADR 0011 has the table and
+why the window is not longer. **Nothing in the log reads a clock** — a version orders everything, and the only
 thing wall time still decides is how long a session lingers.
 
 ---
