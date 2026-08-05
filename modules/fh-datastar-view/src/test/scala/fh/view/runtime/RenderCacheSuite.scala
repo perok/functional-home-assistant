@@ -6,8 +6,9 @@ import cats.syntax.parallel.*
 import fh.view.model.{Dashboard, LayoutNode, NodeId}
 import fh.view.testkit.TestIds.given
 
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.{CountDownLatch, Executors}
 import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
 import scala.concurrent.duration.*
 
 /** The per-slug render cache (ADR 0012).
@@ -28,6 +29,22 @@ class RenderCacheSuite extends munit.FunSuite {
 
   private val r = aRenderer
 
+  /** Where a [[Gated]] render is allowed to block: an unbounded pool of its
+    * own, so parking a thread there can never starve the compute pool the rest
+    * of the test runs on.
+    */
+  private val gated: ExecutionContextExecutorService =
+    ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+
+  override def afterAll(): Unit = {
+    gated.shutdown()
+    super.afterAll()
+  }
+
+  extension [A](io: IO[A])
+    /** Run this on [[gated]] — for any call whose render thunk can park. */
+    private def blocking: IO[A] = io.evalOn(gated)
+
   private val id: NodeId = "c_0"
   private val v1 = RenderInputs(Map("sensor.t" -> 1L), Map.empty)
   private val v2 = RenderInputs(Map("sensor.t" -> 2L), Map.empty)
@@ -36,14 +53,17 @@ class RenderCacheSuite extends munit.FunSuite {
     * waiters genuinely pile up behind a producer rather than arriving after it
     * finished, which would make single-flight untestable.
     *
-    * '''It blocks a COMPUTE WORKER, and that is a known wart.'''
+    * '''It BLOCKS A THREAD, so it must not block a compute worker.'''
     * [[RenderCache]] documents that its render thunk must be pure and
     * CPU-bound, and a `CountDownLatch.await()` inside an uncancelable region is
     * neither — but the thunk is a by-name `String`, so there is no way to
-    * suspend it without changing the shape being tested. `concurrent callers
-    * for one key cost exactly one render` still times out roughly one run in
-    * ten because of it. The fix is to give this suite a runtime with slack, not
-    * a cleverer gate; it has not been done.
+    * suspend it without changing the shape under test.
+    *
+    * So every caller whose thunk can park is shifted onto [[gated]] with
+    * [[blocking]]. Left on the compute pool it holds a worker for the whole
+    * test, and with sbt running suites in parallel that was enough to starve
+    * the fibers the test waits for: `concurrent callers for one key cost
+    * exactly one render` timed out roughly one run in ten.
     */
   private class Gated(html: String) {
     private val gate = new CountDownLatch(1)
@@ -68,7 +88,10 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>x</b>")
     val out = (for {
       cache <- RenderCache.create
-      fibers <- List.fill(5)(cache(id, r, v1)(g.render)).parSequence.start
+      fibers <- List
+        .fill(5)(cache(id, r, v1)(g.render).blocking)
+        .parSequence
+        .start
       _ <- IO.sleep(150.millis) *> IO(g.release())
       got <- fibers.joinWithNever
     } yield got).timeout(10.seconds).unsafeRunSync()
@@ -140,7 +163,7 @@ class RenderCacheSuite extends munit.FunSuite {
       cache <- RenderCache.create
       doomed <- cache(id, r, v1) {
         val _ = g.render; throw new RuntimeException("late")
-      }.attempt.start
+      }.blocking.attempt.start
       // The doomed generation must OWN the key before the newer one takes it,
       // or this tests nothing: a sleep says when, `started` says what.
       _ <- g.started
@@ -164,7 +187,7 @@ class RenderCacheSuite extends munit.FunSuite {
       // One producer that fails, four waiters queued behind it.
       producer <- cache(id, r, v1) {
         val _ = g.render; throw boom
-      }.attempt.start
+      }.blocking.attempt.start
       // BEFORE the waiters exist. Without it they race the producer for the
       // key, and a "waiter" that wins the CAS renders its own string — which
       // is instant, where the producer's is gated — so all five succeed and
@@ -210,7 +233,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>survived</b>")
     val (out, again, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(id, r, v1)(g.render).start
+      producer <- cache(id, r, v1)(g.render).blocking.start
       _ <- g.started
       waiter <- cache(id, r, v1)("never runs").start
       _ <- IO.sleep(100.millis)
@@ -236,7 +259,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val g = new Gated("<b>finished anyway</b>")
     val (waited, n) = (for {
       cache <- RenderCache.create
-      producer <- cache(id, r, v1)(g.render).start
+      producer <- cache(id, r, v1)(g.render).blocking.start
       _ <- g.started
       waiter <- cache(id, r, v1)("never runs").start
       _ <- IO.sleep(100.millis)
