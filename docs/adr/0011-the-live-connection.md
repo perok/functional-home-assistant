@@ -339,6 +339,42 @@ linger, and a linger that expires drops the session, which releases the floor. S
 clamp the age bound used to provide is now the reaper, in the one place where "how long
 do we keep this" is genuinely a wall-clock question.
 
+### How long a tab may be away, and what each step out costs
+
+Three nested windows decide what a returning client is answered with. Only the first is a
+wall clock; the others fall out of what is still recorded.
+
+| Away for | What is still true | The answer it gets |
+|---|---|---|
+| **< `LingerWindow` (2 min)** | its session survives (`holds`, `told`, `position`) | targeted resume — only what moved; or a repaint if its cursor is behind `told` |
+| **beyond that, while another viewer holds the slug** | session reaped; a fresh one is minted with empty `holds`, and the changelog still `reaches` its cursor | resume off the changelog, nothing suppressed — a fatter first patch |
+| **beyond that, with no viewer left** | the slug recorded nothing while unwatched (`skipped` moves `completeFrom`) | body repaint |
+
+Each step is correct and progressively more expensive, which is the ladder this ADR is
+built on. Note the second row needs *another* viewer: on a single-viewer dashboard — the
+common home — the last tab leaving stops the recording, so returning past the linger is
+always a repaint, however long the log would otherwise have been kept.
+
+**Why 2 minutes and not 10.** The tempting read is that a longer window is nearly free and
+saves repaints. It is not free, and the reason is that the cost and the benefit are the
+same mechanism: a lingering session keeps its slug RECORDING (it is in the set
+`recordFrame` reads) and pins `Sessions.floor` so nothing can be pruned. That retention is
+exactly what makes the cheap return possible — you cannot keep the window and drop the
+cost, and a version that stopped recording for lingering sessions would hand every
+returner a repaint anyway, which is the thing the window exists to avoid.
+
+So the question is really *how long is it worth keeping a slug recording for a viewer who
+has left*, and 2 minutes answers it for what the constant was sized for: a wifi handover,
+a lid, a phone waking. Ten minutes pays five times the retention, per absent viewer per
+slug, to widen a band whose only failure is one body render over an already-open stream —
+the same work every page load does, and morphed rather than reloaded, so scroll and open
+dialogs survive it. A deliberate multi-minute absence is precisely the case where a
+repaint is the right answer.
+
+Raise it if a real deployment shows returns clustering in the 2–10 minute band and the
+repaint being felt. It is a plain constant, not a policy, and nothing about correctness
+moves with it.
+
 **Cost:** the `version >= V` scan is per pull, over a map bounded by the dashboard's node
 count, and the log is read once OUTSIDE any `Ref.modify` so a pull never serialises
 against the recorder. The record and the prune happen in ONE update, so no reader ever

@@ -505,7 +505,10 @@ container) is where the old audience tag's work now happens.
 
 Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
 sessions); a container whose history has been pruned past a client's cursor yields a `refill` rather
-than a refusal. **Nothing in the log reads a clock** — a version orders everything, and the only
+than a refusal. How long a returning tab still gets the cheap answer is three nested windows —
+`LingerWindow` (2 min, its own session survives), then the changelog's reach while another viewer
+holds the slug, then nothing, because an unwatched slug records nothing. ADR 0011 has the table and
+why the window is not longer. **Nothing in the log reads a clock** — a version orders everything, and the only
 thing wall time still decides is how long a session lingers.
 
 ---
