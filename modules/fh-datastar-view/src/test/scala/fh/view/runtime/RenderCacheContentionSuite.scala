@@ -36,9 +36,13 @@ class RenderCacheContentionSuite extends ServerHarness {
     * hold different inputs for one node. `c_0` is the tabs host: its key
     * carries `sensor.shared`'s version AND the `bakeIndex` its viewer selected.
     *
-    * It is a `self` host deliberately. A card whose own bytes carry its mount
-    * is not cacheable at all (see `Renderer.hasOwnRendering`), which is a
-    * different — and documented — cost, not this one.
+    * It is a `self` host deliberately, and that is the shape the authoring
+    * layer blesses: `lib/components.pkl` makes a LIVE slot on a card that
+    * mounts children with no `self` a build error, because such a card's patch
+    * would carry everything its mount holds — "declaring a `self` is the fix,
+    * and it lifts the ban". So a live tab host looks exactly like this, and a
+    * fixture without the `self` would be measuring a dashboard nobody can
+    * author.
     */
   private def contendedDash = Dashboard(
     cards = Map(
@@ -46,7 +50,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template = "{{{self}}}{{{mount}}}",
-        self = Some("""<span id="{{nodeId}}-self">{{state}}</span>"""),
+        self = Some("""<span id="{{selfId}}">{{state}}</span>"""),
         mount =
           Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>"""),
         slots = List("state")
