@@ -252,9 +252,22 @@ Actions are prefixed with `@` and execute in a sandboxed environment.
 <button data-on:click="@post('/api', {headers: {'X-Custom': 'value'}})">
 
 <!-- Signal filtering -->
-<button data-on:click="@post('/api', {include: 'user.*'})">
-<button data-on:click="@post('/api', {exclude: '_*'})">
+<button data-on:click="@post('/api', {filterSignals: {include: 'user\\..*'}})">
+<button data-on:click="@post('/api', {filterSignals: {exclude: 'cursor\\..*'}})">
 ```
+
+> **Corrected against the pinned v1.0.2 bundle** (`assets-cache/*-datastar.js`), which
+> disagreed with this page in three ways. Read the bundle, not this, when it matters.
+>
+> - The options are nested under **`filterSignals`**, not passed at the top level. A
+>   top-level `include`/`exclude` is silently ignored — you get the defaults and no error.
+> - Patterns are **regexes**, not globs: `Et = e => typeof e === "string" ? RegExp(...) : e`.
+>   So `'user.*'` means "user" then any characters, and the `.` matches anything.
+> - `exclude: '_*'` is therefore a footgun rather than a useful example. As a regex `_*`
+>   is "zero or more underscores", which matches at every position and strips **every**
+>   signal from the request. It also restates the default: the bundle's default exclude is
+>   `/(^|\.)_/`, i.e. any signal whose name — or whose path segment — starts with `_`.
+>   That default is what `_`-prefixed signals rely on; nothing needs to ask for it.
 
 ### Utility Actions
 

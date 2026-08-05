@@ -26,6 +26,13 @@ import java.time.format.DateTimeFormatter
   * first rolls the prior file into a dated `.fh/pins.json.backup.<stamp>`
   * ([[backups]]) — the only overwrite-with-backup the bootstrap keeps — and
   * prunes to the newest [[MaxBackups]] so the trail can't grow without bound.
+  *
+  * '''Every method here reads or writes the disk and none of them returns
+  * `IO`''' — this is synchronous build-layer code, called from inside the
+  * `IO.blocking` region its caller already holds (a whole bootstrap or refresh
+  * step is one region, not a dozen). An effectful caller that reaches it
+  * directly — [[SystemPkl.fromDisk]] is the only one — is that region's origin
+  * and declares it there. Do not call it from a route without one.
   */
 object Pins {
 

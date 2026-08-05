@@ -9,6 +9,14 @@ alternatives that were rejected along the way. When a decision changes, the ADR
 is **rewritten in place** (git history keeps the archaeology); a genuinely new
 decision gets a new ADR. Do not append dated update sections.
 
+**An ADR that alters the live rendering pipeline must update
+[`../architecture-rendering-pipeline.md`](../architecture-rendering-pipeline.md) in the same change.** That
+file is the shape of the running system — the shared/per-client split, the four
+node kinds, the reconnect path — and this directory is the reasoning behind it.
+Neither substitutes for the other, and a diagram that lags the code is worse
+than none because it gets trusted. ADRs 0011 and 0012 are the ones most likely
+to move it; 0003 and 0007 own two of the three node kinds it draws.
+
 - [0001 — Entity card + per-slot value transforms via JSONata](0001-entity-card-and-value-transforms.md)
 - [0002 — Multiple dashboards, popup surfaces, and navigation](0002-multi-dashboard-popups-and-navigation.md)
 - [0003 — Dynamic groups: live membership + per-entity card dispatch](0003-dynamic-groups.md)
@@ -20,4 +28,4 @@ decision gets a new ADR. Do not append dated update sections.
 - [0009 — How we test: functional tests over a fake HA, then browser smoke](0009-testing-strategy.md)
 - [0010 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side](0010-live-pkl-schema-endpoint.md)
 - [0011 — The live connection: resume an SSE reconnect, health, and what may never be dropped](0011-the-live-connection.md)
-- [0012 — One render pass, addressed per client](0012-one-pass-addressed-per-client.md)
+- [0012 — Each session renders what it is owed](0012-each-session-renders-what-it-is-owed.md)

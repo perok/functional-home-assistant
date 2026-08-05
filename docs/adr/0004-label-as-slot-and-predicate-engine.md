@@ -53,8 +53,9 @@ friendly_name as a literal while the `$self` sentinel gets the live
 `friendly_name ? … : $entity_id` default. The `string | c.expr(...)`
 convention spans every display field (`label`, `value`, `secondary`, the
 slider position); `c.expr` is just a partial `SlotSource`, not field-specific.
-Because a per-case literal label carries no entity, `renderCase` never rebinds
-it — the author's override survives dispatch (the motivating bug).
+Because a per-case literal label carries no entity, materialising a member
+never rebinds it: `Renderer.memberOf` sets only `entity_id`, so the author's
+override survives dispatch (the motivating bug).
 
 ## Queries stay a Predicate AST — JSONata rejected there
 

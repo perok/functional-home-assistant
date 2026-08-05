@@ -153,6 +153,23 @@ suites (`RendererSuite` probes, `TransformSuite`, `AssetCacheSuite`,
 `BuildPhaseSuite`, `PklBuildSuite`) are not `Scene` candidates — `Scene` can't
 express their crafted inputs, and shouldn't try.
 
+### 6. A test that names a byte on the wire is not a test you may edit
+
+Refactors here routinely change types that tests construct — a signature, a `LiveSlug` field, a
+`FragmentLog` shape. Changing those tests is part of the refactor. What is NOT part of a refactor is
+changing a test that asserts on EMITTED SSE OUTPUT: `ServerSuite`'s stream tests,
+`DatastarMorphContractSuite`, and the functional suites over the fake HA
+(`DashboardBehaviourSuite`, `UseCaseSuite`, `PklDashboardBehaviourSuite`).
+
+The distinction is worth holding while working, because the two look identical in a diff:
+
+> Changing a test that names a TYPE is refactoring. Changing a test that names a BYTE on the wire is
+> a behaviour change wearing a refactor's clothes.
+
+A diff in one of those suites is a design question — say what moved and why it is correct — not a
+test to update. `PklBuildSuite`'s wire-format snapshots are the same rule one layer down, for the
+AUTHORING wire.
+
 ## Consequences
 
 - **No test touches live HA.** `sbt 'fh-datastar-view/testFull'` is fully

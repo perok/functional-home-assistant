@@ -3,7 +3,7 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.effect.IO
-import cats.effect.kernel.Ref
+import cats.effect.kernel.{Deferred, Ref}
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
 import fh.view.model.{
@@ -22,7 +22,7 @@ import fh.view.model.{
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
-import fs2.concurrent.{SignallingRef, Topic}
+import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
@@ -32,6 +32,58 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
 class ServerSuite extends munit.CatsEffectSuite {
+
+  /** [[Patches.resume]] run against a FRESH cache — these contracts are about
+    * which patches come out, and a per-call cache keeps one from depending on
+    * what another test rendered. Mirrors `resume`'s own parameter list so a
+    * call site reads the same either way.
+    */
+  private def resumeNow(
+      renderer: Renderer,
+      log: FragmentLog,
+      holds: Map[NodeId, Digest],
+      states: Map[String, EntityState],
+      v: Long,
+      open: Set[String],
+      uiState: Map[String, String]
+  ): List[Addressed] =
+    RenderCache.create
+      .flatMap(
+        Patches.resume(renderer, _, log, holds, states, v, open, uiState)
+      )
+      .unsafeRunSync()
+
+  /** One frame RECORDED for the slug, then PULLED by one viewer — the whole
+    * path a live change now takes, in the shape a test can assert on.
+    *
+    * `holds` is what that viewer's DOM already had, and it is what suppresses a
+    * redundant patch now that no shared structure answers that for everybody.
+    * `from` is its cursor: `0` means "tell me everything this log knows".
+    */
+  private def recordAndPull(
+      server: Server,
+      sessions: Sessions,
+      store: StateStore,
+      renderer: Renderer,
+      log: Ref[IO, FragmentLog],
+      changes: List[StateChange],
+      open: Set[String] = Set.empty,
+      ui: Map[String, String] = Map.empty,
+      holds: Map[NodeId, Digest] = Map.empty,
+      from: Long = 0L
+  ): IO[List[Addressed]] =
+    // A slug nobody is watching records nothing, so the viewer this is about
+    // to pull for has to exist before the frame does. Tests that care about a
+    // viewer's own surfaces register their own too; this one is here to open
+    // the gate.
+    Session
+      .create("dashboard")
+      .flatTap(_.open.set(open))
+      .flatMap(sessions.register("recordAndPull", _)) *>
+      server.recordFrame("dashboard", renderer, log, changes) *>
+      (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
+        Patches.resume(renderer, rc, l, holds, now.entities, from, open, ui)
+      )
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
   // into it (c_t0 default, c_t1) — the ui-state index selects among them.
@@ -276,14 +328,26 @@ class ServerSuite extends munit.CatsEffectSuite {
         Server.StyleHashSignal,
         Server.LogIdSignal,
         Server.StoreVersionSignal
-      ).foreach(p => assert(restored.contains(s"$p="), clue = (p, restored)))
+      ).foreach(f =>
+        assert(
+          restored.contains(s"${Server.cursorParam(f)}="),
+          clue = (f, restored)
+        )
+      )
       // With nothing else to restore the cursor still rides — every document
       // knows what it is showing.
-      assert(plain.contains(s"patch?${Server.HeadHashSignal}="), plain)
+      assert(
+        plain.contains(s"patch?${Server.cursorParam(Server.HeadHashSignal)}="),
+        plain
+      )
       // `always` is load-bearing, not decoration: the default retry mode
       // reconnects a DROPPED stream but treats one the server ended as
       // finished — which is how the server closes a stalled connection.
-      assert(plain.contains("{retry:'always'}"), plain)
+      assert(plain.contains("retry:'always'"), plain)
+      // ...and the cursor is asked for BACK. It is `_`-prefixed so Datastar's
+      // default filter drops it from every request; this include is what puts
+      // it on the one request that reads it.
+      assert(plain.contains("filterSignals"), plain)
     }
   }
 
@@ -647,6 +711,91 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  test("a session records what its own connection was actually sent") {
+    // The per-session record is written but not yet read — the shared log still
+    // decides — so nothing else in the suite would notice it drifting from what
+    // the client holds. This is the check that it does not: the digest it keeps
+    // must be the digest of the bytes that went out, and the position must be
+    // the version they were rendered at.
+    val io = for {
+      store <- StateStore.inMemory(
+        Map(
+          "sensor.a" -> EntityState("sensor.a", "a0", Map.empty),
+          "sensor.b" -> EntityState("sensor.b", "b0", Map.empty)
+        )
+      )
+      ref <- SignallingRef[IO].of(Renderer.create(twoLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          server.routes.orNotFound
+            .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
+            .flatMap { resp =>
+              resp.body.compile.drain.background.surround {
+                for {
+                  // BOTH subscriptions, and they are different ones: the
+                  // publisher's to the STORE, and this connection's to the
+                  // topic. Waiting only for the latter passes when the suite
+                  // runs alone and loses the update to a not-yet-subscribed
+                  // publisher when it runs under load.
+                  _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+                  _ <- server.connectedSessions
+                    .filter(_ >= 1)
+                    .head
+                    .compile
+                    .drain
+                  _ <- store.update(EntityState("sensor.a", "a1", Map.empty))
+                  session <- (IO.sleep(5.millis) *>
+                    sessions.forSlug("dashboard").map(_.headOption))
+                    .iterateUntil(_.isDefined)
+                    .map(_.get)
+                  // The position is advanced AFTER the batch's items are
+                  // recorded, so waiting on it means both are settled — waiting
+                  // on `holds` instead would race the position's write.
+                  at <- (IO.sleep(5.millis) *> session.position.get)
+                    .iterateUntil(_ > 0)
+                  held <- session.holds.get
+                  now <- stateAndRenderer(store, ref)
+                } yield (held, at, now)
+              }
+            }
+        }
+    } yield out
+    io.timeout(30.seconds).map { case (held, at, (version, renderer, states)) =>
+      // The repaint that opened this connection claimed everything it painted,
+      // and the tick then re-claimed the ONE node that moved — at its new
+      // bytes, which is the point: a record of what THIS connection was sent,
+      // not of what the dashboard looks like.
+      assertEquals(
+        held.get("c_0"),
+        renderer.renderNodeById("c_0", states).map(Digest.of),
+        clue = held
+      )
+      // The untouched sibling still carries what the repaint gave it, so the
+      // claim above is not simply "everything, re-derived".
+      assertEquals(
+        held.get("c_1"),
+        renderer.renderNodeById("c_1", states).map(Digest.of),
+        clue = held
+      )
+      assertEquals(at, version)
+    }
+  }
+
+  private def stateAndRenderer(
+      store: StateStore,
+      ref: SignallingRef[IO, Renderer]
+  ): IO[(Long, Renderer, Map[String, EntityState])] =
+    (store.current, ref.get).mapN((s, r) => (s.version, r, s.entities))
+
   test(
     "a change published during the connect handshake still reaches the connection"
   ) {
@@ -685,11 +834,12 @@ class ServerSuite extends munit.CatsEffectSuite {
             resp <- server.routes.orNotFound
               .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
             _ <- store.update(EntityState("sensor.a", missed, Map.empty))
-            // Waiting for the render (the counting renderer's only caller here
-            // is a diff pass) proves the shared pass has already PUBLISHED this
-            // change, rather than the test racing ahead of a slow publisher.
-            _ <- (IO.sleep(5.millis) *> IO(renders.get()))
-              .iterateUntil(_ >= 1)
+            // Waiting for the RECORD proves the frame was written before the
+            // body was pulled — the gap this test is about — rather than the
+            // test racing ahead of a slow recorder. The publisher renders
+            // nothing now, so the render count cannot say this any more.
+            live <- server.liveSlug("dashboard")
+            _ <- (IO.sleep(5.millis) *> live.doorbell.get).iterateUntil(_ >= 1)
             seen <- Ref[IO].of("")
             // Pulling the body is what registers the subscription, and only now.
             reader <- resp.body
@@ -699,7 +849,7 @@ class ServerSuite extends munit.CatsEffectSuite {
               .compile
               .drain
               .start
-            _ <- server.sharedSubscribers.filter(_ >= 1).head.compile.drain
+            _ <- server.connectedSessions.filter(_ >= 1).head.compile.drain
             _ <- store.update(EntityState("sensor.b", barrier, Map.empty))
             // The barrier arrived, so everything ordered before it has too.
             _ <- reader.joinWithNever
@@ -777,8 +927,22 @@ class ServerSuite extends munit.CatsEffectSuite {
     io.timeout(15.seconds)
   }
 
+  /** Two connections, one change, and the render count that goes with it.
+    *
+    * '''One render, not one per viewer.''' Each session pulls independently and
+    * renders what IT is owed, so the sharing is no longer structural — it is
+    * the per-slug [[RenderCache]], which both pulls go through: whoever gets
+    * there first renders and the other waits on the same slot. Two viewers of
+    * one dashboard have the same [[RenderInputs]] for a node unless their
+    * selections differ, which is what makes the hit the normal case rather than
+    * a lucky one.
+    *
+    * So this number is a cost contract: if it ever reads 2 again, the cache is
+    * being missed (a key that varies per viewer where it should not, or a pull
+    * that renders outside it), and the fan-out is back.
+    */
   test(
-    "shared per-slug pass: two connections both receive a changed fragment rendered ONCE"
+    "two connections both receive a changed fragment, rendered once between them"
   ) {
     val marker = "shared_once_value_xq"
     val count = new AtomicInteger(0)
@@ -805,23 +969,34 @@ class ServerSuite extends munit.CatsEffectSuite {
         .use { server =>
           val connect = server.routes.orNotFound
             .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
-          val awaitMarker = (resp: Response[IO]) =>
+          // Opened when THIS connection's opening block has finished (its
+          // cursor), done when it has seen the marker. Both are needed: a
+          // session is adopted before its opening block runs, so a change
+          // emitted on a session count alone can land in the opening REPAINT —
+          // which renders the body wholesale and counts nothing here.
+          val awaitMarker = (resp: Response[IO], opened: Deferred[IO, Unit]) =>
             resp.body
               .through(fs2.text.utf8.decode)
               .scan("")(_ + _)
+              .evalTap(text =>
+                IO.whenA(text.contains(Server.StoreVersionSignal))(
+                  opened.complete(()).void
+                )
+              )
               .exists(_.contains(marker))
               .compile
               .drain
           for {
             resp1 <- connect
             resp2 <- connect
-            seen1 <- awaitMarker(resp1).start
-            seen2 <- awaitMarker(resp2).start
-            // Deterministic readiness (topics deliver only to already-subscribed
-            // consumers): both connections on the shared topic, and the ONE
-            // publisher on the store's changes. There is no per-session loop to
-            // wait for any more — which is the point of the pass being shared.
-            _ <- server.sharedSubscribers.filter(_ >= 2).head.compile.drain
+            opened1 <- Deferred[IO, Unit]
+            opened2 <- Deferred[IO, Unit]
+            seen1 <- awaitMarker(resp1, opened1).start
+            seen2 <- awaitMarker(resp2, opened2).start
+            // Deterministic readiness: both connections past their opening
+            // block, and the ONE recorder subscribed to the store's changes.
+            _ <- opened1.get
+            _ <- opened2.get
             _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
             _ <- store.update(EntityState("sensor.a", marker, Map.empty))
             // (a) both SSE streams receive the changed fragment...
@@ -830,8 +1005,7 @@ class ServerSuite extends munit.CatsEffectSuite {
           } yield ()
         }
     } yield count.get()
-    // ...and (b) it was rendered once, by the shared pass (the per-session
-    // loops render only bake owners / open surfaces — none here).
+    // ...and (b) it was rendered ONCE between them.
     io.timeout(30.seconds).assertEquals(1)
   }
 
@@ -859,22 +1033,115 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
   )
 
+  /** Two cases over ONE membership: an entity that stays a member while the
+    * case it dispatches to changes (`attr:mode`), which is the only way a
+    * member's node definition moves without its membership moving.
+    */
+  private def caseDash = Dashboard(
+    cards = Map(
+      "bright" -> CardDef("<b>{{state}}</b>", slots = List("state")),
+      "dim" -> CardDef("<i>{{state}}</i>", slots = List("state"))
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+          "bright",
+          slots = Map("state" -> SlotSource())
+        ),
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "dim",
+          slots = Map("state" -> SlotSource())
+        )
+      )
+    )
+  )
+
+  /** A case binding a SECOND entity — one the group's query does not match.
+    * Authorable all along; it just never ticked.
+    */
+  private def crossDash = Dashboard(
+    cards = Map(
+      "dot" -> CardDef(
+        "<span>{{state}}/{{extra}}</span>",
+        slots = List("state", "extra")
+      )
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "dot",
+          slots = Map(
+            "state" -> SlotSource(),
+            "extra" -> SlotSource(Some("sensor.outside"))
+          )
+        )
+      )
+    )
+  )
+
+  /** A case switch whose ARRIVING card binds nothing live — the shape that has
+    * no reverse-index edge to be found by.
+    */
+  private def literalCaseDash = Dashboard(
+    cards = Map(
+      "live" -> CardDef("<b>{{state}}</b>", slots = List("state")),
+      "plain" -> CardDef("<i>{{label}}</i>", slots = List("label"))
+    ),
+    card = LayoutNode.Dynamic(
+      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+      cases = List(
+        DynamicCase(
+          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+          "live",
+          slots = Map("state" -> SlotSource())
+        ),
+        DynamicCase(
+          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+          "plain",
+          slots = Map("label" -> SlotSource(literal = Some("off-duty")))
+        )
+      )
+    )
+  )
+
   /** Drive the shared per-slug diff for one change against `after` (the current
     * snapshot) with an optional pre-seeded cache; return the emitted SSE
     * patches (rendered to strings) and the resulting cache.
     */
   // Seeded through `set`, so the digest derivation is never duplicated here.
-  private def seedLog(seed: Map[String, String]): FragmentLog =
-    seed.foldLeft(FragmentLog("test")) { case (l, (id, html)) =>
-      l.set(id, html, 0L)
+  /** A viewer already CURRENT on these nodes, and a log that has recorded them.
+    *
+    * One map for both halves because they were one thing before: a seeded log
+    * entry meant "the group is established AND this node is not worth sending".
+    * The value is the id's live rendering rather than the literal, since what
+    * suppression compares is a digest of what the client actually holds.
+    */
+  private def seeded(
+      renderer: Renderer,
+      states: Map[String, EntityState],
+      ids: Iterable[String]
+  ): (FragmentLog, Map[NodeId, Digest]) =
+    ids.foldLeft((FragmentLog("test"), Map.empty[NodeId, Digest])) {
+      case ((log, holds), raw) =>
+        val id = NodeId.derived(raw)
+        (
+          log.touched(id, 0L),
+          renderer
+            .renderLogged(id, states)
+            .fold(holds)(html => holds + (id -> Digest.of(html)))
+        )
     }
 
   // WHICH nodes the log knows about, and when each last changed — everything
-  // these contracts assert on. The log holds a digest, not HTML, so there is no
-  // node -> html projection to make (docs/adr/0012-one-pass-addressed-per-client.md, statement (3));
+  // these contracts assert on. The log holds a version, not HTML, so there is no
+  // node -> html projection to make (docs/adr/0012-each-session-renders-what-it-is-owed.md);
   // what the patches CARRY is asserted on the patches themselves.
-  private def logged(log: FragmentLog): Map[NodeId, Long] =
-    log.fragments.view.mapValues(_.version).toMap
+  private def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
 
   /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
     * the resume cursor as a `patch-signals` event
@@ -888,8 +1155,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       dash: Dashboard,
       after: Map[String, EntityState],
       change: StateChange,
-      seedCache: Map[String, String] = Map.empty
-  ): IO[(List[String], Map[NodeId, Long])] =
+      // What the viewer's DOM already holds, by node id -> HTML. It used to seed
+      // the shared log; the suppression it drives is now this client's own.
+      seedCache: Map[String, String] = Map.empty,
+      ui: Map[String, String] = Map.empty
+  ): IO[(List[String], Map[NodeId, Digest])] =
     (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(dash))
@@ -908,18 +1178,24 @@ class ServerSuite extends munit.CatsEffectSuite {
         .use { server =>
           for {
             renderer <- ref.get
-            cache <- Ref[IO].of(seedLog(seedCache))
-            patches <- server.sharedPatches(
-              "dashboard",
+            seed = seeded(renderer, after, seedCache.keys)
+            log <- Ref[IO].of(seed._1)
+            patches <- recordAndPull(
+              server,
+              sessions,
+              store,
               renderer,
-              cache,
-              List(change)
+              log,
+              List(change),
+              ui = ui,
+              holds = seed._2
             )
-            events <- received(patches, store)
-            // AFTER forcing: a deferred render writes its digests when a viewer
-            // takes it, not when the pass planned it.
-            finalCache <- cache.get.map(logged)
-          } yield (elementPatches(events), finalCache)
+            // What the viewer holds AFTER applying what it was just sent —
+            // where a seeded log entry used to be the baseline, this is.
+          } yield (
+            elementPatches(events(patches)),
+            patches.foldLeft(seed._2)(Patches.applied)
+          )
         }
     } yield out)
       .timeout(30.seconds)
@@ -938,6 +1214,72 @@ class ServerSuite extends munit.CatsEffectSuite {
       )
       assert(!p.contains("id=\"c\""), clue = p)
       assert(!p.contains("mode "), clue = p)
+    }
+  }
+
+  test(
+    "a member that switches CASE is re-materialised, not left on the old one"
+  ) {
+    // The trap materialisation creates: a member's node is state-derived, so a
+    // frame that moves the matched entity across a case boundary must REPLACE
+    // the node, not merely mark it changed. Getting this wrong is silent — the
+    // card renders happily, from the wrong branch, for as long as the entity
+    // stays a member.
+    val after =
+      Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
+    val change = StateChange(
+      "light.a",
+      Some(st("light.a", "on", "mode" -> Json.fromString("bright"))),
+      after("light.a")
+    )
+    runShared(caseDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("<i>on</i>"), clue = p)
+      assert(!p.contains("<b>"), clue = p)
+    }
+  }
+
+  test("a member ticks on a SECOND entity it binds, not only on its own") {
+    // A CORRECTION, and the one place this phase moves the wire. The only
+    // selector for a member used to be its group's query, so a case slot naming
+    // an entity the query does not match — authorable, and accounted for in the
+    // old cache key — silently never re-rendered. A materialised member is in
+    // the reverse index like any node, so the entity it binds names it.
+    val after = Map(
+      "light.a" -> on("light.a"),
+      "sensor.outside" -> st("sensor.outside", "13.1")
+    )
+    val change = StateChange(
+      "sensor.outside",
+      Some(st("sensor.outside", "12.0")),
+      after("sensor.outside")
+    )
+    runShared(crossDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("""id="c_light_a""""), clue = p)
+      assert(p.contains("on/13.1"), clue = p)
+    }
+  }
+
+  test("a case switch to a card binding NOTHING is still recorded") {
+    // The hole the reverse index cannot cover: the arriving card has no live
+    // slot, so it contributes no entity edge and nothing would name it. The
+    // member's ID is the sound handle — it exists whatever the card does — so
+    // `syncMembers` reports what it replaced and `record` touches that.
+    val after =
+      Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
+    val change = StateChange(
+      "light.a",
+      Some(st("light.a", "on", "mode" -> Json.fromString("bright"))),
+      after("light.a")
+    )
+    runShared(literalCaseDash, after, change).map { case (patches, _) =>
+      assertEquals(patches.size, 1, clue = patches)
+      val p = patches.head
+      assert(p.contains("<i>off-duty</i>"), clue = p)
+      assert(!p.contains("<b>"), clue = p)
     }
   }
 
@@ -961,10 +1303,14 @@ class ServerSuite extends munit.CatsEffectSuite {
     val change = StateChange("light.b", Some(off("light.b")), on("light.b"))
     // A group is ESTABLISHED by having member entries — there is no group-level
     // fragment any more (it would be a fragment containing other nodes).
+    // An arrival is remove-then-insert: the pair is idempotent whatever the
+    // client's DOM holds, which is what lets an arrival and a re-order be the
+    // same operation (see `Patches.resume`).
     runShared(dynDash, after, change, seedCache = establishedGroup).map {
       case (patches, cache) =>
-        assertEquals(patches.size, 1, clue = patches)
-        val p = patches.head
+        assertEquals(patches.size, 2, clue = patches)
+        assert(patches.head.contains("mode remove"), clue = patches.head)
+        val p = patches.last
         assert(p.contains("mode before"), clue = p)
         assert(
           p.contains("selector #c_light_c"),
@@ -990,8 +1336,8 @@ class ServerSuite extends munit.CatsEffectSuite {
     val change = StateChange("light.z", Some(off("light.z")), on("light.z"))
     runShared(dynDash, after, change, seedCache = establishedGroup).map {
       case (patches, _) =>
-        assertEquals(patches.size, 1, clue = patches)
-        val p = patches.head
+        assertEquals(patches.size, 2, clue = patches)
+        val p = patches.last
         assert(p.contains("mode append"), clue = p)
         assert(p.contains("selector #c"), clue = p)
         assert(
@@ -1047,6 +1393,25 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(p.contains("selector #c"), clue = p)
       assert(p.contains("""id="c_light_a""""), clue = p)
       assert(!p.contains("""id="c_light_b""""), clue = p)
+      // The payload is the members' MARKUP and nothing else. Asserting an id is
+      // CONTAINED cannot see a wrapper around it: when `renders.fill` started
+      // yielding `NodeBytes`, this line concatenated those instead of their
+      // `.html` and put `NodeBytes(<div id="c_light_a">…,<digest>)` on the wire
+      // — with every containment assertion above still green.
+      assertEquals(
+        p.linesIterator
+          .collect {
+            case l if l.startsWith("data: elements ") =>
+              l.drop("data: elements ".length)
+          }
+          .mkString("\n"),
+        Renderer
+          .create(dynDash)
+          .renderDynamicMembers("c", after)
+          .map(_._2)
+          .mkString,
+        clue = p
+      )
       // The departed member's entry is gone and the surviving one is
       // RE-FINGERPRINTED: the fill re-supplied the mount wholesale, so without
       // that the next live diff would compare against a baseline the client never
@@ -1105,16 +1470,12 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   /** '''A client is never sent a surface it is not viewing.'''
     *
-    * Written BEFORE the per-session pass collapses into the shared one, because
-    * this is the property that collapse must PRESERVE, not one it adds — and
-    * because under-sending is the one failure mode nothing observes. A patch
-    * withheld from a client that needed it looks exactly like nothing at all:
-    * no error, no log line, just a value that stops updating. So the guard goes
-    * in first, against today's behaviour, and the filter is written to keep it
-    * green (docs/adr/0012-one-pass-addressed-per-client.md, T3).
-    *
     * Both directions are asserted deliberately. Without the second half this
     * would pass just as well if the server sent NOBODY anything.
+    *
+    * It is now a property of the PULL rather than of a tag: each viewer renders
+    * against its own open set, so a tab nobody is viewing is not withheld from
+    * them — it is never produced for them at all.
     */
   test(
     "a tab nobody is viewing is not pushed to them; the viewer still gets it"
@@ -1148,32 +1509,48 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- viewingT1.open.set(Set("c_t1"))
             _ <- sessions.register("b", viewingT1)
             renderer <- ref.get
-            cache <- Ref[IO].of(seedLog(Map.empty))
-            // ONE render for the slug; who sees it is the tag's job.
-            shared <- server.sharedPatches(
-              "dashboard",
+            log <- Ref[IO].of(FragmentLog("test"))
+            // Recorded ONCE for the slug; each viewer then pulls its own.
+            forB <- recordAndPull(
+              server,
+              sessions,
+              store,
               renderer,
-              cache,
-              List(change)
+              log,
+              List(change),
+              open = Set("c_t1"),
+              ui = renderer.uiStateFrom(Set("c_t1"))
             )
-          } yield ready(shared)
+            forA <- (log.get, store.current, RenderCache.create).flatMapN(
+              (l, now, rc) =>
+                Patches.resume(
+                  renderer,
+                  rc,
+                  l,
+                  Map.empty,
+                  now.entities,
+                  0L,
+                  Set("c_t0"),
+                  renderer.uiStateFrom(Set("c_t0"))
+                )
+            )
+          } yield (forA, forB)
         }
     } yield out)
       .timeout(30.seconds)
-      .map { patches =>
-        // Tab 1's panel is open for SOMEBODY, so it is rendered — once.
-        assertEquals(patches.size, 1, clue = patches.map(_.event.renderString))
-        val one = patches.head
+      .map { case (forA, forB) =>
+        val bytes = events(forB).map(_.renderString)
         assert(
-          one.event.elements.exists(_.contains("""id="s_c_t1__c"""")),
-          clue = one.event.renderString
+          bytes.exists(_.contains("""id="s_c_t1__c"""")),
+          clue = bytes
         )
-        assert(one.event.elements.exists(_.contains("B1")), clue = one.event)
+        assert(bytes.exists(_.contains("B1")), clue = bytes)
         // A is looking at tab 0 and must not receive it; B, who IS looking at
         // it, must — the second half is what stops this passing vacuously.
-        assertEquals(one.surface, Some("c_t1"))
-        assert(!one.visibleTo(Set("c_t0")))
-        assert(one.visibleTo(Set("c_t1")))
+        assert(
+          !events(forA).map(_.renderString).exists(_.contains("s_c_t1__c")),
+          clue = events(forA).map(_.renderString)
+        )
       }
   }
 
@@ -1201,29 +1578,30 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
             renderer <- ref.get
-            cache <- Ref[IO].of(seedLog(Map.empty))
-            ps <- server.sharedPatches(
-              "dashboard",
+            log <- Ref[IO].of(FragmentLog("test"))
+            ps <- recordAndPull(
+              server,
+              sessions,
+              store,
               renderer,
-              cache,
-              List(change)
+              log,
+              List(change),
+              open = Set("det")
             )
-          } yield ready(ps)
+          } yield ps
         }
     } yield patches)
       .timeout(30.seconds)
       .map { patches =>
-        assertEquals(patches.size, 1, clue = patches.map(_.event.renderString))
-        val one = patches.head
+        val bytes = events(patches)
+        assertEquals(patches.size, 1, clue = bytes.map(_.renderString))
         // one child morph, surface-namespaced id — not the whole surface group.
         assertEquals(
-          one.event.elements,
+          bytes.head.elements,
           Some(
             """<div class="fh-cell" id="s_det__c_light_b"><span>on</span></div>"""
           )
         )
-        // Rendered on the shared pass, addressed to the popup that holds it.
-        assertEquals(one.surface, Some("det"))
       }
   }
 
@@ -1296,53 +1674,71 @@ class ServerSuite extends munit.CatsEffectSuite {
 
   private def es(id: String, state: String): EntityState = st(id, state)
 
-  /** Drives the SHARED per-slug pass over an EVOLVING store: each [[step]]
-    * applies one entity update (deriving the StateChange exactly like the WS
-    * ingest does) and returns the SSE patches emitted for it, diffing against
-    * the cache ACCUMULATED across steps — what multi-step contracts (flip then
-    * re-reveal) need, unlike the single-shot [[runShared]].
+  /** Drives one VIEWER over an EVOLVING store: each [[step]] applies one entity
+    * update (deriving the StateChange exactly like the WS ingest does), records
+    * the frame for the slug, and returns what this viewer's pull emits for it.
+    *
+    * `holds` and `position` accumulate across steps, which is what multi-step
+    * contracts (flip then re-reveal) need and what the shared log used to do on
+    * everyone's behalf.
     */
   private class SharedHarness(
       store: StateStore,
       val server: Server,
       renderer: Renderer,
-      cache: Ref[IO, FragmentLog]
+      cache: Ref[IO, FragmentLog],
+      sessions: Sessions
   ) {
-    private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
-      (for {
+
+    /** The viewer closes its tab, so what this slug records next is what it
+      * records with nobody watching — a gap.
+      */
+    def closeViewer: IO[Unit] =
+      sessions
+        .get("harness")
+        .flatMap(_.traverse_(sessions.deregisterIf("harness", _)))
+    private val holds = Ref.unsafe[IO, Map[NodeId, Digest]](Map.empty)
+    private val position = Ref.unsafe[IO, Long](0L)
+
+    private def record(next: EntityState): IO[Unit] =
+      for {
         prev <- store.snapshot.map(_.get(next.entityId))
         _ <- store.update(next)
-        patches <- server.sharedPatches(
+        _ <- server.recordFrame(
           "dashboard",
           renderer,
           cache,
           List(StateChange(next.entityId, prev, next))
         )
-        events <- received(patches, store)
-      } yield events).timeout(30.seconds)
+      } yield ()
+
+    /** What this viewer is owed since its last pull, claimed as it goes. */
+    private def drain: IO[List[ServerSentEvent]] =
+      (cache.get, store.current, holds.get, position.get, RenderCache.create)
+        .flatMapN { (log, now, held, from, rc) =>
+          Patches
+            .resume(renderer, rc, log, held, now.entities, from + 1)
+            .flatMap { patches =>
+              holds.set(patches.foldLeft(held)(Patches.applied)) *>
+                position
+                  .set(now.version)
+                  .as(events(patches) :+ Server.versionSignal(now.version))
+            }
+        }
+
+    private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
+      (record(next) *> drain).timeout(30.seconds)
 
     def step(next: EntityState): IO[List[String]] =
       sharedBatch(next).map(elementPatches)
 
-    /** Several batches PLANNED before any of them is forced — one slow client
-      * whose queue holds them all when it finally drains.
+    /** Several frames recorded before this viewer pulls any of them — one slow
+      * client, catching up in a single pass.
       */
     def queued(nexts: List[EntityState]): IO[List[String]] =
-      (for {
-        directed <- nexts.foldLeftM(List.empty[Directed]) { (acc, next) =>
-          for {
-            prev <- store.snapshot.map(_.get(next.entityId))
-            _ <- store.update(next)
-            ds <- server.sharedPatches(
-              "dashboard",
-              renderer,
-              cache,
-              List(StateChange(next.entityId, prev, next))
-            )
-          } yield acc ++ ds
-        }
-        events <- received(directed, store)
-      } yield elementPatches(events)).timeout(30.seconds)
+      (nexts.traverse_(record) *> drain)
+        .map(elementPatches)
+        .timeout(30.seconds)
 
     /** Everything a batch emits, cursor signal included. */
     def stepRaw(next: EntityState): IO[List[String]] =
@@ -1350,6 +1746,10 @@ class ServerSuite extends munit.CatsEffectSuite {
 
     def cacheNow: IO[Map[NodeId, Long]] =
       cache.get.map(logged).timeout(30.seconds)
+
+    /** Where the changelog says each container's member went. */
+    def mutationsNow: IO[Map[NodeId, Mutation]] =
+      cache.get.map(_.mutations).timeout(30.seconds)
 
     def logId: IO[String] = cache.get.map(_.id)
 
@@ -1366,13 +1766,13 @@ class ServerSuite extends munit.CatsEffectSuite {
         cursor: Option[Server.Cursor],
         popup: Option[String] = None
     ): IO[String] =
-      val signals = cursor.toList.flatMap(c =>
-        List(
-          s""""${Server.HeadHashSignal}":"${c.headHash}"""",
-          s""""${Server.StyleHashSignal}":"${c.styleHash}"""",
-          s""""${Server.LogIdSignal}":"${c.logId}"""",
-          s""""${Server.StoreVersionSignal}":${c.version}"""
-        )
+      // Nested under `_cursor`, exactly as the client's store holds it.
+      val signals = cursor.toList.map(c =>
+        s""""${Server.CursorSignal}":{""" +
+          s""""${Server.HeadHashSignal}":"${c.headHash}",""" +
+          s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
+          s""""${Server.LogIdSignal}":"${c.logId}",""" +
+          s""""${Server.StoreVersionSignal}":${c.version}}"""
       ) ++ popup.map(p => s""""$PopupSig":"$p"""")
       val uri =
         if (signals.isEmpty) uri"/sse/dashboard/dashboard/patch"
@@ -1417,29 +1817,31 @@ class ServerSuite extends munit.CatsEffectSuite {
         store <- StateStore.inMemory(initial)
         ref <- SignallingRef[IO].of(Renderer.create(dash))
         sessions <- Sessions.create
+        // The viewer this harness drains for, registered because a slug nobody
+        // is watching records nothing. Its open set is empty, matching what
+        // `drain` resumes with.
+        _ <- Session
+          .create("dashboard")
+          .flatMap(sessions.register("harness", _))
         // Stub HA: the SSE/patch path never calls it (an unexpected registry
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
         fake <- FakeHomeAssistant.create(Nil)
-        slugLog <- Server.freshLog.flatMap(Ref[IO].of)
-        registry <- Ref[IO].of(
-          Map("dashboard" -> Server.LiveSlug(ref, slugLog))
-        )
-        topic <- Topic[IO, (String, Directed)]
+        live <- Server.LiveSlug.create(ref)
+        registry <- Ref[IO].of(Map("dashboard" -> live))
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,
           registry,
           "dashboard",
           sessions,
-          topic,
           suiteSupervisor
         )
         renderer <- ref.get
-        // The shared pass diffs against the SLUG's log — the same one a
-        // reconnecting client resumes from — so a cursor issued by `step` is
-        // valid at `opening`, as in production.
-      } yield new SharedHarness(store, server, renderer, slugLog))
+        // The recorder writes the SLUG's log — the same one a reconnecting
+        // client resumes from — so a cursor issued by `step` is valid at
+        // `opening`, as in production.
+      } yield new SharedHarness(store, server, renderer, live.log, sessions))
         .timeout(30.seconds)
   }
 
@@ -1492,6 +1894,7 @@ class ServerSuite extends munit.CatsEffectSuite {
       // the host, whose HTML would have embedded the branch.
       flip <- h.step(es("alarm.h", "disarmed"))
       cache <- h.cacheNow
+      moved <- h.mutationsNow
     } yield {
       assertEquals(flip.size, 1, clue = flip)
       val p = flip.head
@@ -1504,17 +1907,25 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(!p.contains("A1"), clue = p)
       assert(!p.contains("mode remove"), clue = p)
       // The prune keeps its original job (hidden-branch churn leaves entries
-      // stale), and the new branch's ROOT is now logged as the mount's occupant —
-      // structure, not content. No host-level fragment at all.
+      // stale), and the new branch's ROOT is recorded as the mount's occupant —
+      // structure, not content, which is why it is a Mutation and not a
+      // fragment. No host-level entry of either kind.
       assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
-      assert(cache.contains("s_else__c"), clue = cache)
+      assert(
+        moved.get("s_else__c").exists {
+          case _: Mutation.Placed => true
+          case _                  => false
+        },
+        clue = moved
+      )
       assert(!cache.contains("c_0"), clue = cache)
+      assert(!moved.contains("c_0"), clue = moved)
     }
   }
 
   /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/adr/0012-one-pass-addressed-per-client.md, T8b) — the
-    * exact hole recording the flip structurally was meant to close.
+    * reconnect''' (docs/adr/0011-the-live-connection.md) — the exact hole
+    * recording the flip structurally was meant to close.
     *
     * Found in the running app before this test existed: `Patches.resume`
     * grouped placements by container and looked each member up by POSITION in
@@ -1743,32 +2154,34 @@ class ServerSuite extends munit.CatsEffectSuite {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
-            cache <- Ref[IO].of(seedLog(Map.empty))
-            shared <- server.sharedPatches(
-              "dashboard",
+            log <- Ref[IO].of(FragmentLog("test"))
+            withPopup <- recordAndPull(
+              server,
+              sessions,
+              store,
               renderer,
-              cache,
-              List(change)
+              log,
+              List(change),
+              open = Set("det")
             )
-            events <- received(shared, store)
-          } yield (shared, events)
+            // The same frame, pulled by a client that does NOT have the popup
+            // open — the other half of what the surface tag used to assert.
+            without <- (log.get, store.current, RenderCache.create).flatMapN(
+              (l, now, rc) =>
+                Patches.resume(renderer, rc, l, Map.empty, now.entities, 0L)
+            )
+          } yield (without, events(withPopup))
         }
     } yield out)
       .timeout(30.seconds)
-      .map { case (shared, events) =>
-        // The shared pass carries the inner flip's delta — once, for the slug.
-        val tagged = shared.filter {
-          case a: Addressed => !isCursor(a.event)
-          case _            => true
-        }
-        assertEquals(tagged.size, 1, clue = tagged)
-        // Addressed to the popup: a client with it open sees it, one without
-        // does not. That tag is the whole per-connection filter, and it is
-        // carried by the deferred render just as it was by ready bytes.
-        assertEquals(tagged.head.surface, Some("det"))
-        assert(tagged.head.visibleTo(Set("det")))
-        assert(!tagged.head.visibleTo(Set.empty))
-        val patches = events.filterNot(isCursor)
+      .map { case (without, evts) =>
+        assert(
+          !events(without).exists(
+            _.renderString.contains("s_det__c_0_branch")
+          ),
+          clue = events(without).map(_.renderString)
+        )
+        val patches = evts.filterNot(isCursor)
         assertEquals(patches.size, 1, clue = patches)
         assertEquals(patches.head.selector, Some("#s_det__c_0_branch"))
         assert(
@@ -1795,18 +2208,31 @@ class ServerSuite extends munit.CatsEffectSuite {
         Method.GET,
         uri"/sse/dashboard/d/patch".withQueryParam("datastar", q)
       )
+    // Nested under `_cursor`: `_`-prefixed so Datastar's default request filter
+    // keeps it off every request but the SSE GET, which asks for it back.
     assertEquals(
       Server.cursorOf(
         req(
-          """{"headHash":"h1","styleHash":"s1","logId":"L1","storeVersion":7}"""
+          """{"_cursor":{"headHash":"h1","styleHash":"s1",""" +
+            """"logId":"L1","storeVersion":7}}"""
         )
       ),
       Some(Server.Cursor("h1", "s1", "L1", 7L))
     )
     // A first load carries only the signals the page declared — no cursor.
     assertEquals(Server.cursorOf(req("""{"conn":"c","haDown":false}""")), None)
-    // Partial, garbled, and absent are all the same answer.
-    assertEquals(Server.cursorOf(req("""{"logId":"L1"}""")), None)
+    // Partial, garbled, and absent are all the same answer. (That a PARTIAL one
+    // is also reported rather than merely dropped is `CursorSuite`'s subject.)
+    assertEquals(Server.cursorOf(req("""{"_cursor":{"logId":"L1"}}""")), None)
+    // ...including the four at the TOP level, which is where they used to live.
+    assertEquals(
+      Server.cursorOf(
+        req(
+          """{"headHash":"h1","styleHash":"s1","logId":"L1","storeVersion":7}"""
+        )
+      ),
+      None
+    )
     assertEquals(Server.cursorOf(req("not json")), None)
     assertEquals(
       Server.cursorOf(Request[IO](Method.GET, uri"/sse/dashboard/d/patch")),
@@ -1821,8 +2247,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         Map("sensor.a" -> es("sensor.a", "cold"))
       )
       raw <- h.stepRaw(es("sensor.a", "hot"))
-      // An entity no card binds: nothing rendered, so no cursor either — the
-      // client's existing cursor still names its DOM.
+      // An entity no card binds: nothing to render, so the cursor moves alone.
       quiet <- h.stepRaw(es("sensor.unwatched", "x"))
     } yield {
       assertEquals(raw.size, 2, clue = raw)
@@ -1834,7 +2259,11 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(!raw.last.contains(Server.LogIdSignal), clue = raw)
       assert(!raw.last.contains(Server.HeadHashSignal), clue = raw)
       assert(!raw.last.contains(Server.StyleHashSignal), clue = raw)
-      assertEquals(quiet, Nil, clue = quiet)
+      assertEquals(quiet.size, 1, clue = quiet)
+      assert(
+        quiet.head.contains(s""""${Server.StoreVersionSignal}":2"""),
+        clue = quiet
+      )
     }
   }
 
@@ -1877,6 +2306,131 @@ class ServerSuite extends munit.CatsEffectSuite {
       assert(opening.contains("selector #c_light_b"), clue = opening)
       assert(opening.contains("mode remove"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
+    }
+  }
+
+  /** A dashboard with no browser on it is the NORMAL state of a home instance,
+    * so a slug nobody is watching records nothing at all. The cost is exactness
+    * for whoever comes back across that stretch: the versions it passed over
+    * are described nowhere, so the only honest answer to a cursor from before
+    * one is the repaint.
+    */
+  test(
+    "a stretch nobody watched records nothing, and repaints whoever returns"
+  ) {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      recorded <- h.cacheNow
+      // The tab closes...
+      _ <- h.closeViewer
+      _ <- h.step(es("sensor.a", "warm"))
+      unrecorded <- h.cacheNow
+      // ...and the client comes back holding the version it left on.
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
+    } yield {
+      assert(recorded.nonEmpty, clue = recorded)
+      // Nothing written — and the history that frame made unreachable dropped
+      // with it, since no cursor below a gap is ever answered with a delta.
+      assertEquals(
+        unrecorded,
+        Map.empty[NodeId, Long],
+        clue = "a frame nobody was watching writes nothing, and forgets"
+      )
+      assert(opening.contains(BodyRepaint), clue = opening)
+      // And it is a repaint that carries the value it missed, not a stale one.
+      assert(opening.contains(">warm<"), clue = opening)
+    }
+  }
+
+  /** The changelog's only unbounded part is its mutations — a `Gone` for a
+    * member that never returns has nothing to remove it. What removes them is
+    * the FLOOR: the lowest position any live session holds, so a mutation below
+    * it cannot appear in any resume any session will ever run. Exact, where the
+    * rule it replaced was a one-hour wall clock.
+    */
+  test("recording prunes what no live session can still ask for") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            // One viewer, served through version 7.
+            session <- Session.create("dashboard")
+            _ <- session.position.set(7L)
+            _ <- sessions.register("conn", session)
+            live <- server.liveSlug("dashboard")
+            // Two members left the group, one long before that viewer's
+            // position and one after it.
+            _ <- live.log.update(
+              _.removed("c", "c_old", 2L).removed("c", "c_new", 9L)
+            )
+            renderer <- ref.get
+            _ <- server.recordFrame("dashboard", renderer, live.log, Nil)
+            log <- live.log.get
+          } yield log
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { log =>
+        assertEquals(log.mutations.keySet, Set[NodeId]("c_new"))
+        // Dropped, not silently lost: a CLIENT cursor is not bounded by the
+        // floor, so one below this gets that mount refilled.
+        assertEquals(log.since(2L).refill, List[NodeId]("c"))
+      }
+  }
+
+  /** '''A resume may only claim what the CHANGELOG covered''', never what the
+    * store holds. The recorder writes the log on its own fiber, so between a
+    * change landing in the store and being recorded there is a window in which
+    * `store.version` names a change `since` cannot see. Claiming it tells the
+    * client it is current through a change it was never sent — and the pull
+    * that would have carried it is then skipped (`version <= position`), so it
+    * is lost until that entity next moves.
+    *
+    * Found by `LiveUpdateSmokeSuite`, which failed on exactly this every time
+    * and was twice written off as browser flakiness. This harness makes the
+    * window deterministic: it drives the recorder by hand and never rings the
+    * doorbell, so its changelog is permanently behind its store.
+    */
+  test("an opening resume claims the changelog's version, not the store's") {
+    for {
+      h <- SharedHarness.create(
+        liveLeafDash,
+        Map("sensor.a" -> es("sensor.a", "cold"))
+      )
+      _ <- h.step(es("sensor.a", "hot"))
+      logId <- h.logId
+      opening <- h.opening(
+        Some(Server.Cursor(h.headHash, h.styleHash, logId, 1L))
+      )
+    } yield {
+      // It resumed (the change is in there)...
+      assert(opening.contains(">hot<"), clue = opening)
+      assert(!opening.contains(BodyRepaint), clue = opening)
+      // ...and told the client where the CHANGELOG reaches. The doorbell has
+      // never rung here, so a claim of the store's version would be a promise
+      // about a frame this connection cannot prove it sent.
+      assert(
+        opening.contains("\"" + Server.StoreVersionSignal + "\":0"),
+        clue = opening
+      )
     }
   }
 
@@ -2205,30 +2759,17 @@ class ServerSuite extends munit.CatsEffectSuite {
     * what a test asserting on BYTES wants. A `Reveal` is not bytes: it is the
     * instruction one connection finishes for itself, so it is not here.
     */
-  private def ready(out: List[Directed]): List[Addressed] =
-    out.collect { case a: Addressed if !isCursor(a.event) => a }
-
-  /** What ONE connection receives from a batch: the already-addressed bytes,
-    * plus the per-viewer renders it forces for itself.
-    *
-    * The shared pass renders nothing whose bytes depend on a selection — every
-    * branch fill included, since a branch with no user group inside it is just
-    * the empty-selection case of the same mechanism. So a batch is only
-    * observable through a viewer, and `ui` is which one.
+  /** An [[Addressed]] carries a [[Patch]] now — merging and encoding are the
+    * connection's job ([[Patches.encode]]) — so the bytes this suite asserts on
+    * are derived rather than stored. The resume cursor is an [[Encoded]], so
+    * "not the cursor" is the type rather than a predicate.
     */
-  private def received(
-      out: List[Directed],
-      store: StateStore,
-      ui: Map[String, String] = Map.empty
-  ): IO[List[ServerSentEvent]] =
-    store.current
-      .flatMap(now =>
-        out.traverse {
-          case a: Addressed => IO.pure(Option(a.event))
-          case v: Varying   => v.resolve(ui, now)
-        }
-      )
-      .map(_.flatten)
+
+  /** What a pull puts on the wire. Merging is [[Patches.encode]]'s job and is
+    * asserted where it matters; these contracts are about the patches.
+    */
+  private def events(out: List[Addressed]): List[ServerSentEvent] =
+    out.map(_.patch.toSse)
 
   /** The popup host's selection signal — `ui_` + the host id, exactly as the
     * shell composes it.
@@ -2283,37 +2824,21 @@ class ServerSuite extends munit.CatsEffectSuite {
     def drain: IO[List[ServerSentEvent]] =
       seen.getAndSet(Vector.empty).map(_.toList)
 
-    /** Wait until this client has the WHOLE of what a change produced for it.
+    /** Wait until whatever this change produced for this client has ARRIVED.
       *
-      * The batch announces its own end: the pass appends the cursor signal
-      * last, and that signal is untagged, so every connection receives it even
-      * when every element patch in the batch was filtered away from this one.
-      * Seeing a cursor therefore means "the batch is complete", exactly — no
-      * sampling, no window, and no dependence on how long the server took.
-      */
-    def settled: IO[Unit] = untilCursor.timeout(15.seconds)
-
-    /** Confirm a change produced NOTHING — the one case with no cursor to wait
-      * for, since a batch that emits nothing has nothing to advance a client
-      * past.
+      * Quiet alone cannot tell "nothing was produced" from "nothing has arrived
+      * yet", which is why this is never used on its own: [[LiveWorld.change]]
+      * first proves SERVER-side that every session pulled the frame, and only
+      * then waits here for the bytes to land. The two together are what the
+      * cursor handshake used to give for free.
       *
-      * Deliberately NOT raced against [[settled]]. Quiet cannot tell "nothing
-      * was produced" from "nothing has ARRIVED yet", so racing the two lets a
-      * slow batch be read as silence: past quiet's ~250ms floor (`drop(6)` +
-      * `sliding(4)` at 25ms) every sample reads 0, quiet wins, and `drain`
-      * hands the test an empty list for a batch that was merely in flight. That
-      * is a false pass for any assertion expecting silence and a false FAILURE
-      * for the assertion after it. The caller knows which answer it expects, so
-      * it says so.
+      * That handshake is gone on purpose. A pull that owes a client nothing now
+      * sends nothing at all, so a cursor no longer marks the end of every batch
+      * for every connection — it marks the end of a batch that had something in
+      * it. Waiting for one would hang exactly on the clients this suite exists
+      * to check are left alone.
       */
-    def silence: IO[Unit] = quiet
-
-    private def untilCursor: IO[Unit] =
-      fs2.Stream
-        .repeatEval(seen.get <* IO.sleep(5.millis))
-        .find(_.exists(isCursor))
-        .compile
-        .drain
+    def arrived: IO[Unit] = quiet
 
     private def quiet: IO[Unit] =
       fs2.Stream
@@ -2347,6 +2872,7 @@ class ServerSuite extends munit.CatsEffectSuite {
   private class LiveWorld(
       routes: org.http4s.HttpApp[IO],
       store: StateStore,
+      sessions: Sessions,
       clients: Ref[IO, List[LiveClient]]
   ) {
 
@@ -2380,26 +2906,74 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- clients.update(_ :+ client)
       } yield client
 
-    /** Apply one change and wait for EVERY client to receive the whole batch.
+    /** Apply one change and wait until every client has whatever it was owed —
+      * including the clients owed nothing, which is most of the point here.
+      *
+      * TWO gates, and neither works alone. [[served]] proves the SERVER
+      * finished: every session pulled this version, so nothing is still in
+      * flight. [[LiveClient.arrived]] then proves the bytes landed. Before the
+      * empty-batch cursor was removed the first gate was implicit in the second
+      * — every connection got a cursor whether or not it got patches — and a
+      * single wait covered both. Now a client owed nothing receives literally
+      * nothing, so "the frame is done" has to be asked of the server.
+      *
+      * One method rather than two, because with the server gate in place there
+      * is no longer a question to answer differently: a caller expecting
+      * silence and one expecting patches wait for the same thing and then
+      * assert on what they drained.
       */
     def change(next: EntityState): IO[Unit] =
-      store.update(next) *> clients.get.flatMap(_.traverse_(_.settled))
-
-    /** [[change]] for a change that must produce NO patch for anyone — a tick
-      * inside a hidden branch, or one whose HTML is digest-identical. There is
-      * no cursor to wait for, so this observes quiet instead; see
-      * [[LiveClient.silence]] for why that is a separate method rather than a
-      * fallback inside [[LiveClient.settled]].
-      */
-    def changeExpectingSilence(next: EntityState): IO[Unit] =
-      store.update(next) *> clients.get.flatMap(_.traverse_(_.silence))
+      recording *> store.update(next) *> settle
 
     /** ONE HA frame carrying several entities — a single store update, as the
       * feed delivers it.
       */
     def frame(nexts: List[EntityState]): IO[Unit] =
-      store.update(nexts.map(Ingest.Replace(_))) *>
-        clients.get.flatMap(_.traverse_(_.settled))
+      recording *> store.update(nexts.map(Ingest.Replace(_))) *> settle
+
+    /** The slug's recorder has SUBSCRIBED to `store.changes`.
+      *
+      * A topic delivers only to current subscribers, and the recorder fiber
+      * starts asynchronously with `Server.resource` — so a `store.update` that
+      * beats it is never recorded, the doorbell never rings, and every gate
+      * after it waits out its full timeout. Connecting a client does not imply
+      * it: the stream and the recorder are different fibers.
+      */
+    private def recording: IO[Unit] =
+      store.changeSubscribers
+        .filter(_ >= 1)
+        .head
+        .compile
+        .drain
+        .timeout(15.seconds)
+
+    private def settle: IO[Unit] =
+      served *> clients.get.flatMap(_.traverse_(_.arrived))
+
+    /** Every session with a LIVE STREAM has pulled the store's current version.
+      *
+      * Not `Sessions.floor`, which is the minimum over ALL of a slug's sessions
+      * — `Lingering` and `Fresh` ones included. That is right for pruning (a
+      * lingering session may come back and resume from its position) and wrong
+      * here: a session with no stream never pulls, so its position never moves
+      * and this would wait out its whole timeout. Any test that leaves one
+      * behind then fails somewhere else entirely, intermittently.
+      */
+    private def served: IO[Unit] =
+      fs2.Stream
+        .repeatEval(
+          (store.current, sessions.forSlug("dashboard")).flatMapN {
+            (now, all) =>
+              all
+                .traverse(s => (s.tenure.get, s.position.get).tupled)
+                .map(_.collect { case (_: Tenure.Held, at) => at })
+                .map(live => live.nonEmpty && live.forall(_ >= now.version))
+          } <* IO.sleep(5.millis)
+        )
+        .find(identity)
+        .compile
+        .drain
+        .timeout(15.seconds)
   }
 
   private def liveWorld(
@@ -2421,9 +2995,35 @@ class ServerSuite extends munit.CatsEffectSuite {
           sessions
         )
         .use(server =>
-          use(new LiveWorld(server.routes.orNotFound, store, clients))
+          use(new LiveWorld(server.routes.orNotFound, store, sessions, clients))
         )
     } yield ()).timeout(30.seconds)
+
+  /** The `conn` a freshly-rendered document established, read off the
+    * `data-init` URL it advertises — what a browser's sessionStorage would
+    * keep.
+    */
+  /** How a document advertises its stream — the prefix of the `data-init`
+    * attribute, up to the URL itself. A REGEX, because `String.split` takes
+    * one: the `(` needs escaping or it reads as an unclosed group.
+    */
+  private val SseUrlMarker: String = """data-init="@get\('"""
+
+  private def connOfPage(routes: org.http4s.HttpApp[IO]): IO[String] =
+    routes
+      .run(Request[IO](Method.GET, uri"/d/dashboard"))
+      .flatMap(_.bodyText.compile.string)
+      .map { page =>
+        Uri
+          .unsafeFromString(
+            "/" + page
+              .split("""data-init="@get\('""")(1)
+              .split("'")(0)
+              .replace("&amp;", "&")
+          )
+          .query
+          .params(Server.ConnSignal)
+      }
 
   /** One client, for the tests that only need one. */
   private def liveClient(
@@ -2697,30 +3297,35 @@ class ServerSuite extends munit.CatsEffectSuite {
             _ <- sessions.register(conn, session)
             renderer <- ref.get
             live <- server.liveSlug("dashboard")
-            painted = renderer
-              .renderNodeById(
-                "s_det__c_0",
-                Map("sensor.a" -> es("sensor.a", "cold"))
-              )
-              .get
-            // Nothing is recorded for a surface nobody has opened.
-            beforeFill <- live.log.get.map(_.holds("s_det__c_0", painted))
+            painted = Digest.of(
+              renderer
+                .renderNodeById(
+                  "s_det__c_0",
+                  Map("sensor.a" -> es("sensor.a", "cold"))
+                )
+                .get
+            )
+            node = NodeId.derived("s_det__c_0")
+            // Nothing is claimed for a surface nobody has opened.
+            beforeFill <- session.holds.get.map(_.get(node).contains(painted))
             // Open the popup the way a tap does.
             _ <- server.routes.orNotFound.run(
               Request[IO](Method.POST, uri"/sse/surface/open/det")
                 .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
             )
-            // The fill told the log what it painted...
-            afterFill <- live.log.get.map(_.holds("s_det__c_0", painted))
+            // The fill told the SESSION what it painted...
+            afterFill <- session.holds.get.map(_.get(node).contains(painted))
+            held <- session.holds.get
             // ...so a tick that renders identically produces nothing for it.
             //
             // A SYNTHETIC change against an unchanged store, deliberately: a
-            // real `store.update` wakes the background publisher, which calls
-            // this same pass, and whichever reaches the log first leaves the
-            // other seeing "unchanged". The suppression under test is the log's,
-            // not a race's.
-            same <- server.sharedPatches(
-              "dashboard",
+            // real `store.update` wakes the background recorder, and whichever
+            // reaches the log first leaves the other seeing an empty frame. The
+            // suppression under test is the session's, not a race's.
+            same <- recordAndPull(
+              server,
+              sessions,
+              store,
               renderer,
               live.log,
               List(
@@ -2729,17 +3334,19 @@ class ServerSuite extends munit.CatsEffectSuite {
                   Some(es("sensor.a", "cold")),
                   es("sensor.a", "cold")
                 )
-              )
+              ),
+              open = Set("det"),
+              holds = held
             )
-          } yield (beforeFill, afterFill, ready(same))
+          } yield (beforeFill, afterFill, same)
         }
     } yield out)
       .timeout(30.seconds)
       .map { case (beforeFill, afterFill, same) =>
-        // Not vacuous: the entry did not exist until the fill wrote it.
-        assert(!beforeFill, clue = "nothing recorded before the surface opened")
-        assert(afterFill, clue = "the fill must record the node it painted")
-        assertEquals(same, Nil, clue = same.map(_.event.renderString))
+        // Not vacuous: the claim did not exist until the fill made it.
+        assert(!beforeFill, clue = "nothing claimed before the surface opened")
+        assert(afterFill, clue = "the fill must claim the node it painted")
+        assertEquals(same, Nil, clue = events(same).map(_.renderString))
       }
   }
 
@@ -2798,12 +3405,12 @@ class ServerSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a flip fingerprints the nodes it placed, not the blob") {
-    // The obligation every other fill already meets: a flip re-supplies a whole
-    // subtree, so the next diff has to know what it put in EACH node. Recording
-    // the composed subtree under the branch's ROOT does not do that — that root
-    // is a bare container, so it has no rendering of its own, nothing can ever
-    // resolve the entry, and the members it placed stay unknown.
+  test("a fill fingerprints the nodes it placed, not the blob") {
+    // The obligation every fill meets: it re-supplies a whole subtree, so the
+    // session has to know what it put in EACH node. Claiming the composed
+    // subtree under the branch's ROOT does not do that — that root is a bare
+    // container, so it has no rendering of its own, nothing can ever resolve
+    // the entry, and the members it placed stay unknown.
     val d = Dashboard(
       cards = ifCards ++ Map(
         "col" -> CardDef(
@@ -2828,63 +3435,21 @@ class ServerSuite extends munit.CatsEffectSuite {
       "alarm.h" -> es("alarm.h", "armed"),
       "sensor.a" -> es("sensor.a", "A0")
     )
-    val (log, _, pending) = Patches.diff(
-      r,
-      FragmentLog("flip"),
-      Patches.plan(
-        r,
-        armed,
-        Stamp(2L, 0L),
-        List(
-          StateChange(
-            "alarm.h",
-            Some(es("alarm.h", "disarmed")),
-            es("alarm.h", "armed")
-          )
-        ),
-        Set.empty
-      )
-    )
-    assertEquals(pending.size, 1, clue = pending)
-    val fill = pending.head.render(Map.empty, armed).get
+    val (patch, _) =
+      Patches.hostFill(r, r.mountId("c_0"), Some("then"), armed, Map.empty).get
 
-    // The leaf the flip places is in the fill's trace, holding exactly what a
-    // patch for that node alone would carry — which is what makes the two
-    // comparable at all.
+    // The leaf the fill places is claimed, holding exactly what a patch for
+    // that node alone would carry — which is what makes the two comparable.
     val leaf: NodeId = "s_then__c_0"
-    assertEquals(fill.own.get(leaf), r.renderNodeById(leaf, armed))
-    // And the branch ROOT gets nothing: it has no rendering of its own, so an
-    // entry there could never be resolved — not in the trace, and not written
-    // by the pass either.
+    assertEquals(
+      patch.establishes.get(leaf),
+      r.renderNodeById(leaf, armed).map(Digest.of)
+    )
+    // And the branch ROOT gets nothing: it has no rendering of its own, so a
+    // claim there could never be resolved.
     val root = NodeId.derived("s_then__c")
     assertEquals(r.renderNodeById(root, armed), None)
-    assert(!fill.own.contains(root), clue = fill.own.keySet)
-    assert(!log.fragments.contains(root), clue = log.fragments.keySet)
-  }
-
-  test("a superseded batch skips its render on a version check") {
-    // Two batches queued for one slow client, both touching the same
-    // variant-bearing node. The first to be forced renders CURRENT state and
-    // records it; the second finds an entry at or past that version and skips
-    // WITHOUT rendering — the prune, not the digest, which would have had to
-    // render first to discover the same thing.
-    val r = Renderer.create(serverHighlightDash)
-    val states = Map(
-      "sensor.title" -> es("sensor.title", "T1"),
-      "sensor.a" -> es("sensor.a", "A0"),
-      "sensor.b" -> es("sensor.b", "B0")
-    )
-    val host: NodeId = "c_0"
-    val fresh = FragmentLog("prune")
-    // Nothing recorded: the render has to happen.
-    assert(!fresh.atLeast(host, 0, 7L))
-    // Recorded FROM this version: a render could only reproduce it.
-    val after = fresh.set(host, r.renderNodeById(host, states).get, 7L)
-    assert(after.atLeast(host, 0, 7L), clue = "same version is covered")
-    assert(after.atLeast(host, 0, 6L), clue = "an older read is covered too")
-    // A newer state is not covered, and neither is another variant.
-    assert(!after.atLeast(host, 0, 8L))
-    assert(!after.atLeast(host, 1, 7L), clue = "variant 1 was never recorded")
+    assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
   }
 
   test("a resume renders a variant-bearing node for THIS viewer") {
@@ -2901,21 +3466,31 @@ class ServerSuite extends munit.CatsEffectSuite {
     )
     val host: NodeId = "c_0"
     val mine = Map("c_0" -> "1")
-    // The bar moved at v5, recorded under the DEFAULT variant — i.e. by a
-    // viewer on tab 0, which is all a shared log ever holds for someone else.
-    val log = FragmentLog("w23")
-      .set(host, r.renderNodeById(host, states).get, 5L)
-    val owed = Patches.resume(r, log, states, 1L, Set("t1"), mine)
+    // The bar moved at v5. What this viewer is recorded as holding is the
+    // DEFAULT variant's bytes — tab 0's bar, which is what a repaint or an
+    // earlier connect on tab 0 would have left behind.
+    val log = FragmentLog("w23").touched(host, 5L)
+    val holds: Map[NodeId, Digest] =
+      Map(host -> Digest.of(r.renderNodeById(host, states).get))
+    val owed = resumeNow(
+      r,
+      log,
+      holds,
+      states,
+      1L,
+      Set("t1"),
+      mine
+    )
 
     assert(
-      owed.exists(_.renderString.contains("active-1")),
-      clue = owed.map(_.renderString)
+      owed.exists(_.patch.toSse.renderString.contains("active-1")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
     assert(
-      !owed.exists(_.renderString.contains("active-0")),
+      !owed.exists(_.patch.toSse.renderString.contains("active-0")),
       clue = (
         "a tab-1 viewer must not be sent tab 0's bar",
-        owed.map(_.renderString)
+        owed.map(_.patch.toSse.renderString)
       )
     )
   }
@@ -2927,34 +3502,51 @@ class ServerSuite extends munit.CatsEffectSuite {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    // The page seeds the log for the open surfaces' nodes, exactly as
-    // `pageResponse` does — by id, with no viewer.
-    val ids =
-      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
-    val seeded = ids.foldLeft(FragmentLog("w18")) { (l, id) =>
-      r.renderLogged(id, before).fold(l)(h => l.seed(id, h, 1L))
-    }
     // This viewer holds tab 1.
     val open = Set("det", "t1")
     val mine = Map("s_det__c_0" -> "1")
+    // What this viewer's DOCUMENT put on screen, exactly as `pageResponse`
+    // records it: rendered at ITS ui state, straight into its own session.
+    val ids =
+      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
+    val seeded = FragmentLog("w18")
+    val held = ids.flatMap { id =>
+      r.renderLogged(id, before, mine).map(h => id -> Digest.of(h))
+    }.toMap
 
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
     //     content must not reach it by ANY route.
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
-    val owed = Patches.resume(r, seeded, tab0Moved, 2L, open, mine)
-    assert(
-      !owed.exists(_.renderString.contains("s_t0__c")),
-      clue = owed.map(_.renderString)
+    val owed = resumeNow(
+      r,
+      seeded,
+      held,
+      tab0Moved,
+      2L,
+      open,
+      mine
     )
-    assert(!owed.exists(_.renderString.contains("A1")), clue = owed)
+    assert(
+      !owed.exists(_.patch.toSse.renderString.contains("s_t0__c")),
+      clue = owed.map(_.patch.toSse.renderString)
+    )
+    assert(!owed.exists(_.patch.toSse.renderString.contains("A1")), clue = owed)
 
     // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
     //     arrive. Without this the test would pass by sending nothing, ever.
     val tab1Moved = before.updated("sensor.b", es("sensor.b", "B1"))
-    val mineOwed = Patches.resume(r, seeded, tab1Moved, 2L, open, mine)
+    val mineOwed = resumeNow(
+      r,
+      seeded,
+      held,
+      tab1Moved,
+      2L,
+      open,
+      mine
+    )
     assert(
-      mineOwed.exists(_.renderString.contains("B1")),
-      clue = mineOwed.map(_.renderString)
+      mineOwed.exists(_.patch.toSse.renderString.contains("B1")),
+      clue = mineOwed.map(_.patch.toSse.renderString)
     )
   }
 
@@ -2984,7 +3576,7 @@ class ServerSuite extends munit.CatsEffectSuite {
         _ <- c.drain
         // sensor.a is bound ONLY inside tab 0's panel, inside the hidden
         // branch. Nothing on screen shows it.
-        _ <- world.changeExpectingSilence(es("sensor.a", "A1"))
+        _ <- world.change(es("sensor.a", "A1"))
         hidden <- c.drain
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
@@ -3014,12 +3606,19 @@ class ServerSuite extends munit.CatsEffectSuite {
       "sensor.z" -> es("sensor.z", "Z0")
     )
     val tab0Node: NodeId = "s_t0__c"
-    val log = FragmentLog("w13")
-      .set(tab0Node, r.renderNodeById(tab0Node, states).get, 5L)
-    val owed = Patches.resume(r, log, states, 1L, Set("then", "t1"), Map.empty)
+    val log = FragmentLog("w13").touched(tab0Node, 5L)
+    val owed = resumeNow(
+      r,
+      log,
+      Map.empty,
+      states,
+      1L,
+      Set("then", "t1"),
+      Map.empty
+    )
     assert(
-      !owed.exists(_.renderString.contains("A1")),
-      clue = owed.map(_.renderString)
+      !owed.exists(_.patch.toSse.renderString.contains("A1")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
   }
 
@@ -3460,8 +4059,10 @@ class ServerSuite extends munit.CatsEffectSuite {
         // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
         //    Silence is structural — its ids never enter the selection.
         hidden <-
-          world.changeExpectingSilence(es("sensor.b", "B1")) *> client.drain
-        _ = assertEquals(hidden, Nil, clue = hidden)
+          world.change(es("sensor.b", "B1")) *> client.drain
+        // No DOM patch. The cursor still moves — a pull reports where it got
+        // to even when it owed this client nothing.
+        _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
         // 4. The flip: ONE overwrite of the host's mount, carrying the branch
         //    rendered at CURRENT state (B1, which this client never saw). The
@@ -3542,20 +4143,695 @@ class ServerSuite extends munit.CatsEffectSuite {
         assert(page.contains(">cold<"), clue = page)
         assert(page.contains(">warm<"), clue = page)
         // ...so the stream sends none of it again. Stated as the WHOLE opening
-        // block, event by event: the connection id, then the cursor. Anything
-        // the server started re-sending shows up here as an extra event rather
-        // than slipping past a negative match.
-        assertEquals(
-          opening.map(_.name),
-          List(Signals, Signals),
-          clue = opening
-        )
+        // block, event by event, so anything the server started re-sending
+        // shows up here as an extra event rather than slipping past a negative
+        // match.
+        //
+        // ONE event: the cursor. The `conn` used to lead it, and no longer
+        // does — the document seeds that signal and puts it on this URL, so
+        // announcing it back was telling the client its own id. The stream
+        // still sends it when it MINTED one (a bookmarked SSE endpoint), which
+        // is not this case.
+        assertEquals(opening.map(_.name), List(Signals), clue = opening)
+        assert(isCursor(opening.head), clue = opening.head)
         assert(
-          opening.head.signals.exists(_.contains(Server.ConnSignal)),
+          !opening.head.signals.exists(_.contains(Server.ConnSignal)),
           clue = opening.head
         )
-        assert(isCursor(opening(1)), clue = opening(1))
       }
+  }
+
+  /** The document, not the stream, creates the session — because the page
+    * render is the first thing that puts fragments in this client's DOM and the
+    * only place that knows what they were. So the suppression the test above
+    * asserts end to end has a per-client record behind it, not a shared one.
+    */
+  test("the document establishes the session its stream then adopts") {
+    val dash = mixedTabsDash
+    val initial = Map(
+      "sensor.shared" -> es("sensor.shared", "cold"),
+      "sensor.a" -> es("sensor.a", "warm")
+    )
+    (for {
+      store <- StateStore.inMemory(initial)
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            sseUrl = page
+              .split("""data-init="@get\('""")(1)
+              .split("'")(0)
+              .replace("&amp;", "&")
+            // The id the document minted, which the URL it advertises carries.
+            conn = Uri
+              .unsafeFromString("/" + sseUrl)
+              .query
+              .params(Server.ConnSignal)
+            established <- sessions.get(conn)
+            held <- established.traverse(_.holds.get)
+            // ...and the stream takes THAT session rather than making its own.
+            _ <- routes
+              .run(Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl)))
+              .flatMap(sseFrom(_)(isCursor))
+            // Read off the object the DOCUMENT made: a FIRST epoch there is
+            // the proof the stream took that session rather than minting one.
+            // Lingering by now, since this stream has read its opening block
+            // and ended.
+            epoch <- established.traverse(_.tenure.get)
+            renderer <- ref.get
+            snapshot <- store.current
+          } yield (held, epoch, renderer, snapshot)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (held, epoch, renderer, snapshot) =>
+        // Its own render, node by node — not a projection of anyone else's.
+        val body = renderer.renderNodeById("c_0", snapshot.entities)
+        assertEquals(
+          held.flatMap(_.get("c_0")),
+          body.map(Digest.of),
+          clue = held
+        )
+        assertEquals(
+          epoch,
+          Some(Tenure.Lingering(1): Tenure),
+          clue = "the stream adopted it"
+        )
+      }
+  }
+
+  /** Two live streams on one session would each record bytes the other sent
+    * into one `holds` map, and each would then suppress a change the client
+    * never received — the one way a per-client record can go wrong by itself.
+    * So the second stream displaces the first.
+    */
+  test("a second stream for one session displaces the first") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            // Nothing ends this stream but displacement: it is the keepalive
+            // path, with no client hanging up.
+            drained <- first.body.compile.drain.start
+            second <- routes.run(Request[IO](Method.GET, url))
+            live <- second.body.compile.drain.start
+            // The join is the assertion. Without displacement the first stream
+            // runs forever and this times out.
+            _ <- drained.join
+            // ...and the second still owns the session: the displaced stream's
+            // own release must not deregister it on the way out.
+            survived <- sessions.get(conn)
+            _ <- live.cancel
+          } yield survived.isDefined
+        }
+    } yield out).timeout(30.seconds).map(assert(_))
+  }
+
+  test(
+    "a document loaded while HA is down SAYS so, without waiting to connect"
+  ) {
+    // The banner used to seed `haDown: false` as a literal, so a page loaded
+    // while HA was unreachable rendered as healthy and stayed that way until
+    // the stream connected and corrected it — a wrong banner on the one screen
+    // whose job is to report that.
+    def pageWith(healthy: Boolean): IO[String] =
+      for {
+        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        sessions <- Sessions.create
+        fake <- FakeHomeAssistant.create(Nil)
+        html <- Server
+          .resource(
+            HomeAssistantApi.fromWs(fake),
+            store,
+            Map("dashboard" -> ref),
+            "dashboard",
+            sessions,
+            healthy = fs2.concurrent.Signal.constant(healthy)
+          )
+          .use(
+            _.routes.orNotFound
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+          )
+      } yield html
+
+    (pageWith(false), pageWith(true))
+      .flatMapN { (down, up) =>
+        IO {
+          assert(
+            down.contains(s"${Server.HaDownSignal}: true"),
+            clue = down.linesIterator.find(_.contains("data-signals"))
+          )
+          assert(
+            up.contains(s"${Server.HaDownSignal}: false"),
+            clue = up.linesIterator.find(_.contains("data-signals"))
+          )
+        }
+      }
+      .timeout(30.seconds)
+  }
+
+  test("a first connect resumes from AFTER its document's version") {
+    // A document was rendered from one snapshot, so it has ALL of version V —
+    // asking for `>= V` hands back everything it already contains. It is
+    // complete through V, so it needs `> V`. `Server.resumeFrom` says exactly
+    // that, and told the two apart by whether the request carried signals...
+    // which a first connect DOES: Datastar sets `datastar={}` on every GET. So
+    // every page load took the reconnect branch, and the fix is `hasSignals`
+    // testing for a NON-EMPTY store.
+    //
+    // Only RENDERS can see it — the document seeds its own `holds`, so the
+    // redundant work is suppressed before it reaches the wire. And only on a
+    // COLD cache: with another session already pulling, `RenderCache` serves
+    // those nodes and `renderNodeById` is never called, which is why the gate
+    // here is held open by a document that never connects.
+    val count = new AtomicInteger(0)
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "A0")))
+      ref <- SignallingRef[IO].of(
+        new CountingRenderer(liveLeafDash, count): Renderer
+      )
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          def openDocument: IO[Uri] =
+            routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+              .map(page =>
+                Uri.unsafeFromString(
+                  "/" + page
+                    .split(SseUrlMarker)(1)
+                    .split("'")(0)
+                    .replace("&amp;", "&")
+                )
+              )
+          for {
+            // A document that never connects. Its session holds the recording
+            // gate open — a slug nobody is watching records nothing — WITHOUT
+            // pulling, so nothing warms the render cache.
+            _ <- openDocument
+            _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
+            _ <- store.update(es("sensor.a", "A1"))
+            // The recorder writes on its own fiber and nothing here can observe
+            // it (no stream to watch). Sabotage is what keeps this honest:
+            // reverting `hasSignals` fails this test, which it could not do if
+            // the wait were too short.
+            _ <- IO.sleep(300.millis)
+            // Now a document rendered AT that version, and complete through it.
+            _ <- IO(count.set(0))
+            url <- openDocument
+            // `datastar={}` is what a BROWSER adds and the server-built
+            // `data-init` URL does not: Datastar serialises its signal store
+            // into every GET, and on a first connect that store is empty
+            // because `data-init` fires before the descendants' `data-signals`
+            // are merged. Without this the harness cannot see the difference at
+            // all — both branches read the query params — which is exactly why
+            // the bug survived.
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                url.withQueryParam("datastar", "{}")
+              )
+            )
+            block <- sseFrom(resp)(isCursor)
+          } yield (count.get(), block)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (renders, block) =>
+        assertEquals(renders, 0, clue = block)
+      }
+  }
+
+  test("a connect does not repeat the health the document already rendered") {
+    // The document renders the banner's value into the page and records it on
+    // the session, so an ordinary load is already correct. Emitting it again on
+    // connect said nothing — and this is NOT caught by the opening-block tests,
+    // because `haDown` rides the merged streams and arrives after the cursor
+    // they stop on.
+    def eventsOn(healthy: Boolean): IO[List[ServerSentEvent]] =
+      for {
+        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        sessions <- Sessions.create
+        fake <- FakeHomeAssistant.create(Nil)
+        out <- Server
+          .resource(
+            HomeAssistantApi.fromWs(fake),
+            store,
+            Map("dashboard" -> ref),
+            "dashboard",
+            sessions,
+            healthy = fs2.concurrent.Signal.constant(healthy)
+          )
+          .use { server =>
+            val routes = server.routes.orNotFound
+            for {
+              page <- routes
+                .run(Request[IO](Method.GET, uri"/d/dashboard"))
+                .flatMap(_.bodyText.compile.string)
+              url = Uri.unsafeFromString(
+                "/" + page
+                  .split(SseUrlMarker)(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              resp <- routes.run(Request[IO](Method.GET, url))
+              seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+              pump <- resp.body
+                .through(ServerSentEvent.decoder[IO])
+                .evalMap(e => seen.update(_ :+ e))
+                .compile
+                .drain
+                .start
+              // Past the opening block, then a settle: `healthy.discrete` fires
+              // on SUBSCRIBE, so anything it was going to send has been sent
+              // well before this.
+              _ <- fs2.Stream
+                .repeatEval(seen.get <* IO.sleep(5.millis))
+                .find(_.exists(isCursor))
+                .compile
+                .drain
+              _ <- IO.sleep(250.millis)
+              got <- seen.get
+              _ <- pump.cancel
+            } yield got.toList
+          }
+      } yield out
+
+    (eventsOn(true), eventsOn(false))
+      .flatMapN { (up, down) =>
+        IO {
+          assert(
+            !up.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+            clue = up
+          )
+          // ...and the same when HA is DOWN: the page rendered `true`, so
+          // repeating it is just as redundant. Skipping is about agreement with
+          // the document, not about the value being false.
+          assert(
+            !down.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+            clue = down
+          )
+        }
+      }
+      .timeout(30.seconds)
+  }
+
+  test(
+    "the document seeds `conn`; only a stream that MINTED one announces it"
+  ) {
+    // Every ordinary load carries `conn` on the SSE URL because the document
+    // minted it, so echoing it back said nothing. A bookmarked SSE endpoint
+    // names no session, and there the client genuinely does not know.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            conn = Uri
+              .unsafeFromString(
+                "/" + page
+                  .split("""data-init="@get\('""")(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              .query
+              .params(Server.ConnSignal)
+            // No conn at all: the bookmarked case.
+            bare <- routes
+              .run(
+                Request[IO](
+                  Method.GET,
+                  uri"/sse/dashboard/dashboard/patch"
+                )
+              )
+              .flatMap(sseFrom(_)(isCursor))
+          } yield (page, conn, bare)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (page, conn, bare) =>
+        // The page carries it as a signal, so an action POST can echo it
+        // without waiting for the stream to say what it already knows.
+        assert(page.contains(s"${Server.ConnSignal}: '$conn'"), clue = conn)
+        // ...and a stream that had to mint one still says so.
+        assert(
+          bare.exists(_.signals.exists(_.contains(Server.ConnSignal))),
+          clue = bare
+        )
+      }
+  }
+
+  test("a reload's `prev` retires the session it superseded") {
+    // A reload mints a fresh `conn`, so without this the session it replaced
+    // sits in the registry for the whole linger window holding an old
+    // `position` — and the floor is the LOWEST position, so a few reloads keep
+    // the changelog un-prunable. The client names its predecessor from
+    // sessionStorage; the server drops it.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            // A document nobody connected to: Tenure.Fresh, exactly what an
+            // abandoned load leaves behind.
+            first <- connOfPage(routes)
+            before <- sessions.get(first)
+            // The reload's stream, naming its predecessor.
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.PrevConnParam}=$first"
+                )
+              )
+            )
+            live <- resp.body.compile.drain.start
+            // Read IMMEDIATELY, with no polling: the retirement happens while
+            // the handler builds its response, so it has already run by the
+            // time `resp` exists. Waiting instead would let `AdoptionWindow`
+            // reap this session on its own and the test would pass with the
+            // retirement deleted — which is exactly what a first draft did.
+            after <- sessions.get(first)
+            _ <- live.cancel
+          } yield (before.isDefined, after.isDefined)
+        }
+    } yield out).timeout(30.seconds).assertEquals((true, false))
+  }
+
+  test("`prev` never retires a session a stream is still HOLDING") {
+    // sessionStorage is copied into a duplicated tab (and, in Chrome, into one
+    // opened via target=_blank), so the predecessor a document names can belong
+    // to a tab that is very much alive. Retiring only a non-Held session makes
+    // that a no-op instead of pulling the rug from under a live viewer.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            held <- connOfPage(routes)
+            heldStream <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$held"
+                )
+              )
+            )
+            alive <- heldStream.body.compile.drain.start
+            _ <- sessions.liveStreams.filter(_ >= 1).head.compile.drain
+            // The duplicated tab: its own document, naming the live one.
+            other <- connOfPage(routes)
+            resp <- routes.run(
+              Request[IO](
+                Method.GET,
+                Uri.unsafeFromString(
+                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$other" +
+                    s"&${Server.PrevConnParam}=$held"
+                )
+              )
+            )
+            second <- resp.body.compile.drain.start
+            _ <- IO.sleep(100.millis)
+            survived <- sessions.get(held)
+            _ <- alive.cancel *> second.cancel
+          } yield survived.isDefined
+        }
+    } yield out).timeout(30.seconds).assert
+  }
+
+  test("a frame this client is owed nothing for puts NOTHING on its wire") {
+    // Not merely "no element patches" — no events at all. The cursor used to go
+    // out on every pull, which made a quiet frame cost one signal per client;
+    // it rides the keepalive now instead. This is the contract that removal
+    // creates, and the reason `LiveWorld.change` gates on the server rather
+    // than on a cursor arriving.
+    liveWorld(
+      twoTabsDash,
+      Map(
+        "sensor.shared" -> es("sensor.shared", "s0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { world =>
+      for {
+        onT0 <- world.connect()
+        onT1 <- world.connect("?ui.c_1=1")
+        _ <- onT0.drain
+        _ <- onT1.drain
+        // Inside tab 0's panel only.
+        _ <- world.change(es("sensor.a", "A1"))
+        a0 <- onT0.drain
+        a1 <- onT1.drain
+      } yield {
+        assert(a0.nonEmpty, clue = a0)
+        assertEquals(a1, Nil, clue = ("tab 1 gets no bytes at all", a1))
+      }
+    }
+  }
+
+  /** A dropped SSE stream is the NORMAL case, not a goodbye: a phone sleeping,
+    * a lid closing, a wifi handover. The session outlives it, so the client
+    * that comes back is told what moved rather than repainted — and it is the
+    * SAME session, because a new one under the same `conn` would have an empty
+    * `holds` and could only claim what it re-sent.
+    */
+  test(
+    "a dropped stream leaves its session lingering, and a reconnect takes it back"
+  ) {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          // Sleeps, because a bare retry loop starves the very fibers it is
+          // waiting on when the runtime has few threads.
+          def awaitTenure(conn: String, t: Tenure): IO[Unit] =
+            (IO.sleep(5.millis) *> sessions
+              .get(conn)
+              .flatMap(_.traverse(_.tenure.get)))
+              .iterateUntil(_.contains(t))
+              .void
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            reading <- first.body.compile.drain.start
+            _ <- awaitTenure(conn, Tenure.Held(1))
+            // The client hangs up.
+            _ <- reading.cancel
+            _ <- awaitTenure(conn, Tenure.Lingering(1))
+            before <- sessions.get(conn)
+            heldBefore <- before.traverse(_.holds.get)
+            // ...and comes back to the same URL, as Datastar's own retry does.
+            second <- routes.run(Request[IO](Method.GET, url))
+            live <- second.body.compile.drain.start
+            _ <- awaitTenure(conn, Tenure.Held(2))
+            after <- sessions.get(conn)
+            _ <- live.cancel
+          } yield (before, after, heldBefore)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (before, after, heldBefore) =>
+        assert(
+          before.isDefined && after.exists(a => before.exists(_ eq a)),
+          clue = "the reconnect adopted the very session the drop left behind"
+        )
+        // What makes that worth doing: the record of this client's DOM, which
+        // the document seeded and a fresh session could not have.
+        assert(heldBefore.exists(_.nonEmpty), clue = heldBefore)
+      }
+  }
+
+  /** The other end of the same window: a client that never comes back must not
+    * cost a map read on every state batch for the life of the process.
+    */
+  test("a session nobody comes back for is reaped") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          lingerWindow = 50.millis
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          for {
+            page <- routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            url = Uri.unsafeFromString(
+              "/" + page
+                .split("""data-init="@get\('""")(1)
+                .split("'")(0)
+                .replace("&amp;", "&")
+            )
+            conn = url.query.params(Server.ConnSignal)
+            first <- routes.run(Request[IO](Method.GET, url))
+            reading <- first.body.compile.drain.start
+            _ <- (IO.sleep(5.millis) *> sessions
+              .get(conn)
+              .flatMap(_.traverse(_.tenure.get)))
+              .iterateUntil(_.contains(Tenure.Held(1)))
+            _ <- reading.cancel
+            // Registered while it lingers — that IS the point of the window —
+            // and gone once it closes.
+            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
+              .iterateWhile(_.isDefined)
+          } yield ()
+        }
+    } yield out).timeout(30.seconds).void
+  }
+
+  test("a document nobody connects to does not leak a session") {
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          adoptionWindow = 50.millis
+        )
+        .use { server =>
+          for {
+            page <- server.routes.orNotFound
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(_.bodyText.compile.string)
+            conn = Uri
+              .unsafeFromString(
+                "/" + page
+                  .split("""data-init="@get\('""")(1)
+                  .split("'")(0)
+                  .replace("&amp;", "&")
+              )
+              .query
+              .params(Server.ConnSignal)
+            // Present the moment the document is served — a stream opening a
+            // beat later must find it.
+            before <- sessions.get(conn)
+            // ...and gone once the window passes with nobody adopting it,
+            // because every live session is read on every state batch.
+            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
+              .iterateWhile(_.isDefined)
+          } yield before.isDefined
+        }
+    } yield out).timeout(30.seconds).map(assert(_))
   }
 
   test("end to end: a leaf tick, then the same value again") {
@@ -3585,8 +4861,8 @@ class ServerSuite extends munit.CatsEffectSuite {
         // NOTHING on the wire — not even a cursor, since only a non-empty batch
         // carries one.
         again <-
-          world.changeExpectingSilence(es("sensor.a", "hot")) *> client.drain
-        _ = assertEquals(again, Nil, clue = again)
+          world.change(es("sensor.a", "hot")) *> client.drain
+        _ = assertEquals(domEvents(again), Nil, clue = again)
       } yield ()
     }
   }

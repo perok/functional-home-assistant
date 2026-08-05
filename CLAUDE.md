@@ -20,6 +20,13 @@ them, and when a change supersedes a decision, **rewrite the relevant ADR in pla
 keeps the archaeology, so no dated update sections while the design is pre-v1. A genuinely new
 decision gets a new ADR.
 
+[`docs/architecture-rendering-pipeline.md`](docs/architecture-rendering-pipeline.md) is the **map of the live rendering
+system** — how one HA state change becomes bytes in a browser, what is shared per slug vs. per
+connection, and the three node kinds. Read it before changing anything in `fh/view/runtime`, and
+**update it in the same commit as the change**, ADRs included (an ADR owns the decision, that file
+owns the shape). It is also where a proposal should point: say which box moves. Its "Known open
+questions" section is a live list, not a backlog — delete an entry when it is answered.
+
 `docs/plan-*.md` are **deferred design plans, not implemented code** unless they say otherwise —
 do not assume an API described there exists in the sources.
 

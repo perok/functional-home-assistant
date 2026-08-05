@@ -9,7 +9,9 @@ import fh.view.model.{
   Predicate,
   SlotSource
 }
+import fh.view.model.NodeId
 import fh.view.testkit.TestIds.given
+import cats.effect.unsafe.implicits.global
 import io.circe.Json
 
 /** [[Patches.resume]] — where a resuming client's group members get their
@@ -52,15 +54,17 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   private def cid(entity: String) = renderer.dynamicChildId("c", entity)
 
+  /** A FRESH cache per call: these tests are about which patches come out, not
+    * about reuse, and sharing one would make a test's expectations depend on
+    * what an earlier test happened to render.
+    */
   private def resume(log: FragmentLog, v: Long): List[String] =
-    Patches.resume(renderer, log, states, v).map(_.renderString)
+    RenderCache.create
+      .flatMap(Patches.resume(renderer, _, log, Map.empty, states, v))
+      .unsafeRunSync()
+      .map(_.patch.toSse.renderString)
 
   private val empty = FragmentLog("test")
-
-  /** Wall clock equal to the version, so nothing in these fixtures ages out —
-    * retention is [[FragmentLogSuite]]'s subject, not this one's.
-    */
-  private def at(v: Long): Stamp = Stamp(v, v)
 
   test("a placement removes then inserts, anchored on the next member") {
     // light.b is placed; a is before it and c is after, so it goes before c. The
@@ -69,8 +73,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.b"),
       cid("light.b"),
-      "<b/>",
-      at(5L)
+      5L
     )
     val out = resume(log, 1L)
     assertEquals(out.size, 2, clue = out)
@@ -86,8 +89,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.d"),
       cid("light.d"),
-      "<d/>",
-      at(5L)
+      5L
     )
     val out = resume(log, 1L)
     assert(out(1).contains("mode append"), clue = out(1))
@@ -99,8 +101,8 @@ class ResumePatchesSuite extends munit.FunSuite {
     // descending places c (anchored on the present d) and then b (anchored on
     // the just-placed c).
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(5L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), "<c/>", at(6L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 4, clue = out)
     assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
@@ -112,8 +114,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("placement order depends on position, not on version") {
     // Same as above with the versions swapped: position, not recency, decides.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(9L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), "<c/>", at(2L))
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 9L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 2L)
     val out = resume(log, 1L)
     assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
     assert(out(3).contains(s"""id="${cid("light.b")}""""), clue = out)
@@ -122,8 +124,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("morphs precede mutations") {
     // Content goes first and the structural fixups land on top of it.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(5L))
-      .set(cid("light.a"), "<stale/>", 6L)
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
+      .touched(cid("light.a"), 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 3, clue = out)
     // Rendered NOW, not read back from the log — `<stale/>` was what the log was
@@ -139,7 +141,7 @@ class ResumePatchesSuite extends munit.FunSuite {
     // fragment that can never be sent. It must be dropped, not crash the resume
     // — and `NodeId`/`DomId` are what keep a `-self` or mount id from getting in
     // here in the first place.
-    val out = resume(empty.set("no_such_node", "<x/>", 5L), 1L)
+    val out = resume(empty.touched("no_such_node", 5L), 1L)
     assertEquals(out, Nil)
   }
 
@@ -150,8 +152,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c",
       MemberKey.Entity("light.zz"),
       "c_light_zz",
-      "<z/>",
-      at(5L)
+      5L
     )
     assertEquals(resume(log, 1L), Nil)
   }
@@ -163,19 +164,51 @@ class ResumePatchesSuite extends munit.FunSuite {
     // stale one planted by hand is not merely harmless but unresolvable: it
     // renders to nothing and drops out, while the placement still goes.
     val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), "<b/>", at(5L))
-      .set("c", "<group>all four</group>", 6L)
+      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
+      .touched("c", 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 2, clue = out)
     assert(!out.exists(_.contains("all four")), clue = out)
     assert(out(1).contains("mode before"), clue = out)
   }
 
+  /** What a patch does to the SESSION's record of this client's DOM. The
+    * dangerous direction is claiming a digest the client does not have, and a
+    * fill is where that happens without help: it overwrites a mount's whole
+    * subtree with no per-node trace, so a member's old claim would outlive the
+    * bytes it described and suppress that value coming round again.
+    */
+  test("a fill forgets its mount, then claims what it placed") {
+    val holds: Map[NodeId, Digest] = List(
+      "c" -> "<c/>",
+      "c_1" -> "<one/>",
+      "c_10" -> "<ten/>",
+      "c_1_0" -> "<nested/>",
+      "d_1" -> "<other/>"
+    ).map { case (id, html) => (id: NodeId) -> Digest.of(html) }.toMap
+    val after = Patches.applied(
+      holds,
+      Addressed(
+        Patch.Morph("<ignored/>"),
+        establishes = Map(("c_1": NodeId) -> Digest.of("<fresh/>")),
+        invalidates = Set[NodeId]("c_1")
+      )
+    )
+    // The root of the fill and everything under it are unknown again...
+    assertEquals(after.get("c_1_0"), None, clue = after)
+    // ...but the same patch's own placement survives the prune it triggered.
+    assertEquals(after.get("c_1"), Some(Digest.of("<fresh/>")), clue = after)
+    // A prefix is not a sibling: `c_1` must not swallow `c_10`.
+    assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
+    assertEquals(after.get("c"), holds.get("c"), clue = after)
+    assertEquals(after.get("d_1"), holds.get("d_1"), clue = after)
+  }
+
   test("a cursor past everything is owed nothing") {
     val log = empty
-      .removed("c", cid("light.b"), at(4L))
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), "<c/>", at(5L))
-      .set("other", "<o/>", 6L)
+      .removed("c", cid("light.b"), 4L)
+      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 5L)
+      .touched("other", 6L)
     assertEquals(resume(log, 7L), Nil)
   }
 }

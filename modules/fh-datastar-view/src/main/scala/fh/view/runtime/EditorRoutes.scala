@@ -55,8 +55,10 @@ final class EditorRoutes(
         serveAsset(req, asset)
 
       case GET -> Root / "edit" / "files" =>
-        Ok(listFiles).map(
-          _.withContentType(`Content-Type`(MediaType.application.json))
+        listFiles.flatMap(
+          Ok(_).map(
+            _.withContentType(`Content-Type`(MediaType.application.json))
+          )
         )
 
       case req @ GET -> "edit" /: "file" /: rest =>
@@ -133,21 +135,45 @@ final class EditorRoutes(
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
     * the absolute file (the LSP `file://` document URI); entries carry their
     * `slug` (filename sans `.pkl`) so the page can preview them.
+    *
+    * Returns `IO` because it reads the filesystem: the scan owns its own
+    * `IO.blocking` so no caller has to know it blocks. Only the scan is inside
+    * it — turning the result into JSON is pure and stays on the compute pool.
     */
-  private def listFiles: String = {
-    def entryJson(rel: String, p: os.Path, slug: Option[String]): Json =
-      Json.obj(
-        "name" -> Json.fromString(rel),
-        "path" -> Json.fromString(p.toString),
-        "slug" -> slug.fold(Json.Null)(Json.fromString)
-      )
+  private def listFiles: IO[String] =
+    IO.blocking(scanSources).map { case (top, lib, project) =>
+      def entryJson(rel: String, p: os.Path, slug: Option[String]): Json =
+        Json.obj(
+          "name" -> Json.fromString(rel),
+          "path" -> Json.fromString(p.toString),
+          "slug" -> slug.fold(Json.Null)(Json.fromString)
+        )
 
-    val top = os
-      .list(dashboardsDir)
-      .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-      .map(p => entryJson(p.last, p, Some(p.last.stripSuffix(".pkl"))))
-      .toList
-      .sortBy(_.hcursor.get[String]("name").toOption)
+      def sorted(entries: List[Json]): List[Json] =
+        entries.sortBy(_.hcursor.get[String]("name").toOption)
+
+      val topJson =
+        sorted(
+          top.map(p => entryJson(p.last, p, Some(p.last.stripSuffix(".pkl"))))
+        )
+      val libJson = sorted(lib.map(p => entryJson(s"lib/${p.last}", p, None)))
+      val projectJson =
+        project.map(p => entryJson(EditorRoutes.Manifest, p, None)).toList
+
+      Json.arr((topJson ++ libJson ++ projectJson)*).noSpaces
+    }
+
+  /** The editable sources on disk: top-level entries, `lib/` modules, and the
+    * workspace manifest if it exists. Blocking — called only from
+    * [[listFiles]], inside its region.
+    */
+  private def scanSources: (List[os.Path], List[os.Path], Option[os.Path]) = {
+    def pklFilesIn(dir: os.Path): List[os.Path] =
+      if (os.exists(dir))
+        os.list(dir)
+          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
+          .toList
+      else Nil
 
     // The workspace's own manifest — a real author file (it declares the package
     // dependencies), even though it has no `.pkl` extension. Editing it takes
@@ -155,23 +181,11 @@ final class EditorRoutes(
     // `PklProject.deps.json` in-process on the next build. The generated
     // lockfile itself, and the machine-specific `.fh/` files, stay hidden.
     val manifest = dashboardsDir / EditorRoutes.Manifest
-    val project =
-      if (os.exists(manifest))
-        List(entryJson(EditorRoutes.Manifest, manifest, None))
-      else Nil
-
-    val libDir = dashboardsDir / "lib"
-    val lib =
-      if (os.exists(libDir))
-        os.list(libDir)
-          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-          .filter(_.last != "dump.pkl")
-          .map(p => entryJson(s"lib/${p.last}", p, None))
-          .toList
-          .sortBy(_.hcursor.get[String]("name").toOption)
-      else Nil
-
-    Json.arr((top ++ lib ++ project)*).noSpaces
+    (
+      pklFilesIn(dashboardsDir),
+      pklFilesIn(dashboardsDir / "lib").filter(_.last != "dump.pkl"),
+      Option.when(os.exists(manifest))(manifest)
+    )
   }
 
   /** Resolve a request path (`<name>.pkl`, `lib/<name>.pkl`, or the workspace's

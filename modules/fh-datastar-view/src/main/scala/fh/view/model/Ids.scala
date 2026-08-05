@@ -6,7 +6,7 @@ import io.circe.Decoder
   * mistaken for the other.
   *
   * They were both `String` until the self/mount split
-  * (docs/adr/0012-one-pass-addressed-per-client.md) made the distinction
+  * (docs/adr/0012-each-session-renders-what-it-is-owed.md) made the distinction
   * load-bearing: a container card's patch targets `<nodeId>-self`, a mount is
   * `<nodeId>_panel`, and neither is the node id the
   * [[fh.view.runtime.FragmentLog]] is keyed by. The ledger renders content FROM

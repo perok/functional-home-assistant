@@ -64,33 +64,88 @@ fallback (the full model + the fluent predicate helpers — `domainIs`/`stateIs`
 `deviceClassIs`/`stateBelow`/`attrBelow`/`lowBattery`/… — are ADR 0006). The
 leaf builders stay shared because both static and dynamic use call them.
 
-### Re-render only when a change touches the query
+### The query decides MEMBERSHIP; the reverse index decides re-render
 
-Membership is data-dependent, so a dynamic container can't be reverse-indexed
-by entity like static components. But it does **not** re-render on every
-event: the state stream carries `StateChange(entityId, previous, current)`, and
-a group re-renders only when the changed entity matched its query **before or
-after** the change (`Renderer.affectedDynamicIds`) — covering add (¬prev ∧
-cur), remove (prev ∧ ¬cur), and in-place update (prev ∧ cur), while an
-unrelated entity's change is skipped (the group's HTML would be identical).
+A group's `query` is consulted only for the question it is about: could this
+frame have moved who belongs? The state stream carries
+`StateChange(entityId, previous, current)`, and a group is considered when the
+changed entity matched its query **before or after** the change
+(`Renderer.affectedDynamics`) — covering add (¬prev ∧ cur) and remove
+(prev ∧ ¬cur) — while an unrelated entity's change skips it.
 
-This test is **stateless** — no per-group membership cache. A shared member-set
-cache would have to mirror the rendered-HTML diff caches, which live at two
-levels (per-slug for the shared main-page pass, per-session for open-surface
-nodes — ADR 0002), and a cache that hasn't rendered a removal yet must not skip
-it; testing old-or-new match needs no shared state and is correct wherever the
-diff cache lives. The assumption it rests on: a dynamic card binds to its
-matched entity (no cross-entity slots inside a case) — the current invariant.
+Re-rendering an existing member is a different question, and it is no longer
+asked here. A member is a node in the graph with real bindings, so it is
+reverse-indexed by entity exactly like a static component.
 
-A re-render of a group re-renders every matched card, but the cards'
-action/config slots are memoized identity slots (ADR 0004), so it costs ~2 live
-JSONata evals per card. Main-page groups render once per slug in the shared
-pass regardless of viewer count — including groups inside a state-activated
-surface's active branch (ADR 0007); only groups inside a user-opened surface
-render per session (and a group inside an *inactive* state branch renders
-nowhere at all). **Future work** (flagged at the shared patch publisher in `Server`):
-coalesce/debounce event bursts — the query filter bounds *what* re-renders;
-batching would bound *how often*.
+The membership question is still asked once per frame, at the frame boundary, because two
+entities can cross the query boundary in opposite directions in one tick and each
+single-entity view of that reports a change the frame did not make. What changed is what
+holds the answer: members are **materialised into the node graph**
+(`Renderer.syncMembers`, and `architecture-rendering-pipeline.md` §4b). A member is a real
+`Component` under a key-derived id, carrying its matched entity as a literal `entity_id`
+slot — the binding `renderCase` used to set on every render.
+
+**That retires the invariant this used to rest on.** "A dynamic card binds to its matched
+entity (no cross-entity slots inside a case)" was needed because a member had no entry in
+the reverse index and so could only be reached through its group's query. A materialised
+member IS in the reverse index (`componentsFor`/`surfaceComponentsFor` include members
+binding the entity), so the query is now asked one question only — did MEMBERSHIP move —
+and a member that merely re-renders is found the way a static component is found.
+
+A case slot naming a second entity was authorable all along and silently never ticked; it
+does now, which is the one place this moved the wire. The ordinary case — a member bound
+only to its matched entity — emits exactly what it did before, because that entity is the
+member's `subjectEntity` and every inheriting slot resolves to it.
+
+One thing the reverse index cannot cover, and it is worth naming because it is silent: a
+case switch whose ARRIVING card binds nothing live contributes no entity edge, so nothing
+would name it while its bytes moved. The member's ID is the sound handle — it exists
+whatever the card does, since `Dashboard.validate` rejects a `wrapAsCell = false` card as a
+dynamic case precisely so every member has its own element — so `syncMembers` reports the
+members it REPLACED and the recorder touches those by id.
+
+**What a membership change costs.** The recorder writes a delta where it can: an
+arrival or departure records one `Mutation` per member, and only heavy churn (≥50% of rendered members) or a group the
+log holds no children for records a whole-mount fill. Nothing is rendered while
+recording; each session renders what it is owed when it pulls (ADR 0012), through the
+per-slug render cache, so N viewers of one group cost one render of each changed member.
+A group inside a surface no session has open is not recorded at all, and one inside an
+inactive state branch (ADR 0007) is structurally silent.
+
+**Membership is maintained, not rescanned.** Only a CHANGED entity can have crossed a
+query or case boundary, so a frame costs O(changes) per group where the old
+`dynamicMembers` filtered every entity in the house — twice per frame for the recorder,
+and once more for each pulling session, which was paying to re-derive a member's owner
+that the recorder had already worked out. The graph also holds the member ORDER, so
+"successor of this arrival" — what an `insert before` needs — is a lookup rather than a
+sort.
+
+One cost remains: **a re-rendered card re-evaluates its slots**, though the action/config
+slots are memoized identity slots (ADR 0004), so it costs ~2 live JSONata evals per card.
+
+Burst coalescing is no longer future work: a session's doorbell is a `SignallingRef` and
+`.discrete` collapses versions that land while it renders into one pull. The query
+filter bounds *what* is examined; the doorbell bounds *how often* a viewer pays for it.
+
+## Open
+
+**An entity vanishing has no path of its own.** `StateStore` publishes no `StateChange`
+for a removal — a batch of pure removals does not even reach the recorder — because an
+entity appearing or vanishing changes what the dashboards were BUILT from, and that is
+handled by the registry watcher re-evaluating every entry rather than by patching a node.
+Deliberately coarse, and right: it happens a few times a year.
+
+What is not guaranteed is the re-evaluation. An `r` frame does not always have a registry
+event behind it, so a removal can pass with the version moving and nothing rebuilt. That
+used to be harmless — membership was rescanned from the current snapshot, so a departed
+entity simply stopped being a member. **With membership maintained from deltas it is not**:
+nothing reports the removal, so the graph keeps a ghost member whose id would be offered as
+an insert anchor for an element in no DOM.
+
+The intended answer is to treat a removal as a `LiveSlug` reload (fresh renderer, log and
+member graph), which is what the registry path already does and what the rest of the system
+already tolerates. Rare, coarse, correct by construction. Not built — this is the one thing
+the member graph is owed.
 
 ## Consequences
 

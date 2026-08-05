@@ -20,12 +20,9 @@ import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
 
-  /** The affected dynamic ids with the touched entities dropped — a shape only
-    * these tests want, so it lives here rather than as production API.
-    */
   extension (r: Renderer)
     private def affectedDynamicIds(change: StateChange): List[String] =
-      r.affectedDynamics(List(change)).map(_._1)
+      r.affectedDynamics(List(change))
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -1394,91 +1391,6 @@ class RendererSuite extends munit.FunSuite {
     assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
   }
 
-  test("a self reads the selection only when it uses the TAG") {
-    def cards(self: String) = Map(
-      "col" -> CardDef(
-        template = "{{{mount}}}",
-        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
-      ),
-      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-      "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some(self),
-        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
-      )
-    )
-    def dash(self: String) = Dashboard(
-      cards = cards(self),
-      card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("tabs"))),
-      surfaces = Map(
-        "t0" -> Surface(
-          LayoutNode.Component("card", Map("state" -> SlotSource(Some("s.a")))),
-          bakeInto = Some("c_0"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
-        )
-      )
-    )
-    // A real tag — including the triple-stache form, since a numeric index
-    // escapes to itself and an author may well write it that way.
-    assert(
-      Renderer
-        .create(dash("""<div id="{{selfId}}" class="a-{{bakeIndex}}"></div>"""))
-        .nodeVariesByViewer("c_0")
-    )
-    assert(
-      Renderer
-        .create(dash("""<div id="{{selfId}}">{{{ bakeIndex }}}</div>"""))
-        .nodeVariesByViewer("c_0")
-    )
-    // The word, but not the value: a comment and a class name are not reads,
-    // and treating them as such makes the card per-viewer forever.
-    assert(
-      !Renderer
-        .create(
-          dash(
-            """<div id="{{selfId}}" class="bakeIndex"><!-- bakeIndex --></div>"""
-          )
-        )
-        .nodeVariesByViewer("c_0")
-    )
-  }
-
-  test(
-    "surfaceVariesByViewer: a user mount under a branch makes it per-viewer"
-  ) {
-    // The then-branch content is a `tabs` owner (a user-selected bake group
-    // baked into the branch's content root `s_c_then__c`) — so the If's host
-    // HTML embeds a client-selected member and cannot render shared.
-    val d = Dashboard(
-      ifCards,
-      LayoutNode.Component("ifhost"),
-      surfaces = Map(
-        "c_then" -> Surface(
-          LayoutNode.Component("tabs"),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(always)
-        ),
-        "t0" -> Surface(
-          LayoutNode.Component("btn", Map("label" -> lit("t"))),
-          bakeInto = Some("s_c_then__c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
-        )
-      )
-    )
-    // The then-branch holds a tabs host, so its HTML is not one thing — it is
-    // one thing per selection, and the shared pass must not render it.
-    assert(Renderer.create(d).surfaceVariesByViewer("c_then"))
-    // A branch with no user mount anywhere is one rendering serving everyone.
-    assert(!Renderer.create(ifDashboard()).surfaceVariesByViewer("c_then"))
-  }
-
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
     // Two chains hanging off the main page, each two surfaces deep:
     //   main -> t0 (user)  -> if host -> b0 (state)
@@ -1559,31 +1471,33 @@ class RendererSuite extends munit.FunSuite {
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
     def high(id: String) =
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
-    // Matching either side touches the group, and the entity that did it is
-    // named — WHICH way it moved is the frame's question, not one change's.
+    // Matching either side selects the group. WHICH way it moved is the
+    // frame's question (`syncMembers`), not one change's — and WHICH members
+    // ticked is no longer asked here at all: a member that merely ticked is
+    // found through the reverse index, like any other node.
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     assertEquals(
       r.affectedDynamics(List(StateChange("s.b", None, low("s.b")))),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // prev ∧ ¬cur
     assertEquals(
       r.affectedDynamics(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
-      List("c" -> List("s.b"))
+      List("c")
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
@@ -1592,7 +1506,7 @@ class RendererSuite extends munit.FunSuite {
       ),
       Nil
     )
-    // One frame, several entities: ONE entry naming both.
+    // One frame, several entities: ONE entry.
     assertEquals(
       r.affectedDynamics(
         List(
@@ -1600,11 +1514,11 @@ class RendererSuite extends munit.FunSuite {
           StateChange("s.c", Some(low("s.c")), high("s.c"))
         )
       ),
-      List("c" -> List("s.b", "s.c"))
+      List("c")
     )
   }
 
-  // ---- the self/mount split (docs/adr/0012-one-pass-addressed-per-client.md) ----
+  // ---- the self/mount split (docs/adr/0012-each-session-renders-what-it-is-owed.md) ----
 
   /** A container that declares both parts AND binds a live entity — the shape
     * the split exists for ("a tab bar with the current temperature in its

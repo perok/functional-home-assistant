@@ -23,7 +23,14 @@ case class EntityState(
     // state is applied only if it isn't older than the stored one, so a
     // reconnect's full set can't clobber a fresher delta. `None` when the frame
     // carried no timestamp; then updates fall back to value dedup.
-    lastUpdated: Option[Instant] = None
+    lastUpdated: Option[Instant] = None,
+    // The store version at which this entity's CONTENT last moved — stamped by
+    // [[StateStore.update]], carried over unchanged when a newer-but-identical
+    // state lands. So it moves exactly when `sameContent` says something moved,
+    // which makes it a `Long` stand-in for "the rendered value of this entity"
+    // ([[Renderer.renderInputs]], ADR 0012). NOT the store
+    // version: entities that did not move in a batch keep their older stamp.
+    contentVersion: Long = 0L
 ) {
 
   /** The entity's domain, i.e. the entity-id prefix (`light.kitchen` ->
@@ -239,17 +246,29 @@ class StateStore private (
               def put(
                   value: EntityState,
                   previous: Option[EntityState]
-              ) = {
-                val m2 = m.updated(value.entityId, value)
-                if (previous.exists(EntityState.sameContent(_, value)))
-                  (m2, changes, removed)
-                else
-                  (
-                    m2,
-                    StateChange(value.entityId, previous, value) :: changes,
-                    removed
-                  )
-              }
+              ) =
+                // The stamp rides WITH the value, so whatever is stored and
+                // whatever is published carry the same one — a StateChange
+                // whose `current` disagreed with the store would key a render
+                // to a version the snapshot never had.
+                previous.filter(EntityState.sameContent(_, value)) match {
+                  case Some(same) =>
+                    (
+                      m.updated(
+                        value.entityId,
+                        value.copy(contentVersion = same.contentVersion)
+                      ),
+                      changes,
+                      removed
+                    )
+                  case None =>
+                    val stamped = value.copy(contentVersion = batch)
+                    (
+                      m.updated(value.entityId, stamped),
+                      StateChange(value.entityId, previous, stamped) :: changes,
+                      removed
+                    )
+                }
 
               val previous = m.get(ingest.entityId)
               ingest match {

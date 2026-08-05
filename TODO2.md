@@ -30,6 +30,23 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
       top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
       renderer for each new slug.
+- [ ] Carry the converted attribute map across a tick: `EntityState.javaAttributes` (the JSONata
+      `$attr` view) is a `lazy val` on a value that is rebuilt on EVERY state change, so an
+      entity whose frame moved only `state` re-converts an attribute map that did not change.
+      The clean fix is to name the concept — an `Attributes` type owning the JSON map and its
+      lazily-derived Java view, where `merge` returns the SAME instance when the delta touches no
+      attributes, making a stale view unrepresentable. Deferred, not dismissed: measured on a live
+      instance (1069 entities) the whole Java-side duplication is ~0.8 MB of a 28 MB live set, and
+      the conversion is a small-map rebuild on entities that are actually rendered — neither the
+      RAM nor the CPU symptom points here. Cost is the reason to wait: `attributes` is read as a
+      bare `Map` at ~45 sites (mostly tests), and the cheap version instead needs a hidden field
+      plus a hand-written `equals` on the core state type. Do it when something measures it.
+- [ ] An overlay to drop a pushed dashboard: `POST /dashboard/:slug` (`Server.push`) installs a
+      slug that nothing ever reclaims — deliberately, since only the developer knows when they
+      are done with it, but a pushed slug costs a renderer, a fragment log and a publisher fiber
+      that diffs on every state batch, for the life of the process. Give the editor a list of
+      pushed slugs with a remove button; removal cancels the publisher (the supervisor's token)
+      and drops the registry entry. Until then, restarting the instance is the only way back.
 - [x] Disconnected indicator: TWO distinct failures, presented separately. (1) SSE transport
       down (browser can't reach the server) — from Datastar's connection-lifecycle events: a
       bridge script mirrors the `datastar-sse` document event (`error`/`retrying`/
@@ -57,6 +74,31 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       (docs/plan-tw-theme.md): standard class API on templates, `class` slot on containers in
       both languages, and make the backend-emitted `.fh-cell` wrapper class theme-owned.
 
+- [ ] Make the runtime suites connect like a BROWSER does. The in-process harness talks to
+      `routes.run` directly, and the ways it differs from a real client have each hidden a
+      real bug in this branch:
+      - **It sends no `datastar` param.** A browser serialises its signal store into every
+        GET; the harness connects via the server-built `data-init` URL, which carries only
+        query params. So nothing that depends on signals-vs-params is observable in-process
+        — which is how `resumeFrom` came to take the reconnect branch on every page load
+        without a single test noticing, and why the test that finally pinned it has to append
+        `datastar={}` by hand.
+      - **Readiness seams encode assumptions about the server's shape.** Three broke here:
+        the cursor used as a "batch complete" marker (it stopped being sent on empty pulls),
+        a store update racing the recorder's own subscription to `changes`, and a gate on
+        `Sessions.floor` that includes sessions with no stream. Each surfaced as an
+        unrelated test hanging, intermittently.
+      - **Wire shapes are hand-built as literal JSON** in several places, so a change like
+        flat cursor signals → nested `_cursor` has to be mirrored by hand and can drift from
+        what the server actually emits.
+      The direction is a client-shaped seam the suites go through — one that builds a request
+      the way Datastar does (signal store included) and offers readiness gates in terms of
+      what the SERVER has done, not what happened to arrive on the wire. Not a rewrite: the
+      full-boot `LiveWorld` harness is already the right shape, it just talks to the socket
+      too directly. See also the `RenderCacheSuite` fixture in
+      `docs/architecture-rendering-pipeline.md` §8, which is the same problem from the other
+      end — a test whose fixture violates the contract it is testing.
+
 ## Bigger bets (design first)
 
 - [ ] "show if" / conditional visibility: a predicate-gated node (hide a card or subtree when a
@@ -72,8 +114,15 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       connections that arrived through a hop, per-connection, since the request is right there.
       Deliberately not done: the win is ~2 KB/hour, while a wrong guess is a connection that
       silently drops once a minute — the failure nobody reports because it still works.
-- [ ] Retain `FragmentLog` mutations by live cursor, not by age. `FragmentLog.Retention` (1 hour)
-      is a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
+- [x] Retain `FragmentLog` mutations by live cursor, not by age. **Done** — `Sessions.floor`
+      is the lowest `position` among a slug's sessions and `FragmentLog.pruned` truncates
+      below it, which deleted `Stamp` and the last wall clock from the log. The age bound the
+      caveat below wanted as a backstop turned out to be unnecessary: a wedged connection
+      cannot pin the log open indefinitely because a session that loses its stream is reaped
+      after `LingerWindow`, so the floor is bounded by session lifetime rather than by a
+      second clock. Original note kept for the reasoning:
+      `FragmentLog.Retention` (1 hour)
+      was a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
       connection still holds. `Sessions` is already keyed by `conn`, so each could report its
       last-sent version and the log evict everything below their minimum — retaining exactly
       what is still reachable and no more. Two caveats kept it out of the first cut. It
