@@ -67,32 +67,52 @@ private[runtime] final class RenderCache(
   /** The bytes for `id` at `inputs`, rendering them only if nobody else already
     * is and the entry on hand is not already for these inputs.
     *
-    * `render` is by-name and must be PURE and CPU-BOUND — it is the renderer's
-    * own walk. It may be run zero times (a hit) or once, never twice for one
-    * generation. That it has no async boundary is load-bearing, not incidental;
-    * see the cancellation note below before changing it.
+    * `render` may be run zero times (a hit) or once, never twice for one
+    * generation.
     *
-    * '''Uncancelable, and `guarantee` would not do instead.''' There are two
-    * windows, and completing the slot from a `guaranteeCase` only covers one:
+    * '''Uncancelable, and `guarantee` would not do instead.''' The hazard is a
+    * waiter blocked forever on a slot nobody completes, and there are two
+    * windows a finalizer does not cover:
     *
     *   - between the CAS winning and [[fill]] STARTING, `mine` is in the map,
     *     uncompleted, and nothing has run — so a `guarantee` on `fill` never
-    *     fires either, and waiters block forever. This window exists whatever
-    *     the render does;
-    *   - during the render, `guaranteeCase` does work — but it can only
-    *     complete with an ERROR, so one cancelled fiber fails every waiter
-    *     attached to it. Avoiding that needs a "producer cancelled" sentinel
-    *     and a retry in the waiters: a second mechanism to survive a state,
-    *     where being uncancelable means never entering it.
+    *     fires either;
+    *   - during the render, `guaranteeCase` does fire, but can only complete
+    *     with an ERROR, so one cancelled fiber fails every waiter attached to
+    *     it. Avoiding that needs a "producer cancelled" sentinel and a retry in
+    *     the waiters: a second mechanism to survive a state, where being
+    *     uncancelable means never entering it.
     *
-    * The cost is bounded by one render, and cats-effect checks cancellation
-    * BEFORE a delay rather than inside one, so a pure walk is uninterruptible
-    * mid-way regardless — this buys the invariant for almost nothing.
+    * '''That correctness comes from the MASK, not from the thunk's type.'''
+    * Only `poll(e.slot.get)` — the waiter — is cancelable, so a cancellation
+    * anywhere in the producer path is deferred until the slot is completed,
+    * whatever `render` happens to be.
     *
-    * '''The condition to re-check:''' that argument holds because the render is
-    * pure CPU. Move it to a blocking pool, or split it with `IO.cede` for
-    * fairness on a large dashboard, and the second window comes back — then
-    * `guaranteeCase` plus a retrying waiter IS the right answer.
+    * '''What the by-name type buys is separate, and it is PROMPTNESS.''' A
+    * `=> String` cannot await, sleep, cede or do I/O, so the masked region is
+    * bounded by one synchronous walk — and that bound is what keeps the mask
+    * cheap. These calls run on SESSION fibers (`Server.pull` ->
+    * `Patches.resume`), which are cancelled on disconnect and on displacement
+    * (`interruptWhen`), and behind that teardown sit the linger, the reap, the
+    * deregistration and so the changelog's pruning floor. A microsecond walk is
+    * invisible there; a render that suspends would hold all of it.
+    *
+    * '''So think twice before widening this to `IO[String]`.''' It reads like a
+    * generalisation and it is a move of one guarantee from the compiler to a
+    * comment: today the bad version cannot be WRITTEN, after it can be written,
+    * compiles, and passes every test — a suspending render still yields correct
+    * bytes and correct single-flight. The only symptom is under cancellation,
+    * which no test here exercises against a slow render. And the two most
+    * likely ways in are both things a reasonable person would try: `IO.cede`
+    * for fairness on a large dashboard, or `IO.blocking` reached for as a
+    * safety measure (wrong twice over — this is CPU-bound work, and the
+    * blocking pool is unbounded).
+    *
+    * '''The condition to re-check:''' whether the caller's render can suspend.
+    * Not whether it is "on a blocking pool" — that is a symptom of the same
+    * thing, and an earlier version of this note named it as the cause and
+    * called the result a correctness bug. It is not: it is a stream teardown
+    * that waits.
     */
   def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
       render: => String
