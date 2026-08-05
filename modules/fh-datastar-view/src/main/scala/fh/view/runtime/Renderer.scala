@@ -28,7 +28,22 @@ import fh.view.model.{
 case class RenderInputs(
     entities: Map[String, Long],
     vars: Map[String, String]
-) derives CanEqual
+) derives CanEqual {
+
+  /** Whether this was rendered from a snapshot at or ahead of `other` on every
+    * entity it reads — the partial order [[RenderCache]] uses to refuse an
+    * install that would replace current bytes with superseded ones.
+    *
+    * PARTIAL on purpose. Different key sets are not ordered at all: an entity
+    * appearing or vanishing changes what the node reads, not how fresh it is,
+    * and calling that "behind" would let a stale generation sit unchallenged.
+    * Only a same-shaped, entity-for-entity comparison answers `true`.
+    */
+  def isAtLeast(other: RenderInputs): Boolean =
+    vars == other.vars &&
+      entities.sizeIs == other.entities.size &&
+      other.entities.forall((e, v) => entities.get(e).exists(_ >= v))
+}
 
 /** One member of a dynamic group, MATERIALISED into the node graph: a real
   * [[LayoutNode.Component]] under the id its [[MemberKey]] derives, carrying

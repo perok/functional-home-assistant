@@ -38,11 +38,30 @@ shared structure believes. The changelog holds no content at all: node to the ve
 last moved at, plus membership mutations.
 
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
-is per slug, single-flight (`MapRef` of `Deferred`), keyed by node id and holding ONE
-generation — the renderer that produced it plus what that render READ
-(`Renderer.renderInputs`). N sessions woken by one ring of the doorbell render each node
-once between them. The renderer is in the key because a dashboard edit changes the markup
-while the entity versions it reads stay exactly where they were.
+is per slug, single-flight (`MapRef` of `Deferred`), keyed by node id and holding the
+renderer that produced it plus what that render READ (`Renderer.renderInputs`). N sessions
+woken by one ring of the doorbell render each node once between them. The renderer is in
+the key because a dashboard edit changes the markup while the entity versions it reads
+stay exactly where they were.
+
+**One generation per SELECTION, not per node** — the two halves of `RenderInputs` do not
+behave alike. Entity versions churn (every frame moves one, so the previous generation is
+dead on arrival) and are replaced in place. The resolved selection does not: it ranges
+over a bake group's members, a finite set the dashboard fixes. Bucketing on it is what
+lets viewers on different tabs stop evicting each other while viewers behind each tab
+still share, so the cost of a node is the number of distinct selections in flight — the
+floor, since those viewers are owed different bytes. Measured before it: 3+3 viewers
+across two tabs cost ~3.5 renders a frame against that floor of 2, trending toward one
+render per viewer. `RenderCacheContentionSuite` holds the floor and the bound both.
+
+**A straggler never displaces the current generation.** Sessions pull in parallel and read
+the store when they get there, so they do not all render from one snapshot — and an
+install refuses when the generation present is at or ahead of the caller's on every entity
+it reads (`RenderInputs.isAtLeast`). The straggler renders and is served; the map keeps the
+newer bytes. Without it, three sessions racing (newest, straggler, newest) cost three
+renders, the third re-rendering what the first had already produced. Accepted cost: a
+CLUSTER of stragglers at one older version stops sharing with itself. The newest snapshot
+is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}` in a `self`, the no-JS tab bar — is now just a node: the session renders
@@ -124,7 +143,7 @@ bytes.
 RAM: the changelog SHRINKS (it dropped digests, and then content entirely), `holds` duplicates per
 session (tens of KB, now O(sessions), though immutable `Map`s applying the same updates from a
 common ancestor share most of their structure), and the render cache is the new cost — bounded at
-one generation per node, which is why it needs no timer.
+one generation per node per SELECTION, which is why it needs no timer.
 
 The complexity is close to a wash in volume. What changes is its KIND: shared-state reasoning, where
 a wrong answer is silent and affects everyone, became per-session bookkeeping, which is more code
@@ -191,10 +210,16 @@ other.
 - **Keying the log by `(NodeId, variant)`.** Puts a non-node-id into the ledger and into
   `since`'s results. The variance belonged inside the entry — and then the entry stopped
   having content at all.
-- **Keying the render cache by `(nodeId, inputs)`.** Unbounded: the recording pass selects
-  exactly the nodes binding an entity that just moved, so every batch mints new keys and
-  old ones are never asked for again. One generation per node is bounded by the
-  dashboard, needs no timer and no sweep.
+- **Keying the render cache by `(nodeId, inputs)` in full.** Unbounded: the recording pass
+  selects exactly the nodes binding an entity that just moved, so every batch mints new
+  ENTITY VERSIONS and old ones are never asked for again. What IS kept is the other half
+  of that key — see below.
+- **Keeping N generations per node** to stop two viewers evicting each other. It fixes the
+  right problem with the wrong bound: N-1 of those generations are stale entity versions
+  nobody will ask for. Bucketing on the SELECTION (`RenderInputs.vars`) fixes the same
+  problem exactly, because that is the only half of the key that differs between two
+  viewers looking at one snapshot — and it does not churn, so a node holds one live
+  generation per member of its bake group and no dead ones.
 - **Rotating the cache on a renderer swap** instead of naming the renderer in each entry.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
   fresh map — the same bug with a smaller target.
