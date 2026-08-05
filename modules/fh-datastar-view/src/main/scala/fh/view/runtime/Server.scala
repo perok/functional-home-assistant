@@ -531,12 +531,11 @@ class Server(
           case _            => (Some(down), Some(healthPatch(h)))
         }
       }
-      // What this stream has actually TOLD its client, as opposed to what it
-      // has been served (`session.position`). Stream-local on purpose: it is
-      // not a session concept and nothing reads it but the heartbeat — in
-      // particular the floor must keep reading `position`, whose semantics are
-      // written up on [[Session]].
-      told <- Ref[IO].of(-1L)
+      // What this client has actually been TOLD, as opposed to what it has been
+      // served (`session.position`), now lives on the SESSION: a reconnect
+      // measures its cursor against it ([[openingPatches]]), so it has to
+      // outlive the stream that announced it. The floor still reads `position`,
+      // whose semantics are written up on [[Session]].
       // Something for an idle connection to carry, so an intermediary doesn't
       // reap it — and the place the cursor catches up, since a pull that owed
       // this client nothing now sends nothing at all. A quiet house still costs
@@ -545,9 +544,11 @@ class Server(
       keepAlive = Stream
         .awakeEvery[IO](Server.KeepAliveInterval)
         .evalMap(_ =>
-          (session.position.get, told.get).flatMapN { (position, sent) =>
-            if (position == sent) IO.pure(Server.keepAliveComment)
-            else told.set(position).as(Server.versionSignal(position))
+          (session.position.get, session.told.get).flatMapN {
+            (position, sent) =>
+              if (position == sent) IO.pure(Server.keepAliveComment)
+              else
+                session.told.set(position).as(Server.versionSignal(position))
           }
         )
 
@@ -666,6 +667,11 @@ class Server(
             )
             .flatMap { patches =>
               session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
+                // The cursor rides LAST below, which is what makes it an ack:
+                // a client echoing it applied the patches in front of it. Only
+                // recorded when there are bytes — a silent frame announces
+                // nothing, so `told` must not move for it.
+                IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
                 session.position
                   .set(version)
                   // `position` advances whatever happened; the SIGNAL only goes
@@ -746,9 +752,10 @@ class Server(
       live.renderer.get,
       live.log.get,
       stateStore.current,
-      session.holds.get
+      session.holds.get,
+      session.told.get
     )
-      .flatMapN { (covered, renderer, log, store, holds) =>
+      .flatMapN { (covered, renderer, log, store, holds, told) =>
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
           IO.pure(List(Server.reloadPatch))
@@ -766,10 +773,25 @@ class Server(
           // from before a GAP — a stretch this slug passed over because nobody
           // was watching it ([[FragmentLog.reaches]]), which is what a client
           // returning after its session was reaped presents.
+          // ...plus the one thing only the CLIENT can answer: did it actually
+          // apply what we last claimed it has? A resume trusts `holds`, and
+          // `holds` records what was SENT, which is not proof of receipt — a
+          // stream that broke mid-batch, or a tab frozen while the socket kept
+          // filling, leaves this session claiming digests that DOM never got,
+          // and every later resume then computes "nothing owed" forever.
+          //
+          // The cursor is that proof. It is server-set, but it rides LAST in
+          // its batch (`pull`), so a client echoing version V demonstrably
+          // applied everything before it. Behind `told` ⇒ bytes we claimed were
+          // lost ⇒ `holds` is unproven and the body is repainted.
+          //
+          // This does NOT fire on an ordinary tab switch: while a stream is
+          // closed nothing is sent, so `told` cannot move, and the returning
+          // client's echo still matches it.
           val resumedIO = cursor
             .filter(c =>
               c.logId == log.id && c.version <= store.version &&
-                log.reaches(c.version)
+                log.reaches(c.version) && c.version >= told
             )
             .traverse(c =>
               Patches
@@ -833,7 +855,7 @@ class Server(
               })
             )(patches =>
               session.holds.update(patches.foldLeft(_)(Patches.applied))
-            ) *> session.position.set(claim)
+            ) *> session.position.set(claim) *> session.told.set(claim)
             record.as(
               head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
                 orphan :+ Server.cursorSignals(renderer, log.id, claim)
@@ -874,24 +896,34 @@ class Server(
               // (closed over).
               (session.open.set(r.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
-                .map { case (store, log) =>
+                .flatMap { case (store, log) =>
                   val head =
                     if (previous.exists(_.styleHash != r.styleHash))
                       Server.headPatches(r, session.slug)
                     else Nil
-                  head ++ List(
-                    Datastar.patch(
-                      r.renderBody(store.entities, uiState),
-                      PatchMode.Inner,
-                      Some("#dashboard")
-                    ),
-                    // A swap rotates the log identity and can move the style
-                    // hash, and live batches carry only the version now — so
-                    // this is where the client learns the rest. Without it a
-                    // reconnect would quote a log that no longer exists and be
-                    // answered with a body repaint.
-                    Server.cursorSignals(r, log.id, store.version)
-                  )
+                  // A repaint painted the whole snapshot, so this client is
+                  // both served and told through it — the same claim
+                  // [[openingPatches]] makes for its own repaint. Leaving
+                  // `told` behind here would let the keepalive announce a LOWER
+                  // version than the swap just did.
+                  session.position.set(store.version) *>
+                    session.told
+                      .set(store.version)
+                      .as(
+                        head ++ List(
+                          Datastar.patch(
+                            r.renderBody(store.entities, uiState),
+                            PatchMode.Inner,
+                            Some("#dashboard")
+                          ),
+                          // A swap rotates the log identity and can move the style
+                          // hash, and live batches carry only the version now — so
+                          // this is where the client learns the rest. Without it a
+                          // reconnect would quote a log that no longer exists and be
+                          // answered with a body repaint.
+                          Server.cursorSignals(r, log.id, store.version)
+                        )
+                      )
                 }
           }
           .flatMap(Stream.emits)
@@ -1298,6 +1330,11 @@ class Server(
               id -> Digest.of(html)
             })
             _ <- session.position.set(store.version)
+            // The page renders the cursor into its own signals, so the document
+            // IS an announcement — and the first one. Without this a client
+            // that connects, misses a batch and reconnects would be measured
+            // against -1 and trusted.
+            _ <- session.told.set(store.version)
             _ <- warnAnomalies(renderer, uiState)
             // What this document is showing, and so also what it must hand
             // back on connect for the stream to agree with it — the ui state

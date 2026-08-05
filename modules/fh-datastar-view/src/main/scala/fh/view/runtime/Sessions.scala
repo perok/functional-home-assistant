@@ -63,6 +63,15 @@ enum Tenure derives CanEqual {
   *   - `position`: how far this session has been SERVED, as a store version.
   *     The cursor its pull loop resumes from - and deliberately not the same
   *     thing as the cursor the client is holding, see below.
+  *   - `told`: the newest version this client was ever ANNOUNCED — the last
+  *     [[Server.cursorSignals]]/[[Server.versionSignal]] actually put on its
+  *     wire, seeded by the document, which renders one into the page. The most
+  *     this client could possibly echo back, and therefore the yardstick a
+  *     reconnect's cursor is measured against ([[Server.openingPatches]]).
+  *     Written wherever such a signal is emitted, and nowhere else: a site that
+  *     emits one without recording it here leaves this reading LOW, which costs
+  *     the protection rather than breaking it (a client is trusted that we
+  *     could have checked).
   *   - `haDown`: the HA liveness this client was last TOLD, `None` when nothing
   *     has told it. Seeded by the document, which renders the banner's initial
   *     value into the page, and updated wherever the server emits a new one —
@@ -110,6 +119,7 @@ case class Session(
     holds: Ref[IO, Map[NodeId, Digest]],
     haDown: Ref[IO, Option[Boolean]],
     position: Ref[IO, Long],
+    told: Ref[IO, Long],
     tenure: SignallingRef[IO, Tenure]
 ) {
 
@@ -179,8 +189,12 @@ object Session {
       // the banner it never rendered.
       d <- Ref[IO].of(Option.empty[Boolean])
       p <- Ref[IO].of(0L)
+      // -1, not 0: a session minted by a STREAM has announced nothing, and 0 is
+      // a real version a client could be holding. Its `holds` are empty anyway,
+      // so a resume against it re-sends rather than under-sends.
+      s <- Ref[IO].of(-1L)
       t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-    } yield Session(slug, o, q, h, d, p, t)
+    } yield Session(slug, o, q, h, d, p, s, t)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action
