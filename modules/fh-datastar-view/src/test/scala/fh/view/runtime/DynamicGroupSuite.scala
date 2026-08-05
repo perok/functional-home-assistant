@@ -592,4 +592,3 @@ class DynamicGroupSuite extends ServerHarness {
   }
 
 }
-

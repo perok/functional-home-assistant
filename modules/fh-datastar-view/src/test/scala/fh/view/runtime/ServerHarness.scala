@@ -764,4 +764,3 @@ trait ServerHarness extends munit.CatsEffectSuite {
   )
 
 }
-

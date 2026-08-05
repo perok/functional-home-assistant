@@ -400,4 +400,3 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
 }
-

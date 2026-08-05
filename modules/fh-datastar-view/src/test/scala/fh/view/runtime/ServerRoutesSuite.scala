@@ -559,4 +559,3 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
 }
-

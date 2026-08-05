@@ -362,4 +362,3 @@ class SharedPassSuite extends ServerHarness {
   }
 
 }
-

@@ -32,8 +32,8 @@ import scala.concurrent.duration.*
   * handover a reload performs.
   *
   * Its state machine is `Tenure`, and every transition names the tenure it
-  * expects to replace — so these tests are mostly about the transitions a
-  * RACE can produce, not the happy path.
+  * expects to replace — so these tests are mostly about the transitions a RACE
+  * can produce, not the happy path.
   */
 class SessionLifecycleSuite extends ServerHarness {
 
@@ -811,4 +811,3 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
 }
-

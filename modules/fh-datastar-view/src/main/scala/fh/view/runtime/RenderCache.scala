@@ -65,10 +65,8 @@ private[runtime] final class RenderCache(
 ) {
 
   /** The bytes for `id` at `inputs`, rendering them only if nobody else already
-    * is and the entry on hand is not already for these inputs.
-    *
-    * `render` may be run zero times (a hit) or once, never twice for one
-    * generation.
+    * is and the entry on hand is not already for these inputs. `render` runs
+    * zero times (a hit) or once, never twice for one generation.
     *
     * '''Uncancelable, and `guarantee` would not do instead.''' The hazard is a
     * waiter blocked forever on a slot nobody completes, and there are two
@@ -83,45 +81,40 @@ private[runtime] final class RenderCache(
     *     the waiters: a second mechanism to survive a state, where being
     *     uncancelable means never entering it.
     *
-    * '''That correctness comes from the MASK, not from the thunk's type.'''
     * Only `poll(e.slot.get)` — the waiter — is cancelable, so a cancellation
-    * anywhere in the producer path is deferred until the slot is completed,
-    * whatever `render` happens to be.
+    * anywhere in the producer path is deferred until the slot is completed.
     *
-    * '''What the by-name type buys is separate, and it is PROMPTNESS.''' A
-    * `=> String` cannot await, sleep, cede or do I/O, so the masked region is
-    * bounded by one synchronous walk — and that bound is what keeps the mask
-    * cheap. These calls run on SESSION fibers (`Server.pull` ->
-    * `Patches.resume`), which are cancelled on disconnect and on displacement
-    * (`interruptWhen`), and behind that teardown sit the linger, the reap, the
-    * deregistration and so the changelog's pruning floor. A microsecond walk is
-    * invisible there; a render that suspends would hold all of it.
+    * '''What the caller owes: a render that is BOUNDED.''' It runs inside the
+    * mask, so however long it takes is how long a cancellation waits — and
+    * these calls are on session fibers (`Server.pull` -> `Patches.resume`),
+    * cancelled on disconnect and displacement, with the linger, the reap, the
+    * deregistration and the changelog's pruning floor behind that teardown.
     *
-    * '''So think twice before widening this to `IO[String]`.''' It reads like a
-    * generalisation and it is a move of one guarantee from the compiler to a
-    * comment: today the bad version cannot be WRITTEN, after it can be written,
-    * compiles, and passes every test — a suspending render still yields correct
-    * bytes and correct single-flight. The only symptom is under cancellation,
-    * which no test here exercises against a slow render. And the two most
-    * likely ways in are both things a reasonable person would try: `IO.cede`
-    * for fairness on a large dashboard, or `IO.blocking` reached for as a
-    * safety measure (wrong twice over — this is CPU-bound work, and the
-    * blocking pool is unbounded).
+    * That obligation is NOT expressible here and never was. This took an
+    * `IO[String]` because it used to take a by-name `String`, which looked like
+    * it forbade suspending and did nothing of the kind: a thunk can
+    * `Thread.sleep`, take a lock or await a latch just as easily — the suite's
+    * own `Gated` fixture did exactly that — and the runtime cannot see any of
+    * it. All the by-name bought was making the effect UNTYPED, which is the
+    * worse half of the trade: `IO.blocking` and `IO.cede` become inexpressible
+    * precisely where they would be the answer.
     *
-    * '''The condition to re-check:''' whether the caller's render can suspend.
-    * Not whether it is "on a blocking pool" — that is a symptom of the same
-    * thing, and an earlier version of this note named it as the cause and
-    * called the result a correctness bug. It is not: it is a stream teardown
-    * that waits.
+    * '''So bound the work, do not hide it.''' Today the only caller is
+    * `Renderer.renderNodeById` — one node's own markup, children excluded by
+    * construction ([[Renderer.renderInputs]] refuses a node whose bytes carry
+    * them), so a small walk. If that stops being true the tools are a
+    * `Semaphore` sized to the cores, `IO.evalOn` onto a sized pool, or `IO.cede`
+    * to break it up — see the `scala-fp` skill. What is not a tool is a
+    * signature that makes the cost invisible.
     */
   def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
-      render: => String
+      render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
       // Only a WAITER is cancelable, and that is what `poll` marks. Note what
       // the critical section does NOT contain: `fill` is an IO VALUE here,
-      // built and discarded if this attempt loses. A losing CAS costs an
-      // equality check, never a render.
+      // built and discarded if this attempt loses — as is `render` itself now
+      // that it is one. A losing CAS costs an equality check, never a render.
       IO.uncancelable { poll =>
         entries(id)
           .modify {
@@ -140,9 +133,9 @@ private[runtime] final class RenderCache(
   private def fill(
       id: NodeId,
       entry: RenderCache.Entry,
-      render: => String
+      render: IO[String]
   ): IO[Either[Throwable, NodeBytes]] =
-    IO(render)
+    render
       .map(html => NodeBytes(html, Digest.of(html)))
       .attempt
       // A failure must not stay in the map: a `Left` left behind poisons that

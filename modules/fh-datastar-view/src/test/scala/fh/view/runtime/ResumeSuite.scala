@@ -28,9 +28,9 @@ import scala.concurrent.duration.*
 /** Resume on reconnect (ADR 0011).
   *
   * The failure mode is SILENT — the server believes the browser is current and
-  * suppresses the patch, so a wrong resume shows stale values indefinitely. Each
-  * test therefore asserts BOTH what the client gets and whether the full-body
-  * repaint (`selector #dashboard`) was used.
+  * suppresses the patch, so a wrong resume shows stale values indefinitely.
+  * Each test therefore asserts BOTH what the client gets and whether the
+  * full-body repaint (`selector #dashboard`) was used.
   */
 class ResumeSuite extends ServerHarness {
 
@@ -529,4 +529,3 @@ class ResumeSuite extends ServerHarness {
   }
 
 }
-
