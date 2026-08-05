@@ -71,23 +71,28 @@ private[runtime] object NodeBytes {
   * because those viewers are owed genuinely different bytes.
   * `RenderCacheContentionSuite` holds both numbers.
   *
-  * '''Still UNFIXED: an older generation displaces a newer one.''' Nothing here
-  * compares versions — a key matches or it does not — so a straggler pulling at
-  * an older snapshot installs its generation over the current one. Three
-  * sessions racing (newest, laggard, newest) cost three renders where two would
-  * do: the laggard's install throws away bytes the third still wanted. The
-  * waste is not the laggard's own render, which it needed; it is what that
-  * install DISCARDS.
+  * '''A STRAGGLER NEVER DISPLACES THE CURRENT GENERATION.''' Sessions pull in
+  * parallel and read the store when they get there, so they do not all render
+  * from one snapshot: three racing (newest, laggard, newest) used to cost three
+  * renders, because the laggard's install evicted bytes the third was about to
+  * hit. The waste was never the laggard's own render — it needed that — but
+  * what installing it THREW AWAY.
   *
-  * Bucketing on `vars` does not help — the stragglers share a selection and
-  * differ on the entity half — and neither does keeping N generations, which
-  * would only widen the window. The candidate fix is a dominance rule: decline
-  * to install a generation every one of whose versions is at or behind the
-  * entry already there, and render for that caller without caching. Its cost is
-  * that a CLUSTER of laggards at one old version stops sharing with each other.
-  * Not measured, and this suite's harness cannot see it — `LiveWorld.change`
-  * waits for every session before the next frame, so version skew across
-  * sessions never arises there.
+  * So an install is refused when the generation present was rendered from a
+  * snapshot at or ahead of the caller's on every entity it reads
+  * ([[RenderInputs.isAtLeast]]): that caller renders, is served, and the map is
+  * left holding the newer bytes. Neither bucketing nor keeping N generations
+  * addresses this — the stragglers agree on the selection and differ on the
+  * entity half, so they compete for one bucket however many there are.
+  *
+  * '''The limitation that buys.''' A CLUSTER of stragglers at one older version
+  * no longer shares: they each render, where before the first would install and
+  * the rest hit it. That is the deliberate trade — the newest snapshot is the
+  * one more arrivals are coming for, so it is what the single slot should hold.
+  * It is bounded by how long sessions stay skewed, which is one frame's
+  * fan-out, and it costs renders and never wrong bytes. If a real deployment
+  * ever shows a persistent skew wide enough for that to matter, the answer is
+  * to measure it before widening the bound — not to widen it first.
   *
   * The map is a [[MapRef]] rather than a `Ref[IO, Map[…]]` so that a `modify`
   * retries `putIfAbsent`/`replace` for ONE key (the `ConcurrentHashMap` under
@@ -157,11 +162,17 @@ private[runtime] final class RenderCache(
             // whole entry goes rather than a bucket of it: nothing a previous
             // dashboard rendered is worth keeping under any selection.
             val ours = current.filter(_.renderer eq renderer)
-            ours
-              .flatMap(_.gens.get(inputs.vars))
-              .filter(_.inputs == inputs) match {
+            val here = ours.flatMap(_.gens.get(inputs.vars))
+            here.filter(_.inputs == inputs) match {
               case Some(gen) => (current, poll(gen.slot.get))
-              case None      =>
+              case None if here.exists(_.inputs.isAtLeast(inputs)) =>
+                // A STRAGGLER: what is here was rendered from a snapshot at or
+                // ahead of this caller's on every entity it reads. Installing
+                // would evict bytes other sessions are about to want in order
+                // to cache bytes already superseded. So render, serve, and
+                // leave the map alone — cancelable, since nothing waits on it.
+                (current, poll(fresh(render)))
+              case None =>
                 val gen = RenderCache.Gen(inputs, mine)
                 val gens = ours.fold(RenderCache.NoGens)(_.gens)
                 (
@@ -176,6 +187,10 @@ private[runtime] final class RenderCache(
           .rethrow
       }
     }
+
+  /** A render that reaches its one caller and is never cached. */
+  private def fresh(render: IO[String]): IO[Either[Throwable, NodeBytes]] =
+    render.map(html => NodeBytes(html, Digest.of(html))).attempt
 
   private def fill(
       id: NodeId,

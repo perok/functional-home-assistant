@@ -246,6 +246,103 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
+  private val tab0 = Map("bakeIndex" -> "0")
+  private def at(v: Long) = RenderInputs(Map("sensor.shared" -> v), tab0)
+
+  /** The parallelism case: sessions pull on their own fibers and read the store
+    * when they get there, so they do not all render from one snapshot.
+    *
+    * Newest, straggler, newest. The straggler's render is work it needed — it
+    * is serving a client that asked at that version — but installing it would
+    * evict the generation the third session is about to hit, and cost a render
+    * to cache bytes already superseded.
+    */
+  test("a straggler does not evict the generation that overtook it") {
+    val runs = new AtomicInteger(0)
+    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+
+    for {
+      cache <- RenderCache.create
+      renderer = Renderer.create(contendedDash)
+      newest <- cache("c_0", renderer, at(2))(render("<b>v2</b>"))
+      // The laggard is SERVED, and served its own version's bytes...
+      late <- cache("c_0", renderer, at(1))(render("<b>v1</b>"))
+      // ...and the third session finds v2 still there.
+      third <- cache("c_0", renderer, at(2))(render("<b>v2 again</b>"))
+      gens <- cache.generations
+    } yield {
+      assertEquals(newest.html, "<b>v2</b>")
+      assertEquals(late.html, "<b>v1</b>", "the straggler gets ITS bytes")
+      assertEquals(third.html, "<b>v2</b>", "served from the surviving entry")
+      assertEquals(runs.get(), 2, "the third session did not re-render")
+      assertEquals(gens, 1, "and the straggler cached nothing")
+    }
+  }
+
+  /** The other direction still installs: moving FORWARD is what the cache is
+    * for, and a refusal there would freeze a node at its first render.
+    */
+  test("a newer generation does replace an older one") {
+    val runs = new AtomicInteger(0)
+    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+
+    for {
+      cache <- RenderCache.create
+      renderer = Renderer.create(contendedDash)
+      _ <- cache("c_0", renderer, at(1))(render("<b>v1</b>"))
+      _ <- cache("c_0", renderer, at(2))(render("<b>v2</b>"))
+      hit <- cache("c_0", renderer, at(2))(render("<b>never</b>"))
+      gens <- cache.generations
+    } yield {
+      assertEquals(hit.html, "<b>v2</b>")
+      assertEquals(runs.get(), 2)
+      assertEquals(gens, 1)
+    }
+  }
+
+  /** Freshness is per ENTITY, so a mixed key is not ordered either way. */
+  test("a partly-newer generation is not treated as a straggler") {
+    val two = (a: Long, b: Long) =>
+      RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b), tab0)
+    val runs = new AtomicInteger(0)
+    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+
+    for {
+      cache <- RenderCache.create
+      renderer = Renderer.create(contendedDash)
+      _ <- cache("c_0", renderer, two(2, 1))(render("<b>a2 b1</b>"))
+      // Behind on a, ahead on b: neither dominates, so it installs.
+      mixed <- cache("c_0", renderer, two(1, 2))(render("<b>a1 b2</b>"))
+      hit <- cache("c_0", renderer, two(1, 2))(render("<b>never</b>"))
+    } yield {
+      assertEquals(mixed.html, "<b>a1 b2</b>")
+      assertEquals(hit.html, "<b>a1 b2</b>", "it took the entry")
+      assertEquals(runs.get(), 2)
+    }
+  }
+
+  /** An entity APPEARING changes what the node reads, not how fresh it is. */
+  test("a different entity set is not ordered against the entry") {
+    val runs = new AtomicInteger(0)
+    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+
+    for {
+      cache <- RenderCache.create
+      renderer = Renderer.create(contendedDash)
+      _ <- cache("c_0", renderer, at(5))(render("<b>one</b>"))
+      grew <- cache(
+        "c_0",
+        renderer,
+        RenderInputs(Map("sensor.shared" -> 4L, "sensor.new" -> 1L), tab0)
+      )(render("<b>two</b>"))
+      gens <- cache.generations
+    } yield {
+      assertEquals(grew.html, "<b>two</b>")
+      assertEquals(runs.get(), 2)
+      assertEquals(gens, 1, "it installed rather than being refused")
+    }
+  }
+
   /** A renderer swap drops EVERY selection, not just the one asked for. */
   test("a renderer swap clears a node's other selections too") {
     val before = Renderer.create(contendedDash)

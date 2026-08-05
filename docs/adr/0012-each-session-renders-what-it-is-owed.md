@@ -54,10 +54,14 @@ floor, since those viewers are owed different bytes. Measured before it: 3+3 vie
 across two tabs cost ~3.5 renders a frame against that floor of 2, trending toward one
 render per viewer. `RenderCacheContentionSuite` holds the floor and the bound both.
 
-Viewers at different STORE VERSIONS still miss, and that is NOT free — see the open
-question below. Each renders from the current snapshot, so the laggard's own render is
-work it needed; the cost is that installing it evicts the newer generation other sessions
-were about to hit.
+**A straggler never displaces the current generation.** Sessions pull in parallel and read
+the store when they get there, so they do not all render from one snapshot — and an
+install refuses when the generation present is at or ahead of the caller's on every entity
+it reads (`RenderInputs.isAtLeast`). The straggler renders and is served; the map keeps the
+newer bytes. Without it, three sessions racing (newest, straggler, newest) cost three
+renders, the third re-rendering what the first had already produced. Accepted cost: a
+CLUSTER of stragglers at one older version stops sharing with itself. The newest snapshot
+is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}` in a `self`, the no-JS tab bar — is now just a node: the session renders

@@ -435,7 +435,14 @@ a floor of 2, drifting toward one render per viewer as viewers piled up.
 `RenderCacheContentionSuite` holds both halves — the floor, and the bound that keeps bucketing from
 becoming a leak.
 
-Viewers at different STORE VERSIONS still miss, and that half is **not** fixed — see §8.
+**Sessions at different store versions is the other half, and it is an ordering problem, not a
+key problem.** Sessions pull on their own fibers and read the store when they get there, so they
+do not all render from one snapshot. Three racing — newest, straggler, newest — used to cost three
+renders: the straggler's install evicted bytes the third was about to hit. The waste was never the
+straggler's own render, which it needed, but what installing it threw away. So an install is
+refused when the generation present was rendered from a snapshot at or ahead of the caller's on
+every entity it reads (`RenderInputs.isAtLeast`); the straggler renders, is served, and the map
+keeps the newer bytes. The accepted cost is in §8.
 
 ---
 
@@ -521,18 +528,14 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
-- **An older generation displaces a newer one.** The cache compares a key for equality, never
-  for order, so a session pulling at an older snapshot installs over the current entry. Three
-  sessions racing — newest, laggard, newest — cost three renders where two would do, and the
-  waste is not the laggard's own render (it needed that) but what its install DISCARDS. Purely
-  a parallelism effect: it needs sessions to be reading the store at genuinely different
-  versions. Demonstrated on `RenderCache` directly; NOT reproducible in the live harness, whose
-  `change` waits for every session before the next frame, so no test currently covers it. The
-  selection bucketing below does not touch it (the stragglers share a selection). Candidate fix:
-  decline to install a generation dominated by the entry present, and render uncached for that
-  caller — at the cost that a cluster of laggards at one version stops sharing with each other.
-  Unmeasured, and worth measuring before choosing, since the last round of reasoning-without-
-  measuring on this same cache got the mechanism wrong.
+- **A cluster of stragglers at one older version no longer shares.** The accepted cost of the
+  straggler rule in §5: they each render, where before the first to arrive would install and the
+  rest would hit it. Deliberate — the newest snapshot is what more arrivals are coming for, so
+  it is what the single slot should hold — and it costs renders, never wrong bytes. Bounded by
+  how long sessions stay skewed, which is one frame's fan-out. Not currently measurable:
+  `LiveWorld.change` waits for every session before the next frame, so the live harness has no
+  version skew in it at all. Tackle it if a real deployment shows a persistent skew, and measure
+  before widening the bound.
 
 - **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
   delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
