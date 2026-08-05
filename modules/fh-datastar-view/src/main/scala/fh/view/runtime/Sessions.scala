@@ -60,8 +60,9 @@ enum Tenure derives CanEqual {
   *   - `holds`: what THIS client's DOM has, per node — the digest of the bytes
   *     it was last sent, seeded by the document's own render. The answer to "is
   *     this worth sending?", asked per client rather than on everyone's behalf.
-  *   - `position`: how far this session has been served, as a store version.
-  *     The cursor its pull loop resumes from.
+  *   - `position`: how far this session has been SERVED, as a store version.
+  *     The cursor its pull loop resumes from - and deliberately not the same
+  *     thing as the cursor the client is holding, see below.
   *   - `tenure`: who owns it and whether it is still alive — see [[Tenure]].
   *
   * What goes wrong with a per-client record is that it drifts from what the
@@ -69,6 +70,32 @@ enum Tenure derives CanEqual {
   * are SENT to this client — the document's own render here, and
   * [[Addressed.establishes]] where a connection keeps a patch. Never from what
   * some other client was told, and never from what a shared structure believes.
+  *
+  * '''`position` may run ahead of the cursor the client is holding, on
+  * purpose.''' A pull that owes this client nothing still advances it, and the
+  * signal that would tell the client need not go out on that frame - it can
+  * ride the keepalive instead. Two things make that safe, and they are worth
+  * being able to point at rather than re-deriving:
+  *
+  *   - '''The client's cursor is the authority; `position` is only the server's
+  *     record of the last truth it told.''' While the stream lives, pulls
+  *     resume from `position`; the client's own value matters only at
+  *     RECONNECT, where it is presented and re-derived against (ADR 0011).
+  *   - '''What a stale-low client cursor costs is bounded to a refill.'''
+  *     `position` feeds [[Sessions.floor]], so running ahead prunes slightly
+  *     more than the client's real state warrants - but [[FragmentLog.pruned]]
+  *     only drops MUTATIONS and raises per-container horizons, leaving
+  *     `fragments` untouched, and `completeFrom` (the full-repaint trigger)
+  *     moves only in `skipped`, which needs ZERO sessions on the slug and so
+  *     cannot fire while this one exists. Worst case: one container refilled on
+  *     a reconnect landing inside the lag window. Never staleness.
+  *
+  * Note what is NOT claimed: that the two positions are equivalent. A pull owes
+  * nothing partly because of `holds` suppression - a node whose bytes did not
+  * change for THIS DOM - and `holds` dies with the session, so the same cursor
+  * would produce patches after a reap. This is a bound on the damage, not a
+  * proof of equality, and the bound is what makes withholding the signal a free
+  * choice rather than a risk.
   */
 case class Session(
     slug: String,

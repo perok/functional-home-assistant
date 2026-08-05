@@ -492,6 +492,24 @@ a later cursor and the client claims a version whose changes it never applied �
 `since` will never re-send them, because those fragments are stamped below the
 cursor. Stale forever, with nothing observable at the time of the mistake.
 
+**The asymmetry is the whole rule, and it is easy to read backwards.** Dropping a PATCH
+while keeping a later cursor is fatal: the client claims a version whose changes it never
+applied, and `since` will never re-send them. Dropping the CURSOR while keeping the
+patches is safe, and is a live option — a pull that owes a client nothing need not send
+the signal that says so; it can ride the keepalive instead. The server's `position`
+advances either way, and the two are not the same number.
+
+What bounds the safe direction is what pruning can actually do. `position` feeds the
+floor, so a server running ahead of its client prunes a little more than that client's
+real state warrants — but `FragmentLog.pruned` drops only MUTATIONS and raises
+per-container horizons, `fragments` is untouched, and `completeFrom` (which forces a full
+repaint) moves only in `skipped`, which requires zero sessions on the slug. So a client
+reconnecting on a stale-low cursor gets at worst one container refilled, never staleness
+and never a page repaint. Note what is not claimed: that a client at the older cursor is
+provably equivalent to one at the newer. A pull owes nothing partly through `holds`
+suppression, and `holds` dies with the session. It is a bound on the damage, not a proof
+of equality — and the bound is what makes it a free choice.
+
 `StateStore.changes` is therefore subscribed **unbounded**, and for a second reason as
 well: `Topic.publish1` sends to each subscriber's channel in turn and blocks on a full
 one, so a bounded subscription there would let one stalled recorder stop `HaFeed.pump`
