@@ -40,8 +40,9 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds · dynamics · flips"]
-    REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership + flips from state alone"]
+    SYNC["Renderer.syncMembers<br/>apply the frame to every dynamic group's MEMBER GRAPH<br/>before the gate, and for every group:<br/>the graph tracks the stream, not who is watching"]
+    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · dynamics · flips"]
+    REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
   end
 
@@ -58,7 +59,7 @@ flowchart TB
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has) + position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
-  HA --> PUMP --> STORE --> CH --> PLAN --> REC --> BELL
+  HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
   BELL --> PULL --> APPL --> MERGE --> SSE
   OPEN --> MERGE
   REC -.->|writes| LOG
@@ -76,7 +77,7 @@ flowchart TB
   classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
   classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
   class PUMP,STORE,CH global
-  class PLAN,REC,BELL shared
+  class SYNC,PLAN,REC,BELL shared
   class OPEN,PULL,APPL,MERGE,SSE client
   class LOG,SESS store
   class HA,ACT ext
@@ -97,7 +98,7 @@ old renderer cannot be resumed.
 | Scope | One per | What lives there |
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
-| Per slug | dashboard | the recorder fiber, the `Renderer` (in a `SignallingRef`, hot-swapped), the `FragmentLog`, the doorbell |
+| Per slug | dashboard | the recorder fiber, the `Renderer` (in a `SignallingRef`, hot-swapped) **and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position` — what THIS client's DOM has and how far it has been served), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
@@ -188,7 +189,8 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
 every slug's recorder wakes
   read snapshot+version together, and sessions.openSets(slug) + floor(slug)
   syncMembers -> apply the frame to EVERY dynamic group's member graph, and
-      keep each group's member list before and after. BEFORE the gate and for
+      report what it did to each: the member lists before and after, plus the
+      members whose CASE was replaced in place. BEFORE the gate and for
       every group, not the visible ones: the graph tracks the state stream, so
       a frame nobody records still moves members and the next page render must
       see them. Only a CHANGED entity can have crossed a query or case
@@ -205,8 +207,11 @@ every slug's recorder wakes
              dynamics (which groups to ask about MEMBERSHIP), flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
-      static         -> node -> version                 // no variant split
-      dynamics       -> touched members, or Gone/Placed, or a filled mount
+      static         -> node -> version    // members are in here: they are in
+                                           // the reverse index like any node
+      dynamics       -> the members whose CASE was replaced (no entity edge can
+                        name a card binding nothing live), then Gone/Placed per
+                        membership move, or a filled mount
                         (the churn heuristic survives as `filled`, which raises
                          the container's horizon — "any cursor below this gets
                          this mount")
@@ -252,6 +257,9 @@ client sends back its stored signals: logId, version, headHash, styleHash
   otherwise since(version):
       nodes   whose logged version >= cursor   -> rendered NOW, sent if the digest
                                                   is not what this client holds
+      ...AND every node in a surface this client has OPEN — nothing may have
+              rendered it while nobody was viewing it, so the cursor cannot
+              name it and only re-rendering can tell
       moved   Gone/Placed                      -> replayed as remove + insert
       refill  containers whose history aged out -> whole mount
 ```
@@ -262,11 +270,12 @@ server itself last sent.
 
 ---
 
-## 3. Inside `Patches.record` — the four kinds, and what each writes
+## 3. Inside `Patches.record` — the three kinds, and what each writes
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
 and membership arrives already applied — `Renderer.syncMembers` moves the member graph for every
-dynamic group before the gate, and hands `record` each group's list before and after.
+dynamic group before the gate, and hands `record` each group's list before and after plus the
+members whose case it replaced.
 
 ```mermaid
 flowchart TB
@@ -275,16 +284,17 @@ flowchart TB
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
   REQ --> DYN["DYNAMICS<br/>a query-driven group whose MEMBERSHIP may have moved"]
-  REQ --> VAR["VARYING IDS<br/>markup that reads its OWN viewer's selection"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
-  STAT --> STATW["touched: node -&gt; version"]
-  VAR --> STATW
+  STAT --> STATW["touched: node -&gt; version<br/>a materialised MEMBER arrives here too"]
 
-  DYN --> SAME{"membership<br/>moved?"}
-  SAME -->|no| TICK["touched, per member whose CASE was replaced<br/>(a member that merely ticked came in as a STATIC ID)"]
-  SAME -->|yes| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
+  DYN --> REPL["touched, per member whose CASE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
+  REPL --> SAME{"membership<br/>moved?"}
+  SAME -->|no| OUT
+  SAME -->|yes| SET{"did the member SET move,<br/>or only its order?"}
+  SET -->|only the order| OUT
+  SET -->|the set| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
   CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
   CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
   EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival"]
@@ -292,17 +302,17 @@ flowchart TB
 
   FLIPW --> OUT["the CHANGELOG.<br/>Each session turns it into patches for itself,<br/>in Patches.resume"]
   STATW --> OUT
-  TICK --> OUT
+  REPL --> OUT
   FILL --> OUT
   DELTA --> OUT
 
   classDef write fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
   classDef q fill:#fef3c7,stroke:#b45309,color:#0f172a
-  class FLIPW,STATW,TICK,FILL,DELTA write
-  class SAME,CHURN,EST q
+  class FLIPW,STATW,REPL,FILL,DELTA write
+  class SAME,SET,CHURN,EST q
 ```
 
-**A varying node is not a kind of its own — there is no such classification left.** Its version
+**There is no fourth kind.** A node whose markup reads its own viewer's selection used to be one. Its version
 moves like any other node's, and the render that reads a viewer's selection happens where the viewer
 is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, and
 `nodeVariesByViewer` went with them once `plan` stopped partitioning what `record` merged back.
@@ -412,13 +422,15 @@ flowchart LR
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
   SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
+  Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
   N --> HOLD{"is this what<br/>the client holds?"}
+  OPENN --> HOLD
   HOLD -->|yes| DROP["send nothing"]
   HOLD -->|no| SEND["Morph, establishing the digest"]
 
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef bad fill:#fee2e2,stroke:#b91c1c,color:#0f172a
-  class N,M,SEND,DROP ok
+  class N,M,OPENN,SEND,DROP ok
   class REPAINT,R bad
 ```
 
