@@ -219,10 +219,15 @@ class ServerRoutesSuite extends ServerHarness {
       html <- pageHtml(titleDash("home", None))
     } yield {
       assert(html.contains("window.fhScroll="), html)
-      assert(html.contains(s"'${Server.ScrollKeyPrefix}'+s"), html)
-      // `manual`: with the browser's own `auto` restore still armed it can
-      // re-apply its offset — 0 on this path — after ours has landed.
-      assert(html.contains("history.scrollRestoration='manual'"), html)
+      // The storage key and `manual` are asserted as bare substrings because
+      // the shell is a MINIFIED bundle now (src/js/shell.ts): quote style and
+      // parameter names are the bundler's to choose, so anything shaped like
+      // source would pin the wrong thing. `manual` matters — with the browser's
+      // own `auto` restore still armed it can re-apply its offset, 0 on this
+      // path, after ours has landed.
+      assert(html.contains("fh.scroll."), html)
+      assert(html.contains("scrollRestoration"), html)
+      assert(html.contains("manual"), html)
       val call = "<script>fhScroll('home')</script>"
       assert(html.contains(call), html)
       val after = html.drop(html.indexOf(call) + call.length)

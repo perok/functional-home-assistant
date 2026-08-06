@@ -6,65 +6,67 @@ import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
 
-/** The editor surface: what `/edit` offers to edit, plus the built asset bundle
-  * it boots from.
+/** The editor surface: what `/edit` offers to edit, plus the bundle it boots
+  * from.
   *
-  * That bundle is covered here because `vendor.js` is a BUILT artifact
-  * (esbuild, from `editor-src/`) and is gitignored — CI builds it, a checkout
-  * may carry an old one. When it drifts from what `app.js` imports, the failure
-  * is TOTAL and SILENT: the ES module import throws, so `app.js` never runs, so
-  * the file list is never rendered AND the on-screen error handler (registered
-  * inside that module) is never installed. The editor is simply blank, with
-  * nothing but a browser console entry to say why. That happened; hence this
-  * test.
+  * That bundle is covered here because it is a BUILT artifact (vite, from
+  * `src/js/`) and is gitignored — CI builds it, a checkout may carry an old one
+  * or none. When it is missing or was not really bundled, the failure is TOTAL
+  * and SILENT: the ES module import throws, so `app.js` never runs, so the file
+  * list is never rendered AND the on-screen error handler (registered inside
+  * that module) is never installed. The editor is simply blank, with nothing
+  * but a browser console entry to say why. That happened when `app.js` and its
+  * vendor bundle could drift apart; they are one file now, and this is the
+  * guard that replaces that one.
   *
   * A text check on purpose — no node, no browser — so it runs in the normal
-  * suite. Both files are read off the CLASSPATH, which is what the server
+  * suite. Everything is read off the CLASSPATH, which is what the server
   * actually serves.
   */
 class EditorSuite extends munit.FunSuite {
 
-  private def resource(name: String): String = {
-    val in = Option(getClass.getResourceAsStream(s"/editor/$name"))
-      .getOrElse(fail(s"editor/$name is not on the classpath"))
+  private def resource(path: String): String = {
+    val in = Option(getClass.getResourceAsStream(path))
+      .getOrElse(
+        fail(
+          s"$path is not on the classpath — run `sbt fh-datastar-view/frontendBundle`"
+        )
+      )
     try new String(in.readAllBytes(), "UTF-8")
     finally in.close()
   }
 
-  test("vendor.js exports every symbol app.js imports") {
-    val app = resource("app.js")
-    val vendor = resource("vendor.js")
+  test("the editor bundle is present and self-contained") {
+    val app = resource("/editor/app.js")
 
-    // The single `import { … } from "./vendor.js"` block at the top of app.js.
-    val imported = "(?s)import\\s*\\{(.*?)\\}\\s*from\\s*\"\\./vendor\\.js\"".r
-      .findFirstMatchIn(app)
+    // Really a bundle, not the bare source: CodeMirror is inside it. The
+    // source is ~10KB and the bundle ~650KB, so the floor is far from either.
+    assert(app.length > 100000, clue = app.length)
+
+    // ...and nothing was left EXTERNAL. A bundle that still names a bare
+    // package specifier would throw on import in the browser (no import map,
+    // no CDN) — the blank-editor failure this suite exists for.
+    val unbundled = "from\\s*[\"']([^./\"'][^\"']*)[\"']".r
+      .findAllMatchIn(app)
       .map(_.group(1))
-      .getOrElse(fail("app.js has no import block from ./vendor.js"))
-      .split(",")
-      .map(_.trim)
-      .filter(_.nonEmpty)
       .toList
-
-    assert(imported.sizeIs > 5, clue = imported) // the regex really matched
-
-    // esbuild's esm output ends in one `export { … }` list.
-    val exported = "(?s)export\\s*\\{([^}]*)\\}\\s*;?\\s*$".r
-      .findFirstMatchIn(vendor)
-      .map(_.group(1))
-      .getOrElse(fail("vendor.js has no trailing export block"))
-      .split(",")
-      .map(_.trim.split("\\s+as\\s+").last.trim)
-      .filter(_.nonEmpty)
-      .toSet
-
-    val missing = imported.filterNot(exported.contains)
     assertEquals(
-      missing,
+      unbundled,
       Nil,
-      clue =
-        s"vendor.js is stale — rebuild it: (cd modules/fh-datastar-view/editor-src && npm install && npm run build). Missing: ${missing
-            .mkString(", ")}"
+      clue = s"app.js imports unbundled modules: ${unbundled.mkString(", ")}"
     )
+  }
+
+  test("the page shell bundle defines the helpers the document calls") {
+    val shell = resource("/fh/shell.js")
+    // The document calls all three by name — fhConn from a script mid-body,
+    // fhScroll from the last line of it, fhUrl from Datastar's first effect.
+    List("fhUrl", "fhConn", "fhScroll").foreach(fn =>
+      assert(shell.contains(s"window.$fn="), clue = (fn, shell))
+    )
+    // A classic script, not a module: the document inlines it in <head> and
+    // needs the names defined immediately, not on a deferred module's turn.
+    assert(!shell.contains("export"), clue = shell)
   }
 
   /** A workspace shaped like a real one: two entries, the manifest, its

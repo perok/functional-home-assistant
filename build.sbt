@@ -141,6 +141,10 @@ lazy val home = project // using the others as if they are libs
 lazy val `fh-datastar-view` = project
   .in(file("modules/fh-datastar-view"))
   .dependsOn(`ha-api`)
+  // The frontend (src/js -> vite -> managed resources). `frontendBundle` is a
+  // resource generator, so a plain compile/test/assembly builds it; node+npm
+  // are therefore a build requirement for this module.
+  .enablePlugins(NpmPlugin)
   .settings(
     commonSettings,
     run / fork := true,

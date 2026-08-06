@@ -12,17 +12,19 @@ import org.http4s.server.staticcontent.*
   * dashboard sources on disk, with live preview and Pkl language support
   * (highlighting locally, completion/hover/diagnostics from the real pkl-lsp).
   *
-  * The front-end (HTML/CSS/JS) lives as real files under `resources/editor/`
-  * (`index.html`, `app.js`, `app.css`, `overlay.js`, `overlay.css`, plus the
-  * esbuild-bundled `vendor.js`) — NOT embedded in Scala strings — and is served
-  * as **static classpath resources** via http4s `StaticFile`. The editor's own
-  * assets are static; only the dashboard `.pkl` files are edited on the
-  * filesystem (via `/edit/file`).
+  * The front-end is never embedded in Scala strings; it is served as **static
+  * classpath resources** via http4s `StaticFile`. Its markup and CSS
+  * (`index.html`, `app.css`, `overlay.css`) are hand-written under
+  * `resources/editor/`; its JavaScript is authored in `src/js/editor/` and
+  * vite-bundled into MANAGED resources at the same classpath prefix, so both
+  * halves answer to `/editor/…` and only the build knows the difference.
+  * `app.js` carries CodeMirror and lsp-client inside it — there is no separate
+  * vendor bundle. The editor's own assets are static; only the dashboard `.pkl`
+  * files are edited on the filesystem (via `/edit/file`).
   *
   *   - `GET  /edit` the editor page (index.html with base href + config
   *     injected).
-  *   - `GET  /edit/{app,vendor,overlay}.js|{app,overlay}.css` the static
-  *     assets.
+  *   - `GET  /edit/{app,overlay}.js|{app,overlay}.css` the static assets.
   *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
   *     the `lib` sources), each with its absolute on-disk path (LSP document
   *     URI).
@@ -93,7 +95,7 @@ final class EditorRoutes(
     * injection.
     */
   private val staticAssets =
-    Set("app.js", "vendor.js", "app.css", "overlay.js", "overlay.css")
+    Set("app.js", "app.css", "overlay.js", "overlay.css")
 
   /** Serve one static editor asset through http4s [[StaticFile]] straight from
     * the classpath (`/editor/…`) — content type from the extension, caching

@@ -70,7 +70,8 @@ name, like `conn`.
   server therefore always knows what a connection is showing without keeping
   per-client state between connections.
 - **The URL mirrors it**, via `history.replaceState` from the page shell's
-  `fhUrl(key, value)` helper (`Server.UrlSyncScript`), as `?ui.<id>=<value>`.
+  `fhUrl(key, value)` helper (`src/js/shell.ts`, inlined by
+  `Server.UrlSyncScript`), as `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
@@ -100,7 +101,7 @@ Tiering discipline (do not blur it):
   param**, and only that.
 
 - **must-survive-a-load but must NOT be in a link → `sessionStorage`, keyed by
-  slug.** The scroll offset (`Server.ScrollRestoreScript`, ADR 0002) is the
+  slug.** The scroll offset (`fhScroll` in `src/js/shell.ts`, ADR 0002) is the
   case: it has to cross the document load that navigation is made of, but it is
   not the view a URL names — mirroring it would rewrite the URL on every scroll
   frame and make a shared link land somebody else mid-page. Per tab, like the

@@ -1,19 +1,16 @@
 // The dashboard editor front-end (CodeMirror 6 + @codemirror/lsp-client).
-// Served as a real file from resources/editor/ — NOT embedded in Scala — so it
-// can be linted, read normally, and edited live (refresh the browser; no sbt
-// rebuild). Dependencies resolve via the import map in index.html.
-
-// All CodeMirror + lsp-client symbols come from the pre-bundled vendor.js
-// (built by editor-src/ with esbuild) — one file, no import map, no CDN, one
-// @codemirror/state instance. Rebuild it only when deps change.
+// Source lives here and vite bundles it into resources/editor/app.js — one
+// self-contained ES module, no import map and no CDN, with a single
+// @codemirror/state instance because the bundler dedupes it.
+import { EditorState, Compartment } from "@codemirror/state"
+import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view"
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
 import {
-  EditorState, Compartment,
-  EditorView, keymap, lineNumbers, highlightActiveLine,
-  defaultKeymap, history, historyKeymap, indentWithTab,
-  StreamLanguage, LanguageSupport, syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching,
-  closeBrackets,
-  LSPClient, languageServerExtensions, languageServerSupport,
-} from "./vendor.js"
+  StreamLanguage, LanguageSupport, syntaxHighlighting,
+  defaultHighlightStyle, indentOnInput, bracketMatching,
+} from "@codemirror/language"
+import { closeBrackets } from "@codemirror/autocomplete"
+import { LSPClient, languageServerExtensions, languageServerSupport } from "@codemirror/lsp-client"
 
 const cfg = JSON.parse(document.getElementById("fh-editor-config").textContent)
 

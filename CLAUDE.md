@@ -49,7 +49,15 @@ sbt doCodegen                       # regenerate typed device/entity code, then 
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
 sbt dashboardServe                  # runtime: serve the Datastar dashboard (http://localhost:8080)
+sbt fh-datastar-view/frontendInstall  # npm ci for the dashboard frontend
+sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on compile)
 ```
+
+**`fh-datastar-view` needs node + npm to build.** Its frontend (`src/js`, TypeScript
+and JavaScript) is bundled by vite into managed resources via `project/NpmPlugin.scala`,
+wired as a `resourceGenerators` entry — so an ordinary `compile`/`test`/`assembly` runs
+`npm ci` and `vite build` when the sources change, and nothing built is committed. Both
+tasks no-op when a content fingerprint of their inputs still matches.
 
 Note: `run`/`runMain` are forked with the **working directory set to the module's base dir**
 (e.g. `modules/fh-datastar-view`), so relative paths in `*App` mains are module-relative.
@@ -79,6 +87,13 @@ workflow, key files, Pkl semantics gotchas, phase discipline — lives in
 changing anything there.**
 
 ### The sbt plugin glue
+
+`project/NpmPlugin.scala` is the other project-local `AutoPlugin` (ported from the sbt 1
+one in perok/workshop-programs-as-values): `frontendInstall` (`npm ci`) and
+`frontendBundle` (`npm run build`, then copy `target/frontend` into
+`Compile / resourceManaged`). Both are `Def.uncached` with an explicit content-hash
+stamp, because sbt 2's task cache cannot see that npm wrote a tree or that the output
+was deleted; `fileInputs` is declared purely so `~` watches the sources.
 
 `project/FHCodegenPlugin.scala` is a project-local sbt `AutoPlugin`. It defines `fhTaskCodeGen`, which deletes the output dir and runs `fh.codegen.Plugin` via `runMain` with `(outputDir, haUrl, haSecret)` as args. Note: it writes to **`scalaSource`** (unmanaged source), not `sourceManaged`, because there is no good cache key to invalidate on — so codegen is manual via `doCodegen`, not automatic on compile. `build.sbt` wires `haUrl`/`haSecret` into the `home-codegen` project.
 

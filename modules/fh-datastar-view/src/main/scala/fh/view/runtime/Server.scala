@@ -1884,109 +1884,41 @@ object Server {
 
   val PrevConnParam: String = "prev"
 
-  /** `fhConn(id)` — hand this tab's PREVIOUS session id to the stream that is
-    * about to replace it, and remember the new one for the next load.
+  /** The page shell's own JavaScript, read from the frontend bundle
+    * (`src/js/shell.ts` -> vite -> managed resources).
     *
-    * `sessionStorage` because it is the only storage with the lifetime wanted:
-    * per TAB and surviving a reload. A cookie is per browser, so two tabs on
-    * one dashboard would name the same predecessor and each would try to retire
-    * the other's live session; `localStorage` is worse for the same reason.
+    * Inlined into every document's `<head>` rather than linked, and a CLASSIC
+    * script rather than a module: `fhConn` is called from a `<script>` in the
+    * middle of the body and `fhUrl` from Datastar's first `data-effect`, so a
+    * deferred module would define these names too late. Inlining also keeps it
+    * to one round trip, which matters on a page whose whole point is painting
+    * before the stream connects.
     *
-    * It rewrites the `data-init` URL rather than fetching anything, so the
-    * retirement rides the connect the server was going to handle anyway — no
-    * extra request on every page load. Safe to run at that point in the parse:
-    * `<body>` exists (the tag is open), and Datastar is a deferred module, so
-    * the attribute is final before anything reads it.
+    * Defines `fhUrl` (the URL mirror, ADR 0005), `fhConn` (the session handoff,
+    * see [[PrevConnParam]]) and `fhScroll` (the scroll offset, ADR 0002). The
+    * `prev` parameter name is protocol shared with that constant, and the
+    * sessionStorage keys are the TypeScript's own — see the module doc there.
     *
-    * Silent on failure by design. Private browsing and storage-partitioned
-    * embeds can throw on `sessionStorage`, and the whole feature is an
-    * optimisation — losing it means a superseded session waits out its adoption
-    * window, which is what happened before this existed.
+    * A HARD failure when the resource is missing, not a fallback to nothing: a
+    * page without these helpers looks fine and then silently loses the tab
+    * selection, the session handoff and the scroll position. Missing means the
+    * frontend bundle did not run, which is a broken build, not a mode to
+    * support.
     */
-  private val ConnHandoffScript: String =
-    "window.fhConn=(id)=>{try{" +
-      "const k='fh.conn',p=sessionStorage.getItem(k);" +
-      "sessionStorage.setItem(k,id);" +
-      "if(!p||p===id)return;" +
-      "const b=document.body,a=b&&b.getAttribute('data-init');" +
-      "if(a)b.setAttribute('data-init',a.replace('conn='+encodeURIComponent(id)," +
-      "'conn='+encodeURIComponent(id)+'&" + PrevConnParam + "='+encodeURIComponent(p)))" +
-      "}catch(e){}};"
+  val UrlSyncScript: String = resourceText("/fh/shell.js")
 
-  /** Where a dashboard's scroll offset is remembered, per tab. */
-  val ScrollKeyPrefix: String = "fh.scroll."
-
-  /** `fhScroll(slug)` — restore this dashboard's scroll offset, and arrange to
-    * save it again when the document goes away.
-    *
-    * Crossing to another dashboard is a real document load (ADR 0002), so the
-    * page that comes back is a NEW document: nothing on it survives that the
-    * server did not render, and scroll is not something the server knows. That
-    * left the offset entirely to the browser, and on this page the browser
-    * cannot help — a document holding a streaming `fetch` (Datastar's SSE
-    * `@get`) is not back/forward-cache eligible, so even a back button re-loads
-    * the document rather than restoring a live one. Returning to a long
-    * dashboard therefore always landed at the top.
-    *
-    * `sessionStorage`, keyed by slug, for the same reason [[ConnHandoffScript]]
-    * uses it: per TAB and surviving a load, so two tabs on one dashboard do not
-    * drag each other around. Deliberately NOT the URL mirror that carries the
-    * tab and the popup (ADR 0005): those are the view a link should name, while
-    * an offset would rewrite the URL on every scroll frame and make a shared
-    * link land somebody else mid-page.
-    *
-    * `scrollRestoration='manual'` because the browser's own attempt is what
-    * this replaces, not races: with `auto` it can re-apply its offset AFTER
-    * this runs, and on the reload path that offset is 0. Nothing is lost by
-    * taking it over — the value written on `pagehide` is the one the browser
-    * would have saved at the same moment.
-    *
-    * CALLED LAST IN `<body>`, and that is the whole reason there is no visible
-    * jump: the body is server-rendered and the stylesheets are render-blocking,
-    * so the document has its final height by the time the closing script runs,
-    * and the offset is set before the first paint.
-    *
-    * Silent on failure, like the conn handoff: private browsing and partitioned
-    * embeds can throw on `sessionStorage`, and losing this means landing at the
-    * top — which is where we were.
-    */
-  private val ScrollRestoreScript: String =
-    "window.fhScroll=(s)=>{try{" +
-      s"const k='$ScrollKeyPrefix'+s;" +
-      "history.scrollRestoration='manual';" +
-      "addEventListener('pagehide',()=>{" +
-      "try{sessionStorage.setItem(k,scrollY)}catch(e){}});" +
-      "const v=+sessionStorage.getItem(k);" +
-      "if(v>0)scrollTo(0,v)" +
-      "}catch(e){}};"
-
-  /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
-    * without navigating: set the param, or drop it when the value is empty.
-    *
-    * This is a hand-rolled `data-query-string`, which is a Pro plugin we don't
-    * have (ADR 0005). Signals stay the LIVE carrier — they are what reaches the
-    * server on a reconnect and on every action — and the URL is their mirror,
-    * for the two things a signal cannot do: survive a refresh, and stay unique
-    * per document (a cookie is per-origin, so a second browser tab on the same
-    * dashboard would overwrite the first one's selection).
-    *
-    * `replaceState`, never `pushState`: this is view state, not navigation.
-    * Back should leave the dashboard, not step back through tab clicks.
-    *
-    * An empty value DROPS the param, and that is not defensive: it is how a
-    * client says "closed" (a dismissed popup). It does mean this cannot tell
-    * "cleared" from "never initialised" — Datastar creates a signal as `""` the
-    * moment an expression reads one — which is why the seeds that feed it must
-    * ASSERT rather than initialise-if-missing. See `Tabs` in components.pkl.
-    *
-    * A classic inline script so it is defined before the deferred Datastar
-    * module evaluates the first `data-effect` that calls it.
-    */
-  val UrlSyncScript: String =
-    "window.fhUrl=(k,v)=>{const u=new URL(location.href);" +
-      "(v===''||v==null)?u.searchParams.delete(k):u.searchParams.set(k,v);" +
-      "history.replaceState(null,'',u)};" + ConnHandoffScript +
-      ScrollRestoreScript
+  /** Read a classpath resource as UTF-8, or fail loudly naming it. */
+  private def resourceText(path: String): String =
+    Option(getClass.getResourceAsStream(path))
+      .map { in =>
+        try new String(in.readAllBytes(), UTF_8)
+        finally in.close()
+      }
+      .getOrElse(
+        sys.error(
+          s"missing bundled frontend resource $path — run `sbt fh-datastar-view/frontendBundle` (needs node + npm)"
+        )
+      )
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.
