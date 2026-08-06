@@ -309,14 +309,17 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |import "lib/hass.pkl"
         |
-        |light: hass.LightEntity = new {
+        |// Capabilities are NOT on the shared domain class — they are declared
+        |// per entity, the way the generated dump declares them, so an entity
+        |// without the capability has no such property at all (ADR 0013).
+        |class E_light_kitchen extends hass.LightEntity {
+        |  effect_list: Listing<String> = new Listing { "colorloop" }
+        |}
+        |
+        |light: E_light_kitchen = new {
         |  entity_id = "light.kitchen"
         |  friendly_name = "Kitchen"
         |  area_id = "kitchen"
-        |  color_mode = "color_temp"
-        |  // Assignment, not amend: the default is null, and amending null is
-        |  // a type error when the value is forced.
-        |  effect_list = new Listing { "colorloop" }
         |}
         |
         |tv: hass.GenericEntity = new {
@@ -405,8 +408,14 @@ class PklBuildSuite extends munit.FunSuite {
     // its own `@fh-home` package, and the alias is what lands its `hass` types
     // on the same URI `components.pkl` sees (ADR 0010, "Module identity").
     assert(src.contains("import \"@fh-dashboard/hass.pkl\""), clue = src)
+    // Each entity gets its OWN class extending the domain class, carrying just
+    // that entity's capabilities (ADR 0013).
     assert(
-      src.contains("const hidden e_light_kitchen: hass.LightEntity"),
+      src.contains("class E_light_kitchen extends hass.LightEntity"),
+      clue = src
+    )
+    assert(
+      src.contains("const hidden e_light_kitchen: E_light_kitchen"),
       clue = src
     )
     assert(src.contains("class Area_kjokken extends hass.Area"), clue = src)
@@ -419,8 +428,12 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("friendly_name = \"Kitchen \\\"main\\\" light\""),
       clue = src
     )
+    // A capability is DECLARED with its type on the entity's own class, not
+    // assigned into a nullable schema field.
     assert(
-      src.contains("effect_list = new Listing { \"colorloop\" }"),
+      src.contains(
+        "effect_list: Listing<String> = new Listing { \"colorloop\" }"
+      ),
       clue = src
     )
     assert(src.contains("lights = List(light_kitchen)"), clue = src)
@@ -473,7 +486,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(src.contains("areas = List(`new`)"), clue = src)
     // The plain-safe entity name stays unquoted even in this dump.
     assert(
-      src.contains("const hidden e_light_lamp: hass.LightEntity"),
+      src.contains("const hidden e_light_lamp: E_light_lamp"),
       clue = src
     )
 

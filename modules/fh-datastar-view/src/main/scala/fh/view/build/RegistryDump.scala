@@ -16,18 +16,19 @@ import io.circe.{Json, JsonObject}
 /** Build-phase dump built from the WebSocket REGISTRIES, the side-by-side
   * replacement for [[DataDump]]'s Jinja template.
   *
-  * Why a second implementation rather than growing the template: `/api/template`
-  * truncates its output at 262144 characters and the existing template already
-  * renders ~228k of that, so there is no room left for device ids, group members
-  * or a wider attribute set. The registries have no such cap, and they carry two
-  * things a template provably cannot reach — `entity_category` (absent from
-  * state attributes) and, on this HA version, any whole-device listing (`devices()`
-  * is undefined; only the per-entity `device_id()` exists).
+  * Why a second implementation rather than growing the template:
+  * `/api/template` truncates its output at 262144 characters and the existing
+  * template already renders ~228k of that, so there is no room left for device
+  * ids, group members or a wider attribute set. The registries have no such
+  * cap, and they carry two things a template provably cannot reach —
+  * `entity_category` (absent from state attributes) and, on this HA version,
+  * any whole-device listing (`devices()` is undefined; only the per-entity
+  * `device_id()` exists).
   *
   * Emits the SAME JSON shape [[DataDump.fetch]] does — `{floors, areas,
   * entities}` keyed by [[DataDump.transform]] — so [[PklDump.render]] consumes
-  * either one unchanged. The extra fields are additive; the template path simply
-  * never sets them.
+  * either one unchanged. The extra fields are additive; the template path
+  * simply never sets them.
   */
 object RegistryDump {
 
@@ -35,8 +36,8 @@ object RegistryDump {
     *
     * The cut is phase discipline, not size: the dump is build-time, so anything
     * that moves while the server runs (`brightness`, `color_temp_kelvin`,
-    * `rgb_color`, `update_percentage`, ...) would be BAKED STALE here, and lives
-    * runtime-side as JSONata over the SSE stream instead. What is left is
+    * `rgb_color`, `update_percentage`, ...) would be BAKED STALE here, and
+    * lives runtime-side as JSONata over the SSE stream instead. What is left is
     * capability and presentation metadata — the shape of an entity, not its
     * value — which is exactly what an author needs at composition time.
     */
@@ -77,13 +78,14 @@ object RegistryDump {
 
   /** The two attributes that name an entity's MEMBERS, in precedence order.
     *
-    * `entity_id` is the HA Light Group helper's member list (a
-    * `light.*` that fans out to other lights); `group_entities` is the
-    * Zigbee/ZHA group equivalent. They nest — a light group can hold a zigbee
-    * group, which holds bulbs — and both are plain `entity_id` lists, so one
-    * `members` edge covers them.
+    * `entity_id` is the HA Light Group helper's member list (a `light.*` that
+    * fans out to other lights); `group_entities` is the Zigbee/ZHA group
+    * equivalent. They nest — a light group can hold a zigbee group, which holds
+    * bulbs — and both are plain `entity_id` lists, so one `members` edge covers
+    * them.
     */
-  private val MemberAttributes: List[String] = List("entity_id", "group_entities")
+  private val MemberAttributes: List[String] =
+    List("entity_id", "group_entities")
 
   def fetch(api: HomeAssistantApi[IO]): IO[Json] =
     (
@@ -109,9 +111,10 @@ object RegistryDump {
     * The STATE snapshot is the spine, not the entity registry. The registry
     * lists every entity that ever existed — 2296 against 1069 with state on the
     * dev instance, the difference being disabled ones — while an entity with no
-    * state is not something a dashboard can render. A handful of entities go the
-    * other way (`sun.sun` and friends have state but no registry row), so this
-    * is a LEFT join from states, with registry fields defaulted when absent.
+    * state is not something a dashboard can render. A handful of entities go
+    * the other way (`sun.sun` and friends have state but no registry row), so
+    * this is a LEFT join from states, with registry fields defaulted when
+    * absent.
     */
   def build(
       states: Map[String, EntitiesEvent.Full],
@@ -133,7 +136,9 @@ object RegistryDump {
       // An entity inherits its DEVICE's area unless it overrides it — the same
       // fallback the Jinja `area_id()` function applies.
       val areaId =
-        reg.flatMap(_.area_id).orElse(device.flatMap(deviceById.get).flatMap(_.area_id))
+        reg
+          .flatMap(_.area_id)
+          .orElse(device.flatMap(deviceById.get).flatMap(_.area_id))
 
       Json.fromFields(
         List(
@@ -166,18 +171,20 @@ object RegistryDump {
     // fields the template path produces and passes anything else through
     // untouched. Device NAMES are not unique the way area names are (two bulbs
     // of the same model land on the same slug), so the key is deduplicated.
-    val deviceJson = dedupeKeyed(devices.sortBy(d => DeviceId.toString(d.id)).map { d =>
-      val name = d.name_by_user.getOrElse(d.name)
-      DataDump.slug(name) -> Json.fromFields(
-        List(
-          "device_id" -> Json.fromString(DeviceId.toString(d.id)),
-          "device_name" -> Json.fromString(name),
-          "area_id" -> d.area_id.fold(Json.Null)(Json.fromString),
-          "manufacturer" -> d.manufacturer.fold(Json.Null)(Json.fromString),
-          "model" -> d.model.fold(Json.Null)(Json.fromString)
+    val deviceJson = dedupeKeyed(
+      devices.sortBy(d => DeviceId.toString(d.id)).map { d =>
+        val name = d.name_by_user.getOrElse(d.name)
+        DataDump.slug(name) -> Json.fromFields(
+          List(
+            "device_id" -> Json.fromString(DeviceId.toString(d.id)),
+            "device_name" -> Json.fromString(name),
+            "area_id" -> d.area_id.fold(Json.Null)(Json.fromString),
+            "manufacturer" -> d.manufacturer.fold(Json.Null)(Json.fromString),
+            "model" -> d.model.fold(Json.Null)(Json.fromString)
+          )
         )
-      )
-    })
+      }
+    )
 
     Json.obj(
       "floors" -> Json.fromValues(floors.sortBy(_.floor_id).map { f =>
@@ -208,12 +215,13 @@ object RegistryDump {
     * bare slug, so callers sort first for a stable dump.
     */
   private def dedupeKeyed(entries: List[(String, Json)]): Json = {
-    val (out, _) = entries.foldLeft((List.empty[(String, Json)], Map.empty[String, Int])) {
-      case ((acc, seen), (slug, value)) =>
-        val n = seen.getOrElse(slug, 0)
-        val key = if (n == 0) slug else s"${slug}_${n + 1}"
-        ((key -> value) :: acc, seen.updated(slug, n + 1))
-    }
+    val (out, _) =
+      entries.foldLeft((List.empty[(String, Json)], Map.empty[String, Int])) {
+        case ((acc, seen), (slug, value)) =>
+          val n = seen.getOrElse(slug, 0)
+          val key = if (n == 0) slug else s"${slug}_${n + 1}"
+          ((key -> value) :: acc, seen.updated(slug, n + 1))
+      }
     Json.fromJsonObject(JsonObject.fromIterable(out.reverse))
   }
 

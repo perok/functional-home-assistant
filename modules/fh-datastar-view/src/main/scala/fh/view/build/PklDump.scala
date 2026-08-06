@@ -48,15 +48,26 @@ object PklDump {
     // `e_*` would be an eval error in every dashboard.
     val known = entities.map(_._1).toSet
 
+    // One class PER ENTITY, carrying exactly the capabilities that entity
+    // reports. The domain class it extends carries none, so a light without
+    // color temperature has no `min_color_temp_kelvin` property at all and
+    // reading one is a Pkl error rather than a null (ADR 0013).
     val entityDecls = entities.map { case (key, eo) =>
-      s"const hidden ${tick(s"e_$key")}: ${entityType(eo)} = ${entityLiteral(eo, known)}"
+      val caps = capabilityDecls(eo)
+      val body = if (caps.isEmpty) "" else caps.mkString("\n") + "\n"
+      s"""class ${entityClass(key)} extends ${entityType(eo)} {
+         |$body}
+         |
+         |const hidden ${tick(s"e_$key")}: ${entityClass(
+          key
+        )} = ${entityLiteral(eo, known)}""".stripMargin
     }
 
     val entitiesClass =
       s"""class Entities {
          |${entities
-          .map { case (key, eo) =>
-            s"  ${tick(key)}: ${entityType(eo)} = ${tick(s"e_$key")}"
+          .map { case (key, _) =>
+            s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
           }
           .mkString("\n")}
          |}
@@ -70,8 +81,8 @@ object PklDump {
       val members = entities.filter { case (_, eo) =>
         str(eo, "area_id") == areaId && areaId.isDefined
       }
-      val memberProps = members.map { case (key, eo) =>
-        s"  ${tick(key)}: ${entityType(eo)} = ${tick(s"e_$key")}"
+      val memberProps = members.map { case (key, _) =>
+        s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
       }
       def domainList(name: String, pred: String => Boolean) = {
         val keys = members.collect {
@@ -145,7 +156,7 @@ object PklDump {
       val memberProps = entities.collect {
         case (key, eo)
             if deviceId.isDefined && str(eo, "device_id") == deviceId =>
-          s"  ${tick(key)}: ${entityType(eo)} = ${tick(s"e_$key")}"
+          s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
       }
       val entityList = Option.when(memberProps.nonEmpty)(
         s"  entities = List(${entities
@@ -231,49 +242,48 @@ object PklDump {
       case _              => "hass.GenericEntity"
     }
 
-  /** Capability attributes declared on `hass.Entity` itself, so any domain may
-    * carry them.
+  /** Property names `hass.Entity` and its domain subclasses already own. An
+    * incoming attribute that collides with one is skipped rather than
+    * redeclared, which would shadow the schema's own field.
     */
-  private val UniversalAttributes = List(
-    "device_class",
-    "unit_of_measurement",
-    "state_class",
-    "icon",
-    "entity_picture",
-    "supported_features"
+  private val ReservedProperties = Set(
+    "entity_id",
+    "domain",
+    "friendly_name",
+    "area_id",
+    "floor_id",
+    "id_hidden",
+    "device_id",
+    "entity_category",
+    "members",
+    "isDynamic"
   )
 
-  /** Capability attributes declared on a DOMAIN's class. An attribute absent
-    * from both tables is dropped: `hass.pkl` has no property for it, so
-    * emitting it would be a type error in every dashboard that reads the dump.
-    * Widening the dump therefore means adding the property AND the row here.
-    */
-  private val DomainAttributes: Map[String, List[String]] = Map(
-    "light" -> List(
-      "color_mode",
-      "effect_list",
-      "supported_color_modes",
-      "min_color_temp_kelvin",
-      "max_color_temp_kelvin"
-    ),
-    "number" -> List("min", "max", "step", "mode"),
-    "select" -> List("options")
-  )
+  /** The generated class name for one entity. */
+  private def entityClass(key: String): String = tick(s"E_$key")
 
-  /** The `new { ... }` literal for one entity. Typed classes default their
-    * `domain`, but emitting it unconditionally is harmless and keeps
-    * GenericEntity (where it is required) uniform.
+  /** The capability declarations for one entity: `name: Type = value`, one per
+    * attribute the entity actually reports.
+    *
+    * These go on the entity's OWN class, never on a shared schema class, and
+    * they are NOT nullable — the entity reports the capability, so the value
+    * exists. An entity without the capability simply has no such property, and
+    * reading it is a Pkl error instead of a silent null. That is the whole
+    * point: the dump answers "does this entity have X" by whether X is there.
     */
-  private def entityLiteral(eo: JsonObject, known: Set[String]): String = {
+  private def capabilityDecls(eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
-    val domain = str(eo, "domain").getOrElse("")
-
-    val attributeFields =
-      (UniversalAttributes ++ DomainAttributes.getOrElse(domain, Nil)).flatMap {
-        name =>
-          attrs(name).flatMap(pklValue).map(v => s"  $name = $v")
+    attrs.toList
+      .filterNot { case (name, _) => ReservedProperties.contains(name) }
+      .sortBy(_._1)
+      .flatMap { case (name, value) =>
+        pklTyped(value).map { case (tpe, rendered) =>
+          s"  ${tick(name)}: $tpe = $rendered"
+        }
       }
+  }
 
+  private def entityLiteral(eo: JsonObject, known: Set[String]): String = {
     val memberRefs = eo("members")
       .flatMap(_.asArray)
       .getOrElse(Vector.empty)
@@ -299,27 +309,46 @@ object PklDump {
         .flatMap(_.asBoolean)
         .filter(identity)
         .map(_ => "  id_hidden = true")
-    ).flatten ++ attributeFields ++ members.toList
+      // Capabilities are NOT assigned here — they are declared with their value as
+      // the default on the entity's own class, so `new {}` already carries them.
+    ).flatten ++ members.toList
 
     s"new {\n${fields.mkString("\n")}\n}"
   }
 
-  /** Render a JSON attribute as a Pkl literal, or None when there is no
-    * faithful representation (an object, a mixed array, a null). Dropping is
-    * safe: every capability property is nullable, so an absent one reads as
-    * "not set" — which is exactly what a value we cannot type means.
+  /** A JSON attribute as a Pkl `(type, literal)` pair, or None when there is no
+    * faithful representation (an object, a mixed array, an explicit null).
+    *
+    * Dropping the unrepresentable is the honest move: a property is declared
+    * only when its type can be stated, so an author never meets a field whose
+    * type is a guess. A `null` in particular means HA reported the attribute
+    * with no value, which is indistinguishable from not having it.
     */
-  private def pklValue(j: Json): Option[String] =
+  private def pklTyped(j: Json): Option[(String, String)] =
     j.fold(
       None,
-      b => Some(b.toString),
-      n => Some(n.toLong.map(_.toString).getOrElse(n.toDouble.toString)),
-      s => Some(pklString(s)),
+      b => Some("Boolean" -> b.toString),
+      n =>
+        Some(
+          n.toLong
+            .map(l => "Int" -> l.toString)
+            .getOrElse("Float" -> n.toDouble.toString)
+        ),
+      s => Some("String" -> pklString(s)),
       arr =>
         val strings = arr.flatMap(_.asString)
-        Option.when(arr.nonEmpty && strings.sizeIs == arr.size)(
-          s"new Listing { ${strings.map(pklString).mkString("; ")} }"
-        )
+        val numbers = arr.flatMap(_.asNumber)
+        if (arr.nonEmpty && strings.sizeIs == arr.size)
+          Some(
+            "Listing<String>" ->
+              s"new Listing { ${strings.map(pklString).mkString("; ")} }"
+          )
+        else if (arr.nonEmpty && numbers.sizeIs == arr.size)
+          Some(
+            "Listing<Number>" ->
+              s"new Listing { ${numbers.map(_.toDouble).mkString("; ")} }"
+          )
+        else None
       ,
       _ => None
     )

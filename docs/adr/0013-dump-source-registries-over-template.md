@@ -1,7 +1,7 @@
 # ADR 0013 — The dump comes from the WebSocket registries, not a Jinja template
 
-- **Status:** Proposed (both paths in tree; `DataDump` still the wired default,
-  `RegistryDump` proven equivalent and richer — the cutover is a separate call)
+- **Status:** Accepted — `RegistryDump` is the wired dump source. `DataDump`
+  (the Jinja template) stays in tree only as `DumpCompareApp`'s reference point
 - **Date:** 2026-08-06
 - **Scope:** `modules/fh-datastar-view` (build phase), `modules/ha-api`
 
@@ -32,8 +32,8 @@ the result into `{floors, areas, entities}`. It is a direct port of the original
 ## Decision
 
 Build the dump from the **WebSocket registries plus the `subscribe_entities`
-snapshot**, and keep the template path beside it until the new one has earned
-the switch.
+snapshot**. It is the wired source; the template path stays only as the
+comparison reference.
 
 | Data | Source |
 |---|---|
@@ -53,6 +53,54 @@ disabled ones, which no dashboard can render. A handful go the other way
 (`sun.sun` and friends have state but no registry row), so the join is a LEFT
 join *from states*, registry fields defaulted when absent.
 
+### Capabilities are per-entity, not nullable fields
+
+The shared schema classes (`hass.Entity`, `hass.LightEntity`, ...) declare
+**identity and registry facts only** — the things every entity has, even if null:
+`entity_id`, `domain`, `friendly_name`, `area_id`, `floor_id`, `id_hidden`,
+`device_id`, `entity_category`, `members`.
+
+Capability attributes are declared on a class the dump generates **per entity**,
+and only on the entities that report them:
+
+```pkl
+class E_light_light_hue_06a306_bibliotek_light extends hass.LightEntity {
+  effect_list: Listing<String> = new Listing { "off"; "colorloop" }
+  min_color_temp_kelvin: Int = 2000
+  max_color_temp_kelvin: Int = 6535
+  supported_color_modes: Listing<String> = new Listing { "color_temp"; "xy" }
+}
+
+class E_light_plug extends hass.LightEntity {
+  supported_color_modes: Listing<String> = new Listing { "onoff" }
+}
+```
+
+The point is what is NOT there. `light.plug` has no `min_color_temp_kelvin`
+property at all, so reading one is a Pkl error —
+
+```
+Cannot find property `min_color_temp_kelvin` in object of type `dump#E_light_plug`.
+```
+
+— rather than a `null` an author has to remember to check. A nullable field on
+the shared class would have given every light access to a capability most of them
+do not have, which is precisely the thing worth preventing: the dump answers
+"does this entity have X" by **whether X is there**.
+
+Two consequences, both spike-verified on pkl-core 0.32.1:
+
+- The declared types are **not nullable** — the entity reports the capability, so
+  the value exists.
+- Precision costs nothing generically: `E_light_plug` is still assignable to
+  `List<hass.LightEntity>` and `List<hass.Entity>`, so area member lists and card
+  factories taking a domain type are unaffected. What generic code loses is
+  access to the capabilities — which is correct, since a `hass.LightEntity` in
+  the abstract genuinely has none.
+
+This is why the domain classes are `open`, and why the generated module is ~24%
+larger (944 KB against 762 KB for the shared-nullable-field shape).
+
 ### What gets carried, and what deliberately does not
 
 Attributes are filtered to a **capability set** (`RegistryDump.CapabilityAttributes`
@@ -61,12 +109,14 @@ Attributes are filtered to a **capability set** (`RegistryDump.CapabilityAttribu
 build-time, so any attribute that moves while the server runs (`brightness`,
 `color_temp_kelvin`, `rgb_color`, `update_percentage`) would be baked stale.
 Those stay runtime-side as JSONata over the SSE stream, which is where they
-already were. `hass.LightEntity.color_mode` is the one legacy exception — a live
-value the template path bakes; the registry path leaves it null.
+already were. `color_mode` is the clearest example: the template path baked it
+onto every light, and the registry path drops it.
 
-Widening the dump therefore means adding a property to `hass.pkl` **and** a row
-to `PklDump.DomainAttributes`. An attribute in neither table is dropped, because
-`hass.pkl` has no property to receive it.
+Widening the dump is now a ONE-line change to `RegistryDump.CapabilityAttributes`
+— per-entity classes mean a new attribute needs no `hass.pkl` edit and pollutes
+no shared type. `PklDump` infers each property's Pkl type from its JSON value and
+skips anything it cannot state faithfully (objects, mixed arrays, explicit
+nulls), so an author never meets a field whose type is a guess.
 
 ### Group members are references, not id strings
 
@@ -76,7 +126,7 @@ become one `members` edge, emitted by `PklDump` as references to the other
 entities' `e_*` consts:
 
 ```pkl
-const hidden e_light_relative_stue: hass.LightEntity = new {
+const hidden e_light_relative_stue: E_light_relative_stue = new {
   entity_id = "light.relative_stue"
   members = List(e_light_spisebordlys, e_light_skyconnect_..._sittegruppe)
 }
@@ -96,12 +146,15 @@ missing `e_*` would be an eval error in every dashboard.
   `domain`, `friendly_name`, `area_id`, `floor_id`, `id_hidden` — so the registry
   path reproduces the template path exactly, and adds 201 devices, 12 group
   entities, and the `entity_category` classification.
-- `hass.pkl` grew nullable capability properties, `device_id`, `entity_category`,
-  `members`, a `Device` class, and `Floor.level`. All additive: absent means
-  null, so "is it set?" is answerable per entity, and the template path simply
-  never sets the new ones.
-- The Jinja template stays until the cutover, and `PklDump.render` consumes
-  either shape unchanged.
+- `hass.pkl` grew `device_id`, `entity_category`, `members`, a `Device` class and
+  `Floor.level`; its domain classes became `open` and SHED their capability
+  fields (see above).
+- `PklDump.render` still consumes either dump shape, so `DumpCompareApp` keeps
+  working and the template path can be re-run for comparison at any time.
+- The test fake (`FakeHomeAssistant`) now answers the four registry commands with
+  EMPTY lists. That is faithful, not a stub: a fixture declares entities and
+  attributes, never registry rows, and the join runs from the state snapshot, so
+  every fixture entity still reaches the dump — just with no area/floor/device.
 
 ## Alternatives rejected
 

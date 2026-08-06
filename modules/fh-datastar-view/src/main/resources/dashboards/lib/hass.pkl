@@ -30,17 +30,13 @@ abstract class Entity {
   /// dynamic group down to the things a person actually looks at.
   entity_category: String? = null
 
-  // ---- capability attributes ----
-  // Present on any domain that reports them. STATIC shape, not live value: what
-  // an entity CAN do, which is what composition needs. Live values (state,
-  // brightness, current temperature) never appear here — they arrive runtime-side
-  // as JSONata over the SSE stream.
-  device_class: String? = null
-  unit_of_measurement: String? = null
-  state_class: String? = null
-  icon: String? = null
-  entity_picture: String? = null
-  supported_features: Int? = null
+  // NOTE: capability attributes (device_class, supported_color_modes,
+  // effect_list, min/max/step, options, ...) are deliberately NOT declared here.
+  // They live on the per-entity class the dump generates, and ONLY on the
+  // entities that actually report them, so reading one off an entity that has
+  // no such capability is a Pkl error ("Cannot find property") rather than a
+  // silent null. See ADR 0013, "Capabilities are per-entity, not nullable
+  // fields".
 
   /// The entities this one drives, as REFERENCES to the real dump entities —
   /// an HA Light Group helper or a Zigbee group fans out to its members, so
@@ -56,42 +52,33 @@ abstract class Entity {
 
 /// developers.home-assistant.io/docs/core/entity/light — only the attributes
 /// the dump template extracts today.
-class LightEntity extends Entity {
+/// The domain classes carry the domain literal and nothing else — they exist so
+/// a value can be TYPED by domain (`List<LightEntity>`, a card factory that only
+/// accepts a light). Each is `open` because the generated dump extends it once
+/// per entity to add that entity's own capabilities.
+open class LightEntity extends Entity {
   domain: "light" = "light"
-  /// LIVE value, and set only by the legacy template dump — a light's current
-  /// color mode changes while the server runs, so the registry dump leaves it
-  /// null rather than baking a stale one. Read it runtime-side instead.
-  color_mode: String? = null
-  effect_list: Listing<String>? = null
-  supported_color_modes: Listing<String>? = null
-  min_color_temp_kelvin: Int? = null
-  max_color_temp_kelvin: Int? = null
 }
 
-class SensorEntity extends Entity {
+open class SensorEntity extends Entity {
   domain: "sensor" = "sensor"
 }
 
-class SwitchEntity extends Entity {
+open class SwitchEntity extends Entity {
   domain: "switch" = "switch"
 }
 
-class NumberEntity extends Entity {
+open class NumberEntity extends Entity {
   domain: "number" = "number"
-  min: Number? = null
-  max: Number? = null
-  step: Number? = null
-  mode: String? = null
 }
 
-class SelectEntity extends Entity {
+open class SelectEntity extends Entity {
   domain: "select" = "select"
-  options: Listing<String>? = null
 }
 
 /// Fallback for every domain without a dedicated class yet — add a typed
 /// class (and a PklDump dispatch row) to specialize a domain.
-class GenericEntity extends Entity {}
+open class GenericEntity extends Entity {}
 
 /// The build-time placeholder "current entity" for a dynamic-group case — the
 /// typed counterpart of jsonnet's `d.matched`. INTERNAL to `components.pkl`'s

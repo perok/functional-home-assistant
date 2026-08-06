@@ -2,8 +2,8 @@ package fh.view.build
 
 import io.circe.Json
 
-/** The generated-source half of the group work: a member edge must come out as a
-  * REFERENCE to the other entity's `e_*` const, because that is what makes
+/** The generated-source half of the group work: a member edge must come out as
+  * a REFERENCE to the other entity's `e_*` const, because that is what makes
   * `e.members[0].members` walk a nested group instead of handing the author a
   * string to look up again.
   */
@@ -63,8 +63,16 @@ class PklDumpMembersSuite extends munit.FunSuite {
     val src = PklDump.render(
       dump(entity("number.a", "number"), entity("select.b", "select"))
     )
-    assert(src.contains("const hidden e_number_a: hass.NumberEntity"), clue = src)
-    assert(src.contains("const hidden e_select_b: hass.SelectEntity"), clue = src)
+    assert(
+      src.contains("class E_number_a extends hass.NumberEntity"),
+      clue = src
+    )
+    assert(
+      src.contains("class E_select_b extends hass.SelectEntity"),
+      clue = src
+    )
+    assert(src.contains("const hidden e_number_a: E_number_a"), clue = src)
+    assert(src.contains("const hidden e_select_b: E_select_b"), clue = src)
   }
 
   test("no devices in the dump means no Devices namespace at all") {
@@ -91,6 +99,9 @@ class PklDumpMembersSuite extends munit.FunSuite {
     val src = PklDump.render(transformed)
     assert(src.contains("class Device_bulb extends hass.Device"), clue = src)
     assert(src.contains("entities = List(light_a, sensor_b)"), clue = src)
-    assert(!src.contains("light_c: hass.LightEntity = e_light_c\n  entities"), clue = src)
+    assert(
+      !src.contains("light_c: hass.LightEntity = e_light_c\n  entities"),
+      clue = src
+    )
   }
 }

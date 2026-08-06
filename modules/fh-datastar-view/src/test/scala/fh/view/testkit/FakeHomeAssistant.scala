@@ -126,6 +126,22 @@ final class FakeHomeAssistant private (
           )
           .as(Json.obj())
           .asInstanceOf[IO[Response]]
+
+      // The four registries [[fh.view.build.RegistryDump]] joins against. A
+      // fixture declares entities and their attributes, never registry rows, so
+      // these are EMPTY — which is a faithful answer, not a stub: the dump's
+      // join runs from the state snapshot, so every fixture entity still lands
+      // in the dump, just with no area/floor/device/category. A test that needs
+      // those fills the corresponding list in.
+      case _: `config/entity_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/device_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/area_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/floor_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+
       case _ => na
     }
 

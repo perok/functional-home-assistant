@@ -32,7 +32,7 @@ object DashboardBuild {
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[Unit] =
-    DataDump.fetch(api).flatMap { dump =>
+    RegistryDump.fetch(api).flatMap { dump =>
       IO.blocking(
         DumpPackage
           .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)

@@ -10,8 +10,8 @@ import api.homeassistant.ws.domain.{
 import ha.runtime.definitions.{DeviceId, EntityId, ReadableEntityId}
 import io.circe.Json
 
-/** [[RegistryDump.build]] is the pure join at the heart of the registry dump, so
-  * it is exercised directly — no live HA, no WebSocket.
+/** [[RegistryDump.build]] is the pure join at the heart of the registry dump,
+  * so it is exercised directly — no live HA, no WebSocket.
   */
 class RegistryDumpSuite extends munit.FunSuite {
 
@@ -79,7 +79,19 @@ class RegistryDumpSuite extends munit.FunSuite {
     )
 
   private val kitchen =
-    Area(Nil, "kitchen", 0d, Some("ground"), None, None, Nil, Json.Null, "Kitchen", None, None)
+    Area(
+      Nil,
+      "kitchen",
+      0d,
+      Some("ground"),
+      None,
+      None,
+      Nil,
+      Json.Null,
+      "Kitchen",
+      None,
+      None
+    )
   private val ground =
     Floor(Nil, 0d, "ground", None, Some(1), Json.Null, "Ground")
 
@@ -107,7 +119,10 @@ class RegistryDumpSuite extends munit.FunSuite {
       areas = Nil,
       floors = Nil
     )
-    assertEquals(field(dump, "sun_sun", "entity_id"), Json.fromString("sun.sun"))
+    assertEquals(
+      field(dump, "sun_sun", "entity_id"),
+      Json.fromString("sun.sun")
+    )
     assertEquals(field(dump, "sun_sun", "domain"), Json.fromString("sun"))
   }
 
@@ -160,7 +175,10 @@ class RegistryDumpSuite extends munit.FunSuite {
       floors = Nil
     )
     assertEquals(field(dump, "switch_a", "id_hidden"), Json.True)
-    assertEquals(field(dump, "switch_a", "entity_category"), Json.fromString("config"))
+    assertEquals(
+      field(dump, "switch_a", "entity_category"),
+      Json.fromString("config")
+    )
     assertEquals(field(dump, "switch_b", "id_hidden"), Json.False)
     assertEquals(field(dump, "switch_b", "entity_category"), Json.Null)
   }

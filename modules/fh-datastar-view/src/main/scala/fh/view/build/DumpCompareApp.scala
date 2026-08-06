@@ -9,23 +9,33 @@ import io.circe.Json
   * registries) against the SAME live instance and reports where they disagree.
   *
   * This is how the registry path earns the right to replace the template one:
-  * the fields both produce must match entity-for-entity, and the fields only the
-  * registry can produce are reported so the gain is visible too. Needs a live HA
-  * (`SERVER`/`SECRET`), so it is a manual tool, not a test —
+  * the fields both produce must match entity-for-entity, and the fields only
+  * the registry can produce are reported so the gain is visible too. Needs a
+  * live HA (`SERVER`/`SECRET`), so it is a manual tool, not a test —
   * `fh-datastar-view/runMain fh.view.build.DumpCompareApp`.
   */
 object DumpCompareApp extends IOApp {
 
-  /** Fields the template path also produces, so a difference is a REGRESSION. */
+  /** Fields the template path also produces, so a difference is a REGRESSION.
+    */
   private val SharedFields =
-    List("entity_id", "domain", "friendly_name", "area_id", "floor_id", "id_hidden")
+    List(
+      "entity_id",
+      "domain",
+      "friendly_name",
+      "area_id",
+      "floor_id",
+      "id_hidden"
+    )
 
   def run(args: List[String]): IO[ExitCode] =
     FHApi.fromEnv
       .use(api => (DataDump.fetch(api), RegistryDump.fetch(api)).tupled)
       .flatMap { case (old, neu) =>
         report(old, neu) *> args.headOption.traverse_ { out =>
-          IO.blocking(os.write.over(os.Path(out, os.pwd), PklDump.render(neu))) *>
+          IO.blocking(
+            os.write.over(os.Path(out, os.pwd), PklDump.render(neu))
+          ) *>
             IO.println(s"wrote rendered dump.pkl to $out")
         }
       }
@@ -63,16 +73,24 @@ object DumpCompareApp extends IOApp {
       .toList
       .sortBy(-_._2)
 
-    IO.println(s"entities:  template=${oldEntities.size} registry=${newEntities.size}") *>
-      IO.println(s"only in template: ${onlyOld.toList.sorted.take(20).mkString(", ")}") *>
-      IO.println(s"only in registry: ${onlyNew.toList.sorted.take(20).mkString(", ")}") *>
+    IO.println(
+      s"entities:  template=${oldEntities.size} registry=${newEntities.size}"
+    ) *>
+      IO.println(
+        s"only in template: ${onlyOld.toList.sorted.take(20).mkString(", ")}"
+      ) *>
+      IO.println(
+        s"only in registry: ${onlyNew.toList.sorted.take(20).mkString(", ")}"
+      ) *>
       IO.println(s"shared-field mismatches: ${mismatches.size}") *>
       mismatches.take(40).traverse_(IO.println) *>
       IO.println(s"--- registry-only ---") *>
       IO.println(s"devices: ${count(neu, "devices")}") *>
       IO.println(s"entities with members: $withMembers") *>
       IO.println(s"entity_category: ${categories.mkString(", ")}") *>
-      IO.println(s"areas: ${count(neu, "areas")} floors: ${count(neu, "floors")}")
+      IO.println(
+        s"areas: ${count(neu, "areas")} floors: ${count(neu, "floors")}"
+      )
   }
 
   private def entities(dump: Json): Map[String, io.circe.JsonObject] =
