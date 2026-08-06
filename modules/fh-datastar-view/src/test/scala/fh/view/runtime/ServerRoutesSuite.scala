@@ -24,6 +24,7 @@ import io.circe.Json
 import org.http4s.*
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
+import org.typelevel.ci.CIString
 
 import scala.concurrent.duration.*
 
@@ -162,6 +163,47 @@ class ServerRoutesSuite extends ServerHarness {
             .flatMap(_.body.through(fs2.text.utf8.decode).compile.string)
         }
     } yield body).timeout(30.seconds)
+
+  /** Run one arbitrary request against a real server, for the routes that are
+    * about the response rather than the page.
+    */
+  private def response(uri: String): IO[Response[IO]] =
+    (for {
+      store <- StateStore.inMemory(Map.empty)
+      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      resp <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("home" -> ref),
+          "home",
+          sessions
+        )
+        .use(
+          _.routes.orNotFound
+            .run(Request[IO](Method.GET, Uri.unsafeFromString(uri)))
+        )
+    } yield resp).timeout(30.seconds)
+
+  test("the frontend bundles are served immutable, and only by built name") {
+    // The filename carries a content hash, so a rebuild is a NEW url and a
+    // client can never hold a stale one — which is what makes `immutable`
+    // honest here rather than a gamble.
+    val app = FrontendAssets.url("app")
+    for {
+      hit <- response("/" + app)
+      cached = hit.headers.get(CIString("Cache-Control")).map(_.head.value)
+      miss <- response("/web/app.js")
+    } yield {
+      assertEquals(hit.status, Status.Ok)
+      assertEquals(cached, Some("public, max-age=31536000, immutable"))
+      // Not an allowlist applied to a path — a name the manifest does not list
+      // is not a route at all, so there is no traversal to sanitise.
+      assertEquals(miss.status, Status.NotFound)
+    }
+  }
 
   test("the connection-lost banner LATCHES once the retries are exhausted") {
     // Every fetch type other than retrying/error/retries-failed classifies as

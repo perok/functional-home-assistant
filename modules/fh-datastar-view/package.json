@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Frontend sources for the Datastar dashboard: the page shell's inlined helpers and the /edit editor (CodeMirror 6 + @codemirror/lsp-client). Vite bundles src/js into target/frontend, which sbt's NpmPlugin folds into the module's managed resources — so nothing built is committed. Driven by sbt (frontendInstall / frontendBundle); the npm scripts are what it calls.",
   "scripts": {
-    "build": "tsc --noEmit && vite build --mode shell && vite build --mode app && vite build --mode overlay",
+    "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,8 +17,8 @@
     "@codemirror/view": "^6"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
-    "typescript": "^5",
-    "vite": "^7"
+    "@types/node": "^26.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0"
   }
 }

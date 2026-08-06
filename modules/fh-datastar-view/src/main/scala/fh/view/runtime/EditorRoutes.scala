@@ -19,12 +19,15 @@ import org.http4s.server.staticcontent.*
   * vite-bundled into MANAGED resources at the same classpath prefix, so both
   * halves answer to `/editor/…` and only the build knows the difference.
   * `app.js` carries CodeMirror and lsp-client inside it — there is no separate
-  * vendor bundle. The editor's own assets are static; only the dashboard `.pkl`
-  * files are edited on the filesystem (via `/edit/file`).
+  * vendor bundle — and its hashed URL is injected into `index.html` from the
+  * build manifest ([[FrontendAssets]]). The editor's own assets are static;
+  * only the dashboard `.pkl` files are edited on the filesystem (via
+  * `/edit/file`).
   *
   *   - `GET  /edit` the editor page (index.html with base href + config
   *     injected).
-  *   - `GET  /edit/{app,overlay}.js|{app,overlay}.css` the static assets.
+  *   - `GET  /edit/{app,overlay}.css` the static stylesheets. The JavaScript is
+  *     NOT here: it is content-hashed and served by `Server` from `/web`.
   *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
   *     the `lib` sources), each with its absolute on-disk path (LSP document
   *     URI).
@@ -91,11 +94,11 @@ final class EditorRoutes(
     }
 
   /** The static editor assets (served verbatim); everything else under `/edit`
-    * is an API route. `index.html` is NOT here — it needs placeholder
-    * injection.
+    * is an API route. `index.html` is NOT here — it needs placeholder injection
+    * — and neither is any JavaScript: the bundles are content-hashed and served
+    * from `/web` ([[FrontendAssets]]).
     */
-  private val staticAssets =
-    Set("app.js", "app.css", "overlay.js", "overlay.css")
+  private val staticAssets = Set("app.css", "overlay.css")
 
   /** Serve one static editor asset through http4s [[StaticFile]] straight from
     * the classpath (`/editor/…`) — content type from the extension, caching
@@ -121,7 +124,14 @@ final class EditorRoutes(
             .noSpaces
 
           resp.bodyText.compile.string
-            .map(_.replace("__BASE__", base).replace("__CONFIG__", config))
+            .map(
+              _.replace("__BASE__", base)
+                .replace("__CONFIG__", config)
+                // The editor's own bundle, by entry name: its filename carries
+                // a content hash, so the markup cannot spell it out. Relative,
+                // like every app URL, so it resolves against <base href>.
+                .replace("__APP_JS__", FrontendAssets.url("app"))
+            )
             .map(s =>
               resp
                 .withEntity(s)

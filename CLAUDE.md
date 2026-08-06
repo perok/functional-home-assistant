@@ -54,7 +54,7 @@ sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on
 ```
 
 **`fh-datastar-view` needs node + npm to build.** Its frontend (`src/js`, TypeScript
-and JavaScript) is bundled by vite into managed resources via `project/NpmPlugin.scala`,
+and JavaScript) is bundled by vite 8 into managed resources via `project/NpmPlugin.scala`,
 wired as a `resourceGenerators` entry — so an ordinary `compile`/`test`/`assembly` runs
 `npm ci` and `vite build` when the sources change, and nothing built is committed. Both
 tasks no-op when a content fingerprint of their inputs still matches.

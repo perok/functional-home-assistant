@@ -27,6 +27,8 @@ import org.http4s.headers.{
 }
 import org.http4s.ServerSentEvent
 
+import org.typelevel.ci.CIString
+
 import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.concurrent.duration.*
@@ -94,6 +96,23 @@ class Server(
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
+
+    // The bundled frontend (src/js -> vite). The name carries a content hash
+    // and `FrontendAssets` only answers for names the manifest lists, so this
+    // needs no path sanitising and the response can be `immutable`: a rebuilt
+    // bundle is a different URL, never a stale hit.
+    case req @ GET -> Root / "web" / file if FrontendAssets.serves(file) =>
+      StaticFile
+        .fromResource(s"/web/$file", Some(req))
+        .map(
+          _.putHeaders(
+            Header.Raw(
+              CIString("Cache-Control"),
+              "public, max-age=31536000, immutable"
+            )
+          )
+        )
+        .getOrElseF(NotFound())
 
     // The live home's Pkl artifacts — the domain schema + the freshly-rendered
     // per-home dump — as source text for pkl-lsp (behind the `/edit` editor)
@@ -1424,7 +1443,9 @@ class Server(
       else
         s"""<link rel="stylesheet" href="edit/overlay.css">
            |<script>window.__FH_EDIT__={"slug":"$slug","base":"$baseHref"};</script>
-           |<script src="edit/overlay.js"></script>""".stripMargin
+           |<script src="${FrontendAssets.url(
+            "overlay"
+          )}"></script>""".stripMargin
     // Connection indicators. TWO distinct, separately-SOURCED failures:
     //
     //   1. UPSTREAM HA FEED down (this server can't reach Home Assistant). The
@@ -1905,20 +1926,7 @@ object Server {
     * frontend bundle did not run, which is a broken build, not a mode to
     * support.
     */
-  val UrlSyncScript: String = resourceText("/fh/shell.js")
-
-  /** Read a classpath resource as UTF-8, or fail loudly naming it. */
-  private def resourceText(path: String): String =
-    Option(getClass.getResourceAsStream(path))
-      .map { in =>
-        try new String(in.readAllBytes(), UTF_8)
-        finally in.close()
-      }
-      .getOrElse(
-        sys.error(
-          s"missing bundled frontend resource $path — run `sbt fh-datastar-view/frontendBundle` (needs node + npm)"
-        )
-      )
+  val UrlSyncScript: String = FrontendAssets.content("shell")
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.

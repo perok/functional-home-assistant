@@ -1,6 +1,6 @@
 // The page shell's own JavaScript: three helpers the server-rendered document
-// needs before Datastar (a deferred module) has run. Bundled as a classic IIFE
-// and INLINED into the page head by `Server.page` — not linked — because
+// needs before Datastar (a deferred module) has run. INLINED into the page head
+// by `Server.page` — not linked — because
 // `fhConn` is called from the middle of the body and `fhUrl` from the first
 // Datastar effect, so neither can afford a deferred module or a second round
 // trip.
@@ -8,6 +8,11 @@
 // These three names, the `prev` query parameter, and the two sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
 // `ServerRoutesSuite` pin the ones that matter from the other side.
+//
+// IMPORTS NOTHING, and must not: the bundle is emitted as an `es` chunk and is
+// usable as a classic script only because rollup has no import to write into
+// it. One shared module between this and `editor/overlay.js` splits a chunk out
+// and breaks both. `EditorSuite` guards it; see vite.config.ts.
 
 declare global {
   interface Window {

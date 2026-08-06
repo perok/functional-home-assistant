@@ -25,19 +25,13 @@ import org.http4s.implicits.*
   */
 class EditorSuite extends munit.FunSuite {
 
-  private def resource(path: String): String = {
-    val in = Option(getClass.getResourceAsStream(path))
-      .getOrElse(
-        fail(
-          s"$path is not on the classpath — run `sbt fh-datastar-view/frontendBundle`"
-        )
-      )
-    try new String(in.readAllBytes(), "UTF-8")
-    finally in.close()
-  }
+  /** A bundle by ENTRY NAME, the way the app addresses it — the filenames carry
+    * a content hash, so nothing here can spell one out either.
+    */
+  private def bundle(entry: String): String = FrontendAssets.content(entry)
 
   test("the editor bundle is present and self-contained") {
-    val app = resource("/editor/app.js")
+    val app = bundle("app")
 
     // Really a bundle, not the bare source: CodeMirror is inside it. The
     // source is ~10KB and the bundle ~650KB, so the floor is far from either.
@@ -58,15 +52,60 @@ class EditorSuite extends munit.FunSuite {
   }
 
   test("the page shell bundle defines the helpers the document calls") {
-    val shell = resource("/fh/shell.js")
+    val shell = bundle("shell")
     // The document calls all three by name — fhConn from a script mid-body,
     // fhScroll from the last line of it, fhUrl from Datastar's first effect.
     List("fhUrl", "fhConn", "fhScroll").foreach(fn =>
       assert(shell.contains(s"window.$fn="), clue = (fn, shell))
     )
-    // A classic script, not a module: the document inlines it in <head> and
-    // needs the names defined immediately, not on a deferred module's turn.
-    assert(!shell.contains("export"), clue = shell)
+  }
+
+  test("the two classic bundles carry no module syntax") {
+    // `shell.js` is INLINED into every page's <head> and `overlay.js` is a
+    // classic <script src>; neither may contain an import or an export, or the
+    // browser throws `Cannot use import statement outside a module` and the
+    // whole file never runs. For the shell that is silent and total: every page
+    // loses the tab selection, the session handoff and the scroll position.
+    //
+    // They are emitted as `es` chunks and are clean only because they import
+    // nothing — so this is the guard on that invariant, not a formality. The
+    // way it breaks is ordinary: factor a helper out of shell.ts and overlay.js
+    // into a shared module, and rollup splits it into a chunk that BOTH entries
+    // then `import`. See the note in vite.config.ts.
+    val statement = "(?m)(^|[;}])\\s*(import|export)\\b(?!\\s*\\()".r
+    List("shell", "overlay").foreach { entry =>
+      assertEquals(
+        statement.findFirstIn(bundle(entry)),
+        None,
+        clue = s"the $entry bundle is not usable as a classic script"
+      )
+    }
+  }
+
+  test("the editor page names the hashed bundle, and nothing else does") {
+    workspace { ws =>
+      val (status, html) = get(ws, "/edit")
+      assertEquals(status, Status.Ok)
+      // The placeholder is gone and the real, hashed, RELATIVE url is in its
+      // place — relative so it resolves against <base href> behind ingress.
+      val app = FrontendAssets.url("app")
+      assert(html.contains(s"""src="$app""""), clue = html)
+      assert(!html.contains("__APP_JS__"), clue = html)
+      assert(app.startsWith("web/") && app.endsWith(".js"), clue = app)
+      // A hash, not a bare name: that is what makes the immutable caching on
+      // the serving route honest.
+      assertNotEquals(app, "web/app.js", clue = app)
+      // ...and the editor route no longer serves JavaScript at all.
+      assertEquals(get(ws, "/edit/app.js")._1, Status.NotFound)
+    }
+  }
+
+  test("only files the manifest names are served") {
+    assert(FrontendAssets.serves(FrontendAssets.url("app").stripPrefix("web/")))
+    // The guard is an allowlist of built filenames, so a made-up name — or a
+    // traversal attempt — is simply not a route that exists.
+    assert(!FrontendAssets.serves("app.js"))
+    assert(!FrontendAssets.serves("../application.conf"))
   }
 
   /** A workspace shaped like a real one: two entries, the manifest, its
