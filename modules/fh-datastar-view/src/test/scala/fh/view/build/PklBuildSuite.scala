@@ -328,8 +328,8 @@ class PklBuildSuite extends munit.FunSuite {
         |  friendly_name = "Kitchen"
         |  area_id = "kitchen"
         |  colourModes = new Listing { "color_temp" }
-        |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }
-        |  effects = new hass.Effects { list = new Listing { "colorloop" } }
+        |  colourTemp = new hass.ColourTemp { owner = light; min_kelvin = 2000; max_kelvin = 6535 }
+        |  effects = new hass.Effects { list = new Listing { "colorloop" }; owner = light }
         |}
         |
         |// the group IS the predicate, and one guard yields every value in it
@@ -449,7 +449,7 @@ class PklBuildSuite extends munit.FunSuite {
     // NARROWED to non-null on the class of the entity that has one (ADR 0013).
     assert(
       src.contains(
-        "hidden effects: hass.Effects = new { list = new Listing { \"colorloop\" } }"
+        "hidden effects: hass.Effects = new { owner = e_light_kitchen; list = new Listing { \"colorloop\" } }"
       ),
       clue = src
     )
@@ -1551,12 +1551,12 @@ class PklBuildSuite extends munit.FunSuite {
        |}
        |node = $node""".stripMargin
 
-  test("withColourTemp retunes a slider onto the light's own kelvin range") {
+  test("a colourTemp axis retunes the slider onto the light's own range") {
     val s = probeComponent(
       lightProbe(
         """  colourModes = new Listing { "color_temp" }
-          |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }""".stripMargin,
-        "(c.slider(l)) |> c.withColourTemp(l.colourTemp!!)"
+          |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }""".stripMargin,
+        "c.slider(l.colourTemp!!)"
       )
     )
     assertEquals(s.card, "slider")
@@ -1573,8 +1573,8 @@ class PklBuildSuite extends munit.FunSuite {
     val col = probeComponent(
       lightProbe(
         """  colourModes = new Listing { "color_temp"; "xy" }
-          |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }
-          |  effects = new hass.Effects { list = new Listing { "off"; "Color loop" } }""".stripMargin,
+          |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }
+          |  effects = new hass.Effects { owner = l; list = new Listing { "off"; "Color loop" } }""".stripMargin,
         "c.lightControls(l)"
       )
     )
@@ -1648,8 +1648,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |// the specific entity: no `!!` anywhere on this line
-        |node = (c.slider(dump.entities.light_a))
-        |  |> c.withColourTemp(dump.entities.light_a.colourTemp)
+        |node = c.slider(dump.entities.light_a.colourTemp)
         |
         |// ...and the SAME value seen generically is still nullable
         |lights: List<hass.LightEntity> = List(dump.entities.light_a, dump.entities.light_plug)

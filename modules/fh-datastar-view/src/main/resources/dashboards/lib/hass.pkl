@@ -82,16 +82,26 @@ typealias ColorMode = hassLight.ColorMode
 // A capability with no associated values stays a derived Boolean below — a group
 // with no fields would carry nothing.
 
+// Each group carries its OWNER — the entity whose capability it is. That is
+// what lets a card take the group ALONE and still know its subject, so the
+// entity is named once (`c.slider(l.colourTemp)`) and no second argument can
+// disagree with it. It also keeps the choice checkable in the editor: passing
+// a group is an argument whose type pkl-lsp reads, where deriving one inside
+// an amend (`on = entity.colourTemp`) makes it fall back to the declared type
+// and flag valid lines. See ADR 0013, "Shapes considered".
+
 /// The colour-temperature range, present only on lights supporting `color_temp`.
 /// Both bounds are set whenever this is non-null; `PklDump` omits the whole
 /// group rather than emitting a half of it (and warns when HA reports a half).
 class ColourTemp {
+  owner: LightEntity
   min_kelvin: Int
   max_kelvin: Int
 }
 
 /// The named effects a light exposes.
 class Effects {
+  owner: LightEntity
   list: Listing<String>
 }
 

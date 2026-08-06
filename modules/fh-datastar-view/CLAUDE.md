@@ -139,8 +139,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
   expr/exprOf,
   serviceTap/serviceValueTap/navigate, capability-conditional composition off the dump's groups
-  (`withColourTemp` as a `Mixin<Slider>`, `lightControls` as a `when` per capability — a control takes
-  the GROUP as its parameter, so it cannot be built for an entity lacking the capability; ADR 0013),
+  (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
+  carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
+  capabilities are discovered by completion on `l.`, and passing a group the entity lacks is a
+  nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
+  shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
+  from static analysis; ADR 0013 "Shapes considered" has the four attempts),
   tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
   typed Predicate AST), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
   surfaces on the tabs machinery, ADR 0007), three-tier slider config — see ADR 0006 for the deliberate API shape

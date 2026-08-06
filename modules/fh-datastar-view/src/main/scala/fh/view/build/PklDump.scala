@@ -53,7 +53,7 @@ object PklDump {
     // color temperature has no `min_color_temp_kelvin` property at all and
     // reading one is a Pkl error rather than a null (ADR 0013).
     val entityDecls = entities.map { case (key, eo) =>
-      val caps = capabilityDecls(eo) ++ schemaGroups(eo)
+      val caps = capabilityDecls(eo) ++ schemaGroups(key, eo)
       val body = if (caps.isEmpty) "" else caps.mkString("\n") + "\n"
       s"""class ${entityClass(key)} extends ${entityType(eo)} {
          |$body}
@@ -317,8 +317,13 @@ object PklDump {
     * fine until someone reads the missing field, and then blames the class
     * definition rather than the dump.
     */
-  private def schemaGroups(eo: JsonObject): List[String] = {
+  private def schemaGroups(key: String, eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
+    // Every group back-references the entity's own const, so a card given the
+    // group alone still knows its subject. Self-referential (the const's class
+    // names the const), which is fine: Pkl resolves module-level consts lazily
+    // and order-independently — the same property the `members` edges rely on.
+    val owner = s"owner = ${tick(s"e_$key")}"
     str(eo, "domain") match {
       case Some("light") =>
         val colourTemp = (
@@ -328,14 +333,14 @@ object PklDump {
           case (Some(lo), Some(hi)) =>
             Some(
               "  hidden colourTemp: hass.ColourTemp = " +
-                s"new { min_kelvin = $lo; max_kelvin = $hi }"
+                s"new { $owner; min_kelvin = $lo; max_kelvin = $hi }"
             )
           case _ => None
         }
         val effects = attrs("effect_list")
           .flatMap(pklTyped)
           .map { case (_, rendered) =>
-            s"  hidden effects: hass.Effects = new { list = $rendered }"
+            s"  hidden effects: hass.Effects = new { $owner; list = $rendered }"
           }
         List(colourTemp, effects).flatten
       case _ => Nil

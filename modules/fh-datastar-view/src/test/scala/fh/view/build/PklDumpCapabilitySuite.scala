@@ -39,7 +39,7 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     val src = PklDump.render(dump(light(kelvinRange*)))
     assert(
       src.contains(
-        "hidden colourTemp: hass.ColourTemp = new { min_kelvin = 2000; max_kelvin = 6535 }"
+        "hidden colourTemp: hass.ColourTemp = new { owner = e_light_a; min_kelvin = 2000; max_kelvin = 6535 }"
       ),
       clue = src
     )
@@ -81,7 +81,7 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     )
     assert(
       src.contains(
-        "hidden effects: hass.Effects = new { list = new Listing { \"colorloop\" } }"
+        "hidden effects: hass.Effects = new { owner = e_light_a; list = new Listing { \"colorloop\" } }"
       ),
       clue = src
     )

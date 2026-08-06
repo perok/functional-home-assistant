@@ -197,12 +197,12 @@ types it `ColourTemp?`, the entity that has one types it `ColourTemp`:
 
 ```pkl
 class E_light_hue_bibliotek extends hass.LightEntity {
-  hidden colourTemp: hass.ColourTemp = new { min_kelvin = 2000; max_kelvin = 6535 }
+  hidden colourTemp: hass.ColourTemp = new { owner = e_light_a; min_kelvin = 2000; max_kelvin = 6535 }
 }
 ```
 
 So a dashboard naming a specific entity passes the group straight to something
-that demands a present one — `c.withColourTemp(dump.entities.light_a.colourTemp)`,
+that demands a present one — `c.slider(dump.entities.light_a.colourTemp)`,
 no `!!` and no guard — while the same value reached through a
 `List<hass.LightEntity>` still meets `ColourTemp?` and still has to be guarded.
 Both were verified on pkl-core 0.32.1: the narrowed read resolves, and
@@ -214,12 +214,57 @@ same job and was rejected: it is two names for one fact, `has*` reads as a
 Boolean while holding data, and the two could be emitted inconsistently.
 Narrowing needs no second name and cannot disagree with itself.
 
-The groups are also what makes capability-conditional COMPOSITION safe, one
-layer up: a control takes the group as its parameter, so it cannot be built for
-an entity that lacks the capability. `components.pkl`'s `withColourTemp(range)`
-(a `Mixin<Slider>` retuning a light's slider onto its own kelvin range) and
-`lightControls(l)` (a `when` per capability, deciding which cards exist at all)
-are the worked examples.
+##### A group carries its owner, so one argument is the whole request
+
+Each group holds `owner`, the entity whose capability it is. A card therefore
+takes **the group alone** and still knows its subject:
+
+```pkl
+c.slider(l)               // the domain's default axis — a light's brightness
+c.slider(l.colourTemp)    // colour temperature, bounds from the light itself
+c.effectPills(l.effects)
+```
+
+`Slider` accepts `SlideAxis = hass.Entity|hass.ColourTemp` and pattern-matches
+with `is` to derive its entity, key, bounds and tracked attribute. Three
+properties fall out, and each was a defect in an earlier shape:
+
+- **The entity is named once.** There is no second parameter, so
+  `slider(a, b.colourTemp)` — two entities disagreeing — is unrepresentable
+  rather than merely discouraged.
+- **The wrong choice is visible BEFORE evaluation.** `c.slider(l.colourTemp)`
+  on a light without a range is a `ColourTemp?` where `ColourTemp` is required:
+  pkl-lsp reports "Nullability mismatch" on the line, no evaluation involved.
+- **Capabilities are discovered on the entity.** Typing `l.` lists
+  `colourTemp`, `effects` — completion verified against pkl-lsp 0.8.0 — so a
+  new capability appears with no new API name to learn.
+
+The owner is a back-reference from the entity's own class to its own const,
+which is fine for the same reason `members` edges are: Pkl resolves module-level
+consts lazily and order-independently.
+
+`lightControls(l)` remains the "give me what this light supports" shortcut — a
+`when` per capability, deciding which cards exist at all, which no single-node
+mechanism can do.
+
+##### Shapes considered
+
+The API above is the fourth attempt; the earlier three are recorded because each
+failed for a reason that is not obvious until tried.
+
+| Shape | Why not |
+|---|---|
+| `(c.slider(l)) \|> c.withColourTemp(l.colourTemp)` — a `Mixin<Slider>` | `l` appears twice and the two can disagree. Discovery requires already knowing the mixin exists, and the list grows per capability. Static checking was fine — this is where that requirement was learned. |
+| `c.slider(l).colourTemp()` — a builder method | Reads best and names `l` once, but the capability is hidden in the method body, so nothing is checkable: the method is offered by completion on a *cover* slider, and failure is a runtime `throw`. |
+| `c.light(l).colourTemp()` — an entity-first builder per domain | Same loss of static checking, and every domain builder must re-export the whole card catalogue that makes sense for it (`brightness`, `toggle`, `effects`, …), so the surface grows by domain × card kind. |
+| `(c.slider) { entity = l; on = entity.colourTemp }` — late binding | Works at eval, but pkl-lsp resolves the self-reference to the DECLARED property type, so it flags the **valid** line as well as the invalid one. False positives are worse than silence: they train authors to ignore the squiggles. |
+
+The through-line: **a capability passed as a VALUE through a signature is
+checkable; a capability named by a method, selector or self-reference is not.**
+The editor is the only place an author finds out before evaluating, so the API
+is shaped around what static analysis can see. (Reads are still unchecked —
+`plug.colourTemp.min_kelvin` gets no diagnostic — which is a further reason for
+capabilities to cross API boundaries as arguments rather than be dotted into.)
 
 #### The HA domain model is vendored, not guessed
 
@@ -401,8 +446,9 @@ Nothing else moves. Every other domain keeps its per-entity class untouched.
   classes and the 24% size growth) and is rejected because absence-typing is the
   property we wanted. Where the recipe DOES fit is one layer up, composing
   CARDS, where every slot is declared on the card class and the question is
-  which amendments to apply — that is what `components.pkl`'s `withColourTemp`
-  now is.
+  which amendments to apply. A mixin was in fact the first shape tried for
+  capability cards and was replaced — see "Shapes considered" above for why the
+  capability travels as an argument instead.
 - **Chunk the template into several `/api/template` calls** and merge in Scala.
   Smaller change, but it keeps Jinja, keeps a cap to manage as the house grows,
   and still cannot reach `entity_category`.
