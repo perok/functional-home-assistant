@@ -24,7 +24,9 @@
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
 // the instance, live and ephemeral; `--write` sends the SOURCE instead, into
 // the instance's own workspace, so it re-evaluates and survives a restart; and
-// `--watch` keeps doing either on every change to a `*.pkl` in this workspace.
+// `--watch` keeps doing either on every change to a `*.pkl` in this workspace,
+// re-sending only the entries that change reaches (its import graph), so
+// `fh push --watch *.pkl` does not repaint every dashboard on every save.
 //
 // Because the scaffold matches the server's exactly, you can keep the
 // workspace in git and use the same files on both sides (only `.fh/machine.json`
@@ -545,6 +547,13 @@ def post(
           )
         )
       )
+      // A stopped instance is the ordinary case under `--watch`, which prints
+      // this on every tick — a bare ConnectException would be noise.
+      .adaptError {
+        case err if !err.isInstanceOf[Die] =>
+          Die(s"$what failed — $rawUri did not answer")
+            .tap(_.addSuppressed(err))
+      }
   yield ()
 
 def cmdPush(
@@ -557,28 +566,120 @@ def cmdPush(
     for
       url <- instanceUrl
       ts <- targets(entries, slugOpt)
-      run = ts.traverse_(pushOne(client, url, _, write))
       _ <-
-        if !watch then run
-        else
-          // In watch mode a failure is a message, not an exit: the whole point
-          // is to sit next to an editor while an entry is broken half the time.
-          reporting(run) *>
-            IO.println("watching *.pkl — ctrl-c to stop") *>
-            watchSources(reporting(run))
+        if !watch then ts.traverse_(pushOne(client, url, _, write))
+        else watchPush(client, url, ts, write)
     yield ()
   }
+
+/** `push --watch`: push everything once, then re-push only the entries a change
+  * actually reaches.
+  *
+  * `fh push --watch *.pkl` is the normal invocation, so "any edit re-sends
+  * every dashboard" is the wrong default — editing one entry would repaint all
+  * of them on every keystroke-save. What an entry reads is
+  * [[importSet]]-precise, so a shared module still re-sends its dependents, and
+  * only its dependents.
+  *
+  * A failure is a message, not an exit: the whole point is to sit next to an
+  * editor while an entry is broken half the time.
+  */
+def watchPush(
+    client: Client[IO],
+    url: String,
+    ts: NonEmptyList[Target],
+    write: Boolean
+): IO[Unit] =
+  // Re-read what an entry imports every time it is pushed: an edit can add or
+  // drop an import, so a dependency set is only true as of the last evaluation.
+  def pushAndTrack(target: Target): IO[(Target, Option[Set[Path]])] =
+    reporting(pushOne(client, url, target, write)) *>
+      importSet(target.entry).map(target -> _)
+
+  for
+    initial <- ts.traverse(pushAndTrack).map(_.toList.toMap)
+    deps <- IO.ref(initial)
+    _ <- IO.println("watching *.pkl — ctrl-c to stop")
+    _ <- watchSources(changed =>
+      deps.get
+        .map(affectedBy(ts.toList, _, changed))
+        .flatMap(_.traverse(pushAndTrack))
+        .flatMap(updated => deps.update(_ ++ updated))
+    )
+  yield ()
+
+/** The entries a set of changed files reaches: those importing one of them (an
+  * entry's own file is in its own [[importSet]]).
+  *
+  * An entry whose imports could not be analyzed — `None` — counts as reached by
+  * anything, so the failure mode is a redundant push and never a missed one.
+  */
+def affectedBy(
+    ts: List[Target],
+    deps: Map[Target, Option[Set[Path]]],
+    changed: Set[Path]
+): List[Target] =
+  ts.filter(target =>
+    deps.get(target).flatten.fold(true)(changed.intersect(_).nonEmpty)
+  )
 
 /** Print what a failure would have exited with, and carry on. */
 def reporting(io: IO[Unit]): IO[Unit] =
   io.handleErrorWith(e => Console[IO].errorln(s"fh: ${errorMessage(e)}"))
 
+/** The local `*.pkl` files an entry actually reads — itself plus its transitive
+  * `file:` imports — from pkl-core's static analyzer, the same
+  * `Analyzer.importGraph` call the instance's `PklBuild` uses to decide what to
+  * watch. `@fh-dashboard`/`@fh-home` imports resolve to `package:` URIs and are
+  * filtered out: they are immutable per version, and a laptop cannot edit them.
+  *
+  * `None` when the analysis fails or comes back empty — the caller then treats
+  * the entry as reached by any change.
+  */
+def importSet(entry: Path): IO[Option[Set[Path]]] = IO.blocking {
+  import org.pkl.core.evaluatorSettings.TraceMode
+  import org.pkl.core.module.ModuleKeyFactories
+  import org.pkl.core.{Analyzer, SecurityManagers, StackFrameTransformers}
+  scala.util
+    .Try {
+      val project = loadProject()
+      val analyzer = new Analyzer(
+        StackFrameTransformers.defaultTransformer,
+        false,
+        SecurityManagers.defaultManager,
+        List(
+          ModuleKeyFactories.standardLibrary,
+          ModuleKeyFactories.file,
+          ModuleKeyFactories.projectpackage,
+          ModuleKeyFactories.pkg
+        ).asJava,
+        project.getEvaluatorSettings.moduleCacheDir(),
+        project.getDependencies,
+        org.pkl.core.http.HttpClient.dummyClient(),
+        TraceMode.COMPACT
+      )
+      val graph = analyzer.importGraph(entry.toAbsolutePath.normalize.toUri)
+      val files = (graph.imports.keySet.asScala.toSet ++
+        graph.resolvedImports.values.asScala.toSet).iterator
+        .filter(_.getScheme == "file")
+        .map(u => Paths.get(u).toAbsolutePath.normalize)
+        .toSet
+      // The graph always names the entry itself, so an empty file set means the
+      // analysis produced nothing usable — not "this entry imports no files".
+      Option.when(files.nonEmpty)(files + entry.toAbsolutePath.normalize)
+    }
+    .toOption
+    .flatten
+}
+
 val pollInterval = 400.millis
 
 /** Every `*.pkl` under the workspace, skipping dot-directories (`.fh`, `.git`,
-  * `.scala-build`). Deliberately the whole tree rather than the pushed entries'
-  * import graph: a workspace holds a handful of files, an edit to any of them
-  * can change what an entry evaluates to, and re-scanning per tick means a
+  * `.scala-build`), as absolute paths — what a change is reported as, and what
+  * [[importSet]] returns, so the two compare directly.
+  *
+  * The whole tree, not just the pushed entries: an edit to a shared module
+  * changes what its dependents evaluate to, and re-scanning per tick means a
   * newly created file is watched without restarting.
   */
 def pklSources(root: Path = Paths.get(".")): IO[List[Path]] = IO.blocking {
@@ -590,11 +691,13 @@ def pklSources(root: Path = Paths.get(".")): IO[List[Path]] = IO.blocking {
       .filterNot(
         root.relativize(_).iterator().asScala.exists(_.toString.startsWith("."))
       )
+      .map(_.toAbsolutePath.normalize)
       .toList
   }.get
 }
 
-/** Run `onChange` whenever the workspace's Pkl sources change.
+/** Call `onChange` with the files that changed, whenever any of the workspace's
+  * Pkl sources do (added, edited or deleted).
   *
   * Polls (size + mtime) rather than taking a filesystem watch: the set is
   * small, an editor's save-then-rename is one stamp change either way, and it
@@ -604,7 +707,7 @@ def pklSources(root: Path = Paths.get(".")): IO[List[Path]] = IO.blocking {
   * swallowed.
   */
 def watchSources(
-    onChange: IO[Unit],
+    onChange: Set[Path] => IO[Unit],
     root: Path = Paths.get(".")
 ): IO[Unit] =
   // A file can vanish between the scan and the stat (an editor's atomic save is
@@ -618,10 +721,11 @@ def watchSources(
   )
 
   def loop(previous: Map[Path, (Long, Long)]): IO[Unit] =
-    IO.sleep(pollInterval) *> stamp.flatMap(current =>
-      if current == previous then loop(current)
-      else onChange *> loop(current)
-    )
+    IO.sleep(pollInterval) *> stamp.flatMap { current =>
+      val changed = (previous.keySet ++ current.keySet)
+        .filter(p => previous.get(p) != current.get(p))
+      IO.unlessA(changed.isEmpty)(onChange(changed)) *> loop(current)
+    }
 
   stamp.flatMap(loop)
 
