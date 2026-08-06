@@ -259,20 +259,106 @@ object PklDump {
     "isDynamic"
   )
 
+  /** Attributes a DOMAIN's schema models itself (as a capability group or a
+    * named field), so `capabilityDecls` must not also declare them on the
+    * per-entity class. Everything not listed keeps falling through to the
+    * per-entity class — that fallback is what lets an unmodeled domain keep
+    * working untouched.
+    */
+  private val SchemaModelled: Map[String, Set[String]] = Map(
+    "light" -> Set(
+      "supported_color_modes",
+      "supported_features",
+      "min_color_temp_kelvin",
+      "max_color_temp_kelvin",
+      "effect_list"
+    )
+  )
+
   /** The generated class name for one entity. */
   private def entityClass(key: String): String = tick(s"E_$key")
 
-  /** Capability predicate overrides for one entity — only the TRUE ones, since
-    * the domain class already defaults each to false.
+  /** The schema-modelled assignments for one entity: the raw data the domain
+    * class declares, plus each capability GROUP that is complete.
+    *
+    * A group is emitted only when every field it needs is present — a partial
+    * one is dropped and reported by [[warnings]]. Pkl would not catch it: a
+    * required property with no value is lazy, so a half-filled group evaluates
+    * fine until someone reads the missing field, and then blames the class
+    * definition rather than the dump.
     */
-  private def predicates(eo: JsonObject): List[String] =
-    eo("capabilities")
+  private def schemaFields(eo: JsonObject): List[String] = {
+    val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
+    str(eo, "domain") match {
+      case Some("light") =>
+        val modes = attrs("supported_color_modes")
+          .flatMap(pklTyped)
+          .map { case (_, rendered) => s"  colourModes = $rendered" }
+        val features = attrs("supported_features")
+          .flatMap(_.asNumber)
+          .flatMap(_.toInt)
+          .map(v => s"  supported_features = $v")
+        val colourTemp = (
+          attrs("min_color_temp_kelvin").flatMap(_.asNumber).flatMap(_.toInt),
+          attrs("max_color_temp_kelvin").flatMap(_.asNumber).flatMap(_.toInt)
+        ) match {
+          case (Some(lo), Some(hi)) =>
+            Some(
+              s"  colourTemp = new hass.ColourTemp { min_kelvin = $lo; max_kelvin = $hi }"
+            )
+          case _ => None
+        }
+        val effects = attrs("effect_list")
+          .flatMap(pklTyped)
+          .map { case (_, rendered) =>
+            s"  effects = new hass.Effects { list = $rendered }"
+          }
+        List(modes, features, colourTemp, effects).flatten
+      case _ => Nil
+    }
+  }
+
+  /** Generation-time complaints about entities HA reported inconsistently.
+    *
+    * Codegen is the right place to catch a half-populated capability: we hold
+    * the whole picture here, and the alternative is a Pkl error much later
+    * pointing at the schema instead of the entity. Reported rather than fatal —
+    * one odd integration must not stop the whole house's dump from building.
+    */
+  def warnings(transformed: Json): List[String] = {
+    val entities = transformed.hcursor
+      .downField("entities")
+      .focus
       .flatMap(_.asObject)
-      .map(_.toList.collect {
-        case (name, v) if v.asBoolean.contains(true) => s"  $name = true"
-      })
+      .map(_.toList.flatMap { case (k, v) => v.asObject.map(k -> _) })
       .getOrElse(Nil)
-      .sorted
+
+    entities
+      .sortBy(_._1)
+      .filter { case (_, eo) =>
+        str(eo, "domain").contains("light")
+      }
+      .flatMap { case (_, eo) =>
+        val id = str(eo, "entity_id").getOrElse("?")
+        val attrs =
+          eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
+        val lo = attrs("min_color_temp_kelvin").isDefined
+        val hi = attrs("max_color_temp_kelvin").isDefined
+        val modes = attrs("supported_color_modes")
+          .flatMap(_.asArray)
+          .fold(Set.empty[String])(_.flatMap(_.asString).toSet)
+        List(
+          Option.when(lo != hi)(
+            s"$id: colour temperature half-reported (min=$lo max=$hi) — " +
+              "dropping the colourTemp group"
+          ),
+          Option.when(modes.contains("color_temp") && !(lo && hi))(
+            s"$id: reports the color_temp mode but no kelvin range — " +
+              "colourTemp will be null"
+          )
+        ).flatten
+      }
+  }
 
   /** The capability declarations for one entity: `name: Type = value`, one per
     * attribute the entity actually reports.
@@ -285,8 +371,12 @@ object PklDump {
     */
   private def capabilityDecls(eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
+    val modelled =
+      SchemaModelled.getOrElse(str(eo, "domain").getOrElse(""), Set.empty)
     attrs.toList
-      .filterNot { case (name, _) => ReservedProperties.contains(name) }
+      .filterNot { case (name, _) =>
+        ReservedProperties.contains(name) || modelled.contains(name)
+      }
       .sortBy(_._1)
       .flatMap { case (name, value) =>
         pklTyped(value).map { case (tpe, rendered) =>
@@ -331,7 +421,7 @@ object PklDump {
       // value as the default on the entity's OWN class, so `new {}` carries
       // them. Capability PREDICATES are assigned, because they are declared on
       // the shared domain class (defaulting to false) and this entity overrides.
-    ).flatten ++ predicates(eo) ++ members.toList
+    ).flatten ++ schemaFields(eo) ++ members.toList
 
     s"new {\n${fields.mkString("\n")}\n}"
   }

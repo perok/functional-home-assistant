@@ -198,8 +198,7 @@ object RegistryDump {
           "members" -> Json.fromValues(members(full)),
           "attributes" -> Json.fromFields(
             full.attributes.filter((k, _) => carried.contains(k))
-          ),
-          "capabilities" -> capabilities(full)
+          )
         )
       )
     }
@@ -260,54 +259,6 @@ object RegistryDump {
           ((key -> value) :: acc, seen.updated(slug, n + 1))
       }
     Json.fromJsonObject(JsonObject.fromIterable(out.reverse))
-  }
-
-  /** Capability PREDICATES, derived from the attributes HA reports.
-    *
-    * The counterpart to the per-entity capability VALUES: a value
-    * (`min_color_temp_kelvin`) is absent when the entity lacks the capability,
-    * which is what makes precise access safe — but it also means generic code
-    * over a `List<hass.LightEntity>` cannot ASK. A predicate can be asked of
-    * any light, because "does not support colour" is a true statement about
-    * every light, so these are declared on the domain class and answer
-    * `area.lights.filter((l) -> l.supportsColour)`.
-    *
-    * Both inputs are HA's own model, vendored in [[HaLight]]: the `ColorMode`
-    * strings in `supported_color_modes`, and the `LightEntityFeature` bits in
-    * `supported_features`.
-    */
-  private def capabilities(full: EntitiesEvent.Full): Json = {
-    val modes = full.attributes
-      .get("supported_color_modes")
-      .flatMap(_.asArray)
-      .fold(Set.empty[String])(_.flatMap(_.asString).toSet)
-    val features = full.attributes
-      .get("supported_features")
-      .flatMap(_.asNumber)
-      .flatMap(_.toInt)
-      .getOrElse(0)
-
-    if (modes.isEmpty && !full.attributes.contains("supported_features"))
-      Json.obj()
-    else
-      Json.obj(
-        "supportsBrightness" -> Json.fromBoolean(
-          modes.exists(HaLight.DimmableModes.contains)
-        ),
-        "supportsColourTemp" -> Json.fromBoolean(modes.contains("color_temp")),
-        "supportsColour" -> Json.fromBoolean(
-          modes.exists(HaLight.ColourModes.contains)
-        ),
-        "supportsEffects" -> Json.fromBoolean(
-          HaLight.supports(features, HaLight.Effect)
-        ),
-        "supportsFlash" -> Json.fromBoolean(
-          HaLight.supports(features, HaLight.Flash)
-        ),
-        "supportsTransition" -> Json.fromBoolean(
-          HaLight.supports(features, HaLight.Transition)
-        )
-      )
   }
 
   private def members(full: EntitiesEvent.Full): List[Json] =

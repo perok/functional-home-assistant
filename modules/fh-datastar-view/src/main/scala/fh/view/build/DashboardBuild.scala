@@ -33,10 +33,16 @@ object DashboardBuild {
       bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[Unit] =
     RegistryDump.fetch(api).flatMap { dump =>
-      IO.blocking(
-        DumpPackage
-          .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
-      ).flatMap(_.traverse_(IO.println))
+      // Generation-time complaints about entities HA reported inconsistently
+      // (a half-populated capability group). Reported, never fatal: one odd
+      // integration must not stop the house's dump from building.
+      PklDump
+        .warnings(dump)
+        .traverse_(w => IO.println(s"dump warning: $w")) *>
+        IO.blocking(
+          DumpPackage
+            .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
+        ).flatMap(_.traverse_(IO.println))
     }
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into

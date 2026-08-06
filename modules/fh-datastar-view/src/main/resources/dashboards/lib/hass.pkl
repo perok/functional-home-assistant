@@ -67,26 +67,67 @@ typealias ColorMode = hassLight.ColorMode
 // factory that only accepts a light), and each is `open` because the generated
 // dump extends it once per entity to add that entity's own capability VALUES.
 
+// ---- capability groups ----
+// A capability whose values travel together becomes ONE nullable object rather
+// than several independent nullable fields. Two things follow, and both are the
+// reason for the shape:
+//
+//   - `null` means the light does not have the capability, so the group IS the
+//     predicate — `l.colourTemp != null` needs no parallel `supportsX` flag
+//     that could disagree with it;
+//   - values are reached THROUGH the group, so one guard covers all of them and
+//     an unguarded read is an eval error ("Cannot find property `min_kelvin` in
+//     object of type `Null`") rather than a null that renders as a blank slot.
+//
+// A capability with no associated values stays a derived Boolean below — a group
+// with no fields would carry nothing.
+
+/// The colour-temperature range, present only on lights supporting `color_temp`.
+/// Both bounds are set whenever this is non-null; `PklDump` omits the whole
+/// group rather than emitting a half of it (and warns when HA reports a half).
+class ColourTemp {
+  min_kelvin: Int
+  max_kelvin: Int
+}
+
+/// The named effects a light exposes.
+class Effects {
+  list: Listing<String>
+}
+
 /// developers.home-assistant.io/docs/core/entity/light
 open class LightEntity extends Entity {
   domain: "light" = "light"
 
-  // Capability PREDICATES. Unlike a capability VALUE (min_color_temp_kelvin,
-  // which exists only on the lights that have it), these are declared on the
-  // domain class and therefore askable of ANY light — "does not support colour"
-  // is a true statement about every light, so there is nothing to hide. That is
-  // what lets generic code branch:
-  //
-  //   area.lights.filter((l) -> l.supportsColour)
-  //
-  // Derived by the dump from `supported_color_modes` and the
-  // `LightEntityFeature` bits, both vendored in `hass-light.pkl`.
-  hidden supportsBrightness: Boolean = false
-  hidden supportsColourTemp: Boolean = false
-  hidden supportsColour: Boolean = false
-  hidden supportsEffects: Boolean = false
-  hidden supportsFlash: Boolean = false
-  hidden supportsTransition: Boolean = false
+  // ---- what the dump emits: DATA, not conclusions ----
+
+  /// The colour modes HA reports. Mandatory for a light, so this is not
+  /// nullable — a light that somehow reports none gets an empty Listing.
+  hidden colourModes: Listing<ColorMode> = new Listing {}
+
+  /// The raw `LightEntityFeature` bitmask. Prefer the derived predicates below;
+  /// this is here so an author can test a bit the schema does not name yet, via
+  /// `hassLight.supports(l.supported_features, hassLight.FLASH)`.
+  hidden supported_features: Int = 0
+
+  hidden colourTemp: ColourTemp? = null
+  hidden effects: Effects? = null
+
+  // ---- what the schema DERIVES ----
+  // Deliberately computed here rather than baked in by the generator, so the
+  // rule for "what counts as colour" lives in exactly one place next to the
+  // vendored constants it reads.
+
+  hidden supportsColour: Boolean =
+    colourModes.toList().any((m) -> hassLight.COLOUR_MODES.contains(m))
+  hidden supportsBrightness: Boolean =
+    colourModes.toList().any((m) -> hassLight.DIMMABLE_MODES.contains(m))
+  hidden supportsColourTemp: Boolean = colourTemp != null
+  hidden supportsEffects: Boolean = effects != null
+  hidden supportsFlash: Boolean =
+    hassLight.supports(supported_features, hassLight.FLASH)
+  hidden supportsTransition: Boolean =
+    hassLight.supports(supported_features, hassLight.TRANSITION)
 }
 
 open class SensorEntity extends Entity {

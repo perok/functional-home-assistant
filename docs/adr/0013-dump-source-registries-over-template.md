@@ -101,24 +101,64 @@ Two consequences, both spike-verified on pkl-core 0.32.1:
 This is why the domain classes are `open`, and why the generated module is ~24%
 larger (944 KB against 762 KB for the shared-nullable-field shape).
 
-#### Predicates are the other half
+#### Capability groups: the concept is the nullable thing
 
-A capability VALUE is absent when the entity lacks the capability — which is what
-makes precise access safe, but also means generic code over a
-`List<hass.LightEntity>` cannot ASK. So capability **predicates** are declared on
-the domain class, defaulting to false, and the dump overrides the true ones:
+A capability whose values travel together is ONE nullable object on the domain
+class, not several independent nullable fields:
 
 ```pkl
+class ColourTemp { min_kelvin: Int; max_kelvin: Int }
+
 open class LightEntity extends Entity {
-  hidden supportsBrightness: Boolean = false
-  hidden supportsColourTemp: Boolean = false
-  hidden supportsColour: Boolean = false
-  hidden supportsEffects: Boolean = false
+  hidden colourModes: Listing<ColorMode> = new Listing {}
+  hidden supported_features: Int = 0
+  hidden colourTemp: ColourTemp? = null
+  hidden effects: Effects? = null
 }
 ```
 
-Nothing is hidden by this, because "does not support colour" is a true statement
-about every light. Together the two halves give the pattern the dump exists for —
+This is what makes nullability safe, and it is worth being precise about why —
+FLAT nullable fields were rejected earlier for a reason that grouping removes:
+
+- **The group is the predicate.** `l.colourTemp != null` needs no parallel
+  `supportsColourTemp` flag that could disagree with the value beside it.
+- **One guard covers every value in the concept.** `min_kelvin` without
+  `max_kelvin` is unrepresentable, rather than two nullables that can drift.
+- **An unguarded read is an ERROR, not a null.** Values are reached *through* the
+  group, so a missed guard gives `Cannot find property 'min_kelvin' in object of
+  type 'Null'` at build time — where a flat `min_color_temp_kelvin: Int?` would
+  have yielded `null`, rendered as a blank slot, and shipped.
+- `?.` and `??` work, so `l.colourTemp?.min_kelvin ?? default` is available when
+  a default is genuinely wanted.
+
+A capability with no associated values stays a derived Boolean — a group with no
+fields would carry nothing.
+
+**The generator emits data; the schema draws conclusions.** `PklDump` writes
+`colourModes`, `supported_features` and the groups; `hass.pkl` derives
+`supportsColour`, `supportsBrightness`, `supportsFlash`, `supportsTransition`
+from them, reading the vendored constants directly. So the rule for "what counts
+as colour" lives in one place instead of being duplicated between Scala and Pkl.
+
+**Completeness is a CODEGEN check, not a Pkl one.** Pkl cannot help here: a
+required property with no value is lazy, so a half-filled group evaluates fine
+until something reads the missing field, and the error then blames the class
+definition rather than the entity. `PklDump.warnings` inspects the whole picture
+at generation time and reports a light that reports one kelvin bound without the
+other, or claims `color_temp` with no range at all. The group is omitted rather
+than half-emitted, and the warning is printed by both dump paths. Reported, never
+fatal — one odd integration must not stop the house's dump from building.
+
+Groups exist for `light` today. Every other domain keeps falling through to the
+per-entity class unchanged, which is what makes the modelling incremental: a
+domain gains groups when someone models it, and nothing else moves.
+
+#### Predicates are the other half
+
+For a capability that IS just a yes/no (colour, brightness, flash, transition),
+a predicate on the domain class says it — askable of any light, because "does not
+support colour" is a true statement about every light. These are derived in the
+schema from the emitted data, not baked in by the generator. Together the two halves give the pattern the dump exists for —
 ask generically, then use the precise value the predicate just proved is there:
 
 ```pkl

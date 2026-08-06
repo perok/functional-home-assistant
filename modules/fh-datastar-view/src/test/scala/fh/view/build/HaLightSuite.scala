@@ -2,8 +2,8 @@ package fh.view.build
 
 import fh.view.testkit.PklWorkspace
 
-/** [[HaLight]] and `lib/hass-light.pkl` are two copies of HA's light constants —
-  * the generator's and the author's. This suite is what stops them drifting:
+/** [[HaLight]] and `lib/hass-light.pkl` are two copies of HA's light constants
+  * — the generator's and the author's. This suite is what stops them drifting:
   * every value is read back out of the Pkl source and compared.
   */
 class HaLightSuite extends munit.FunSuite {

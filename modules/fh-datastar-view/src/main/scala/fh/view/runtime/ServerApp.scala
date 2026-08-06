@@ -528,6 +528,9 @@ object ServerApp extends IOApp {
   ): IO[DumpRefresh.Result] =
     RegistryDump
       .fetch(api)
+      .flatTap(
+        PklDump.warnings(_).traverse_(w => IO.println(s"dump warning: $w"))
+      )
       .map(PklDump.render)
       .flatMap(DumpRefresh.refresh(_, dashboardsDir, entries))
       .flatTap {

@@ -1,11 +1,11 @@
 package fh.view.build
 
-/** Home Assistant's `light` domain constants, vendored — the generator's copy of
-  * what `lib/hass-light.pkl` exposes to dashboard authors.
+/** Home Assistant's `light` domain constants, vendored — the generator's copy
+  * of what `lib/hass-light.pkl` exposes to dashboard authors.
   *
-  * Two copies exist because the two sides need them at different times: this one
-  * derives the capability predicates during codegen, the Pkl one lets an author
-  * name a colour mode or test a feature bit in their own expressions.
+  * Two copies exist because the two sides need them at different times: this
+  * one derives the capability predicates during codegen, the Pkl one lets an
+  * author name a colour mode or test a feature bit in their own expressions.
   * `HaLightSuite` asserts they agree, so the pair cannot drift apart silently.
   *
   * Source: `homeassistant/components/light/const.py`
@@ -13,9 +13,10 @@ package fh.view.build
   *
   * Vendoring is safe because HA's `*EntityFeature` IntFlags are APPEND-ONLY: a
   * new feature takes a new bit, a removed one leaves its bit vacant, and values
-  * are never renumbered — they are persisted in entity state attributes and read
-  * by the frontend. The vacant 1 and 2 are the removed `SUPPORT_BRIGHTNESS` and
-  * `SUPPORT_COLOR_TEMP`, dropped when colour modes replaced them.
+  * are never renumbered — they are persisted in entity state attributes and
+  * read by the frontend. The vacant 1 and 2 are the removed
+  * `SUPPORT_BRIGHTNESS` and `SUPPORT_COLOR_TEMP`, dropped when colour modes
+  * replaced them.
   *
   * Validated against a live instance (48 lights): the `Effect` bit agreed with
   * `effect_list` presence 48/48, and every observed `supported_features` value

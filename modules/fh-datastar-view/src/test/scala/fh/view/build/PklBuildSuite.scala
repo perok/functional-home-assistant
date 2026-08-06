@@ -148,7 +148,14 @@ class PklBuildSuite extends munit.FunSuite {
   private def copyLib(tmp: os.Path, names: String*): Unit = {
     PklWorkspace.bootstrap(tmp)
     os.makeDir.all(tmp / "lib")
-    names.foreach(n => os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib"))
+    // `hass.pkl` imports its vendored HA-constants sibling, so a probe that
+    // copies one and not the other fails with "Cannot find module". Pulled in
+    // here rather than at all 18 call sites.
+    val withSiblings =
+      if (names.contains("hass.pkl")) names :+ "hass-light.pkl" else names
+    withSiblings.distinct.foreach(n =>
+      os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib")
+    )
   }
 
   /** Re-seed the `@fh-home` package from `source`, so a probe that imports
@@ -309,18 +316,26 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |import "lib/hass.pkl"
         |
-        |// Capabilities are NOT on the shared domain class — they are declared
-        |// per entity, the way the generated dump declares them, so an entity
-        |// without the capability has no such property at all (ADR 0013).
+        |// A capability whose values travel together is ONE nullable group on the
+        |// domain class: null means unsupported, non-null means every field is
+        |// there. Unmodelled attributes still land on the per-entity class.
         |class E_light_kitchen extends hass.LightEntity {
-        |  effect_list: Listing<String> = new Listing { "colorloop" }
+        |  icon: String = "mdi:bulb"
         |}
         |
         |light: E_light_kitchen = new {
         |  entity_id = "light.kitchen"
         |  friendly_name = "Kitchen"
         |  area_id = "kitchen"
+        |  colourModes = new Listing { "color_temp" }
+        |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }
+        |  effects = new hass.Effects { list = new Listing { "colorloop" } }
         |}
+        |
+        |// the group IS the predicate, and one guard yields every value in it
+        |hasTemp = light.supportsColourTemp
+        |kelvinSpan = light.colourTemp.max_kelvin - light.colourTemp.min_kelvin
+        |effectNames = light.effects.list
         |
         |tv: hass.GenericEntity = new {
         |  entity_id = "media_player.tv"
@@ -336,8 +351,10 @@ class PklBuildSuite extends munit.FunSuite {
       c.downField("light").get[String]("domain").toOption,
       Some("light")
     )
+    assertEquals(c.get[Boolean]("hasTemp").toOption, Some(true))
+    assertEquals(c.get[Int]("kelvinSpan").toOption, Some(4535))
     assertEquals(
-      c.downField("light").get[List[String]]("effect_list").toOption,
+      c.get[List[String]]("effectNames").toOption,
       Some(List("colorloop"))
     )
     assertEquals(
@@ -428,11 +445,11 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("friendly_name = \"Kitchen \\\"main\\\" light\""),
       clue = src
     )
-    // A capability is DECLARED with its type on the entity's own class, not
-    // assigned into a nullable schema field.
+    // A light's effects are a capability GROUP on the domain class, not a bare
+    // attribute on the entity's own class (ADR 0013).
     assert(
       src.contains(
-        "effect_list: Listing<String> = new Listing { \"colorloop\" }"
+        "effects = new hass.Effects { list = new Listing { \"colorloop\" } }"
       ),
       clue = src
     )
