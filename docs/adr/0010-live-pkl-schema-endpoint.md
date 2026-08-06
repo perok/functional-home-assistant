@@ -148,6 +148,24 @@ on-disk entries). The push body is validated exactly as an evaluated entry is �
 same `DashboardBuild.decode` — because a pushing developer reads no server log,
 so an unknown card comes back as a `400` naming it.
 
+**`fh push --write` is the persistent counterpart, and deliberately not a second
+push endpoint.** An author whose entry the instance *can* evaluate (it imports
+only `@fh-dashboard`/`@fh-home`) usually wants the dashboard to outlive a
+restart, which means the instance must own the SOURCE. That is exactly what the
+`/edit` editor's `PUT /edit/file/<name>.pkl` already does, and what
+`ServerApp.watchSources` already reloads from — so `--write` sends the source
+there instead of the JSON to `/system/push`, and no new route, write path or
+reload mechanism exists for it. The two modes stay honestly different: `push`
+delivers a RESULT the instance could never derive (ephemeral, works for cards
+the server has no source for), `--write` delivers a SOURCE the instance
+re-derives itself (persistent, and fails on the instance if the entry imports a
+file that only exists on the laptop). Both evaluate locally first, so `--write`
+cannot overwrite a working file with one that does not build. A slug the
+instance did not have at startup lands on disk but goes live on its next
+restart — the watcher reconciles the import sets of the entries it already
+knows, and minting a renderer from a written file is not something `--write`
+should quietly do behind the server's own discovery.
+
 For their cards to exist at all, the entry must name their module in
 `componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
 `reflect.Module.imports` yields URIs as plain strings and there is no
@@ -270,7 +288,11 @@ scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
 `/system/pkl/{base.pkl,PklProject,gitignore}` and writes the two per-machine
 files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
 URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
-just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
+just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
+(several entries in one invocation, `--slug` renaming a single one, `--write`
+sending the source instead, `--watch` repeating either on every `*.pkl` change
+in the workspace — polled size+mtime, since these workspaces sit on synced
+filesystems). Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
 then `ValueRenderers.json` — the *same call* the instance's backend renders
 its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the

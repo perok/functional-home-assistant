@@ -15,11 +15,14 @@
 // routes) live in UseCaseSuite, which has the backend to talk to; here we
 // cover what the script does WITHOUT an instance.
 
-import cats.effect.IO
+import cats.data.NonEmptyList
+import cats.effect.{IO, Ref, Resource}
+import org.http4s.{MediaType, Method}
 import weaver.*
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 object FhScriptSuite extends SimpleIOSuite:
@@ -94,6 +97,115 @@ object FhScriptSuite extends SimpleIOSuite:
       )
     }
   }
+
+  test("targets: a slug per entry, and --slug only names one") {
+    // `push` takes several entries, each landing on its own filename; `--slug`
+    // renames ONE, so it is rejected rather than quietly applied to the last.
+    val many = NonEmptyList.of("a.pkl", "sub/b.pkl")
+    for
+      defaults <- fh.targets(many, None)
+      renamed <- fh.targets(NonEmptyList.one("a.pkl"), Some("other"))
+      ambiguous <- fh.targets(many, Some("other")).attempt
+    yield expect.same(
+      List("a" -> "a.pkl", "b" -> "sub/b.pkl"),
+      defaults.toList.map(t => t.slug -> t.entry.toString)
+    ) and expect.same(
+      List("other" -> "a.pkl"),
+      renamed.toList.map(t => t.slug -> t.entry.toString)
+    ) and (ambiguous match
+      case Left(fh.Die(msg)) => expect(clue(msg).contains("--slug names one"))
+      case other             => failure(s"expected Die, got: $other"))
+  }
+
+  test("watchSources: fires on a *.pkl edit, ignores dot-directories") {
+    // What `push --watch` sits in. The stamp is size+mtime, so the edit below
+    // changes the size; the `.fh/` write must NOT wake it (that dir is where
+    // the workspace's own machine files churn).
+    emptyDir.flatMap { dir =>
+      val entry = dir.resolve("a.pkl")
+      def write(p: Path, s: String) = IO.blocking {
+        Files.createDirectories(p.getParent)
+        Files.write(p, s.getBytes(UTF_8))
+      }
+      for
+        _ <- write(entry, "one")
+        fired <- IO.ref(0)
+        watching <- fh
+          .watchSources(fired.update(_ + 1), dir)
+          .start
+
+        _ <- write(dir.resolve(".fh").resolve("pins.json"), "{}")
+        _ <- IO.sleep(3 * fh.pollInterval)
+        afterHidden <- fired.get
+
+        _ <- write(entry, "one and more")
+        _ <- awaitCount(fired, 1)
+
+        // A file created after the watch started counts too — the source set is
+        // re-scanned every tick, not fixed at startup.
+        _ <- write(dir.resolve("b.pkl"), "two")
+        _ <- awaitCount(fired, 2)
+        _ <- watching.cancel
+      yield expect.same(0, afterHidden)
+    }
+  }
+
+  test("post: a rejection carries the instance's own message") {
+    // The failure mode that matters for push: the server puts the validation
+    // message in the body (the pushing author reads no server log), so it has
+    // to reach the terminal rather than being flattened to a bare status.
+    stubServer("nosuchcard is not a card", 400).use { url =>
+      for rejected <- fh
+          .withClient(
+            fh.post(
+              _,
+              url,
+              Method.POST,
+              "{}",
+              MediaType.application.json,
+              "push"
+            )
+          )
+          .attempt
+      yield rejected match
+        case Left(fh.Die(msg)) =>
+          expect.all(
+            clue(msg).contains("push failed"),
+            msg.contains("400"),
+            msg.contains("nosuchcard is not a card")
+          )
+        case other => failure(s"expected Die, got: $other")
+    }
+  }
+
+  /** Wait for `ref` to reach `n` — polled, so the test costs one tick rather
+    * than a guessed sleep, and hangs (weaver's own timeout) if it never does.
+    */
+  private def awaitCount(ref: Ref[IO, Int], n: Int): IO[Unit] =
+    ref.get.flatMap(current =>
+      IO.unlessA(current >= n)(IO.sleep(fh.pollInterval) *> awaitCount(ref, n))
+    )
+
+  /** A one-response HTTP stub (the JDK's own server — no extra dependency),
+    * yielding its URL.
+    */
+  private def stubServer(body: String, status: Int): Resource[IO, String] =
+    Resource
+      .make(IO.blocking {
+        val bytes = body.getBytes(UTF_8)
+        val server = com.sun.net.httpserver.HttpServer
+          .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext(
+          "/",
+          exchange =>
+            exchange.sendResponseHeaders(status, bytes.length.toLong)
+            exchange.getResponseBody.write(bytes)
+            exchange.close()
+        )
+        server.start()
+        server
+      })(server => IO.blocking(server.stop(0)))
+      .map(server => s"http://127.0.0.1:${server.getAddress.getPort}/")
 
   test("update: sha-compare against the remote copy, replace with a backup") {
     // cmdUpdate is parameterized (self path + source URL) precisely so this
