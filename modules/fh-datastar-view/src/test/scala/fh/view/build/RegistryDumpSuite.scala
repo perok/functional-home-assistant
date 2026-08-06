@@ -229,6 +229,77 @@ class RegistryDumpSuite extends munit.FunSuite {
     assertEquals(attrs, Set("supported_color_modes"))
   }
 
+  test("entity_picture is NOT carried — it re-hashes the dump package") {
+    // Camera/media_player picture URLs carry a rotating access_token, so
+    // carrying this would change the dump's content version on every frame and
+    // trigger a full re-evaluation of every dashboard. Verified against a live
+    // instance: it was the ONLY attribute in the capability set observed
+    // changing over 180s of `subscribe_entities` deltas.
+    assert(!RegistryDump.CapabilityAttributes.contains("entity_picture"))
+  }
+
+  test("the carried attribute set is widenable (FH_DUMP_ATTRIBUTES)") {
+    val states = Map(
+      "sensor.a" -> full(
+        "device_class" -> Json.fromString("power"),
+        "house_specific" -> Json.fromString("keep me")
+      )
+    )
+    def attrsOf(carried: Set[String]) =
+      entityOf(
+        RegistryDump.build(states, Nil, Nil, Nil, Nil, carried),
+        "sensor_a"
+      ).hcursor
+        .downField("attributes")
+        .focus
+        .flatMap(_.asObject)
+        .map(_.keys.toSet)
+        .getOrElse(Set.empty)
+
+    assertEquals(
+      attrsOf(RegistryDump.CapabilityAttributes),
+      Set("device_class")
+    )
+    assertEquals(
+      attrsOf(RegistryDump.CapabilityAttributes + "house_specific"),
+      Set("device_class", "house_specific")
+    )
+  }
+
+  test("light capability predicates are derived from the colour modes") {
+    def caps(modes: List[String], effects: Boolean) = {
+      val attrs =
+        List(
+          "supported_color_modes" -> Json.fromValues(modes.map(Json.fromString))
+        ) ++
+          Option.when(effects)(
+            "effect_list" -> Json.arr(Json.fromString("colorloop"))
+          )
+      entityOf(
+        RegistryDump.build(Map("light.a" -> full(attrs*)), Nil, Nil, Nil, Nil),
+        "light_a"
+      ).hcursor.downField("capabilities").focus.getOrElse(Json.Null)
+    }
+    def flag(j: Json, name: String) =
+      j.hcursor.downField(name).as[Boolean].getOrElse(false)
+
+    val colour = caps(List("color_temp", "xy"), effects = true)
+    assert(flag(colour, "supportsColour"))
+    assert(flag(colour, "supportsColourTemp"))
+    assert(flag(colour, "supportsBrightness"))
+    assert(flag(colour, "supportsEffects"))
+
+    val tunable = caps(List("color_temp"), effects = false)
+    assert(!flag(tunable, "supportsColour"))
+    assert(flag(tunable, "supportsColourTemp"))
+    assert(!flag(tunable, "supportsEffects"))
+
+    val onoff = caps(List("onoff"), effects = false)
+    assert(!flag(onoff, "supportsBrightness"))
+    assert(!flag(onoff, "supportsColour"))
+    assert(!flag(onoff, "supportsColourTemp"))
+  }
+
   test("devices are keyed by slug, and a repeated name is suffixed") {
     val dump = RegistryDump.build(
       states = Map.empty,

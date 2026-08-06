@@ -58,6 +58,22 @@ abstract class Entity {
 /// per entity to add that entity's own capabilities.
 open class LightEntity extends Entity {
   domain: "light" = "light"
+
+  // Capability PREDICATES. Unlike a capability VALUE (min_color_temp_kelvin,
+  // which exists only on the lights that have it), these are declared on the
+  // domain class and therefore askable of ANY light — "does not support colour"
+  // is a true statement about every light, so there is nothing to hide. That is
+  // what lets generic code branch:
+  //
+  //   area.lights.filter((l) -> l.supportsColour)
+  //
+  // Derived by the dump from `supported_color_modes`/`effect_list` (plain
+  // strings on the wire) rather than the numeric `supported_features` bitmask,
+  // whose per-domain flag values drift between HA releases.
+  hidden supportsBrightness: Boolean = false
+  hidden supportsColourTemp: Boolean = false
+  hidden supportsColour: Boolean = false
+  hidden supportsEffects: Boolean = false
 }
 
 open class SensorEntity extends Entity {

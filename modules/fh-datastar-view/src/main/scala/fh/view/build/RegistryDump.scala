@@ -9,6 +9,7 @@ import api.homeassistant.ws.domain.{
   Floor
 }
 import cats.effect.IO
+import cats.effect.std.Env
 import cats.syntax.all.*
 import ha.runtime.definitions.{DeviceId, ReadableEntityId}
 import io.circe.{Json, JsonObject}
@@ -32,14 +33,22 @@ import io.circe.{Json, JsonObject}
   */
 object RegistryDump {
 
-  /** Attributes copied into the dump, and the ONLY ones.
+  /** Attributes copied into the dump by default.
     *
-    * The cut is phase discipline, not size: the dump is build-time, so anything
-    * that moves while the server runs (`brightness`, `color_temp_kelvin`,
-    * `rgb_color`, `update_percentage`, ...) would be BAKED STALE here, and
-    * lives runtime-side as JSONata over the SSE stream instead. What is left is
-    * capability and presentation metadata — the shape of an entity, not its
-    * value — which is exactly what an author needs at composition time.
+    * The cut is not size, and not staleness alone — it is **the dump's content
+    * version**. The dump is a content-addressed package
+    * (`fh-home@1.0.0-g<hash>`) and [[DumpRefresh]] re-seeds it and re-evaluates
+    * every dashboard whenever that hash moves. An attribute that changes while
+    * the server runs therefore does not merely go stale: it re-hashes the
+    * package on every change, turning a dimmed light into a full rebuild.
+    * Nothing volatile can live here however useful it looks; volatile values
+    * are read runtime-side as JSONata over the SSE stream.
+    *
+    * Every name below was checked against a live instance by watching
+    * `subscribe_entities` delta frames for 180s — none of them appeared in a
+    * single change. `entity_picture` DID (4 changes across 4 entities) and is
+    * deliberately excluded: camera and media_player picture URLs carry a
+    * rotating `access_token`. Re-run that check before adding to this set.
     */
   val CapabilityAttributes: Set[String] = Set(
     // any domain
@@ -47,7 +56,6 @@ object RegistryDump {
     "unit_of_measurement",
     "state_class",
     "icon",
-    "entity_picture",
     "supported_features",
     // light
     "supported_color_modes",
@@ -87,14 +95,50 @@ object RegistryDump {
   private val MemberAttributes: List[String] =
     List("entity_id", "group_entities")
 
+  /** Extra attribute names to carry, comma-separated, from
+    * `FH_DUMP_ATTRIBUTES`.
+    *
+    * Additive to [[CapabilityAttributes]]: the default set is the safe floor,
+    * and a home with an integration exposing something static and useful that
+    * ships here can widen it without a rebuild. The same caching rule applies —
+    * naming a volatile attribute re-hashes the dump on every change of it — so
+    * this is a sharp tool, which is why it is opt-in rather than a filter that
+    * ships wide.
+    */
+  private def extraAttributes: IO[Set[String]] =
+    Env[IO]
+      .get("FH_DUMP_ATTRIBUTES")
+      .map(
+        _.fold(Set.empty[String])(
+          _.split(",").map(_.trim).filter(_.nonEmpty).toSet
+        )
+      )
+
+  /** Colour modes that mean "this light can show a COLOUR", as opposed to
+    * on/off, plain dimming, or tunable white. HA's `ColorMode` values are plain
+    * strings on the wire, so this needs no version-pinned bitmask table —
+    * unlike `supported_features`, whose per-domain flag values are numeric and
+    * do drift between HA releases.
+    */
+  private val ColourModes: Set[String] =
+    Set("hs", "xy", "rgb", "rgbw", "rgbww")
+
   def fetch(api: HomeAssistantApi[IO]): IO[Json] =
+    extraAttributes.flatMap(extra =>
+      fetchWith(api, CapabilityAttributes ++ extra)
+    )
+
+  private def fetchWith(
+      api: HomeAssistantApi[IO],
+      carried: Set[String]
+  ): IO[Json] =
     (
       snapshot(api),
       api.configEntityRegistryList.map(_.values.toList),
       api.configDeviceRegistryList.map(_.values.toList),
       api.configAreaRegistryList,
       api.configFloorRegistryList
-    ).mapN(build).map(DataDump.transform)
+    ).mapN(build(_, _, _, _, _, carried)).map(DataDump.transform)
 
   /** `subscribe_entities`' FIRST frame is a full snapshot of every entity with
     * every attribute (see [[EntitiesEvent]]) — one command, no size cap, and no
@@ -121,7 +165,8 @@ object RegistryDump {
       registry: List[RegistryEntity],
       devices: List[Device],
       areas: List[Area],
-      floors: List[Floor]
+      floors: List[Floor],
+      carried: Set[String] = CapabilityAttributes
   ): Json = {
     val byEntityId: Map[String, RegistryEntity] =
       registry.map(e => ReadableEntityId.toString(e.entity_id) -> e).toMap
@@ -161,8 +206,9 @@ object RegistryDump {
             .fold(Json.Null)(Json.fromString),
           "members" -> Json.fromValues(members(full)),
           "attributes" -> Json.fromFields(
-            full.attributes.filter((k, _) => CapabilityAttributes.contains(k))
-          )
+            full.attributes.filter((k, _) => carried.contains(k))
+          ),
+          "capabilities" -> capabilities(full)
         )
       )
     }
@@ -223,6 +269,40 @@ object RegistryDump {
           ((key -> value) :: acc, seen.updated(slug, n + 1))
       }
     Json.fromJsonObject(JsonObject.fromIterable(out.reverse))
+  }
+
+  /** Capability PREDICATES, derived from the attributes HA reports.
+    *
+    * These are the counterpart to the per-entity capability VALUES: a value
+    * (`min_color_temp_kelvin`) is absent when the entity lacks the capability,
+    * which is what makes precise access safe — but it also means generic code
+    * over a `List<hass.LightEntity>` cannot ASK. A predicate can be asked of
+    * any light, because "does not support colour" is a true statement about
+    * every light, so these are declared on the domain class and answer
+    * `area.lights.filter((l) -> l.supportsColour)`.
+    *
+    * Derived from `supported_color_modes` / `effect_list` rather than the
+    * `supported_features` bitmask on purpose: the colour modes are strings, so
+    * the mapping cannot drift with an HA release the way the numeric per-domain
+    * feature flags do.
+    */
+  private def capabilities(full: EntitiesEvent.Full): Json = {
+    val modes = full.attributes
+      .get("supported_color_modes")
+      .flatMap(_.asArray)
+      .fold(Set.empty[String])(_.flatMap(_.asString).toSet)
+    if (modes.isEmpty && !full.attributes.contains("effect_list")) Json.obj()
+    else
+      Json.obj(
+        "supportsBrightness" -> Json.fromBoolean(modes.exists(_ != "onoff")),
+        "supportsColourTemp" -> Json.fromBoolean(modes.contains("color_temp")),
+        "supportsColour" -> Json.fromBoolean(
+          modes.exists(ColourModes.contains)
+        ),
+        "supportsEffects" -> Json.fromBoolean(
+          full.attributes.contains("effect_list")
+        )
+      )
   }
 
   private def members(full: EntitiesEvent.Full): List[Json] =

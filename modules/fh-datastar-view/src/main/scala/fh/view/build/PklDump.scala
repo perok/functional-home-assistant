@@ -262,6 +262,18 @@ object PklDump {
   /** The generated class name for one entity. */
   private def entityClass(key: String): String = tick(s"E_$key")
 
+  /** Capability predicate overrides for one entity — only the TRUE ones, since
+    * the domain class already defaults each to false.
+    */
+  private def predicates(eo: JsonObject): List[String] =
+    eo("capabilities")
+      .flatMap(_.asObject)
+      .map(_.toList.collect {
+        case (name, v) if v.asBoolean.contains(true) => s"  $name = true"
+      })
+      .getOrElse(Nil)
+      .sorted
+
   /** The capability declarations for one entity: `name: Type = value`, one per
     * attribute the entity actually reports.
     *
@@ -309,9 +321,11 @@ object PklDump {
         .flatMap(_.asBoolean)
         .filter(identity)
         .map(_ => "  id_hidden = true")
-      // Capabilities are NOT assigned here — they are declared with their value as
-      // the default on the entity's own class, so `new {}` already carries them.
-    ).flatten ++ members.toList
+      // Capability VALUES are not assigned here — they are declared with their
+      // value as the default on the entity's OWN class, so `new {}` carries
+      // them. Capability PREDICATES are assigned, because they are declared on
+      // the shared domain class (defaulting to false) and this entity overrides.
+    ).flatten ++ predicates(eo) ++ members.toList
 
     s"new {\n${fields.mkString("\n")}\n}"
   }

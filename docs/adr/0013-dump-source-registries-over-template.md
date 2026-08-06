@@ -101,16 +101,64 @@ Two consequences, both spike-verified on pkl-core 0.32.1:
 This is why the domain classes are `open`, and why the generated module is ~24%
 larger (944 KB against 762 KB for the shared-nullable-field shape).
 
+#### Predicates are the other half
+
+A capability VALUE is absent when the entity lacks the capability — which is what
+makes precise access safe, but also means generic code over a
+`List<hass.LightEntity>` cannot ASK. So capability **predicates** are declared on
+the domain class, defaulting to false, and the dump overrides the true ones:
+
+```pkl
+open class LightEntity extends Entity {
+  hidden supportsBrightness: Boolean = false
+  hidden supportsColourTemp: Boolean = false
+  hidden supportsColour: Boolean = false
+  hidden supportsEffects: Boolean = false
+}
+```
+
+Nothing is hidden by this, because "does not support colour" is a true statement
+about every light. Together the two halves give the pattern the dump exists for —
+ask generically, then use the precise value the predicate just proved is there:
+
+```pkl
+allLights.filter((l) -> l.supportsColourTemp).map((l) -> l.min_color_temp_kelvin)
+```
+
+Verified on the live dump: 25 lights, 18 with colour, 2 tunable-white-only, 24
+dimmable.
+
+These are derived from `supported_color_modes` and `effect_list` — **plain
+strings on the wire** — and NOT from the `supported_features` bitmask, whose
+per-domain numeric flag values drift between HA releases and would have to be
+version-pinned. Extending predicates to the bitmask domains (media_player,
+climate, cover, fan) is deliberately left out until those constants can be
+pinned against a known HA version rather than recalled.
+
 ### What gets carried, and what deliberately does not
 
-Attributes are filtered to a **capability set** (`RegistryDump.CapabilityAttributes`
-— `supported_color_modes`, `effect_list`, `options`, `min`/`max`/`step`,
-`device_class`, …). The cut is **phase discipline, not size**: the dump is
-build-time, so any attribute that moves while the server runs (`brightness`,
-`color_temp_kelvin`, `rgb_color`, `update_percentage`) would be baked stale.
-Those stay runtime-side as JSONata over the SSE stream, which is where they
-already were. `color_mode` is the clearest example: the template path baked it
-onto every light, and the registry path drops it.
+Attributes are filtered to a **capability set** (`RegistryDump.CapabilityAttributes`),
+widenable per home through `FH_DUMP_ATTRIBUTES` (comma-separated, additive).
+
+The binding reason is **not** staleness, and not size — it is the dump's
+**content version**. The dump is a content-addressed package
+(`fh-home@1.0.0-g<hash>`) and `DumpRefresh` re-seeds it and re-evaluates every
+dashboard whenever that hash moves. A volatile attribute in the dump therefore
+does not merely go stale: it re-hashes the package on every change, turning a
+dimmed light into a full rebuild. That rules out carrying a build-time snapshot
+of live values at all — the idea was considered and dropped for exactly this
+reason, even though it measured at only +7% file size.
+
+The set was checked empirically, not guessed: watching `subscribe_entities`
+delta frames for 180s on the live instance, **23 of 24 candidates never appeared
+in a single change**. The one that did — `entity_picture`, 4 changes across 4
+entities — is excluded, because camera and media_player picture URLs carry a
+rotating `access_token`. **Re-run that check before widening the set**; it is the
+only way to know, and a wrong entry is silent (the dashboards still work, they
+just rebuild constantly).
+
+`color_mode` is the clearest of the obvious exclusions: the template path baked
+it onto every light, and the registry path drops it.
 
 Widening the dump is now a ONE-line change to `RegistryDump.CapabilityAttributes`
 — per-entity classes mean a new attribute needs no `hass.pkl` edit and pollutes
