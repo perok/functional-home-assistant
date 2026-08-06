@@ -539,8 +539,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
-| a tab handing over its session | `runtime/Server.scala` · `ConnHandoffScript` (`sessionStorage`), `PrevConnParam`, `prevConnOf`, `retire` |
-| scroll across a document load | `runtime/Server.scala` · `ScrollRestoreScript` (`sessionStorage`, keyed by slug), `ScrollKeyPrefix` |
+| a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
+| scroll across a document load | `src/js/shell.ts` · `fhScroll` (`sessionStorage`, keyed by slug), inlined via `runtime/Server.scala` · `UrlSyncScript` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |

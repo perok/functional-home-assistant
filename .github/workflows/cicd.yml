@@ -50,15 +50,16 @@ jobs:
 
       - uses: sbt/setup-sbt@v1
 
-      # The editor's CodeMirror + lsp-client deps are esbuild-bundled into
-      # resources/editor/vendor.js, which sbt then packages into the fat jar.
-      # vendor.js is NOT committed (it's gitignored) — CI is its source of
-      # truth; `npm ci` pins to package-lock.json for a reproducible bundle.
+      # node is a BUILD requirement for fh-datastar-view: `frontendBundle` is a
+      # resource generator (project/NpmPlugin.scala), so sbt itself runs
+      # `npm ci` + vite on compile and packages the result into the jar. Nothing
+      # built is committed, so there is no separate bundling step here — just
+      # make node available and let sbt drive it.
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: modules/fh-datastar-view/editor-src/package-lock.json
+          cache-dependency-path: modules/fh-datastar-view/package-lock.json
 
       # The pinned Datastar bundle the morph-contract suite runs against. It is
       # fetched from `Server.DatastarCdn` on a miss — the same constant
@@ -84,10 +85,6 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/build.sbt') }}
-
-      - name: Vendor editor front-end (esbuild)
-        working-directory: modules/fh-datastar-view/editor-src
-        run: npm ci && npm run build
 
       - name: Install Playwright Browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'

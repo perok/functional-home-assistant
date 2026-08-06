@@ -6,65 +6,89 @@ import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
 
-/** The editor surface: what `/edit` offers to edit, plus the built asset bundle
-  * it boots from.
+/** The editor surface: what `/edit` offers to edit, plus the bundle it boots
+  * from.
   *
-  * That bundle is covered here because `vendor.js` is a BUILT artifact
-  * (esbuild, from `editor-src/`) and is gitignored — CI builds it, a checkout
-  * may carry an old one. When it drifts from what `app.js` imports, the failure
-  * is TOTAL and SILENT: the ES module import throws, so `app.js` never runs, so
-  * the file list is never rendered AND the on-screen error handler (registered
-  * inside that module) is never installed. The editor is simply blank, with
-  * nothing but a browser console entry to say why. That happened; hence this
-  * test.
+  * That bundle is covered here because it is a BUILT artifact (vite, from
+  * `src/js/`) and is gitignored — CI builds it, a checkout may carry an old one
+  * or none. When it is missing or was not really bundled, the failure is TOTAL
+  * and SILENT: the ES module import throws, so `app.js` never runs, so the file
+  * list is never rendered AND the on-screen error handler (registered inside
+  * that module) is never installed. The editor is simply blank, with nothing
+  * but a browser console entry to say why. That happened when `app.js` and its
+  * vendor bundle could drift apart; they are one file now, and this is the
+  * guard that replaces that one.
   *
   * A text check on purpose — no node, no browser — so it runs in the normal
-  * suite. Both files are read off the CLASSPATH, which is what the server
+  * suite. Everything is read off the CLASSPATH, which is what the server
   * actually serves.
+  *
+  * The OTHER way a bundle breaks — a classic script (the shell, the overlay)
+  * picking up an `import` because rollup split a shared module out — is not
+  * checked here. `vite.config.ts`'s `fh-assert-self-contained` plugin fails the
+  * build on it, off rollup's own chunk metadata, so it cannot reach a test.
   */
 class EditorSuite extends munit.FunSuite {
 
-  private def resource(name: String): String = {
-    val in = Option(getClass.getResourceAsStream(s"/editor/$name"))
-      .getOrElse(fail(s"editor/$name is not on the classpath"))
-    try new String(in.readAllBytes(), "UTF-8")
-    finally in.close()
+  /** A bundle by ENTRY NAME, the way the app addresses it — the filenames carry
+    * a content hash, so nothing here can spell one out either.
+    */
+  private def bundle(entry: String): String = FrontendAssets.content(entry)
+
+  test("the editor bundle is present and self-contained") {
+    val app = bundle("app")
+
+    // Really a bundle, not the bare source: CodeMirror is inside it. The
+    // source is ~10KB and the bundle ~650KB, so the floor is far from either.
+    assert(app.length > 100000, clue = app.length)
+
+    // ...and nothing was left EXTERNAL. A bundle that still names a bare
+    // package specifier would throw on import in the browser (no import map,
+    // no CDN) — the blank-editor failure this suite exists for.
+    val unbundled = "from\\s*[\"']([^./\"'][^\"']*)[\"']".r
+      .findAllMatchIn(app)
+      .map(_.group(1))
+      .toList
+    assertEquals(
+      unbundled,
+      Nil,
+      clue = s"app.js imports unbundled modules: ${unbundled.mkString(", ")}"
+    )
   }
 
-  test("vendor.js exports every symbol app.js imports") {
-    val app = resource("app.js")
-    val vendor = resource("vendor.js")
-
-    // The single `import { … } from "./vendor.js"` block at the top of app.js.
-    val imported = "(?s)import\\s*\\{(.*?)\\}\\s*from\\s*\"\\./vendor\\.js\"".r
-      .findFirstMatchIn(app)
-      .map(_.group(1))
-      .getOrElse(fail("app.js has no import block from ./vendor.js"))
-      .split(",")
-      .map(_.trim)
-      .filter(_.nonEmpty)
-      .toList
-
-    assert(imported.sizeIs > 5, clue = imported) // the regex really matched
-
-    // esbuild's esm output ends in one `export { … }` list.
-    val exported = "(?s)export\\s*\\{([^}]*)\\}\\s*;?\\s*$".r
-      .findFirstMatchIn(vendor)
-      .map(_.group(1))
-      .getOrElse(fail("vendor.js has no trailing export block"))
-      .split(",")
-      .map(_.trim.split("\\s+as\\s+").last.trim)
-      .filter(_.nonEmpty)
-      .toSet
-
-    val missing = imported.filterNot(exported.contains)
-    assertEquals(
-      missing,
-      Nil,
-      clue =
-        s"vendor.js is stale — rebuild it: (cd modules/fh-datastar-view/editor-src && npm install && npm run build). Missing: ${missing
-            .mkString(", ")}"
+  test("the page shell bundle defines the helpers the document calls") {
+    val shell = bundle("shell")
+    // The document calls all three by name — fhConn from a script mid-body,
+    // fhScroll from the last line of it, fhUrl from Datastar's first effect.
+    List("fhUrl", "fhConn", "fhScroll").foreach(fn =>
+      assert(shell.contains(s"window.$fn="), clue = (fn, shell))
     )
+  }
+
+  test("the editor page names the hashed bundle, and nothing else does") {
+    workspace { ws =>
+      val (status, html) = get(ws, "/edit")
+      assertEquals(status, Status.Ok)
+      // The placeholder is gone and the real, hashed, RELATIVE url is in its
+      // place — relative so it resolves against <base href> behind ingress.
+      val app = FrontendAssets.url("app")
+      assert(html.contains(s"""src="$app""""), clue = html)
+      assert(!html.contains("__APP_JS__"), clue = html)
+      assert(app.startsWith("web/") && app.endsWith(".js"), clue = app)
+      // A hash, not a bare name: that is what makes the immutable caching on
+      // the serving route honest.
+      assertNotEquals(app, "web/app.js", clue = app)
+      // ...and the editor route no longer serves JavaScript at all.
+      assertEquals(get(ws, "/edit/app.js")._1, Status.NotFound)
+    }
+  }
+
+  test("only files the manifest names are served") {
+    assert(FrontendAssets.serves(FrontendAssets.url("app").stripPrefix("web/")))
+    // The guard is an allowlist of built filenames, so a made-up name — or a
+    // traversal attempt — is simply not a route that exists.
+    assert(!FrontendAssets.serves("app.js"))
+    assert(!FrontendAssets.serves("../application.conf"))
   }
 
   /** A workspace shaped like a real one: two entries, the manifest, its

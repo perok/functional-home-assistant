@@ -195,10 +195,11 @@ The browser cannot fix this on its own here. A document holding a streaming
 document rather than restoring a live one; and a link back to the dashboard is a
 forward navigation, which starts at the top by definition.
 
-So the shell carries it: `Server.ScrollRestoreScript` (`fhScroll(slug)`) saves
-`scrollY` to `sessionStorage` on `pagehide` and re-applies it as the **last
-thing in `<body>`**, with `history.scrollRestoration='manual'` so the browser's
-own (zero) restore cannot land on top of it. Last in the body is what makes it
+So the shell carries it: `fhScroll(slug)` (in `src/js/shell.ts`, bundled and
+inlined as `Server.UrlSyncScript`) saves `scrollY` to `sessionStorage` on
+`pagehide` and re-applies it as the **last thing in `<body>`**, with
+`history.scrollRestoration='manual'` so the browser's own (zero) restore cannot
+land on top of it. Last in the body is what makes it
 invisible: the body is server-rendered and the stylesheets are render-blocking,
 so the document has its height before the closing script runs and the offset is
 set before the first paint.

@@ -69,11 +69,13 @@ metals.sbt
 # local credentials (HA token etc.) read by build.sbt
 .env
 
-# editor vendor bundle: node deps (the built vendor.js IS committed)
-modules/fh-datastar-view/editor-src/node_modules/
+# frontend build (src/js -> vite -> managed resources, via project/NpmPlugin):
+# npm deps and the bundle itself. Nothing built is committed — sbt's
+# frontendBundle regenerates it on compile, so node+npm are a build requirement
+# for this module.
+modules/fh-datastar-view/node_modules/
 
-# generated editor bundle (built by CI / 'npm run build' in editor-src; not committed)
-modules/fh-datastar-view/src/main/resources/editor/vendor.js
+modules/fh-datastar-view/target/frontend/
 .pkl-cli/
 .scalex/
 
