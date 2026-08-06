@@ -14,22 +14,22 @@ import cats.syntax.all.*
 import ha.runtime.definitions.{DeviceId, ReadableEntityId}
 import io.circe.{Json, JsonObject}
 
-/** Build-phase dump built from the WebSocket REGISTRIES, the side-by-side
-  * replacement for [[DataDump]]'s Jinja template.
+/** Build-phase dump: every entity, area, floor and device the house has, read
+  * from the WebSocket REGISTRIES plus the `subscribe_entities` snapshot.
   *
-  * Why a second implementation rather than growing the template:
-  * `/api/template` truncates its output at 262144 characters and the existing
-  * template already renders ~228k of that, so there is no room left for device
-  * ids, group members or a wider attribute set. The registries have no such
-  * cap, and they carry two things a template provably cannot reach —
-  * `entity_category` (absent from state attributes) and, on this HA version,
-  * any whole-device listing (`devices()` is undefined; only the per-entity
-  * `device_id()` exists).
+  * This is the only dump. It produces `{floors, areas, devices, entities}`
+  * keyed by [[transform]], which [[PklDump.render]] turns into the typed
+  * `dump.pkl` module — so this file decides WHAT the authoring layer can see,
+  * and `PklDump` decides how it is typed.
   *
-  * Emits the SAME JSON shape [[DataDump.fetch]] does — `{floors, areas,
-  * entities}` keyed by [[DataDump.transform]] — so [[PklDump.render]] consumes
-  * either one unchanged. The extra fields are additive; the template path
-  * simply never sets them.
+  * It reads registries rather than rendering a Jinja template through
+  * `/api/template` because that endpoint truncates its output at 262144
+  * characters, which the equivalent template already filled to ~228k — leaving
+  * no room for device ids, group members or a wider attribute set. The
+  * registries have no cap, and they carry two things a template provably cannot
+  * reach: `entity_category` (absent from state attributes) and any whole-device
+  * listing (`devices()` is undefined on this HA version; only the per-entity
+  * `device_id()` exists). See ADR 0013.
   */
 object RegistryDump {
 
@@ -129,7 +129,7 @@ object RegistryDump {
       api.configDeviceRegistryList.map(_.values.toList),
       api.configAreaRegistryList,
       api.configFloorRegistryList
-    ).mapN(build(_, _, _, _, _, carried)).map(DataDump.transform)
+    ).mapN(build(_, _, _, _, _, carried)).map(transform)
 
   /** `subscribe_entities`' FIRST frame is a full snapshot of every entity with
     * every attribute (see [[EntitiesEvent]]) — one command, no size cap, and no
@@ -203,14 +203,14 @@ object RegistryDump {
       )
     }
 
-    // Keyed HERE rather than in `DataDump.transform`, which keys only the three
-    // fields the template path produces and passes anything else through
-    // untouched. Device NAMES are not unique the way area names are (two bulbs
-    // of the same model land on the same slug), so the key is deduplicated.
+    // Keyed HERE rather than in `transform`, which keys the three fields it was
+    // written for and passes anything else through untouched. Device NAMES are
+    // not unique the way area names are (two bulbs of the same model land on
+    // the same slug), so the key is deduplicated.
     val deviceJson = dedupeKeyed(
       devices.sortBy(d => DeviceId.toString(d.id)).map { d =>
         val name = d.name_by_user.getOrElse(d.name)
-        DataDump.slug(name) -> Json.fromFields(
+        slug(name) -> Json.fromFields(
           List(
             "device_id" -> Json.fromString(DeviceId.toString(d.id)),
             "device_name" -> Json.fromString(name),
@@ -267,4 +267,87 @@ object RegistryDump {
       .flatMap(_.asArray)
       .flatten
       .filter(_.isString)
+
+  /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
+    * sanitized field (a valid identifier), so authors reference them by name.
+    * Entities are keyed by `entity_id` (dots -> underscores); areas/floors by
+    * their NAME (`area_name`/`floor_name`), slugified for `dump.areas.<name>`
+    * access (e.g. `Kjøkken` -> `kjokken`, `Living Room` -> `living_room`).
+    *
+    * Each floor additionally carries a nested, slug-keyed `areas` sub-object of
+    * just the areas on that floor (matched by `floor_id`), so authors can drill
+    * `dump.floors.<floor>.areas.<area>.area_id` with editor autocomplete. The
+    * flat top-level `dump.areas` map is left intact — the nesting is additive.
+    */
+  def transform(raw: Json): Json = {
+    def keyBy(arr: Json, keyField: String, key: String => String): Json =
+      arr.asArray match {
+        case None        => arr
+        case Some(items) =>
+          val entries = items.flatMap { item =>
+            item.hcursor.get[String](keyField).toOption.map { raw =>
+              key(raw) -> item
+            }
+          }
+          Json.fromJsonObject(JsonObject.fromIterable(entries))
+      }
+
+    raw.asObject match {
+      case None      => raw
+      case Some(obj) =>
+        val areasArr = obj("areas").getOrElse(Json.arr())
+        val areaItems = areasArr.asArray.getOrElse(Vector.empty)
+
+        // Add to each floor a slug-keyed `areas` sub-object of the areas whose
+        // `floor_id` references it.
+        def withAreas(floor: Json): Json = {
+          val fid = floor.hcursor.get[String]("floor_id").toOption
+          val mine = Json.fromValues(
+            areaItems.filter(a =>
+              a.hcursor.get[String]("floor_id").toOption == fid
+            )
+          )
+          floor.deepMerge(Json.obj("areas" -> keyBy(mine, "area_name", slug)))
+        }
+
+        val floorsArr = obj("floors").getOrElse(Json.arr())
+        val enrichedFloors = floorsArr.asArray match {
+          case Some(items) => Json.fromValues(items.map(withAreas))
+          case None        => floorsArr
+        }
+
+        Json.fromJsonObject(
+          obj
+            .add("areas", keyBy(areasArr, "area_name", slug))
+            .add("floors", keyBy(enrichedFloors, "floor_name", slug))
+            .add(
+              "entities",
+              keyBy(
+                obj("entities").getOrElse(Json.arr()),
+                "entity_id",
+                entityKey
+              )
+            )
+        )
+    }
+  }
+
+  /** Entity key: just dots -> underscores (entity_ids are already
+    * `[a-z0-9_]`-plus-one-dot).
+    */
+  private[build] def entityKey(id: String): String = id.replace(".", "_")
+
+  /** A friendly, valid identifier from a free-form name: lower-cased, Nordic
+    * letters and diacritics folded to ASCII, runs of anything else collapsed to
+    * a single underscore (`Kjøkken` -> `kjokken`).
+    */
+  private[build] def slug(name: String): String =
+    java.text.Normalizer
+      .normalize(
+        name.toLowerCase.replace("ø", "o").replace("æ", "ae").replace("å", "a"),
+        java.text.Normalizer.Form.NFD
+      )
+      .replaceAll("\\p{M}+", "") // strip combining diacritics (é -> e)
+      .replaceAll("[^a-z0-9]+", "_")
+      .replaceAll("^_+|_+$", "")
 }

@@ -29,4 +29,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0010 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side](0010-live-pkl-schema-endpoint.md)
 - [0011 — The live connection: resume an SSE reconnect, health, and what may never be dropped](0011-the-live-connection.md)
 - [0012 — Each session renders what it is owed](0012-each-session-renders-what-it-is-owed.md)
-- [0013 — The dump comes from the WebSocket registries, not a Jinja template](0013-dump-source-registries-over-template.md)
+- [0013 — How the entity dump is generated and typed](0013-dump-codegen-and-typing.md)

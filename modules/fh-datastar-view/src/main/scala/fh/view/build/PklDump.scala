@@ -2,7 +2,7 @@ package fh.view.build
 
 import io.circe.{Json, JsonObject}
 
-/** Renders the transformed [[DataDump]] JSON as the typed `lib/dump.pkl`
+/** Renders the transformed [[RegistryDump]] JSON as the typed `dump.pkl`
   * module, typed against the hand-written `lib/hass.pkl` schema.
   *
   * Every floor/area/entity becomes a NAMED, TYPED property, so
@@ -23,7 +23,7 @@ import io.circe.{Json, JsonObject}
 object PklDump {
 
   /** Render the module source. `transformed` is the OUTPUT of
-    * [[DataDump.transform]] (objects keyed by sanitized names).
+    * [[RegistryDump.transform]] (objects keyed by sanitized names).
     */
   def render(transformed: Json): String = {
     val root = transformed.asObject.getOrElse(JsonObject.empty)
@@ -396,7 +396,7 @@ object PklDump {
       .flatMap(_.asArray)
       .getOrElse(Vector.empty)
       .flatMap(_.asString)
-      .map(DataDump.entityKey)
+      .map(RegistryDump.entityKey)
       .filter(known.contains)
       .distinct
     val members = Option.when(memberRefs.nonEmpty)(

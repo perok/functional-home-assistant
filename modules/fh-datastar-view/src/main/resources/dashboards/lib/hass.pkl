@@ -1,7 +1,7 @@
 /// Hand-written Home Assistant domain schema for the Pkl authoring track.
 ///
-/// Types exactly what the build-phase dump carries (see `DataDump.scala`):
-/// registry identity + the per-domain attributes the dump template extracts.
+/// Types exactly what the build-phase dump carries (see `RegistryDump.scala`):
+/// registry identity + the per-domain attributes the dump carries.
 /// Live values (state, brightness, ...) stay runtime-side as JSONata over the
 /// SSE stream — never in the build-time dump (phase discipline).
 ///

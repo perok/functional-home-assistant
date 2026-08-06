@@ -96,11 +96,11 @@ class RegistryDumpSuite extends munit.FunSuite {
     Floor(Nil, 0d, "ground", None, Some(1), Json.Null, "Ground")
 
   /** `build` emits the raw list shape; `RegistryDump.fetch` keys it through
-    * [[DataDump.transform]] before anything reads it, so tests look at the same
-    * keyed result callers do.
+    * [[RegistryDump.transform]] before anything reads it, so tests look at the
+    * same keyed result callers do.
     */
   private def entityOf(dump: Json, key: String): Json =
-    DataDump
+    RegistryDump
       .transform(dump)
       .hcursor
       .downField("entities")

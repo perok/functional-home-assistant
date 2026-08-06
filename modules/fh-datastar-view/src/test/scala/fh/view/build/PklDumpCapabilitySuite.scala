@@ -18,7 +18,7 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     )
 
   private def dump(entities: Json*): Json =
-    DataDump.transform(
+    RegistryDump.transform(
       Json.obj(
         "areas" -> Json.arr(),
         "floors" -> Json.arr(),

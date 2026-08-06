@@ -372,7 +372,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 
-  /** A small transformed dump (the OUTPUT shape of DataDump.transform): one
+  /** A small transformed dump (the OUTPUT shape of RegistryDump.transform): one
     * floor, one area, a light (with attributes), a sensor in the same area, an
     * area-less switch, and a friendly_name that exercises string escaping.
     */
@@ -1534,6 +1534,78 @@ class PklBuildSuite extends munit.FunSuite {
           "(actual output also written to a temp *.actual.json next to the diff)."
       )
     }
+  }
+
+  // ---- capability-conditional composition (ADR 0013) ----
+  // The dump types a capability as a nullable GROUP, so a control that needs one
+  // takes the group as its parameter and the composition site's `!= null` guard
+  // is the same fact. These pin that the emitted cards follow the capabilities.
+
+  /** A light probe declaring exactly the capability groups `caps` names. */
+  private def lightProbe(caps: String, node: String): String =
+    s"""class E_light_a extends hass.LightEntity {}
+       |l: E_light_a = new {
+       |  entity_id = "light.a"
+       |  friendly_name = "A"
+       |$caps
+       |}
+       |node = $node""".stripMargin
+
+  test("withColourTemp retunes a slider onto the light's own kelvin range") {
+    val s = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "color_temp" }
+          |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }""".stripMargin,
+        "(c.slider(l)) |> c.withColourTemp(l.colourTemp!!)"
+      )
+    )
+    assertEquals(s.card, "slider")
+    assertEquals(s.slots("action").literal, Some("light/turn_on"))
+    assertEquals(s.slots("key").literal, Some("color_temp_kelvin"))
+    // the bounds are the LIGHT's, not the light domain's brightness 1..255
+    assertEquals(s.slots("min").literal, Some("2000"))
+    assertEquals(s.slots("max").literal, Some("6535"))
+    // and the handle tracks the value it writes, not brightness
+    assertEquals(s.slots("value").transform, "$attr.color_temp_kelvin")
+  }
+
+  test("lightControls emits one control per capability the light has") {
+    val col = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "color_temp"; "xy" }
+          |  colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }
+          |  effects = new hass.Effects { list = new Listing { "off"; "Color loop" } }""".stripMargin,
+        "c.lightControls(l)"
+      )
+    )
+    assertEquals(col.card, "fhcol")
+    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
+    // brightness first (the domain default), then the colour-temperature one
+    assertEquals(kids(0).slots("key").literal, Some("brightness"))
+    assertEquals(kids(1).slots("key").literal, Some("color_temp_kelvin"))
+    // one pill per named effect, each posting light/turn_on effect=<name>
+    val pills = kids(2).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(
+      pills.map(_.slots("label").literal),
+      List(Some("off"), Some("Color loop"))
+    )
+    assert(
+      pills(1).slots("onclick").transform.contains("/effect/Color%20loop'"),
+      clue = pills(1).slots("onclick").transform
+    )
+  }
+
+  test("a switch-only light gets a tappable card and NO sliders") {
+    val col = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "onoff" }""",
+        "c.lightControls(l)"
+      )
+    )
+    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(kids.map(_.card), List("entityCard"))
+    assertEquals(kids.head.slots("tappable").literal, Some("1"))
   }
 
   test("fixture-features wire JSON matches the checked-in snapshot") {

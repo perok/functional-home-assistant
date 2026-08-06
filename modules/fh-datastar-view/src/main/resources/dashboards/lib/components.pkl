@@ -329,6 +329,21 @@ const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
 function serviceTap(action: String): Tap =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
 
+// The value-carrying action route: the service call gets `service_data`, with
+// the value riding in the URL PATH (the same route the slider's template posts
+// to). A path segment, so a value containing a space is percent-encoded — the
+// one character that actually shows up in HA's own vocabularies (effect names
+// like "Color loop", preset modes).
+const local function serviceValueOnclick(action: String, key: String, value: String): String =
+  #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
+    + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
+
+/// A service call carrying ONE static value: `serviceValueTap("light/turn_on",
+/// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
+/// the same tap works on any card that has one.
+function serviceValueTap(action: String, key: String, value: String): Tap =
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value)) }
+
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
 /// <base href> (works directly and behind ingress); the `onclick` twin is for
@@ -962,6 +977,11 @@ class Slider extends Node {
   hidden key: String? = null
   hidden min: Int? = null
   hidden max: Int? = null
+  // The ATTRIBUTE holding the live position, overriding the domain default
+  // (`brightness` for a light). Set it when a slider drives a second axis of
+  // the same entity — [[withColourTemp]] retunes a light's slider onto
+  // `color_temp_kelvin` — so the handle tracks the value it actually writes.
+  hidden valueAttr: String? = null
   // Null for a dynamic ($self) slider — the domain is unknown until a match, so
   // config falls through sliderConfig to the runtime lookup tier.
   hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
@@ -969,7 +989,9 @@ class Slider extends Node {
   // config tiers as the input's own slots: author override → build-time spec
   // literal → runtime $lookup($domain).
   hidden valueExpr: String =
-    if (spec != null) "$attr." + spec!!.value else sliderValueLookup
+    if (valueAttr != null) "$attr." + valueAttr!!
+    else if (spec != null) "$attr." + spec!!.value
+    else sliderValueLookup
   hidden minExpr: String =
     if (min != null) "\(min!!)"
     else if (spec != null) "\(spec!!.min)"
@@ -1029,6 +1051,7 @@ class Slider extends Node {
   function key(k: String): Slider = let (self = this) (self) { key = k }
   function min(m: Int): Slider = let (self = this) (self) { min = m }
   function max(m: Int): Slider = let (self = this) (self) { max = m }
+  function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
 }
 
 /// Value slider as a call (see [[Slider]] for the domain contract).
@@ -1076,6 +1099,67 @@ function floorView(floor: hass.Floor): Column = new Column {
           }
         }
       }
+    }
+  }
+}
+
+// ---- capability-conditional composition (light) ----
+// What the dump's capability GROUPS are for (ADR 0013). A control that needs a
+// capability takes THE GROUP as its parameter — never the entity plus a flag —
+// so it cannot be built for an entity that lacks it, and the guard at the
+// composition site is the same `!= null` that proves the values are there.
+//
+// Two shapes, deliberately:
+//   - a MIXIN retunes a card that already exists ([[withColourTemp]] over a
+//     [[Slider]]) — `|>`-composable, so an author drops it onto their own
+//     slider without adopting the whole factory below;
+//   - a `when` in a container's children decides WHICH cards exist at all
+//     ([[lightControls]]) — a mixin cannot do that, since it maps one node to
+//     one node.
+
+/// Retune a light's slider onto its colour TEMPERATURE: the light's own kelvin
+/// range as the bounds, writing (and tracking) `color_temp_kelvin` instead of
+/// brightness. Takes the RANGE, so there is no way to aim it at a light that
+/// has none: `(c.slider(l)) |> c.withColourTemp(l.colourTemp!!)`.
+function withColourTemp(range: hass.ColourTemp): Mixin<Slider> = (s) -> (s) {
+  action = "light/turn_on"
+  key = "color_temp_kelvin"
+  valueAttr = "color_temp_kelvin"
+  min = range.min_kelvin
+  max = range.max_kelvin
+}
+
+/// One pill per named effect the light exposes, each posting
+/// `light/turn_on effect=<name>`. Takes the effects GROUP for the same reason
+/// [[withColourTemp]] takes the range.
+function effectPills(fx: hass.Effects, l: hass.LightEntity): Row = new Row {
+  children {
+    for (name in fx.list) {
+      pill(name, serviceValueTap("light/turn_on", "effect", name)).entity(l)
+    }
+  }
+}
+
+/// Every control this light actually supports, and none it does not: a
+/// brightness slider when it dims (a tappable card when it only switches), a
+/// colour-temperature slider when it has a kelvin range, an effect pill row
+/// when it names effects.
+///
+/// This is the payoff of typing capabilities as groups — the composition reads
+/// as the capability list, and adding a control for a capability the light
+/// lacks is not a runtime blank, it is unwriteable.
+function lightControls(l: hass.LightEntity): Column = new Column {
+  children {
+    when (l.supportsBrightness) {
+      slider(l)
+    } else {
+      (entityCard(l)) |> tappable
+    }
+    when (l.colourTemp != null) {
+      (slider(l)) |> withColourTemp(l.colourTemp!!)
+    }
+    when (l.effects != null) {
+      effectPills(l.effects!!, l)
     }
   }
 }

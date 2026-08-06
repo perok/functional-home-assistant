@@ -24,7 +24,7 @@ object DashboardBuild {
     * package, pinned via `.fh/pins.json`. This is the build phase's job — it
     * owns fetching + packaging the dump — and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly: it seeds the dump once for all
+    * into [[RegistryDump]]/[[PklDump]] directly: it seeds the dump once for all
     * entries, then [[reevaluate]]s each against the cached package.
     */
   def prepareDumps(

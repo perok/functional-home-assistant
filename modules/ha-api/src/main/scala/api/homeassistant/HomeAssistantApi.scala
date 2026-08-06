@@ -199,8 +199,7 @@ object HomeAssistantApi {
       // dropped that lone render is fixed in `subscribeStream`. NOTE: a
       // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
       // the filter output back), so `Body=Json` decodes to a `Json` string, not
-      // the structured value — a caller that wants the object parses it
-      // (`DataDump.parseIfString`).
+      // the structured value — a caller that wants the object parses it.
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.head.compile.lastOrError)
