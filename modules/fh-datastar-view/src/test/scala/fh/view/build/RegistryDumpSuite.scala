@@ -266,15 +266,14 @@ class RegistryDumpSuite extends munit.FunSuite {
     )
   }
 
-  test("light capability predicates are derived from the colour modes") {
-    def caps(modes: List[String], effects: Boolean) = {
-      val attrs =
-        List(
-          "supported_color_modes" -> Json.fromValues(modes.map(Json.fromString))
-        ) ++
-          Option.when(effects)(
-            "effect_list" -> Json.arr(Json.fromString("colorloop"))
-          )
+  test(
+    "light capability predicates come from the colour modes and feature bits"
+  ) {
+    def caps(modes: List[String], features: Int) = {
+      val attrs = List(
+        "supported_color_modes" -> Json.fromValues(modes.map(Json.fromString)),
+        "supported_features" -> Json.fromInt(features)
+      )
       entityOf(
         RegistryDump.build(Map("light.a" -> full(attrs*)), Nil, Nil, Nil, Nil),
         "light_a"
@@ -283,21 +282,28 @@ class RegistryDumpSuite extends munit.FunSuite {
     def flag(j: Json, name: String) =
       j.hcursor.downField(name).as[Boolean].getOrElse(false)
 
-    val colour = caps(List("color_temp", "xy"), effects = true)
+    // 44 = EFFECT|FLASH|TRANSITION, the commonest value on the dev instance.
+    val colour = caps(List("color_temp", "xy"), 44)
     assert(flag(colour, "supportsColour"))
     assert(flag(colour, "supportsColourTemp"))
     assert(flag(colour, "supportsBrightness"))
     assert(flag(colour, "supportsEffects"))
+    assert(flag(colour, "supportsFlash"))
+    assert(flag(colour, "supportsTransition"))
 
-    val tunable = caps(List("color_temp"), effects = false)
+    // 40 = FLASH|TRANSITION, no EFFECT.
+    val tunable = caps(List("color_temp"), 40)
     assert(!flag(tunable, "supportsColour"))
     assert(flag(tunable, "supportsColourTemp"))
+    assert(flag(tunable, "supportsBrightness"))
     assert(!flag(tunable, "supportsEffects"))
+    assert(flag(tunable, "supportsTransition"))
 
-    val onoff = caps(List("onoff"), effects = false)
+    val onoff = caps(List("onoff"), 0)
     assert(!flag(onoff, "supportsBrightness"))
     assert(!flag(onoff, "supportsColour"))
     assert(!flag(onoff, "supportsColourTemp"))
+    assert(!flag(onoff, "supportsTransition"))
   }
 
   test("devices are keyed by slug, and a repeated name is suffixed") {

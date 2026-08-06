@@ -128,12 +128,57 @@ allLights.filter((l) -> l.supportsColourTemp).map((l) -> l.min_color_temp_kelvin
 Verified on the live dump: 25 lights, 18 with colour, 2 tunable-white-only, 24
 dimmable.
 
-These are derived from `supported_color_modes` and `effect_list` — **plain
-strings on the wire** — and NOT from the `supported_features` bitmask, whose
-per-domain numeric flag values drift between HA releases and would have to be
-version-pinned. Extending predicates to the bitmask domains (media_player,
-climate, cover, fan) is deliberately left out until those constants can be
-pinned against a known HA version rather than recalled.
+#### HA's domain model is vendored, not guessed
+
+The predicates are derived from HA's own light model, copied into
+`lib/hass-light.pkl` (author-facing) and `HaLight.scala` (generator-facing):
+the `ColorMode` string enum and the `LightEntityFeature` bits
+(`EFFECT=4`, `FLASH=8`, `TRANSITION=32`).
+
+**Vendoring these is safe.** An earlier draft of this ADR claimed the numeric
+feature flags "drift between HA releases" — that was wrong. HA's `*EntityFeature`
+IntFlags are **append-only**: a new feature takes a new bit, a removed one leaves
+its bit vacant, and existing values are never renumbered, because they are
+persisted in entity state attributes and read by the frontend. The vacant `1` and
+`2` in `LightEntityFeature` are exactly that — the removed `SUPPORT_BRIGHTNESS`
+and `SUPPORT_COLOR_TEMP`, dropped when colour modes replaced them.
+
+Checked rather than assumed, against the live instance's 48 lights: the `EFFECT`
+bit agreed with `effect_list` presence **48/48**, and every observed
+`supported_features` value (0, 4, 40, 44) decoded with **no unaccounted bits**.
+Re-run that check when syncing to a newer HA.
+
+Two copies exist because the two sides need the constants at different times —
+codegen derives the predicates, an author names a mode or tests a bit in their
+own expressions. `HaLightSuite` reads the values back out of the Pkl source and
+asserts they match the Scala ones, so the pair cannot drift apart silently.
+
+Vendoring also lets the dump type its colour modes as
+`Listing<hass.ColorMode>` rather than `Listing<String>`, so an author's
+`"colour_temp"` is an eval error instead of a comparison that silently never
+matches.
+
+Light is done; the other bitmask domains (media_player, climate, cover, fan)
+follow the same pattern and are not yet copied.
+
+#### Why not Pkl mixins
+
+Capabilities as `Mixin`s was considered and does not work, for two reasons
+verified on pkl-core 0.32.1:
+
+- Pkl has **no multiple inheritance** — `class C extends A, B` is a parse error —
+  so capabilities cannot be separate types a class combines. Nor is the
+  capability lattice linear (a light may support `color_temp` only, or `rgb`
+  only, or both), so a single-inheritance chain cannot express it either.
+- A Pkl `Mixin<T>` is a **function `(T) -> T`**, an amendment applied to a value.
+  It cannot introduce a property the class does not already declare: applying one
+  that sets an undeclared `min_kelvin` fails with "Cannot find property
+  `min_kelvin` in object of type `Light`".
+
+So a mixin can set what already exists but cannot carry a capability, and it
+creates no type to dispatch on. The generated per-entity class (for values) plus
+the domain-class predicate (for generic questions) is the Pkl-shaped way to get
+what mixins were wanted for.
 
 ### What gets carried, and what deliberately does not
 

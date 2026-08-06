@@ -290,7 +290,13 @@ object PklDump {
       .sortBy(_._1)
       .flatMap { case (name, value) =>
         pklTyped(value).map { case (tpe, rendered) =>
-          s"  ${tick(name)}: $tpe = $rendered"
+          // `supported_color_modes` is HA's own ColorMode enum, so declare it as
+          // that union rather than a bare String list — a typo in an author's
+          // comparison then fails the eval instead of never matching.
+          val declared =
+            if (name == "supported_color_modes") "Listing<hass.ColorMode>"
+            else tpe
+          s"  ${tick(name)}: $declared = $rendered"
         }
       }
   }

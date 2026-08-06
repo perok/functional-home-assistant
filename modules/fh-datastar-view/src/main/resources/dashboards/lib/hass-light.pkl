@@ -1,0 +1,57 @@
+/// Home Assistant's `light` domain model, vendored.
+///
+/// A verbatim copy of the constants HA defines in
+/// `homeassistant/components/light/const.py` — the `ColorMode` string enum and
+/// the `LightEntityFeature` bit flags — so dashboards can name a colour mode or
+/// test a feature bit without spelling magic values, and so the dump's generated
+/// capability predicates have a single documented source.
+///
+/// Docs: https://developers.home-assistant.io/docs/core/entity/light
+///
+/// **These values are safe to vendor.** HA's `*EntityFeature` IntFlags are
+/// append-only: a new feature takes a new (higher) bit and a removed one leaves
+/// its bit vacant — they are never renumbered, because they are persisted in
+/// entity state attributes and read by the frontend. The vacant `1` and `2` here
+/// are exactly that: the removed `SUPPORT_BRIGHTNESS` and `SUPPORT_COLOR_TEMP`,
+/// dropped when colour modes replaced them.
+///
+/// Checked against a live instance (48 lights): the `EFFECT` bit agreed with
+/// `effect_list` presence 48/48, and every observed `supported_features` value
+/// (0, 4, 40, 44) decoded with NO unaccounted bits. Re-run that check when
+/// syncing this file to a newer HA.
+module hass_light
+
+/// `ColorMode` — how a light expresses its colour. A light reports the modes it
+/// supports in `supported_color_modes`.
+///
+/// HA constrains the combinations: `onoff` and `brightness` must each be the
+/// ONLY supported mode when present, and `white` must never be the only one.
+typealias ColorMode =
+  "unknown"|"onoff"|"brightness"|"color_temp"|"hs"|"xy"|"rgb"|"rgbw"|"rgbww"|"white"
+
+/// The modes that mean the light can show an actual COLOUR, as opposed to being
+/// on/off, plain dimmable, or tunable white.
+const COLOUR_MODES: List<ColorMode> = List("hs", "xy", "rgb", "rgbw", "rgbww")
+
+/// The modes that imply a settable brightness — i.e. everything except a light
+/// that can only be switched. (`unknown` is HA's "not reported yet" placeholder
+/// and is deliberately not counted.)
+const DIMMABLE_MODES: List<ColorMode> =
+  List("brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white")
+
+// ---- LightEntityFeature bit flags ----
+// Bits 1 and 2 are VACANT (removed SUPPORT_BRIGHTNESS / SUPPORT_COLOR_TEMP).
+
+/// The light exposes named effects (and therefore an `effect_list`).
+const EFFECT: Int = 4
+
+/// The light supports a flash on turn_on.
+const FLASH: Int = 8
+
+/// The light supports a transition duration between colours/brightnesses.
+const TRANSITION: Int = 32
+
+/// Test a `supported_features` bitmask against one of the flags above:
+/// `hass_light.supports(e.supported_features, hass_light.TRANSITION)`.
+const function supports(supportedFeatures: Int, flag: Int): Boolean =
+  supportedFeatures.and(flag) != 0

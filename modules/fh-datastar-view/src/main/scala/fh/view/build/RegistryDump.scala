@@ -114,15 +114,6 @@ object RegistryDump {
         )
       )
 
-  /** Colour modes that mean "this light can show a COLOUR", as opposed to
-    * on/off, plain dimming, or tunable white. HA's `ColorMode` values are plain
-    * strings on the wire, so this needs no version-pinned bitmask table —
-    * unlike `supported_features`, whose per-domain flag values are numeric and
-    * do drift between HA releases.
-    */
-  private val ColourModes: Set[String] =
-    Set("hs", "xy", "rgb", "rgbw", "rgbww")
-
   def fetch(api: HomeAssistantApi[IO]): IO[Json] =
     extraAttributes.flatMap(extra =>
       fetchWith(api, CapabilityAttributes ++ extra)
@@ -273,7 +264,7 @@ object RegistryDump {
 
   /** Capability PREDICATES, derived from the attributes HA reports.
     *
-    * These are the counterpart to the per-entity capability VALUES: a value
+    * The counterpart to the per-entity capability VALUES: a value
     * (`min_color_temp_kelvin`) is absent when the entity lacks the capability,
     * which is what makes precise access safe — but it also means generic code
     * over a `List<hass.LightEntity>` cannot ASK. A predicate can be asked of
@@ -281,26 +272,40 @@ object RegistryDump {
     * every light, so these are declared on the domain class and answer
     * `area.lights.filter((l) -> l.supportsColour)`.
     *
-    * Derived from `supported_color_modes` / `effect_list` rather than the
-    * `supported_features` bitmask on purpose: the colour modes are strings, so
-    * the mapping cannot drift with an HA release the way the numeric per-domain
-    * feature flags do.
+    * Both inputs are HA's own model, vendored in [[HaLight]]: the `ColorMode`
+    * strings in `supported_color_modes`, and the `LightEntityFeature` bits in
+    * `supported_features`.
     */
   private def capabilities(full: EntitiesEvent.Full): Json = {
     val modes = full.attributes
       .get("supported_color_modes")
       .flatMap(_.asArray)
       .fold(Set.empty[String])(_.flatMap(_.asString).toSet)
-    if (modes.isEmpty && !full.attributes.contains("effect_list")) Json.obj()
+    val features = full.attributes
+      .get("supported_features")
+      .flatMap(_.asNumber)
+      .flatMap(_.toInt)
+      .getOrElse(0)
+
+    if (modes.isEmpty && !full.attributes.contains("supported_features"))
+      Json.obj()
     else
       Json.obj(
-        "supportsBrightness" -> Json.fromBoolean(modes.exists(_ != "onoff")),
+        "supportsBrightness" -> Json.fromBoolean(
+          modes.exists(HaLight.DimmableModes.contains)
+        ),
         "supportsColourTemp" -> Json.fromBoolean(modes.contains("color_temp")),
         "supportsColour" -> Json.fromBoolean(
-          modes.exists(ColourModes.contains)
+          modes.exists(HaLight.ColourModes.contains)
         ),
         "supportsEffects" -> Json.fromBoolean(
-          full.attributes.contains("effect_list")
+          HaLight.supports(features, HaLight.Effect)
+        ),
+        "supportsFlash" -> Json.fromBoolean(
+          HaLight.supports(features, HaLight.Flash)
+        ),
+        "supportsTransition" -> Json.fromBoolean(
+          HaLight.supports(features, HaLight.Transition)
         )
       )
   }

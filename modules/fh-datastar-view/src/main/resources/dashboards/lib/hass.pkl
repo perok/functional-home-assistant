@@ -11,6 +11,13 @@
 ///   - local functions used from class bodies need `const local`.
 module hass
 
+// HA's own `light` domain constants (ColorMode, LightEntityFeature), vendored.
+// Re-exported below as `ColorMode` so the generated dump can type its colour
+// modes without a second import. (A `///` doc comment cannot attach to an
+// import in Pkl — it is a parse error.) The `as` alias is REQUIRED: Pkl binds an
+// import to its FILE name, and `hass-light` is not a legal identifier.
+import "hass-light.pkl" as hassLight
+
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)) || this == "$self")
 
 abstract class Entity {
@@ -50,12 +57,17 @@ abstract class Entity {
   hidden isDynamic: Boolean = entity_id == "$self"
 }
 
-/// developers.home-assistant.io/docs/core/entity/light — only the attributes
-/// the dump template extracts today.
-/// The domain classes carry the domain literal and nothing else — they exist so
-/// a value can be TYPED by domain (`List<LightEntity>`, a card factory that only
-/// accepts a light). Each is `open` because the generated dump extends it once
-/// per entity to add that entity's own capabilities.
+/// A light's supported colour modes, typed against HA's own `ColorMode` enum —
+/// so `"colour_temp"` is an eval error, not a silently-never-matching string.
+typealias ColorMode = hassLight.ColorMode
+
+// ---- domain classes ----
+// Each carries its domain literal and its capability PREDICATES, nothing else.
+// They exist so a value can be typed by domain (`List<LightEntity>`, a card
+// factory that only accepts a light), and each is `open` because the generated
+// dump extends it once per entity to add that entity's own capability VALUES.
+
+/// developers.home-assistant.io/docs/core/entity/light
 open class LightEntity extends Entity {
   domain: "light" = "light"
 
@@ -67,13 +79,14 @@ open class LightEntity extends Entity {
   //
   //   area.lights.filter((l) -> l.supportsColour)
   //
-  // Derived by the dump from `supported_color_modes`/`effect_list` (plain
-  // strings on the wire) rather than the numeric `supported_features` bitmask,
-  // whose per-domain flag values drift between HA releases.
+  // Derived by the dump from `supported_color_modes` and the
+  // `LightEntityFeature` bits, both vendored in `hass-light.pkl`.
   hidden supportsBrightness: Boolean = false
   hidden supportsColourTemp: Boolean = false
   hidden supportsColour: Boolean = false
   hidden supportsEffects: Boolean = false
+  hidden supportsFlash: Boolean = false
+  hidden supportsTransition: Boolean = false
 }
 
 open class SensorEntity extends Entity {
