@@ -1537,6 +1537,7 @@ class Server(
        |$connBanner
        |$body
        |$editAssets
+       |<script>fhScroll('${Server.escapeJsString(slug)}')</script>
        |</body>
        |</html>
        |""".stripMargin
@@ -1912,6 +1913,53 @@ object Server {
       "'conn='+encodeURIComponent(id)+'&" + PrevConnParam + "='+encodeURIComponent(p)))" +
       "}catch(e){}};"
 
+  /** Where a dashboard's scroll offset is remembered, per tab. */
+  val ScrollKeyPrefix: String = "fh.scroll."
+
+  /** `fhScroll(slug)` — restore this dashboard's scroll offset, and arrange to
+    * save it again when the document goes away.
+    *
+    * Crossing to another dashboard is a real document load (ADR 0002), so the
+    * page that comes back is a NEW document: nothing on it survives that the
+    * server did not render, and scroll is not something the server knows. That
+    * left the offset entirely to the browser, and on this page the browser
+    * cannot help — a document holding a streaming `fetch` (Datastar's SSE
+    * `@get`) is not back/forward-cache eligible, so even a back button re-loads
+    * the document rather than restoring a live one. Returning to a long
+    * dashboard therefore always landed at the top.
+    *
+    * `sessionStorage`, keyed by slug, for the same reason [[ConnHandoffScript]]
+    * uses it: per TAB and surviving a load, so two tabs on one dashboard do not
+    * drag each other around. Deliberately NOT the URL mirror that carries the
+    * tab and the popup (ADR 0005): those are the view a link should name, while
+    * an offset would rewrite the URL on every scroll frame and make a shared
+    * link land somebody else mid-page.
+    *
+    * `scrollRestoration='manual'` because the browser's own attempt is what
+    * this replaces, not races: with `auto` it can re-apply its offset AFTER
+    * this runs, and on the reload path that offset is 0. Nothing is lost by
+    * taking it over — the value written on `pagehide` is the one the browser
+    * would have saved at the same moment.
+    *
+    * CALLED LAST IN `<body>`, and that is the whole reason there is no visible
+    * jump: the body is server-rendered and the stylesheets are render-blocking,
+    * so the document has its final height by the time the closing script runs,
+    * and the offset is set before the first paint.
+    *
+    * Silent on failure, like the conn handoff: private browsing and partitioned
+    * embeds can throw on `sessionStorage`, and losing this means landing at the
+    * top — which is where we were.
+    */
+  private val ScrollRestoreScript: String =
+    "window.fhScroll=(s)=>{try{" +
+      s"const k='$ScrollKeyPrefix'+s;" +
+      "history.scrollRestoration='manual';" +
+      "addEventListener('pagehide',()=>{" +
+      "try{sessionStorage.setItem(k,scrollY)}catch(e){}});" +
+      "const v=+sessionStorage.getItem(k);" +
+      "if(v>0)scrollTo(0,v)" +
+      "}catch(e){}};"
+
   /** `fhUrl(key, value)` — mirror one piece of view state into the page URL
     * without navigating: set the param, or drop it when the value is empty.
     *
@@ -1937,7 +1985,8 @@ object Server {
   val UrlSyncScript: String =
     "window.fhUrl=(k,v)=>{const u=new URL(location.href);" +
       "(v===''||v==null)?u.searchParams.delete(k):u.searchParams.set(k,v);" +
-      "history.replaceState(null,'',u)};" + ConnHandoffScript
+      "history.replaceState(null,'',u)};" + ConnHandoffScript +
+      ScrollRestoreScript
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.

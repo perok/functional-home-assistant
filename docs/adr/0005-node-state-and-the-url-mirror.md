@@ -99,6 +99,15 @@ Tiering discipline (do not blur it):
 - **must-survive-and-inform-first-paint UI → an unprefixed signal + its URL
   param**, and only that.
 
+- **must-survive-a-load but must NOT be in a link → `sessionStorage`, keyed by
+  slug.** The scroll offset (`Server.ScrollRestoreScript`, ADR 0002) is the
+  case: it has to cross the document load that navigation is made of, but it is
+  not the view a URL names — mirroring it would rewrite the URL on every scroll
+  frame and make a shared link land somebody else mid-page. Per tab, like the
+  `conn` handoff that already uses this storage. Reach for this tier only when
+  the value fails the URL test on BOTH counts (not shareable, not first-paint
+  input); anything the server must know at render time belongs in the URL.
+
 Server in-memory per-connection state is explicitly not this tier: `conn` is
 minted fresh per stream, giving no continuity across a reload.
 

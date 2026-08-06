@@ -141,6 +141,11 @@ GET /d/:slug
     or a page loaded while HA is unreachable renders as healthy until the
     stream corrects it
   ...and conn again on the data-init URL, which is what the connect reads
+  close the body with fhScroll(slug): re-apply this tab's saved scroll offset
+    // LAST, so the body's full height is already laid out and the offset
+    // lands before the first paint. A page holding a streaming fetch is not
+    // bfcache-eligible, so crossing dashboards (a document load, ADR 0002)
+    // has no browser mechanism to fall back on
 
 GET /sse/dashboard/:slug/patch
   announce `conn` ONLY if this URL named none (a bookmarked SSE endpoint):
@@ -535,6 +540,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `runtime/Server.scala` · `ConnHandoffScript` (`sessionStorage`), `PrevConnParam`, `prevConnOf`, `retire` |
+| scroll across a document load | `runtime/Server.scala` · `ScrollRestoreScript` (`sessionStorage`, keyed by slug), `ScrollKeyPrefix` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |
