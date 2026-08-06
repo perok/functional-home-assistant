@@ -445,11 +445,11 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("friendly_name = \"Kitchen \\\"main\\\" light\""),
       clue = src
     )
-    // A light's effects are a capability GROUP on the domain class, not a bare
-    // attribute on the entity's own class (ADR 0013).
+    // A light's effects are a capability GROUP typed by the domain class,
+    // NARROWED to non-null on the class of the entity that has one (ADR 0013).
     assert(
       src.contains(
-        "effects = new hass.Effects { list = new Listing { \"colorloop\" } }"
+        "hidden effects: hass.Effects = new { list = new Listing { \"colorloop\" } }"
       ),
       clue = src
     )
@@ -1606,6 +1606,69 @@ class PklBuildSuite extends munit.FunSuite {
     val kids = col.children.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("entityCard"))
     assertEquals(kids.head.slots("tappable").literal, Some("1"))
+  }
+
+  test("a generated entity reaches THROUGH its group with no null-proof") {
+    // The payoff of narrowing the group on the per-entity class: a dashboard
+    // naming a specific entity passes the group straight to something that
+    // demands a non-null one — no `!!`, no guard — while the same value read
+    // off a `List<hass.LightEntity>` still meets `ColourTemp?` and still has
+    // to be guarded. One name, two views.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {}, "floors": {},
+          "entities": {
+            "light_a": {
+              "entity_id": "light.a", "friendly_name": "A", "domain": "light",
+              "attributes": {
+                "supported_color_modes": ["color_temp"],
+                "min_color_temp_kelvin": 2000, "max_color_temp_kelvin": 6535
+              }
+            },
+            "light_plug": {
+              "entity_id": "light.plug", "friendly_name": "Plug",
+              "domain": "light",
+              "attributes": { "supported_color_modes": ["onoff"] }
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    writeDump(tmp, PklDump.render(fakeDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |// the specific entity: no `!!` anywhere on this line
+        |node = (c.slider(dump.entities.light_a))
+        |  |> c.withColourTemp(dump.entities.light_a.colourTemp)
+        |
+        |// ...and the SAME value seen generically is still nullable
+        |lights: List<hass.LightEntity> = List(dump.entities.light_a, dump.entities.light_plug)
+        |guarded = lights.map((l) -> l.colourTemp?.min_kelvin ?? -1)
+        |""".stripMargin
+    )
+
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[List[Int]]("guarded").toOption, Some(List(2000, -1)))
+    val node = c
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+    assertEquals(node.slots("min").literal, Some("2000"))
+    assertEquals(node.slots("max").literal, Some("6535"))
   }
 
   test("fixture-features wire JSON matches the checked-in snapshot") {

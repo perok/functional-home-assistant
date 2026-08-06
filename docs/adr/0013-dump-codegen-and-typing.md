@@ -130,6 +130,9 @@ class E_light_hue_bibliotek extends hass.LightEntity {
 class E_light_plug extends hass.LightEntity {}
 ```
 
+(That class is also where a modelled domain's capability groups are narrowed —
+see below.)
+
 The point is what is NOT there: reading a capability an entity lacks is
 
 ```
@@ -186,6 +189,30 @@ there.
 ```pkl
 allLights.filter((l) -> l.supportsColourTemp).map((l) -> l.colourTemp.min_kelvin)
 ```
+
+##### One name, narrowed per entity
+
+The generated entity class **re-declares the group non-null** — the domain class
+types it `ColourTemp?`, the entity that has one types it `ColourTemp`:
+
+```pkl
+class E_light_hue_bibliotek extends hass.LightEntity {
+  hidden colourTemp: hass.ColourTemp = new { min_kelvin = 2000; max_kelvin = 6535 }
+}
+```
+
+So a dashboard naming a specific entity passes the group straight to something
+that demands a present one — `c.withColourTemp(dump.entities.light_a.colourTemp)`,
+no `!!` and no guard — while the same value reached through a
+`List<hass.LightEntity>` still meets `ColourTemp?` and still has to be guarded.
+Both were verified on pkl-core 0.32.1: the narrowed read resolves, and
+`x: ColourTemp = plug.colourTemp` on an entity without one fails with "Expected
+value of type `ColourTemp`, but got `null`".
+
+A parallel `hasColourTemp` nullable + a non-null `colourTemp` twin would do the
+same job and was rejected: it is two names for one fact, `has*` reads as a
+Boolean while holding data, and the two could be emitted inconsistently.
+Narrowing needs no second name and cannot disagree with itself.
 
 The groups are also what makes capability-conditional COMPOSITION safe, one
 layer up: a control takes the group as its parameter, so it cannot be built for
@@ -325,8 +352,9 @@ The recipe, in the order the pieces depend on each other:
    Entity` with the co-occurring values as nullable GROUP classes and the
    yes/no capabilities as predicates DERIVED from the raw emitted data. Do not
    bake conclusions into the generator.
-5. **Emit the data** in `PklDump`: a `schemaFields` branch for the domain, and
-   the attribute names it now owns listed in `SchemaModelled` so
+5. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
+   values, a `schemaGroups` branch for the narrowed group declarations, and the
+   attribute names the domain now owns listed in `SchemaModelled` so
    `capabilityDecls` stops declaring them on the per-entity class too.
 6. **Validate in `PklDump.warnings`**: what would make a group half-populated?
    Report it and omit the group.

@@ -53,7 +53,7 @@ object PklDump {
     // color temperature has no `min_color_temp_kelvin` property at all and
     // reading one is a Pkl error rather than a null (ADR 0013).
     val entityDecls = entities.map { case (key, eo) =>
-      val caps = capabilityDecls(eo)
+      val caps = capabilityDecls(eo) ++ schemaGroups(eo)
       val body = if (caps.isEmpty) "" else caps.mkString("\n") + "\n"
       s"""class ${entityClass(key)} extends ${entityType(eo)} {
          |$body}
@@ -278,14 +278,11 @@ object PklDump {
   /** The generated class name for one entity. */
   private def entityClass(key: String): String = tick(s"E_$key")
 
-  /** The schema-modelled assignments for one entity: the raw data the domain
-    * class declares, plus each capability GROUP that is complete.
+  /** The schema-modelled ASSIGNMENTS for one entity: the raw data its domain
+    * class declares and every entity of that domain has.
     *
-    * A group is emitted only when every field it needs is present — a partial
-    * one is dropped and reported by [[warnings]]. Pkl would not catch it: a
-    * required property with no value is lazy, so a half-filled group evaluates
-    * fine until someone reads the missing field, and then blames the class
-    * definition rather than the dump.
+    * Capability GROUPS are not here — they are narrowed declarations on the
+    * entity's own class ([[schemaGroups]]).
     */
   private def schemaFields(eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
@@ -298,22 +295,49 @@ object PklDump {
           .flatMap(_.asNumber)
           .flatMap(_.toInt)
           .map(v => s"  supported_features = $v")
+        List(modes, features).flatten
+      case _ => Nil
+    }
+  }
+
+  /** Each complete capability GROUP the entity reports, as a NARROWED
+    * declaration on the entity's own class: the domain class types the group
+    * `ColourTemp?`, and the entity that has one re-declares it `ColourTemp`.
+    *
+    * The narrowing is what lets a dashboard naming a specific entity reach
+    * through the group without proving anything —
+    * `c.withColourTemp(dump.entities.light_a.colourTemp)`, no `!!` — while
+    * generic code over `List<hass.LightEntity>` still meets the nullable type
+    * and still has to guard. One name, two views; a `hasColourTemp` twin would
+    * be a second name for the same fact (and would read as a Boolean).
+    *
+    * A group is emitted only when every field it needs is present — a partial
+    * one is dropped and reported by [[warnings]]. Pkl would not catch it: a
+    * required property with no value is lazy, so a half-filled group evaluates
+    * fine until someone reads the missing field, and then blames the class
+    * definition rather than the dump.
+    */
+  private def schemaGroups(eo: JsonObject): List[String] = {
+    val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
+    str(eo, "domain") match {
+      case Some("light") =>
         val colourTemp = (
           attrs("min_color_temp_kelvin").flatMap(_.asNumber).flatMap(_.toInt),
           attrs("max_color_temp_kelvin").flatMap(_.asNumber).flatMap(_.toInt)
         ) match {
           case (Some(lo), Some(hi)) =>
             Some(
-              s"  colourTemp = new hass.ColourTemp { min_kelvin = $lo; max_kelvin = $hi }"
+              "  hidden colourTemp: hass.ColourTemp = " +
+                s"new { min_kelvin = $lo; max_kelvin = $hi }"
             )
           case _ => None
         }
         val effects = attrs("effect_list")
           .flatMap(pklTyped)
           .map { case (_, rendered) =>
-            s"  effects = new hass.Effects { list = $rendered }"
+            s"  hidden effects: hass.Effects = new { list = $rendered }"
           }
-        List(modes, features, colourTemp, effects).flatten
+        List(colourTemp, effects).flatten
       case _ => Nil
     }
   }

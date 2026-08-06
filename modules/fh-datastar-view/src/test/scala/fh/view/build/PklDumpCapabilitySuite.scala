@@ -31,11 +31,15 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     "max_color_temp_kelvin" -> Json.fromInt(6535)
   )
 
-  test("a complete colour-temperature range becomes one group assignment") {
+  test("a complete range is one group, NARROWED to non-null on the class") {
+    // The domain class types it `ColourTemp?`; the entity that has one
+    // re-declares it non-null, so a dashboard naming this entity reaches
+    // through the group without proving anything, while generic code over
+    // `List<LightEntity>` still meets the nullable type.
     val src = PklDump.render(dump(light(kelvinRange*)))
     assert(
       src.contains(
-        "colourTemp = new hass.ColourTemp { min_kelvin = 2000; max_kelvin = 6535 }"
+        "hidden colourTemp: hass.ColourTemp = new { min_kelvin = 2000; max_kelvin = 6535 }"
       ),
       clue = src
     )
@@ -44,7 +48,7 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
   test("a HALF-reported range emits no group, and warns") {
     val half = dump(light("min_color_temp_kelvin" -> Json.fromInt(2000)))
     val src = PklDump.render(half)
-    assert(!src.contains("colourTemp ="), clue = src)
+    assert(!src.contains("colourTemp"), clue = src)
     val warns = PklDump.warnings(half)
     assert(warns.exists(_.contains("half-reported")), clue = warns)
   }
@@ -77,7 +81,7 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     )
     assert(
       src.contains(
-        "effects = new hass.Effects { list = new Listing { \"colorloop\" } }"
+        "hidden effects: hass.Effects = new { list = new Listing { \"colorloop\" } }"
       ),
       clue = src
     )
