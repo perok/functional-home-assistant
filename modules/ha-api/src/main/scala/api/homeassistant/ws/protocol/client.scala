@@ -251,7 +251,15 @@ object client {
 
     // TODO config/entity_registry/get_entries entity_ids https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L122
 
-    // TODO config/floor_registry/list https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/floor_registry.py#L26C32-L26C58
+    // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/area_registry.py
+    case class `config/area_registry/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Area]] derives ConfiguredEncoder
+
+    // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/floor_registry.py#L26C32-L26C58
+    case class `config/floor_registry/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Floor]] derives ConfiguredEncoder
 
     //
     // Devices

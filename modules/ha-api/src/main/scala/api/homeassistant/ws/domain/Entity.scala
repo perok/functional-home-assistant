@@ -36,6 +36,7 @@ case class Entity(
     area_id: Option[String],
     categories: Json,
     config_entry_id: Option[String], // TODO entryid?
+    config_subentry_id: Option[String],
     created_at: Double,
     device_id: Option[DeviceId],
     disabled_by: Option[String],
@@ -66,6 +67,7 @@ case class Device(
     area_id: Option[String],
     configuration_url: Option[String],
     config_entries: List[EntryId],
+    config_entries_subentries: Option[Json],
     connections: List[List[String]],
     created_at: Double,
     disabled_by: Option[String],
@@ -89,6 +91,45 @@ case class Device(
 
 object Device {
   given Decoder[Device] = DecoderWithWarnMissing.derived
+}
+
+/** `config/area_registry/list`. The authoritative area list — unlike the Jinja
+  * `areas()`/`area_name()` pair it carries `floor_id` directly, so the
+  * area->floor edge needs no second lookup.
+  */
+case class Area(
+    aliases: List[String],
+    area_id: String,
+    created_at: Double,
+    floor_id: Option[String],
+    humidity_entity_id: Option[String],
+    icon: Option[String],
+    labels: List[String],
+    modified_at: Json,
+    name: String,
+    picture: Option[String],
+    temperature_entity_id: Option[String]
+)
+
+object Area {
+  given Decoder[Area] = DecoderWithWarnMissing.derived
+}
+
+/** `config/floor_registry/list`. `level` orders floors vertically (basement is
+  * negative), which the Jinja `floors()` list does not expose at all.
+  */
+case class Floor(
+    aliases: List[String],
+    created_at: Double,
+    floor_id: String,
+    icon: Option[String],
+    level: Option[Int],
+    modified_at: Json,
+    name: String
+)
+
+object Floor {
+  given Decoder[Floor] = DecoderWithWarnMissing.derived
 }
 
 case class DeviceTrigger(

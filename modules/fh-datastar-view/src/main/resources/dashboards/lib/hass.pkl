@@ -20,6 +20,34 @@ abstract class Entity {
   area_id: String? = null
   floor_id: String? = null
   id_hidden: Boolean = false
+  /// The physical device this entity belongs to, if any — helpers and
+  /// integrations without hardware have none. Look it up in `dump.devices`.
+  device_id: String? = null
+  /// Registry classification: `"config"` or `"diagnostic"` for the entities HA
+  /// keeps off the main dashboard (about half of a typical instance), null for
+  /// a primary entity. Only the entity REGISTRY carries this — it is not a
+  /// state attribute — so it is the sharpest filter available for cutting a
+  /// dynamic group down to the things a person actually looks at.
+  entity_category: String? = null
+
+  // ---- capability attributes ----
+  // Present on any domain that reports them. STATIC shape, not live value: what
+  // an entity CAN do, which is what composition needs. Live values (state,
+  // brightness, current temperature) never appear here — they arrive runtime-side
+  // as JSONata over the SSE stream.
+  device_class: String? = null
+  unit_of_measurement: String? = null
+  state_class: String? = null
+  icon: String? = null
+  entity_picture: String? = null
+  supported_features: Int? = null
+
+  /// The entities this one drives, as REFERENCES to the real dump entities —
+  /// an HA Light Group helper or a Zigbee group fans out to its members, so
+  /// `e.members.map((m) -> m.entity_id)` reaches the individual bulbs and
+  /// `e.members[0].members` walks a group nested inside a group. Empty for a
+  /// plain entity. Authoring convenience, never rendered into dashboard JSON.
+  hidden members: List<Entity> = List()
   // The dynamic-group match sentinel: `entity_id == "$self"` marks the
   // build-time placeholder entity (see [[SELF]]) that a dynamic case renders
   // against. Authoring convenience only — never rendered into dashboard JSON.
@@ -30,8 +58,14 @@ abstract class Entity {
 /// the dump template extracts today.
 class LightEntity extends Entity {
   domain: "light" = "light"
+  /// LIVE value, and set only by the legacy template dump — a light's current
+  /// color mode changes while the server runs, so the registry dump leaves it
+  /// null rather than baking a stale one. Read it runtime-side instead.
   color_mode: String? = null
   effect_list: Listing<String>? = null
+  supported_color_modes: Listing<String>? = null
+  min_color_temp_kelvin: Int? = null
+  max_color_temp_kelvin: Int? = null
 }
 
 class SensorEntity extends Entity {
@@ -40,6 +74,19 @@ class SensorEntity extends Entity {
 
 class SwitchEntity extends Entity {
   domain: "switch" = "switch"
+}
+
+class NumberEntity extends Entity {
+  domain: "number" = "number"
+  min: Number? = null
+  max: Number? = null
+  step: Number? = null
+  mode: String? = null
+}
+
+class SelectEntity extends Entity {
+  domain: "select" = "select"
+  options: Listing<String>? = null
 }
 
 /// Fallback for every domain without a dedicated class yet — add a typed
@@ -82,4 +129,20 @@ abstract class Floor {
   floor_id: String
   floor_name: String
   hidden areas: List<Area> = List()
+  /// Vertical ordering from the floor registry — a basement is negative. Lets a
+  /// dashboard sort floors the way the house is stacked instead of by name.
+  level: Int? = null
+}
+
+/// One physical device. The OTHER grouping an entity belongs to, orthogonal to
+/// area/floor: a single bulb or appliance usually exposes a handful of entities
+/// (the light itself plus firmware/identify/config ones), and `entities` holds
+/// them all so a card can render a device as a unit.
+abstract class Device {
+  device_id: String
+  device_name: String
+  area_id: String? = null
+  manufacturer: String? = null
+  model: String? = null
+  hidden entities: List<Entity> = List()
 }

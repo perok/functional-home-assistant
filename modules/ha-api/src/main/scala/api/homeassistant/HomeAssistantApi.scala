@@ -32,6 +32,11 @@ trait HomeAssistantApi[F[_]] {
 
   def configEntityRegistryGet(entityId: EntityId): F[Json]
 
+  /** https://developers.home-assistant.io/docs/area_registry_index/ */
+  def configAreaRegistryList: F[List[Area]]
+
+  def configFloorRegistryList: F[List[Floor]]
+
   // Not interesting
   def manifestList(): F[List[Manifest]]
 
@@ -113,6 +118,12 @@ object HomeAssistantApi {
 
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))
+
+      def configAreaRegistryList: IO[List[Area]] =
+        in.sendCommand(`config/area_registry/list`())
+
+      def configFloorRegistryList: IO[List[Floor]] =
+        in.sendCommand(`config/floor_registry/list`())
 
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())

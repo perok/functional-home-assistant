@@ -38,9 +38,18 @@ object PklDump {
     val entities = keyed("entities")
     val areas = keyed("areas")
     val floors = keyed("floors")
+    val devices = keyed("devices")
+
+    // Member/sibling edges are emitted as references to the `e_*` consts, so a
+    // group's members ARE the dump entities (same object, live `.members`
+    // recursion) rather than id strings the author has to look up again. Only
+    // ids that actually made it into the dump can be referenced — a group may
+    // name an entity that has since been removed or disabled, and a dangling
+    // `e_*` would be an eval error in every dashboard.
+    val known = entities.map(_._1).toSet
 
     val entityDecls = entities.map { case (key, eo) =>
-      s"const hidden ${tick(s"e_$key")}: ${entityType(eo)} = ${entityLiteral(eo)}"
+      s"const hidden ${tick(s"e_$key")}: ${entityType(eo)} = ${entityLiteral(eo, known)}"
     }
 
     val entitiesClass =
@@ -109,7 +118,11 @@ object PklDump {
       )
       val fields = List(
         str(fo, "floor_id").map(v => s"  floor_id = ${pklString(v)}"),
-        str(fo, "floor_name").map(v => s"  floor_name = ${pklString(v)}")
+        str(fo, "floor_name").map(v => s"  floor_name = ${pklString(v)}"),
+        fo("level")
+          .flatMap(_.asNumber)
+          .flatMap(_.toInt)
+          .map(l => s"  level = $l")
       ).flatten
       // Guard the module namespace: a floor named e.g. "Entities" must not
       // shadow the fixed `entities`/`areas`/`output` properties.
@@ -122,6 +135,50 @@ object PklDump {
          |
          |${tick(propName)}: ${tick(s"Floor_$slug")} = new {}""".stripMargin
     }
+
+    // One class per device, holding references to the entities that report it
+    // as their `device_id` — the "one appliance, several entities" grouping,
+    // which is orthogonal to area/floor. Omitted entirely when the dump carries
+    // no devices (the legacy template path produces none).
+    val deviceClasses = devices.map { case (slug, dvo) =>
+      val deviceId = str(dvo, "device_id")
+      val memberProps = entities.collect {
+        case (key, eo)
+            if deviceId.isDefined && str(eo, "device_id") == deviceId =>
+          s"  ${tick(key)}: ${entityType(eo)} = ${tick(s"e_$key")}"
+      }
+      val entityList = Option.when(memberProps.nonEmpty)(
+        s"  entities = List(${entities
+            .collect {
+              case (key, eo)
+                  if deviceId.isDefined && str(eo, "device_id") == deviceId =>
+                tick(key)
+            }
+            .mkString(", ")})"
+      )
+      val fields = List(
+        str(dvo, "device_id").map(v => s"  device_id = ${pklString(v)}"),
+        str(dvo, "device_name").map(v => s"  device_name = ${pklString(v)}"),
+        str(dvo, "area_id").map(v => s"  area_id = ${pklString(v)}"),
+        str(dvo, "manufacturer").map(v => s"  manufacturer = ${pklString(v)}"),
+        str(dvo, "model").map(v => s"  model = ${pklString(v)}")
+      ).flatten
+      s"""class ${tick(s"Device_$slug")} extends hass.Device {
+         |${(fields ++ memberProps ++ entityList).mkString("\n")}
+         |}""".stripMargin
+    }
+
+    val devicesClass = Option.when(devices.nonEmpty)(
+      s"""class Devices {
+         |${devices
+          .map { case (slug, _) =>
+            s"  ${tick(slug)}: ${tick(s"Device_$slug")} = new {}"
+          }
+          .mkString("\n")}
+         |}
+         |
+         |devices: Devices = new {}""".stripMargin
+    )
 
     // The schema comes in BY ALIAS, not as a file sibling: `dump.pkl` lives in
     // its own `@fh-home` package (it is live per-home data and can never ship
@@ -146,8 +203,19 @@ object PklDump {
        |$areasClass
        |
        |${floorDecls.mkString("\n\n")}
+       |${deviceSection(deviceClasses, devicesClass)}
        |""".stripMargin
   }
+
+  /** The device half of the module, or nothing at all when the dump carries no
+    * devices — an empty `class Devices {}` would still be valid Pkl, but it
+    * advertises a namespace with nothing in it.
+    */
+  private def deviceSection(
+      classes: List[String],
+      devicesClass: Option[String]
+  ): String =
+    devicesClass.fold("")(dc => s"\n${classes.mkString("\n\n")}\n\n$dc\n")
 
   private def str(o: JsonObject, field: String): Option[String] =
     o(field).flatMap(_.asString)
@@ -158,37 +226,103 @@ object PklDump {
       case Some("light")  => "hass.LightEntity"
       case Some("sensor") => "hass.SensorEntity"
       case Some("switch") => "hass.SwitchEntity"
+      case Some("number") => "hass.NumberEntity"
+      case Some("select") => "hass.SelectEntity"
       case _              => "hass.GenericEntity"
     }
+
+  /** Capability attributes declared on `hass.Entity` itself, so any domain may
+    * carry them.
+    */
+  private val UniversalAttributes = List(
+    "device_class",
+    "unit_of_measurement",
+    "state_class",
+    "icon",
+    "entity_picture",
+    "supported_features"
+  )
+
+  /** Capability attributes declared on a DOMAIN's class. An attribute absent
+    * from both tables is dropped: `hass.pkl` has no property for it, so
+    * emitting it would be a type error in every dashboard that reads the dump.
+    * Widening the dump therefore means adding the property AND the row here.
+    */
+  private val DomainAttributes: Map[String, List[String]] = Map(
+    "light" -> List(
+      "color_mode",
+      "effect_list",
+      "supported_color_modes",
+      "min_color_temp_kelvin",
+      "max_color_temp_kelvin"
+    ),
+    "number" -> List("min", "max", "step", "mode"),
+    "select" -> List("options")
+  )
 
   /** The `new { ... }` literal for one entity. Typed classes default their
     * `domain`, but emitting it unconditionally is harmless and keeps
     * GenericEntity (where it is required) uniform.
     */
-  private def entityLiteral(eo: JsonObject): String = {
+  private def entityLiteral(eo: JsonObject, known: Set[String]): String = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
-    val effectList = attrs("effect_list")
+    val domain = str(eo, "domain").getOrElse("")
+
+    val attributeFields =
+      (UniversalAttributes ++ DomainAttributes.getOrElse(domain, Nil)).flatMap {
+        name =>
+          attrs(name).flatMap(pklValue).map(v => s"  $name = $v")
+      }
+
+    val memberRefs = eo("members")
       .flatMap(_.asArray)
-      .map(_.flatMap(_.asString))
-      .filter(_.nonEmpty)
-      .map(es =>
-        s"  effect_list = new Listing { ${es.map(pklString).mkString("; ")} }"
-      )
+      .getOrElse(Vector.empty)
+      .flatMap(_.asString)
+      .map(DataDump.entityKey)
+      .filter(known.contains)
+      .distinct
+    val members = Option.when(memberRefs.nonEmpty)(
+      s"  members = List(${memberRefs.map(k => tick(s"e_$k")).mkString(", ")})"
+    )
+
     val fields = List(
       str(eo, "entity_id").map(v => s"  entity_id = ${pklString(v)}"),
       str(eo, "domain").map(v => s"  domain = ${pklString(v)}"),
       str(eo, "friendly_name").map(v => s"  friendly_name = ${pklString(v)}"),
       str(eo, "area_id").map(v => s"  area_id = ${pklString(v)}"),
       str(eo, "floor_id").map(v => s"  floor_id = ${pklString(v)}"),
+      str(eo, "device_id").map(v => s"  device_id = ${pklString(v)}"),
+      str(eo, "entity_category").map(v =>
+        s"  entity_category = ${pklString(v)}"
+      ),
       eo("id_hidden")
         .flatMap(_.asBoolean)
         .filter(identity)
-        .map(_ => "  id_hidden = true"),
-      str(attrs, "color_mode").map(v => s"  color_mode = ${pklString(v)}"),
-      effectList
-    ).flatten
+        .map(_ => "  id_hidden = true")
+    ).flatten ++ attributeFields ++ members.toList
+
     s"new {\n${fields.mkString("\n")}\n}"
   }
+
+  /** Render a JSON attribute as a Pkl literal, or None when there is no
+    * faithful representation (an object, a mixed array, a null). Dropping is
+    * safe: every capability property is nullable, so an absent one reads as
+    * "not set" — which is exactly what a value we cannot type means.
+    */
+  private def pklValue(j: Json): Option[String] =
+    j.fold(
+      None,
+      b => Some(b.toString),
+      n => Some(n.toLong.map(_.toString).getOrElse(n.toDouble.toString)),
+      s => Some(pklString(s)),
+      arr =>
+        val strings = arr.flatMap(_.asString)
+        Option.when(arr.nonEmpty && strings.sizeIs == arr.size)(
+          s"new Listing { ${strings.map(pklString).mkString("; ")} }"
+        )
+      ,
+      _ => None
+    )
 
   private def areaFields(ao: JsonObject): List[String] =
     List(
