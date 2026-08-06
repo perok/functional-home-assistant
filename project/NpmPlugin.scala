@@ -18,12 +18,12 @@ import scala.sys.process.Process
   *     keyed on the task graph — which cannot see that `npm` wrote a tree into
   *     `node_modules`, or that somebody deleted the bundle out of `target`.
   *   - Change detection is therefore explicit: a fingerprint of the input
-  *     files' CONTENT, against a stamp next to the output. `FileFunction.cached`
-  *     is the sbt 1 answer and `inputFileChanges` the sbt 1.4+ one, but the
-  *     latter's macro cannot expand in a task body that also mentions
-  *     `Def.uncached` ("a reference to value ts was used outside the scope
-  *     where it was defined"), and this build needs the uncached marker more
-  *     than it needs the sugar.
+  *     files' CONTENT, against a stamp next to the output.
+  *     `FileFunction.cached` is the sbt 1 answer and `inputFileChanges` the sbt
+  *     1.4+ one, but the latter's macro cannot expand in a task body that also
+  *     mentions `Def.uncached` ("a reference to value ts was used outside the
+  *     scope where it was defined"), and this build needs the uncached marker
+  *     more than it needs the sugar.
   *
   * `fileInputs` is still declared even though nothing reads it here: it is what
   * `~` consults, so a watched build re-bundles on a source edit.
@@ -144,7 +144,12 @@ object NpmPlugin extends AutoPlugin {
     }
   }
 
-  private def npm(args: String, cwd: File, log: Logger, failed: String): Unit = {
+  private def npm(
+      args: String,
+      cwd: File,
+      log: Logger,
+      failed: String
+  ): Unit = {
     val code = Process(s"npm $args", cwd) ! log
     if (code != 0) sys.error(failed)
   }
