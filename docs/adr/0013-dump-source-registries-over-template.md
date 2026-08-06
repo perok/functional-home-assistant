@@ -176,9 +176,35 @@ verified on pkl-core 0.32.1:
   `min_kelvin` in object of type `Light`".
 
 So a mixin can set what already exists but cannot carry a capability, and it
-creates no type to dispatch on. The generated per-entity class (for values) plus
-the domain-class predicate (for generic questions) is the Pkl-shaped way to get
-what mixins were wanted for.
+creates no type to dispatch on.
+
+The Pkl maintainers' own mixin recipe (apple/pkl discussion #332, "a mixin is a
+way to have a multiple inheritance model in Pkl") was reproduced and confirms
+this rather than contradicting it. Its `Config` class declares **every** property
+up front and the mixins only set values; the "multiple inheritance" is of
+composed VALUES, not of types. Applied to entities it fails our requirement on
+the first test: a light that receives no colour-temp mixin still exposes
+`min_color_temp_kelvin = null`, which is precisely the nullable-shared-field
+shape this ADR moved away from.
+
+That trade is real and not absurd — mixins would drop the ~1069 generated classes
+and the 24% size growth with them. It is rejected because absence-typing is the
+property we actually wanted: the dump should answer "does this entity have X" by
+whether X is there.
+
+Where the mixin recipe DOES fit here is one layer up, composing CARDS, where
+every slot is declared on the card class and the question is which amendments to
+apply:
+
+```pkl
+const function cardFor(l: LightEntity): Card =
+  let (base = (new Card { title = l.entity_id }) |> withDimmer)
+    if (l.supportsColour) withColour.apply(base) else base
+```
+
+The two compose cleanly — the entity keeps absence-typing, the predicate drives
+the mixin, the card gets its controls. That is a natural next step for
+`components.pkl` and is not yet built.
 
 ### What gets carried, and what deliberately does not
 
