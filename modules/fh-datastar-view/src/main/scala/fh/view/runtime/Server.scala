@@ -1558,7 +1558,7 @@ class Server(
        |$connBanner
        |$body
        |$editAssets
-       |<script>fhScroll('${Server.escapeJsString(slug)}')</script>
+       |<script>${Server.scrollCall(slug)}</script>
        |</body>
        |</html>
        |""".stripMargin
@@ -1927,6 +1927,29 @@ object Server {
     * support.
     */
   val UrlSyncScript: String = FrontendAssets.content("shell")
+
+  /** The last line of the document: restore this slug's scroll offset — and, if
+    * the shell never ran, SAY SO.
+    *
+    * The guard is a second, separate `<script>` from the inlined shell, and
+    * that is what makes it work: a parse error in one script tag does not stop
+    * the browser running the next, so this one is reached precisely when the
+    * shell is broken. Without it the symptom is a page that looks perfect and
+    * has quietly lost the tab selection, the session handoff and the scroll
+    * position, with only a `fhScroll is not defined` in the console to say why.
+    *
+    * The BUILD is the real guard ([[FrontendAssets]] and the
+    * `fh-assert-self-contained` vite plugin, which fails on the split that
+    * causes this); this is the one that survives everything the build cannot
+    * see — a hand-edited bundle, a proxy mangling the response, an old browser
+    * refusing the syntax.
+    */
+  private[runtime] def scrollCall(slug: String): String = {
+    val id = escapeJsString(slug)
+    s"if(window.fhScroll)fhScroll('$id');" +
+      "else console.error('fh: the page shell did not run \\u2014 tab selection, " +
+      "session handoff and scroll restore are all disabled on this page')"
+  }
 
   /** Id of the page `<title>`, so a head patch can morph it by id like any
     * other element.

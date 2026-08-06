@@ -270,7 +270,16 @@ class ServerRoutesSuite extends ServerHarness {
       assert(html.contains("fh.scroll."), html)
       assert(html.contains("scrollRestoration"), html)
       assert(html.contains("manual"), html)
-      val call = "<script>fhScroll('home')</script>"
+      // Guarded, and the guard is a SEPARATE script tag from the inlined
+      // shell: a parse error in one does not stop the next, so this is reached
+      // exactly when the shell is broken and turns a silent loss into a named
+      // console error.
+      assert(html.contains("if(window.fhScroll)"), html)
+      assert(
+        html.contains("console.error('fh: the page shell did not run"),
+        html
+      )
+      val call = s"<script>${Server.scrollCall("home")}</script>"
       assert(html.contains(call), html)
       val after = html.drop(html.indexOf(call) + call.length)
       assertEquals(

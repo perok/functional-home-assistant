@@ -1,5 +1,50 @@
 import { resolve } from "node:path"
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
+
+// Entries that are loaded as CLASSIC scripts — `shell` inlined into every
+// dashboard page, `overlay` as a plain <script src>. Neither may contain an
+// import or an export or the browser refuses the whole file, and for the shell
+// that is silent and total: every page loses the tab selection, the session
+// handoff and the scroll position.
+const classic = new Set(["shell", "overlay"])
+
+/**
+ * Fail the BUILD if a classic entry is not self-contained.
+ *
+ * Rollup never duplicates code: the moment two entries import one module it
+ * hoists that module into a shared chunk which both then `import`. There is no
+ * option to opt out per entry — self-contained output means a separate build
+ * (vitejs/vite#12203) — so the property cannot be configured, only checked.
+ *
+ * Checked here, off rollup's own chunk metadata, rather than by pattern-
+ * matching the emitted text: `imports`/`exports` is what rollup actually wrote,
+ * and this fails at `npm run build` naming the entry, instead of at whatever
+ * reads the artifact later.
+ */
+function assertSelfContained(): Plugin {
+  return {
+    name: "fh-assert-self-contained",
+    generateBundle(_options, bundle) {
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type !== "chunk" || !chunk.isEntry) continue
+        if (!classic.has(chunk.name)) continue
+        const bad = [
+          ...chunk.imports.map((i) => `imports "${i}"`),
+          ...chunk.dynamicImports.map((i) => `dynamically imports "${i}"`),
+          ...chunk.exports.map((e) => `exports "${e}"`),
+        ]
+        if (bad.length > 0) {
+          this.error(
+            `"${chunk.name}" is loaded as a classic script but ${bad.join(", ")}. ` +
+              `Rollup split a shared module into a chunk, which makes this file a real ES module ` +
+              `and the browser will refuse to run any of it. Keep the classic entries (${[...classic].join(", ")}) ` +
+              `importing nothing, or give this one its own build.`,
+          )
+        }
+      }
+    },
+  }
+}
 
 // One build, three entries. The output tree mirrors the CLASSPATH, because
 // sbt's NpmPlugin copies it straight into managed resources: `fh/shell.js` is
@@ -33,13 +78,11 @@ import { defineConfig } from "vite"
 // minification.
 //
 // The two classic scripts are safe as `es` output because they import nothing,
-// so rollup emits no import/export statement in them. That is an INVARIANT, not
-// a coincidence — the moment two entries share a module, rollup splits it into
-// a chunk and both entries gain a real `import`, at which point `shell.js`
-// inlined into <head> throws and every page silently loses the tab selection,
-// the session handoff and the scroll position. `EditorSuite` asserts the
-// absence, so that lands as a test failure rather than a blank dashboard.
+// so rollup emits no import/export statement in them — enforced by the
+// `assertSelfContained` plugin above, which fails the build rather than letting
+// it ship.
 export default defineConfig({
+  plugins: [assertSelfContained()],
   build: {
     outDir: "target/frontend",
     emptyOutDir: true,

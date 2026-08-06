@@ -22,6 +22,11 @@ import org.http4s.implicits.*
   * A text check on purpose — no node, no browser — so it runs in the normal
   * suite. Everything is read off the CLASSPATH, which is what the server
   * actually serves.
+  *
+  * The OTHER way a bundle breaks — a classic script (the shell, the overlay)
+  * picking up an `import` because rollup split a shared module out — is not
+  * checked here. `vite.config.ts`'s `fh-assert-self-contained` plugin fails the
+  * build on it, off rollup's own chunk metadata, so it cannot reach a test.
   */
 class EditorSuite extends munit.FunSuite {
 
@@ -58,28 +63,6 @@ class EditorSuite extends munit.FunSuite {
     List("fhUrl", "fhConn", "fhScroll").foreach(fn =>
       assert(shell.contains(s"window.$fn="), clue = (fn, shell))
     )
-  }
-
-  test("the two classic bundles carry no module syntax") {
-    // `shell.js` is INLINED into every page's <head> and `overlay.js` is a
-    // classic <script src>; neither may contain an import or an export, or the
-    // browser throws `Cannot use import statement outside a module` and the
-    // whole file never runs. For the shell that is silent and total: every page
-    // loses the tab selection, the session handoff and the scroll position.
-    //
-    // They are emitted as `es` chunks and are clean only because they import
-    // nothing — so this is the guard on that invariant, not a formality. The
-    // way it breaks is ordinary: factor a helper out of shell.ts and overlay.js
-    // into a shared module, and rollup splits it into a chunk that BOTH entries
-    // then `import`. See the note in vite.config.ts.
-    val statement = "(?m)(^|[;}])\\s*(import|export)\\b(?!\\s*\\()".r
-    List("shell", "overlay").foreach { entry =>
-      assertEquals(
-        statement.findFirstIn(bundle(entry)),
-        None,
-        clue = s"the $entry bundle is not usable as a classic script"
-      )
-    }
   }
 
   test("the editor page names the hashed bundle, and nothing else does") {
