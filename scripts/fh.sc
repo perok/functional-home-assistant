@@ -19,7 +19,14 @@
 // (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim and writes the two
 // per-machine files this laptop needs — `.fh/machine.json` (its cache dir +
 // the instance URL) and `.fh/pins.json` (the version pins); `fh pull` re-pins
-// @fh-home. Because the scaffold matches the server's exactly, you can keep the
+// @fh-home.
+//
+// `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
+// the instance, live and ephemeral; `--write` sends the SOURCE instead, into
+// the instance's own workspace, so it re-evaluates and survives a restart; and
+// `--watch` keeps doing either on every change to a `*.pkl` in this workspace.
+//
+// Because the scaffold matches the server's exactly, you can keep the
 // workspace in git and use the same files on both sides (only `.fh/machine.json`
 // differs, and it is gitignored). Resolution and evaluation run in-process on
 // pkl-core (the same library — and for push the same ValueRenderers.json call —
@@ -36,7 +43,10 @@
 // Dependencies: scala-cli (runs this file and fetches everything else).
 
 import cats.Show
+import cats.data.NonEmptyList
 
+import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 import scala.util.chaining.scalaUtilChainingOps
 import cats.effect.{ExitCode, IO}
 import cats.effect.std.*
@@ -72,6 +82,16 @@ object Die {
 }
 
 def die(msg: String): IO[Nothing] = IO.raiseError(Die(msg))
+
+/** What a failure prints as. No stack trace: for a pkl authoring error pkl's
+  * own message is the useful part, and a [[Die]] is already user-facing prose.
+  * Shared by the top-level handler and `push --watch`, which prints the same
+  * line instead of exiting.
+  */
+def errorMessage(e: Throwable): String = e match
+  case err @ Die(_)                 => err.show
+  case e: org.pkl.core.PklException => e.getMessage
+  case e                            => e.toString
 
 // The workspace scaffold + per-machine data all live under `.fh/` in the CWD —
 // the same layout the add-on writes, so the committed files (`.fh/base.pkl`,
@@ -396,34 +416,214 @@ def cmdPull: IO[Unit] =
     yield ()
   }
 
-def cmdPush(entry: String, slugOpt: Option[String]): IO[Unit] =
-  withClient { client =>
-    val slug =
-      slugOpt.getOrElse(
-        Paths.get(entry).getFileName.toString.stripSuffix(".pkl")
+/** One dashboard to push: the local entry file, and the slug it lands on. */
+case class Target(entry: Path, slug: String)
+
+/** Pair each entry with its slug — the filename sans `.pkl`, or `--slug` when
+  * given. `--slug` renames ONE dashboard, so it is rejected against several
+  * entries rather than silently applied to the last one.
+  */
+def targets(
+    entries: NonEmptyList[String],
+    slugOpt: Option[String]
+): IO[NonEmptyList[Target]] =
+  def defaultSlug(entry: String) =
+    Paths.get(entry).getFileName.toString.stripSuffix(".pkl")
+  slugOpt match
+    case Some(_) if entries.size > 1 =>
+      die(
+        s"--slug names one dashboard, but ${entries.size} entries were given — " +
+          "drop it and each entry lands on its own filename"
       )
+    case Some(slug) =>
+      IO.pure(NonEmptyList.one(Target(Paths.get(entries.head), slug)))
+    case None =>
+      IO.pure(entries.map(e => Target(Paths.get(e), defaultSlug(e))))
+
+/** Evaluate one entry and hand the result to the instance — as the live
+  * `{cards, card}` JSON (`push`) or, with `--write`, as the Pkl SOURCE.
+  *
+  * Both forms evaluate locally first: a broken entry fails HERE (pkl-core
+  * raises with the authoring error), so `--write` never overwrites a working
+  * file on the instance with one that does not build.
+  */
+def pushOne(
+    client: Client[IO],
+    url: String,
+    target: Target,
+    write: Boolean
+): IO[Unit] =
+  // The instance validates the payload too (unknown cards come back as a 400
+  // naming them) — never silently on a screen.
+  evalJson(target.entry.toString).flatMap(json =>
+    if write then writeSource(client, url, target)
+    else installJson(client, url, target, json)
+  )
+
+/** POST the evaluated dashboard to `/system/push/<slug>`: live, ephemeral — the
+  * instance holds it in memory and a restart returns it to its on-disk
+  * dashboards.
+  */
+def installJson(
+    client: Client[IO],
+    url: String,
+    target: Target,
+    json: String
+): IO[Unit] =
+  for
+    _ <- post(
+      client,
+      s"$url/system/push/${target.slug}",
+      Method.POST,
+      json,
+      MediaType.application.json,
+      "push"
+    )
+    _ <- IO.println(
+      s"pushed: $url/d/${target.slug} (ephemeral — gone when the instance restarts)"
+    )
+  yield ()
+
+/** PUT the entry's SOURCE to the instance's own workspace
+  * (`/edit/file/<slug>.pkl`, the route the /edit editor saves through), so the
+  * instance owns and re-evaluates it — the dashboard survives a restart.
+  *
+  * Only the named entry travels: an entry importing a laptop-local `.pkl` will
+  * be written but fail to build on the instance (its imports are not there) —
+  * that is what plain `push` is for. A slug the instance did not have at
+  * startup lands on disk but goes live only on its next restart; the watcher
+  * reloads the entries it already knows.
+  */
+def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
+  for
+    source <- IO.blocking(new String(Files.readAllBytes(target.entry), UTF_8))
+    _ <- post(
+      client,
+      s"$url/edit/file/${target.slug}.pkl",
+      Method.PUT,
+      source,
+      MediaType.text.plain,
+      "write"
+    )
+    _ <- IO.println(
+      s"wrote: ${target.slug}.pkl on the instance ($url/d/${target.slug})"
+    )
+  yield ()
+
+/** Send one body to the instance, failing with the response status (and its
+  * body, which is where the server puts the validation message a pushing author
+  * has no log to read).
+  */
+def post(
+    client: Client[IO],
+    rawUri: String,
+    method: Method,
+    body: String,
+    mediaType: MediaType,
+    what: String
+): IO[Unit] =
+  for
+    uri <- Uri
+      .fromString(rawUri)
+      .fold(_ => die(s"not a valid url: $rawUri"), IO.pure)
+    _ <- client
+      .run(
+        Request[IO](method, uri)
+          .withEntity(body)
+          .withContentType(`Content-Type`(mediaType))
+      )
+      .use(response =>
+        IO.unlessA(response.status.isSuccess)(
+          response.bodyText.compile.string.flatMap(text =>
+            IO.raiseError(
+              Die(
+                s"$what failed — the instance rejected it (${response.status})${
+                    if text.trim.nonEmpty then s": ${text.trim}" else ""
+                  }"
+              )
+            )
+          )
+        )
+      )
+  yield ()
+
+def cmdPush(
+    entries: NonEmptyList[String],
+    slugOpt: Option[String],
+    write: Boolean,
+    watch: Boolean
+): IO[Unit] =
+  withClient { client =>
     for
       url <- instanceUrl
-      // A broken entry fails HERE (pkl-core raises with the authoring error),
-      // and the instance validates the payload too (unknown cards come back
-      // as a 400 naming them) — never silently on a screen.
-      json <- evalJson(entry)
-      uri <- Uri
-        .fromString(s"$url/system/push/$slug")
-        .fold(_ => die(s"not a valid url: $url"), IO.pure)
-      status <- client.status(
-        Request[IO](Method.POST, uri)
-          .withEntity(json)
-          .withContentType(`Content-Type`(MediaType.application.json))
-      )
-      _ <- IO.raiseWhen(!status.isSuccess)(
-        Die(s"push failed — the instance rejected it ($status)")
-      )
-      _ <- IO.println(
-        s"pushed: $url/d/$slug (ephemeral — gone when the instance restarts)"
-      )
+      ts <- targets(entries, slugOpt)
+      run = ts.traverse_(pushOne(client, url, _, write))
+      _ <-
+        if !watch then run
+        else
+          // In watch mode a failure is a message, not an exit: the whole point
+          // is to sit next to an editor while an entry is broken half the time.
+          reporting(run) *>
+            IO.println("watching *.pkl — ctrl-c to stop") *>
+            watchSources(reporting(run))
     yield ()
   }
+
+/** Print what a failure would have exited with, and carry on. */
+def reporting(io: IO[Unit]): IO[Unit] =
+  io.handleErrorWith(e => Console[IO].errorln(s"fh: ${errorMessage(e)}"))
+
+val pollInterval = 400.millis
+
+/** Every `*.pkl` under the workspace, skipping dot-directories (`.fh`, `.git`,
+  * `.scala-build`). Deliberately the whole tree rather than the pushed entries'
+  * import graph: a workspace holds a handful of files, an edit to any of them
+  * can change what an entry evaluates to, and re-scanning per tick means a
+  * newly created file is watched without restarting.
+  */
+def pklSources(root: Path = Paths.get(".")): IO[List[Path]] = IO.blocking {
+  Using(Files.walk(root)) { paths =>
+    paths
+      .iterator()
+      .asScala
+      .filter(p => p.getFileName.toString.endsWith(".pkl"))
+      .filterNot(
+        root.relativize(_).iterator().asScala.exists(_.toString.startsWith("."))
+      )
+      .toList
+  }.get
+}
+
+/** Run `onChange` whenever the workspace's Pkl sources change.
+  *
+  * Polls (size + mtime) rather than taking a filesystem watch: the set is
+  * small, an editor's save-then-rename is one stamp change either way, and it
+  * behaves the same on the network/synced filesystems these workspaces
+  * routinely live on. The stamp is taken BEFORE `onChange` runs, so an edit
+  * made while a push is in flight is caught on the next tick instead of being
+  * swallowed.
+  */
+def watchSources(
+    onChange: IO[Unit],
+    root: Path = Paths.get(".")
+): IO[Unit] =
+  // A file can vanish between the scan and the stat (an editor's atomic save is
+  // a rename); that tick simply reads as changed.
+  def stamp: IO[Map[Path, (Long, Long)]] = pklSources(root).map(
+    _.map(p =>
+      p -> scala.util
+        .Try((Files.size(p), Files.getLastModifiedTime(p).toMillis))
+        .getOrElse((0L, 0L))
+    ).toMap
+  )
+
+  def loop(previous: Map[Path, (Long, Long)]): IO[Unit] =
+    IO.sleep(pollInterval) *> stamp.flatMap(current =>
+      if current == previous then loop(current)
+      else onChange *> loop(current)
+    )
+
+  stamp.flatMap(loop)
 
 /** Replace `self` (this file, at the real call site) with the copy at `from`
   * when the checksums differ. The previous copy survives as a dated backup next
@@ -562,10 +762,32 @@ val opts: Opts[IO[ExitCode]] = Opts
   .orElse(
     Opts.subcommand(
       "push",
-      "Evaluate an entry locally and install it on the instance under " +
+      "Evaluate entries locally and install them on the instance under " +
         "/d/<slug> (ephemeral: gone on its restart)."
     )(
-      (Opts.argument[String]("entry.pkl"), Opts.argument[String]("slug").orNone)
+      (
+        Opts.arguments[String]("entry.pkl"),
+        Opts
+          .option[String](
+            "slug",
+            "Install under this name instead of the filename (one entry only)."
+          )
+          .orNone,
+        Opts
+          .flag(
+            "write",
+            "Write the Pkl SOURCE into the instance's workspace instead — it " +
+              "re-evaluates and keeps the dashboard across restarts."
+          )
+          .orFalse,
+        Opts
+          .flag(
+            "watch",
+            "Stay running: re-evaluate and re-send on every change to a *.pkl " +
+              "file in this workspace."
+          )
+          .orFalse
+      )
         .mapN(cmdPush)
         .map(_.as(ExitCode.Success))
     )
@@ -598,11 +820,7 @@ object Fh
   // Failures render as `fh: <msg>`, exit 1, no stack trace (Die's contract);
   // for pkl authoring errors, pkl's own message is the useful part.
   def main: Opts[IO[ExitCode]] = opts.map(_.handleErrorWith { e =>
-    val msg = e match
-      case err @ Die(_)                 => err.show
-      case e: org.pkl.core.PklException => e.getMessage
-      case e                            => e.toString
-    Console[IO].errorln(s"fh: $msg").as(ExitCode.Error)
+    Console[IO].errorln(s"fh: ${errorMessage(e)}").as(ExitCode.Error)
   })
 }
 
