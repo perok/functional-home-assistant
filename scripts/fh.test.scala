@@ -130,8 +130,12 @@ object FhScriptSuite extends SimpleIOSuite:
       for
         _ <- write(entry, "one")
         fired <- IO.ref(0)
+        seen <- IO.ref(Set.empty[Path])
         watching <- fh
-          .watchSources(fired.update(_ + 1), dir)
+          .watchSources(
+            changed => fired.update(_ + 1) *> seen.update(_ ++ changed),
+            dir
+          )
           .start
 
         _ <- write(dir.resolve(".fh").resolve("pins.json"), "{}")
@@ -146,8 +150,45 @@ object FhScriptSuite extends SimpleIOSuite:
         _ <- write(dir.resolve("b.pkl"), "two")
         _ <- awaitCount(fired, 2)
         _ <- watching.cancel
-      yield expect.same(0, afterHidden)
+        changed <- seen.get
+      yield expect.same(0, afterHidden) and
+        // WHICH files changed is the payload `push --watch` needs to re-send
+        // only the entries a change reaches — absolute, as import sets are.
+        expect.same(
+          Set(entry, dir.resolve("b.pkl")).map(_.toAbsolutePath.normalize),
+          changed
+        )
     }
+  }
+
+  pureTest("affectedBy: a change re-sends its dependents, and only those") {
+    // The point of `push --watch *.pkl`: editing one entry must not re-send
+    // every dashboard. What an entry reads comes from pkl's import graph, so a
+    // shared module reaches its importers — `three` here — and nothing else.
+    val one = fh.Target(Path.of("/w/one.pkl"), "one")
+    val two = fh.Target(Path.of("/w/two.pkl"), "two")
+    val three = fh.Target(Path.of("/w/three.pkl"), "three")
+    val shared = Path.of("/w/shared.pkl")
+    val unanalyzable = fh.Target(Path.of("/w/four.pkl"), "four")
+
+    val deps = Map(
+      one -> Some(Set(one.entry)),
+      two -> Some(Set(two.entry)),
+      three -> Some(Set(three.entry, shared)),
+      unanalyzable -> None
+    )
+    val all = List(one, two, three, unanalyzable)
+    def slugs(changed: Set[Path]) =
+      fh.affectedBy(all, deps, changed).map(_.slug)
+
+    expect.same(List("one", "four"), slugs(Set(one.entry))) and
+      expect.same(List("three", "four"), slugs(Set(shared))) and
+      expect.same(
+        List("one", "three", "four"),
+        slugs(Set(one.entry, shared))
+      ) and
+      // An untracked file reaches only the entry nobody could analyze.
+      expect.same(List("four"), slugs(Set(Path.of("/w/stray.pkl"))))
   }
 
   test("post: a rejection carries the instance's own message") {

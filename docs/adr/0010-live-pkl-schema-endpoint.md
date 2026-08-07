@@ -292,7 +292,12 @@ just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
 (several entries in one invocation, `--slug` renaming a single one, `--write`
 sending the source instead, `--watch` repeating either on every `*.pkl` change
 in the workspace — polled size+mtime, since these workspaces sit on synced
-filesystems). Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
+filesystems). `--watch` re-sends only the entries a change actually reaches:
+`fh push --watch *.pkl` is the normal invocation, so re-sending every dashboard
+on every save is the wrong default. Which entries those are comes from the same
+`Analyzer.importGraph` call `PklBuild` uses server-side, re-read after each push
+(an edit can add or drop an import), and an entry whose imports cannot be
+analyzed counts as reached by anything — a redundant push, never a missed one. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
 then `ValueRenderers.json` — the *same call* the instance's backend renders
 its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the
