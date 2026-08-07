@@ -250,6 +250,35 @@ class BeerTheme extends themeMod.Theme {
       .slider.max>input{pointer-events:none}
       .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--primary)}
     }
+    /* A slider card that HOLDS sliders (`c.sliderGroup`). The master's fill is
+       the whole card's background, painted BEHIND the member rows, which is
+       what makes the group read as one control rather than a titled list.
+
+       BeerCSS positions a slider's painted `<span>` absolutely, and everything
+       in BeerCSS is `position:relative` — so the span is normally trapped in
+       its own wrapper. Taking the head and the wrapper OUT of positioning
+       (`position:static`) hands the span the card as its containing block, and
+       `inset:0 var(--_end) 0 0` then spans it edge to edge, full height. The
+       `:before` inactive track would escape the same way, so it goes.
+
+       The range input stays in the flow, i.e. in the head strip alone: a drag
+       lower down the card belongs to the member row under the finger. */
+    .slider-group-head,.slider-group-track{position:static}
+    .slider-group-track{margin:0}
+    .slider-group-track:before{display:none}
+    .slider-group-track>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:inherit;opacity:.45;pointer-events:none}
+    /* The head is label-left, everything else right — not the leaf slider's
+       two-item `space-between`, which would strand the state text mid-card. */
+    .slider-group .slider-head{justify-content:flex-start}
+    .slider-group .slider-head>.state{margin-inline-start:auto}
+    .slider-group .slider-head>strong>i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
+    /* `.slider-head` is inert so the label never eats a drag — the one thing
+       in it that IS a control has to say so. */
+    .slider-group .slider-group-action{pointer-events:auto;margin-inline-start:.5rem}
+    .slider-group-members{display:flex;flex-direction:column;gap:.5rem;margin-block-start:.75rem}
+    /* Members sit ON the master's fill, so they carry their own surface and no
+       elevation — a shadow over a coloured background reads as grime. */
+    .slider-group-members .card{background-color:var(--surface-container-high);box-shadow:none}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels

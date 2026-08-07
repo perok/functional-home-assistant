@@ -651,6 +651,18 @@ class PklBuildSuite extends munit.FunSuite {
         "key",
         "entity_id"
       ),
+      // The same required slots as `slider` — it IS a slider, plus a mount for
+      // the members (`icon`/`onclick` are optional, so neither is declared).
+      "sliderGroup" -> List(
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      ),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil
@@ -1276,6 +1288,52 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
+  }
+
+  test("sliderGroup is a slider whose members are ordinary nodes") {
+    // The master resolves its own domain config exactly like a leaf Slider
+    // (both derive it on SliderBase), and the members arrive as children —
+    // their own cards, with their own entities and their own config.
+    val group = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
+        |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+        |node = (c.sliderGroupOf(light, List(a, cover))) { icon = "light_group"; tap = c.toggleTap }
+        |""".stripMargin
+    )
+    assertEquals(group.card, "sliderGroup")
+    assertEquals(group.slots("entity_id").literal, Some("light.lys"))
+    assertEquals(group.slots("action").literal, Some("light/turn_on"))
+    assertEquals(group.slots("icon").literal, Some("light_group"))
+    assert(group.slots.contains("onclick"), clue = group.slots.keySet)
+
+    val members = group.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(members.map(_.card), List("slider", "slider"))
+    assertEquals(
+      members.map(_.slots("entity_id").literal),
+      List(Some("light.a"), Some("cover.blind"))
+    )
+    // Each member keeps its OWN domain's config — the group does not impose the
+    // master's.
+    assertEquals(
+      members.map(_.slots("key").literal),
+      List(Some("brightness"), Some("position"))
+    )
+
+    // No tap, no icon override: the button disappears entirely and the icon
+    // falls back to the runtime domain lookup (as on an entityCard).
+    val plain = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = c.sliderGroup(light)
+        |""".stripMargin
+    )
+    assert(!plain.slots.contains("onclick"), clue = plain.slots.keySet)
+    assertEquals(plain.slots("icon").literal, None)
+    assertEquals(plain.slots("icon").reactive, false)
+    assert(
+      plain.slots("icon").transform.endsWith(", $domain)"),
+      clue = plain.slots("icon").transform
+    )
   }
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {
