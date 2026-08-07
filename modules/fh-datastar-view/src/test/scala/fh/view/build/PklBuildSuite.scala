@@ -148,7 +148,14 @@ class PklBuildSuite extends munit.FunSuite {
   private def copyLib(tmp: os.Path, names: String*): Unit = {
     PklWorkspace.bootstrap(tmp)
     os.makeDir.all(tmp / "lib")
-    names.foreach(n => os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib"))
+    // `hass.pkl` imports its vendored HA-constants sibling, so a probe that
+    // copies one and not the other fails with "Cannot find module". Pulled in
+    // here rather than at all 18 call sites.
+    val withSiblings =
+      if (names.contains("hass.pkl")) names :+ "hass-light.pkl" else names
+    withSiblings.distinct.foreach(n =>
+      os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib")
+    )
   }
 
   /** Re-seed the `@fh-home` package from `source`, so a probe that imports
@@ -309,15 +316,26 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |import "lib/hass.pkl"
         |
-        |light: hass.LightEntity = new {
+        |// A capability whose values travel together is ONE nullable group on the
+        |// domain class: null means unsupported, non-null means every field is
+        |// there. Unmodelled attributes still land on the per-entity class.
+        |class E_light_kitchen extends hass.LightEntity {
+        |  icon: String = "mdi:bulb"
+        |}
+        |
+        |light: E_light_kitchen = new {
         |  entity_id = "light.kitchen"
         |  friendly_name = "Kitchen"
         |  area_id = "kitchen"
-        |  color_mode = "color_temp"
-        |  // Assignment, not amend: the default is null, and amending null is
-        |  // a type error when the value is forced.
-        |  effect_list = new Listing { "colorloop" }
+        |  colourModes = new Listing { "color_temp" }
+        |  colourTemp = new hass.ColourTemp { owner = light; min_kelvin = 2000; max_kelvin = 6535 }
+        |  effects = new hass.Effects { list = new Listing { "colorloop" }; owner = light }
         |}
+        |
+        |// the group IS the predicate, and one guard yields every value in it
+        |hasTemp = light.supportsColourTemp
+        |kelvinSpan = light.colourTemp.max_kelvin - light.colourTemp.min_kelvin
+        |effectNames = light.effects.list
         |
         |tv: hass.GenericEntity = new {
         |  entity_id = "media_player.tv"
@@ -333,8 +351,10 @@ class PklBuildSuite extends munit.FunSuite {
       c.downField("light").get[String]("domain").toOption,
       Some("light")
     )
+    assertEquals(c.get[Boolean]("hasTemp").toOption, Some(true))
+    assertEquals(c.get[Int]("kelvinSpan").toOption, Some(4535))
     assertEquals(
-      c.downField("light").get[List[String]]("effect_list").toOption,
+      c.get[List[String]]("effectNames").toOption,
       Some(List("colorloop"))
     )
     assertEquals(
@@ -352,7 +372,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(SourceEval.eval(tmp, "probe.pkl").isLeft)
   }
 
-  /** A small transformed dump (the OUTPUT shape of DataDump.transform): one
+  /** A small transformed dump (the OUTPUT shape of RegistryDump.transform): one
     * floor, one area, a light (with attributes), a sensor in the same area, an
     * area-less switch, and a friendly_name that exercises string escaping.
     */
@@ -405,8 +425,14 @@ class PklBuildSuite extends munit.FunSuite {
     // its own `@fh-home` package, and the alias is what lands its `hass` types
     // on the same URI `components.pkl` sees (ADR 0010, "Module identity").
     assert(src.contains("import \"@fh-dashboard/hass.pkl\""), clue = src)
+    // Each entity gets its OWN class extending the domain class, carrying just
+    // that entity's capabilities (ADR 0013).
     assert(
-      src.contains("const hidden e_light_kitchen: hass.LightEntity"),
+      src.contains("class E_light_kitchen extends hass.LightEntity"),
+      clue = src
+    )
+    assert(
+      src.contains("const hidden e_light_kitchen: E_light_kitchen"),
       clue = src
     )
     assert(src.contains("class Area_kjokken extends hass.Area"), clue = src)
@@ -419,8 +445,12 @@ class PklBuildSuite extends munit.FunSuite {
       src.contains("friendly_name = \"Kitchen \\\"main\\\" light\""),
       clue = src
     )
+    // A light's effects are a capability GROUP typed by the domain class,
+    // NARROWED to non-null on the class of the entity that has one (ADR 0013).
     assert(
-      src.contains("effect_list = new Listing { \"colorloop\" }"),
+      src.contains(
+        "hidden effects: hass.Effects = new { owner = e_light_kitchen; list = new Listing { \"colorloop\" } }"
+      ),
       clue = src
     )
     assert(src.contains("lights = List(light_kitchen)"), clue = src)
@@ -473,7 +503,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(src.contains("areas = List(`new`)"), clue = src)
     // The plain-safe entity name stays unquoted even in this dump.
     assert(
-      src.contains("const hidden e_light_lamp: hass.LightEntity"),
+      src.contains("const hidden e_light_lamp: E_light_lamp"),
       clue = src
     )
 
@@ -1504,6 +1534,140 @@ class PklBuildSuite extends munit.FunSuite {
           "(actual output also written to a temp *.actual.json next to the diff)."
       )
     }
+  }
+
+  // ---- capability-conditional composition (ADR 0013) ----
+  // The dump types a capability as a nullable GROUP, so a control that needs one
+  // takes the group as its parameter and the composition site's `!= null` guard
+  // is the same fact. These pin that the emitted cards follow the capabilities.
+
+  /** A light probe declaring exactly the capability groups `caps` names. */
+  private def lightProbe(caps: String, node: String): String =
+    s"""class E_light_a extends hass.LightEntity {}
+       |l: E_light_a = new {
+       |  entity_id = "light.a"
+       |  friendly_name = "A"
+       |$caps
+       |}
+       |node = $node""".stripMargin
+
+  test("a colourTemp axis retunes the slider onto the light's own range") {
+    val s = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "color_temp" }
+          |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }""".stripMargin,
+        "c.slider(l.colourTemp!!)"
+      )
+    )
+    assertEquals(s.card, "slider")
+    assertEquals(s.slots("action").literal, Some("light/turn_on"))
+    assertEquals(s.slots("key").literal, Some("color_temp_kelvin"))
+    // the bounds are the LIGHT's, not the light domain's brightness 1..255
+    assertEquals(s.slots("min").literal, Some("2000"))
+    assertEquals(s.slots("max").literal, Some("6535"))
+    // and the handle tracks the value it writes, not brightness
+    assertEquals(s.slots("value").transform, "$attr.color_temp_kelvin")
+  }
+
+  test("lightControls emits one control per capability the light has") {
+    val col = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "color_temp"; "xy" }
+          |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }
+          |  effects = new hass.Effects { owner = l; list = new Listing { "off"; "Color loop" } }""".stripMargin,
+        "c.lightControls(l)"
+      )
+    )
+    assertEquals(col.card, "fhcol")
+    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
+    // brightness first (the domain default), then the colour-temperature one
+    assertEquals(kids(0).slots("key").literal, Some("brightness"))
+    assertEquals(kids(1).slots("key").literal, Some("color_temp_kelvin"))
+    // one pill per named effect, each posting light/turn_on effect=<name>
+    val pills = kids(2).children.collect { case c: LayoutNode.Component => c }
+    assertEquals(
+      pills.map(_.slots("label").literal),
+      List(Some("off"), Some("Color loop"))
+    )
+    assert(
+      pills(1).slots("onclick").transform.contains("/effect/Color%20loop'"),
+      clue = pills(1).slots("onclick").transform
+    )
+  }
+
+  test("a switch-only light gets a tappable card and NO sliders") {
+    val col = probeComponent(
+      lightProbe(
+        """  colourModes = new Listing { "onoff" }""",
+        "c.lightControls(l)"
+      )
+    )
+    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(kids.map(_.card), List("entityCard"))
+    assertEquals(kids.head.slots("tappable").literal, Some("1"))
+  }
+
+  test("a generated entity reaches THROUGH its group with no null-proof") {
+    // The payoff of narrowing the group on the per-entity class: a dashboard
+    // naming a specific entity passes the group straight to something that
+    // demands a non-null one — no `!!`, no guard — while the same value read
+    // off a `List<hass.LightEntity>` still meets `ColourTemp?` and still has
+    // to be guarded. One name, two views.
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl")
+    val fakeDump = io.circe.parser
+      .parse("""
+        {
+          "areas": {}, "floors": {},
+          "entities": {
+            "light_a": {
+              "entity_id": "light.a", "friendly_name": "A", "domain": "light",
+              "attributes": {
+                "supported_color_modes": ["color_temp"],
+                "min_color_temp_kelvin": 2000, "max_color_temp_kelvin": 6535
+              }
+            },
+            "light_plug": {
+              "entity_id": "light.plug", "friendly_name": "Plug",
+              "domain": "light",
+              "attributes": { "supported_color_modes": ["onoff"] }
+            }
+          }
+        }
+      """)
+      .toOption
+      .get
+    writeDump(tmp, PklDump.render(fakeDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |// the specific entity: no `!!` anywhere on this line
+        |node = c.slider(dump.entities.light_a.colourTemp)
+        |
+        |// ...and the SAME value seen generically is still nullable
+        |lights: List<hass.LightEntity> = List(dump.entities.light_a, dump.entities.light_plug)
+        |guarded = lights.map((l) -> l.colourTemp?.min_kelvin ?? -1)
+        |""".stripMargin
+    )
+
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(c.get[List[Int]]("guarded").toOption, Some(List(2000, -1)))
+    val node = c
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.Component]
+    assertEquals(node.slots("min").literal, Some("2000"))
+    assertEquals(node.slots("max").literal, Some("6535"))
   }
 
   test("fixture-features wire JSON matches the checked-in snapshot") {

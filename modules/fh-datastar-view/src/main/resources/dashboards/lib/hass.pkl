@@ -1,7 +1,7 @@
 /// Hand-written Home Assistant domain schema for the Pkl authoring track.
 ///
-/// Types exactly what the build-phase dump carries (see `DataDump.scala`):
-/// registry identity + the per-domain attributes the dump template extracts.
+/// Types exactly what the build-phase dump carries (see `RegistryDump.scala`):
+/// registry identity + the per-domain attributes the dump carries.
 /// Live values (state, brightness, ...) stay runtime-side as JSONata over the
 /// SSE stream — never in the build-time dump (phase discipline).
 ///
@@ -10,6 +10,13 @@
 ///   - module-level properties referenced from class bodies must be `const`;
 ///   - local functions used from class bodies need `const local`.
 module hass
+
+// HA's own `light` domain constants (ColorMode, LightEntityFeature), vendored.
+// Re-exported below as `ColorMode` so the generated dump can type its colour
+// modes without a second import. (A `///` doc comment cannot attach to an
+// import in Pkl — it is a parse error.) The `as` alias is REQUIRED: Pkl binds an
+// import to its FILE name, and `hass-light` is not a legal identifier.
+import "hass-light.pkl" as hassLight
 
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)) || this == "$self")
 
@@ -20,31 +27,138 @@ abstract class Entity {
   area_id: String? = null
   floor_id: String? = null
   id_hidden: Boolean = false
+  /// The physical device this entity belongs to, if any — helpers and
+  /// integrations without hardware have none. Look it up in `dump.devices`.
+  device_id: String? = null
+  /// Registry classification: `"config"` or `"diagnostic"` for the entities HA
+  /// keeps off the main dashboard (about half of a typical instance), null for
+  /// a primary entity. Only the entity REGISTRY carries this — it is not a
+  /// state attribute — so it is the sharpest filter available for cutting a
+  /// dynamic group down to the things a person actually looks at.
+  entity_category: String? = null
+
+  // NOTE: capability attributes (device_class, supported_color_modes,
+  // effect_list, min/max/step, options, ...) are deliberately NOT declared here.
+  // They live on the per-entity class the dump generates, and ONLY on the
+  // entities that actually report them, so reading one off an entity that has
+  // no such capability is a Pkl error ("Cannot find property") rather than a
+  // silent null. See ADR 0013, "Capabilities are per-entity, not nullable
+  // fields".
+
+  /// The entities this one drives, as REFERENCES to the real dump entities —
+  /// an HA Light Group helper or a Zigbee group fans out to its members, so
+  /// `e.members.map((m) -> m.entity_id)` reaches the individual bulbs and
+  /// `e.members[0].members` walks a group nested inside a group. Empty for a
+  /// plain entity. Authoring convenience, never rendered into dashboard JSON.
+  hidden members: List<Entity> = List()
   // The dynamic-group match sentinel: `entity_id == "$self"` marks the
   // build-time placeholder entity (see [[SELF]]) that a dynamic case renders
   // against. Authoring convenience only — never rendered into dashboard JSON.
   hidden isDynamic: Boolean = entity_id == "$self"
 }
 
-/// developers.home-assistant.io/docs/core/entity/light — only the attributes
-/// the dump template extracts today.
-class LightEntity extends Entity {
-  domain: "light" = "light"
-  color_mode: String? = null
-  effect_list: Listing<String>? = null
+/// A light's supported colour modes, typed against HA's own `ColorMode` enum —
+/// so `"colour_temp"` is an eval error, not a silently-never-matching string.
+typealias ColorMode = hassLight.ColorMode
+
+// ---- domain classes ----
+// Each carries its domain literal and its capability PREDICATES, nothing else.
+// They exist so a value can be typed by domain (`List<LightEntity>`, a card
+// factory that only accepts a light), and each is `open` because the generated
+// dump extends it once per entity to add that entity's own capability VALUES.
+
+// ---- capability groups ----
+// A capability whose values travel together becomes ONE nullable object rather
+// than several independent nullable fields. Two things follow, and both are the
+// reason for the shape:
+//
+//   - `null` means the light does not have the capability, so the group IS the
+//     predicate — `l.colourTemp != null` needs no parallel `supportsX` flag
+//     that could disagree with it;
+//   - values are reached THROUGH the group, so one guard covers all of them and
+//     an unguarded read is an eval error ("Cannot find property `min_kelvin` in
+//     object of type `Null`") rather than a null that renders as a blank slot.
+//
+// A capability with no associated values stays a derived Boolean below — a group
+// with no fields would carry nothing.
+
+// Each group carries its OWNER — the entity whose capability it is. That is
+// what lets a card take the group ALONE and still know its subject, so the
+// entity is named once (`c.slider(l.colourTemp)`) and no second argument can
+// disagree with it. It also keeps the choice checkable in the editor: passing
+// a group is an argument whose type pkl-lsp reads, where deriving one inside
+// an amend (`on = entity.colourTemp`) makes it fall back to the declared type
+// and flag valid lines. See ADR 0013, "Shapes considered".
+
+/// The colour-temperature range, present only on lights supporting `color_temp`.
+/// Both bounds are set whenever this is non-null; `PklDump` omits the whole
+/// group rather than emitting a half of it (and warns when HA reports a half).
+class ColourTemp {
+  owner: LightEntity
+  min_kelvin: Int
+  max_kelvin: Int
 }
 
-class SensorEntity extends Entity {
+/// The named effects a light exposes.
+class Effects {
+  owner: LightEntity
+  list: Listing<String>
+}
+
+/// developers.home-assistant.io/docs/core/entity/light
+open class LightEntity extends Entity {
+  domain: "light" = "light"
+
+  // ---- what the dump emits: DATA, not conclusions ----
+
+  /// The colour modes HA reports. Mandatory for a light, so this is not
+  /// nullable — a light that somehow reports none gets an empty Listing.
+  hidden colourModes: Listing<ColorMode> = new Listing {}
+
+  /// The raw `LightEntityFeature` bitmask. Prefer the derived predicates below;
+  /// this is here so an author can test a bit the schema does not name yet, via
+  /// `hassLight.supports(l.supported_features, hassLight.FLASH)`.
+  hidden supported_features: Int = 0
+
+  hidden colourTemp: ColourTemp? = null
+  hidden effects: Effects? = null
+
+  // ---- what the schema DERIVES ----
+  // Deliberately computed here rather than baked in by the generator, so the
+  // rule for "what counts as colour" lives in exactly one place next to the
+  // vendored constants it reads.
+
+  hidden supportsColour: Boolean =
+    colourModes.toList().any((m) -> hassLight.COLOUR_MODES.contains(m))
+  hidden supportsBrightness: Boolean =
+    colourModes.toList().any((m) -> hassLight.DIMMABLE_MODES.contains(m))
+  hidden supportsColourTemp: Boolean = colourTemp != null
+  hidden supportsEffects: Boolean = effects != null
+  hidden supportsFlash: Boolean =
+    hassLight.supports(supported_features, hassLight.FLASH)
+  hidden supportsTransition: Boolean =
+    hassLight.supports(supported_features, hassLight.TRANSITION)
+}
+
+open class SensorEntity extends Entity {
   domain: "sensor" = "sensor"
 }
 
-class SwitchEntity extends Entity {
+open class SwitchEntity extends Entity {
   domain: "switch" = "switch"
+}
+
+open class NumberEntity extends Entity {
+  domain: "number" = "number"
+}
+
+open class SelectEntity extends Entity {
+  domain: "select" = "select"
 }
 
 /// Fallback for every domain without a dedicated class yet — add a typed
 /// class (and a PklDump dispatch row) to specialize a domain.
-class GenericEntity extends Entity {}
+open class GenericEntity extends Entity {}
 
 /// The build-time placeholder "current entity" for a dynamic-group case — the
 /// typed counterpart of jsonnet's `d.matched`. INTERNAL to `components.pkl`'s
@@ -82,4 +196,20 @@ abstract class Floor {
   floor_id: String
   floor_name: String
   hidden areas: List<Area> = List()
+  /// Vertical ordering from the floor registry — a basement is negative. Lets a
+  /// dashboard sort floors the way the house is stacked instead of by name.
+  level: Int? = null
+}
+
+/// One physical device. The OTHER grouping an entity belongs to, orthogonal to
+/// area/floor: a single bulb or appliance usually exposes a handful of entities
+/// (the light itself plus firmware/identify/config ones), and `entities` holds
+/// them all so a card can render a device as a unit.
+abstract class Device {
+  device_id: String
+  device_name: String
+  area_id: String? = null
+  manufacturer: String? = null
+  model: String? = null
+  hidden entities: List<Entity> = List()
 }

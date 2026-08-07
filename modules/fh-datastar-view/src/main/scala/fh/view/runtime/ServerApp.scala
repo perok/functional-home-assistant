@@ -12,10 +12,10 @@ import fh.view.build.{
   AddonBootstrap,
   BundledLib,
   DashboardBuild,
-  DataDump,
   DumpRefresh,
   LibPackage,
   PklDump,
+  RegistryDump,
   SystemPkl
 }
 import fs2.Stream
@@ -526,8 +526,11 @@ object ServerApp extends IOApp {
       rendererRefs: Map[String, SignallingRef[IO, Renderer]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[DumpRefresh.Result] =
-    DataDump
+    RegistryDump
       .fetch(api)
+      .flatTap(
+        PklDump.warnings(_).traverse_(w => IO.println(s"dump warning: $w"))
+      )
       .map(PklDump.render)
       .flatMap(DumpRefresh.refresh(_, dashboardsDir, entries))
       .flatTap {

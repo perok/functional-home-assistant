@@ -24,7 +24,7 @@ object DashboardBuild {
     * package, pinned via `.fh/pins.json`. This is the build phase's job — it
     * owns fetching + packaging the dump — and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[DataDump]]/[[PklDump]] directly: it seeds the dump once for all
+    * into [[RegistryDump]]/[[PklDump]] directly: it seeds the dump once for all
     * entries, then [[reevaluate]]s each against the cached package.
     */
   def prepareDumps(
@@ -32,11 +32,17 @@ object DashboardBuild {
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts] = None
   ): IO[Unit] =
-    DataDump.fetch(api).flatMap { dump =>
-      IO.blocking(
-        DumpPackage
-          .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
-      ).flatMap(_.traverse_(IO.println))
+    RegistryDump.fetch(api).flatMap { dump =>
+      // Generation-time complaints about entities HA reported inconsistently
+      // (a half-populated capability group). Reported, never fatal: one odd
+      // integration must not stop the house's dump from building.
+      PklDump
+        .warnings(dump)
+        .traverse_(w => IO.println(s"dump warning: $w")) *>
+        IO.blocking(
+          DumpPackage
+            .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
+        ).flatMap(_.traverse_(IO.println))
     }
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into

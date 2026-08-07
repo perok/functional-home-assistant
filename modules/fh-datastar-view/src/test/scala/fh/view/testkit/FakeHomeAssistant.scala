@@ -37,10 +37,10 @@ case class ServiceCall(
   *     [[fh.view.runtime.StateStore]] lives on,
   *   - `subscribeStream(subscribe_events …)` hands back a live per-type queue
   *     ([[pushRawEvent]]) for the registry watch,
-  *   - `subscribeStream(render_template)` answers the boot dump fetch
-  *     (`DataDump.fetch`) with the raw dump derived from the same fixtures, so
-  *     a Tier-A dashboard can be built through the REAL `prepareDumps` path,
-  *     and
+  *   - the four `config/…_registry/list` commands answer the boot dump fetch
+  *     ([[fh.view.build.RegistryDump.fetch]]), which joins them against that
+  *     same opening state frame — so a Tier-A dashboard is built through the
+  *     REAL `prepareDumps` path against the very fixtures the feed serves, and
   *   - `sendCommand(call_service)` records the call for later assertion.
   *
   * Anything else raises `NotImplementedError`: not on the runtime hot path, so
@@ -126,6 +126,22 @@ final class FakeHomeAssistant private (
           )
           .as(Json.obj())
           .asInstanceOf[IO[Response]]
+
+      // The four registries [[fh.view.build.RegistryDump]] joins against. A
+      // fixture declares entities and their attributes, never registry rows, so
+      // these are EMPTY — which is a faithful answer, not a stub: the dump's
+      // join runs from the state snapshot, so every fixture entity still lands
+      // in the dump, just with no area/floor/device/category. A test that needs
+      // those fills the corresponding list in.
+      case _: `config/entity_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/device_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/area_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+      case _: `config/floor_registry/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
+
       case _ => na
     }
 
@@ -153,21 +169,6 @@ final class FakeHomeAssistant private (
             .flatMap(q => forThisConnection(Stream.fromQueueUnterminated(q)))
             .map(_.asInstanceOf[Stream[IO, Result]])
         )
-      case _: render_template =>
-        // HA's render_template pushes `event` frames `{result, listeners}`;
-        // `templateFunc` takes the first and reads `.result`. A `| tojson`
-        // template renders `result` to a JSON STRING (which `DataDump.parseIfString`
-        // reparses), so wrap the dump the same way real HA does. Derived from the
-        // SAME fixtures the entity feed serves, so dump and live state can't
-        // drift.
-        Resource.eval(
-          rawDump.map(dump =>
-            Stream
-              .emit(Json.obj("result" -> Json.fromString(dump.noSpaces)))
-              .covary[IO]
-              .asInstanceOf[Stream[IO, Result]]
-          )
-        )
       case _ => naR
     }
 
@@ -184,24 +185,6 @@ final class FakeHomeAssistant private (
     (stateRef.get, clock.get).mapN { (current, tick) =>
       EntitiesEvent(added =
         current.values.map(_.toFeedEntry(FixtureEntity.epochAt(tick))).toMap
-      )
-    }
-
-  /** The fixture as one RAW `render_template` dump: the pre-transform
-    * `{areas, floors, entities}` shape `DataDump.fetch` receives (entities as a
-    * list of rows; no areas/floors, as the fixtures carry no `area_id`). Each
-    * row is [[FixtureEntity.toDumpEntry]]'s value — the same row
-    * `DataDump.transform` keys by `entity_id` — so `transform(rawDump)` is the
-    * `@fh-home` dump a Tier-A entry is authored against.
-    */
-  private def rawDump: IO[Json] =
-    stateRef.get.map { current =>
-      Json.obj(
-        "areas" -> Json.arr(),
-        "floors" -> Json.arr(),
-        "entities" -> Json.fromValues(
-          current.values.toList.map(_.toDumpEntry._2)
-        )
       )
     }
 

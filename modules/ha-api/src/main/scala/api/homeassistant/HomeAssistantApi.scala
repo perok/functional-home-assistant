@@ -32,6 +32,11 @@ trait HomeAssistantApi[F[_]] {
 
   def configEntityRegistryGet(entityId: EntityId): F[Json]
 
+  /** https://developers.home-assistant.io/docs/area_registry_index/ */
+  def configAreaRegistryList: F[List[Area]]
+
+  def configFloorRegistryList: F[List[Floor]]
+
   // Not interesting
   def manifestList(): F[List[Manifest]]
 
@@ -114,6 +119,12 @@ object HomeAssistantApi {
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))
 
+      def configAreaRegistryList: IO[List[Area]] =
+        in.sendCommand(`config/area_registry/list`())
+
+      def configFloorRegistryList: IO[List[Floor]] =
+        in.sendCommand(`config/floor_registry/list`())
+
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())
 
@@ -188,8 +199,7 @@ object HomeAssistantApi {
       // dropped that lone render is fixed in `subscribeStream`. NOTE: a
       // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
       // the filter output back), so `Body=Json` decodes to a `Json` string, not
-      // the structured value — a caller that wants the object parses it
-      // (`DataDump.parseIfString`).
+      // the structured value — a caller that wants the object parses it.
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.head.compile.lastOrError)

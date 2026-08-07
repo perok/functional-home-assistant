@@ -17,7 +17,7 @@ import io.circe.{parser, Json}
 
 class BuildPhaseSuite extends munit.FunSuite {
 
-  test("DataDump.transform keys entities by id, areas/floors by name") {
+  test("RegistryDump.transform keys entities by id, areas/floors by name") {
     val raw = parser
       .parse("""
         {
@@ -37,7 +37,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .toOption
       .get
 
-    val transformed = DataDump.transform(raw).hcursor
+    val transformed = RegistryDump.transform(raw).hcursor
     val entities = transformed.downField("entities")
 
     // entities: dotless, sanitized keys (no '*' member)

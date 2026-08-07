@@ -329,6 +329,21 @@ const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
 function serviceTap(action: String): Tap =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
 
+// The value-carrying action route: the service call gets `service_data`, with
+// the value riding in the URL PATH (the same route the slider's template posts
+// to). A path segment, so a value containing a space is percent-encoded — the
+// one character that actually shows up in HA's own vocabularies (effect names
+// like "Color loop", preset modes).
+const local function serviceValueOnclick(action: String, key: String, value: String): String =
+  #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
+    + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
+
+/// A service call carrying ONE static value: `serviceValueTap("light/turn_on",
+/// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
+/// the same tap works on any card that has one.
+function serviceValueTap(action: String, key: String, value: String): Tap =
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value)) }
+
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
 /// <base href> (works directly and behind ingress); the `onclick` twin is for
@@ -915,6 +930,18 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
   else if (spec != null) "\(get.apply(spec!!))"
   else new Slot { transform = sliderLookup(get); reactive = false; bypassUnavailable = false }
 
+/// What a [[Slider]] drives: an ENTITY (its domain's default axis — a light's
+/// brightness, a cover's position) or one of that entity's capability GROUPS
+/// (`l.colourTemp`). The group carries its `owner`, so passing one names the
+/// entity exactly once and the slider derives everything else from it.
+///
+/// This union is the "which axis" decision as a VALUE rather than a name, which
+/// is what keeps a wrong choice visible in the editor: `c.slider(l.colourTemp)`
+/// on a light with no kelvin range is a nullability mismatch pkl-lsp reports
+/// without evaluating. A selector enum or a `.colourTemp()` builder method
+/// would both hide the choice from it — see ADR 0013, "Shapes considered".
+typealias SlideAxis = hass.Entity|hass.ColourTemp
+
 /// Value slider. Accepts either a static entity whose domain has a sliderSpec
 /// row (config baked at build time) or [[hass.SELF]] inside a dynamic case
 /// (config resolved per matched entity via runtime `$lookup($domain)`). A
@@ -956,12 +983,25 @@ class Slider extends Node {
       """
     slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
   }
-  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain))
+  /// WHAT this slider drives — see [[SlideAxis]]. Setting `entity` directly
+  /// still works and means the domain's default axis; the two default to each
+  /// other, so exactly one of them is ever needed.
+  hidden on: SlideAxis = entity
+  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain)) =
+    if (on is hass.ColourTemp) on.owner else on
   hidden label: (String|Expr)? = null
-  hidden action: String? = null // per-instance overrides of the domain default
-  hidden key: String? = null
-  hidden min: Int? = null
-  hidden max: Int? = null
+  // Per-instance overrides of the domain default. Each DEFAULTS to what the
+  // axis says, so a capability axis configures the whole slider and an author
+  // amending one of these still wins (late binding re-derives `slots`).
+  hidden action: String? = if (on is hass.ColourTemp) "light/turn_on" else null
+  hidden key: String? = if (on is hass.ColourTemp) "color_temp_kelvin" else null
+  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else null
+  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else null
+  // The ATTRIBUTE holding the live position, overriding the domain default
+  // (`brightness` for a light) — so a slider driving a second axis of the same
+  // entity tracks the value it actually writes.
+  hidden valueAttr: String? =
+    if (on is hass.ColourTemp) "color_temp_kelvin" else null
   // Null for a dynamic ($self) slider — the domain is unknown until a match, so
   // config falls through sliderConfig to the runtime lookup tier.
   hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
@@ -969,7 +1009,9 @@ class Slider extends Node {
   // config tiers as the input's own slots: author override → build-time spec
   // literal → runtime $lookup($domain).
   hidden valueExpr: String =
-    if (spec != null) "$attr." + spec!!.value else sliderValueLookup
+    if (valueAttr != null) "$attr." + valueAttr!!
+    else if (spec != null) "$attr." + spec!!.value
+    else sliderValueLookup
   hidden minExpr: String =
     if (min != null) "\(min!!)"
     else if (spec != null) "\(spec!!.min)"
@@ -1029,10 +1071,13 @@ class Slider extends Node {
   function key(k: String): Slider = let (self = this) (self) { key = k }
   function min(m: Int): Slider = let (self = this) (self) { min = m }
   function max(m: Int): Slider = let (self = this) (self) { max = m }
+  function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
 }
 
-/// Value slider as a call (see [[Slider]] for the domain contract).
-function slider(e: hass.Entity): Slider = new Slider { entity = e }
+/// Value slider as a call (see [[Slider]] for the domain contract). Takes an
+/// entity for its domain's default axis, or a capability group for that axis:
+/// `c.slider(l)` is brightness, `c.slider(l.colourTemp)` is colour temperature.
+function slider(a: SlideAxis): Slider = new Slider { on = a }
 /// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
@@ -1076,6 +1121,48 @@ function floorView(floor: hass.Floor): Column = new Column {
           }
         }
       }
+    }
+  }
+}
+
+// ---- capability-conditional composition (light) ----
+// What the dump's capability GROUPS are for (ADR 0013). A card that needs a
+// capability takes THE GROUP — never the entity plus a flag, and never the
+// entity plus the group. One argument carries both the values and (via its
+// `owner`) the subject, so it cannot be aimed at an entity that lacks the
+// capability and there is no second argument to disagree with.
+
+/// One pill per named effect the light exposes, each posting
+/// `light/turn_on effect=<name>`: `c.effectPills(l.effects)`.
+function effectPills(fx: hass.Effects): Row = new Row {
+  children {
+    for (name in fx.list) {
+      pill(name, serviceValueTap("light/turn_on", "effect", name))
+        .entity(fx.owner)
+    }
+  }
+}
+
+/// Every control this light actually supports, and none it does not: a
+/// brightness slider when it dims (a tappable card when it only switches), a
+/// colour-temperature slider when it has a kelvin range, an effect pill row
+/// when it names effects.
+///
+/// This is the payoff of typing capabilities as groups — the composition reads
+/// as the capability list, and adding a control for a capability the light
+/// lacks is not a runtime blank, it is unwriteable.
+function lightControls(l: hass.LightEntity): Column = new Column {
+  children {
+    when (l.supportsBrightness) {
+      slider(l)
+    } else {
+      (entityCard(l)) |> tappable
+    }
+    when (l.colourTemp != null) {
+      slider(l.colourTemp!!)
+    }
+    when (l.effects != null) {
+      effectPills(l.effects!!)
     }
   }
 }
