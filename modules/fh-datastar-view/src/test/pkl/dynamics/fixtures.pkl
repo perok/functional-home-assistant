@@ -1,0 +1,24 @@
+/// SPIKE fixtures: a hand-written stand-in for the generated `@fh-home` dump.
+module fixtures
+
+import "wire.pkl"
+
+class Ent {
+  entity_id: String
+  domain: String
+  friendly_name: String
+  area_id: String
+  supported_features: Int = 0
+  function stateIs(s: String): wire.Bound =
+    new { property = "state"; op = "eq"; value = s }
+  function attrAbove(n: String, v: Any): wire.Bound =
+    new { property = "attr:" + n; op = "gt"; value = v }
+}
+
+taklys  = new Ent { entity_id = "light.taklys"; domain = "light"; friendly_name = "Taklys"; area_id = "stue"; supported_features = 8 }
+lampe   = new Ent { entity_id = "light.lampe"; domain = "light"; friendly_name = "Lampe"; area_id = "stue"; supported_features = 2 }
+spot    = new Ent { entity_id = "light.spot"; domain = "light"; friendly_name = "Spot"; area_id = "stue"; supported_features = 8 }
+tv      = new Ent { entity_id = "media_player.tv"; domain = "media_player"; friendly_name = "TV"; area_id = "stue" }
+kjokken = new Ent { entity_id = "light.kjokken"; domain = "light"; friendly_name = "Kjøkken"; area_id = "kjokken"; supported_features = 8 }
+
+all: List<Ent> = List(taklys, lampe, spot, tv, kjokken)

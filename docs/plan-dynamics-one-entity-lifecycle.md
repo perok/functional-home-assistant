@@ -285,6 +285,13 @@ half and changes in the same commit.
 - Whether per-member `vars` deduplicate into a shared entity table. `min`/`max`/`key` are
   per-*domain*, not per-entity, so they belong on the case — which may shrink `members` to
   `{"light.a":{"case":0,"label":"Taklys"}}`.
+- **var-vs-case is currently count-dependent, and should not be.** The spike decides by diffing
+  the members that share a shape, so a single-member shape has nothing to diff and bakes its
+  entity-derived literal onto the case — adding a second entity of that kind silently
+  restructures the emitted shape. The stable alternative is P2 applied directly: a literal slot
+  is always a per-member var, a transform slot always stays on the case, regardless of member
+  count. Costs repetition for literals that are genuinely constant across members. Pinned by
+  `dynamics-spike.test.pkl` ("single-member shapes bake their literal onto the case").
 - Whether `present` and `orderBy` on the wire stay unbound-but-set-scoped templates, or are
   expanded per candidate at build time (bigger JSON, dumber runtime).
 

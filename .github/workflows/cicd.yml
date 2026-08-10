@@ -111,7 +111,7 @@ jobs:
             run: |
               pkl test \
                 --junit-reports target/pkl/test-reports \
-                modules/fh-datastar-view/src/test/pkl/*.pkl
+                modules/fh-datastar-view/src/test/pkl/*.test.pkl
 
           - name: Test
             env:

@@ -1,0 +1,227 @@
+examples {
+  ["uniform set, present-when-on, ordered by brightness"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot"
+      ],
+      "present": {
+        "kind": "cmp",
+        "property": "state",
+        "op": "eq",
+        "value": "on"
+      },
+      "orderBy": {
+        "property": "attr:brightness",
+        "dir": "desc",
+        "tiebreak": "entity_id"
+      },
+      "cases": [
+        {
+          "card": "slider",
+          "slots": {
+            "state": {
+              "transform": "$state",
+              "reactive": true
+            }
+          }
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "alts": [
+            {
+              "shape": 0
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "alts": [
+            {
+              "shape": 0
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "alts": [
+            {
+              "shape": 0
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+  ["static domain dispatch across the whole house"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot",
+        "media_player.tv",
+        "light.kjokken"
+      ],
+      "cases": [
+        {
+          "card": "mediaCard",
+          "slots": {
+            "label": {
+              "literal": "TV"
+            }
+          }
+        },
+        {
+          "card": "slider",
+          "slots": {}
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "alts": [
+            {
+              "shape": 1
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "alts": [
+            {
+              "shape": 1
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "alts": [
+            {
+              "shape": 1
+            }
+          ]
+        },
+        "media_player.tv": {
+          "vars": {},
+          "alts": [
+            {
+              "shape": 0
+            }
+          ]
+        },
+        "light.kjokken": {
+          "vars": {
+            "label": "Kjøkken"
+          },
+          "alts": [
+            {
+              "shape": 1
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+  ["state-dependent dispatch: the alternatives list"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot"
+      ],
+      "cases": [
+        {
+          "card": "slider",
+          "slots": {}
+        },
+        {
+          "card": "toggle",
+          "slots": {}
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "alts": [
+            {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
+              "shape": 0
+            },
+            {
+              "shape": 1
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "alts": [
+            {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
+              "shape": 0
+            },
+            {
+              "shape": 1
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "alts": [
+            {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
+              "shape": 0
+            },
+            {
+              "shape": 1
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+}

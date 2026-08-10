@@ -1,0 +1,137 @@
+/// SPIKE: the proposed `set` wire shape and the build-time fold that produces it.
+module wire
+
+// ---- runtime predicate terms (always carry a binding) ----
+
+abstract class Term { kind: String }
+
+class Bound extends Term {
+  kind: "cmp" = "cmp"
+  property: String
+  op: String
+  value: Any
+}
+
+class PAnd extends Term {
+  kind: "and" = "and"
+  items: List<Term>
+}
+
+/// Fold a mixed list of build-time Booleans and runtime Terms.
+/// `false` => this candidate is decided statically and drops out entirely.
+/// `true`  => nothing defers; no predicate reaches the wire.
+function all(items: List<Boolean|Term>): Boolean|Term =
+  if (items.any((i) -> i is Boolean && i == false)) false
+  else
+    let (rest = items.filter((i) -> i is Term) as List<Term>)
+      if (rest.isEmpty) true
+      else if (rest.length == 1) rest.first
+      else new PAnd { items = rest }
+
+// ---- slots: registry-derived folds to a literal, state-derived stays a transform ----
+
+abstract class Slot
+class Lit extends Slot { literal: String }
+class Xf extends Slot { transform: String; reactive: Boolean = true }
+
+/// What a render lambda produces for one concrete candidate.
+class Node { card: String; slots: Map<String, Slot> }
+
+// ---- the emitted wire node ----
+
+class CaseDef { card: String; slots: Map<String, Slot> }
+class Alt { `when`: Term?; shape: Int }
+class MemberDef { vars: Map<String, String>; alts: List<Alt> }
+class OrderBy { property: String; dir: String; tiebreak: String = "entity_id" }
+
+class SetNode {
+  kind: "set" = "set"
+  candidates: List<String>
+  present: Term?
+  orderBy: OrderBy?
+  cases: List<CaseDef>
+  members: Map<String, MemberDef>
+}
+
+// ---- the build ----
+
+/// One authored dispatch branch: a key applied per candidate, and the card to
+/// render when it wins. The key returns `Boolean` (folds at build time) or a
+/// `Term` (defers to the wire) — mixed via [[all]].
+class Branch {
+  key: (Any) -> Boolean|Term
+  render: (Any) -> Node
+}
+
+/// Which branches survive for one candidate, in author order, with their
+/// residual runtime condition. A branch whose key folded to `false` is gone; a
+/// branch that folded to `true` is unconditional and ends the list (nothing
+/// after it can ever win).
+local function liveBranches(e: Any, branches: List<Branch>): List<Pair<Branch, Term?>> =
+  let (evaluated = branches
+        .map((b) -> Pair(b, b.key.apply(e)))
+        .filter((p) -> !(p.second is Boolean && p.second == false)))
+    let (firstUnconditional = evaluated.findIndexOrNull((p) -> p.second == true))
+      (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
+        .map((p) -> Pair(p.first, if (p.second is Term) p.second as Term else null))
+
+/// Slot keys whose LITERAL value differs across the members sharing a shape.
+/// Those become per-member `vars`; everything identical stays on the case.
+/// This is the D1 -> D2 compression: emit one case, not one node per member.
+local function varyingKeys(nodes: List<Node>): List<String> =
+  if (nodes.length <= 1) List()
+  else
+    nodes.first.slots.keys.toList().filter((k) ->
+      nodes.any((n) -> n.slots[k] != nodes.first.slots[k]))
+
+local function shapeOf(n: Node, varying: List<String>): CaseDef =
+  new CaseDef {
+    card = n.card
+    slots = n.slots.filter((k, _v) -> !varying.contains(k))
+  }
+
+/// Build the wire node from a static candidate list and authored branches.
+function buildSet(
+  entities: List<Any>,
+  branches: List<Branch>,
+  present: (Any) -> Boolean|Term,
+  order: OrderBy?
+): SetNode =
+  // 1. presence folds per candidate; a statically-absent candidate is dropped.
+  let (kept = entities
+        .map((e) -> Pair(e, present.apply(e)))
+        .filter((p) -> !(p.second is Boolean && p.second == false)))
+  // 2. dispatch: which branches can win for each surviving candidate.
+  let (dispatched = kept
+        .map((p) -> Pair(p.first, liveBranches(p.first, branches)))
+        .filter((p) -> !p.second.isEmpty))
+  // 3. render every (candidate, branch) pair — the full D1 expansion.
+  let (rendered = dispatched.map((p) ->
+        Pair(p.first, p.second.map((b) -> Pair(b.first.render.apply(p.first), b.second)))))
+  // 4. group the rendered nodes by card to find shapes, then hole out the
+  //    literals that vary within a shape.
+  let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
+  let (byCard = allNodes.groupBy((n) -> n.card))
+  let (shapes = byCard.keys.toList().sort().map((card) ->
+        shapeOf(byCard[card].first, varyingKeys(byCard[card]))))
+  let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
+  let (caseIndex = shapes.toList().map((s) -> s.card))
+  new SetNode {
+    candidates = dispatched.map((p) -> p.first.entity_id)
+    present =
+      let (terms = kept.map((p) -> p.second).filter((t) -> t is Term))
+        if (terms.isEmpty) null else terms.first as Term
+    orderBy = order
+    cases = shapes
+    members = rendered.toMap((p) -> p.first.entity_id, (p) ->
+      let (winning = p.second.first.first)
+        new MemberDef {
+          vars = varyingByCard[winning.card]
+            .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
+          alts = p.second.map((q) ->
+            new Alt {
+              `when` = q.second
+              shape = caseIndex.findIndex((c) -> c == q.first.card)
+            })
+        })
+  }

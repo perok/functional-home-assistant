@@ -1,0 +1,200 @@
+/// SPIKE — the proposed `set` wire format for dynamics, worked through six
+/// authoring scenarios. See `docs/plan-dynamics-one-entity-lifecycle.md`.
+///
+/// This is NOT the shipped library: `dynamics/wire.pkl` is a proposal, and the
+/// real build will do the shape compression in Scala (`DashboardBuild`). It
+/// lives here as tests so the format is pinned and readable — the
+/// `.pkl-expected.pcf` sibling IS the worked example, and a format change shows
+/// up as a diff rather than a discussion.
+///
+/// The property each scenario is really demonstrating: a registry-derived slot
+/// varies per member and becomes a `var`; a state-derived slot is identical
+/// across members and stays on the shared case. That is the D1 -> D2
+/// compression, and it is why the wire grows in candidates but the client does
+/// not.
+amends "pkl:test"
+
+import "dynamics/wire.pkl"
+import "dynamics/fixtures.pkl"
+
+local stueLights = fixtures.all.filter((e) -> e.area_id == "stue" && e.domain == "light")
+
+// --- the branches each scenario composes ---------------------------------
+
+local sliderBranch = new wire.Branch {
+  key = (_e) -> true
+  render = (e) -> new wire.Node {
+    card = "slider"
+    slots = Map(
+      "label", new wire.Lit { literal = e.friendly_name },
+      "state", new wire.Xf { transform = "$state" })
+  }
+}
+
+local interpolatedBranch = new wire.Branch {
+  key = (_e) -> true
+  render = (e) -> new wire.Node {
+    card = "entityCard"
+    slots = Map(
+      "label", new wire.Lit { literal = "Blah \(e.friendly_name)" },
+      "state", new wire.Xf { transform = "$state" })
+  }
+}
+
+local lightBranch = new wire.Branch {
+  key = (e) -> e.domain == "light"
+  render = (e) -> new wire.Node {
+    card = "slider"
+    slots = Map("label", new wire.Lit { literal = e.friendly_name })
+  }
+}
+
+local mediaBranch = new wire.Branch {
+  key = (e) -> e.domain == "media_player"
+  render = (e) -> new wire.Node {
+    card = "mediaCard"
+    slots = Map("label", new wire.Lit { literal = e.friendly_name })
+  }
+}
+
+local dimmableBranch = new wire.Branch {
+  key = (e) -> e.supported_features > 4
+  render = (e) -> new wire.Node {
+    card = "slider"
+    slots = Map("label", new wire.Lit { literal = e.friendly_name })
+  }
+}
+
+local plainBranch = new wire.Branch {
+  key = (_e) -> true
+  render = (e) -> new wire.Node {
+    card = "toggle"
+    slots = Map("label", new wire.Lit { literal = e.friendly_name })
+  }
+}
+
+/// The one branch whose key defers: dispatch depends on live state, so both
+/// shapes stay possible for every member and the choice rides the wire.
+local whenOnBranch = new wire.Branch {
+  key = (e) -> e.stateIs("on")
+  render = (e) -> new wire.Node {
+    card = "slider"
+    slots = Map("label", new wire.Lit { literal = e.friendly_name })
+  }
+}
+
+local alwaysPresent = (_e) -> true
+
+facts {
+  ["1. a uniform set shares one case; only the varying literal is per-member"] {
+    local s = wire.buildSet(stueLights, List(sliderBranch), (e) -> e.stateIs("on"), null)
+    s.candidates.length == 3
+    s.cases.length == 1
+    // the state transform is identical across members -> stays on the case
+    s.cases.first.slots.containsKey("state")
+    // the registry-derived label differs -> hoisted to per-member vars
+    !s.cases.first.slots.containsKey("label")
+    s.members["light.taklys"].vars["label"] == "Taklys"
+    s.members["light.lampe"].vars["label"] == "Lampe"
+  }
+
+  ["2. an interpolated label is still a build-time literal, still a var"] {
+    local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, null)
+    s.members["light.taklys"].vars["label"] == "Blah Taklys"
+    s.members["light.spot"].vars["label"] == "Blah Spot"
+    s.cases.length == 1
+    // nothing defers: no predicate reaches the wire at all
+    s.present == null
+  }
+
+  ["3. static domain dispatch resolves to a shape index, no runtime `when`"] {
+    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
+    s.cases.length == 2
+    // every member has exactly one alternative, and it is unconditional
+    s.members.values.every((m) -> m.alts.length == 1)
+    s.members.values.every((m) -> m.alts.first.`when` == null)
+    s.members["media_player.tv"].alts.first.shape !=
+      s.members["light.taklys"].alts.first.shape
+  }
+
+  ["4. a capability branch is static too — supported_features is registry data"] {
+    local s = wire.buildSet(stueLights, List(dimmableBranch, plainBranch), alwaysPresent, null)
+    // taklys/spot (features 8) take the slider; lampe (features 2) falls through
+    s.members["light.taklys"].alts.length == 1
+    s.members["light.lampe"].alts.length == 1
+    s.members["light.taklys"].alts.first.shape !=
+      s.members["light.lampe"].alts.first.shape
+    s.members.values.every((m) -> m.alts.first.`when` == null)
+  }
+
+  ["5. state-dependent dispatch keeps BOTH shapes, choice deferred to the wire"] {
+    local s = wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, null)
+    // two alternatives per member: the conditional one, then the fallback
+    s.members["light.taklys"].alts.length == 2
+    s.members["light.taklys"].alts.first.`when` != null
+    s.members["light.taklys"].alts.first.`when`.property == "state"
+    // the unconditional fallback terminates the list
+    s.members["light.taklys"].alts.last.`when` == null
+  }
+
+  ["6. `all` folds a mixed key three ways, per candidate"] {
+    // both static terms pass -> only the runtime residue survives
+    wire.all(List(true, true, fixtures.taklys.stateIs("on"))) is wire.Bound
+    // a failing static term decides the candidate at build time
+    wire.all(List(true, false, fixtures.taklys.stateIs("on"))) == false
+    // nothing defers -> no predicate on the wire
+    wire.all(List(true, true)) == true
+    // several runtime terms conjoin
+    (wire.all(List(true, fixtures.taklys.stateIs("on"),
+                   fixtures.taklys.attrAbove("brightness", 40))) as wire.PAnd).items.length == 2
+  }
+
+  // OPEN QUESTION, pinned so it cannot hide. `varyingKeys` decides var-vs-case
+  // by DIFFING the members that happen to share a shape, so a shape with one
+  // member has nothing to diff and its entity-derived literal stays baked on
+  // the case. Adding a second media_player would silently restructure the
+  // emitted shape. The stable alternative is the P2 rule applied directly —
+  // a `Lit` is always a var, an `Xf` always stays on the case — at the cost of
+  // per-member repetition for literals that are genuinely constant.
+  ["single-member shapes bake their literal onto the case (count-dependent!)"] {
+    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
+    local media = s.cases.filter((c) -> c.card == "mediaCard").first
+    media.slots.containsKey("label")
+    s.members["media_player.tv"].vars.isEmpty
+    // the multi-member shape does the opposite with the same authored slot
+    s.cases.filter((c) -> c.card == "slider").first.slots.isEmpty
+    s.members["light.taklys"].vars["label"] == "Taklys"
+  }
+
+  ["a statically-false candidate never reaches the wire"] {
+    local s = wire.buildSet(fixtures.all, List(lightBranch), alwaysPresent, null)
+    // media_player.tv matches no branch -> dropped entirely
+    !s.candidates.contains("media_player.tv")
+    s.candidates.length == 4
+  }
+}
+
+/// Rendered as JSON text, not as the objects themselves: an `examples` block
+/// writes typed instances to `.pcf` as untyped `new { ... }`, which then fails
+/// to re-read ("Please specify a parent explicitly"), so the expected file
+/// could never assert on a second run. A String round-trips, and JSON is the
+/// form worth reading here anyway — it IS the wire.
+local function asJson(v: Any): String = new JsonRenderer { indent = "  " }.renderValue(v)
+
+examples {
+  ["uniform set, present-when-on, ordered by brightness"] {
+    asJson(wire.buildSet(
+      stueLights,
+      List(sliderBranch),
+      (e) -> e.stateIs("on"),
+      new wire.OrderBy { property = "attr:brightness"; dir = "desc" }))
+  }
+
+  ["static domain dispatch across the whole house"] {
+    asJson(wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null))
+  }
+
+  ["state-dependent dispatch: the alternatives list"] {
+    asJson(wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, null))
+  }
+}
