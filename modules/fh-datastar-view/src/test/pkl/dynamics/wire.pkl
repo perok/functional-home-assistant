@@ -56,7 +56,14 @@ class Node { card: String; slots: Map<String, Slot> }
 // ---- the emitted wire node ----
 
 class CaseDef { card: String; slots: Map<String, Slot> }
-class Alt { `when`: Term?; shape: Int }
+
+/// `cond` and `shape` are both INDICES into the set's dedup tables
+/// ([[SetNode.conditions]] / [[SetNode.cases]]). Storing the predicate inline
+/// instead would repeat it once per member per alternative — the residuals
+/// diverge, but only into a handful of distinct values, so the same compression
+/// that gives shapes their table applies unchanged.
+class Alt { cond: Int; shape: Int }
+
 class MemberDef { vars: Map<String, String>; alts: List<Alt> }
 class OrderBy { property: String; dir: String; tiebreak: String = "entity_id" }
 
@@ -71,6 +78,10 @@ class SetNode {
   kind: "set" = "set"
   candidates: List<String>
   orderBy: OrderBy?
+  /// Distinct runtime conditions, referenced by [[Alt.cond]]. Index 0 is always
+  /// `null` = unconditional, so a fully static set carries one entry and every
+  /// alt points at it.
+  conditions: List<Term?>
   cases: List<CaseDef>
   members: Map<String, MemberDef>
 }
@@ -153,9 +164,16 @@ function buildSet(
         shapeOf(byCard[card].first, varyingKeys(byCard[card]))))
   let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
   let (caseIndex = shapes.toList().map((s) -> s.card))
+  // 5. dedupe the residual conditions the same way shapes are deduped. Null
+  //    first, so index 0 always means unconditional.
+  let (conds = List(null) + rendered
+        .flatMap((p) -> p.second.map((q) -> q.second))
+        .filter((t) -> t != null)
+        .distinct)
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
     orderBy = order
+    conditions = conds
     cases = shapes
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
       let (winning = p.second.first.first)
@@ -164,7 +182,7 @@ function buildSet(
             .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
           alts = p.second.map((q) ->
             new Alt {
-              `when` = q.second
+              cond = conds.findIndex((t) -> t == q.second)
               shape = caseIndex.findIndex((c) -> c == q.first.card)
             })
         })

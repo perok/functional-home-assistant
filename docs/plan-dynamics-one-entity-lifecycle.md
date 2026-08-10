@@ -101,19 +101,21 @@ Emitted:
 ```json
 {"kind":"set",
  "candidates":["light.a","light.b","light.c"],
- "present":{"property":"state","op":"eq","value":"on"},
+ "conditions":[null,{"property":"state","op":"eq","value":"on"}],
  "orderBy":{"property":"attr:brightness","dir":"desc","tiebreak":"entity_id"},
  "cases":[{"card":"slider","slots":{
      "state":{"transform":"$state","reactive":true},
      "fill": {"transform":"$round($attr.brightness*100/255)","reactive":true},
      "key":{"literal":"brightness"},"min":{"literal":"1"},"max":{"literal":"255"},
      "action":{"literal":"light/turn_on"}}}],
- "members":{"light.a":{"case":0,"vars":{"label":"Taklys"}},
-            "light.b":{"case":0,"vars":{"label":"Lampe"}},
-            "light.c":{"case":0,"vars":{"label":"Spot"}}}}
+ "members":{"light.a":{"vars":{"label":"Taklys"},"alts":[{"cond":1,"shape":0}]},
+            "light.b":{"vars":{"label":"Lampe"}, "alts":[{"cond":1,"shape":0}]},
+            "light.c":{"vars":{"label":"Spot"},  "alts":[{"cond":1,"shape":0}]}}}
 ```
 
-`present`/`orderBy` carry no `entity` — they are bound by set membership (P6's second shape).
+Two dedup tables, `cases` and `conditions`; members are thin rows of indices plus their varying
+literals. `cond: 0` is always `null` = unconditional. `orderBy` carries no `entity` — it is bound
+by set membership (P6's second shape). See "Resolved by the spike" for why there is no `present`.
 
 **Case dispatch may be static or state-dependent** (decided: we support both). The Mapping key
 returns a union, and the build applies every key to every candidate:
@@ -128,12 +130,15 @@ one or the other. Members therefore carry either a bare index or an alternatives
 winning:
 
 ```json
+"conditions":[null,{"kind":"cmp","property":"state","op":"eq","value":"on"}],
+"cases":[{"card":"slider",...},{"card":"toggle",...}],
 "members": {
-  "light.a": {"label":"Taklys", "case":0},
-  "light.b": {"label":"Lampe",  "alts":[{"when":{"property":"state","op":"eq","value":"on"},"case":0},
-                                        {"case":1}]}
+  "light.a": {"vars":{"label":"Taklys"}, "alts":[{"cond":1,"shape":0},{"cond":0,"shape":1}]}
 }
 ```
+
+First match wins, so `light.a` is a slider while on and a toggle otherwise; had the fallback been
+absent it would simply be absent while off.
 
 Re-dispatch is free in practice: a member only re-evaluates its alts when its own entity changes,
 which is when it was re-rendering anyway.
@@ -280,15 +285,36 @@ half and changes in the same commit.
 
 ## Resolved by the spike
 
-**There is no set-level `present` field; presence collapses into `alts`.** An `or` mixing a
-registry fact with live state folds *differently per candidate* —
-`e.supported_features > 4 || e.stateIs("on")` is statically `true` for a dimmable light and
-`state == on` for a dumb one. One shared predicate cannot express both, so presence must be
-per-member; and once it is per-member it is indistinguishable from "no alternative matched", so it
-belongs *in* `Alt.when` rather than beside it. A member is present iff some alt's `when` holds.
-The build conjoins each candidate's presence residual into each branch's condition. Pinned by
-`dynamics-spike.test.pkl` ("presence residuals diverge across members of one set"). This is "one
-mechanism, not two parallel ones" arriving from evidence rather than taste.
+**There is no set-level `present` field; presence collapses into `alts`, which index a deduped
+condition table.**
+
+The problem, from one authored expression `e.supported_features > 4 || e.stateIs("on")` over four
+lights:
+
+```
+light.taklys   ALWAYS present (decided at build time)
+light.lampe    present WHILE state == on
+light.spot     ALWAYS present (decided at build time)
+light.kjokken  ALWAYS present (decided at build time)
+```
+
+A statically-true term short-circuits the disjunction, so the residual differs per candidate. A
+single set-level predicate must pick one for all four: pick `true` and `lampe` shows while off;
+pick `state == on` and the other three vanish when off. Both wrong. So presence must be
+per-member — and once it is per-member it is indistinguishable from "no alternative matched", so
+it belongs *in* the alternative rather than beside it. A member is present iff some alt's
+condition holds.
+
+That alone would repeat the predicate once per member per alternative. The residuals diverge, but
+only into a handful of distinct values — the same situation as slot literals — so the same
+compression applies: a `conditions: List<Term?>` table with index 0 always `null`
+(= unconditional), and `Alt` carrying `{cond, shape}`, two indices. A fully static set has one
+condition entry; the four-light case above has two, shared by four members.
+
+The wire therefore has exactly two dedup tables, `cases` and `conditions`, with members as thin
+rows of indices plus their varying literals. Pinned by `dynamics-spike.test.pkl` ("presence
+residuals diverge across members of one set"). "One mechanism, not two parallel ones" arriving
+from evidence rather than taste.
 
 **`orderBy` stays set-level, deliberately.** It has no equivalent divergence problem because a
 sort needs one comparable key across the set. An author *could* write a key that folds to
