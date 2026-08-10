@@ -35,15 +35,14 @@ same commit; ADRs that change the pipeline update it too.
    — were the sanctioned structural exception; see ADR 0008).
 4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
    browser (`sbt dashboardServe`), per ADR 0006.
-5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
-   `docs/reference/datastar/` before searching the web. Attributes use colon syntax
-   (`data-on:click`, not `data-on-click`).
-6. Format with `sbt 'scalafmt; Test/scalafmt'` (Scala only; there is no formatter for the Pkl
-   sources). **Both tasks, always** — `scalafmt` covers `Compile` only, so a test-only
-   formatting change passes locally and then fails CI, which runs the `scalafmt --test` CLI
-   over every file. Verified by misformatting a test source: `sbt scalafmt` leaves it
-   untouched, `Test/scalafmt` fixes it. Note the quotes: unquoted
-   `sbt scalafmt Test/scalafmt` is a parse error in sbt 2.0.
+5. Datastar questions (attribute syntax, SSE semantics): use the `datastar` skill — it points
+   to context7 (`/websites/data-star_dev`) for general docs, plus pinned-bundle corrections and
+   project conventions context7 won't have. Attributes use colon syntax (`data-on:click`, not
+   `data-on-click`).
+6. Formatting (Scala only; there is no formatter for the Pkl sources) is handled by the
+   `PreToolUse` hook in `.claude/settings.json`, which runs the standalone `scalafmt` CLI
+   before every `git add`. `project.git = true` in `.scalafmt.conf` covers every tracked
+   source in one pass, so nothing reaches CI's `scalafmt --test` unformatted.
 
 #### Key files
 
