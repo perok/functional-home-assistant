@@ -8,11 +8,12 @@ examples {
         "light.lampe",
         "light.spot"
       ],
-      "orderBy": {
-        "property": "attr:brightness",
-        "dir": "desc",
-        "tiebreak": "entity_id"
-      },
+      "orderBy": [
+        {
+          "property": "attr:brightness",
+          "dir": "desc"
+        }
+      ],
       "conditions": [
         null,
         {
@@ -43,7 +44,8 @@ examples {
               "cond": 1,
               "shape": 0
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.lampe": {
           "vars": {
@@ -54,7 +56,8 @@ examples {
               "cond": 1,
               "shape": 0
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.spot": {
           "vars": {
@@ -65,7 +68,8 @@ examples {
               "cond": 1,
               "shape": 0
             }
-          ]
+          ],
+          "sortVars": []
         }
       }
     }
@@ -109,7 +113,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.lampe": {
           "vars": {
@@ -120,7 +125,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.spot": {
           "vars": {
@@ -131,7 +137,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         },
         "media_player.tv": {
           "vars": {},
@@ -140,7 +147,8 @@ examples {
               "cond": 0,
               "shape": 0
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.kjokken": {
           "vars": {
@@ -151,7 +159,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         }
       }
     }
@@ -199,7 +208,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.lampe": {
           "vars": {
@@ -214,7 +224,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         },
         "light.spot": {
           "vars": {
@@ -229,7 +240,8 @@ examples {
               "cond": 0,
               "shape": 1
             }
-          ]
+          ],
+          "sortVars": []
         }
       }
     }

@@ -70,11 +70,13 @@ class Clause { cond: Int; shape: Int }
 /// A member is a `cond` expression: its clauses are tried in order and the first
 /// whose guard holds decides the rendering. Falling off the end means the member
 /// is NOT RENDERED — which is why there is no separate presence field.
-class MemberDef { vars: Map<String, String>; clauses: List<Clause> }
-
-/// A LIVE ordering key. A key that folds to registry facts never gets here — the
-/// build sorts `candidates` instead and emits no ordering at all.
-class OrderBy { property: String; dir: String; tiebreak: String = "entity_id" }
+class MemberDef {
+  vars: Map<String, String>
+  clauses: List<Clause>
+  /// Values for the STATIC ordering positions, indexed by [[StaticSort.slot]].
+  /// Empty unless a live key outranks a static one.
+  sortVars: List<String> = List()
+}
 
 class SetNode {
   kind: "set" = "set"
@@ -82,7 +84,9 @@ class SetNode {
   /// is already sorted and [[orderBy]] is null: the runtime filters to the
   /// present members and preserves this order, O(P) with no comparisons.
   candidates: List<String>
-  orderBy: OrderBy?
+  /// Lexicographic, most significant first. Null when the whole ordering folded
+  /// away and `candidates` is already in render order.
+  orderBy: List<OrderTerm>?
   /// Distinct runtime guards, referenced by [[Clause.cond]]. Index 0 is always
   /// `null` = unconditional, so a fully static set carries one entry that every
   /// clause points at.
@@ -128,38 +132,68 @@ local function shapeOf(n: Node, varying: List<String>): ShapeDef =
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
   }
 
-/// A live ordering key the runtime must resolve. Anything else an ordering
-/// lambda returns is a plain Pkl value — a registry fact, known now.
-class SortKey { property: String; dir: String = "asc" }
+/// A LIVE ordering key. `equals` turns the key into a boolean — "state is on"
+/// sorts the on-ones first with `dir = "desc"`, rather than sorting the state
+/// strings alphabetically.
+class SortKey { property: String; dir: String = "asc"; equals: String? = null }
 
-/// Fold an ordering lambda over the candidates. Three outcomes, and only two of
-/// them are legal:
+/// A STATIC ordering position: the value is a registry fact, known at build
+/// time, but it cannot be folded away because a live key outranks it. Each
+/// member carries its value in [[MemberDef.sortVars]] at index `slot`.
+class StaticSort { slot: Int; dir: String = "asc" }
+
+typealias OrderTerm = SortKey|StaticSort
+
+class Ordering {
+  entities: List<Any>
+  /// Null when the whole ordering folded away at build time.
+  terms: List<OrderTerm>?
+  sortVars: Map<String, List<String>>
+}
+
+/// Sort lexicographically by several keys at build time: stable-sort by the
+/// LEAST significant key first, then outwards. Verified: Pkl's sort is stable.
+local function sortLex(entities: List<Any>, keys: List<(Any) -> Any>): List<Any> =
+  keys.reverse().fold(entities, (acc, k) -> acc.sortBy((e) -> k.apply(e)))
+
+/// Fold a LIST of ordering keys. Multi-key ordering is ordinary lexicographic
+/// sorting, and each position folds independently:
 ///
-///   - every key is a plain value  => order is decided NOW. Sort the candidate
-///     list and emit no ordering; the runtime filters and preserves it, O(P)
-///     with no comparisons.
-///   - every key is the SAME [[SortKey]] => one set-level ordering on the wire.
-///   - anything else => the keys are not mutually comparable (a brightness
-///     against a name), so this is a build error rather than a per-member key.
-///     Unlike presence, a diverging ordering key is not a case to support.
+///   - EVERY position static => the whole order is decided now. Sort the
+///     candidates and emit nothing; the runtime filters and preserves it.
+///   - some position live => emit the term list. Static positions still have to
+///     be applied by the runtime (a static key may OUTRANK a live one — "by area,
+///     then brightness"), so their per-member values ride in `sortVars`.
 ///
-/// Returns the ordered entities and the ordering to emit, if any.
-function foldOrder(entities: List<Any>, key: ((Any) -> Any)?): Pair<List<Any>, OrderBy?> =
-  if (key == null) Pair(entities, null)
+/// The only error is a single POSITION that folds inconsistently across
+/// candidates — static for one, live for another. Those two values are not
+/// mutually comparable, and unlike presence there is nothing useful to do with
+/// the divergence.
+function foldOrder(items: List<Any>, keys: List<(Any) -> Any>): Ordering =
+  if (keys.isEmpty || items.isEmpty)
+    new Ordering { entities = items; terms = null; sortVars = Map() }
   else
-    let (keys = entities.map((e) -> key.apply(e)))
-      if (keys.every((k) -> !(k is SortKey)))
-        Pair(entities.sortBy((e) -> key.apply(e)), null)
-      else if (keys.every((k) -> k is SortKey) && keys.distinct.length == 1)
-        let (sk = keys.first as SortKey)
-          Pair(entities, new OrderBy { property = sk.property; dir = sk.dir })
+    let (live = keys.map((k) -> k.apply(items.first) is SortKey))
+    let (_checked = keys.toList().mapIndexed((i, k) ->
+          if (items.every((e) -> (k.apply(e) is SortKey) == live[i])) true
+          else throw("""
+            Ordering key at position \(i) does not fold to one form across the set:
+            it yields a build-time value for some candidates and a live key for
+            others. Those are not mutually comparable. Order by a single property
+            at each position, or split the set.
+            """)))
+      if (live.every((b) -> b == false))
+        new Ordering { entities = sortLex(items, keys); terms = null; sortVars = Map() }
       else
-        throw("""
-          Ordering key does not fold to one form across the set: some candidates
-          yield a build-time value and others a live key, or the live keys differ.
-          Those are not mutually comparable. Order by a single property, or split
-          the set.
-          """)
+        let (staticPositions = keys.toList().mapIndexed((i, _k) -> i).filter((i) -> !live[i]))
+          new Ordering {
+            entities = items
+            terms = keys.toList().mapIndexed((i, k) ->
+              if (live[i]) k.apply(items.first) as SortKey
+              else new StaticSort { slot = staticPositions.findIndex((s) -> s == i) })
+            sortVars = items.toMap((e) -> e.entity_id, (e) ->
+              staticPositions.map((i) -> keys[i].apply(e).toString()))
+          }
 
 /// Conjoin a candidate's presence residual with one branch's residual. Either
 /// may be statically decided; the result is the runtime condition the wire must
@@ -175,14 +209,14 @@ function buildSet(
   entities: List<Any>,
   branches: List<Branch>,
   presence: (Any) -> Boolean|Term,
-  orderKey: ((Any) -> Any)?
+  orderKeys: List<(Any) -> Any>
 ): SetNode =
-  // 0. fold the ordering first: a registry-derived key sorts the candidates now
-  //    and emits nothing, so the runtime never compares them.
-  let (ordered = foldOrder(entities, orderKey))
+  // 0. fold the ordering first: keys that are all registry-derived sort the
+  //    candidates now and emit nothing, so the runtime never compares them.
+  let (ordered = foldOrder(entities, orderKeys))
   // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
   //    never reaches the wire.
-  let (kept = ordered.first
+  let (kept = ordered.entities
         .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
   // 2. dispatch: which branches can win for each surviving candidate.
@@ -213,7 +247,7 @@ function buildSet(
         .distinct)
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
-    orderBy = ordered.second
+    orderBy = ordered.terms
     conditions = conds
     shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
@@ -221,6 +255,7 @@ function buildSet(
         new MemberDef {
           vars = varyingByCard[winning.card]
             .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
+          sortVars = ordered.sortVars.getOrNull(p.first.entity_id) ?? List()
           clauses = p.second.map((q) ->
             new Clause {
               cond = conds.findIndex((t) -> t == q.second)

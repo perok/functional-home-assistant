@@ -157,8 +157,8 @@ in a frame, `C` = distinct shapes (`C ≤ N`, usually `C ≪ N`).
 | `dashboard.json` | O(1) per group | **O(C·slots + N·vars)** |
 | membership per frame | **O(E · groups)** — full map scan | **O(Δ)** index lookups |
 | presence eval | — | O(Δ) per frame; O(N) once at renderer construction |
-| ordering (live key) | not supported | O(P log P), only when a *present* member's key moves |
-| ordering (registry key) | not supported | **O(P)** — pre-sorted at build, runtime only filters |
+| ordering (any live key) | not supported | O(P log P), only when a *present* member's key moves |
+| ordering (all keys static) | not supported | **O(P)** — pre-sorted at build, runtime only filters |
 | DOM elements | O(P) | **O(P)** |
 | bytes to client | O(changed) | O(changed present) |
 
@@ -321,23 +321,36 @@ rows of indices plus their varying literals. Pinned by `dynamics-spike.test.pkl`
 residuals diverge across members of one set"). "One mechanism, not two parallel ones" arriving
 from evidence rather than taste.
 
-**Ordering folds the same way, but a diverging key is an ERROR, not a case to support.** Three
-outcomes, verified:
+**Ordering is a LIST of keys — ordinary lexicographic sorting — and each POSITION folds
+independently.** `orderBy` is `List<OrderTerm>`, most significant first:
 
-| key | folds to | emitted |
+| all positions | emitted | runtime cost |
 |---|---|---|
-| `e.friendly_name` (registry) | build-time values | **candidates pre-sorted, no `orderBy`** |
-| `e.attr("brightness")` (live) | one shared reference | set-level `orderBy` |
-| branches on a registry fact | some static, some live | **build error** |
+| static (`e.area_id`, `e.friendly_name`) | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
+| any position live | the term list | O(P log P) stable sort |
 
-The first is the payoff: alphabetical ordering — probably the common case — costs the runtime
-nothing at all, and makes ordering O(P) filtering rather than O(P log P) sorting. The third is
-where ordering differs from presence: diverging presence residuals are legitimate and must be
-supported, but two order keys are only useful if mutually comparable, and a brightness against a
-name is not. Reject at build time rather than inventing per-member keys.
+A static position can only be folded away when the *whole* ordering is static. If a live key
+outranks it — or it outranks a live key, as in "by area, then brightness" — the runtime still has
+to apply it, so its per-member value rides in `MemberDef.sortVars` and the term becomes
+`StaticSort{slot}`. Verified end to end for "on first, then brightest, then by name":
 
-`orderBy` therefore does NOT join the `conditions` table — it is a key extractor, not a guard, and
-after folding there is at most one of it.
+```json
+"orderBy": [ {"property":"state","equals":"on","dir":"desc"},
+             {"property":"attr:brightness","dir":"desc"},
+             {"slot":0,"dir":"asc"} ]
+"members": { "light.taklys": { ..., "sortVars":["Taklys"] } }
+```
+
+Build-time lexicographic sorting works by stable-sorting from the least significant key outwards
+(Pkl's sort is stable — verified). `SortKey.equals` makes a key boolean, so "state is on" sorts
+the on-ones first rather than sorting state strings alphabetically.
+
+**The one error case is a single POSITION that folds inconsistently across candidates** — static
+for one candidate, live for another. Those two values are not mutually comparable (a brightness
+against a name), and unlike presence there is nothing useful to do with the divergence. This is
+narrow: it is not about having several keys, which is fully supported.
+
+`orderBy` does NOT join the `conditions` table — a key extractor is not a guard.
 
 **The build emits an already-split node; the runtime never re-derives the split.** The spike does
 the fold at build time and emits only the residue — candidates, per-alt conditions, shapes. The

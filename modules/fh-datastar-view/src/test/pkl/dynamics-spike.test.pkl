@@ -91,7 +91,7 @@ local condOf = (s, eid: String, i: Int) -> s.conditions[s.members[eid].clauses[i
 
 facts {
   ["1. a uniform set shares one case; only the varying literal is per-member"] {
-    local s = wire.buildSet(stueLights, List(sliderBranch), (e) -> e.stateIs("on"), null)
+    local s = wire.buildSet(stueLights, List(sliderBranch), (e) -> e.stateIs("on"), List())
     s.candidates.length == 3
     s.shapes.length == 1
     // the state transform is identical across members -> stays on the case
@@ -103,7 +103,7 @@ facts {
   }
 
   ["2. an interpolated label is still a build-time literal, still a var"] {
-    local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, null)
+    local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, List())
     s.members["light.taklys"].vars["label"] == "Blah Taklys"
     s.members["light.spot"].vars["label"] == "Blah Spot"
     s.shapes.length == 1
@@ -123,7 +123,7 @@ facts {
     presence.apply(fixtures.lampe) is wire.Bound
     presence.apply(fixtures.taklys) != presence.apply(fixtures.lampe)
 
-    local s = wire.buildSet(stueLights, List(plainBranch), presence, null)
+    local s = wire.buildSet(stueLights, List(plainBranch), presence, List())
     // the dimmable one is unconditionally present...
     condOf.apply(s, "light.taklys", 0) == null
     // ...the dumb one carries its residual on the alternative
@@ -133,7 +133,7 @@ facts {
   }
 
   ["3. static domain dispatch resolves to a shape index, no runtime `when`"] {
-    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
+    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List())
     s.shapes.length == 2
     // every member has exactly one alternative, and it is unconditional
     s.members.values.every((m) -> m.clauses.length == 1)
@@ -143,7 +143,7 @@ facts {
   }
 
   ["4. a capability branch is static too — supported_features is registry data"] {
-    local s = wire.buildSet(stueLights, List(dimmableBranch, plainBranch), alwaysPresent, null)
+    local s = wire.buildSet(stueLights, List(dimmableBranch, plainBranch), alwaysPresent, List())
     // taklys/spot (features 8) take the slider; lampe (features 2) falls through
     s.members["light.taklys"].clauses.length == 1
     s.members["light.lampe"].clauses.length == 1
@@ -153,7 +153,7 @@ facts {
   }
 
   ["5. state-dependent dispatch keeps BOTH shapes, choice deferred to the wire"] {
-    local s = wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, null)
+    local s = wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, List())
     // two alternatives per member: the conditional one, then the fallback
     s.members["light.taklys"].clauses.length == 2
     condOf.apply(s, "light.taklys", 0) != null
@@ -182,7 +182,7 @@ facts {
   ["7a. a registry-derived order key sorts at build time and emits nothing"] {
     local s = wire.buildSet(
       fixtures.all.filter((e) -> e.domain == "light"),
-      List(plainBranch), alwaysPresent, (e) -> e.friendly_name)
+      List(plainBranch), alwaysPresent, List((e) -> e.friendly_name))
     // sorted NOW; the runtime just filters and preserves this order
     s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
     s.orderBy == null
@@ -191,11 +191,54 @@ facts {
   ["7b. a live order key is shared set-level, candidates keep author order"] {
     local s = wire.buildSet(
       stueLights, List(plainBranch), alwaysPresent,
-      (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" })
-    s.orderBy.property == "attr:brightness"
-    s.orderBy.dir == "desc"
-    s.orderBy.tiebreak == "entity_id"
+      List((_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
+    (s.orderBy.first as wire.SortKey).property == "attr:brightness"
+    (s.orderBy.first as wire.SortKey).dir == "desc"
+    s.orderBy.length == 1
     s.candidates == List("light.taklys", "light.lampe", "light.spot")
+  }
+
+  // MULTI-KEY ordering is ordinary lexicographic sorting, and each POSITION
+  // folds on its own. "on first, then brightest, then by name": two live keys
+  // and a static tail.
+  ["7c. multi-key: on first, then brightness, then name"] {
+    local s = wire.buildSet(
+      stueLights, List(plainBranch), alwaysPresent,
+      List(
+        (_e) -> new wire.SortKey { property = "state"; equals = "on"; dir = "desc" },
+        (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" },
+        (e) -> e.friendly_name))
+    s.orderBy.length == 3
+    (s.orderBy[0] as wire.SortKey).equals == "on"
+    (s.orderBy[1] as wire.SortKey).property == "attr:brightness"
+    // the static tail cannot fold away — two live keys outrank it — so it
+    // becomes a per-member sort value the runtime compares
+    s.orderBy[2] is wire.StaticSort
+    (s.orderBy[2] as wire.StaticSort).slot == 0
+    s.members["light.taklys"].sortVars == List("Taklys")
+    s.members["light.lampe"].sortVars == List("Lampe")
+  }
+
+  ["7d. a STATIC key may outrank a live one — by name, then brightness"] {
+    local s = wire.buildSet(
+      stueLights, List(plainBranch), alwaysPresent,
+      List((e) -> e.friendly_name,
+           (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
+    // the static key is FIRST, so it cannot be pre-sorted away either: the
+    // runtime must apply it before the live key
+    s.orderBy[0] is wire.StaticSort
+    s.orderBy[1] is wire.SortKey
+    s.members["light.spot"].sortVars == List("Spot")
+  }
+
+  ["7e. all keys static => sorted now, nothing emitted, no sortVars"] {
+    local s = wire.buildSet(
+      fixtures.all.filter((e) -> e.domain == "light"), List(plainBranch), alwaysPresent,
+      List((e) -> e.area_id, (e) -> e.friendly_name))
+    s.orderBy == null
+    // kjokken area first, then the three stue lights alphabetically
+    s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
+    s.members.values.every((m) -> m.sortVars.isEmpty)
   }
 
   // OPEN QUESTION, pinned so it cannot hide. `varyingKeys` decides var-vs-case
@@ -206,7 +249,7 @@ facts {
   // a `Lit` is always a var, an `Xf` always stays on the case — at the cost of
   // per-member repetition for literals that are genuinely constant.
   ["single-member shapes bake their literal onto the case (count-dependent!)"] {
-    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
+    local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List())
     local media = s.shapes.filter((c) -> c.card == "mediaCard").first
     media.slots.containsKey("label")
     s.members["media_player.tv"].vars.isEmpty
@@ -216,7 +259,7 @@ facts {
   }
 
   ["a statically-false candidate never reaches the wire"] {
-    local s = wire.buildSet(fixtures.all, List(lightBranch), alwaysPresent, null)
+    local s = wire.buildSet(fixtures.all, List(lightBranch), alwaysPresent, List())
     // media_player.tv matches no branch -> dropped entirely
     !s.candidates.contains("media_player.tv")
     s.candidates.length == 4
@@ -236,14 +279,14 @@ examples {
       stueLights,
       List(sliderBranch),
       (e) -> e.stateIs("on"),
-      (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
+      List((_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" })))
   }
 
   ["static domain dispatch across the whole house"] {
-    asJson(wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null))
+    asJson(wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List()))
   }
 
   ["state-dependent dispatch: the alternatives list"] {
-    asJson(wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, null))
+    asJson(wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, List()))
   }
 }
