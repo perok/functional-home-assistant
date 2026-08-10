@@ -1,0 +1,68 @@
+/// Unit tests for the `@fh-dashboard` authoring library, run by `pkl test`.
+///
+/// These live OUTSIDE `lib/` on purpose: `LibPackage` packages that directory
+/// into the content-versioned `@fh-dashboard` cache package, so a test module
+/// in there would change the package hash and re-evaluate every dashboard.
+/// Imports are therefore relative file paths, not `@fh-dashboard/...`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+
+facts {
+  ["predicate constructors carry the right property and op"] {
+    c.domainIs("light").property == "domain"
+    c.domainIs("light").op == "eq"
+    c.domainIs("light").value == "light"
+
+    c.stateIs("on").property == "state"
+    c.entityIs("light.kitchen").property == "entity_id"
+    c.deviceClassIs("battery").property == "attr:device_class"
+    c.attrBelow("battery_level", 20).property == "attr:battery_level"
+    c.attrBelow("battery_level", 20).op == "lt"
+    c.stateBelow(20).property == "state"
+    c.stateBelow(20).op == "lt"
+  }
+
+  ["a numeric threshold stays a number, not a string"] {
+    c.attrBelow("battery_level", 20).value is Int
+    c.stateBelow(20).value is Int
+  }
+
+  ["combinators nest without rebinding `this` to the new object"] {
+    c.domainIs("light").and(c.stateIs("on")).items.toList().length == 2
+    c.domainIs("light").and(c.stateIs("on")).items.toList()[0].property == "domain"
+    c.domainIs("light").or(c.stateIs("on")).kind == "or"
+    c.stateIs("on").not().item.property == "state"
+    c.stateIs("on").not().kind == "not"
+  }
+
+  ["lowBattery is device_class AND state below threshold"] {
+    c.lowBattery(20).kind == "and"
+    c.lowBattery(20).items.toList().length == 2
+    c.lowBattery(20).items.toList()[0].property == "attr:device_class"
+    c.lowBattery(20).items.toList()[1].property == "state"
+  }
+
+  ["`always` matches everything via a domain no entity can have"] {
+    c.always.property == "domain"
+    c.always.op == "ne"
+  }
+
+  ["a node has no cell until a layout builder adds one"] {
+    c.title("Lights").cell == null
+  }
+
+  ["layout builders put fh- contract classes on the wrapper"] {
+    c.title("x").columns(3).cell.classes.toList() == List("fh-cols-3")
+    c.title("x").fullWidth().cell.classes.toList() == List("fh-cols-full")
+    c.title("x").hug().cell.classes.toList() == List("fh-hug")
+    c.title("x").cellClass("my-thing").cell.classes.toList() == List("my-thing")
+  }
+
+  ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
+    c.title("x").columns(3).columns(7).cell.classes.toList() == List("fh-cols-7")
+    c.title("x").columns(3).fullWidth().cell.classes.toList() == List("fh-cols-full")
+    // a non-span class is additive, not a replacement
+    c.title("x").columns(3).hug().cell.classes.toList() == List("fh-cols-3", "fh-hug")
+  }
+}

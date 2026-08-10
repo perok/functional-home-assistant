@@ -21,6 +21,20 @@ same commit; ADRs that change the pipeline update it too.
    dirs and run the real library modules through the full pipeline, so **no live HA is
    needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
    entity dump.)
+
+   For changes to the Pkl authoring library itself there is also a pure-Pkl suite (`facts` +
+   `examples`, no JVM and no dump), run with the `pkl` CLI at the **same version as the
+   `pkl-core` pin** — a different CLI tests different semantics than we ship:
+
+   ```bash
+   pkl test modules/fh-datastar-view/src/test/pkl/*.pkl
+   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.pkl  # accept new example output
+   ```
+
+   The tests live outside `lib/` deliberately: `LibPackage` packages that directory into the
+   content-versioned `@fh-dashboard` package, so a test module inside it would move the package
+   hash and re-evaluate every dashboard. They import the library by relative path for the same
+   reason. CI runs them in the `parallel:` block of `cicd.yml`.
 3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
