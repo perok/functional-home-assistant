@@ -96,6 +96,16 @@ the persistent package cache — `moduleCacheDir` is declared IN the generated
 freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
 story at all.
 
+The pkl-lsp jar itself is **resolved by the build** (`pkl-lsp-dist`, staged to
+`target/addon/pkl-lsp.jar`, `COPY`d into the image with `PKL_LSP_JAR` pointing
+at it) rather than downloaded on first use. It stays a separate file run as a
+**subprocess**, not a library on the app classpath, for two reasons that are not
+about jar size: pkl-lsp's `exit` notification — which every LSP client sends on
+disconnect — calls `exitProcess(0)`, so an embedded server would let a closed
+editor tab take down the dashboard; and its shaded jar bundles an unrelocated
+JNA 5.14.0 that collides with appdirs' 5.18.1 and fails `assembly`. pkl-lsp is
+compiled to class file 67, so the image ships a JDK 25 runtime.
+
 **End user, local editor.** Their own workspace — their entries and manifests —
 evaluated **locally**, with completion. (Editing the instance's files in place
 is not a supported laptop mode; live editing on the instance is what `/edit` is

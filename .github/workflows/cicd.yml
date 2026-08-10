@@ -131,15 +131,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      - name: Assemble fat jar
-        run: sbt 'fh-datastar-view/assembly'
+      # Both jars the image needs: the app, and the pkl-lsp CLI the editor's
+      # LSP subprocess runs (resolved by the build, never downloaded at
+      # runtime — pkl-lsp-dist exists only to pin and stage it).
+      - name: Assemble fat jar + stage pkl-lsp
+        run: sbt 'fh-datastar-view/assembly ; pkl-lsp-dist/stagePklLsp'
 
-      - name: Upload jar for cd
+      - name: Upload jars for cd
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
-          path: target/addon/fh-dashboard.jar
+          path: target/addon/
           retention-days: 1
 
   cd:
@@ -165,7 +168,7 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fetch ci-built jar
+      - name: Fetch ci-built jars
         if: steps.ver.outputs.published == 'false'
         uses: actions/download-artifact@v8
         with:

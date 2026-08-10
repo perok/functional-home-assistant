@@ -30,7 +30,9 @@ addCommandAlias(
   // bootstraps a package-form workspace there — its own home/, .fh/, seeded
   // entries, .pkl-cache — gitignored, exactly the shape the add-on writes.
   "dashboardServe",
-  "fh-datastar-view/runMain fh.view.runtime.ServerApp"
+  // stagePklLsp first: the editor's LSP runs the staged pkl-lsp jar, which
+  // `run / envVars` points PKL_LSP_JAR at.
+  "; pkl-lsp-dist/stagePklLsp ; fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
 // Rebaseline the wire-format + visual snapshots after an INTENTIONAL change.
 // Uses the scoped `sys.props` form (set → testFull → unset) rather than a shell
@@ -103,6 +105,36 @@ lazy val `fh-automation` = project // TODO needed?
   .in(file("modules/fh-automation"))
   .settings(commonSettings)
 
+// The pkl-lsp CLI jar, resolved by the build instead of downloaded at runtime.
+//
+// NOTHING depends on this project, deliberately. pkl-lsp is published only as a
+// shaded CLI fat jar that bundles its own UNRELOCATED JNA (5.14.0, via clikt's
+// terminal lib) — putting it on fh-datastar-view's classpath collides with
+// appdirs' JNA 5.18.1 and fails `assembly` outright. It is a subprocess, so it
+// belongs beside the app as a plain file, not on its classpath.
+// Unit-returning: sbt 2.0 rejects File/Path as a cached task's output type.
+val stagePklLsp = taskKey[Unit]("Copy the pkl-lsp CLI jar to target/addon/")
+
+lazy val `pkl-lsp-dist` = project
+  .in(file("modules/pkl-lsp-dist"))
+  .settings(
+    scalaVersion := "3.8.4",
+    libraryDependencies += "org.pkl-lang" % "pkl-lsp" % "0.8.0",
+    stagePklLsp := {
+      val conv = fileConverter.value
+      val jars = (Compile / dependencyClasspath).value
+        .map(a => conv.toPath(a.data).toFile)
+        .filter(_.getName.startsWith("pkl-lsp-"))
+      val jar = jars.headOption.getOrElse(
+        sys.error(s"pkl-lsp jar not on the classpath (found: $jars)")
+      )
+      val dest = (ThisBuild / baseDirectory).value / "target" / "addon" /
+        "pkl-lsp.jar"
+      IO.copyFile(jar, dest)
+      streams.value.log.info(s"staged ${jar.getName} -> $dest")
+    }
+  )
+
 lazy val `home-codegen` =
   project // using ha-instance-codegen to generate instance code
     .enablePlugins(FHCodegenPlugin)
@@ -155,6 +187,10 @@ lazy val `fh-datastar-view` = project
     // ServerApp's optional CLI arg still overrides it.
     run / envVars += "DASHBOARDS_DIR" ->
       ((ThisBuild / baseDirectory).value / "dashboard-local-dev-server").toString,
+    // The pkl-lsp CLI jar `pkl-lsp-dist/stagePklLsp` writes. The add-on image
+    // sets the same variable at its own path; nothing downloads it at runtime.
+    run / envVars += "PKL_LSP_JAR" ->
+      ((ThisBuild / baseDirectory).value / "target" / "addon" / "pkl-lsp.jar").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
