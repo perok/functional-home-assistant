@@ -367,6 +367,56 @@ anything constant across a shape's members onto the case, which is exactly the p
 literals (`min`/`max`/`key`/`action`) that motivated the idea. A shared table would only help
 entities appearing in several sets — revisit if that shows up in a measurement, not before.
 
+## The query surface (`query.pkl`)
+
+Its own namespace, not part of `components.pkl` — this is a query language, and a card knows
+nothing about it. A `render` lambda returns an ordinary `Node`; that is the only seam. Entry is
+`q.from(list)` rather than generated `EntitySet`-typed dump properties: more flexible, and it keeps
+`PklDump` out of it. Candidates are typed `Any`, not `Entity`, deliberately — a member need not be
+an entity (a tile per room makes AREAS the candidates) and baking that in now would have to be
+unpicked.
+
+```pkl
+q.from(dump.all)
+  .where((e) -> List(e.domain == "light", e.area_id == "stue"))   // a LIST is AND
+  .where((e) -> q.any(List(e.dimmable, e.stateIs("on"))))         // OR is explicit, nests
+  .orderBy(List(q.desc((e) -> e.stateIs("on")),                   // sort by a PREDICATE
+                q.desc((e) -> e.attrKey("brightness")),           // sort by a property
+                (e) -> e.friendly_name))                          // bare lambda = ascending
+  .caseOf((e) -> e.supported_features > 4, (e) -> c.slider(e))
+  .`else`((e) -> c.toggle(e))
+```
+
+- **A list argument is conjunction**, so the common case needs no wrapper. `q.any` / `q.all` /
+  `q.not` give explicit structure and nest freely. `&&`/`||` still cannot cross the static/live
+  seam — Pkl rejects `Boolean && Term` — which is what keeps a live condition out of a static
+  position.
+- **`else` is optional, and its absence is meaningful**: a candidate matching no clause is simply
+  not rendered. `.caseOf(live).build()` with no `else` is exactly "show it only while on".
+- **`cases(Mapping)`** takes several branches at once; a Mapping keeps author order (= match
+  order) and rejects duplicate keys.
+- **Ordering by a predicate** replaces the `equals` field: an order position is a property
+  reference (sort by value) or a `Term` (sort by whether it holds). One fewer concept, and it
+  reuses the predicate vocabulary.
+
+## Deferred: whether per-member static values are allowed at all
+
+`sortVars` (and `vars`) carry registry-derived values per member. Some registry facts are mirrored
+in HA state attributes — `friendly_name`, `device_class`, `unit_of_measurement` — so those can be
+emitted as a property reference instead and cost nothing. Others (`area_id`, `floor_id`,
+`device_id`, `entity_category`) exist only in the registry and have nowhere to be read from at
+runtime.
+
+The open question is whether to forbid per-member static values entirely. Doing so forces one of
+two things: restrict ordering and labels to attribute-backed facts, or **keep a registry table in
+the runtime** so any fact can be looked up by `entity_id`. The second shrinks the wire but puts
+the same fact in two places — a weaker version of the duplication this plan exists to remove — for
+single-digit KB of server memory. Note also that `dashboard.json` never reaches the browser: it is
+a build artifact, and the runtime holds the model in memory, so its size costs eval time and
+memory, not client work.
+
+Not currently driving the design either way. Revisit only if the wire or the runtime pushes back.
+
 ## Open questions
 
 - The LINQ surface beyond the sketch above — `orderBy` stability rules, what `derived` values exist

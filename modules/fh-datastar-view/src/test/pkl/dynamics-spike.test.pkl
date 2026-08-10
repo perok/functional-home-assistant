@@ -182,7 +182,7 @@ facts {
   ["7a. a registry-derived order key sorts at build time and emits nothing"] {
     local s = wire.buildSet(
       fixtures.all.filter((e) -> e.domain == "light"),
-      List(plainBranch), alwaysPresent, List((e) -> e.friendly_name))
+      List(plainBranch), alwaysPresent, List(new wire.OrderSpec { key = (e) -> e.friendly_name }))
     // sorted NOW; the runtime just filters and preserves this order
     s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
     s.orderBy == null
@@ -191,9 +191,9 @@ facts {
   ["7b. a live order key is shared set-level, candidates keep author order"] {
     local s = wire.buildSet(
       stueLights, List(plainBranch), alwaysPresent,
-      List((_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
-    (s.orderBy.first as wire.SortKey).property == "attr:brightness"
-    (s.orderBy.first as wire.SortKey).dir == "desc"
+      List(new wire.OrderSpec { key = (e) -> e.attrKey("brightness"); dir = "desc" }))
+    ((s.orderBy.first as wire.LiveSort).by as wire.PropRef).property == "attr:brightness"
+    (s.orderBy.first as wire.LiveSort).dir == "desc"
     s.orderBy.length == 1
     s.candidates == List("light.taklys", "light.lampe", "light.spot")
   }
@@ -205,12 +205,12 @@ facts {
     local s = wire.buildSet(
       stueLights, List(plainBranch), alwaysPresent,
       List(
-        (_e) -> new wire.SortKey { property = "state"; equals = "on"; dir = "desc" },
-        (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" },
-        (e) -> e.friendly_name))
+        new wire.OrderSpec { key = (e) -> e.stateIs("on"); dir = "desc" },
+        new wire.OrderSpec { key = (e) -> e.attrKey("brightness"); dir = "desc" },
+        new wire.OrderSpec { key = (e) -> e.friendly_name }))
     s.orderBy.length == 3
-    (s.orderBy[0] as wire.SortKey).equals == "on"
-    (s.orderBy[1] as wire.SortKey).property == "attr:brightness"
+    (s.orderBy[0] as wire.LiveSort).by is wire.Bound
+    ((s.orderBy[1] as wire.LiveSort).by as wire.PropRef).property == "attr:brightness"
     // the static tail cannot fold away — two live keys outrank it — so it
     // becomes a per-member sort value the runtime compares
     s.orderBy[2] is wire.StaticSort
@@ -222,19 +222,20 @@ facts {
   ["7d. a STATIC key may outrank a live one — by name, then brightness"] {
     local s = wire.buildSet(
       stueLights, List(plainBranch), alwaysPresent,
-      List((e) -> e.friendly_name,
-           (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
+      List(new wire.OrderSpec { key = (e) -> e.friendly_name },
+           new wire.OrderSpec { key = (e) -> e.attrKey("brightness"); dir = "desc" }))
     // the static key is FIRST, so it cannot be pre-sorted away either: the
     // runtime must apply it before the live key
     s.orderBy[0] is wire.StaticSort
-    s.orderBy[1] is wire.SortKey
+    s.orderBy[1] is wire.LiveSort
     s.members["light.spot"].sortVars == List("Spot")
   }
 
   ["7e. all keys static => sorted now, nothing emitted, no sortVars"] {
     local s = wire.buildSet(
       fixtures.all.filter((e) -> e.domain == "light"), List(plainBranch), alwaysPresent,
-      List((e) -> e.area_id, (e) -> e.friendly_name))
+      List(new wire.OrderSpec { key = (e) -> e.area_id },
+           new wire.OrderSpec { key = (e) -> e.friendly_name }))
     s.orderBy == null
     // kjokken area first, then the three stue lights alphabetically
     s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
@@ -279,7 +280,7 @@ examples {
       stueLights,
       List(sliderBranch),
       (e) -> e.stateIs("on"),
-      List((_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" })))
+      List(new wire.OrderSpec { key = (e) -> e.attrKey("brightness"); dir = "desc" })))
   }
 
   ["static domain dispatch across the whole house"] {

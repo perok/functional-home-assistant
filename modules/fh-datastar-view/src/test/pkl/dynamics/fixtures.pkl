@@ -13,6 +13,8 @@ class Ent {
     new { property = "state"; op = "eq"; value = s }
   function attrAbove(n: String, v: Any): wire.Bound =
     new { property = "attr:" + n; op = "gt"; value = v }
+  /// A live PROPERTY reference for ordering — the value, not a comparison.
+  function attrKey(n: String): wire.PropRef = new { property = "attr:" + n }
 }
 
 taklys  = new Ent { entity_id = "light.taklys"; domain = "light"; friendly_name = "Taklys"; area_id = "stue"; supported_features = 8 }

@@ -1,0 +1,137 @@
+/// SPIKE — the authoring surface (`query.pkl`) over the fold in `wire.pkl`.
+///
+/// The point of these tests is that the surface is THIN: it accumulates four
+/// things and hands them to `buildSet`. If a scenario needs the surface to
+/// compute anything, that is a signal the split is in the wrong place.
+amends "pkl:test"
+
+import "dynamics/query.pkl" as q
+import "dynamics/wire.pkl"
+import "dynamics/fixtures.pkl"
+
+local slider = (e) -> new wire.Node {
+  card = "slider"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name },
+              "state", new wire.Xf { transform = "$state" })
+}
+local toggle = (e) -> new wire.Node {
+  card = "toggle"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name })
+}
+local mediaCard = (e) -> new wire.Node {
+  card = "mediaCard"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name })
+}
+
+facts {
+  ["a list argument to `where` is conjunction; static terms drop candidates"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> List(e.domain == "light", e.area_id == "stue"))
+      .render(slider)
+      .build()
+    s.candidates == List("light.taklys", "light.lampe", "light.spot")
+    // nothing live: one condition entry, the unconditional null
+    s.conditions == List(null)
+  }
+
+  ["chained `where`s conjoin, and a live term becomes the member condition"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .where((e) -> e.stateIs("on"))
+      .render(slider)
+      .build()
+    s.candidates.length == 4
+    s.conditions.length == 2
+    s.conditions[1].property == "state"
+  }
+
+  ["`any` is disjunction and nests inside a conjunction list"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> List(
+        e.domain == "light",
+        q.any(List(e.supported_features > 4, e.stateIs("on")))))
+      .render(slider)
+      .build()
+    // dimmable lights are unconditionally present; the dumb one defers
+    s.conditions.length == 2
+    s.conditions[s.members["light.taklys"].clauses.first.cond] == null
+    s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
+  }
+
+  ["`not` folds statically when its operand is static"] {
+    q.not(true) == false
+    q.not(false) == true
+    q.not(fixtures.taklys.stateIs("on")) is wire.PNot
+  }
+
+  ["`cases` takes several branches at once, author order = match order"] {
+    local s = q.from(fixtures.all)
+      .cases(new Mapping {
+        [(e) -> e.domain == "light"] = slider
+        [(e) -> e.domain == "media_player"] = mediaCard
+      })
+      .build()
+    s.shapes.length == 2
+    s.members["media_player.tv"].clauses.first.shape !=
+      s.members["light.taklys"].clauses.first.shape
+  }
+
+  ["`else` terminates the clause list"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .caseOf((e) -> e.supported_features > 4, slider)
+      .`else`(toggle)
+      .build()
+    s.members.values.every((m) -> m.clauses.length == 1)
+    s.members["light.lampe"].clauses.first.shape !=
+      s.members["light.taklys"].clauses.first.shape
+  }
+
+  ["NO `else` is fine: an unmatched candidate is simply not rendered"] {
+    local s = q.from(fixtures.all)
+      .caseOf((e) -> e.domain == "light", slider)
+      .build()
+    // the media_player matched no clause and never reaches the wire
+    !s.candidates.contains("media_player.tv")
+    s.candidates.length == 4
+  }
+
+  ["a live clause with no `else` means the member disappears when it fails"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .caseOf((e) -> e.stateIs("on"), slider)
+      .build()
+    s.members["light.taklys"].clauses.length == 1
+    s.conditions[s.members["light.taklys"].clauses.first.cond].property == "state"
+  }
+
+  ["ordering by a PREDICATE sorts by whether it holds — no `equals` field"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .orderBy(List(
+        q.desc((e) -> e.stateIs("on")),
+        q.desc((e) -> e.attrKey("brightness")),
+        (e) -> e.friendly_name))
+      .render(toggle)
+      .build()
+    s.orderBy.length == 3
+    (s.orderBy[0] as wire.LiveSort).by is wire.Bound
+    (s.orderBy[0] as wire.LiveSort).dir == "desc"
+    (s.orderBy[1] as wire.LiveSort).by is wire.PropRef
+    ((s.orderBy[1] as wire.LiveSort).by as wire.PropRef).property == "attr:brightness"
+    // the static tail cannot fold away, so it rides per member
+    s.orderBy[2] is wire.StaticSort
+    s.members["light.taklys"].sortVars == List("Taklys")
+  }
+
+  ["a bare lambda in orderBy is ascending"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .orderBy(List((e) -> e.friendly_name))
+      .render(toggle)
+      .build()
+    // fully static: sorted now, nothing emitted
+    s.orderBy == null
+    s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
+  }
+}

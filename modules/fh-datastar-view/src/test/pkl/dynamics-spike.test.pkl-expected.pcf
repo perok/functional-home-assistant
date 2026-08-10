@@ -10,7 +10,10 @@ examples {
       ],
       "orderBy": [
         {
-          "property": "attr:brightness",
+          "by": {
+            "kind": "prop",
+            "property": "attr:brightness"
+          },
           "dir": "desc"
         }
       ],

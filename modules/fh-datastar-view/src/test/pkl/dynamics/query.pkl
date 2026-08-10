@@ -1,0 +1,104 @@
+/// SPIKE — the query surface over a static candidate set.
+///
+/// Deliberately its OWN namespace, not part of `components.pkl`: this is a
+/// query language, and a card knows nothing about it. A `render` lambda hands
+/// back an ordinary `Node`, which is the only seam between the two. When this
+/// lands for real it becomes `lib/query.pkl`, imported as `q`.
+///
+/// Candidates are typed `Any`, not `Entity`, on purpose — a member does not
+/// have to be an entity (a tile per room makes AREAS the candidates), and
+/// baking the assumption in now would have to be unpicked later.
+module query
+
+import "wire.pkl"
+
+// ---- boolean structure -----------------------------------------------------
+//
+// A LIST is conjunction — the common case, so `where` takes one directly and no
+// wrapper is needed. Disjunction and negation are explicit, and nest freely:
+//
+//   .where((e) -> List(e.domain == "light", q.any(List(e.stateIs("on"), e.isFav))))
+//
+// `&&`/`||` cannot be used across the seam: Pkl rejects `Boolean && Term`, which
+// is what keeps a live condition from being smuggled into a static position.
+
+/// Conjunction. A statically-false term decides the candidate immediately.
+function all(items: List<Boolean|wire.Term>): Boolean|wire.Term = wire.all(items)
+
+/// Disjunction. A statically-true term short-circuits the whole thing — which
+/// is why presence residuals can differ between members of one set.
+function any(items: List<Boolean|wire.Term>): Boolean|wire.Term = wire.any(items)
+
+/// Negation. Static stays static; a live term becomes a runtime `not`.
+function not(item: Boolean|wire.Term): Boolean|wire.Term =
+  if (item is Boolean) !item else new wire.PNot { item = item as wire.Term }
+
+// ---- ordering --------------------------------------------------------------
+
+/// Ascending (the default, so a bare lambda works too).
+function asc(k: (Any) -> Any): wire.OrderSpec = new { key = k; dir = "asc" }
+
+/// Descending. Ordering by a PREDICATE sorts by whether it holds, so
+/// `desc((e) -> e.stateIs("on"))` puts the on-ones first.
+function desc(k: (Any) -> Any): wire.OrderSpec = new { key = k; dir = "desc" }
+
+// `const` because [[EntitySet.orderBy]] calls it from a class body.
+const local function spec(k: wire.OrderSpec|((Any) -> Any)): wire.OrderSpec =
+  if (k is wire.OrderSpec) k else new wire.OrderSpec { key = k as ((Any) -> Any) }
+
+// ---- the set ---------------------------------------------------------------
+
+/// A chainable candidate set. Every method returns an amended copy, so a chain
+/// is pure accumulation and `build()` hands the four accumulated pieces to the
+/// fold. Nothing is evaluated until `build()`.
+class EntitySet {
+  hidden items: List<Any>
+  hidden filters: List<(Any) -> Boolean|wire.Term|List<Boolean|wire.Term>> = List()
+  hidden branches: List<wire.Branch> = List()
+  hidden specs: List<wire.OrderSpec> = List()
+
+  /// Keep candidates matching `f`. A `List` result is conjunction. Static terms
+  /// drop candidates at build time; live terms become the member's condition —
+  /// one method, because it is one fold.
+  function where(f: (Any) -> Boolean|wire.Term|List<Boolean|wire.Term>): EntitySet =
+    let (l = this) (l) { filters = l.filters.add(f) }
+
+  /// Lexicographic, most significant first. Accepts bare lambdas (ascending)
+  /// and [[asc]]/[[desc]] specs.
+  function orderBy(ks: List<wire.OrderSpec|((Any) -> Any)>): EntitySet =
+    let (l = this) (l) { specs = l.specs + ks.map((k) -> spec(k)) }
+
+  /// One guarded rendering. `g` returning a `Boolean` folds at build time; a
+  /// `Term` defers to the wire.
+  function caseOf(g: (Any) -> Boolean|wire.Term, r: (Any) -> wire.Node): EntitySet =
+    let (l = this) (l) { branches = l.branches.add(new wire.Branch { key = g; render = r }) }
+
+  /// Several guarded renderings at once. A `Mapping` keeps author order — which
+  /// is match order — and rejects duplicate keys.
+  function cases(m: Mapping<(Any) -> Boolean|wire.Term, (Any) -> wire.Node>): EntitySet =
+    let (l = this)
+      (l) {
+        branches = l.branches + m.toMap().entries.map((p) ->
+          new wire.Branch { key = p.key; render = p.value })
+      }
+
+  /// The unconditional last clause. OPTIONAL: with no `else`, a candidate that
+  /// matches no clause is simply not rendered, which is often what you want.
+  function `else`(r: (Any) -> wire.Node): EntitySet = caseOf((_e) -> true, r)
+
+  /// The only rendering, when there is nothing to dispatch on.
+  function render(r: (Any) -> wire.Node): EntitySet = caseOf((_e) -> true, r)
+
+  function build(): wire.SetNode =
+    let (l = this)
+      wire.buildSet(
+        l.items,
+        l.branches,
+        (e) -> wire.all(l.filters.map((f) ->
+          let (r = f.apply(e))
+            if (r is List) wire.all(r as List<Boolean|wire.Term>) else r as (Boolean|wire.Term))),
+        l.specs)
+}
+
+/// Start a query. Flexible by design — any list of things with an `entity_id`.
+function from(xs: List<Any>): EntitySet = new EntitySet { items = xs }
