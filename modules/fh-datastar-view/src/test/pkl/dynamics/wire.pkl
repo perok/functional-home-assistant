@@ -55,34 +55,39 @@ class Node { card: String; slots: Map<String, Slot> }
 
 // ---- the emitted wire node ----
 
-class CaseDef { card: String; slots: Map<String, Slot> }
+/// One deduped rendering: a card plus the slots that are identical across every
+/// member using it. NOT a "case" — the old `DynamicCase` bundled a predicate
+/// WITH a rendering, and this format splits those apart; the guard lives in
+/// [[SetNode.conditions]] and a [[Clause]] joins the two.
+class ShapeDef { card: String; slots: Map<String, Slot> }
 
-/// `cond` and `shape` are both INDICES into the set's dedup tables
-/// ([[SetNode.conditions]] / [[SetNode.cases]]). Storing the predicate inline
-/// instead would repeat it once per member per alternative — the residuals
-/// diverge, but only into a handful of distinct values, so the same compression
-/// that gives shapes their table applies unchanged.
-class Alt { cond: Int; shape: Int }
+/// One guarded rendering rule for a member: "if `cond` holds, render `shape`".
+/// Both fields are INDICES into the set's dedup tables
+/// ([[SetNode.conditions]] / [[SetNode.shapes]]) — storing either inline would
+/// repeat it once per member per rule.
+class Clause { cond: Int; shape: Int }
 
-class MemberDef { vars: Map<String, String>; alts: List<Alt> }
+/// A member is a `cond` expression: its clauses are tried in order and the first
+/// whose guard holds decides the rendering. Falling off the end means the member
+/// is NOT RENDERED — which is why there is no separate presence field.
+class MemberDef { vars: Map<String, String>; clauses: List<Clause> }
+
+/// A LIVE ordering key. A key that folds to registry facts never gets here — the
+/// build sorts `candidates` instead and emits no ordering at all.
 class OrderBy { property: String; dir: String; tiebreak: String = "entity_id" }
 
-/// No `present` field: presence is not separable from dispatch. Two members of
-/// one set can fold to DIFFERENT presence residuals (`e.dimmable || e.stateIs("on")`
-/// is statically true for a dimmable light and `state == on` for a dumb one), so
-/// a set-level predicate cannot represent it. Pushing it per-member then makes it
-/// identical to "no alternative matched" — so it collapses into [[Alt]] rather
-/// than living beside it. A member is PRESENT iff some alt's `when` holds; an alt
-/// with a null `when` is unconditional.
 class SetNode {
   kind: "set" = "set"
+  /// In render order. When the ordering key folded to registry facts this list
+  /// is already sorted and [[orderBy]] is null: the runtime filters to the
+  /// present members and preserves this order, O(P) with no comparisons.
   candidates: List<String>
   orderBy: OrderBy?
-  /// Distinct runtime conditions, referenced by [[Alt.cond]]. Index 0 is always
-  /// `null` = unconditional, so a fully static set carries one entry and every
-  /// alt points at it.
+  /// Distinct runtime guards, referenced by [[Clause.cond]]. Index 0 is always
+  /// `null` = unconditional, so a fully static set carries one entry that every
+  /// clause points at.
   conditions: List<Term?>
-  cases: List<CaseDef>
+  shapes: List<ShapeDef>
   members: Map<String, MemberDef>
 }
 
@@ -117,11 +122,44 @@ local function varyingKeys(nodes: List<Node>): List<String> =
     nodes.first.slots.keys.toList().filter((k) ->
       nodes.any((n) -> n.slots[k] != nodes.first.slots[k]))
 
-local function shapeOf(n: Node, varying: List<String>): CaseDef =
-  new CaseDef {
+local function shapeOf(n: Node, varying: List<String>): ShapeDef =
+  new ShapeDef {
     card = n.card
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
   }
+
+/// A live ordering key the runtime must resolve. Anything else an ordering
+/// lambda returns is a plain Pkl value — a registry fact, known now.
+class SortKey { property: String; dir: String = "asc" }
+
+/// Fold an ordering lambda over the candidates. Three outcomes, and only two of
+/// them are legal:
+///
+///   - every key is a plain value  => order is decided NOW. Sort the candidate
+///     list and emit no ordering; the runtime filters and preserves it, O(P)
+///     with no comparisons.
+///   - every key is the SAME [[SortKey]] => one set-level ordering on the wire.
+///   - anything else => the keys are not mutually comparable (a brightness
+///     against a name), so this is a build error rather than a per-member key.
+///     Unlike presence, a diverging ordering key is not a case to support.
+///
+/// Returns the ordered entities and the ordering to emit, if any.
+function foldOrder(entities: List<Any>, key: ((Any) -> Any)?): Pair<List<Any>, OrderBy?> =
+  if (key == null) Pair(entities, null)
+  else
+    let (keys = entities.map((e) -> key.apply(e)))
+      if (keys.every((k) -> !(k is SortKey)))
+        Pair(entities.sortBy((e) -> key.apply(e)), null)
+      else if (keys.every((k) -> k is SortKey) && keys.distinct.length == 1)
+        let (sk = keys.first as SortKey)
+          Pair(entities, new OrderBy { property = sk.property; dir = sk.dir })
+      else
+        throw("""
+          Ordering key does not fold to one form across the set: some candidates
+          yield a build-time value and others a live key, or the live keys differ.
+          Those are not mutually comparable. Order by a single property, or split
+          the set.
+          """)
 
 /// Conjoin a candidate's presence residual with one branch's residual. Either
 /// may be statically decided; the result is the runtime condition the wire must
@@ -137,11 +175,14 @@ function buildSet(
   entities: List<Any>,
   branches: List<Branch>,
   presence: (Any) -> Boolean|Term,
-  order: OrderBy?
+  orderKey: ((Any) -> Any)?
 ): SetNode =
+  // 0. fold the ordering first: a registry-derived key sorts the candidates now
+  //    and emits nothing, so the runtime never compares them.
+  let (ordered = foldOrder(entities, orderKey))
   // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
   //    never reaches the wire.
-  let (kept = entities
+  let (kept = ordered.first
         .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
   // 2. dispatch: which branches can win for each surviving candidate.
@@ -160,10 +201,10 @@ function buildSet(
   //    literals that vary within a shape.
   let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
   let (byCard = allNodes.groupBy((n) -> n.card))
-  let (shapes = byCard.keys.toList().sort().map((card) ->
+  let (shapeDefs = byCard.keys.toList().sort().map((card) ->
         shapeOf(byCard[card].first, varyingKeys(byCard[card]))))
   let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
-  let (caseIndex = shapes.toList().map((s) -> s.card))
+  let (shapeIndex = shapeDefs.toList().map((s) -> s.card))
   // 5. dedupe the residual conditions the same way shapes are deduped. Null
   //    first, so index 0 always means unconditional.
   let (conds = List(null) + rendered
@@ -172,18 +213,18 @@ function buildSet(
         .distinct)
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
-    orderBy = order
+    orderBy = ordered.second
     conditions = conds
-    cases = shapes
+    shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
       let (winning = p.second.first.first)
         new MemberDef {
           vars = varyingByCard[winning.card]
             .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
-          alts = p.second.map((q) ->
-            new Alt {
+          clauses = p.second.map((q) ->
+            new Clause {
               cond = conds.findIndex((t) -> t == q.second)
-              shape = caseIndex.findIndex((c) -> c == q.first.card)
+              shape = shapeIndex.findIndex((c) -> c == q.first.card)
             })
         })
   }

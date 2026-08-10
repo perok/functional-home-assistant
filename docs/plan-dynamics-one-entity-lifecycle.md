@@ -103,18 +103,22 @@ Emitted:
  "candidates":["light.a","light.b","light.c"],
  "conditions":[null,{"property":"state","op":"eq","value":"on"}],
  "orderBy":{"property":"attr:brightness","dir":"desc","tiebreak":"entity_id"},
- "cases":[{"card":"slider","slots":{
+ "shapes":[{"card":"slider","slots":{
      "state":{"transform":"$state","reactive":true},
      "fill": {"transform":"$round($attr.brightness*100/255)","reactive":true},
      "key":{"literal":"brightness"},"min":{"literal":"1"},"max":{"literal":"255"},
      "action":{"literal":"light/turn_on"}}}],
- "members":{"light.a":{"vars":{"label":"Taklys"},"alts":[{"cond":1,"shape":0}]},
-            "light.b":{"vars":{"label":"Lampe"}, "alts":[{"cond":1,"shape":0}]},
-            "light.c":{"vars":{"label":"Spot"},  "alts":[{"cond":1,"shape":0}]}}}
+ "members":{"light.a":{"vars":{"label":"Taklys"},"clauses":[{"cond":1,"shape":0}]},
+            "light.b":{"vars":{"label":"Lampe"}, "clauses":[{"cond":1,"shape":0}]},
+            "light.c":{"vars":{"label":"Spot"},  "clauses":[{"cond":1,"shape":0}]}}}
 ```
 
-Two dedup tables, `cases` and `conditions`; members are thin rows of indices plus their varying
-literals. `cond: 0` is always `null` = unconditional. `orderBy` carries no `entity` — it is bound
+**Naming.** A member is a `cond` expression: its **clauses** are tried in order and the first
+whose guard holds decides the rendering; falling off the end means the member is not rendered.
+They are not "alternatives" — nothing is being destructured. The two dedup tables are **`shapes`**
+(a card plus the slots identical across its members) and **`conditions`** (the guards). The old
+`DynamicCase` bundled a predicate WITH a rendering; this format splits them, so "case" no longer
+names anything here. Members are thin rows of indices plus their varying literals. `cond: 0` is always `null` = unconditional. `orderBy` carries no `entity` — it is bound
 by set membership (P6's second shape). See "Resolved by the spike" for why there is no `present`.
 
 **Case dispatch may be static or state-dependent** (decided: we support both). The Mapping key
@@ -131,9 +135,9 @@ winning:
 
 ```json
 "conditions":[null,{"kind":"cmp","property":"state","op":"eq","value":"on"}],
-"cases":[{"card":"slider",...},{"card":"toggle",...}],
+"shapes":[{"card":"slider",...},{"card":"toggle",...}],
 "members": {
-  "light.a": {"vars":{"label":"Taklys"}, "alts":[{"cond":1,"shape":0},{"cond":0,"shape":1}]}
+  "light.a": {"vars":{"label":"Taklys"}, "clauses":[{"cond":1,"shape":0},{"cond":0,"shape":1}]}
 }
 ```
 
@@ -153,7 +157,8 @@ in a frame, `C` = distinct shapes (`C ≤ N`, usually `C ≪ N`).
 | `dashboard.json` | O(1) per group | **O(C·slots + N·vars)** |
 | membership per frame | **O(E · groups)** — full map scan | **O(Δ)** index lookups |
 | presence eval | — | O(Δ) per frame; O(N) once at renderer construction |
-| ordering | not supported | O(P log P), only when a *present* member's key moves |
+| ordering (live key) | not supported | O(P log P), only when a *present* member's key moves |
+| ordering (registry key) | not supported | **O(P)** — pre-sorted at build, runtime only filters |
 | DOM elements | O(P) | **O(P)** |
 | bytes to client | O(changed) | O(changed present) |
 
@@ -316,10 +321,23 @@ rows of indices plus their varying literals. Pinned by `dynamics-spike.test.pkl`
 residuals diverge across members of one set"). "One mechanism, not two parallel ones" arriving
 from evidence rather than taste.
 
-**`orderBy` stays set-level, deliberately.** It has no equivalent divergence problem because a
-sort needs one comparable key across the set. An author *could* write a key that folds to
-different properties per member; that is not supported, and should be rejected rather than
-emitted — comparing brightness against temperature is not an ordering.
+**Ordering folds the same way, but a diverging key is an ERROR, not a case to support.** Three
+outcomes, verified:
+
+| key | folds to | emitted |
+|---|---|---|
+| `e.friendly_name` (registry) | build-time values | **candidates pre-sorted, no `orderBy`** |
+| `e.attr("brightness")` (live) | one shared reference | set-level `orderBy` |
+| branches on a registry fact | some static, some live | **build error** |
+
+The first is the payoff: alphabetical ordering — probably the common case — costs the runtime
+nothing at all, and makes ordering O(P) filtering rather than O(P log P) sorting. The third is
+where ordering differs from presence: diverging presence residuals are legitimate and must be
+supported, but two order keys are only useful if mutually comparable, and a brightness against a
+name is not. Reject at build time rather than inventing per-member keys.
+
+`orderBy` therefore does NOT join the `conditions` table — it is a key extractor, not a guard, and
+after folding there is at most one of it.
 
 **The build emits an already-split node; the runtime never re-derives the split.** The spike does
 the fold at build time and emits only the residue — candidates, per-alt conditions, shapes. The

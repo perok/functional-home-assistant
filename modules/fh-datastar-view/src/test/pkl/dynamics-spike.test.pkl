@@ -87,17 +87,17 @@ local alwaysPresent = (_e) -> true
 
 /// Resolve alternative `i` of `eid` through the set's condition table.
 /// `null` means unconditional.
-local condOf = (s, eid: String, i: Int) -> s.conditions[s.members[eid].alts[i].cond]
+local condOf = (s, eid: String, i: Int) -> s.conditions[s.members[eid].clauses[i].cond]
 
 facts {
   ["1. a uniform set shares one case; only the varying literal is per-member"] {
     local s = wire.buildSet(stueLights, List(sliderBranch), (e) -> e.stateIs("on"), null)
     s.candidates.length == 3
-    s.cases.length == 1
+    s.shapes.length == 1
     // the state transform is identical across members -> stays on the case
-    s.cases.first.slots.containsKey("state")
+    s.shapes.first.slots.containsKey("state")
     // the registry-derived label differs -> hoisted to per-member vars
-    !s.cases.first.slots.containsKey("label")
+    !s.shapes.first.slots.containsKey("label")
     s.members["light.taklys"].vars["label"] == "Taklys"
     s.members["light.lampe"].vars["label"] == "Lampe"
   }
@@ -106,7 +106,7 @@ facts {
     local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, null)
     s.members["light.taklys"].vars["label"] == "Blah Taklys"
     s.members["light.spot"].vars["label"] == "Blah Spot"
-    s.cases.length == 1
+    s.shapes.length == 1
     // nothing defers: the member's only alternative is unconditional
     condOf.apply(s, "light.taklys", 0) == null
   }
@@ -134,28 +134,28 @@ facts {
 
   ["3. static domain dispatch resolves to a shape index, no runtime `when`"] {
     local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
-    s.cases.length == 2
+    s.shapes.length == 2
     // every member has exactly one alternative, and it is unconditional
-    s.members.values.every((m) -> m.alts.length == 1)
-    s.members.values.every((m) -> s.conditions[m.alts.first.cond] == null)
-    s.members["media_player.tv"].alts.first.shape !=
-      s.members["light.taklys"].alts.first.shape
+    s.members.values.every((m) -> m.clauses.length == 1)
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
+    s.members["media_player.tv"].clauses.first.shape !=
+      s.members["light.taklys"].clauses.first.shape
   }
 
   ["4. a capability branch is static too — supported_features is registry data"] {
     local s = wire.buildSet(stueLights, List(dimmableBranch, plainBranch), alwaysPresent, null)
     // taklys/spot (features 8) take the slider; lampe (features 2) falls through
-    s.members["light.taklys"].alts.length == 1
-    s.members["light.lampe"].alts.length == 1
-    s.members["light.taklys"].alts.first.shape !=
-      s.members["light.lampe"].alts.first.shape
-    s.members.values.every((m) -> s.conditions[m.alts.first.cond] == null)
+    s.members["light.taklys"].clauses.length == 1
+    s.members["light.lampe"].clauses.length == 1
+    s.members["light.taklys"].clauses.first.shape !=
+      s.members["light.lampe"].clauses.first.shape
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
   }
 
   ["5. state-dependent dispatch keeps BOTH shapes, choice deferred to the wire"] {
     local s = wire.buildSet(stueLights, List(whenOnBranch, plainBranch), alwaysPresent, null)
     // two alternatives per member: the conditional one, then the fallback
-    s.members["light.taklys"].alts.length == 2
+    s.members["light.taklys"].clauses.length == 2
     condOf.apply(s, "light.taklys", 0) != null
     condOf.apply(s, "light.taklys", 0).property == "state"
     // the unconditional fallback terminates the list
@@ -176,6 +176,28 @@ facts {
                    fixtures.taklys.attrAbove("brightness", 40))) as wire.PAnd).items.length == 2
   }
 
+  // ORDERING folds too, and — unlike presence — a diverging key is an ERROR
+  // rather than a case to support. Two order keys are only useful if they are
+  // mutually comparable; a brightness against a friendly_name is not.
+  ["7a. a registry-derived order key sorts at build time and emits nothing"] {
+    local s = wire.buildSet(
+      fixtures.all.filter((e) -> e.domain == "light"),
+      List(plainBranch), alwaysPresent, (e) -> e.friendly_name)
+    // sorted NOW; the runtime just filters and preserves this order
+    s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
+    s.orderBy == null
+  }
+
+  ["7b. a live order key is shared set-level, candidates keep author order"] {
+    local s = wire.buildSet(
+      stueLights, List(plainBranch), alwaysPresent,
+      (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" })
+    s.orderBy.property == "attr:brightness"
+    s.orderBy.dir == "desc"
+    s.orderBy.tiebreak == "entity_id"
+    s.candidates == List("light.taklys", "light.lampe", "light.spot")
+  }
+
   // OPEN QUESTION, pinned so it cannot hide. `varyingKeys` decides var-vs-case
   // by DIFFING the members that happen to share a shape, so a shape with one
   // member has nothing to diff and its entity-derived literal stays baked on
@@ -185,11 +207,11 @@ facts {
   // per-member repetition for literals that are genuinely constant.
   ["single-member shapes bake their literal onto the case (count-dependent!)"] {
     local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, null)
-    local media = s.cases.filter((c) -> c.card == "mediaCard").first
+    local media = s.shapes.filter((c) -> c.card == "mediaCard").first
     media.slots.containsKey("label")
     s.members["media_player.tv"].vars.isEmpty
     // the multi-member shape does the opposite with the same authored slot
-    s.cases.filter((c) -> c.card == "slider").first.slots.isEmpty
+    s.shapes.filter((c) -> c.card == "slider").first.slots.isEmpty
     s.members["light.taklys"].vars["label"] == "Taklys"
   }
 
@@ -214,7 +236,7 @@ examples {
       stueLights,
       List(sliderBranch),
       (e) -> e.stateIs("on"),
-      new wire.OrderBy { property = "attr:brightness"; dir = "desc" }))
+      (_e) -> new wire.SortKey { property = "attr:brightness"; dir = "desc" }))
   }
 
   ["static domain dispatch across the whole house"] {

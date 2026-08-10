@@ -22,7 +22,7 @@ examples {
           "value": "on"
         }
       ],
-      "cases": [
+      "shapes": [
         {
           "card": "slider",
           "slots": {
@@ -38,7 +38,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
@@ -49,7 +49,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
@@ -60,7 +60,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
@@ -85,7 +85,7 @@ examples {
       "conditions": [
         null
       ],
-      "cases": [
+      "shapes": [
         {
           "card": "mediaCard",
           "slots": {
@@ -104,7 +104,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 0,
               "shape": 1
@@ -115,7 +115,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 0,
               "shape": 1
@@ -126,7 +126,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 0,
               "shape": 1
@@ -135,7 +135,7 @@ examples {
         },
         "media_player.tv": {
           "vars": {},
-          "alts": [
+          "clauses": [
             {
               "cond": 0,
               "shape": 0
@@ -146,7 +146,7 @@ examples {
           "vars": {
             "label": "Kjøkken"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 0,
               "shape": 1
@@ -175,7 +175,7 @@ examples {
           "value": "on"
         }
       ],
-      "cases": [
+      "shapes": [
         {
           "card": "slider",
           "slots": {}
@@ -190,7 +190,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
@@ -205,7 +205,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
@@ -220,7 +220,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
-          "alts": [
+          "clauses": [
             {
               "cond": 1,
               "shape": 0
