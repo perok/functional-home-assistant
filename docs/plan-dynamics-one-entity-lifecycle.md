@@ -114,9 +114,49 @@ Emitted:
 ```
 
 `present`/`orderBy` carry no `entity` — they are bound by set membership (P6's second shape).
-`case` is an **index resolved at build time**: dispatch by domain or `device_class` is a registry
-fact, so Pkl picks the winner per candidate. Only a genuinely state-dependent case needs a `when`
-on the wire.
+
+**Case dispatch may be static or state-dependent** (decided: we support both). The Mapping key
+returns a union, and the build applies every key to every candidate:
+
+```pkl
+hidden cases: Mapping<(Entity) -> Boolean|Bound, (Entity) -> Node>
+```
+
+A key returning `Boolean` folds to a case index; one returning `Bound` defers to the wire. `&&`
+still refuses to mix static and runtime *within* a term (see "Pkl mechanics"), so a key is cleanly
+one or the other. Members therefore carry either a bare index or an alternatives list, first match
+winning:
+
+```json
+"members": {
+  "light.a": {"label":"Taklys", "case":0},
+  "light.b": {"label":"Lampe",  "alts":[{"when":{"property":"state","op":"eq","value":"on"},"case":0},
+                                        {"case":1}]}
+}
+```
+
+Re-dispatch is free in practice: a member only re-evaluates its alts when its own entity changes,
+which is when it was re-rendering anyway.
+
+### Complexity
+
+`N` = candidates in a set, `P` = present members, `E` = all entities in HA, `Δ` = entities changed
+in a frame, `C` = distinct shapes (`C ≤ N`, usually `C ≪ N`).
+
+| | today | after |
+|---|---|---|
+| `dashboard.json` | O(1) per group | **O(C·slots + N·vars)** |
+| membership per frame | **O(E · groups)** — full map scan | **O(Δ)** index lookups |
+| presence eval | — | O(Δ) per frame; O(N) once at renderer construction |
+| ordering | not supported | O(P log P), only when a *present* member's key moves |
+| DOM elements | O(P) | **O(P)** |
+| bytes to client | O(changed) | O(changed present) |
+
+**The wire grows linearly in candidates; nothing the client or the frame loop does is linear in
+candidates.** A 200-candidate set with 5 present costs 200 JSON entries, 5 DOM elements, and a
+hash lookup per change. The one real regression — `dashboard.json` per set going from constant to
+linear — buys the frame loop going from O(E · groups) to O(Δ). Byte count is therefore not a
+design driver here; it is server-side metadata, not work reaching the browser.
 
 **Rejected: D1 (full expansion, one Component node per candidate).** N × (card + all slots +
 predicate) instead of 1 × that + N × (id + label), and — decisively — three sibling nodes have no
@@ -193,6 +233,24 @@ sugar for `where((e) -> e.area_id.is("stue"))`. Case dispatch uses the same fold
   default                           = (e) -> c.entityCard(e)
 })
 ```
+
+## Pkl mechanics (verified on 0.32.1, the `pkl-core` pin)
+
+Spiked rather than assumed, per the module's "verify semantics empirically" rule:
+
+- **A lambda can be a `Mapping` key**, and keys can be applied to dispatch. The Mapping must be
+  `hidden` — functions cannot render to output, which is already how `DynamicGroup.branches` is
+  declared. The language reference confirms non-String keys generally (`[new Dynamic { … }] = …`).
+- **`&&` type-errors when mixing a static `Boolean` with a runtime predicate object**:
+  `Operator `&&` is not defined for operand types `Boolean` and `Bound``. So the build/runtime
+  split is enforced by the type system for free — a state condition cannot be smuggled into a
+  static position.
+- **Structural equality holds for independently-built objects**, and `Map` dedupes by structural
+  key. `distinct`, `groupBy` and `fold` all work on class instances.
+- Consequence: the D1→D2 shape dedup *could* run in Pkl. It should still run in Scala
+  (`DashboardBuild`), because `distinct` alone is not enough — the varying literals must be holed
+  out first, which is a cross-candidate comparison per slot key, easier to test as a pure function.
+  This is now a choice, not a constraint.
 
 ## What we keep, delete, and fix
 
