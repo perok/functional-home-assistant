@@ -103,8 +103,27 @@ facts {
     s.members["light.taklys"].vars["label"] == "Blah Taklys"
     s.members["light.spot"].vars["label"] == "Blah Spot"
     s.cases.length == 1
-    // nothing defers: no predicate reaches the wire at all
-    s.present == null
+    // nothing defers: the member's only alternative is unconditional
+    s.members["light.taklys"].alts.first.`when` == null
+  }
+
+  // WHY THERE IS NO SET-LEVEL `present` FIELD. An `or` mixing a registry fact
+  // with live state folds DIFFERENTLY per candidate: statically true for a
+  // dimmable light, a live state test for a dumb one. One shared predicate
+  // cannot express both, so presence is per-member — and once it is per-member
+  // it is indistinguishable from "no alternative matched", so it collapses into
+  // `alts` instead of sitting beside it.
+  ["presence residuals diverge across members of one set"] {
+    local presence = (e) -> wire.any(List(e.supported_features > 4, e.stateIs("on")))
+    presence.apply(fixtures.taklys) == true
+    presence.apply(fixtures.lampe) is wire.Bound
+    presence.apply(fixtures.taklys) != presence.apply(fixtures.lampe)
+
+    local s = wire.buildSet(stueLights, List(plainBranch), presence, null)
+    // the dimmable one is unconditionally present...
+    s.members["light.taklys"].alts.first.`when` == null
+    // ...the dumb one carries its residual on the alternative
+    s.members["light.lampe"].alts.first.`when`.property == "state"
   }
 
   ["3. static domain dispatch resolves to a shape index, no runtime `when`"] {

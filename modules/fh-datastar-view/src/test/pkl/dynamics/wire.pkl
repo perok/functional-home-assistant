@@ -28,6 +28,22 @@ function all(items: List<Boolean|Term>): Boolean|Term =
       else if (rest.length == 1) rest.first
       else new PAnd { items = rest }
 
+/// The `or` counterpart. A statically-true term short-circuits the whole
+/// disjunction, which is what makes presence residuals DIVERGE across the
+/// members of one set — see [[SetNode]].
+function any(items: List<Boolean|Term>): Boolean|Term =
+  if (items.any((i) -> i is Boolean && i == true)) true
+  else
+    let (rest = items.filter((i) -> i is Term) as List<Term>)
+      if (rest.isEmpty) false
+      else if (rest.length == 1) rest.first
+      else new POr { items = rest }
+
+class POr extends Term {
+  kind: "or" = "or"
+  items: List<Term>
+}
+
 // ---- slots: registry-derived folds to a literal, state-derived stays a transform ----
 
 abstract class Slot
@@ -44,10 +60,16 @@ class Alt { `when`: Term?; shape: Int }
 class MemberDef { vars: Map<String, String>; alts: List<Alt> }
 class OrderBy { property: String; dir: String; tiebreak: String = "entity_id" }
 
+/// No `present` field: presence is not separable from dispatch. Two members of
+/// one set can fold to DIFFERENT presence residuals (`e.dimmable || e.stateIs("on")`
+/// is statically true for a dimmable light and `state == on` for a dumb one), so
+/// a set-level predicate cannot represent it. Pushing it per-member then makes it
+/// identical to "no alternative matched" — so it collapses into [[Alt]] rather
+/// than living beside it. A member is PRESENT iff some alt's `when` holds; an alt
+/// with a null `when` is unconditional.
 class SetNode {
   kind: "set" = "set"
   candidates: List<String>
-  present: Term?
   orderBy: OrderBy?
   cases: List<CaseDef>
   members: Map<String, MemberDef>
@@ -90,24 +112,39 @@ local function shapeOf(n: Node, varying: List<String>): CaseDef =
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
   }
 
+/// Conjoin a candidate's presence residual with one branch's residual. Either
+/// may be statically decided; the result is the runtime condition the wire must
+/// carry, or null when nothing defers.
+local function conjoin(presence: Boolean|Term, branch: Term?): Term? =
+  if (presence is Boolean)
+    (if (presence == true) branch else null)
+  else if (branch == null) presence as Term
+  else new PAnd { items = List(presence as Term, branch) }
+
 /// Build the wire node from a static candidate list and authored branches.
 function buildSet(
   entities: List<Any>,
   branches: List<Branch>,
-  present: (Any) -> Boolean|Term,
+  presence: (Any) -> Boolean|Term,
   order: OrderBy?
 ): SetNode =
-  // 1. presence folds per candidate; a statically-absent candidate is dropped.
+  // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
+  //    never reaches the wire.
   let (kept = entities
-        .map((e) -> Pair(e, present.apply(e)))
+        .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
   // 2. dispatch: which branches can win for each surviving candidate.
   let (dispatched = kept
         .map((p) -> Pair(p.first, liveBranches(p.first, branches)))
         .filter((p) -> !p.second.isEmpty))
-  // 3. render every (candidate, branch) pair — the full D1 expansion.
+  // 3. render every (candidate, branch) pair — the full D1 expansion — folding
+  //    this candidate's presence residual into each branch's condition, which is
+  //    what lets presence and dispatch share one field.
+  let (presenceOf = kept.toMap((p) -> p.first.entity_id, (p) -> p.second))
   let (rendered = dispatched.map((p) ->
-        Pair(p.first, p.second.map((b) -> Pair(b.first.render.apply(p.first), b.second)))))
+        Pair(p.first, p.second.map((b) ->
+          Pair(b.first.render.apply(p.first),
+               conjoin(presenceOf[p.first.entity_id], b.second))))))
   // 4. group the rendered nodes by card to find shapes, then hole out the
   //    literals that vary within a shape.
   let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
@@ -118,9 +155,6 @@ function buildSet(
   let (caseIndex = shapes.toList().map((s) -> s.card))
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
-    present =
-      let (terms = kept.map((p) -> p.second).filter((t) -> t is Term))
-        if (terms.isEmpty) null else terms.first as Term
     orderBy = order
     cases = shapes
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->

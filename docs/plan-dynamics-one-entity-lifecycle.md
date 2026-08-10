@@ -278,22 +278,54 @@ with its cost claims qualified (they are per-branch-*content* claims and say not
 per-group *selection* cost). `docs/architecture-rendering-pipeline.md` §4b describes the deleted
 half and changes in the same commit.
 
+## Resolved by the spike
+
+**There is no set-level `present` field; presence collapses into `alts`.** An `or` mixing a
+registry fact with live state folds *differently per candidate* —
+`e.supported_features > 4 || e.stateIs("on")` is statically `true` for a dimmable light and
+`state == on` for a dumb one. One shared predicate cannot express both, so presence must be
+per-member; and once it is per-member it is indistinguishable from "no alternative matched", so it
+belongs *in* `Alt.when` rather than beside it. A member is present iff some alt's `when` holds.
+The build conjoins each candidate's presence residual into each branch's condition. Pinned by
+`dynamics-spike.test.pkl` ("presence residuals diverge across members of one set"). This is "one
+mechanism, not two parallel ones" arriving from evidence rather than taste.
+
+**`orderBy` stays set-level, deliberately.** It has no equivalent divergence problem because a
+sort needs one comparable key across the set. An author *could* write a key that folds to
+different properties per member; that is not supported, and should be rejected rather than
+emitted — comparing brightness against temperature is not an ordering.
+
+**The build emits an already-split node; the runtime never re-derives the split.** The spike does
+the fold at build time and emits only the residue — candidates, per-alt conditions, shapes. The
+runtime receives no static terms at all and cannot tell which were folded away. The cost is that
+`dashboard.json` sits further from what was authored, which matters for the editor; the benefit is
+that the runtime carries no folding logic and cannot disagree with the build about it.
+
+**Presence and ordering are one mechanism, confirmed.** Presence is "some alt matched"; a member
+appearing or disappearing is `Placed`/`Gone`, which is the same patch pair a reorder emits. There
+is no separate visibility path to build.
+
+**Per-member `vars` need no shared entity table (for now).** The shape compression already hoists
+anything constant across a shape's members onto the case, which is exactly the per-*domain*
+literals (`min`/`max`/`key`/`action`) that motivated the idea. A shared table would only help
+entities appearing in several sets — revisit if that shows up in a measurement, not before.
+
 ## Open questions
 
 - The LINQ surface beyond the sketch above — `orderBy` stability rules, what `derived` values exist
   besides `count`, and whether `render` composition needs anything past `Cases`.
-- Whether per-member `vars` deduplicate into a shared entity table. `min`/`max`/`key` are
-  per-*domain*, not per-entity, so they belong on the case — which may shrink `members` to
-  `{"light.a":{"case":0,"label":"Taklys"}}`.
-- **var-vs-case is currently count-dependent, and should not be.** The spike decides by diffing
-  the members that share a shape, so a single-member shape has nothing to diff and bakes its
-  entity-derived literal onto the case — adding a second entity of that kind silently
-  restructures the emitted shape. The stable alternative is P2 applied directly: a literal slot
-  is always a per-member var, a transform slot always stays on the case, regardless of member
-  count. Costs repetition for literals that are genuinely constant across members. Pinned by
+- **var-vs-case is count-dependent.** The spike decides by diffing the members that share a shape,
+  so a single-member shape has nothing to diff and bakes its entity-derived literal onto the case;
+  adding a second entity of that kind restructures the emitted shape. Pinned by
   `dynamics-spike.test.pkl` ("single-member shapes bake their literal onto the case").
-- Whether `present` and `orderBy` on the wire stay unbound-but-set-scoped templates, or are
-  expanded per candidate at build time (bigger JSON, dumber runtime).
+
+  *Probably cosmetic, but unverified.* It would only matter if a shape index carried meaning
+  beyond selecting card + slots — it does not today — and adding an entity is a registry change,
+  which already forces a rebuild, renderer swap and full body repaint, so the reshuffle rides
+  along with work that was happening anyway. Before relying on that, confirm the repaint claim
+  against `Server.reloadRepaints` rather than taking it from this document. If it turns out to
+  matter, the stable rule is P2 applied directly — a literal slot is always a per-member var, a
+  transform slot always stays on the case — at the cost of repeating genuinely constant literals.
 
 ## How we would know it works
 

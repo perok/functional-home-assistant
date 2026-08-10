@@ -8,12 +8,6 @@ examples {
         "light.lampe",
         "light.spot"
       ],
-      "present": {
-        "kind": "cmp",
-        "property": "state",
-        "op": "eq",
-        "value": "on"
-      },
       "orderBy": {
         "property": "attr:brightness",
         "dir": "desc",
@@ -37,6 +31,12 @@ examples {
           },
           "alts": [
             {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
               "shape": 0
             }
           ]
@@ -47,6 +47,12 @@ examples {
           },
           "alts": [
             {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
               "shape": 0
             }
           ]
@@ -57,6 +63,12 @@ examples {
           },
           "alts": [
             {
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
+              },
               "shape": 0
             }
           ]
