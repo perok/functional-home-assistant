@@ -175,7 +175,11 @@ class Renderer(
             self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
               walk(ch, path :+ i)
             }
+          // Both member containers are LEAVES of the static index: their
+          // children are members, addressed by `memberId` rather than by a
+          // path (see [[Member]]).
           case _: LayoutNode.Dynamic => List(self)
+          case _: LayoutNode.SetNode => List(self)
         }
       }
       walk(root, Nil).toMap
@@ -191,7 +195,10 @@ class Renderer(
         .toMap
 
     val dynamicIds: List[NodeId] =
-      indexed.collect { case (id, (_: LayoutNode.Dynamic, _)) => id }.toList
+      indexed.collect {
+        case (id, (_: LayoutNode.Dynamic, _)) => id
+        case (id, (_: LayoutNode.SetNode, _)) => id
+      }.toList
   }
 
   private val mainIndex = new Index(dashboard.card, "")
@@ -262,14 +269,178 @@ class Renderer(
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
 
-  /** `None` means no query, which matches every entity. */
-  private val dynamicQueries: Map[NodeId, Option[Predicate]] =
-    allIndexed.collect { case (id, (d: LayoutNode.Dynamic, _, _)) =>
-      id -> d.query
+  /** A container whose children are MEMBERS rather than authored nodes.
+    * Everything downstream — the member graph, the per-member patches, the
+    * wholesale fill — treats the two kinds alike; they differ only in where a
+    * candidate comes from and how a member is placed.
+    *
+    *   - [[LayoutNode.Dynamic]]: membership is a query over every entity in the
+    *     house, so a candidate is any entity and placement is by entity id.
+    *   - [[LayoutNode.SetNode]]: the candidates are decided at BUILD time, so
+    *     the runtime decides only presence, and placement is the authored
+    *     candidate order (`docs/plan-dynamics-one-entity-lifecycle.md`).
+    */
+  private sealed trait MemberSource {
+    def cell: Option[Cell]
+
+    /** Every candidate, in DOM order — what a full materialisation walks. */
+    def candidates(states: Map[String, EntityState]): Vector[String]
+
+    /** The member `entityId` would be right now, or `None` when it is not one.
+      * The ONE place a member is built, so what a member IS and whether it is
+      * one cannot disagree.
+      */
+    def memberOf(
+        gid: NodeId,
+        entityId: String,
+        states: Map[String, EntityState]
+    ): Option[Member]
+
+    /** The candidates this change could have moved — usually the changed entity
+      * itself, but a set's guard may name ANOTHER entity ("show this light
+      * while the hall sensor is on"), and then the sensor's change moves a
+      * member that is not the sensor. Empty means the change leaves this
+      * container alone.
+      *
+      * Deliberately NOT the finer question (joined / left / case moved): a
+      * single change can decide that, but a FRAME cannot — two entities can
+      * move in opposite directions in one tick. [[syncMembers]] answers it for
+      * the frame as a whole.
+      */
+    def affected(change: StateChange): Iterable[String]
+
+    /** Where a member sorts among its siblings. */
+    def ordinal(entityId: String): (Int, String)
+  }
+
+  private case class QuerySource(d: LayoutNode.Dynamic) extends MemberSource {
+    def cell: Option[Cell] = d.cell
+
+    def candidates(states: Map[String, EntityState]): Vector[String] =
+      states.keys.toVector.sorted
+
+    def memberOf(
+        gid: NodeId,
+        entityId: String,
+        states: Map[String, EntityState]
+    ): Option[Member] =
+      states
+        .get(entityId)
+        .filter(st => d.query.forall(Renderer.matches(_, st)))
+        .flatMap(st => d.cases.find(c => Renderer.matches(c.when, st)))
+        .map(c =>
+          member(
+            gid,
+            entityId,
+            LayoutNode.Component(
+              c.card,
+              // The matched entity as a literal slot — the binding every
+              // inheriting slot reads. It is what makes a member an ordinary
+              // node: the case dispatch happens once, here, instead of on
+              // every render. A set's clause node already carries it, because
+              // the build knew the candidate.
+              c.slots
+                .updated("entity_id", SlotSource(literal = Some(entityId))),
+              Nil,
+              c.cell
+            )
+          )
+        )
+
+    /** The changed entity, when the group's *query* matched it before or after.
+      * Matching neither side leaves the group alone.
+      */
+    def affected(change: StateChange): Iterable[String] = {
+      def matchesQuery(st: EntityState): Boolean =
+        d.query.forall(Renderer.matches(_, st))
+      Option
+        .when(
+          change.previous.exists(matchesQuery) || matchesQuery(change.current)
+        )(change.entityId)
     }
 
-  private val dynamicGroups: Map[NodeId, LayoutNode.Dynamic] =
-    allIndexed.collect { case (id, (d: LayoutNode.Dynamic, _, _)) => id -> d }
+    def ordinal(entityId: String): (Int, String) = (0, entityId)
+  }
+
+  private case class CandidateSource(s: LayoutNode.SetNode)
+      extends MemberSource {
+    private val position: Map[String, Int] = s.candidates.zipWithIndex.toMap
+
+    /** entity -> the candidates whose presence it can decide: itself, plus
+      * every candidate whose guards NAME it. This is the reverse index that
+      * makes a frame cost the changed entities rather than the candidate list.
+      */
+    private val movedBy: Map[String, List[String]] =
+      s.candidates
+        .flatMap { cid =>
+          val named = s.members
+            .get(cid)
+            .toList
+            .flatMap(_.clauses)
+            .flatMap(_.when.toList)
+            .flatMap(Predicate.referencedEntities)
+          (cid :: named).distinct.map(_ -> cid)
+        }
+        .groupMap(_._1)(_._2)
+
+    def cell: Option[Cell] = s.cell
+
+    def candidates(states: Map[String, EntityState]): Vector[String] =
+      s.candidates.toVector
+
+    /** The first clause whose guard holds. Falling off the end means the
+      * candidate is NOT RENDERED — which is why a set has no presence field.
+      *
+      * A candidate HA does not know is evaluated against an empty state rather
+      * than dropped outright, so a clause guarded only on ANOTHER entity ("show
+      * this while the hall sensor is on") still decides. An unguarded clause is
+      * unconditionally present: that is a build-time decision the runtime does
+      * not get to revisit (P3).
+      */
+    def memberOf(
+        gid: NodeId,
+        entityId: String,
+        states: Map[String, EntityState]
+    ): Option[Member] = {
+      val subject =
+        states.getOrElse(entityId, EntityState(entityId, "", Map.empty))
+      s.members
+        .get(entityId)
+        .flatMap(
+          _.clauses.find(_.when.forall(Renderer.matchesIn(_, subject, states)))
+        )
+        // Phase 1 renders leaf members only. A clause node that is a nested
+        // set — "a tile per room" — is phase 3, and until then it is dropped
+        // rather than half-rendered.
+        .collect { case LayoutNode.SetClause(_, c: LayoutNode.Component) =>
+          member(gid, entityId, c)
+        }
+    }
+
+    def affected(change: StateChange): Iterable[String] =
+      movedBy.getOrElse(change.entityId, Nil)
+
+    /** Authored candidate order, which is already the ordering when it folded
+      * to registry facts at build time. `s.orderBy` and `s.limit` are phase 3.
+      */
+    def ordinal(entityId: String): (Int, String) =
+      (position.getOrElse(entityId, Int.MaxValue), entityId)
+  }
+
+  private def member(
+      gid: NodeId,
+      entityId: String,
+      node: LayoutNode.Component
+  ): Member = {
+    val key = MemberKey.Entity(entityId)
+    Member(gid, rootOf(gid).getOrElse(""), key, memberId(gid, key), node)
+  }
+
+  private val memberSources: Map[NodeId, MemberSource] =
+    allIndexed.collect {
+      case (id, (d: LayoutNode.Dynamic, _, _)) => id -> QuerySource(d)
+      case (id, (s: LayoutNode.SetNode, _, _)) => id -> CandidateSource(s)
+    }
 
   /** The dynamic half of the graph, beside the static [[allIndexed]]: mutable
     * because membership is maintained by the state stream rather than computed
@@ -314,55 +485,20 @@ class Renderer(
       gid: NodeId,
       states: Map[String, EntityState]
   ): GroupMembers =
-    dynamicGroups.get(gid) match {
-      case None    => GroupMembers(Vector.empty, Nil)
-      case Some(d) =>
-        graph.get.byGroup.getOrElse(gid, materialise(gid, d, states))
+    memberSources.get(gid) match {
+      case None      => GroupMembers(Vector.empty, Nil)
+      case Some(src) =>
+        graph.get.byGroup.getOrElse(gid, materialise(gid, src, states))
     }
 
   private def materialise(
       gid: NodeId,
-      d: LayoutNode.Dynamic,
+      src: MemberSource,
       states: Map[String, EntityState]
   ): GroupMembers =
     GroupMembers.of(
-      states.toVector
-        .sortBy(_._1)
-        .flatMap { case (entityId, st) => memberOf(gid, d, entityId, st) }
+      src.candidates(states).flatMap(src.memberOf(gid, _, states))
     )
-
-  /** The member `entityId` would be right now, or `None` when it is not one —
-    * the group's query fails, or no case matches. The ONE place a case is
-    * dispatched, so what a member IS and whether it is one cannot disagree.
-    */
-  private def memberOf(
-      gid: NodeId,
-      d: LayoutNode.Dynamic,
-      entityId: String,
-      st: EntityState
-  ): Option[Member] =
-    Option
-      .when(d.query.forall(Renderer.matches(_, st)))(st)
-      .flatMap(s => d.cases.find(c => Renderer.matches(c.when, s)))
-      .map { c =>
-        val key = MemberKey.Entity(entityId)
-        Member(
-          gid,
-          rootOf(gid).getOrElse(""),
-          key,
-          memberId(gid, key),
-          LayoutNode.Component(
-            c.card,
-            // The matched entity as a literal slot — the binding every
-            // inheriting slot reads. It is what makes a member an ordinary
-            // node: the case dispatch happens once, here, instead of on every
-            // render.
-            c.slots.updated("entity_id", SlotSource(literal = Some(entityId))),
-            Nil,
-            c.cell
-          )
-        )
-      }
 
   /** Apply one frame to EVERY dynamic group's membership, reporting what it did
     * to each ([[MemberDelta]]).
@@ -391,15 +527,14 @@ class Renderer(
       before: Map[String, EntityState],
       states: Map[String, EntityState]
   ): Map[NodeId, MemberDelta] =
-    dynamicGroups.map { case (gid, d) =>
+    memberSources.map { case (gid, src) =>
       val was = groupOf(gid, before)
       val (now, replaced) = changes.iterator
-        .filter(touchesDynamic(gid, _))
-        .map(_.entityId)
+        .flatMap(src.affected)
         .distinct
         .foldLeft((was, Set.empty[NodeId])) {
           case ((group, swapped), entityId) =>
-            applyOne(gid, d, group, swapped, entityId, states)
+            applyOne(gid, src, group, swapped, entityId, states)
         }
       val _ = graph.updateAndGet(_.install(gid, was, now))
       gid -> MemberDelta(was.entities, now.entities, replaced)
@@ -419,7 +554,7 @@ class Renderer(
     */
   private def applyOne(
       gid: NodeId,
-      d: LayoutNode.Dynamic,
+      src: MemberSource,
       group: GroupMembers,
       replaced: Set[NodeId],
       entityId: String,
@@ -427,12 +562,12 @@ class Renderer(
   ): (GroupMembers, Set[NodeId]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
-    val arriving = states.get(entityId).flatMap(memberOf(gid, d, entityId, _))
+    val arriving = src.memberOf(gid, entityId, states)
     if (existing.map(_.node) == arriving.map(_.node)) (group, replaced)
     else {
       val without = group.members.filterNot(_.key == key)
       (
-        GroupMembers.of(arriving.fold(without)(insertOrdered(without, _))),
+        GroupMembers.of(arriving.fold(without)(insertOrdered(src, without, _))),
         // Present before AND after: an arrival or a departure is a structural
         // mutation the changelog already carries.
         if (existing.isDefined && arriving.isDefined)
@@ -442,16 +577,19 @@ class Renderer(
     }
   }
 
-  /** Members are ordered by their key, matching the entity-id sort a full
-    * materialisation produces — so an arrival lands where a rescan would have
-    * put it and no other member's position moves.
+  /** Members are ordered by their container's [[MemberSource.ordinal]] —
+    * matching the order a full materialisation produces, so an arrival lands
+    * where a rescan would have put it and no other member's position moves.
     */
   private def insertOrdered(
+      src: MemberSource,
       members: Vector[Member],
       arriving: Member
   ): Vector[Member] = {
-    val at = members.indexWhere(m => sortKey(m.key) > sortKey(arriving.key))
-    if (at < 0) members :+ arriving else members.patch(at, List(arriving), 0)
+    val ord = Ordering[(Int, String)]
+    def at(m: Member) = src.ordinal(sortKey(m.key))
+    val i = members.indexWhere(m => ord.gt(at(m), at(arriving)))
+    if (i < 0) members :+ arriving else members.patch(i, List(arriving), 0)
   }
 
   private def sortKey(key: MemberKey): String = key match {
@@ -470,28 +608,15 @@ class Renderer(
     graph.get.byId
       .get(id)
       .orElse(
-        dynamicGroups.keys
+        memberSources.keys
           .find(gid => id.startsWith(gid + "_"))
           .flatMap(gid => membersOf(gid, states).find(_.id == id))
       )
 
-  /** Whether `change` touches this dynamic group at all — i.e. whether the
-    * group's *query* matched the entity before or after it. Matching neither
-    * side leaves the group alone.
-    *
-    * Deliberately NOT the finer question (joined / left / updated in place): a
-    * single change can decide that, but a FRAME cannot — two entities can move
-    * in opposite directions in one tick. [[syncMembers]] answers it for the
-    * frame as a whole, so this only has to select the groups worth looking at.
-    */
-  private def touchesDynamic(id: NodeId, change: StateChange): Boolean = {
-    val query = dynamicQueries.getOrElse(id, None)
-    def matchesQuery(st: EntityState): Boolean =
-      query.forall(Renderer.matches(_, st))
-    change.previous.exists(matchesQuery) || matchesQuery(change.current)
-  }
+  private def touchesDynamic(id: NodeId, change: StateChange): Boolean =
+    memberSources.get(id).exists(_.affected(change).nonEmpty)
 
-  /** Main-page dynamic containers whose MEMBERSHIP this frame could have moved.
+  /** Main-page member containers whose MEMBERSHIP this frame could have moved.
     * No entity list: a member that merely ticked is found through the reverse
     * index now, so the only question left here is which groups to ask about
     * membership.
@@ -1205,10 +1330,7 @@ class Renderer(
     * and no position to fix: overwriting it IS the delta. A dynamic group's is
     * the opposite, and gets per-member `remove`/`before`.
     */
-  def isDynamicContainer(id: NodeId): Boolean =
-    allIndexed.get(id).exists { case (n, _, _) =>
-      n.isInstanceOf[LayoutNode.Dynamic]
-    }
+  def isDynamicContainer(id: NodeId): Boolean = memberSources.contains(id)
 
   /** What a wholesale FILL carries, for EITHER kind of container: a dynamic
     * group's members, or a state group's one active branch. Both are "what is
@@ -1219,10 +1341,9 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): List[(NodeId, String)] =
-    allIndexed.get(container) match {
-      case Some((_: LayoutNode.Dynamic, _, _)) =>
-        renderDynamicMembers(container, states)
-      case _ =>
+    memberSources.get(container) match {
+      case Some(_) => renderDynamicMembers(container, states)
+      case None    =>
         resolveActiveByState(container, states)
           .flatMap(bakeMembers(container).lift)
           .flatMap(sid =>
@@ -1328,7 +1449,10 @@ class Renderer(
         // renders its whole card, its own mount included.
         if (hasSelf(c.card)) !c.children.exists(carriesMount)
         else !carriesMount(c)
+      // A member container composes its members and renders nothing of its
+      // own; the members are the log keys.
       case (_: LayoutNode.Dynamic, _, _) => false
+      case (_: LayoutNode.SetNode, _, _) => false
     }
 
   /** Whether rendering this node in FULL — as a parent's markup embeds it —
@@ -1342,6 +1466,7 @@ class Renderer(
     case c: LayoutNode.Component =>
       templates.mounts.contains(c.card) || c.children.exists(carriesMount)
     case _: LayoutNode.Dynamic => false
+    case _: LayoutNode.SetNode => false
   }
 
   /** The ONE predicate the self/mount split turns on: it picks what the patch
@@ -1647,19 +1772,26 @@ class Renderer(
           wrapped,
           kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)
         )
+      // Both member containers: a container root composes its members and so
+      // has no own rendering; the members do, and they are what a fill must
+      // fingerprint.
       case d: LayoutNode.Dynamic =>
         val id = LayoutNode.nodeId(idPrefix, path)
-        // A group root composes its members and so has no own rendering; the
-        // members do, and they are what a fill must fingerprint.
         Traced(
-          renderDynamic(id, d, states),
+          renderDynamic(id, d.cell, states),
+          renderDynamicMembers(id, states).toMap
+        )
+      case s: LayoutNode.SetNode =>
+        val id = LayoutNode.nodeId(idPrefix, path)
+        Traced(
+          renderDynamic(id, s.cell, states),
           renderDynamicMembers(id, states).toMap
         )
     }
 
   private def renderDynamic(
       id: NodeId,
-      d: LayoutNode.Dynamic,
+      cell: Option[Cell],
       states: Map[String, EntityState]
   ): String = {
     val children = membersOf(id, states).map(renderMember(_, states))
@@ -1668,7 +1800,7 @@ class Renderer(
     // member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to
     // span a parent grid) ride on it.
     s"""<div class="fh-cell fh-group${Renderer.cellClasses(
-        d.cell
+        cell
       )}" id="$id">${children.mkString}</div>"""
   }
 

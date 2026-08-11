@@ -300,8 +300,8 @@ server itself last sent.
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
 and membership arrives already applied — `Renderer.syncMembers` moves the member graph for every
-dynamic group before the gate, and hands `record` each group's list before and after plus the
-members whose case it replaced.
+member container before the gate, and hands `record` each container's list before and after plus
+the members whose case it replaced.
 
 ```mermaid
 flowchart TB
@@ -309,7 +309,7 @@ flowchart TB
 
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["DYNAMICS<br/>a query-driven group whose MEMBERSHIP may have moved"]
+  REQ --> DYN["DYNAMICS<br/>a member container whose MEMBERSHIP may have moved<br/>(a query-driven group, or a candidate SET whose presence moved)"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
@@ -371,16 +371,35 @@ the container's id is the right root.
 
 ---
 
-## 4b. The member graph — a dynamic group's members ARE nodes
+## 4b. The member graph — a member container's members ARE nodes
 
 The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
 from the `Dashboard`: every authored node, keyed by its location-derived id. The **dynamic** half
-(`MemberGraph`) is a group's members, and it is maintained by the state stream rather than computed.
+(`MemberGraph`) is a container's members, and it is maintained by the state stream rather than
+computed.
 
-A member is a real `LayoutNode.Component` — the matched case's card, its slots plus the matched
-entity as a literal `entity_id` slot, its cell — stored under the id its `MemberKey` derives. That
-literal slot is the whole trick: `renderCase` already set it on every render, so setting it ONCE, at
-membership time, is all it takes for a member to stop being special. `renderNodeById` renders it,
+**Two kinds of container feed it**, behind one interface (`Renderer.MemberSource`) — everything
+below this paragraph is true of both, and they differ only in where a candidate comes from and how
+a member is placed:
+
+| | `LayoutNode.Dynamic` (`QuerySource`) | `LayoutNode.SetNode` (`CandidateSource`) |
+|---|---|---|
+| candidates | every entity in the house | a STATIC list, decided at build time |
+| what the runtime decides | membership | presence only — it never invents a member |
+| a member's node | the matched case, with `entity_id` injected | the clause's COMPLETE node, `entity_id` already on it |
+| woken by | a change the group's query matched either side of | a change to a candidate, **or to an entity a guard names** |
+| placement | entity id | the authored candidate order |
+
+The set is the newer of the two and the one being built toward
+(`docs/plan-dynamics-one-entity-lifecycle.md`); its `orderBy` and `limit` are modelled but not yet
+read, and a clause whose node is a nested set is dropped rather than half-rendered. Both are
+phase 3 there. Nothing authors a set yet — the Pkl surface is phase 2 — so today it is reachable
+only by building the model directly (`SetNodeSuite`).
+
+A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
+`entity_id` slot, its cell — stored under the id its `MemberKey` derives. That literal slot is the
+whole trick: `renderCase` already set it on every render, so setting it ONCE, at membership time,
+is all it takes for a member to stop being special. `renderNodeById` renders it,
 `renderInputs` keys it, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
@@ -398,7 +417,9 @@ Three properties hold it up, and each fails silently if broken:
   which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
   member list, which is also what an insert anchor reads); the key is the IDENTITY. `MemberKey` is
   already a sum (`Entity` today, `Surface` for a state group's branch), so "one member is one
-  entity" stays a property of the predicate engine rather than of the id scheme.
+  entity" stays a property of the predicate engine rather than of the id scheme. A CANDIDATE SET
+  has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
+  ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
 - **The recorder is the only writer.** A reader derives a group the stream has not reached yet but
   never installs what it derived. Installing would let a page rendering at version 5 — while the
   recorder is still applying the frame that produced 5 — become that frame's "before"; the frame

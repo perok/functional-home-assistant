@@ -975,10 +975,30 @@ shippable — if the next one never happens, the tree is still coherent.
 **Phase 0 — decoupled fixes.** *Shipped (`f66ba31`).* `bakeGroup` memoised; an unmatched `If`
 collapses. Neither touches the format; both were live bugs.
 
-**Phase 1 — one slice through the runtime.** S1 only: `set` in the Scala wire model, the fold in
-`DashboardBuild`, the renderer consuming it, real SSE patches. Proves presence-via-clauses and
-`Placed`/`Gone`, and settles whether a frame really costs O(Δ). Ships behind whatever gate keeps it
-out of authored dashboards. *Stop here and nothing is worse: dynamic groups still work.*
+**Phase 1 — one slice through the runtime.** *Shipped, except the build fold.* `SetNode` /
+`SetMember` / `SetClause` / `SortTerm` in the Scala wire model, `Predicate.Cmp.entity` for a
+cross-entity guard, and the renderer consuming all of it through one `MemberSource` interface that
+the query-driven group now shares. `SetNodeSuite` drives S1 end to end through the real `Server`:
+presence-via-clauses, `Placed`/`Gone` at the authored position, an unguarded clause surviving an
+entity HA never reported, and a guard woken by an entity that is not a candidate.
+
+Three things it settled:
+
+- **A frame costs Δ.** `MemberSource.affected` maps a change to the candidates it can move —
+  itself, plus every candidate whose guards name it — so nothing walks the candidate list. The
+  cross-entity case is exactly why that has to be a reverse index rather than `change.entityId`:
+  the sensor's change moves a member that is not the sensor.
+- **Placement had to be generalised, not reused.** `insertOrdered` sorted by entity id, which is
+  right for a query group and wrong for a set: candidate order is AUTHORED. It now asks the source
+  for an ordinal.
+- **Nothing else in the pipeline needed a set case.** `Patches`, the changelog, the churn
+  heuristic and the resume path all reach a set through `isDynamicContainer` / `renderMount` and
+  were untouched — which is the evidence that presence and membership really are one mechanism.
+
+What is left of phase 1 is the build side: the Pkl fold in `DashboardBuild`, which arrives with
+phase 2's authoring surface. `orderBy` and `limit` are modelled but unread, and a clause whose node
+is a nested set is dropped rather than half-rendered — both phase 3. *Stop here and nothing is
+worse: dynamic groups still work, and nothing can author a set.*
 
 **Phase 2 — the authoring surface.** `query.pkl` into `lib/`, `wire.pkl` deleted, the scenarios
 re-pointed at the real dump with fixtures kept only for what the test home cannot produce. Authors

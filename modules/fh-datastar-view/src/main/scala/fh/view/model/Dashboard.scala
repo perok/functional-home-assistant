@@ -675,6 +675,31 @@ case class Dashboard(
                   )
                   .toList
             }
+        // A set's clauses carry COMPLETE nodes — their own card, slots (the
+        // candidate's `entity_id` among them) and cell — so each one validates
+        // as the ordinary node it is. The `noWrap` rejection is the same as a
+        // dynamic case's, for the same reason: every member is its own
+        // per-candidate patch target.
+        case s: LayoutNode.SetNode =>
+          val setId = LayoutNode.pathId(path)
+          cellErrors(setId, s.cell) ++
+            s.candidates.filterNot(s.members.contains).map { c =>
+              s"$setId: candidate '$c' has no member entry — it could never " +
+                "render, so the build dropped it inconsistently"
+            } ++
+            s.members.toList.sortBy(_._1).flatMap { case (candidate, m) =>
+              m.clauses.zipWithIndex.flatMap { case (clause, i) =>
+                walk(clause.node, path :+ i) ++ (clause.node match {
+                  case c: LayoutNode.Component if noWrap(c.card) =>
+                    List(
+                      s"$setId/$candidate: card '${c.card}' has " +
+                        "wrapAsCell=false and cannot be a set clause — every " +
+                        "member is wrapped as its own patch target"
+                    )
+                  case _ => Nil
+                })
+              }
+            }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome
@@ -706,7 +731,10 @@ case class Dashboard(
             c.children.zipWithIndex.flatMap { case (ch, i) =>
               idsOf(ch, prefix, path :+ i)
             }
+          // Neither member container hosts a bake: a member renders with no
+          // children and no bake group.
           case _: LayoutNode.Dynamic => Nil
+          case _: LayoutNode.SetNode => Nil
         })
       val known: Set[NodeId] =
         (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
@@ -800,6 +828,10 @@ case class Dashboard(
       case c: LayoutNode.Component =>
         c.slots.values.toList ++ c.children.flatMap(slotsOf)
       case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
+      case s: LayoutNode.SetNode =>
+        s.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(c => slotsOf(c.node))
     (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
       .filter(_.literal.isEmpty)
       .map(_.transform)
