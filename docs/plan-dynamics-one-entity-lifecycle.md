@@ -444,6 +444,44 @@ reference. Two outcomes remain:
 | all build-readable | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
 | any live | the whole list, readable ones still references | O(P log P) stable sort |
 
+## `candidate` is a term, not a lambda
+
+`where` still accepts a bare lambda, but the composable form is `q.candidate((e) -> ...)`. This is
+not sugar: a bare lambda **cannot** sit inside `q.any`/`q.all`/`q.not`, because outside `where`
+there is no candidate in scope for it to read. A `candidate` term is first-class data, so it
+composes with the data form freely:
+
+```pkl
+.where(q.any(List(
+  q.candidate((e) -> e.supported_features > 4),   // reads the candidate, folds at build
+  q.eq(q.stateProp, "on"))))                      // live, defers
+```
+
+`all`/`any`/`not` fold immediately when every operand is already resolved and defer to an
+unresolved `Group` when one is not, so the same three functions cover both and an author never
+picks between an eager and a lazy variant.
+
+## Validation: what the build can and cannot check
+
+`q.prop(name)` is resolved against the candidates by counting how many carry it as a property:
+
+| candidates carrying it | resolution |
+|---|---|
+| all | registry fact, readable by the build |
+| none | live attribute — **unvalidatable**, see below |
+| some | **build error**, unless wrapped in `q.optional(...)` |
+
+The middle row is the honest limit: volatile attributes like `brightness` are deliberately kept
+out of the dump (they would churn its content hash), so the build has no list of legal attribute
+names to check a typo against. `q.prop("brightnes")` resolves to a live attribute that never
+matches, and nothing catches it.
+
+The third row is the one worth having. A property on SOME candidates would otherwise silently
+resolve to a live attribute and quietly stop being the registry fact the author meant — a genuinely
+mixed set, or a set that became mixed when a new domain was added. `q.optional(q.prop(...))`
+accepts it deliberately and reads missing as null. All four cases are pinned in
+`query-surface.test.pkl`.
+
 ## Typing: Pkl has no user generics
 
 `EntitySet<T>` is impossible — "Only standard library members can have type parameters" — so

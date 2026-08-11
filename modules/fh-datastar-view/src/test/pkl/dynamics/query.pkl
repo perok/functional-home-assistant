@@ -22,16 +22,30 @@ import "wire.pkl"
 // `&&`/`||` cannot be used across the seam: Pkl rejects `Boolean && Term`, which
 // is what keeps a live condition from being smuggled into a static position.
 
+// Each combinator folds NOW when every operand is already resolved, and defers
+// to an unresolved `Group` when one is not — so the same three functions cover
+// both, and an author never has to pick between an eager and a lazy variant.
+// Parameters are deliberately NOT named after the properties they set: inside a
+// `new { items = items }` the RHS binds to the object's own member and recurses.
+const local function resolved(xs: List<Any>): Boolean =
+  xs.every((i) -> i is Boolean || i is wire.Term)
+
 /// Conjunction. A statically-false term decides the candidate immediately.
-function all(items: List<Boolean|wire.Term>): Boolean|wire.Term = wire.all(items)
+function all(xs: List<Any>): Any =
+  if (resolved(xs)) wire.all(xs as List<Boolean|wire.Term>)
+  else new wire.Group { gop = "all"; items = xs }
 
 /// Disjunction. A statically-true term short-circuits the whole thing — which
 /// is why presence residuals can differ between members of one set.
-function any(items: List<Boolean|wire.Term>): Boolean|wire.Term = wire.any(items)
+function any(xs: List<Any>): Any =
+  if (resolved(xs)) wire.any(xs as List<Boolean|wire.Term>)
+  else new wire.Group { gop = "any"; items = xs }
 
 /// Negation. Static stays static; a live term becomes a runtime `not`.
-function not(item: Boolean|wire.Term): Boolean|wire.Term =
-  if (item is Boolean) !item else new wire.PNot { item = item as wire.Term }
+function not(x: Any): Any =
+  if (x is Boolean) !x
+  else if (x is wire.Term) new wire.PNot { item = x as wire.Term }
+  else new wire.Group { gop = "not"; items = List(x) }
 
 // ---- property references, shared by predicates AND ordering ----------------
 //
@@ -48,6 +62,15 @@ function not(item: Boolean|wire.Term): Boolean|wire.Term =
 typealias PropName = wire.PropName
 
 function prop(n: String): wire.PropName = new { name = n }
+
+/// Accept a property only SOME candidates carry; missing reads as null. Without
+/// this, mixed availability is a build error — see `wire.resolveProp`.
+function optional(p: wire.PropName): wire.PropName = (p) { optional = true }
+
+/// A term computed FROM the candidate. Prefer this over a bare lambda when the
+/// term has to COMPOSE: a lambda has no candidate in scope inside
+/// `any`/`all`/`not`, but a `candidate` term does.
+function candidate(f: (Any) -> Any): wire.CandidateTerm = new { fn = f }
 
 /// The live state value.
 const stateProp: wire.PropName = new wire.PropName { name = "state" }
@@ -146,13 +169,21 @@ const local function normalise(items: List<Any>, e: Any, f: Any): Boolean|wire.T
     if (r is List)
       wire.all((r as List<Any>).map((x) -> normalise(items, e, x)))
     else if (r is wire.Pending) wire.resolvePending(items, e, r as wire.Pending)
+    else if (r is wire.CandidateTerm) normalise(items, e, (r as wire.CandidateTerm).fn)
+    else if (r is wire.Group)
+      let (g = r as wire.Group)
+        let (kids = g.items.map((x) -> normalise(items, e, x)))
+          if (g.gop == "all") wire.all(kids)
+          else if (g.gop == "any") wire.any(kids)
+          else if (kids.first is Boolean) !(kids.first as Boolean)
+          else new wire.PNot { item = kids.first as wire.Term }
     else r as (Boolean|wire.Term)
 
-/// What `where` accepts: a lambda over the candidate, or the data form.
-typealias Filter =
-  ((Any) -> Boolean|wire.Term|wire.Pending|List<Boolean|wire.Term|wire.Pending>)
-  |wire.Pending
-  |List<Boolean|wire.Term|wire.Pending>
+/// What `where` accepts: the data form, a [[candidate]] term, a list of either
+/// (conjunction), or a bare lambda over the candidate.
+typealias Term = Boolean|wire.Term|wire.Pending|wire.CandidateTerm|wire.Group
+
+typealias Filter = ((Any) -> Term|List<Term>)|Term|List<Term>
 
 /// Start a query. Flexible by design — any list of things with an `entity_id`.
 function from(xs: List<Any>): EntitySet = new EntitySet { items = xs }

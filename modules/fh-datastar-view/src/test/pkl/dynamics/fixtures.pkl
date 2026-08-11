@@ -3,7 +3,7 @@ module fixtures
 
 import "wire.pkl"
 
-class Ent {
+open class Ent {
   entity_id: String
   domain: String
   friendly_name: String
@@ -23,4 +23,14 @@ spot    = new Ent { entity_id = "light.spot"; domain = "light"; friendly_name = 
 tv      = new Ent { entity_id = "media_player.tv"; domain = "media_player"; friendly_name = "TV"; area_id = "stue" }
 kjokken = new Ent { entity_id = "light.kjokken"; domain = "light"; friendly_name = "Kjøkken"; area_id = "kjokken"; supported_features = 8 }
 
+/// A light also carries a capability the other domains do not — so a property
+/// can be present on SOME candidates and absent on others, which is the case
+/// `q.optional` exists for.
+class LightEnt extends Ent { brightnessMax: Int = 255 }
+
+dimmer = new LightEnt { entity_id = "light.dimmer"; domain = "light"; friendly_name = "Dimmer"; area_id = "stue"; supported_features = 8 }
+
 all: List<Ent> = List(taklys, lampe, spot, tv, kjokken)
+
+/// Mixed shapes: only `dimmer` has `brightnessMax`.
+mixed: List<Ent> = List(dimmer, tv)

@@ -142,10 +142,29 @@ class PropRef { kind: "prop" = "prop"; property: String }
 /// comes from: a registry fact when every candidate carries it as a property
 /// (so the build can read it with `getProperty`), a live attribute otherwise.
 /// `friendly_name` is both, and an author should not have to know which.
-open class PropName { name: String }
+open class PropName {
+  name: String
+  /// Allow the property to be missing on SOME candidates. Without this, mixed
+  /// availability is a build error: it means the property resolves to a
+  /// registry fact for some members and a live attribute for others, which are
+  /// not the same thing. With it, a missing value is null.
+  optional: Boolean = false
+}
 
 /// Force the LIVE reading of a name that is also a registry fact.
 class LiveAttr extends PropName {}
+
+/// A term computed FROM the candidate by an author lambda, resolved at build
+/// time. A first-class term rather than a bare lambda, so it composes: it can
+/// sit inside `any`/`all`/`not` where a lambda could not, because a lambda has
+/// no candidate in scope outside `where`.
+class CandidateTerm { fn: (Any) -> Any }
+
+/// An UNRESOLVED boolean group. `all`/`any`/`not` fold immediately when every
+/// operand is already resolved; when one is still a [[Pending]] or a
+/// [[CandidateTerm]] they produce this instead, and the fold happens per
+/// candidate. Same operators either way — the author cannot tell.
+class Group { gop: String; items: List<Any> }
 
 /// An UNRESOLVED comparison — the key is still a [[PropName]]. Resolving it
 /// against the candidates either folds it to a `Boolean` (a registry fact the
@@ -153,12 +172,31 @@ class LiveAttr extends PropName {}
 class Pending { key: PropName; op: String; value: Any }
 
 /// Where a named property actually comes from, for these candidates.
+///
+/// ALL candidates have it  => a registry fact, readable by the build.
+/// NONE have it            => a live attribute. Cannot be validated further:
+///                            volatile attributes like `brightness` are
+///                            deliberately absent from the dump, so the build
+///                            has no list of legal names to check against.
+/// SOME have it            => AMBIGUOUS, and a build error unless `optional`.
+///                            It would otherwise silently resolve to a live
+///                            attribute and quietly stop being the registry
+///                            fact the author meant.
 function resolveProp(items: List<Any>, p: PropName): PropRef =
   if (p.name == "state") new PropRef { property = "state" }
   else if (p is LiveAttr) new PropRef { property = "attr:" + p.name }
-  else if (!items.isEmpty && items.every((e) -> e.hasProperty(p.name)))
-    new PropRef { property = "reg:" + p.name }
-  else new PropRef { property = "attr:" + p.name }
+  else
+    let (have = items.filter((e) -> e.hasProperty(p.name)).length)
+      if (items.isEmpty || have == 0) new PropRef { property = "attr:" + p.name }
+      else if (have == items.length) new PropRef { property = "reg:" + p.name }
+      else if (p.optional) new PropRef { property = "reg:" + p.name }
+      else throw("""
+        Property '\(p.name)' is present on \(have) of \(items.length) candidates.
+        That is ambiguous: it would be a registry fact for some members and a
+        live attribute for others. Either narrow the candidates so every one
+        carries it, or wrap it in `q.optional(...)` to accept a null where it is
+        missing.
+        """)
 
 /// True when the build can read this property itself.
 function isBuildReadable(items: List<Any>, p: PropName): Boolean =
@@ -175,7 +213,8 @@ local function applyOp(op: String, l: Any, r: Any): Boolean =
 /// the build can read the property, otherwise a live term. This is the same
 /// static/live split as everywhere else, now reached through one vocabulary.
 function resolvePending(items: List<Any>, e: Any, pd: Pending): Boolean|Term =
-  if (isBuildReadable(items, pd.key)) applyOp(pd.op, e.getProperty(pd.key.name), pd.value)
+  if (isBuildReadable(items, pd.key))
+    applyOp(pd.op, e.getPropertyOrNull(pd.key.name), pd.value)
   else new Bound { property = resolveProp(items, pd.key).property; op = pd.op; value = pd.value }
 
 /// One ordering position on the wire: a property reference or a [[Term]] whose

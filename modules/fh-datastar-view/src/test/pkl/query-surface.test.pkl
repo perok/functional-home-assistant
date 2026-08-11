@@ -110,6 +110,66 @@ facts {
     (one.orderBy.first as wire.LiveSort).dir == "desc"
   }
 
+  // VALIDATION. A name present on only SOME candidates is ambiguous: a registry
+  // fact for those, a live attribute for the rest. Silently picking one is how a
+  // genuinely mixed set quietly stops meaning what the author wrote.
+  ["mixed availability is a build error"] {
+    module.catchOrNull(() ->
+      wire.resolveProp(fixtures.mixed, new wire.PropName { name = "brightnessMax" })
+    ) != null
+  }
+
+  ["`optional` accepts mixed availability and keeps it a registry read"] {
+    wire.resolveProp(fixtures.mixed,
+      new wire.PropName { name = "brightnessMax"; optional = true }).property
+      == "reg:brightnessMax"
+  }
+
+  ["all candidates carry it => registry; none => live attribute"] {
+    wire.resolveProp(fixtures.all, new wire.PropName { name = "area_id" }).property
+      == "reg:area_id"
+    // volatile attributes are deliberately absent from the dump, so this is the
+    // limit of what the build can check
+    wire.resolveProp(fixtures.all, new wire.PropName { name = "brightness" }).property
+      == "attr:brightness"
+  }
+
+  ["an optional property missing on a candidate reads as null, not an error"] {
+    local s = q.from(fixtures.mixed)
+      .where(q.eq(q.optional(q.prop("brightnessMax")), 255))
+      .render(toggle)
+      .build()
+    // the dimmer matches; the TV has no such property, so it compares false
+    s.candidates == List("light.dimmer")
+  }
+
+  // `candidate` is a first-class TERM, so unlike a bare lambda it composes:
+  // inside `any`/`all`/`not` there is no `e` in scope for a lambda to use.
+  ["`q.candidate` nests inside `any` where a bare lambda could not"] {
+    local s = q.from(fixtures.all)
+      .where(q.any(List(
+        q.candidate((e) -> e.domain == "media_player"),
+        q.candidate((e) -> e.area_id == "kjokken"))))
+      .render(toggle)
+      .build()
+    s.candidates.length == 2
+    s.candidates.contains("media_player.tv")
+    s.candidates.contains("light.kjokken")
+  }
+
+  ["a candidate term composes with a live one inside `any`"] {
+    local s = q.from(fixtures.all)
+      .where(q.any(List(
+        q.candidate((e) -> e.supported_features > 4),
+        q.eq(q.stateProp, "on"))))
+      .render(toggle)
+      .build()
+    // dimmables are unconditional; the rest defer to state
+    s.conditions.length == 2
+    s.conditions[s.members["light.taklys"].clauses.first.cond] == null
+    s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
+  }
+
   ["`not` folds statically when its operand is static"] {
     q.not(true) == false
     q.not(false) == true
