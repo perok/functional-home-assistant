@@ -773,7 +773,20 @@ Consequences to design, not assume:
   sensor.
 - Nothing else moves: these are still per-member clauses, resolved the same way.
 
-**Built** (`query-scenarios.test.pkl` S12/S13). `Bound.entity` is optional — absent means "the
+**Built** (`query-scenarios.test.pkl` S12/S13/S14). The SINGLE-entity case is as short as the
+many-case, because a term that names its own entity needs no set and no quantifier — the list it
+evaluates over is exactly what it references:
+
+```pkl
+c.iff(q.entity(dump.e_taklys).stateIs("on")).then(banner)          // one
+c.iff(q.from(dump.stue.lights).any(q.eq(q.stateProp, "on"))).then(banner)  // many
+```
+
+`q.entity` takes the typed dump entity, not just an id, so a typo is a Pkl error; a bare String is
+accepted for computed ids. (`is` is reserved in Pkl — it is the type-test operator — hence
+`stateIs`.)
+
+ `Bound.entity` is optional — absent means "the
 member", so every existing term is unchanged — and `q.entity(id).eq(...)` names another entity.
 Verified: each light's condition names its OWN room's sensor, the `conditions` table dedupes the
 three living-room lights to one entry, and a cross-entity term conjoins with an ordinary one.
@@ -870,6 +883,40 @@ case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(
 
 Sequence it before deleting the free constructors from `components.pkl`, or `If` is left holding
 the only references to them.
+
+## Ids under recursion: alternate static position and entity key
+
+A nested graph needs ids that survive members arriving and leaving. The rule is one line:
+
+**An id alternates a STATIC-POSITION segment and an ENTITY-KEY segment.**
+
+```
+c_3            / light.taklys / 0        / binary_sensor.x
+^ set's path     ^ member key    ^ hole    ^ inner member key
+  (authored)     (entity id)     (static)  (entity id)
+```
+
+- a set's own id is its authored location, `LayoutNode.pathId`, exactly as today
+- a member's id is `<setId>/<entityId>` — key-derived, never positional
+- a nested set's id is `<memberId>/<holeIdx>`
+- recurse
+
+**The positional segment is safe here, and it is worth saying why**, because §4b warns that "a
+positional id renames every node below an arrival". That warning is about position among
+RUNTIME-VARYING siblings. A hole index is fixed by the shape at build time — holes do not arrive or
+leave — so it can never renumber. The varying part is always the entity key.
+
+`MemberKey` therefore needs no new variant. It stays `Entity`; what changed is that the scope
+qualifying it can now be nested.
+
+Alternatives considered and rejected:
+
+- **entity id alone** — not unique. The same light appears in the room tile AND in an "all lights"
+  set.
+- **a flat build-assigned counter** (`s4:light.taklys`) — simpler to compute, but opaque in the DOM
+  and in logs, and every id shifts when an author inserts a set earlier in the tree. Path-derived
+  ids only change when that subtree actually moves.
+- **positional member index** — the thing the existing invariant exists to forbid.
 
 ## What composite changes in the architecture
 

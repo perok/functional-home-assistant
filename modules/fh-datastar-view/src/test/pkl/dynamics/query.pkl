@@ -82,13 +82,23 @@ const stateProp: wire.PropName = new wire.PropName { name = "state" }
 ///     q.candidate((e) -> q.entity(motionSensorFor(e.area_id)).eq(q.stateProp, "on"))
 class EntityRef {
   id: String
+  /// The single-entity shorthand: `q.entity(taklys).stateIs("on")`. The whole point
+  /// of naming an entity is usually to test its state, so that should not cost
+  /// a `q.eq(q.stateProp, …)` every time.
+  function stateIs(s: String): wire.Bound = cmpOn(id, stateProp, "eq", s)
+  function stateIsNot(s: String): wire.Bound = cmpOn(id, stateProp, "ne", s)
   function eq(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "eq", v)
   function ne(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "ne", v)
   function gt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "gt", v)
   function lt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "lt", v)
 }
 
-function entity(entityId: String): EntityRef = new { id = entityId }
+/// Name one entity. Takes the typed dump entity itself, not just its id, so the
+/// common case keeps its typing and a typo is a Pkl error:
+/// `q.entity(dump.e_taklys).stateIs("on")`. A bare String is accepted for ids that
+/// are computed (`motionByArea[e.area_id]`).
+function entity(e: Any): EntityRef =
+  new { id = if (e is String) e else (e.getProperty("entity_id") as String) }
 
 // A cross-entity term cannot fold: the build knows WHICH entity, never its
 // state. So it is always live, and always names a `state`/`attr:` property.

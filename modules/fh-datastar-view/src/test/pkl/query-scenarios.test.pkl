@@ -228,6 +228,22 @@ facts {
     c.items.filter((i) -> (i as wire.Bound).entity != null).length == 1
   }
 
+  // 14 — the SINGLE-entity check, which has to be as short as the many-case.
+  // A term that names its own entity needs no set and no quantifier: the entity
+  // list it evaluates over IS what it references.
+  ["S14 is entity X on — the one-entity shorthand"] {
+    local one = q.entity(fixtures.taklys).stateIs("on")
+    one.entity == "light.taklys"
+    one.property == "state"
+    one.op == "eq"
+    one.value == "on"
+    // takes the typed dump entity, so a typo is a Pkl error, not a silent miss
+    q.entity("light.taklys").stateIs("on") == one
+    // and it is an ordinary Term, so it composes with everything else
+    (q.all(List(one, q.entity(fixtures.lampe).stateIsNot("on"))) as wire.PAnd).items.length == 2
+    wire.referencedEntities(one) == List("light.taklys")
+  }
+
   // 11 — a property only some candidates carry. Ambiguous by default, because
   // it would silently become a live attribute for the rest.
   ["S11 a property only some candidates have needs `optional`"] {
