@@ -17,61 +17,79 @@ examples {
           "dir": "desc"
         }
       ],
-      "conditions": [
-        null,
-        {
-          "kind": "cmp",
-          "property": "state",
-          "op": "eq",
-          "value": "on"
-        }
-      ],
-      "shapes": [
-        {
-          "card": "slider",
-          "slots": {
-            "state": {
-              "transform": "$state",
-              "reactive": true
-            }
-          },
-          "children": []
-        }
-      ],
       "members": {
         "light.taklys": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Taklys"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Taklys"
+                  },
+                  "state": {
+                    "transform": "$state",
+                    "reactive": true
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.lampe": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Lampe"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Lampe"
+                  },
+                  "state": {
+                    "transform": "$state",
+                    "reactive": true
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.spot": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Spot"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Spot"
+                  },
+                  "state": {
+                    "transform": "$state",
+                    "reactive": true
+                  }
+                },
+                "children": []
+              }
             }
           ]
         }
@@ -90,79 +108,79 @@ examples {
         "media_player.tv",
         "light.kjokken"
       ],
-      "conditions": [
-        null
-      ],
-      "shapes": [
-        {
-          "card": "mediaCard",
-          "slots": {},
-          "children": []
-        },
-        {
-          "card": "slider",
-          "slots": {},
-          "children": []
-        }
-      ],
       "members": {
         "light.taklys": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Taklys"
-              },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Taklys"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.lampe": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Lampe"
-              },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Lampe"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.spot": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Spot"
-              },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Spot"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "media_player.tv": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 0,
-              "vars": {
-                "label": "TV"
-              },
-              "fills": []
+              "node": {
+                "card": "mediaCard",
+                "slots": {
+                  "label": {
+                    "literal": "TV"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.kjokken": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Kjøkken"
-              },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Kjøkken"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         }
@@ -179,85 +197,100 @@ examples {
         "light.lampe",
         "light.spot"
       ],
-      "conditions": [
-        null,
-        {
-          "kind": "cmp",
-          "property": "state",
-          "op": "eq",
-          "value": "on"
-        }
-      ],
-      "shapes": [
-        {
-          "card": "slider",
-          "slots": {},
-          "children": []
-        },
-        {
-          "card": "toggle",
-          "slots": {},
-          "children": []
-        }
-      ],
       "members": {
         "light.taklys": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Taklys"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Taklys"
+                  }
+                },
+                "children": []
+              }
             },
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Taklys"
-              },
-              "fills": []
+              "node": {
+                "card": "toggle",
+                "slots": {
+                  "label": {
+                    "literal": "Taklys"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.lampe": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Lampe"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Lampe"
+                  }
+                },
+                "children": []
+              }
             },
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Lampe"
-              },
-              "fills": []
+              "node": {
+                "card": "toggle",
+                "slots": {
+                  "label": {
+                    "literal": "Lampe"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         },
         "light.spot": {
           "clauses": [
             {
-              "cond": 1,
-              "shape": 0,
-              "vars": {
-                "label": "Spot"
+              "when": {
+                "kind": "cmp",
+                "property": "state",
+                "op": "eq",
+                "value": "on"
               },
-              "fills": []
+              "node": {
+                "card": "slider",
+                "slots": {
+                  "label": {
+                    "literal": "Spot"
+                  }
+                },
+                "children": []
+              }
             },
             {
-              "cond": 0,
-              "shape": 1,
-              "vars": {
-                "label": "Spot"
-              },
-              "fills": []
+              "node": {
+                "card": "toggle",
+                "slots": {
+                  "label": {
+                    "literal": "Spot"
+                  }
+                },
+                "children": []
+              }
             }
           ]
         }

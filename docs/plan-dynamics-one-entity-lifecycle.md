@@ -113,78 +113,47 @@ be able to write a useful dashboard having never met `q.`.
 Authored:
 
 ```pkl
-dump.stue.lights
-  .where((e) -> e.stateIs("on"))
-  .orderBy((e) -> e.attr("brightness"), "desc")
+q.from(dump.stue.lights)
+  .where(q.eq(q.stateProp, "on"))
+  .orderBy(q.desc(q.prop("brightness")))
   .render((e) -> c.slider(e))
 ```
 
-Emitted:
+Emitted — one `set` node owning the candidate list, the ordering and the limit; each member a list
+of guarded renderings:
 
 ```json
 {"kind":"set",
  "candidates":["light.a","light.b","light.c"],
- "conditions":[null,{"property":"state","op":"eq","value":"on"}],
- "orderBy":{"property":"attr:brightness","dir":"desc","tiebreak":"entity_id"},
- "shapes":[{"card":"slider","slots":{
-     "state":{"transform":"$state","reactive":true},
-     "fill": {"transform":"$round($attr.brightness*100/255)","reactive":true},
-     "key":{"literal":"brightness"},"min":{"literal":"1"},"max":{"literal":"255"},
-     "action":{"literal":"light/turn_on"}}}],
- "members":{"light.a":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Taklys"}}]},
-            "light.b":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Lampe"}}]},
-            "light.c":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Spot"}}]}}}
+ "orderBy":[{"by":{"property":"attr:brightness"},"dir":"desc"}],
+ "limit":null,
+ "members":{
+   "light.a":{"clauses":[
+     {"when":{"kind":"cmp","property":"state","op":"eq","value":"on"},
+      "node":{"card":"slider","cell":{"classes":["fh-cols-6"]},
+              "slots":{"label":{"literal":"Taklys"},
+                       "state":{"transform":"$state","reactive":true}},
+              "children":[]}}]}}}
 ```
 
-**A clause is a COMPLETE rendering, not just a selector.** `vars`/`fills` live on the clause, not
-on the member, because a member's clauses can point at different shapes and each shape has its own
-holes — a member whose first case is a slider and whose fallback is an entityCard needs the
-slider's literals for one and the entityCard's for the other. Hanging them off the member gave it
-only the FIRST clause's, so the fallback rendered with blanks. Found by asking the obvious question
-of the design rather than by a test failing; pinned now by S18.
+**A clause is a complete rendering.** `when` is the guard — null means unconditional — and `node`
+is the whole thing: card, cell, slots, children, inline. Nothing is shared, so nothing has to be
+looked up or merged, and a clause cannot be wrong about which member it belongs to.
 
-**Naming.** A member is a `cond` expression: its **clauses** are tried in order and the first
-whose guard holds decides the rendering; falling off the end means the member is not rendered.
-They are not "alternatives" — nothing is being destructured. The two dedup tables are **`shapes`**
-(a card plus the slots identical across its members) and **`conditions`** (the guards). The old
-`DynamicCase` bundled a predicate WITH a rendering; this format splits them, so "case" no longer
-names anything here. Members are thin rows of indices plus their varying literals. `cond: 0` is always `null` = unconditional. `orderBy` carries no `entity` — it is bound
-by set membership (P6's second shape). See "Resolved by the spike" for why there is no `present`.
+A member is a `cond` expression: clauses are tried in order and the first whose guard holds decides.
+**Falling off the end means the member is not rendered** — which is why there is no separate
+presence field, and why omitting the `else` is how you write "only while on".
 
-**Case dispatch may be static or state-dependent** (decided: we support both). The Mapping key
-returns a union, and the build applies every key to every candidate:
-
-```pkl
-hidden cases: Mapping<(Entity) -> Boolean|Bound, (Entity) -> Node>
-```
-
-A key returning `Boolean` folds to a case index; one returning `Bound` defers to the wire. `&&`
-still refuses to mix static and runtime *within* a term (see "Pkl mechanics"), so a key is cleanly
-one or the other. Members therefore carry either a bare index or an alternatives list, first match
-winning:
-
-```json
-"conditions":[null,{"kind":"cmp","property":"state","op":"eq","value":"on"}],
-"shapes":[{"card":"slider",...},{"card":"toggle",...}],
-"members": {
-  "light.a": {"vars":{"label":"Taklys"}, "clauses":[{"cond":1,"shape":0},{"cond":0,"shape":1}]}
-}
-```
-
-First match wins, so `light.a` is a slider while on and a toggle otherwise; had the fallback been
-absent it would simply be absent while off.
-
-Re-dispatch is free in practice: a member only re-evaluates its clauses when its own entity changes,
-which is when it was re-rendering anyway.
+A nested set is simply a child of a node. There is no hole/fill indirection, because there is
+nothing shared to punch a hole in.
 
 ### Complexity
 
-`N` = candidates in a set, `P` = present members, `E` = all entities in HA, `Δ` = entities changed
-in a frame, `C` = distinct shapes (`C ≤ N`, usually `C ≪ N`).
+`N` = candidates, `P` = present members, `E` = all entities in HA, `Δ` = entities changed in a frame.
 
 | | today | after |
 |---|---|---|
-| `dashboard.json` | O(1) per group | **O(C·slots + N·vars)** |
+| `dashboard.json` | O(1) per group | **O(N)**, ~459 bytes per candidate |
 | membership per frame | **O(E · groups)** — full map scan | **O(Δ)** index lookups |
 | presence eval | — | O(Δ) per frame; O(N) once at renderer construction |
 | ordering (any live key) | not supported | O(P log P), only when a *present* member's key moves |
@@ -192,20 +161,38 @@ in a frame, `C` = distinct shapes (`C ≤ N`, usually `C ≪ N`).
 | DOM elements | O(P) | **O(P)** |
 | bytes to client | O(changed) | O(changed present) |
 
-**The wire grows linearly in candidates; nothing the client or the frame loop does is linear in
-candidates.** A 200-candidate set with 5 present costs 200 JSON entries, 5 DOM elements, and a
-hash lookup per change. The one real regression — `dashboard.json` per set going from constant to
-linear — buys the frame loop going from O(E · groups) to O(Δ). Byte count is therefore not a
-design driver here; it is server-side metadata, not work reaching the browser.
+The wire grows linearly in candidates; nothing the client or the frame loop does is linear in
+candidates. `dashboard.json` never reaches the browser — it is a build artifact and the runtime
+holds the model in memory — so its size costs eval time and memory, not client work.
 
-**Rejected: D1 (full expansion, one Component node per candidate).** N × (card + all slots +
-predicate) instead of 1 × that + N × (id + label), and — decisively — three sibling nodes have no
-shared thing owning their relative order, so D1 cannot express `orderBy` or `count` at all.
+## Rejected: the compressed format, and when to revisit it
 
-**On `$self`, which D2 appears to reintroduce.** `$self` as a *runtime-materialised unknown* is the
-bug. `$self` as a *template parameter over a statically known list*, bound at renderer
-construction before any state arrives, is fine. Same token, different lifecycle — that distinction
-is the whole plan.
+This was briefly designed the other way: shared `shapes` and `conditions` tables, members as thin
+rows of indices plus their varying literals (`vars`) and nested sets (`fills`), with `holes` marking
+where a shape's children vary. Built, tested, then removed.
+
+**Measured**, on N synthetic lights (post-fold, so no `$domain` lookups):
+
+| candidates | compressed | expanded | ratio |
+|---|---|---|---|
+| 10 | 2.1 KB | 4.4 KB | 2.1× |
+| 50 | 9.2 KB | 22.3 KB | 2.4× |
+| 200 | 36.1 KB | 89.4 KB | 2.5× |
+| 1000 | 180.7 KB | 448.0 KB | 2.5× |
+
+Per-candidate cost is flat either way — 185 bytes compressed, 459 expanded — so both grow linearly
+and the ratio settles at ~2.5×. No exponential term.
+
+**What the 2.5× cost:** four concepts (`shapes`, `conditions`, `holes`/`fills`, `vars`) and two
+classes of bug, both found in the spike and both structurally impossible in the expanded form — a
+clause carrying another clause's literals, and two cards with different cells silently sharing a
+shape. It also needed a rule for whether a literal is shared or per-member, which then had to be
+made count-independent to stop identical authoring emitting two different structures.
+
+A bad trade for a server-side artifact. **Revisit only if memory or Pkl eval time on a large real
+dashboard actually bites** — and the cheaper first move then is for the BACKEND to intern identical
+terms at load, recovering the sharing without putting any of it on the wire. What interning does
+not recover is repeated transform text, which is most of the difference.
 
 ## Resolved by the spike
 
@@ -253,7 +240,7 @@ narrow: it is not about having several keys, which is fully supported.
 `orderBy` does NOT join the `conditions` table — a key extractor is not a guard.
 
 **The build emits an already-split node; the runtime never re-derives the split.** The spike does
-the fold at build time and emits only the residue — candidates, per-alt conditions, shapes. The
+the fold at build time and emits only the residue — candidates and per-clause guards. The
 runtime receives no static terms at all and cannot tell which were folded away. The cost is that
 `dashboard.json` sits further from what was authored, which matters for the editor; the benefit is
 that the runtime carries no folding logic and cannot disagree with the build about it.
@@ -262,60 +249,23 @@ that the runtime carries no folding logic and cannot disagree with the build abo
 appearing or disappearing is `Placed`/`Gone`, which is the same patch pair a reorder emits. There
 is no separate visibility path to build.
 
-**Per-member `vars` need no shared entity table (for now).** The shape compression already hoists
-anything constant across a shape's members onto the case, which is exactly the per-*domain*
-literals (`min`/`max`/`key`/`action`) that motivated the idea. A shared table would only help
-entities appearing in several sets — revisit if that shows up in a measurement, not before.
+**A shared entity table is not needed.** Registry facts that the runtime can resolve become
+`reg:` references and never ride per member at all; anything computed is a literal on the node.
+Revisit only if a measurement says otherwise.
 
-## var-vs-shape is decided by TYPE
+## Layout
 
-Which slots become per-member `vars` is decided by type, not by diffing:
-
-```
-a Lit  ->  always a var          (a build-time value, so it may vary per member)
-an Xf  ->  always on the shape   (a transform is identical for everyone; the
-                                  entity it reads comes from the member binding)
-```
-
-and the same rule recurses into `children`: a child carrying any literal at any depth becomes a
-hole, one with none (a divider, a fixed header) stays in the shape. A nested set is always a hole.
-
-**Why not diff.** Diffing "does this literal actually differ across the members that happen to
-share this shape" makes the emitted structure depend on MEMBER COUNT — a shape with one member has
-nothing to diff, so its literal stayed on the shape while an identically authored four-member shape
-put it in vars. Verified harmless at runtime (shape indices carry no meaning, and the restructure
-only happens on a rebuild that already repaints the whole body via `Server.reloadRepaints`), but a
-format where one input yields two structures is harder to reason about and to decode.
-
-**The cost**, accepted: a literal that is genuinely constant across members (`min: "1"` on every
-light) is now repeated per member. Few and short, and worth paying for a structure that is a
-function of the authoring alone. Pinned by "the same authoring emits the same structure regardless
-of member count".
-
-## Layout belongs to the shape
-
-`cell` (`columns(n)`, `fullWidth()`, `hug()`) lived on the old `DynamicCase`, shared by every member
-of that case. **Now on `ShapeDef`** (S16/S17), which is where it belongs, because anything that
-legitimately varies the layout also varies the CARD:
+`cell` (`columns(n)`, `fullWidth()`, `hug()`) sits on the member's node, like every other part of
+its rendering:
 
 ```pkl
 .caseOf(q.candidate((e) -> e.supported_features > 4), (e) -> c.slider(e).columns(6))
 .`else`((e) -> c.toggle(e).columns(3))
 ```
 
-Different case → different shape → different cell, naturally. A per-member span with the SAME card
-is the exotic case, and arguably should not be encouraged: a set whose members are different widths
-for no structural reason is a layout smell.
-
-**The bug this would have shipped with:** shapes were grouped by `card` + child count, so two
-members with the same card and different authored cells merged into one shape and one cell won
-SILENTLY. Shape identity now includes the cell (`shapeKey`), so a differing cell forces a distinct
-shape — count-independent, consistent with the rule above. S16 pins exactly this: same card, two
-widths, two shapes.
-
-Applying the type rule to `cell` instead (making it a per-member var) was considered and rejected:
-class lists are longer than labels, and they are near-always constant across a shape, so it pays
-C's repetition cost where the benefit is close to zero.
+Under the compressed format this needed care — the cell had to join shape identity, or two members
+with the same card and different widths silently shared one. Expanded, the question does not arise:
+a node carries its own cell and nothing merges.
 
 ## `limit`: a third member state
 
@@ -400,31 +350,29 @@ q.from(dump.areas).render((a) ->
     q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
 ```
 
-**The finding: a nested set can never live in a shared shape**, because two areas never hold the
-same lights. It has to be per-member data. But that is not a new mechanism — it is the SAME rule
-that decides slot-vs-var, applied to child positions: a child that is identical across the members
-sharing a shape stays in the shape; one that varies becomes a `Hole` the member fills.
+**A nested set is simply a child of the member's node.** The compressed format needed a hole/fill
+indirection here — two areas never hold the same lights, so a nested set could never live in a
+shared shape and had to be punched out per member. Expanded, there is nothing shared to punch a
+hole in, and a tile is just a node with a set inside it.
 
 ```json
-"shapes": [ { "card": "card", "slots": {}, "children": [ {"kind":"hole","idx":0} ] } ],
 "members": {
-  "area.stue": { "vars": {"title":"Stue"}, "fills": [ { "kind":"set", "candidates":[…] } ] }
+  "area.stue": { "clauses": [ { "node": { "card":"card",
+      "slots": {"title":{"literal":"Stue"}},
+      "children": [ { "kind":"set", "candidates":[…] } ] } } ] }
 }
 ```
 
-So the skeleton still compresses to ONE shape for three tiles, the title is a var, and only the
-genuinely per-room part — the nested set — is repeated. Verified: each tile's inner set carries its
-own candidates, conditions and shapes, and behaves exactly as it would standalone.
+Each tile is a complete node with its own title and its own nested set. Verified: the inner set
+carries its own candidates and guards and behaves exactly as it would standalone.
 
 Mechanics worth knowing:
 
-- shapes group by card **and child count**: positions only align at equal arity, and a differing
-  arity is a genuinely different shape.
-- an invariant child (a divider, a fixed header) stays in the shape rather than becoming a hole —
-  the compression really does apply at depth, not just at the top.
+- an invariant child (a divider, a fixed header) is simply repeated on each member — cheap, and it
+  cannot be wrong about which member it belongs to.
 - an empty room yields an empty nested set, not an error.
-- `children`/`fills` render as `[]` on every node in the spike's JSON. The real wire should omit
-  them when empty; that is a circe concern, not a design one.
+- `children` renders as `[]` on every node in the spike's JSON. The real wire should omit it when
+  empty; that is a circe concern, not a design one.
 
 **An empty room can be dropped at BUILD time** — `lights` is registry data, so
 `.where(q.candidate((a) -> a.lights.length > 0))` removes the tile with no runtime involvement.
@@ -476,8 +424,7 @@ not as a rule.
 - **A set carries no id of its own, deliberately.** Identity comes from CONTAINMENT — a set is
   reached either as a node in the layout tree or as exactly one member's fill, and that path is
   what the backend keys on. C13 pins the containment being unambiguous: every nested set hangs off
-  one `(member, hole)` route, and the shared shape holds a `Hole` rather than the set, so no set is
-  reachable by two paths.
+  one member's node, so no set is reachable by two paths.
 
 The spike cannot test the ids themselves — it does not generate them. That belongs with the
 `wire.pkl` → `DashboardBuild` move, and these tests are what it has to keep true.
@@ -700,8 +647,7 @@ everywhere. Three moves cover almost all of it:
   definitions must not be cyclic"), and `Cond` mentions both classes. Inlining does not help; the
   union still closes the loop. So the two positions that would close it take `Any`, and `Cond` is
   used everywhere else.
-- `Node.children` / `fills` take the inlined `Node|SetNode|Hole` rather than a `Child` alias, for
-  the same rule.
+- `Node.children` takes the inlined `Node|SetNode` rather than a `Child` alias, for the same rule.
 - `applyOp`'s operands, which are genuinely heterogeneous.
 
 The public surface — `from`, `where`, `render`, `orderBy`, `entity`, the comparison builders — is
@@ -736,8 +682,8 @@ q.from(dump.stue.lights)
   .caseOf(q.candidate((e) -> e.supported_features > 4), slider)
   .`else`(toggle)
 
-// S5 — dispatch on LIVE state. Both shapes stay; the choice rides the wire as a
-//      clause list, first match winning.
+// S5 — dispatch on LIVE state. Both renderings stay; the choice rides the wire
+//      as a clause list, first match winning.
 q.from(dump.stue.lights)
   .caseOf(q.eq(q.stateProp, "on"), slider)
   .`else`(toggle)
@@ -895,7 +841,8 @@ const hidden e_taklys: hass.LightEntity = new {
 }
 ```
 
-**Deduped by capability signature**, the same shared-table trick `shapes` and `conditions` use.
+**Deduped by capability signature** — a shared table is right HERE, unlike in the node format,
+because a signature is genuinely shared by many entities and carries no per-entity data.
 Measured on the live instance: 1069 entities collapse to 214 distinct capability signatures
 (lights: 48 entities, 8 signatures), which is ~59 KB emitted against ~292 KB if written per
 entity.

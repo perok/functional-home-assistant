@@ -8,6 +8,13 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
+
 facts {
   ["predicate constructors carry the right property and op"] {
     c.domainIs("light").property == "domain"

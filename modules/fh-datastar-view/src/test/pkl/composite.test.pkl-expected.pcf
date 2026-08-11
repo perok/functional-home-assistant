@@ -8,165 +8,159 @@ examples {
         "area.kjokken",
         "area.bod"
       ],
-      "conditions": [
-        null
-      ],
-      "shapes": [
-        {
-          "card": "card",
-          "slots": {},
-          "children": [
-            {
-              "kind": "hole",
-              "idx": 0
-            }
-          ]
-        }
-      ],
       "members": {
         "area.stue": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 0,
-              "vars": {
-                "title": "Stue"
-              },
-              "fills": [
-                {
-                  "kind": "set",
-                  "candidates": [
-                    "light.taklys",
-                    "light.lampe",
-                    "light.spot"
-                  ],
-                  "conditions": [
-                    null,
-                    {
-                      "kind": "cmp",
-                      "property": "state",
-                      "op": "eq",
-                      "value": "on"
-                    }
-                  ],
-                  "shapes": [
-                    {
-                      "card": "slider",
-                      "slots": {},
-                      "children": []
-                    }
-                  ],
-                  "members": {
-                    "light.taklys": {
-                      "clauses": [
-                        {
-                          "cond": 1,
-                          "shape": 0,
-                          "vars": {
-                            "label": "Taklys"
-                          },
-                          "fills": []
-                        }
-                      ]
-                    },
-                    "light.lampe": {
-                      "clauses": [
-                        {
-                          "cond": 1,
-                          "shape": 0,
-                          "vars": {
-                            "label": "Lampe"
-                          },
-                          "fills": []
-                        }
-                      ]
-                    },
-                    "light.spot": {
-                      "clauses": [
-                        {
-                          "cond": 1,
-                          "shape": 0,
-                          "vars": {
-                            "label": "Spot"
-                          },
-                          "fills": []
-                        }
-                      ]
+              "node": {
+                "card": "card",
+                "slots": {
+                  "title": {
+                    "literal": "Stue"
+                  }
+                },
+                "children": [
+                  {
+                    "kind": "set",
+                    "candidates": [
+                      "light.taklys",
+                      "light.lampe",
+                      "light.spot"
+                    ],
+                    "members": {
+                      "light.taklys": {
+                        "clauses": [
+                          {
+                            "when": {
+                              "kind": "cmp",
+                              "property": "state",
+                              "op": "eq",
+                              "value": "on"
+                            },
+                            "node": {
+                              "card": "slider",
+                              "slots": {
+                                "label": {
+                                  "literal": "Taklys"
+                                }
+                              },
+                              "children": []
+                            }
+                          }
+                        ]
+                      },
+                      "light.lampe": {
+                        "clauses": [
+                          {
+                            "when": {
+                              "kind": "cmp",
+                              "property": "state",
+                              "op": "eq",
+                              "value": "on"
+                            },
+                            "node": {
+                              "card": "slider",
+                              "slots": {
+                                "label": {
+                                  "literal": "Lampe"
+                                }
+                              },
+                              "children": []
+                            }
+                          }
+                        ]
+                      },
+                      "light.spot": {
+                        "clauses": [
+                          {
+                            "when": {
+                              "kind": "cmp",
+                              "property": "state",
+                              "op": "eq",
+                              "value": "on"
+                            },
+                            "node": {
+                              "card": "slider",
+                              "slots": {
+                                "label": {
+                                  "literal": "Spot"
+                                }
+                              },
+                              "children": []
+                            }
+                          }
+                        ]
+                      }
                     }
                   }
-                }
-              ]
+                ]
+              }
             }
           ]
         },
         "area.kjokken": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 0,
-              "vars": {
-                "title": "Kjøkken"
-              },
-              "fills": [
-                {
-                  "kind": "set",
-                  "candidates": [
-                    "light.kjokken"
-                  ],
-                  "conditions": [
-                    null,
-                    {
-                      "kind": "cmp",
-                      "property": "state",
-                      "op": "eq",
-                      "value": "on"
-                    }
-                  ],
-                  "shapes": [
-                    {
-                      "card": "slider",
-                      "slots": {},
-                      "children": []
-                    }
-                  ],
-                  "members": {
-                    "light.kjokken": {
-                      "clauses": [
-                        {
-                          "cond": 1,
-                          "shape": 0,
-                          "vars": {
-                            "label": "Kjøkken"
-                          },
-                          "fills": []
-                        }
-                      ]
+              "node": {
+                "card": "card",
+                "slots": {
+                  "title": {
+                    "literal": "Kjøkken"
+                  }
+                },
+                "children": [
+                  {
+                    "kind": "set",
+                    "candidates": [
+                      "light.kjokken"
+                    ],
+                    "members": {
+                      "light.kjokken": {
+                        "clauses": [
+                          {
+                            "when": {
+                              "kind": "cmp",
+                              "property": "state",
+                              "op": "eq",
+                              "value": "on"
+                            },
+                            "node": {
+                              "card": "slider",
+                              "slots": {
+                                "label": {
+                                  "literal": "Kjøkken"
+                                }
+                              },
+                              "children": []
+                            }
+                          }
+                        ]
+                      }
                     }
                   }
-                }
-              ]
+                ]
+              }
             }
           ]
         },
         "area.bod": {
           "clauses": [
             {
-              "cond": 0,
-              "shape": 0,
-              "vars": {
-                "title": "Bod"
-              },
-              "fills": [
-                {
-                  "kind": "set",
-                  "candidates": [],
-                  "conditions": [
-                    null
-                  ],
-                  "shapes": [],
-                  "members": {}
-                }
-              ]
+              "node": {
+                "card": "card",
+                "slots": {
+                  "title": {
+                    "literal": "Bod"
+                  }
+                },
+                "children": [
+                  {
+                    "kind": "set",
+                    "candidates": [],
+                    "members": {}
+                  }
+                ]
+              }
             }
           ]
         }

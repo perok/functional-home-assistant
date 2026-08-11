@@ -115,55 +115,37 @@ class Cell { classes: List<String> }
 
 /// What a render lambda produces for one concrete candidate. `children` may hold
 /// further [[Node]]s (a member rendering a subtree) or a whole [[SetNode]] (a set
-/// nested inside a member — the "tile per room" shape).
+/// nested inside a member — the "tile per room" shape). A nested set is just a
+/// child; there is no hole/fill indirection, because nothing is shared.
 class Node {
   card: String
   slots: Map<String, Slot>
   cell: Cell? = null
-  children: List<Node|SetNode|Hole> = List()
+  children: List<Node|SetNode> = List()
 }
-
-/// A gap in a shape's `children`, filled per member from [[MemberDef.fills]].
-/// A child becomes a hole exactly when it DIFFERS across the members sharing the
-/// shape — the same rule that decides slot-vs-var. A nested set is always a hole
-/// in practice: two areas never have the same lights.
-class Hole { kind: "hole" = "hole"; idx: Int }
-
-// NOTE: `Child` cannot be a typealias — `Node.children` would make the alias
-// cyclic and Pkl rejects that ("Type alias definitions must not be cyclic").
-// The union is inlined at each use instead, which the compiler accepts.
 
 // ---- the emitted wire node ----
 
-/// One deduped rendering: a card plus the slots that are identical across every
-/// member using it. NOT a "case" — the old `DynamicCase` bundled a predicate
-/// WITH a rendering, and this format splits those apart; the guard lives in
-/// [[SetNode.conditions]] and a [[Clause]] joins the two.
-class ShapeDef {
-  card: String
-  slots: Map<String, Slot>
-  cell: Cell? = null
-  /// Literal children, with a [[Hole]] wherever the child varies per member.
-  children: List<Node|SetNode|Hole> = List()
-}
-
-/// One guarded rendering for a member: "if `cond` holds, render `shape`, filled
-/// with THESE values". `cond` and `shape` are indices into the set's dedup tables
-/// ([[SetNode.conditions]] / [[SetNode.shapes]]).
+/// One guarded rendering for a member: "if `when` holds, render `node`".
 ///
-/// `vars`/`fills` live HERE, not on the member, because a member's clauses can
-/// point at DIFFERENT shapes and each shape has its own holes. A member whose
-/// first case is a slider and whose fallback is an entityCard needs the slider's
-/// literals for one and the entityCard's for the other; hanging them off the
-/// member gave it only the first clause's, so the fallback rendered with blanks.
+/// The node is COMPLETE — card, cell, slots, children, all inline. Earlier this
+/// was a pair of indices into shared `shapes`/`conditions` tables, with the
+/// per-member literals split out into `vars` and the nested sets into `fills`.
+/// That compression bought a flat 2.5x on the emitted JSON (measured: 185 vs
+/// 459 bytes per candidate, linear either way, so 181KB vs 448KB at a thousand
+/// candidates) — on an artifact that is server-side only and never reaches a
+/// browser.
+///
+/// It cost four concepts and two classes of bug, both of which are structurally
+/// impossible here: a clause could carry the wrong member's literals, and two
+/// cards with different cells could silently share a shape. A complete node
+/// cannot be wrong about itself.
 class Clause {
-  cond: Int
-  shape: Int
-  vars: Map<String, String> = Map()
-  fills: List<Node|SetNode|Hole> = List()
+  `when`: Term?
+  node: Node
 }
 
-/// A member is a `cond` expression: its clauses are tried in order and the first
+/// A member is a `cond` expression: clauses are tried in order and the first
 /// whose guard holds decides the rendering. Falling off the end means the member
 /// is NOT RENDERED — which is why there is no separate presence field.
 class MemberDef { clauses: List<Clause> }
@@ -171,21 +153,15 @@ class MemberDef { clauses: List<Clause> }
 /// A derived value over a set: how many of its members are PRESENT, or an
 /// extremum over one of their properties.
 ///
-/// The important reduction: an aggregate does not need its own predicate
-/// machinery. Presence is already per-member and already computed, so `count` is
-/// just |present(set)| — and `any`/`none`/`all` are three comparisons on it
-/// rather than three quantifiers. That is what lets [[Quantifier]] retire: it
-/// existed only because an unbound predicate had to be quantified over the whole
-/// state map.
+/// `count` needs no predicate machinery of its own — presence is already
+/// per-member and already computed — so `any`/`none`/`all` are three comparisons
+/// on it rather than three quantifiers. That is what retires [[Quantifier]].
 ///
-///     any   ->  count > 0
-///     none  ->  count == 0
-///     all   ->  count == candidates.length
+///     any -> count > 0    none -> count == 0    all -> count == candidates.length
 class Agg {
   kind: "agg" = "agg"
   /// "count" | "min" | "max" | "sum"
   op: String
-  /// The set whose present members are aggregated.
   over: SetNode
   /// Which property to reduce, for min/max/sum. Null for count.
   of: PropRef? = null
@@ -202,23 +178,16 @@ class AggCmp extends Term {
 
 class SetNode {
   kind: "set" = "set"
-  /// Show at most this many PRESENT members, after ordering. A member beyond the
-  /// cut is not rendered at all — P7: absent from the DOM, not hidden in it. So a
-  /// member has three states, not two: absent (no clause matched), present, and
-  /// present-but-cut.
-  limit: Int? = null
-  /// In render order. When the ordering key folded to registry facts this list
-  /// is already sorted and [[orderBy]] is null: the runtime filters to the
-  /// present members and preserves this order, O(P) with no comparisons.
+  /// In render order. When the ordering folded to registry facts this list is
+  /// already sorted and [[orderBy]] is null: the runtime filters to the present
+  /// members and preserves this order, O(P) with no comparisons.
   candidates: List<String>
+  /// Show at most this many PRESENT members, after ordering. A member beyond the
+  /// cut is not rendered at all — P7: absent from the DOM, not hidden in it.
+  limit: Int? = null
   /// Lexicographic, most significant first. Null when the whole ordering folded
   /// away and `candidates` is already in render order.
   orderBy: List<OrderTerm>?
-  /// Distinct runtime guards, referenced by [[Clause.cond]]. Index 0 is always
-  /// `null` = unconditional, so a fully static set carries one entry that every
-  /// clause points at.
-  conditions: List<Term?>
-  shapes: List<ShapeDef>
   members: Map<String, MemberDef>
 }
 
@@ -243,58 +212,6 @@ local function liveBranches(e: Candidate, branches: List<Branch>): List<Pair<Bra
     let (firstUnconditional = evaluated.findIndexOrNull((p) -> p.second == true))
       (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
         .map((p) -> Pair(p.first, if (p.second is Term) p.second as Term else null))
-
-/// Which slots become per-member `vars`. The rule is by TYPE, not by diffing:
-///
-///   a `Lit`  -> always a var    (it is a build-time value, so it may vary)
-///   an `Xf`  -> always on the shape (a transform is the same for every member;
-///              the entity it reads comes from the member binding)
-///
-/// Deciding by diff instead — "does this literal actually differ across the
-/// members that happen to share this shape" — makes the emitted structure depend
-/// on MEMBER COUNT: a shape with one member has nothing to diff, so its literal
-/// stays on the shape, and adding a second entity of that kind restructures the
-/// output from the same authoring. Harmless at runtime, but a format where one
-/// input yields two structures is harder to reason about and to decode.
-///
-/// The cost of the type rule is repeating a literal that is genuinely constant
-/// across members (`min: "1"` for every light). Few and short, and worth paying
-/// for a structure that is a function of the authoring alone.
-local function varyingKeys(nodes: List<Node>): List<String> =
-  nodes.first.slots.keys.toList().filter((k) -> nodes.first.slots[k] is Lit)
-
-/// Does this child carry any build-time literal, at any depth? If so it may vary
-/// per member and must be a hole — the same type rule as [[varyingKeys]], applied
-/// to structure. A nested set is always per-member; a child with no literals (a
-/// divider, a fixed header) is the same for everyone and stays in the shape.
-local function containsLit(c: Node|SetNode|Hole): Boolean =
-  if (c is SetNode) true
-  else if (c is Hole) true
-  else
-    let (n = c as Node)
-      n.slots.values.any((s) -> s is Lit) || n.children.any((k) -> containsLit(k))
-
-/// CHILD positions that differ across the members sharing a shape. Exactly the
-/// same rule as [[varyingKeys]], applied one level down: a child that is the
-/// same for everyone stays in the shape, one that varies becomes a [[Hole]] the
-/// member fills. A nested `SetNode` is always in here — two areas never hold the
-/// same lights — which is why a nested set can never live in a shared shape.
-local function varyingChildren(nodes: List<Node>): List<Int> =
-  nodes.first.children.toList().mapIndexed((i, c) -> Pair(i, c))
-    .filter((p) -> containsLit(p.second)).map((p) -> p.first)
-
-/// Shape identity: card, arity, AND cell. See the grouping note in [[buildSet]].
-local function shapeKey(n: Node): String =
-  "\(n.card)/\(n.children.length)/\(if (n.cell == null) "-" else n.cell.classes.join(","))"
-
-local function shapeOf(n: Node, varying: List<String>, varyingKids: List<Int>): ShapeDef =
-  new ShapeDef {
-    card = n.card
-    cell = n.cell
-    slots = n.slots.filter((k, _v) -> !varying.contains(k))
-    children = n.children.toList().mapIndexed((i, c) ->
-      if (varyingKids.contains(i)) new Hole { idx = varyingKids.findIndex((x) -> x == i) } else c)
-  }
 
 /// A PROPERTY REFERENCE the runtime resolves per member. The prefix says where
 /// from: bare `state`, `attr:<name>` from live attributes, `reg:<name>` from the
@@ -489,42 +406,15 @@ function buildSet(
         Pair(p.first, p.second.map((b) ->
           Pair(b.first.render.apply(p.first),
                conjoin(presenceOf[p.first.entity_id], b.second))))))
-  // 4. group the rendered nodes by card to find shapes, then hole out the
-  //    literals that vary within a shape.
-  //    Grouped by card AND child count: positions only align between nodes with
-  //    the same arity, and a differing arity is a genuinely different shape.
-  let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
-  //    The cell is part of the key: without it, two members with the same card
-  //    but different `columns(n)` would merge and one cell would silently win.
-  let (byCard = allNodes.groupBy((n) -> shapeKey(n)))
-  let (shapeDefs = byCard.keys.toList().sort().map((k) ->
-        shapeOf(byCard[k].first, varyingKeys(byCard[k]), varyingChildren(byCard[k]))))
-  let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
-  let (varyingKidsByCard = byCard.mapValues((_k, ns) -> varyingChildren(ns)))
-  let (shapeIndex = byCard.keys.toList().sort())
-  // 5. dedupe the residual conditions the same way shapes are deduped. Null
-  //    first, so index 0 always means unconditional.
-  let (conds = List(null) + rendered
-        .flatMap((p) -> p.second.map((q) -> q.second))
-        .filter((t) -> t != null)
-        .distinct)
+  // 4. emit. No grouping, no dedup, no index tables: a clause carries its node
+  //    whole. The build applies the render lambda per candidate either way, so
+  //    this is strictly LESS work than compressing afterwards.
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
     limit = cap
     orderBy = ordered.terms
-    conditions = conds
-    shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
       new MemberDef {
-        clauses = p.second.map((q) ->
-          let (node = q.first)
-            let (key = shapeKey(node))
-              new Clause {
-                cond = conds.findIndex((t) -> t == q.second)
-                shape = shapeIndex.findIndex((c) -> c == key)
-                vars = varyingByCard[key]
-                  .toMap((k) -> k, (k) -> (node.slots[k] as Lit).literal)
-                fills = varyingKidsByCard[key].map((i) -> node.children[i])
-              })
+        clauses = p.second.map((q) -> new Clause { `when` = q.second; node = q.first })
       })
   }

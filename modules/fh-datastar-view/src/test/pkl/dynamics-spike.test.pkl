@@ -88,26 +88,33 @@ local alwaysPresent = (_e) -> true
 
 /// Resolve alternative `i` of `eid` through the set's condition table.
 /// `null` means unconditional.
-local condOf = (s, eid: String, i: Int) -> s.conditions[s.members[eid].clauses[i].cond]
+local condOf = (s, eid: String, i: Int) -> s.members[eid].clauses[i].`when`
+
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
 
 facts {
-  ["1. a uniform set shares one case; only the varying literal is per-member"] {
+  ["1. every member carries a complete node"] {
     local s = wire.buildSet(stueLights, List(sliderBranch), (e) -> e.stateIs("on"), List(), null)
     s.candidates.length == 3
-    s.shapes.length == 1
-    // the state transform is identical across members -> stays on the case
-    s.shapes.first.slots.containsKey("state")
-    // the registry-derived label differs -> hoisted to per-member vars
-    !s.shapes.first.slots.containsKey("label")
-    s.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
-    s.members["light.lampe"].clauses.first.vars["label"] == "Lampe"
+    cards.apply(s).length == 1
+    // each member's node is COMPLETE: the shared transform and its own literal,
+    // both inline. Nothing to look up, nothing to merge.
+    firstNode.apply(s).slots.containsKey("state")
+    firstNode.apply(s).slots.containsKey("label")
+    (s.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Taklys"
+    (s.members["light.lampe"].clauses.first.node.slots["label"] as wire.Lit).literal == "Lampe"
   }
 
   ["2. an interpolated label is still a build-time literal, still a var"] {
     local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, List(), null)
-    s.members["light.taklys"].clauses.first.vars["label"] == "Blah Taklys"
-    s.members["light.spot"].clauses.first.vars["label"] == "Blah Spot"
-    s.shapes.length == 1
+    (s.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Blah Taklys"
+    (s.members["light.spot"].clauses.first.node.slots["label"] as wire.Lit).literal == "Blah Spot"
+    cards.apply(s).length == 1
     // nothing defers: the member's only alternative is unconditional
     condOf.apply(s, "light.taklys", 0) == null
   }
@@ -130,17 +137,17 @@ facts {
     // ...the dumb one carries its residual on the alternative
     condOf.apply(s, "light.lampe", 0).property == "state"
     // and the two distinct residuals are stored ONCE, not per member
-    s.conditions.length == 2
+    conds.apply(s).length == 2
   }
 
   ["3. static domain dispatch resolves to a shape index, no runtime `when`"] {
     local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List(), null)
-    s.shapes.length == 2
+    cards.apply(s).length == 2
     // every member has exactly one alternative, and it is unconditional
     s.members.values.every((m) -> m.clauses.length == 1)
-    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
-    s.members["media_player.tv"].clauses.first.shape !=
-      s.members["light.taklys"].clauses.first.shape
+    s.members.values.every((m) -> m.clauses.first.`when` == null)
+    s.members["media_player.tv"].clauses.first.node.card !=
+      s.members["light.taklys"].clauses.first.node.card
   }
 
   ["4. a capability branch is static too — supported_features is registry data"] {
@@ -148,9 +155,9 @@ facts {
     // taklys/spot (features 8) take the slider; lampe (features 2) falls through
     s.members["light.taklys"].clauses.length == 1
     s.members["light.lampe"].clauses.length == 1
-    s.members["light.taklys"].clauses.first.shape !=
-      s.members["light.lampe"].clauses.first.shape
-    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
+    s.members["light.taklys"].clauses.first.node.card !=
+      s.members["light.lampe"].clauses.first.node.card
+    s.members.values.every((m) -> m.clauses.first.`when` == null)
   }
 
   ["5. state-dependent dispatch keeps BOTH shapes, choice deferred to the wire"] {
@@ -162,7 +169,7 @@ facts {
     // the unconditional fallback terminates the list
     condOf.apply(s, "light.taklys", 1) == null
     // all three members share the SAME condition object, stored once
-    s.conditions.length == 2
+    conds.apply(s).length == 2
   }
 
   ["6. `all` folds a mixed key three ways, per candidate"] {
@@ -244,25 +251,23 @@ facts {
   // is always on the shape — so the emitted structure is a function of the
   // authoring alone, and adding a second entity of some kind never restructures
   // the output.
-  ["the same authoring emits the same structure regardless of member count"] {
+  ["structure is a function of the authoring, never of member count"] {
     local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List(), null)
-    local media = s.shapes.filter((c) -> c.card == "mediaCard").first
-    local slider = s.shapes.filter((c) -> c.card == "slider").first
 
     // mediaCard has ONE member, slider has four — and both put the literal in
     // vars, because both were authored the same way
-    !media.slots.containsKey("label")
-    !slider.slots.containsKey("label")
-    s.members["media_player.tv"].clauses.first.vars["label"] == "TV"
-    s.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+    (s.members["media_player.tv"].clauses.first.node.slots["label"] as wire.Lit).literal == "TV"
+    (s.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Taklys"
   }
 
-  ["a transform stays on the shape — it is the same for every member"] {
+  ["a transform is inline on every member's node"] {
     local s = wire.buildSet(stueLights, List(sliderBranch), alwaysPresent, List(), null)
     // `state` is an Xf: the entity it reads comes from the member binding, so
-    // one copy serves everyone
-    s.shapes.first.slots.containsKey("state")
-    s.members.values.every((m) -> !m.clauses.first.vars.containsKey("state"))
+    // every member carries the same transform text. Repeating it is the price of
+    // dropping the shapes table — measured at ~2.5x on a server-side artifact.
+    s.members.values.every((m) -> m.clauses.first.node.slots.containsKey("state"))
+    s.members.values.every((m) ->
+      (m.clauses.first.node.slots["state"] as wire.Xf).transform == "$state")
   }
 
   ["a statically-false candidate never reaches the wire"] {

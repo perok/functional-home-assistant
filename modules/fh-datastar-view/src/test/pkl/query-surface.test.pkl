@@ -23,6 +23,13 @@ local mediaCard = (e) -> new wire.Node {
   slots = Map("label", new wire.Lit { literal = e.friendly_name })
 }
 
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
+
 facts {
   ["a list argument to `where` is conjunction; static terms drop candidates"] {
     local s = q.from(fixtures.all)
@@ -31,7 +38,7 @@ facts {
       .build()
     s.candidates == List("light.taklys", "light.lampe", "light.spot")
     // nothing live: one condition entry, the unconditional null
-    s.conditions == List(null)
+    conds.apply(s) == List(null)
   }
 
   ["chained `where`s conjoin, and a live term becomes the member condition"] {
@@ -41,8 +48,10 @@ facts {
       .render(slider)
       .build()
     s.candidates.length == 4
-    s.conditions.length == 2
-    s.conditions[1].property == "state"
+    // one distinct condition, shared by every member. Under the old format this
+    // was two, because the table always reserved index 0 for `null`.
+    conds.apply(s).length == 1
+    (conds.apply(s).first as wire.Bound).property == "state"
   }
 
   ["`any` is disjunction and nests inside a conjunction list"] {
@@ -53,9 +62,9 @@ facts {
       .render(slider)
       .build()
     // dimmable lights are unconditionally present; the dumb one defers
-    s.conditions.length == 2
-    s.conditions[s.members["light.taklys"].clauses.first.cond] == null
-    s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
+    conds.apply(s).length == 2
+    s.members["light.taklys"].clauses.first.`when` == null
+    s.members["light.lampe"].clauses.first.`when`.property == "state"
   }
 
   // A list is AND and `any` is OR, so BOTH nestings are expressible. The
@@ -83,7 +92,7 @@ facts {
     s.candidates.length == 4
     !s.candidates.contains("media_player.tv")
     // `domain` is a candidate property, so the build read it — nothing deferred
-    s.conditions == List(null)
+    conds.apply(s) == List(null)
   }
 
   ["the data form defers a property the build cannot read"] {
@@ -91,8 +100,8 @@ facts {
       .where(q.eq(q.stateProp, "on"))
       .render(toggle)
       .build()
-    s.conditions.length == 2
-    s.conditions[1].property == "state"
+    conds.apply(s).length == 1
+    (conds.apply(s).filter((c) -> c != null).first as wire.Bound).property == "state"
   }
 
   ["a name that is not a candidate property resolves to a live attribute"] {
@@ -100,7 +109,7 @@ facts {
       .where(q.gt(q.prop("brightness"), 40))
       .render(toggle)
       .build()
-    s.conditions[1].property == "attr:brightness"
+    (conds.apply(s).filter((c) -> c != null).first as wire.Bound).property == "attr:brightness"
   }
 
   ["`orderBy` takes one position as well as a list"] {
@@ -165,9 +174,9 @@ facts {
       .render(toggle)
       .build()
     // dimmables are unconditional; the rest defer to state
-    s.conditions.length == 2
-    s.conditions[s.members["light.taklys"].clauses.first.cond] == null
-    s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
+    conds.apply(s).length == 2
+    s.members["light.taklys"].clauses.first.`when` == null
+    s.members["light.lampe"].clauses.first.`when`.property == "state"
   }
 
   // CANONICAL FORM. The `conditions` table dedupes by structure, so two authored
@@ -181,9 +190,9 @@ facts {
       .caseOf(q.eq(q.stateProp, "on"), toggle)
       .build()
     // NOT `and[state==on, state==on]`
-    s.conditions.length == 2
-    s.conditions[1] is wire.Bound
-    (s.conditions[1] as wire.Bound).property == "state"
+    conds.apply(s).length == 1
+    conds.apply(s).first is wire.Bound
+    (conds.apply(s).first as wire.Bound).property == "state"
   }
 
   ["nested same-kind groups flatten instead of nesting"] {
@@ -194,8 +203,9 @@ facts {
         q.all(List(q.gt(q.prop("brightness"), 40), q.lt(q.prop("brightness"), 200))))))
       .render(toggle)
       .build()
-    (s.conditions[1] as wire.PAnd).items.length == 3
-    (s.conditions[1] as wire.PAnd).items.every((i) -> i is wire.Bound)
+    local live = conds.apply(s).filter((c) -> c != null).first as wire.PAnd
+    live.items.length == 3
+    live.items.every((i) -> i is wire.Bound)
   }
 
   ["two spellings of the same filter share ONE condition entry"] {
@@ -203,7 +213,7 @@ facts {
       .where(q.all(List(q.eq(q.stateProp, "on")))).render(toggle).build()
     local b = q.from(fixtures.all).where((e) -> e.domain == "light")
       .where(q.eq(q.stateProp, "on")).render(toggle).build()
-    a.conditions == b.conditions
+    conds.apply(a) == conds.apply(b)
   }
 
   ["`not` folds statically when its operand is static"] {
@@ -219,9 +229,9 @@ facts {
         [(e) -> e.domain == "media_player"] = mediaCard
       })
       .build()
-    s.shapes.length == 2
-    s.members["media_player.tv"].clauses.first.shape !=
-      s.members["light.taklys"].clauses.first.shape
+    cards.apply(s).length == 2
+    s.members["media_player.tv"].clauses.first.node.card !=
+      s.members["light.taklys"].clauses.first.node.card
   }
 
   ["`else` terminates the clause list"] {
@@ -231,8 +241,8 @@ facts {
       .`else`(toggle)
       .build()
     s.members.values.every((m) -> m.clauses.length == 1)
-    s.members["light.lampe"].clauses.first.shape !=
-      s.members["light.taklys"].clauses.first.shape
+    s.members["light.lampe"].clauses.first.node.card !=
+      s.members["light.taklys"].clauses.first.node.card
   }
 
   ["NO `else` is fine: an unmatched candidate is simply not rendered"] {
@@ -250,7 +260,7 @@ facts {
       .caseOf((e) -> e.stateIs("on"), slider)
       .build()
     s.members["light.taklys"].clauses.length == 1
-    s.conditions[s.members["light.taklys"].clauses.first.cond].property == "state"
+    s.members["light.taklys"].clauses.first.`when`.property == "state"
   }
 
   ["ordering by a PREDICATE sorts by whether it holds — no `equals` field"] {

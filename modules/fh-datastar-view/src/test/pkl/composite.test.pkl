@@ -36,6 +36,13 @@ local roomTile = (a) -> new wire.Node {
     q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider).build())
 }
 
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
+
 facts {
   // (a) — a subtree whose leaves all vary. Every child differs per member, so
   // every child position becomes a hole.
@@ -45,18 +52,21 @@ facts {
       .render(detailCard)
       .build()
 
-    s.shapes.length == 1
-    s.shapes.first.card == "col"
-    // both children vary (each embeds the entity's own name), so both are holes
-    s.shapes.first.children.length == 2
-    s.shapes.first.children.every((c) -> c is wire.Hole)
-    s.members["light.taklys"].clauses.first.fills.length == 2
-    (s.members["light.taklys"].clauses.first.fills[0] as wire.Node).card == "title"
+    cards.apply(s).length == 1
+    firstNode.apply(s).card == "col"
+    // the subtree is inline on each member's node — no holes, no fills
+    s.members["light.taklys"].clauses.first.node.children.length == 2
+    (s.members["light.taklys"].clauses.first.node.children[0] as wire.Node).card == "title"
+    // and each member's copy carries ITS OWN name
+    (((s.members["light.taklys"].clauses.first.node.children[0] as wire.Node)
+      .slots["text"]) as wire.Lit).literal == "Taklys"
+    (((s.members["light.kjokken"].clauses.first.node.children[0] as wire.Node)
+      .slots["text"]) as wire.Lit).literal == "Kjøkken"
   }
 
   // A child that is the SAME for everyone stays in the shape rather than
   // becoming a hole — the compression still applies one level down.
-  ["C2 an invariant child stays in the shape"] {
+  ["C2 an invariant child is repeated per member"] {
     local withStatic = (e) -> new wire.Node {
       card = "col"
       slots = Map()
@@ -68,10 +78,11 @@ facts {
     local s = q.from(fixtures.all).where(q.eq(q.prop("domain"), "light"))
       .render(withStatic).build()
 
-    !(s.shapes.first.children[0] is wire.Hole)
-    (s.shapes.first.children[0] as wire.Node).card == "divider"
-    s.shapes.first.children[1] is wire.Hole
-    s.members["light.taklys"].clauses.first.fills.length == 1
+    // the invariant child is simply repeated per member — cheap, and it cannot
+    // be wrong about which member it belongs to
+    (s.members["light.taklys"].clauses.first.node.children[0] as wire.Node).card == "divider"
+    (s.members["light.taklys"].clauses.first.node.children[1] as wire.Node).card == "slider"
+    s.members["light.taklys"].clauses.first.node.children.length == 2
   }
 
   // (b) — THE TILE PER ROOM. Areas are candidates; each tile holds a set over
@@ -81,19 +92,18 @@ facts {
 
     s.candidates == List("area.stue", "area.kjokken", "area.bod")
     // one shape for all three tiles — the skeleton compresses...
-    s.shapes.length == 1
-    s.shapes.first.card == "card"
+    cards.apply(s).length == 1
+    firstNode.apply(s).card == "card"
     // ...the title varies, so it is a var
-    s.members["area.stue"].clauses.first.vars["title"] == "Stue"
-    s.members["area.kjokken"].clauses.first.vars["title"] == "Kjøkken"
-    // ...and the nested set varies, so it is a hole filled per member
-    s.shapes.first.children[0] is wire.Hole
-    s.members["area.stue"].clauses.first.fills[0] is wire.SetNode
+    (s.members["area.stue"].clauses.first.node.slots["title"] as wire.Lit).literal == "Stue"
+    (s.members["area.kjokken"].clauses.first.node.slots["title"] as wire.Lit).literal == "Kjøkken"
+    // ...and the nested set is simply the member's child
+    s.members["area.stue"].clauses.first.node.children[0] is wire.SetNode
   }
 
   ["C4 each tile's nested set has its OWN candidates"] {
     local s = q.from(fixtures.areas).render(roomTile).build()
-    local inner = (id: String) -> s.members[id].clauses.first.fills[0] as wire.SetNode
+    local inner = (id: String) -> s.members[id].clauses.first.node.children[0] as wire.SetNode
 
     (inner.apply("area.stue")).candidates ==
       List("light.taklys", "light.lampe", "light.spot")
@@ -102,15 +112,14 @@ facts {
     (inner.apply("area.bod")).candidates == List()
   }
 
-  ["C5 the nested set keeps its own conditions and shapes"] {
+  ["C5 the nested set keeps its own conditions and renderings"] {
     local s = q.from(fixtures.areas).render(roomTile).build()
-    local stue = s.members["area.stue"].clauses.first.fills[0] as wire.SetNode
+    local stue = s.members["area.stue"].clauses.first.node.children[0] as wire.SetNode
 
     // the inner set defers on state, exactly as it would standalone
-    stue.conditions.length == 2
-    (stue.conditions[1] as wire.Bound).property == "state"
-    stue.shapes.length == 1
-    stue.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+    (stue.members["light.taklys"].clauses.first.`when` as wire.Bound).property == "state"
+    stue.members.values.every((m) -> m.clauses.length == 1)
+    (stue.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Taklys"
   }
 
   // An empty room can be dropped at BUILD time, because `lights` is registry
@@ -156,11 +165,10 @@ facts {
     // the empty room is gone at BUILD time — an empty set can never be non-empty
     !roomsWithLightOn.candidates.contains("area.bod")
     // the others defer: each carries an aggregate over its OWN lights
-    local stueCond = roomsWithLightOn.conditions[
-      roomsWithLightOn.members["area.stue"].clauses.first.cond] as wire.AggCmp
+    local stueCond = roomsWithLightOn.members["area.stue"].clauses.first.`when` as wire.AggCmp
     stueCond.agg.over.candidates.length == 3
-    local kjokkenCond = roomsWithLightOn.conditions[
-      roomsWithLightOn.members["area.kjokken"].clauses.first.cond] as wire.AggCmp
+    local kjokkenCond =
+      roomsWithLightOn.members["area.kjokken"].clauses.first.`when` as wire.AggCmp
     kjokkenCond.agg.over.candidates.length == 1
   }
 
@@ -206,11 +214,11 @@ facts {
     b.candidates.contains("light.taklys")
 
     // each set carries its OWN member entry — nothing is shared or merged
-    a.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
-    b.members["light.taklys"].clauses.first.vars["caption"] == "in stue"
+    (a.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Taklys"
+    (b.members["light.taklys"].clauses.first.node.slots["caption"] as wire.Lit).literal == "in stue"
     // and its own conditions: a is unconditional, b defers on state
-    a.conditions[a.members["light.taklys"].clauses.first.cond] == null
-    b.conditions[b.members["light.taklys"].clauses.first.cond] != null
+    a.members["light.taklys"].clauses.first.`when` == null
+    b.members["light.taklys"].clauses.first.`when` != null
   }
 
   // The nastier version: the same entity in an outer set AND in a nested set
@@ -227,11 +235,11 @@ facts {
     // taklys is an outer member...
     s.candidates.contains("light.taklys")
     // ...and also a candidate of the set nested inside its OWN member
-    local inner = s.members["light.taklys"].clauses.first.fills.first as wire.SetNode
+    local inner = s.members["light.taklys"].clauses.first.node.children.first as wire.SetNode
     inner.candidates.contains("light.taklys")
     // the two are distinct entries in distinct SetNodes, so (set, entity)
     // separates them; entity alone would collide
-    inner.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+    (inner.members["light.taklys"].clauses.first.node.slots["label"] as wire.Lit).literal == "Taklys"
   }
 
   // What the format does NOT carry, deliberately: a set has no id of its own.
@@ -243,11 +251,9 @@ facts {
     local s = q.from(fixtures.areas).render(roomTile).build()
 
     // each area's inner set is reachable only through THAT member's fill
-    s.members.toMap().every((id, m) ->
-      m.clauses.length == 1 && m.clauses.first.fills.length == 1)
-    // and the shape holds a hole, not the set — so no set is duplicated between
-    // the shared shape and a member
-    s.shapes.first.children.every((c) -> c is wire.Hole)
+    s.members.toMap().every((id, m) -> m.clauses.length == 1)
+    // each nested set hangs off exactly one member's node
+    s.members.values.every((m) -> m.clauses.first.node.children.length == 1)
   }
 }
 
