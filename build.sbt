@@ -112,10 +112,10 @@ lazy val `home-codegen` =
     .settings(
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
-      haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
-      haUrl := "TODO" // envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
-      // haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
-      // haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
+      // Credentials come from `.env` (SERVER/SECRET), read at run time — see
+      // `FHApi.fromEnv`. These placeholders only satisfy the task's signature.
+      haSecret := "TODO",
+      haUrl := "TODO"
     )
 
 lazy val home = project // using the others as if they are libs

@@ -142,7 +142,9 @@ matter, say so and stop; do not act on it.
 ## Conventions & gotchas
 
 - Generated file names sanitize device/entity names (spaces → `-`, emoji → unicode names) because the Scala compiler rejects emoji in filenames — see `ThingReference.toPath`.
-- The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
+- The HA URL and bearer token live in a gitignored **`.env`** at the repo root (`SERVER`/`SECRET`),
+  read at run time by `FHApi.fromEnv`. `build.sbt`'s `haUrl`/`haSecret` are `"TODO"` placeholders.
+  Treat the `.env` value as a real credential.
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
 

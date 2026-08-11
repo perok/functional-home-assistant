@@ -461,39 +461,45 @@ composes with the data form freely:
 unresolved `Group` when one is not, so the same three functions cover both and an author never
 picks between an eager and a lazy variant.
 
-## Attribute-name validation belongs in the backend, not the dump
+## Attribute-name validation: derive the schema, do not observe it
 
-The gap: a typo'd live attribute (`q.prop("brightnes")`) resolves to an attribute that never
-matches and nothing catches it. The obvious fix is to teach the dump the volatile attribute names
-(a `domain -> {name: type}` map). Measured against the live instance (1069 entities), that is the
-wrong place:
+The gap: a typo'd live attribute (`q.prop("brightnes")`) resolves to something that never matches
+and nothing catches it. Fixing it needs a `domain -> {name: type}` schema. Where that schema comes
+from decides whether it is safe to put in the dump.
 
-| measure | value |
-|---|---|
-| entities / unavailable | 1069 / **290 (27%)** |
-| distinct (domain, attribute) pairs | 308 |
-| **attributes held by exactly ONE entity in their domain** | **128 (42%)** |
-| emitted size | ~6.8 KB |
+**Observing current attribute names is NOT safe.** Measured against the live instance (1069
+entities): 290 unavailable (27%), 308 distinct (domain, attribute) pairs, and **128 of them (42%)
+held by exactly one entity in their domain**. An unavailable entity drops its volatile attributes,
+so one zigbee bulb leaving the mesh would delete an attribute, move the dump's content hash,
+re-seed the package and re-evaluate every dashboard — on routine flapping. That is what
+`CapabilityAttributes` exists to prevent. (~6.8 KB emitted; size was never the issue.)
 
-Size is fine. The blocker is churn. Two findings, both empirical:
+**Deriving it from capability attributes IS safe**, because those survive unavailability. Verified
+on the live instance — the HA docs do not state this, so it is worth keeping:
 
-- **Attribute names are stable across on/off.** A light that is off still carries `brightness` as
-  a KEY with a null value (`light.relative_bibliotek`, state=off, `brightness=None`). So state
-  changes alone would NOT move the schema — the intuition that they would is wrong.
-- **An UNAVAILABLE entity loses its attribute keys entirely** (`light.philips_lct001_light`). With
-  27% of entities unavailable at any moment and 42% of attributes held by a single entity, one
-  zigbee bulb dropping off the mesh deletes an attribute from the schema, changes the dump's
-  content hash, re-seeds the package and re-evaluates every dashboard — on routine device
-  flapping rather than on real change. That is exactly what `CapabilityAttributes` exists to
-  prevent.
+| lights | capability-attr kinds | volatile kinds |
+|---|---|---|
+| available (45) | 6 | 12 — `brightness`, `color_mode`, `color_temp_kelvin`, `effect`, `hs_color`, … |
+| unavailable (3) | 5 | **2** — only `friendly_name`, `restored` |
 
-So the schema should live in the BACKEND, beside the registry table, and the check should move to
-`Dashboard.validate` — already the validation boundary, and nothing there feeds a content hash.
-The backend fetches all of this anyway.
+An unavailable `light` still reports `supported_color_modes`, `supported_features`, `effect_list`,
+`min/max_color_temp_kelvin`. So a schema computed FROM those is a pure function of data that is
+already in the dump and already verified non-churning — it inherits their stability, and
+unavailability cannot shrink it.
 
-The cost, stated plainly: the error surfaces at server-eval rather than in pkl-lsp while typing,
-which is a real ergonomic loss given ADR 0006 values editor feedback. Catching it at dashboard
-load is still far better than never.
+Also: a state change alone does not move the name set either. A light that is off still carries
+`brightness` as a KEY with a null value (`light.relative_bibliotek`). The intuition that on/off
+would churn a schema is simply wrong.
+
+This is ADR 0013's existing pattern extended from TYPING to the attribute schema: `hass-light.pkl`
+already vendors `ColorMode` and `LightEntityFeature`, so `supported_color_modes: [color_temp, xy]`
+already implies which volatile attributes exist. Consequences:
+
+- coverage is progressive, exactly like ADR 0013 — `light` is modelled, other domains fall through
+  unvalidated until someone models them. That is a feature: an unmodelled domain is untouched.
+- `restored` is an HA internal flag that appears on unavailable entities; exclude it.
+- the check can then live in Pkl (author-time, pkl-lsp) rather than only in `Dashboard.validate`,
+  which keeps the ADR 0006 editor-feedback story intact.
 
 ## How aggressively does the build actually narrow?
 
