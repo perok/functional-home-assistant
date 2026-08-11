@@ -20,10 +20,22 @@ class PAnd extends Term {
 /// Fold a mixed list of build-time Booleans and runtime Terms.
 /// `false` => this candidate is decided statically and drops out entirely.
 /// `true`  => nothing defers; no predicate reaches the wire.
+/// Both folds CANONICALISE: same-kind nesting is flattened and structurally
+/// equal terms are deduped. That is not cosmetic — the `conditions` table dedupes
+/// by structure, so two authored expressions meaning the same thing must reduce
+/// to the same term or they take two table entries and the runtime evaluates the
+/// same predicate twice. One level of flattening suffices: every group is built
+/// through these, so nested ones are already flat.
+local function flatten(kind: String, ts: List<Term>): List<Term> =
+  ts.flatMap((t) ->
+    if (kind == "and" && t is PAnd) t.items
+    else if (kind == "or" && t is POr) t.items
+    else List(t)).distinct
+
 function all(items: List<Boolean|Term>): Boolean|Term =
   if (items.any((i) -> i is Boolean && i == false)) false
   else
-    let (rest = items.filter((i) -> i is Term) as List<Term>)
+    let (rest = flatten("and", items.filter((i) -> i is Term) as List<Term>))
       if (rest.isEmpty) true
       else if (rest.length == 1) rest.first
       else new PAnd { items = rest }
@@ -34,7 +46,7 @@ function all(items: List<Boolean|Term>): Boolean|Term =
 function any(items: List<Boolean|Term>): Boolean|Term =
   if (items.any((i) -> i is Boolean && i == true)) true
   else
-    let (rest = items.filter((i) -> i is Term) as List<Term>)
+    let (rest = flatten("or", items.filter((i) -> i is Term) as List<Term>))
       if (rest.isEmpty) false
       else if (rest.length == 1) rest.first
       else new POr { items = rest }
@@ -278,11 +290,14 @@ function foldOrder(items: List<Any>, specs: List<OrderSpec>): Ordering =
 /// Conjoin a candidate's presence residual with one branch's residual. Either
 /// may be statically decided; the result is the runtime condition the wire must
 /// carry, or null when nothing defers.
+/// Routed through [[all]] rather than building a `PAnd` directly, so the result
+/// is canonical: a presence residual identical to the branch guard collapses to
+/// one term instead of being conjoined with itself.
 local function conjoin(presence: Boolean|Term, branch: Term?): Term? =
-  if (presence is Boolean)
-    (if (presence == true) branch else null)
-  else if (branch == null) presence as Term
-  else new PAnd { items = List(presence as Term, branch) }
+  let (parts =
+        (if (presence is Term) List(presence as Term) else List()) +
+        (if (branch != null) List(branch) else List()))
+    if (parts.isEmpty) null else all(parts) as Term
 
 /// Build the wire node from a static candidate list and authored branches.
 function buildSet(

@@ -133,18 +133,25 @@ class EntitySet {
       let (asList = if (ks is List) ks as List<wire.OrderSpec|wire.PropName|wire.Pending> else List(ks))
         (l) { specs = l.specs + asList.map((k) -> spec(k)) }
 
-  /// One guarded rendering. `g` returning a `Boolean` folds at build time; a
-  /// `Term` defers to the wire.
-  function caseOf(g: (Any) -> Boolean|wire.Term, r: (Any) -> wire.Node): EntitySet =
-    let (l = this) (l) { branches = l.branches.add(new wire.Branch { key = g; render = r }) }
+  /// One guarded rendering. The guard takes exactly what [[where]] takes — a
+  /// lambda, a [[candidate]] term, or the data form — and folds the same way:
+  /// a `Boolean` decides at build time, anything else defers to the wire.
+  function caseOf(g: Filter, r: (Any) -> wire.Node): EntitySet =
+    let (l = this)
+      (l) {
+        branches = l.branches.add(new wire.Branch {
+          key = (e) -> normalise(l.items, e, g)
+          render = r
+        })
+      }
 
   /// Several guarded renderings at once. A `Mapping` keeps author order — which
   /// is match order — and rejects duplicate keys.
-  function cases(m: Mapping<(Any) -> Boolean|wire.Term, (Any) -> wire.Node>): EntitySet =
+  function cases(m: Mapping<Filter, (Any) -> wire.Node>): EntitySet =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
-          new wire.Branch { key = p.key; render = p.value })
+          new wire.Branch { key = (e) -> normalise(l.items, e, p.key); render = p.value })
       }
 
   /// The unconditional last clause. OPTIONAL: with no `else`, a candidate that

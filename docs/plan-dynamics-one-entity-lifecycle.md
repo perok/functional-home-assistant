@@ -461,6 +461,35 @@ composes with the data form freely:
 unresolved `Group` when one is not, so the same three functions cover both and an author never
 picks between an eager and a lazy variant.
 
+## How aggressively does the build actually narrow?
+
+Measured rather than assumed. What the fold already does:
+
+- a candidate whose presence folds to `false` never reaches the wire
+- a candidate no branch can match is dropped (`liveBranches` empties, the candidate goes)
+- a statically-true term vanishes from a conjunction; a statically-false one decides it
+- a comparison against a property the candidate LACKS folds to false and drops it — so
+  `q.eq(q.optional(q.prop("brightnessMax")), 255)` over a mixed set leaves only the candidates
+  that could ever match
+
+Two real gaps were found by inspecting emitted JSON, both now fixed and pinned:
+
+**Duplicate terms were not collapsed.** A presence residual identical to a branch guard produced
+`and[state==on, state==on]`, because `conjoin` built a `PAnd` directly instead of routing through
+the fold.
+
+**Same-kind nesting was not flattened.** `all(a, all(b, c))` emitted a nested `and` — earlier
+probes missed it because a single-element inner group collapses by accident.
+
+Both matter for more than tidiness: the `conditions` table dedupes BY STRUCTURE, so two authored
+expressions meaning the same thing have to reduce to the same term or they take two table entries
+and the runtime evaluates the same predicate twice. `all`/`any` now canonicalise — flatten
+same-kind nesting, dedupe structurally equal terms, collapse a single survivor — and one level of
+flattening suffices because every group is built through them.
+
+Known remaining slack, not worth fixing yet: an unsatisfiable conjunction (`state==on AND
+state==off`) is not detected, and a typo'd live attribute cannot be, for the reason below.
+
 ## Validation: what the build can and cannot check
 
 `q.prop(name)` is resolved against the candidates by counting how many carry it as a property:

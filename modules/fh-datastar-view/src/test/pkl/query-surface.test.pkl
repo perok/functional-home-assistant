@@ -170,6 +170,42 @@ facts {
     s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
   }
 
+  // CANONICAL FORM. The `conditions` table dedupes by structure, so two authored
+  // expressions that mean the same thing must reduce to the same term — else
+  // they take two table entries and the runtime evaluates the same predicate
+  // twice. Both of these were real defects found by inspecting emitted JSON.
+  ["a presence residual equal to the branch guard collapses to one term"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .where(q.eq(q.stateProp, "on"))
+      .caseOf(q.eq(q.stateProp, "on"), toggle)
+      .build()
+    // NOT `and[state==on, state==on]`
+    s.conditions.length == 2
+    s.conditions[1] is wire.Bound
+    (s.conditions[1] as wire.Bound).property == "state"
+  }
+
+  ["nested same-kind groups flatten instead of nesting"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> e.domain == "light")
+      .where(q.all(List(
+        q.eq(q.stateProp, "on"),
+        q.all(List(q.gt(q.prop("brightness"), 40), q.lt(q.prop("brightness"), 200))))))
+      .render(toggle)
+      .build()
+    (s.conditions[1] as wire.PAnd).items.length == 3
+    (s.conditions[1] as wire.PAnd).items.every((i) -> i is wire.Bound)
+  }
+
+  ["two spellings of the same filter share ONE condition entry"] {
+    local a = q.from(fixtures.all).where((e) -> e.domain == "light")
+      .where(q.all(List(q.eq(q.stateProp, "on")))).render(toggle).build()
+    local b = q.from(fixtures.all).where((e) -> e.domain == "light")
+      .where(q.eq(q.stateProp, "on")).render(toggle).build()
+    a.conditions == b.conditions
+  }
+
   ["`not` folds statically when its operand is static"] {
     q.not(true) == false
     q.not(false) == true
