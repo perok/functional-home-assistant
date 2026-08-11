@@ -67,8 +67,20 @@ abstract class Slot
 class Lit extends Slot { literal: String }
 class Xf extends Slot { transform: String; reactive: Boolean = true }
 
-/// What a render lambda produces for one concrete candidate.
-class Node { card: String; slots: Map<String, Slot> }
+/// What a render lambda produces for one concrete candidate. `children` may hold
+/// further [[Node]]s (a member rendering a subtree) or a whole [[SetNode]] (a set
+/// nested inside a member — the "tile per room" shape).
+class Node {
+  card: String
+  slots: Map<String, Slot>
+  children: List<Any> = List()
+}
+
+/// A gap in a shape's `children`, filled per member from [[MemberDef.fills]].
+/// A child becomes a hole exactly when it DIFFERS across the members sharing the
+/// shape — the same rule that decides slot-vs-var. A nested set is always a hole
+/// in practice: two areas never have the same lights.
+class Hole { kind: "hole" = "hole"; idx: Int }
 
 // ---- the emitted wire node ----
 
@@ -76,7 +88,12 @@ class Node { card: String; slots: Map<String, Slot> }
 /// member using it. NOT a "case" — the old `DynamicCase` bundled a predicate
 /// WITH a rendering, and this format splits those apart; the guard lives in
 /// [[SetNode.conditions]] and a [[Clause]] joins the two.
-class ShapeDef { card: String; slots: Map<String, Slot> }
+class ShapeDef {
+  card: String
+  slots: Map<String, Slot>
+  /// Literal children, with a [[Hole]] wherever the child varies per member.
+  children: List<Any> = List()
+}
 
 /// One guarded rendering rule for a member: "if `cond` holds, render `shape`".
 /// Both fields are INDICES into the set's dedup tables
@@ -87,7 +104,12 @@ class Clause { cond: Int; shape: Int }
 /// A member is a `cond` expression: its clauses are tried in order and the first
 /// whose guard holds decides the rendering. Falling off the end means the member
 /// is NOT RENDERED — which is why there is no separate presence field.
-class MemberDef { vars: Map<String, String>; clauses: List<Clause> }
+class MemberDef {
+  vars: Map<String, String>
+  /// Fillers for this member's shape holes, indexed by [[Hole.idx]].
+  fills: List<Any> = List()
+  clauses: List<Clause>
+}
 
 class SetNode {
   kind: "set" = "set"
@@ -137,10 +159,23 @@ local function varyingKeys(nodes: List<Node>): List<String> =
     nodes.first.slots.keys.toList().filter((k) ->
       nodes.any((n) -> n.slots[k] != nodes.first.slots[k]))
 
-local function shapeOf(n: Node, varying: List<String>): ShapeDef =
+/// CHILD positions that differ across the members sharing a shape. Exactly the
+/// same rule as [[varyingKeys]], applied one level down: a child that is the
+/// same for everyone stays in the shape, one that varies becomes a [[Hole]] the
+/// member fills. A nested `SetNode` is always in here — two areas never hold the
+/// same lights — which is why a nested set can never live in a shared shape.
+local function varyingChildren(nodes: List<Node>): List<Int> =
+  if (nodes.length <= 1) List()
+  else
+    nodes.first.children.toList().mapIndexed((i, _c) -> i).filter((i) ->
+      nodes.any((n) -> n.children.getOrNull(i) != nodes.first.children[i]))
+
+local function shapeOf(n: Node, varying: List<String>, varyingKids: List<Int>): ShapeDef =
   new ShapeDef {
     card = n.card
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
+    children = n.children.toList().mapIndexed((i, c) ->
+      if (varyingKids.contains(i)) new Hole { idx = varyingKids.findIndex((x) -> x == i) } else c)
   }
 
 /// A PROPERTY REFERENCE the runtime resolves per member. The prefix says where
@@ -328,12 +363,15 @@ function buildSet(
                conjoin(presenceOf[p.first.entity_id], b.second))))))
   // 4. group the rendered nodes by card to find shapes, then hole out the
   //    literals that vary within a shape.
+  //    Grouped by card AND child count: positions only align between nodes with
+  //    the same arity, and a differing arity is a genuinely different shape.
   let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
-  let (byCard = allNodes.groupBy((n) -> n.card))
-  let (shapeDefs = byCard.keys.toList().sort().map((card) ->
-        shapeOf(byCard[card].first, varyingKeys(byCard[card]))))
+  let (byCard = allNodes.groupBy((n) -> "\(n.card)/\(n.children.length)"))
+  let (shapeDefs = byCard.keys.toList().sort().map((k) ->
+        shapeOf(byCard[k].first, varyingKeys(byCard[k]), varyingChildren(byCard[k]))))
   let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
-  let (shapeIndex = shapeDefs.toList().map((s) -> s.card))
+  let (varyingKidsByCard = byCard.mapValues((_k, ns) -> varyingChildren(ns)))
+  let (shapeIndex = byCard.keys.toList().sort())
   // 5. dedupe the residual conditions the same way shapes are deduped. Null
   //    first, so index 0 always means unconditional.
   let (conds = List(null) + rendered
@@ -347,13 +385,16 @@ function buildSet(
     shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
       let (winning = p.second.first.first)
-        new MemberDef {
-          vars = varyingByCard[winning.card]
-            .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
-          clauses = p.second.map((q) ->
-            new Clause {
-              cond = conds.findIndex((t) -> t == q.second)
-              shape = shapeIndex.findIndex((c) -> c == q.first.card)
-            })
-        })
+        let (key = "\(winning.card)/\(winning.children.length)")
+          new MemberDef {
+            vars = varyingByCard[key]
+              .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
+            fills = varyingKidsByCard[key].map((i) -> winning.children[i])
+            clauses = p.second.map((q) ->
+              new Clause {
+                cond = conds.findIndex((t) -> t == q.second)
+                shape = shapeIndex.findIndex((c) ->
+                  c == "\(q.first.card)/\(q.first.children.length)")
+              })
+          })
   }

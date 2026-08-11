@@ -775,20 +775,15 @@ Consequences to design, not assume:
 
 Not built. Sequenced after composite, since it adds a field rather than changing a shape.
 
-## Not yet designed
+## Composite members
 
-Named so they are not mistaken for oversights. The first two are wanted; the rest are known
-trade-offs.
+Two problems wore one name, and both fall to the same rule.
 
-**Composite members.** `Node` is leaf-only — today's `caseOf` literally drops `children` — and this
-splits into two problems:
+**(a) A member renders a subtree.** The candidate is still an entity; the rendering is not a leaf.
+`Node` gains `children`, and the compression walks one level down.
 
-*(a) a member renders a subtree.* The candidate is still an entity, the rendering just is not a
-leaf. Shapes become trees and the var extraction has to hole out literals at arbitrary depth, so
-`vars` keys become paths rather than flat slot names. A contained extension of what exists.
-
-*(b) a member is not an entity, and its subtree contains a nested set* — the actual "tile per
-room":
+**(b) A member is not an entity and contains a nested set** — "a tile per room". Areas become the
+candidates; each tile holds a set over its own lights:
 
 ```pkl
 q.from(dump.areas).render((a) ->
@@ -797,11 +792,44 @@ q.from(dump.areas).render((a) ->
     q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
 ```
 
-Three new things at once: an area candidate (no state, so presence is always static), a set inside
-a set with its own candidates and conditions, and an outer presence that wants an aggregate over
-the inner set ("hide the room when nothing is on"). **Wanted** — and the reason candidates are
-typed `Any` rather than `Entity`. Decide (b) before building (a): if a `render` result can contain
-a set, that changes the recursion from the start.
+**The finding: a nested set can never live in a shared shape**, because two areas never hold the
+same lights. It has to be per-member data. But that is not a new mechanism — it is the SAME rule
+that decides slot-vs-var, applied to child positions: a child that is identical across the members
+sharing a shape stays in the shape; one that varies becomes a `Hole` the member fills.
+
+```json
+"shapes": [ { "card": "card", "slots": {}, "children": [ {"kind":"hole","idx":0} ] } ],
+"members": {
+  "area.stue": { "vars": {"title":"Stue"}, "fills": [ { "kind":"set", "candidates":[…] } ] }
+}
+```
+
+So the skeleton still compresses to ONE shape for three tiles, the title is a var, and only the
+genuinely per-room part — the nested set — is repeated. Verified: each tile's inner set carries its
+own candidates, conditions and shapes, and behaves exactly as it would standalone.
+
+Mechanics worth knowing:
+
+- shapes group by card **and child count**: positions only align at equal arity, and a differing
+  arity is a genuinely different shape.
+- an invariant child (a divider, a fixed header) stays in the shape rather than becoming a hole —
+  the compression really does apply at depth, not just at the top.
+- an empty room yields an empty nested set, not an error.
+- `children`/`fills` render as `[]` on every node in the spike's JSON. The real wire should omit
+  them when empty; that is a circe concern, not a design one.
+
+**An empty room can be dropped at BUILD time** — `lights` is registry data, so
+`.where(q.candidate((a) -> a.lights.length > 0))` removes the tile with no runtime involvement.
+Hiding a room when none of its lights are ON is the different problem: that needs an aggregate over
+the inner set, and is the one part of (b) still missing.
+
+## Not yet designed
+
+Named so they are not mistaken for oversights. The first two are wanted; the rest are known
+trade-offs.
+
+**Composite members — the structural half is now spiked** (`composite.test.pkl`). See "Composite
+members" below. What remains is the live variant of an empty-room test, which needs aggregates.
 
 **Aggregates.** `count`/`any`/`all`/`min` over a set. Sketched (a derived value is a node whose
 index key is the candidate list) but never spiked, and no wire representation exists. (b) depends

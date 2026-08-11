@@ -1,0 +1,136 @@
+/// SPIKE — COMPOSITE members: a member that renders a subtree, and a member that
+/// is not an entity at all and contains a nested set ("a tile per room").
+///
+/// The structural finding this file pins: a nested set can NEVER live in a
+/// shared shape, because two areas never hold the same lights. It has to be
+/// per-member data — which turns out to be the SAME rule that decides slot vs
+/// var, applied one level down. A child position that differs across the members
+/// sharing a shape becomes a `Hole`, and the member fills it.
+amends "pkl:test"
+
+import "dynamics/query.pkl" as q
+import "dynamics/wire.pkl"
+import "dynamics/fixtures.pkl"
+
+local slider = (e) -> new wire.Node {
+  card = "slider"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name })
+}
+
+/// (a) A member rendering a SUBTREE: the candidate is still an entity, the
+/// rendering just is not a leaf.
+local detailCard = (e) -> new wire.Node {
+  card = "col"
+  slots = Map()
+  children = List(
+    new wire.Node { card = "title"; slots = Map("text", new wire.Lit { literal = e.friendly_name }) },
+    new wire.Node { card = "slider"; slots = Map("label", new wire.Lit { literal = e.friendly_name }) })
+}
+
+/// (b) A TILE PER ROOM: the candidate is an AREA, and the subtree contains a
+/// whole set over that area's lights.
+local roomTile = (a) -> new wire.Node {
+  card = "card"
+  slots = Map("title", new wire.Lit { literal = a.name })
+  children = List(
+    q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider).build())
+}
+
+facts {
+  // (a) — a subtree whose leaves all vary. Every child differs per member, so
+  // every child position becomes a hole.
+  ["C1 a member can render a subtree"] {
+    local s = q.from(fixtures.all)
+      .where(q.eq(q.prop("domain"), "light"))
+      .render(detailCard)
+      .build()
+
+    s.shapes.length == 1
+    s.shapes.first.card == "col"
+    // both children vary (each embeds the entity's own name), so both are holes
+    s.shapes.first.children.length == 2
+    s.shapes.first.children.every((c) -> c is wire.Hole)
+    s.members["light.taklys"].fills.length == 2
+    (s.members["light.taklys"].fills[0] as wire.Node).card == "title"
+  }
+
+  // A child that is the SAME for everyone stays in the shape rather than
+  // becoming a hole — the compression still applies one level down.
+  ["C2 an invariant child stays in the shape"] {
+    local withStatic = (e) -> new wire.Node {
+      card = "col"
+      slots = Map()
+      children = List(
+        new wire.Node { card = "divider"; slots = Map() },          // same for all
+        new wire.Node { card = "slider";                             // varies
+                        slots = Map("label", new wire.Lit { literal = e.friendly_name }) })
+    }
+    local s = q.from(fixtures.all).where(q.eq(q.prop("domain"), "light"))
+      .render(withStatic).build()
+
+    !(s.shapes.first.children[0] is wire.Hole)
+    (s.shapes.first.children[0] as wire.Node).card == "divider"
+    s.shapes.first.children[1] is wire.Hole
+    s.members["light.taklys"].fills.length == 1
+  }
+
+  // (b) — THE TILE PER ROOM. Areas are candidates; each tile holds a set over
+  // its own lights.
+  ["C3 a tile per room: the candidate is an area, the child is a nested set"] {
+    local s = q.from(fixtures.areas).render(roomTile).build()
+
+    s.candidates == List("area.stue", "area.kjokken", "area.bod")
+    // one shape for all three tiles — the skeleton compresses...
+    s.shapes.length == 1
+    s.shapes.first.card == "card"
+    // ...the title varies, so it is a var
+    s.members["area.stue"].vars["title"] == "Stue"
+    s.members["area.kjokken"].vars["title"] == "Kjøkken"
+    // ...and the nested set varies, so it is a hole filled per member
+    s.shapes.first.children[0] is wire.Hole
+    s.members["area.stue"].fills[0] is wire.SetNode
+  }
+
+  ["C4 each tile's nested set has its OWN candidates"] {
+    local s = q.from(fixtures.areas).render(roomTile).build()
+    local inner = (id: String) -> s.members[id].fills[0] as wire.SetNode
+
+    (inner.apply("area.stue")).candidates ==
+      List("light.taklys", "light.lampe", "light.spot")
+    (inner.apply("area.kjokken")).candidates == List("light.kjokken")
+    // an empty room yields an empty set, not an error
+    (inner.apply("area.bod")).candidates == List()
+  }
+
+  ["C5 the nested set keeps its own conditions and shapes"] {
+    local s = q.from(fixtures.areas).render(roomTile).build()
+    local stue = s.members["area.stue"].fills[0] as wire.SetNode
+
+    // the inner set defers on state, exactly as it would standalone
+    stue.conditions.length == 2
+    (stue.conditions[1] as wire.Bound).property == "state"
+    stue.shapes.length == 1
+    stue.members["light.taklys"].vars["label"] == "Taklys"
+  }
+
+  // An empty room can be dropped at BUILD time, because `lights` is registry
+  // data. Hiding a room when none of its lights are ON is a different problem —
+  // that needs an aggregate over the inner set, which is not designed yet.
+  ["C6 an empty room is droppable statically, without aggregates"] {
+    local s = q.from(fixtures.areas)
+      .where(q.candidate((a) -> a.lights.length > 0))
+      .render(roomTile)
+      .build()
+
+    s.candidates == List("area.stue", "area.kjokken")
+    !s.candidates.contains("area.bod")
+  }
+}
+
+local function asJson(v: Any): String = new JsonRenderer { indent = "  " }.renderValue(v)
+
+examples {
+  ["C3 a tile per room"] {
+    asJson(q.from(fixtures.areas).render(roomTile).build())
+  }
+}

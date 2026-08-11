@@ -34,3 +34,25 @@ all: List<Ent> = List(taklys, lampe, spot, tv, kjokken)
 
 /// Mixed shapes: only `dimmer` has `brightnessMax`.
 mixed: List<Ent> = List(dimmer, tv)
+
+/// An AREA is a candidate too — the "tile per room" case. It carries no state,
+/// so its presence can only ever be static or come from an aggregate over its
+/// contents. `entity_id` is what the wire keys members by; areas borrow the
+/// field rather than introducing a second identity concept.
+class Area {
+  entity_id: String
+  name: String
+  lights: List<Ent>
+}
+
+stue = new Area {
+  entity_id = "area.stue"; name = "Stue"
+  lights = List(taklys, lampe, spot)
+}
+kjokkenArea = new Area {
+  entity_id = "area.kjokken"; name = "Kjøkken"
+  lights = List(kjokken)
+}
+tomtArea = new Area { entity_id = "area.bod"; name = "Bod"; lights = List() }
+
+areas: List<Area> = List(stue, kjokkenArea, tomtArea)

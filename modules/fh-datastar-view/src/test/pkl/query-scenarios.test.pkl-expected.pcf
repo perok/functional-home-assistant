@@ -25,7 +25,8 @@ examples {
               "transform": "$state",
               "reactive": true
             }
-          }
+          },
+          "children": []
         }
       ],
       "members": {
@@ -33,6 +34,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -44,6 +46,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -55,6 +58,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -92,11 +96,13 @@ examples {
               "transform": "$state",
               "reactive": true
             }
-          }
+          },
+          "children": []
         },
         {
           "card": "toggle",
-          "slots": {}
+          "slots": {},
+          "children": []
         }
       ],
       "members": {
@@ -104,6 +110,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -119,6 +126,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -134,6 +142,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 1,
@@ -194,7 +203,8 @@ examples {
               "transform": "$state",
               "reactive": true
             }
-          }
+          },
+          "children": []
         }
       ],
       "members": {
@@ -202,6 +212,7 @@ examples {
           "vars": {
             "label": "Taklys"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 0,
@@ -213,6 +224,7 @@ examples {
           "vars": {
             "label": "Lampe"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 0,
@@ -224,6 +236,7 @@ examples {
           "vars": {
             "label": "Spot"
           },
+          "fills": [],
           "clauses": [
             {
               "cond": 0,
