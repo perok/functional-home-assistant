@@ -589,8 +589,8 @@ state==off`) is not detected, and a typo'd live attribute cannot be, for the rea
 | none | live attribute — **unvalidatable**, see below |
 | some | **build error**, unless wrapped in `q.optional(...)` |
 
-The middle row is the honest limit: volatile attributes like `brightness` are deliberately kept
-out of the dump (they would churn its content hash), so the build has no list of legal attribute
+The middle row is the limit TODAY, not permanently — see "derive the schema, do not observe it":
+volatile attribute VALUES are deliberately kept out of the dump (they would churn its content hash), so the build has no list of legal attribute
 names to check a typo against. `q.prop("brightnes")` resolves to a live attribute that never
 matches, and nothing catches it.
 
@@ -786,9 +786,13 @@ c.iff(q.from(dump.stue.lights).any(q.eq(q.stateProp, "on"))).then(banner)  // ma
 (S15). Pkl has no generics, so `EntityRef<LightEntity>` is impossible and the static type cannot be
 carried — but per-entity is the sharper question anyway, and it matches ADR 0013, which puts
 capabilities on a class generated PER ENTITY: "does this entity have `brightness`" beats "is this a
-light". A bare String is accepted for computed ids, at the cost of the check. A volatile attribute
-still cannot be verified — they are absent from the dump by design — so an unknown name warns
-rather than errors, and becomes a hard error once the capability-derived schema exists.
+light". A bare String is accepted for computed ids, at the cost of the check.
+
+An unknown name warns rather than errors **only because the capability-derived schema is not built
+yet** — that is an implementation gap, not a limit of the design. Volatile VALUES stay out of the
+dump permanently (they would churn its content hash); volatile NAMES arrive with the schema, which
+is derived from capability attributes and therefore safe to put there. When it lands this becomes a
+hard error: a name in neither the registry nor the schema is a typo.
 (`is` is reserved in Pkl — the type-test operator — hence `stateIs`.)
 
  `Bound.entity` is optional — absent means "the

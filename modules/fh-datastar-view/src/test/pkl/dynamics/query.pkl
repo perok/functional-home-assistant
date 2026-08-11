@@ -118,9 +118,9 @@ function entity(e: Any): EntityRef =
 //
 // When the entity itself was given, the named property is checked against it —
 // a registry fact it does not carry is a typo, and saying so here beats a
-// condition that silently never matches. A volatile attribute still cannot be
-// checked (they are absent from the dump by design), so only a name that looks
-// like a registry fact on OTHER entities is rejected.
+// condition that silently never matches. A volatile name is not checkable YET
+// (the capability-derived attribute schema is not built); once it is, this
+// becomes a hard error rather than a warning.
 const local function cmpOn(
   who: String, src: Any?, k: wire.PropName, cmpOp: String, v: Any
 ): wire.Bound =

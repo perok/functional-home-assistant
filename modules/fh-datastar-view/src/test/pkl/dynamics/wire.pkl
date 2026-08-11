@@ -17,11 +17,16 @@ class Bound extends Term {
   value: Any
 }
 
-/// A named property that the entity does not carry. NOT fatal: volatile
-/// attributes (`brightness`) are deliberately absent from the dump, so a name
-/// the entity lacks may still be a legitimate live attribute. Once the
-/// capability-derived attribute schema exists this can become a hard error for
-/// names that are in neither the registry nor the schema.
+/// A named property that the entity does not carry. Warns rather than errors
+/// ONLY because the capability-derived attribute schema is not built yet: a
+/// volatile name like `brightness` is not a registry property, so today there is
+/// nothing to check it against.
+///
+/// That is a gap in the implementation, not a limit of the design. Volatile
+/// VALUES stay out of the dump permanently (they would churn its content hash);
+/// volatile NAMES arrive with the schema, derived from capability attributes.
+/// When it lands, this becomes a hard error — a name in neither the registry nor
+/// the schema is a typo.
 function warnUnknownProp(who: String, name: String): Boolean =
   trace("fh: '\(name)' is not a property of \(who) — assuming a live attribute") != null
 
