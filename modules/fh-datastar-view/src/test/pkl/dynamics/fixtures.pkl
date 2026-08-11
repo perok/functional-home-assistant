@@ -35,6 +35,13 @@ all: List<Ent> = List(taklys, lampe, spot, tv, kjokken)
 /// Mixed shapes: only `dimmer` has `brightnessMax`.
 mixed: List<Ent> = List(dimmer, tv)
 
+/// One motion sensor per area — the pairing a cross-entity term resolves at
+/// build time ("this light's room's motion sensor").
+motionByArea: Mapping<String, String> = new {
+  ["stue"] = "binary_sensor.motion_stue"
+  ["kjokken"] = "binary_sensor.motion_kjokken"
+}
+
 /// An AREA is a candidate too — the "tile per room" case. It carries no state,
 /// so its presence can only ever be static or come from an aggregate over its
 /// contents. `entity_id` is what the wire keys members by; areas borrow the

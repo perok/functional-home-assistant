@@ -773,7 +773,12 @@ Consequences to design, not assume:
   sensor.
 - Nothing else moves: these are still per-member clauses, resolved the same way.
 
-Not built. Sequenced after composite, since it adds a field rather than changing a shape.
+**Built** (`query-scenarios.test.pkl` S12/S13). `Bound.entity` is optional — absent means "the
+member", so every existing term is unchanged — and `q.entity(id).eq(...)` names another entity.
+Verified: each light's condition names its OWN room's sensor, the `conditions` table dedupes the
+three living-room lights to one entry, and a cross-entity term conjoins with an ordinary one.
+`wire.referencedEntities` extracts the ids, so the reverse-index key is
+`candidates ++ referencedEntities`.
 
 ## Composite members
 
@@ -822,6 +827,73 @@ Mechanics worth knowing:
 `.where(q.candidate((a) -> a.lights.length > 0))` removes the tile with no runtime involvement.
 Hiding a room when none of its lights are ON is the different problem: that needs an aggregate over
 the inner set, and is the one part of (b) still missing.
+
+## One predicate language: what actually changes
+
+`If` today carries an unbound predicate quantified over the whole state map. Giving it a candidate
+set is the unification, and it collapses three open items into one.
+
+**Authoring.**
+
+```pkl
+// today — an unbound predicate, existentially quantified over EVERY entity in the house.
+// "entity X is on" is spelled as "some entity is both X and on".
+c.iff(c.entityIs("light.taklys").and(c.stateIs("on"))).then(banner)
+
+// unified — a predicate over a NAMED set, which is what the author meant.
+c.iff(q.from(dump.stue.lights).any(q.eq(q.stateProp, "on"))).then(banner)
+c.iff(q.from(dump.stue.lights).count(q.eq(q.stateProp, "on")).gt(2)).then(banner)
+```
+
+**Runtime.**
+
+```scala
+// today
+case State(condition: Predicate, quantifier: Quantifier)
+case Quantifier.Any => states.values.exists(Renderer.matches(condition, _))   // O(all entities)
+
+// unified
+case State(over: List[String], condition: Term, quantifier: Quantifier)
+case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(condition, _)))
+```
+
+`over` is the same static candidate list a set already has, so the scan becomes a walk of N knowns
+— **L6's `holds` bug fixed by construction**, not by adding a pinned-condition shortcut.
+
+**The three items that collapse into one:**
+
+- the two predicate languages become one (P4 stops being aspirational)
+- `q.from(set).any(...)` / `.count(...)` IS the aggregate listed under "Not yet designed" — the
+  same expression, read as a boolean instead of a branch selector
+- and it is composite (b)'s missing piece: "hide the room when none of its lights are on" is an
+  aggregate over the tile's inner set
+
+Sequence it before deleting the free constructors from `components.pkl`, or `If` is left holding
+the only references to them.
+
+## What composite changes in the architecture
+
+`docs/architecture-rendering-pipeline.md` §4b opens: *"The dashboard's graph has two halves. The
+static half (`Renderer.allIndexed`) is computed once… The dynamic half (`MemberGraph`) is a group's
+members, and it is maintained by the state stream rather than computed."* Three of those clauses
+stop being true.
+
+- **Membership is no longer maintained by the state stream.** Candidates are static, so members
+  belong to the computed half. What the frame loop maintains is a PROJECTION over them — which are
+  present, in what order — not the set itself. The two halves merge into one graph plus a per-frame
+  projection, and `syncMembers` loses its reason to exist.
+- **The graph becomes recursive.** A member can contain a nested set, so it is a tree of sets
+  rather than a flat `group -> members` map. Ids nest accordingly
+  (`set / memberKey / childIdx / innerSet / memberKey`), and `MemberKey` being key-derived rather
+  than positional matters more, not less.
+- **The reverse index gains non-candidate edges.** `candidates ++ referencedEntities` — a node can
+  now be woken by an entity it does not render.
+- **The DYNAMICS kind changes meaning.** It was "a query-driven group whose MEMBERSHIP may have
+  moved". Membership cannot move any more; only presence and order can. Still `Gone`/`Placed`, still
+  no fourth kind — but computed from a projection rather than from a scan.
+
+The doc must change in the same commit as the code, per the repo rule. §4b is the section that
+moves; §3's kind table needs the DYNAMICS row reworded.
 
 ## Not yet designed
 

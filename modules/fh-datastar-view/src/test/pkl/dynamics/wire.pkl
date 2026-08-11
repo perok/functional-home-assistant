@@ -7,10 +7,25 @@ abstract class Term { kind: String }
 
 class Bound extends Term {
   kind: "cmp" = "cmp"
+  /// Absent means "the member" — bound by set membership, which is the common
+  /// case and leaves every existing term unchanged. Present names a DIFFERENT
+  /// entity, resolved at build time (see `query.entity`). The referenced ids
+  /// must join the node's reverse-index key, or the node is never woken by them.
+  entity: String? = null
   property: String
   op: String
   value: Any
 }
+
+/// Every entity a term names besides the member. The reverse-index key for a
+/// set is `candidates ++ referencedEntities(...)`.
+function referencedEntities(t: Term?): List<String> =
+  if (t == null) List()
+  else if (t is Bound) (if (t.entity != null) List(t.entity!!) else List())
+  else if (t is PAnd) t.items.flatMap((i) -> referencedEntities(i))
+  else if (t is POr) t.items.flatMap((i) -> referencedEntities(i))
+  else if (t is PNot) referencedEntities(t.item)
+  else List()
 
 class PAnd extends Term {
   kind: "and" = "and"

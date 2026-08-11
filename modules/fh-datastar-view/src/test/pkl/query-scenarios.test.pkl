@@ -183,6 +183,51 @@ facts {
     s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
   }
 
+  // 12 — CROSS-ENTITY, per member. "Show each light only while its own room's
+  // motion sensor is active." The sensor DIFFERS per member and the pairing is
+  // registry data, so the reference resolves at build time while the test stays
+  // live. This is the case that set-wide conditions (an `If`) cannot express.
+  ["S12 motion-gated room lights — a different sensor per member"] {
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .where(q.candidate((e) ->
+        q.entity(fixtures.motionByArea[e.area_id]).eq(q.stateProp, "on")))
+      .render(slider)
+      .build()
+
+    local condOf = (id: String) ->
+      s.conditions[s.members[id].clauses.first.cond] as wire.Bound
+
+    // each member's condition names ITS OWN sensor
+    (condOf.apply("light.taklys")).entity == "binary_sensor.motion_stue"
+    (condOf.apply("light.kjokken")).entity == "binary_sensor.motion_kjokken"
+    // two rooms, two distinct conditions — the table dedupes the three stue lights
+    s.conditions.length == 3
+
+    // the reverse-index key is candidates PLUS the entities the terms name
+    local referenced = s.conditions.filter((c) -> c != null)
+      .flatMap((c) -> wire.referencedEntities(c as wire.Term)).distinct
+    referenced.length == 2
+    referenced.contains("binary_sensor.motion_stue")
+  }
+
+  ["S13 a cross-entity term composes with an ordinary one"] {
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .where(List(
+        q.eq(q.stateProp, "on"),                                     // the member
+        q.candidate((e) ->
+          q.entity(fixtures.motionByArea[e.area_id]).eq(q.stateProp, "on"))))
+      .render(slider)
+      .build()
+
+    local c = s.conditions[s.members["light.taklys"].clauses.first.cond] as wire.PAnd
+    c.items.length == 2
+    // one term about the member, one about the sensor
+    c.items.filter((i) -> (i as wire.Bound).entity == null).length == 1
+    c.items.filter((i) -> (i as wire.Bound).entity != null).length == 1
+  }
+
   // 11 — a property only some candidates carry. Ambiguous by default, because
   // it would silently become a live attribute for the rest.
   ["S11 a property only some candidates have needs `optional`"] {

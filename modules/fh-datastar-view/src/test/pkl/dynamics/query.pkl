@@ -75,6 +75,31 @@ function candidate(f: (Any) -> Any): wire.CandidateTerm = new { fn = f }
 /// The live state value.
 const stateProp: wire.PropName = new wire.PropName { name = "state" }
 
+/// A term about a DIFFERENT entity than the member. The id is resolved at build
+/// time — usually derived from the candidate, as in "this light's room's motion
+/// sensor" — while the test itself stays live.
+///
+///     q.candidate((e) -> q.entity(motionSensorFor(e.area_id)).eq(q.stateProp, "on"))
+class EntityRef {
+  id: String
+  function eq(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "eq", v)
+  function ne(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "ne", v)
+  function gt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "gt", v)
+  function lt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "lt", v)
+}
+
+function entity(entityId: String): EntityRef = new { id = entityId }
+
+// A cross-entity term cannot fold: the build knows WHICH entity, never its
+// state. So it is always live, and always names a `state`/`attr:` property.
+const local function cmpOn(who: String, k: wire.PropName, cmpOp: String, v: Any): wire.Bound =
+  new {
+    entity = who
+    property = if (k.name == "state") "state" else "attr:" + k.name
+    op = cmpOp
+    value = v
+  }
+
 /// Force the LIVE attribute reading of a name that is also a registry fact.
 function attr(n: String): wire.LiveAttr = new { name = n }
 
