@@ -17,6 +17,14 @@ class Bound extends Term {
   value: Any
 }
 
+/// A named property that the entity does not carry. NOT fatal: volatile
+/// attributes (`brightness`) are deliberately absent from the dump, so a name
+/// the entity lacks may still be a legitimate live attribute. Once the
+/// capability-derived attribute schema exists this can become a hard error for
+/// names that are in neither the registry nor the schema.
+function warnUnknownProp(who: String, name: String): Boolean =
+  trace("fh: '\(name)' is not a property of \(who) — assuming a live attribute") != null
+
 /// Every entity a term names besides the member. The reverse-index key for a
 /// set is `candidates ++ referencedEntities(...)`.
 function referencedEntities(t: Term?): List<String> =

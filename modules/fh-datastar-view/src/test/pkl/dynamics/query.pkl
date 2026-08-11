@@ -80,35 +80,60 @@ const stateProp: wire.PropName = new wire.PropName { name = "state" }
 /// sensor" — while the test itself stays live.
 ///
 ///     q.candidate((e) -> q.entity(motionSensorFor(e.area_id)).eq(q.stateProp, "on"))
+/// Names ONE entity, and keeps the entity itself — not just its id — so a
+/// comparison can be checked against THAT entity rather than against a domain
+/// or a type.
+///
+/// Pkl has no user generics, so `EntityRef<LightEntity>` is impossible and the
+/// static type cannot be carried. Per-entity checking is the better answer
+/// anyway, and matches ADR 0013: capabilities live on a class generated PER
+/// ENTITY, so "does this entity have `brightness`" is a sharper question than
+/// "is this a light".
 class EntityRef {
   id: String
-  /// The single-entity shorthand: `q.entity(taklys).stateIs("on")`. The whole point
-  /// of naming an entity is usually to test its state, so that should not cost
-  /// a `q.eq(q.stateProp, …)` every time.
-  function stateIs(s: String): wire.Bound = cmpOn(id, stateProp, "eq", s)
-  function stateIsNot(s: String): wire.Bound = cmpOn(id, stateProp, "ne", s)
-  function eq(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "eq", v)
-  function ne(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "ne", v)
-  function gt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "gt", v)
-  function lt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, k, "lt", v)
+  /// The dump entity, when one was given. Null for a computed id, which cannot
+  /// be checked.
+  hidden source: Any?
+
+  /// The single-entity shorthand: `q.entity(taklys).stateIs("on")`. Naming an
+  /// entity is nearly always to test its state, so that should not cost a
+  /// `q.eq(q.stateProp, …)` every time.
+  function stateIs(s: String): wire.Bound = cmpOn(id, source, stateProp, "eq", s)
+  function stateIsNot(s: String): wire.Bound = cmpOn(id, source, stateProp, "ne", s)
+  function eq(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, source, k, "eq", v)
+  function ne(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, source, k, "ne", v)
+  function gt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, source, k, "gt", v)
+  function lt(k: wire.PropName, v: Any): wire.Bound = cmpOn(id, source, k, "lt", v)
 }
 
-/// Name one entity. Takes the typed dump entity itself, not just its id, so the
-/// common case keeps its typing and a typo is a Pkl error:
-/// `q.entity(dump.e_taklys).stateIs("on")`. A bare String is accepted for ids that
-/// are computed (`motionByArea[e.area_id]`).
+/// Name one entity. Prefer passing the typed dump entity — `q.entity(dump.e_taklys)`
+/// — so a typo is a Pkl error AND the property is checked against that entity.
+/// A bare String is accepted for computed ids, at the cost of both.
 function entity(e: Any): EntityRef =
-  new { id = if (e is String) e else (e.getProperty("entity_id") as String) }
+  if (e is String) new { id = e; source = null }
+  else new { id = e.getProperty("entity_id") as String; source = e }
 
 // A cross-entity term cannot fold: the build knows WHICH entity, never its
 // state. So it is always live, and always names a `state`/`attr:` property.
-const local function cmpOn(who: String, k: wire.PropName, cmpOp: String, v: Any): wire.Bound =
-  new {
-    entity = who
-    property = if (k.name == "state") "state" else "attr:" + k.name
-    op = cmpOp
-    value = v
-  }
+//
+// When the entity itself was given, the named property is checked against it —
+// a registry fact it does not carry is a typo, and saying so here beats a
+// condition that silently never matches. A volatile attribute still cannot be
+// checked (they are absent from the dump by design), so only a name that looks
+// like a registry fact on OTHER entities is rejected.
+const local function cmpOn(
+  who: String, src: Any?, k: wire.PropName, cmpOp: String, v: Any
+): wire.Bound =
+  let (_checked =
+        if (src != null && k.name != "state" && !src.hasProperty(k.name))
+          wire.warnUnknownProp(who, k.name)
+        else true)
+    new {
+      entity = who
+      property = if (k.name == "state") "state" else "attr:" + k.name
+      op = cmpOp
+      value = v
+    }
 
 /// Force the LIVE attribute reading of a name that is also a registry fact.
 function attr(n: String): wire.LiveAttr = new { name = n }

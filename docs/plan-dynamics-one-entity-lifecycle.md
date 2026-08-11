@@ -782,9 +782,14 @@ c.iff(q.entity(dump.e_taklys).stateIs("on")).then(banner)          // one
 c.iff(q.from(dump.stue.lights).any(q.eq(q.stateProp, "on"))).then(banner)  // many
 ```
 
-`q.entity` takes the typed dump entity, not just an id, so a typo is a Pkl error; a bare String is
-accepted for computed ids. (`is` is reserved in Pkl — it is the type-test operator — hence
-`stateIs`.)
+`q.entity` keeps the ENTITY, not just its id, so a comparison is checked against that exact entity
+(S15). Pkl has no generics, so `EntityRef<LightEntity>` is impossible and the static type cannot be
+carried — but per-entity is the sharper question anyway, and it matches ADR 0013, which puts
+capabilities on a class generated PER ENTITY: "does this entity have `brightness`" beats "is this a
+light". A bare String is accepted for computed ids, at the cost of the check. A volatile attribute
+still cannot be verified — they are absent from the dump by design — so an unknown name warns
+rather than errors, and becomes a hard error once the capability-derived schema exists.
+(`is` is reserved in Pkl — the type-test operator — hence `stateIs`.)
 
  `Bound.entity` is optional — absent means "the
 member", so every existing term is unchanged — and `q.entity(id).eq(...)` names another entity.
@@ -884,39 +889,40 @@ case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(
 Sequence it before deleting the free constructors from `components.pkl`, or `If` is left holding
 the only references to them.
 
-## Ids under recursion: alternate static position and entity key
+## Ids under recursion — and an invariant that retires itself
 
-A nested graph needs ids that survive members arriving and leaving. The rule is one line:
+First, the correction. I framed this as "alternate a static-position segment and an entity-key
+segment", implying the key segment was load-bearing. **It is not.** With static candidates, a
+member's position in the candidate list is exactly as static as its entity id, and so is the hole
+index, and so is the set's authored path. Walk the whole id:
 
-**An id alternates a STATIC-POSITION segment and an ENTITY-KEY segment.**
+| segment | varies at runtime? |
+|---|---|
+| set's authored path | no |
+| candidate index / entity id | no — candidates are static |
+| hole index | no — holes are fixed by the shape |
+| inner candidate | no |
 
-```
-c_3            / light.taklys / 0        / binary_sensor.x
-^ set's path     ^ member key    ^ hole    ^ inner member key
-  (authored)     (entity id)     (static)  (entity id)
-```
+**Nothing in an id varies at runtime.** Presence and order do, but neither is part of identity — the
+DOM reorders elements while their ids stay put. So a fully positional id (`3.7.0.2`) would work.
 
-- a set's own id is its authored location, `LayoutNode.pathId`, exactly as today
-- a member's id is `<setId>/<entityId>` — key-derived, never positional
-- a nested set's id is `<memberId>/<holeIdx>`
-- recurse
+That exposes something worth recording: **§4b's "ids are key-derived, never positional" invariant
+is a CONSEQUENCE of runtime-computed membership, not a law.** It exists because a positional id
+renames every node below an arrival — and arrivals were what the old dynamic groups did. Static
+candidates remove arrivals from the graph entirely, so the invariant retires with the machinery
+that needed it. Anything claiming otherwise in ADR 0003 or §4b should be rewritten as history,
+not as a rule.
 
-**The positional segment is safe here, and it is worth saying why**, because §4b warns that "a
-positional id renames every node below an arrival". That warning is about position among
-RUNTIME-VARYING siblings. A hole index is fixed by the shape at build time — holes do not arrive or
-leave — so it can never renumber. The varying part is always the entity key.
+**Recommendation: keep entity-keyed ids anyway** — but as a preference, not a requirement:
 
-`MemberKey` therefore needs no new variant. It stays `Entity`; what changed is that the scope
-qualifying it can now be nested.
+- they are readable in patches, logs and devtools; `c_3/light.taklys` tells you what a fragment is,
+  `3.7` does not, and live patch debugging is where that pays
+- they survive a rebuild when the entity does, whereas an index shifts when any earlier entity is
+  added or removed. The functional gain is small (a renderer swap forces a full body repaint, so
+  digests reseed regardless) but it is not negative
+- it is the status quo — members are already `{gid}_{entity}` — so switching is churn for no gain
 
-Alternatives considered and rejected:
-
-- **entity id alone** — not unique. The same light appears in the room tile AND in an "all lights"
-  set.
-- **a flat build-assigned counter** (`s4:light.taklys`) — simpler to compute, but opaque in the DOM
-  and in logs, and every id shifts when an author inserts a set earlier in the tree. Path-derived
-  ids only change when that subtree actually moves.
-- **positional member index** — the thing the existing invariant exists to forbid.
+`MemberKey` needs no new variant either way. It stays `Entity`; only the scope qualifying it nests.
 
 ## What composite changes in the architecture
 

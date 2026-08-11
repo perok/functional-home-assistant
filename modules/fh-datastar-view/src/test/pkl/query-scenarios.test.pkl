@@ -244,6 +244,20 @@ facts {
     wire.referencedEntities(one) == List("light.taklys")
   }
 
+  // 15 — `q.entity` keeps the ENTITY, not just its id, so a comparison is
+  // checked against that exact entity. Pkl has no generics, so the static type
+  // cannot be carried — but per-entity is the sharper question anyway, since
+  // ADR 0013 puts capabilities on a class generated PER ENTITY.
+  ["S15 q.entity checks the property against that exact entity"] {
+    // brightnessMax exists on the LightEnt, not on the plain Ent
+    q.entity(fixtures.dimmer).gt(q.prop("brightnessMax"), 100).entity == "light.dimmer"
+    q.entity(fixtures.dimmer).gt(q.prop("brightnessMax"), 100).property == "attr:brightnessMax"
+    // a registry fact every entity carries resolves the same way
+    q.entity(fixtures.taklys).eq(q.prop("area_id"), "stue").property == "attr:area_id"
+    // a bare String id cannot be checked — the escape hatch costs the check
+    q.entity("light.made_up").stateIs("on").entity == "light.made_up"
+  }
+
   // 11 — a property only some candidates carry. Ambiguous by default, because
   // it would silently become a live attribute for the rest.
   ["S11 a property only some candidates have needs `optional`"] {
