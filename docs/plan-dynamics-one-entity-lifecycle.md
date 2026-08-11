@@ -37,6 +37,48 @@ Out of scope: entities appearing or disappearing in HA. That is a registry chang
 triggers a complete rebuild (`ServerApp.watchRegistryEvents`, 5s debounce, staged re-eval,
 renderer hot-swap). None of that machinery is touched.
 
+## Decisions taken, and the notes behind them
+
+Recorded verbatim, because the reasoning behind several of these is not recoverable from the
+result. (These were dropped by an earlier rewrite of this file and restored from the conversation
+— they predate the first commit, so git does not have them.)
+
+> General notes:
+> - That we do not store all the information in the backend for A is not by itself a good argument
+>   to discard A
+> - The limitation on existing If sounds like a bug and not a design that we want. If we are able
+>   to fix that, would that change the reasoning here?
+>
+> - The capability around loosing ordering on dynamic state values is not good. The dynamic
+>   membership machinery around existing dynamics is maybe something that we should connect this
+>   to so that we can keep both?
+> - In regards to the point above on keeping some of the machinery; I also want to be able to
+>   support things like count() on dynamic properties. So we can say, if more than X elements then
+>   we show this.
+>
+> - for allowing explicit entity refs; only show when on and when time is above Y for.ex
+>
+> FOcus more on the princicples and limitations we need to fix in this plan at the moment rather
+> than how to achieve it specifically as we are still in the design phase.
+
+> [on retiring the dynamic machinery] keep parts if needed.
+
+> [on the dump surface] Add `dump.all` + per-domain lists, number 2 as well, but we need to work
+> on the syntax. It should be more like LINQ ish thing so it can compose
+
+Settled since:
+
+- **Predicate scope: explicit entity refs allowed**, not subject-only.
+- **State-dependent case dispatch: supported.** Members carry a clause list.
+- **Time needs no machinery.** `sensor.time` is an ordinary HA entity, so it flows through the
+  reverse index like any other. What survives is the RULE, not a mechanism: a term whose input has
+  no indexable source must be rejected at validate time, never silently accepted — a node that can
+  never be woken is worse than one that errors.
+- **`If` and tabs stay.** They are one mechanism (`Surface` + activation mode); its problems are
+  bugs, not design.
+- **Registry in the backend: accepted.**
+- **Dynamic-group machinery: retire the query half, keep the patch half.**
+
 ## Principles
 
 **P1 — One lifecycle.** Every entity a dashboard can show has a typed, build-time identity.
@@ -64,6 +106,19 @@ and morph work. This is why presence must be real removal and anchored insertion
 
 **P8 — One `where`; the build splits it mechanically.** A term is static exactly when it touches
 only registry facts. Folding happens in the Pkl combinators, so the author never names the seam.
+
+## Limitations this must fix
+
+| | limitation | status |
+|---|---|---|
+| **L1** | Two entity lifecycles — typed static vs untyped `$self` | the core; addressed by P1 |
+| **L2** | The runtime predicate is registry-blind (no `area_id`/`floor_id`/…) | resolved by P2 — those become build-time selection, so the need disappears rather than being met |
+| **L3** | Membership costs a full-map scan, because the candidate set is a runtime query | resolved by P5 |
+| **L4** | No set-level derivations — no count, no aggregate, and ordering is `entity_id` only (`materialise` sorts `states.toVector.sortBy(_._1)`) | **ordering designed and spiked; count/aggregates still open** |
+| **L5** | A predicate term with no indexable source silently never updates | resolved for the motivating case (`sensor.time` is an entity); the validate-time rejection is still to build |
+| **L6** | The surface mechanism has three bugs — uncached `bakeGroup`, whole-map `holds`, non-collapsing empty `ifhost` | **open**, and independent of everything else here |
+| **L7** | Ghost members on entity removal (ADR 0003 open item) | resolved for free — removal is a registry change, hence a rebuild |
+| **L8** | The static selection vocabulary does not compose | resolved by `query.pkl` |
 
 ## Presence and ordering are one concept
 
@@ -712,6 +767,51 @@ instead of a literal), which would shrink members further AND dissolve the var-v
 count-dependence below, since there would be no literals left to diff. Not done yet — an
 interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
 mechanisms are needed either way.
+
+## Not yet designed
+
+Named so they are not mistaken for oversights. The first two are wanted; the rest are known
+trade-offs.
+
+**Composite members.** `Node` is leaf-only — today's `caseOf` literally drops `children` — and this
+splits into two problems:
+
+*(a) a member renders a subtree.* The candidate is still an entity, the rendering just is not a
+leaf. Shapes become trees and the var extraction has to hole out literals at arbitrary depth, so
+`vars` keys become paths rather than flat slot names. A contained extension of what exists.
+
+*(b) a member is not an entity, and its subtree contains a nested set* — the actual "tile per
+room":
+
+```pkl
+q.from(dump.areas).render((a) ->
+  c.card(
+    c.title(a.name),
+    q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
+```
+
+Three new things at once: an area candidate (no state, so presence is always static), a set inside
+a set with its own candidates and conditions, and an outer presence that wants an aggregate over
+the inner set ("hide the room when nothing is on"). **Wanted** — and the reason candidates are
+typed `Any` rather than `Entity`. Decide (b) before building (a): if a `render` result can contain
+a set, that changes the recursion from the start.
+
+**Aggregates.** `count`/`any`/`all`/`min` over a set. Sketched (a derived value is a node whose
+index key is the candidate list) but never spiked, and no wire representation exists. (b) depends
+on it, and so does "show this when more than X are on".
+
+**`limit` / take N.** "The three brightest" is runtime — it depends on live ordering — and there is
+no `limit` field. Cheap to add after ordering, but it introduces a third member state:
+present-but-cut, distinct from absent.
+
+**Per-member layout.** `cell` (`columns(n)`, `fullWidth()`) lived on the old `DynamicCase`. Under
+`shapes` it belongs to the shape, so a per-member span would have to become a var. Unspecified.
+
+**Cross-set interleaving.** Two sets are two DOM regions and cannot be ordered against each other.
+Accepted, not solved — it is the price of splitting a query into two.
+
+**Unsatisfiable conjunctions** (`state == on AND state == off`) are not detected. Exotic; detecting
+it means a satisfiability check.
 
 ## Open questions
 
