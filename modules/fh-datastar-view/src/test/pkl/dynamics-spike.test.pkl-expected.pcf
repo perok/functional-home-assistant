@@ -40,38 +40,38 @@ examples {
       ],
       "members": {
         "light.taklys": {
-          "vars": {
-            "label": "Taklys"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Taklys"
+              },
+              "fills": []
             }
           ]
         },
         "light.lampe": {
-          "vars": {
-            "label": "Lampe"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Lampe"
+              },
+              "fills": []
             }
           ]
         },
         "light.spot": {
-          "vars": {
-            "label": "Spot"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Spot"
+              },
+              "fills": []
             }
           ]
         }
@@ -107,62 +107,62 @@ examples {
       ],
       "members": {
         "light.taklys": {
-          "vars": {
-            "label": "Taklys"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Taklys"
+              },
+              "fills": []
             }
           ]
         },
         "light.lampe": {
-          "vars": {
-            "label": "Lampe"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Lampe"
+              },
+              "fills": []
             }
           ]
         },
         "light.spot": {
-          "vars": {
-            "label": "Spot"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Spot"
+              },
+              "fills": []
             }
           ]
         },
         "media_player.tv": {
-          "vars": {
-            "label": "TV"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 0,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "TV"
+              },
+              "fills": []
             }
           ]
         },
         "light.kjokken": {
-          "vars": {
-            "label": "Kjøkken"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Kjøkken"
+              },
+              "fills": []
             }
           ]
         }
@@ -202,50 +202,62 @@ examples {
       ],
       "members": {
         "light.taklys": {
-          "vars": {
-            "label": "Taklys"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Taklys"
+              },
+              "fills": []
             },
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Taklys"
+              },
+              "fills": []
             }
           ]
         },
         "light.lampe": {
-          "vars": {
-            "label": "Lampe"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Lampe"
+              },
+              "fills": []
             },
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Lampe"
+              },
+              "fills": []
             }
           ]
         },
         "light.spot": {
-          "vars": {
-            "label": "Spot"
-          },
-          "fills": [],
           "clauses": [
             {
               "cond": 1,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "label": "Spot"
+              },
+              "fills": []
             },
             {
               "cond": 0,
-              "shape": 1
+              "shape": 1,
+              "vars": {
+                "label": "Spot"
+              },
+              "fills": []
             }
           ]
         }

@@ -147,21 +147,26 @@ class ShapeDef {
   children: List<Node|SetNode|Hole> = List()
 }
 
-/// One guarded rendering rule for a member: "if `cond` holds, render `shape`".
-/// Both fields are INDICES into the set's dedup tables
-/// ([[SetNode.conditions]] / [[SetNode.shapes]]) — storing either inline would
-/// repeat it once per member per rule.
-class Clause { cond: Int; shape: Int }
+/// One guarded rendering for a member: "if `cond` holds, render `shape`, filled
+/// with THESE values". `cond` and `shape` are indices into the set's dedup tables
+/// ([[SetNode.conditions]] / [[SetNode.shapes]]).
+///
+/// `vars`/`fills` live HERE, not on the member, because a member's clauses can
+/// point at DIFFERENT shapes and each shape has its own holes. A member whose
+/// first case is a slider and whose fallback is an entityCard needs the slider's
+/// literals for one and the entityCard's for the other; hanging them off the
+/// member gave it only the first clause's, so the fallback rendered with blanks.
+class Clause {
+  cond: Int
+  shape: Int
+  vars: Map<String, String> = Map()
+  fills: List<Node|SetNode|Hole> = List()
+}
 
 /// A member is a `cond` expression: its clauses are tried in order and the first
 /// whose guard holds decides the rendering. Falling off the end means the member
 /// is NOT RENDERED — which is why there is no separate presence field.
-class MemberDef {
-  vars: Map<String, String>
-  /// Fillers for this member's shape holes, indexed by [[Hole.idx]].
-  fills: List<Node|SetNode|Hole> = List()
-  clauses: List<Clause>
-}
+class MemberDef { clauses: List<Clause> }
 
 /// A derived value over a set: how many of its members are PRESENT, or an
 /// extremum over one of their properties.
@@ -510,16 +515,16 @@ function buildSet(
     conditions = conds
     shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
-      let (winning = p.second.first.first)
-        let (key = shapeKey(winning))
-          new MemberDef {
-            vars = varyingByCard[key]
-              .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
-            fills = varyingKidsByCard[key].map((i) -> winning.children[i])
-            clauses = p.second.map((q) ->
+      new MemberDef {
+        clauses = p.second.map((q) ->
+          let (node = q.first)
+            let (key = shapeKey(node))
               new Clause {
                 cond = conds.findIndex((t) -> t == q.second)
-                shape = shapeIndex.findIndex((c) -> c == shapeKey(q.first))
+                shape = shapeIndex.findIndex((c) -> c == key)
+                vars = varyingByCard[key]
+                  .toMap((k) -> k, (k) -> (node.slots[k] as Lit).literal)
+                fills = varyingKidsByCard[key].map((i) -> node.children[i])
               })
-          })
+      })
   }

@@ -168,6 +168,13 @@ Emitted:
             "light.c":{"vars":{"label":"Spot"},  "clauses":[{"cond":1,"shape":0}]}}}
 ```
 
+**A clause is a COMPLETE rendering, not just a selector.** `vars`/`fills` live on the clause, not
+on the member, because a member's clauses can point at different shapes and each shape has its own
+holes — a member whose first case is a slider and whose fallback is an entityCard needs the
+slider's literals for one and the entityCard's for the other. Hanging them off the member gave it
+only the FIRST clause's, so the fallback rendered with blanks. Found by asking the obvious question
+of the design rather than by a test failing; pinned now by S18.
+
 **Naming.** A member is a `cond` expression: its **clauses** are tried in order and the first
 whose guard holds decides the rendering; falling off the end means the member is not rendered.
 They are not "alternatives" — nothing is being destructured. The two dedup tables are **`shapes`**

@@ -99,14 +99,14 @@ facts {
     s.shapes.first.slots.containsKey("state")
     // the registry-derived label differs -> hoisted to per-member vars
     !s.shapes.first.slots.containsKey("label")
-    s.members["light.taklys"].vars["label"] == "Taklys"
-    s.members["light.lampe"].vars["label"] == "Lampe"
+    s.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+    s.members["light.lampe"].clauses.first.vars["label"] == "Lampe"
   }
 
   ["2. an interpolated label is still a build-time literal, still a var"] {
     local s = wire.buildSet(stueLights, List(interpolatedBranch), alwaysPresent, List(), null)
-    s.members["light.taklys"].vars["label"] == "Blah Taklys"
-    s.members["light.spot"].vars["label"] == "Blah Spot"
+    s.members["light.taklys"].clauses.first.vars["label"] == "Blah Taklys"
+    s.members["light.spot"].clauses.first.vars["label"] == "Blah Spot"
     s.shapes.length == 1
     // nothing defers: the member's only alternative is unconditional
     condOf.apply(s, "light.taklys", 0) == null
@@ -253,8 +253,8 @@ facts {
     // vars, because both were authored the same way
     !media.slots.containsKey("label")
     !slider.slots.containsKey("label")
-    s.members["media_player.tv"].vars["label"] == "TV"
-    s.members["light.taklys"].vars["label"] == "Taklys"
+    s.members["media_player.tv"].clauses.first.vars["label"] == "TV"
+    s.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
   }
 
   ["a transform stays on the shape — it is the same for every member"] {
@@ -262,7 +262,7 @@ facts {
     // `state` is an Xf: the entity it reads comes from the member binding, so
     // one copy serves everyone
     s.shapes.first.slots.containsKey("state")
-    s.members.values.every((m) -> !m.vars.containsKey("state"))
+    s.members.values.every((m) -> !m.clauses.first.vars.containsKey("state"))
   }
 
   ["a statically-false candidate never reaches the wire"] {

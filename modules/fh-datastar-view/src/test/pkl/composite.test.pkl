@@ -50,8 +50,8 @@ facts {
     // both children vary (each embeds the entity's own name), so both are holes
     s.shapes.first.children.length == 2
     s.shapes.first.children.every((c) -> c is wire.Hole)
-    s.members["light.taklys"].fills.length == 2
-    (s.members["light.taklys"].fills[0] as wire.Node).card == "title"
+    s.members["light.taklys"].clauses.first.fills.length == 2
+    (s.members["light.taklys"].clauses.first.fills[0] as wire.Node).card == "title"
   }
 
   // A child that is the SAME for everyone stays in the shape rather than
@@ -71,7 +71,7 @@ facts {
     !(s.shapes.first.children[0] is wire.Hole)
     (s.shapes.first.children[0] as wire.Node).card == "divider"
     s.shapes.first.children[1] is wire.Hole
-    s.members["light.taklys"].fills.length == 1
+    s.members["light.taklys"].clauses.first.fills.length == 1
   }
 
   // (b) — THE TILE PER ROOM. Areas are candidates; each tile holds a set over
@@ -84,16 +84,16 @@ facts {
     s.shapes.length == 1
     s.shapes.first.card == "card"
     // ...the title varies, so it is a var
-    s.members["area.stue"].vars["title"] == "Stue"
-    s.members["area.kjokken"].vars["title"] == "Kjøkken"
+    s.members["area.stue"].clauses.first.vars["title"] == "Stue"
+    s.members["area.kjokken"].clauses.first.vars["title"] == "Kjøkken"
     // ...and the nested set varies, so it is a hole filled per member
     s.shapes.first.children[0] is wire.Hole
-    s.members["area.stue"].fills[0] is wire.SetNode
+    s.members["area.stue"].clauses.first.fills[0] is wire.SetNode
   }
 
   ["C4 each tile's nested set has its OWN candidates"] {
     local s = q.from(fixtures.areas).render(roomTile).build()
-    local inner = (id: String) -> s.members[id].fills[0] as wire.SetNode
+    local inner = (id: String) -> s.members[id].clauses.first.fills[0] as wire.SetNode
 
     (inner.apply("area.stue")).candidates ==
       List("light.taklys", "light.lampe", "light.spot")
@@ -104,13 +104,13 @@ facts {
 
   ["C5 the nested set keeps its own conditions and shapes"] {
     local s = q.from(fixtures.areas).render(roomTile).build()
-    local stue = s.members["area.stue"].fills[0] as wire.SetNode
+    local stue = s.members["area.stue"].clauses.first.fills[0] as wire.SetNode
 
     // the inner set defers on state, exactly as it would standalone
     stue.conditions.length == 2
     (stue.conditions[1] as wire.Bound).property == "state"
     stue.shapes.length == 1
-    stue.members["light.taklys"].vars["label"] == "Taklys"
+    stue.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
   }
 
   // An empty room can be dropped at BUILD time, because `lights` is registry

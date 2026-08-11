@@ -50,7 +50,7 @@ facts {
     s.shapes.length == 1
     // the live slot is shared; only the per-entity label differs
     s.shapes.first.slots.containsKey("state")
-    s.members["light.taklys"].vars["label"] == "Taklys"
+    s.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
     // one condition, shared by all three members
     s.conditions.length == 2
     s.members.values.every((m) -> m.clauses.first.cond == 1)
@@ -62,8 +62,8 @@ facts {
       .render(entityCard)
       .build()
 
-    s.members["light.taklys"].vars["label"] == "Blah Taklys"
-    s.members["light.spot"].vars["label"] == "Blah Spot"
+    s.members["light.taklys"].clauses.first.vars["label"] == "Blah Taklys"
+    s.members["light.spot"].clauses.first.vars["label"] == "Blah Spot"
     // nothing defers
     s.conditions == List(null)
   }
@@ -303,7 +303,54 @@ facts {
     s.shapes.length == 1
     s.shapes.first.cell.classes == List("fh-cols-6")
     // layout is on the shape, never repeated per member
-    s.members.values.every((m) -> !m.vars.containsKey("cell"))
+    s.members.values.every((m) -> !m.clauses.first.vars.containsKey("cell"))
+  }
+
+  // 18 — a member whose clauses point at DIFFERENT shapes needs each shape's
+  // own literals. Hanging vars off the MEMBER gave it only the first clause's,
+  // so the fallback rendered with blanks. A clause is a complete rendering.
+  ["S18 each clause carries the literals ITS shape needs"] {
+    local brightCard = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map(
+        "label", new wire.Lit { literal = e.friendly_name },
+        "maxHint", new wire.Lit { literal = "max \(e.supported_features)" },  // only here
+        "fill", new wire.Xf { transform = "$attr.brightness" })
+    }
+    local plainCard = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map(
+        "label", new wire.Lit { literal = e.friendly_name },
+        "area", new wire.Lit { literal = e.area_id })                        // only here
+    }
+
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .caseOf(q.gt(q.prop("brightness"), 128), brightCard)
+      .`else`(plainCard)
+      .build()
+
+    local m = s.members["light.taklys"]
+    m.clauses.length == 2
+
+    // clause 0: the live brightness guard, the slider shape, ITS literals
+    s.conditions[m.clauses[0].cond].property == "attr:brightness"
+    s.shapes[m.clauses[0].shape].card == "slider"
+    m.clauses[0].vars["maxHint"] == "max 8"
+    !m.clauses[0].vars.containsKey("area")
+
+    // clause 1: unconditional fallback, the entityCard shape, ITS literals
+    s.conditions[m.clauses[1].cond] == null
+    s.shapes[m.clauses[1].shape].card == "entityCard"
+    m.clauses[1].vars["area"] == "stue"
+    !m.clauses[1].vars.containsKey("maxHint")
+
+    // the label is needed by both, so both carry it
+    m.clauses[0].vars["label"] == "Taklys"
+    m.clauses[1].vars["label"] == "Taklys"
+
+    // the transform stays on the shape, never duplicated into a clause
+    s.shapes[m.clauses[0].shape].slots.containsKey("fill")
   }
 
   // 11 — a property only some candidates carry. Ambiguous by default, because

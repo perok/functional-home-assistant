@@ -25,148 +25,148 @@ examples {
       ],
       "members": {
         "area.stue": {
-          "vars": {
-            "title": "Stue"
-          },
-          "fills": [
-            {
-              "kind": "set",
-              "candidates": [
-                "light.taklys",
-                "light.lampe",
-                "light.spot"
-              ],
-              "conditions": [
-                null,
-                {
-                  "kind": "cmp",
-                  "property": "state",
-                  "op": "eq",
-                  "value": "on"
-                }
-              ],
-              "shapes": [
-                {
-                  "card": "slider",
-                  "slots": {},
-                  "children": []
-                }
-              ],
-              "members": {
-                "light.taklys": {
-                  "vars": {
-                    "label": "Taklys"
-                  },
-                  "fills": [],
-                  "clauses": [
-                    {
-                      "cond": 1,
-                      "shape": 0
-                    }
-                  ]
-                },
-                "light.lampe": {
-                  "vars": {
-                    "label": "Lampe"
-                  },
-                  "fills": [],
-                  "clauses": [
-                    {
-                      "cond": 1,
-                      "shape": 0
-                    }
-                  ]
-                },
-                "light.spot": {
-                  "vars": {
-                    "label": "Spot"
-                  },
-                  "fills": [],
-                  "clauses": [
-                    {
-                      "cond": 1,
-                      "shape": 0
-                    }
-                  ]
-                }
-              }
-            }
-          ],
           "clauses": [
             {
               "cond": 0,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "title": "Stue"
+              },
+              "fills": [
+                {
+                  "kind": "set",
+                  "candidates": [
+                    "light.taklys",
+                    "light.lampe",
+                    "light.spot"
+                  ],
+                  "conditions": [
+                    null,
+                    {
+                      "kind": "cmp",
+                      "property": "state",
+                      "op": "eq",
+                      "value": "on"
+                    }
+                  ],
+                  "shapes": [
+                    {
+                      "card": "slider",
+                      "slots": {},
+                      "children": []
+                    }
+                  ],
+                  "members": {
+                    "light.taklys": {
+                      "clauses": [
+                        {
+                          "cond": 1,
+                          "shape": 0,
+                          "vars": {
+                            "label": "Taklys"
+                          },
+                          "fills": []
+                        }
+                      ]
+                    },
+                    "light.lampe": {
+                      "clauses": [
+                        {
+                          "cond": 1,
+                          "shape": 0,
+                          "vars": {
+                            "label": "Lampe"
+                          },
+                          "fills": []
+                        }
+                      ]
+                    },
+                    "light.spot": {
+                      "clauses": [
+                        {
+                          "cond": 1,
+                          "shape": 0,
+                          "vars": {
+                            "label": "Spot"
+                          },
+                          "fills": []
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
             }
           ]
         },
         "area.kjokken": {
-          "vars": {
-            "title": "Kjøkken"
-          },
-          "fills": [
-            {
-              "kind": "set",
-              "candidates": [
-                "light.kjokken"
-              ],
-              "conditions": [
-                null,
-                {
-                  "kind": "cmp",
-                  "property": "state",
-                  "op": "eq",
-                  "value": "on"
-                }
-              ],
-              "shapes": [
-                {
-                  "card": "slider",
-                  "slots": {},
-                  "children": []
-                }
-              ],
-              "members": {
-                "light.kjokken": {
-                  "vars": {
-                    "label": "Kjøkken"
-                  },
-                  "fills": [],
-                  "clauses": [
-                    {
-                      "cond": 1,
-                      "shape": 0
-                    }
-                  ]
-                }
-              }
-            }
-          ],
           "clauses": [
             {
               "cond": 0,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "title": "Kjøkken"
+              },
+              "fills": [
+                {
+                  "kind": "set",
+                  "candidates": [
+                    "light.kjokken"
+                  ],
+                  "conditions": [
+                    null,
+                    {
+                      "kind": "cmp",
+                      "property": "state",
+                      "op": "eq",
+                      "value": "on"
+                    }
+                  ],
+                  "shapes": [
+                    {
+                      "card": "slider",
+                      "slots": {},
+                      "children": []
+                    }
+                  ],
+                  "members": {
+                    "light.kjokken": {
+                      "clauses": [
+                        {
+                          "cond": 1,
+                          "shape": 0,
+                          "vars": {
+                            "label": "Kjøkken"
+                          },
+                          "fills": []
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
             }
           ]
         },
         "area.bod": {
-          "vars": {
-            "title": "Bod"
-          },
-          "fills": [
-            {
-              "kind": "set",
-              "candidates": [],
-              "conditions": [
-                null
-              ],
-              "shapes": [],
-              "members": {}
-            }
-          ],
           "clauses": [
             {
               "cond": 0,
-              "shape": 0
+              "shape": 0,
+              "vars": {
+                "title": "Bod"
+              },
+              "fills": [
+                {
+                  "kind": "set",
+                  "candidates": [],
+                  "conditions": [
+                    null
+                  ],
+                  "shapes": [],
+                  "members": {}
+                }
+              ]
             }
           ]
         }
