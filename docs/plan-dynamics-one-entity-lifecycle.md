@@ -262,6 +262,31 @@ Spiked rather than assumed, per the module's "verify semantics empirically" rule
   out first, which is a cross-candidate comparison per slot key, easier to test as a pure function.
   This is now a choice, not a constraint.
 
+## The spike is scaffolding, not a parallel implementation
+
+`src/test/pkl/dynamics/{wire,query,fixtures}.pkl` exist so the design can be argued against
+running code. They are NOT a second implementation to maintain, and leaving them as one would be
+this plan's own failure mode: two parallel definitions of the same thing, drifting.
+
+So the machinery moves onto the real code progressively:
+
+- **`query.pkl` moves to `lib/query.pkl`** and becomes the shipped authoring namespace, imported
+  as `@fh-dashboard/query.pkl`. It already knows nothing about cards, so nothing else has to move
+  with it.
+- **`wire.pkl` dissolves.** Its classes become the Scala wire model in `model/Dashboard.scala`,
+  and its fold becomes the build-time pass in `DashboardBuild` (which is where the shape
+  compression belongs anyway — see the D1/D2 note). Pkl keeps only what an author touches: the
+  property/term constructors and the chain.
+- **`fixtures.pkl` shrinks to the test home only.** Every scenario that can run against the real
+  generated `@fh-home` dump should, so the tests exercise the actual typed entities and the actual
+  capability data. Fixtures survive only for cases the test home cannot produce — a deliberately
+  mixed-availability set, an entity with a capability nobody owns — and each one that stays should
+  say why.
+
+The end state is: no `dynamics/` directory, scenarios running against the real dump, and the
+worked examples still asserting the same wire properties. Until then, treat anything under
+`dynamics/` as a proposal with a shelf life.
+
 ## What we keep, delete, and fix
 
 **Keep** — the presence-and-order patch machinery: `Gone`/`Placed`, insert anchors,

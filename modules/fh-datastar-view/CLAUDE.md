@@ -204,6 +204,30 @@ semantics, and the suite still pins the ones it covers (full list with evidence:
   function-valued property `slider` can coexist; call syntax picks the method.
 - Inside a `new {}` body, `this` rebinds to the new object — capture the outer receiver
   with `let (l = this)` when writing fluent methods on classes.
+- **Never name a parameter or local after the property it initialises.** In
+  `new Thing { items = items }` the RHS binds to the object's OWN member, not the parameter,
+  and recurses ~10 000 deep. The trace points at the field, not the cause, so it reads like a
+  cycle in your data. This is the single most frequent trap here — it hit six times in one
+  session (`items`, `op`, `orderBy`, `shapes`, `entities`, `value`). Suffix the parameter
+  (`cmpOp`, `xs`, `shapeDefs`).
+- A module-level function called from inside a **class body** must be `const` (the error says
+  so, and offers self-import as the alternative).
+- Classes are **closed for extension** by default — `open class` (or `abstract class`) to
+  subclass. Only stdlib members may have **type parameters**: user-defined generics
+  (`class Box<T>`) are rejected outright, so a container over a varying element type takes
+  `Any` and callers recover typing by annotating the lambda parameter — `(e: LightEntity) -> …`
+  works and a WRONG annotation is caught at application.
+- Reserved words that bite as field/property names: **`case`**, **`out`**, `import`, `else`,
+  `when`. Backtick them or pick another name (`shape` rather than `case`).
+- `getProperty(name)` / `getPropertyOrNull(name)` / `hasProperty(name)` let the build read a
+  property BY NAME — the basis for resolving a named property against candidates.
+- Structural equality holds for independently-built objects, and `Map`/`distinct`/`groupBy`
+  dedupe by it — so canonicalising a term tree in Pkl is practical.
+- `pkl test` gotchas: an `examples` block writes typed instances to `.pcf` as untyped
+  `new { … }`, which then **fails to re-read** ("Please specify a parent explicitly"), so the
+  expected file can never assert on a second run — capture `new JsonRenderer {}.renderValue(x)`
+  instead, which round-trips as a String. And `///` doc comments are a parse error on entries
+  inside a `facts` block; use `//`.
 - Required (no-default) class properties are **lazy**: a missing value errors only when
   forced, and the trace points at the class definition, not the author's dashboard line.
 - `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).
