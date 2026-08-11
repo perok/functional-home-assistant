@@ -710,36 +710,70 @@ count-dependence below, since there would be no literals left to diff. Not done 
 interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
 mechanisms are needed either way.
 
-## Cross-entity references — decided, not built
+## Cross-entity references
 
-**This is the one live inconsistency in the plan.** P6 says an expression carries "either an
-explicit entity, or set membership", and the design question about `when` scope was answered
-*"allow explicit entity refs"*, with the motivating example:
+P6 allows two bindings — set membership, or an explicit entity. Only the first is built:
+`wire.Bound` is `{property, op, value}`, so every term is about the member. Both halves are wanted,
+for different reasons.
 
-> for allowing explicit entity refs; only show when on and when time is above Y for.ex
+### Whole-set conditions belong to `If`, not to a member term
 
-Only the set-membership half exists. `wire.Bound` has no `entity` field, so every term is about
-the member. There is currently **no way to write "show this light while `binary_sensor.door` is
-open"**, and the motivating example is unexpressible — it conjoins a fact about the member (its
-state) with a fact about a different entity (`sensor.time`).
+"Show these lights only in the evening" is a statement about the SET, and `Activation.State`
+already expresses that shape. So a set-wide cross-entity condition needs no new member machinery —
+it is a surface condition.
 
-Note this does not contradict the time resolution: `sensor.time` being an ordinary entity is what
-makes the example *possible in principle*: it needs no new source, only a way to name another
-entity in a term.
+**But `If` is built on precisely the unbound predicate this plan removes**, and that is not a
+coincidence:
 
-The shape is not hard — an optional `entity` on `Bound`, absent meaning "the member" — but two
-things need deciding rather than assuming:
+```scala
+case State(condition: Predicate, quantifier: Quantifier = Quantifier.Any)
 
-- **Indexing.** A node whose condition names other entities must be woken by them, so those ids
-  have to join the node's reverse-index key. For a set that is the set node's key, not a member's.
-- **Scope.** Does a cross-entity term belong on a member's clause (per-member presence), or is it
-  really a property of the whole set — in which case it is a surface condition (`If`) rather than a
-  member condition, and the existing mechanism already covers it.
+// Renderer.holds
+case Quantifier.Any => states.values.exists(Renderer.matches(condition, _))
+```
 
-The second question may dissolve the first: "show these lights only in the evening" is a statement
-about the whole set, and `Activation.State` already expresses it. If every realistic cross-entity
-case is set-wide, `Bound` never needs an entity and P6's first half is satisfied by surfaces
-instead. Worth settling before building either.
+An unbound predicate, quantified over the WHOLE state map — which is L6's `holds` bug restated.
+Leaving `If` alone would leave two predicate languages in the tree, exactly what P4 says we will
+not have.
+
+**Follow-up task: give an `If` condition a candidate set.** Instead of quantifying over every
+entity, it quantifies over a named set. Four things fall out at once:
+
+- `holds` becomes a walk of N known candidates instead of a full-map scan — L6's second bug fixed
+  **by construction** rather than by adding a pinned-condition shortcut
+- `Quantifier` (`Any`/`None`/`All`) starts meaning what an author intends — "any light in the
+  living room", not "any entity in the house"
+- one predicate language, so P4 is real rather than aspirational
+- whole-set cross-entity conditions get a home with no new concepts
+
+This should be sequenced before, or with, deleting the free constructors from `components.pkl` —
+otherwise `If` is left holding the only references to them.
+
+### Per-member cross-entity refs are wanted too
+
+A concrete case that is NOT set-wide: **motion-gated room lights.** Show each light only while its
+own room's motion sensor is active — the sensor differs per member, and the pairing is derivable at
+build time from `area_id`:
+
+```pkl
+q.from(dump.all.lights)
+  .where(q.candidate((e) -> q.entityIs(motionSensorFor(e.area_id)).eq(q.stateProp, "on")))
+```
+
+`motionSensorFor` is ordinary Pkl over the dump, so the REFERENCE is resolved at build time to a
+specific `entity_id` per member, while the state test stays live. Others of the same shape: a
+bulb gated on its Zigbee router being online, a media control gated on its TV's power sensor.
+
+Consequences to design, not assume:
+
+- `Bound` gains an OPTIONAL `entity`; absent means "the member", which keeps every existing term
+  unchanged.
+- The reverse-index key becomes `candidates ∪ referenced entities`. Members naming different
+  entities is fine — the `conditions` table already dedupes, so it gets one entry per distinct
+  sensor.
+- Nothing else moves: these are still per-member clauses, resolved the same way.
+
+Not built. Sequenced after composite, since it adds a field rather than changing a shape.
 
 ## Not yet designed
 
