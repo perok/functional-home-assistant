@@ -1,0 +1,188 @@
+/// The query surface (`lib/query.pkl`) — what an author writes, and what the
+/// fold emits for it.
+///
+/// The one thing every test here is really about: a REGISTRY fact is a build-
+/// time selection and never reaches the wire, while a LIVE condition becomes a
+/// per-member guard. An author writes both the same way and never names the
+/// seam, so these assert where each one ended up.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+
+// A stand-in dump. Two rooms, one light that is dimmable and one that is not,
+// plus a sensor with a capability nothing else has — the mixed set that makes
+// property resolution ambiguous.
+local taklys: hass.LightEntity = new {
+  entity_id = "light.taklys"
+  friendly_name = "Taklys"
+  area_id = "stue"
+  supported_features = 8
+}
+local lampe: hass.LightEntity = new {
+  entity_id = "light.lampe"
+  friendly_name = "Lampe"
+  area_id = "stue"
+  supported_features = 0
+}
+local kjokken: hass.LightEntity = new {
+  entity_id = "light.kjokken"
+  friendly_name = "Kjøkken"
+  area_id = "kjokken"
+  supported_features = 8
+}
+local motion: hass.SensorEntity = new {
+  entity_id = "binary_sensor.stue_motion"
+  friendly_name = "Stue motion"
+  area_id = "stue"
+}
+
+local stue = List(taklys, lampe)
+local allEnts: List<hass.Entity> = List(taklys, lampe, kjokken, motion)
+
+local clausesOf = (s) -> s.members.toMap().values.flatMap((m) -> m.clauses.toList())
+local guards = (s) -> clausesOf.apply(s).map((cl) -> cl.`when`)
+local ids = (s) -> s.candidates.toList()
+local memberOf = (s, id) -> s.members[id].clauses.toList()
+
+facts {
+  ["a live condition becomes a per-member guard"] {
+    // S1. The candidates are all of them — presence is decided at runtime, not
+    // by dropping anyone here.
+    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+    ids.apply(s) == List("light.taklys", "light.lampe")
+    guards.apply(s).every((g) -> g.property == "state" && g.op == "eq" && g.value == "on")
+    guards.apply(s).length == 2
+  }
+
+  ["a registry condition SELECTS candidates and reaches no wire"] {
+    // The point of the whole design: `area_id` is build-time data, so it
+    // decides membership here and the runtime never sees it.
+    local s = q.from(allEnts)
+      .where(q.eq(q.prop("area_id"), "stue"))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s) == List("light.taklys", "light.lampe", "binary_sensor.stue_motion")
+    guards.apply(s).every((g) -> g == null)
+  }
+
+  ["a candidate lambda folds too — dispatch on a CAPABILITY costs nothing live"] {
+    // S4. `supported_features` is registry data, so which card each light gets
+    // is settled at build time and neither clause carries a guard.
+    local s = q.from(stue)
+      .caseOf(q.candidate((e) -> (e as hass.LightEntity).supportsFlash), (e) -> c.entityCard(e))
+      .`else`((e) -> c.pill("off-duty", c.navigate("/")))
+      .build()
+    memberOf.apply(s, "light.taklys").length == 1
+    memberOf.apply(s, "light.taklys")[0].`when` == null
+    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.lampe").length == 1
+    memberOf.apply(s, "light.lampe")[0].node.card == "pill"
+  }
+
+  ["dispatch on LIVE state keeps both renderings, first match winning"] {
+    // S5. Two clauses per member: the guarded one, then the unconditional
+    // fallback. Order is author order, which IS match order.
+    local s = q.from(stue)
+      .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
+      .`else`((e) -> c.pill("off", c.navigate("/")))
+      .build()
+    memberOf.apply(s, "light.taklys").length == 2
+    memberOf.apply(s, "light.taklys")[0].`when`.property == "state"
+    memberOf.apply(s, "light.taklys")[1].`when` == null
+  }
+
+  ["omitting the `else` is how 'only while on' is written"] {
+    // S6. The missing fallback is the feature: fall off the end and the member
+    // is not rendered at all.
+    local s = q.from(stue).caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e)).build()
+    clausesOf.apply(s).length == 2
+    clausesOf.apply(s).every((cl) -> cl.`when` != null)
+  }
+
+  ["a list is AND, `any` is OR, and they nest"] {
+    // S7. The dimmable light comes out unconditional — its half of the
+    // disjunction is statically true — while the other defers to its state.
+    // That divergence is exactly why presence lives on the clause.
+    local s = q.from(stue)
+      .where(List(
+        q.eq(q.prop("area_id"), "stue"),
+        q.any(List(
+          q.candidate((e) -> (e as hass.LightEntity).supportsFlash),
+          q.eq(q.stateProp, "on")))))
+      .render((e) -> c.entityCard(e))
+      .build()
+    memberOf.apply(s, "light.taklys")[0].`when` == null
+    memberOf.apply(s, "light.lampe")[0].`when`.property == "state"
+  }
+
+  ["a statically-false condition drops the candidate entirely"] {
+    local s = q.from(allEnts)
+      .where(q.eq(q.prop("area_id"), "nowhere"))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s).isEmpty
+    s.members.isEmpty
+  }
+
+  ["an all-registry ordering is resolved NOW"] {
+    // S10. Nothing rides on the wire: `candidates` comes out sorted and the
+    // runtime only filters, with no comparisons.
+    local s = q.from(allEnts)
+      .orderBy(q.asc(q.prop("friendly_name")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    // By NAME — Kjøkken, Lampe, Stue motion, Taklys — not by entity id.
+    ids.apply(s) == List(
+      "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
+  }
+
+  ["`desc` inverts the comparison, not the ties"] {
+    local s = q.from(allEnts)
+      .orderBy(List(q.desc(q.prop("area_id")), q.asc(q.prop("friendly_name"))))
+      .render((e) -> c.entityCard(e))
+      .build()
+    // "stue" before "kjokken" (desc), and WITHIN stue the names still ascend —
+    // Lampe, Stue motion, Taklys. A `desc` that reversed the sorted list
+    // instead of the comparison would hand back Taklys, Stue motion, Lampe.
+    ids.apply(s) == List(
+      "light.lampe", "binary_sensor.stue_motion", "light.taklys", "light.kjokken")
+  }
+
+  ["a guard may name ANOTHER entity, resolved to an id at build time"] {
+    // The motion-gated room: the reference is build-time (derived from
+    // `area_id`), the state test is live.
+    local s = q.from(stue)
+      .where(q.candidate((_e) -> q.entity(motion).stateIs("on")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    guards.apply(s).every((g) -> g.entity == "binary_sensor.stue_motion")
+    guards.apply(s).every((g) -> g.property == "state")
+  }
+
+  ["a member's node is COMPLETE — it carries its own entity"] {
+    // What makes a clause unable to be wrong about which member it belongs to,
+    // and what the renderer relies on: nothing is injected per render.
+    local s = q.from(stue).render((e) -> c.entityCard(e)).build()
+    memberOf.apply(s, "light.lampe")[0].node.slots["entity_id"] == "light.lampe"
+  }
+
+  ["a property only SOME candidates carry needs `optional`"] {
+    // Without it this is a build error: it would silently be a registry fact
+    // for the lights and a live attribute for the sensor.
+    local s = q.from(allEnts)
+      .where(q.eq(q.optional(q.prop("supported_features")), 8))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s) == List("light.taklys", "light.kjokken")
+  }
+
+  ["the emitted node is a `set`, and every candidate has a member"] {
+    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+    s.kind == "set"
+    ids.apply(s).every((id) -> s.members.containsKey(id))
+  }
+}

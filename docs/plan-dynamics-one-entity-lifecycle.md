@@ -1000,9 +1000,24 @@ phase 2's authoring surface. `orderBy` and `limit` are modelled but unread, and 
 is a nested set is dropped rather than half-rendered — both phase 3. *Stop here and nothing is
 worse: dynamic groups still work, and nothing can author a set.*
 
-**Phase 2 — the authoring surface.** `query.pkl` into `lib/`, `wire.pkl` deleted, the scenarios
-re-pointed at the real dump with fixtures kept only for what the test home cannot produce. Authors
-can now write live sets. *Stop here and you have the new thing alongside the old.*
+**Phase 2 — the authoring surface.** *Shipped, except retiring the spike.* `lib/query.pkl` is the
+authoring namespace, imported as `@fh-dashboard/query.pkl`; the wire classes
+(`SetNode`/`SetMember`/`SetClause`) live in `components.pkl`, which owns the layout vocabulary, and
+`Cmp` gained the optional `entity`. `query.test.pkl` covers the surface against typed entities;
+`PklBuildSuite` carries a query over a real dump through `SourceEval` into a decoded `SetNode`.
+
+**The fold runs in Pkl, not in `DashboardBuild`** — which contradicts what this plan said, so here
+is why. A render lambda (`(e) -> c.slider(e)`) can only be applied in Pkl, so Pkl must iterate the
+candidates whatever else happens. Once it is doing that, folding the guards costs nothing extra;
+emitting them unfolded for Scala to fold would mean *two* passes over the candidates and a second
+place that decides what presence means. The Scala side keeps the model and the renderer.
+
+Deliberately NOT shipped in the surface, rather than shipped-and-erroring, so pkl-lsp says "unknown
+method" at the point of use: `limit`, aggregates (`count`/`any`/`none`), and nested sets. Ordering
+IS here but only when every key folds to a registry fact — a live key throws, naming the phase-3
+gap, because emitting an `orderBy` the renderer ignores would be silent.
+
+*Stop here and you have the new thing alongside the old.*
 
 **Phase 3 — ordering, aggregates, limit, composite.** Each is additive over Phase 1's path and
 independently testable. Composite (b) needs aggregates; nothing else has an internal order.

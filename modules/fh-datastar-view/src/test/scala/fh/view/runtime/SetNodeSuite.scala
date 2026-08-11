@@ -1,13 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  Op,
-  Predicate,
-  SlotSource
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import io.circe.Json
 
 /** The candidate-set node (`docs/plan-dynamics-one-entity-lifecycle.md`), one
@@ -61,12 +54,13 @@ class SetNodeSuite extends ServerHarness {
       )
     )
 
-  /** Five lights, shown while on, in an order that is NOT their entity-id
-    * order — so a test that would pass under the old entity-id sort fails
-    * here. Five so one member moving stays a minority of the group and takes
-    * the per-member path rather than a churn repaint.
+  /** Five lights, shown while on, in an order that is NOT their entity-id order
+    * — so a test that would pass under the old entity-id sort fails here. Five
+    * so one member moving stays a minority of the group and takes the
+    * per-member path rather than a churn repaint.
     */
-  private val lights = List("light.c", "light.a", "light.b", "light.d", "light.e")
+  private val lights =
+    List("light.c", "light.a", "light.b", "light.d", "light.e")
 
   private def setDash = setOf(lights, _ => Some(whileOn))
 

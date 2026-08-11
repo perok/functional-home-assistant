@@ -54,7 +54,12 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
 given Configuration =
   Configuration.default.withDefaults
     .withDiscriminator("kind")
-    .withTransformConstructorNames(_.toLowerCase)
+    .withTransformConstructorNames {
+      // `set` on the wire. The Scala name carries the `Node` suffix only
+      // because `LayoutNode.Set` would shadow `scala.Set` inside this file.
+      case "SetNode" => "set"
+      case other     => other.toLowerCase
+    }
 
 case class SlotSource(
     // This slot's OWN entity, or `None` to inherit the component's `entity_id`

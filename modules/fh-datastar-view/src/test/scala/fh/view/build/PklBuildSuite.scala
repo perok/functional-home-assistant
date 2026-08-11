@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{Dashboard, LayoutNode, Op, Predicate}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate}
 import fh.view.testkit.{PklFixture, PklWorkspace}
 import io.circe.Json
 
@@ -13,6 +13,10 @@ class PklBuildSuite extends munit.FunSuite {
     node match {
       case c: LayoutNode.Component => c.children.flatMap(dynamics)
       case d: LayoutNode.Dynamic   => List(d)
+      case s: LayoutNode.SetNode   =>
+        s.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => dynamics(cl.node))
     }
 
   test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
@@ -914,6 +918,144 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(
       slots("label").transform,
       "$attr.friendly_name ? $attr.friendly_name : $entity_id"
+    )
+  }
+
+  /** Evaluate a probe that imports the query surface over the REAL dump, and
+    * decode its `node` as a candidate set — the whole Pkl-to-model path the
+    * renderer's `SetNodeSuite` picks up from.
+    */
+  private def probeSet(body: String): LayoutNode.SetNode = {
+    val tmp = os.temp.dir()
+    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
+    writeDump(tmp, PklDump.render(setDump))
+    os.write(
+      tmp / "probe.pkl",
+      s"""module probe
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/query.pkl" as q
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |$body
+         |""".stripMargin
+    )
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    result.toOption.get.value.hcursor
+      .downField("node")
+      .as[LayoutNode]
+      .toOption
+      .get
+      .asInstanceOf[LayoutNode.SetNode]
+  }
+
+  // Two lights in `stue`, one in `bad`, plus a motion sensor to gate them on.
+  private def setDump = io.circe.parser
+    .parse("""
+      {
+        "areas": {
+          "stue": { "area_id": "stue", "area_name": "Stue" },
+          "bad": { "area_id": "bad", "area_name": "Bad" }
+        },
+        "entities": {
+          "light_taklys": {
+            "entity_id": "light.taklys", "friendly_name": "Taklys",
+            "domain": "light", "area_id": "stue", "attributes": {}
+          },
+          "light_lampe": {
+            "entity_id": "light.lampe", "friendly_name": "Lampe",
+            "domain": "light", "area_id": "stue", "attributes": {}
+          },
+          "light_bad": {
+            "entity_id": "light.bad", "friendly_name": "Bad",
+            "domain": "light", "area_id": "bad", "attributes": {}
+          },
+          "sensor_motion": {
+            "entity_id": "binary_sensor.motion", "friendly_name": "Motion",
+            "domain": "binary_sensor", "area_id": "stue", "attributes": {}
+          }
+        }
+      }
+    """)
+    .toOption
+    .get
+
+  test("a query over the real dump decodes as a set the renderer can consume") {
+    // The Pkl half of phase 1's slice: a registry condition SELECTS (and never
+    // reaches the wire), a live one becomes the member's guard, and the clause
+    // node arrives complete — its own card, its own `entity_id`.
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights)
+        |  .where(q.eq(q.stateProp, "on"))
+        |  .render((e) -> c.entityCard(e))
+        |  .build()""".stripMargin
+    )
+    assertEquals(set.candidates.sorted, List("light.lampe", "light.taklys"))
+    val clause = set.members("light.taklys").clauses.head
+    assertEquals(
+      clause.when,
+      Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    )
+    val node = clause.node.asInstanceOf[LayoutNode.Component]
+    assertEquals(node.subjectEntity, Some("light.taklys"))
+    // Every entity the set can be woken by: its candidates, nothing else here.
+    assertEquals(set.liveEntities.sorted, set.candidates.sorted)
+  }
+
+  test("a cross-entity guard rides as `entity`, and joins liveEntities") {
+    // The sensor is NOT a candidate, so only the guard names it — and the
+    // reverse index has to learn about it from there or the members are never
+    // woken. `liveEntities` is that derivation.
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights + dump.areas.bad.lights)
+        |  .where(q.candidate((_e) -> q.entity(dump.areas.stue.sensor_motion).stateIs("on")))
+        |  .render((e) -> c.entityCard(e))
+        |  .build()""".stripMargin
+    )
+    val guard = set.members("light.taklys").clauses.head.when.get
+    assertEquals(
+      guard,
+      Predicate.Cmp(
+        "state",
+        Op.Eq,
+        Json.fromString("on"),
+        Some("binary_sensor.motion")
+      )
+    )
+    assert(
+      set.liveEntities.contains("binary_sensor.motion"),
+      clue = set.liveEntities
+    )
+    assert(
+      !set.candidates.contains("binary_sensor.motion"),
+      clue = set.candidates
+    )
+  }
+
+  test("a set validates as a dashboard, clause nodes included") {
+    // The clauses hold complete nodes, so an unknown card or a bad slot in one
+    // has to be caught the same way it is anywhere else in the tree.
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights + dump.areas.bad.lights)
+        |  .render((e) -> c.entityCard(e))
+        |  .build()""".stripMargin
+    )
+    val cards = Map(
+      "entityCard" -> CardDef(
+        "<b>{{label}}</b>",
+        slots = List("label", "value")
+      )
+    )
+    assertEquals(Dashboard(cards = cards, card = set).validate(), Nil)
+    val broken = set.copy(candidates = set.candidates :+ "light.ghost")
+    assert(
+      Dashboard(cards = cards, card = broken)
+        .validate()
+        .exists(
+          _.contains("light.ghost")
+        ),
+      clue = Dashboard(cards = cards, card = broken).validate()
     )
   }
 

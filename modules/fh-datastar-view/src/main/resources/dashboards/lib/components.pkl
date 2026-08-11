@@ -1204,6 +1204,13 @@ class Cmp extends Predicate {
   property: String
   op: PredicateOp
   value: Any
+  /// Absent means "the subject" — the entity this predicate is attached to,
+  /// which is every predicate written before candidate sets existed. Present
+  /// names a DIFFERENT entity ("show this light while its room's motion sensor
+  /// is on"), resolved at build time by [[query.entity]]; those ids reach the
+  /// reverse index through `SetNode.liveEntities`, or the node is never woken
+  /// by them.
+  entity: String? = null
 }
 
 class PAnd extends Predicate {
@@ -1306,6 +1313,47 @@ class DynamicGroup extends LayoutNode {
     for (p, r in branches) { caseOf(p, r) }
     when (render != null) { caseOf(always, render!!) }
   }
+}
+
+// ---- candidate sets ----
+//
+// The wire vocabulary only. Authors do not write these — `lib/query.pkl` builds
+// them from a chain (`q.from(...).where(...).render(...)`), and it is the only
+// thing that should. They live here because a set is a LAYOUT NODE, and this
+// module owns the layout vocabulary; putting them in `query.pkl` would split
+// ownership of the wire between two modules.
+//
+// See `docs/plan-dynamics-one-entity-lifecycle.md` for why membership is static
+// and the runtime decides only presence.
+
+/// One guarded rendering for a member: "if `when` holds, render `node`".
+///
+/// The node is COMPLETE — card, cell, slots, children, all inline — so a clause
+/// cannot be wrong about which member it belongs to, and nothing has to be
+/// looked up or merged to render one. `when = null` is unconditional.
+class SetClause {
+  `when`: Predicate? = null
+  node: LayoutNode
+}
+
+/// A member is a `cond` expression: clauses are tried in order and the first
+/// whose guard holds decides. FALLING OFF THE END means the member is not
+/// rendered — which is why there is no separate presence field, and why
+/// omitting the `else` is how "only while on" is written.
+class SetMember {
+  clauses: Listing<SetClause>
+}
+
+/// A set over a STATICALLY KNOWN candidate list. The candidates are decided at
+/// build time from the typed dump, so the runtime never invents a member: it
+/// decides presence, and (phase 3) order.
+class SetNode extends LayoutNode {
+  kind: "set" = "set"
+  /// In render order. When the ordering folded to registry facts this list is
+  /// already sorted: the runtime filters to the present members and preserves
+  /// it, with no comparisons.
+  candidates: Listing<String>
+  members: Mapping<String, SetMember>
 }
 
 // ---- conditional sections (If/else via state-activated surfaces) ----
