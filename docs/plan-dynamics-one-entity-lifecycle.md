@@ -491,6 +491,33 @@ Also: a state change alone does not move the name set either. A light that is of
 `brightness` as a KEY with a null value (`light.relative_bibliotek`). The intuition that on/off
 would churn a schema is simply wrong.
 
+**The schema carries NAMES AND TYPES ONLY — never a value, not even null.** The observation above
+("a light that is off still carries `brightness` with a null value") describes HA's STATE payload,
+not a proposed dump shape. A `brightness: null` field in the dump would be a value slot with
+nothing in it, and a value slot is exactly the thing that later gets helpfully filled in with the
+live reading at dump time — reintroducing the churn this whole section exists to avoid. Make it
+structurally impossible instead:
+
+```pkl
+// dump.pkl — a Mapping of name -> TYPE NAME. There is nowhere for a value to go.
+local sig_light_ct_xy_44: Mapping<String, String> = new {
+  ["brightness"] = "Int"
+  ["color_temp_kelvin"] = "Int"
+  ["xy_color"] = "List<Float>"
+  ["effect"] = "String"
+}
+
+const hidden e_taklys: hass.LightEntity = new {
+  entity_id = "light.taklys"
+  volatileAttrs = sig_light_ct_xy_44
+}
+```
+
+**Deduped by capability signature**, the same shared-table trick `shapes` and `conditions` use.
+Measured on the live instance: 1069 entities collapse to 214 distinct capability signatures
+(lights: 48 entities, 8 signatures), which is ~59 KB emitted against ~292 KB if written per
+entity.
+
 This is ADR 0013's existing pattern extended from TYPING to the attribute schema: `hass-light.pkl`
 already vendors `ColorMode` and `LightEntityFeature`, so `supported_color_modes: [color_temp, xy]`
 already implies which volatile attributes exist. Consequences:
