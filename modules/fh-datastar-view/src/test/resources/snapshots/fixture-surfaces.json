@@ -267,7 +267,7 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "ifhost" : {
-      "mount" : "<div id=\"{{mountId}}\">{{{branch}}}</div>",
+      "mount" : "<div class=\"fh-ifhost\" id=\"{{mountId}}\">{{{branch}}}</div>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"

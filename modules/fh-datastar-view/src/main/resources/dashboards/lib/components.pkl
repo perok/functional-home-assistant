@@ -1340,8 +1340,12 @@ class If extends Node {
   // content, injected by the backend like the tabs `{{{panel}}}` — not a
   // declared slot). No `self` at all — an If has no presentation of its own, so
   // there is nothing about it that could change without its content changing.
+  // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
+  // no matching branch the bake hole is the empty string, and without the class
+  // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
+  // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
   cardDef = new ContainerCard {
-    mount = #"<div id="{{mountId}}">{{{branch}}}</div>"#
+    mount = #"<div class="fh-ifhost" id="{{mountId}}">{{{branch}}}</div>"#
   }
   // A conditional SECTION, sized like one; its content's own layout stays the
   // branch `Row`'s business. (Layout transparency was considered and dropped:

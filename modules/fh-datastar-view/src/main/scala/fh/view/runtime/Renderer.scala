@@ -516,18 +516,34 @@ class Renderer(
     */
   def bakeMembers(gid: NodeId): List[String] = bakeGroup(gid)
 
+  /** Every bake group, computed ONCE. `dashboard.surfaces` is fixed for the
+    * life of a renderer, so this is a pure inversion of it: `bakeInto` target
+    * -> member surface ids.
+    *
+    * It has to be a `val`. As a `def` it re-scanned every surface on each call,
+    * and `mountId` calls it for EVERY node on EVERY render — so a paint cost
+    * O(nodes × surfaces) for an answer that cannot change.
+    */
+  private val bakeGroups: Map[NodeId, List[String]] =
+    dashboard.surfaces.toList
+      .flatMap { case (sid, s) =>
+        s.bakeInto.map(gid => (gid, sid, s.bakeIndex))
+      }
+      .groupBy(_._1)
+      .view
+      .mapValues(
+        _.sortBy { case (_, sid, bi) => (bi.getOrElse(Int.MaxValue), sid) }
+          .map(_._2)
+      )
+      .toMap
+
   /** Ordered by `bakeIndex`, with the surface id as a stable tiebreak and as
     * the fallback for a member carrying none. That order is what a ui-state
     * index selects among, and what state selection walks first-match (then,
     * elseif…, else).
     */
   private def bakeGroup(gid: NodeId): List[String] =
-    dashboard.surfaces.toList
-      .collect {
-        case (sid, s) if s.bakeInto.contains(gid) => (sid, s.bakeIndex)
-      }
-      .sortBy { case (sid, bi) => (bi.getOrElse(Int.MaxValue), sid) }
-      .map(_._1)
+    bakeGroups.getOrElse(gid, Nil)
 
   /** "Shown on first paint, with no selection and no click." */
   private def defaultOpenUser(s: Surface): Boolean = s.activation match {
