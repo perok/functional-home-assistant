@@ -5,10 +5,16 @@
 > scaffolding, not the shipped library (see "The spike is scaffolding"). What remains is moving it
 > onto the real code.
 >
-> **Reading order.** Sections accumulated as the design was argued out, so they are roughly
-> chronological rather than logical. For a first read: Context → Principles → Limitations → The
-> wire format → The scenarios (the verified authoring examples) → What we keep, delete, and fix.
-> Everything between is the reasoning behind a specific decision, and each says which.
+> **How this is organised.** *Why* states the problem, the principles and the limitations being
+> fixed. *The format* and *The authoring surface* are the design. *What it costs and what it checks*
+> is the behaviour that follows. *What this changes in the product* is the impact on existing code.
+> *Closing out* is verification and what was deliberately not solved. The appendix holds the Pkl
+> semantics established along the way, and the original design notes.
+>
+> Every claim here is backed by a test under `modules/fh-datastar-view/src/test/pkl/`; where a
+> section names a scenario (S12, C7, …) that is the test pinning it.
+
+# Why
 
 ## Context
 
@@ -43,48 +49,6 @@ statically known set of them.** Everything below follows from that.
 Out of scope: entities appearing or disappearing in HA. That is a registry change, which already
 triggers a complete rebuild (`ServerApp.watchRegistryEvents`, 5s debounce, staged re-eval,
 renderer hot-swap). None of that machinery is touched.
-
-## Decisions taken, and the notes behind them
-
-Recorded verbatim, because the reasoning behind several of these is not recoverable from the
-result. (These were dropped by an earlier rewrite of this file and restored from the conversation
-— they predate the first commit, so git does not have them.)
-
-> General notes:
-> - That we do not store all the information in the backend for A is not by itself a good argument
->   to discard A
-> - The limitation on existing If sounds like a bug and not a design that we want. If we are able
->   to fix that, would that change the reasoning here?
->
-> - The capability around loosing ordering on dynamic state values is not good. The dynamic
->   membership machinery around existing dynamics is maybe something that we should connect this
->   to so that we can keep both?
-> - In regards to the point above on keeping some of the machinery; I also want to be able to
->   support things like count() on dynamic properties. So we can say, if more than X elements then
->   we show this.
->
-> - for allowing explicit entity refs; only show when on and when time is above Y for.ex
->
-> FOcus more on the princicples and limitations we need to fix in this plan at the moment rather
-> than how to achieve it specifically as we are still in the design phase.
-
-> [on retiring the dynamic machinery] keep parts if needed.
-
-> [on the dump surface] Add `dump.all` + per-domain lists, number 2 as well, but we need to work
-> on the syntax. It should be more like LINQ ish thing so it can compose
-
-Settled since:
-
-- **Predicate scope: explicit entity refs allowed**, not subject-only.
-- **State-dependent case dispatch: supported.** Members carry a clause list.
-- **Time needs no machinery.** `sensor.time` is an ordinary HA entity, so it flows through the
-  reverse index like any other. What survives is the RULE, not a mechanism: a term whose input has
-  no indexable source must be rejected at validate time, never silently accepted — a node that can
-  never be woken is worse than one that errors.
-- **`If` and tabs stay.** They are one mechanism (`Surface` + activation mode); its problems are
-  bugs, not design.
-- **Registry in the backend: accepted.**
-- **Dynamic-group machinery: retire the query half, keep the patch half.**
 
 ## Principles
 
@@ -127,25 +91,7 @@ only registry facts. Folding happens in the Pkl combinators, so the author never
 | **L7** | Ghost members on entity removal (ADR 0003 open item) | resolved for free — removal is a registry change, hence a rebuild |
 | **L8** | The static selection vocabulary does not compose | resolved by `query.pkl` |
 
-## Presence and ordering are one concept
-
-- `candidates` — static, from Pkl.
-- `present ⊆ candidates` — runtime predicate per candidate.
-- `order` — a live key, **compared only within `present`**.
-
-The DOM holds exactly `present`, in `order` restricted to `present`; patches are emitted only when
-that restriction changes. A hidden member's sort key moving emits nothing — it acquires a position
-when it becomes present, via the `Placed` we were already sending. So presence is evaluated for
-every candidate, order only over the present subset.
-
-`Gone`/`Placed` already exist (`Patches.recordDynamic`; wire forms `Patch.Remove` /
-`Patch.Insert(mode, target)`). Given P7, a node that isn't shown isn't a member — so there is no
-separate "node visibility gate" concept to design. Presence *is* membership.
-
-**Trap to design against:** ordering by a continuously live key (brightness, temperature) reorders
-the DOM whenever any present member crosses a neighbour — a stream of `Gone`/`Placed` pairs, which
-is exactly what P7 exists to prevent. A stable tiebreak (`entity_id`) is mandatory; ordering by raw
-sensor values should not be made convenient.
+# The format
 
 ## The wire format
 
@@ -246,87 +192,6 @@ bug. `$self` as a *template parameter over a statically known list*, bound at re
 construction before any state arrives, is fine. Same token, different lifecycle — that distinction
 is the whole plan.
 
-## Making an unbound expression unrepresentable
-
-Every term carries a binding, so there is no unbound form to construct. Today that binding is
-**set membership**: `wire.Bound` is `{property, op, value}` with no entity, because the set's
-`candidates` say who it applies to. The free constructors that made `stateIs("on")` meaningful on
-its own are gone; a term is only reachable through `q.eq/ne/gt/lt` over a `q.prop(...)`, or through
-`q.candidate(...)` which is resolved against a specific candidate at build time.
-
-The other binding P6 allows — an explicit reference to a DIFFERENT entity — is **also built**:
-`Bound.entity` is optional, absent meaning "the member". See "Cross-entity references".
-
-## Pkl mechanics (verified on 0.32.1, the `pkl-core` pin)
-
-Spiked rather than assumed. The full list now lives in the module `CLAUDE.md` gotchas; kept here
-are the ones that shaped THIS design:
-
-- **A lambda can be a `Mapping` key**, and keys can be applied to dispatch. The Mapping must be
-  `hidden` — functions cannot render to output, which is already how `DynamicGroup.branches` is
-  declared. The language reference confirms non-String keys generally (`[new Dynamic { … }] = …`).
-- **`&&` type-errors when mixing a static `Boolean` with a runtime predicate object**:
-  `Operator `&&` is not defined for operand types `Boolean` and `Bound``. So the build/runtime
-  split is enforced by the type system for free — a state condition cannot be smuggled into a
-  static position.
-- **Structural equality holds for independently-built objects**, and `Map` dedupes by structural
-  key. `distinct`, `groupBy` and `fold` all work on class instances.
-- Consequence: the D1→D2 shape dedup *could* run in Pkl. It should still run in Scala
-  (`DashboardBuild`), because `distinct` alone is not enough — the varying literals must be holed
-  out first, which is a cross-candidate comparison per slot key, easier to test as a pure function.
-  This is now a choice, not a constraint.
-
-## The spike is scaffolding, not a parallel implementation
-
-`src/test/pkl/dynamics/{wire,query,fixtures}.pkl` exist so the design can be argued against
-running code. They are NOT a second implementation to maintain, and leaving them as one would be
-this plan's own failure mode: two parallel definitions of the same thing, drifting.
-
-So the machinery moves onto the real code progressively:
-
-- **`query.pkl` moves to `lib/query.pkl`** and becomes the shipped authoring namespace, imported
-  as `@fh-dashboard/query.pkl`. It already knows nothing about cards, so nothing else has to move
-  with it.
-- **`wire.pkl` dissolves.** Its classes become the Scala wire model in `model/Dashboard.scala`,
-  and its fold becomes the build-time pass in `DashboardBuild` (which is where the shape
-  compression belongs anyway — see the D1/D2 note). Pkl keeps only what an author touches: the
-  property/term constructors and the chain.
-- **`fixtures.pkl` shrinks to the test home only.** Every scenario that can run against the real
-  generated `@fh-home` dump should, so the tests exercise the actual typed entities and the actual
-  capability data. Fixtures survive only for cases the test home cannot produce — a deliberately
-  mixed-availability set, an entity with a capability nobody owns — and each one that stays should
-  say why.
-
-The end state is: no `dynamics/` directory, scenarios running against the real dump, and the
-worked examples still asserting the same wire properties. Until then, treat anything under
-`dynamics/` as a proposal with a shelf life.
-
-## What we keep, delete, and fix
-
-**Keep** — the presence-and-order patch machinery: `Gone`/`Placed`, insert anchors,
-`insertOrdered`, `recordDynamic`, the member-graph projections. Retargeted from a runtime query
-result to a static candidate list.
-
-**Delete** — the membership-by-query half: `touchesDynamic`, the full-map matching in
-`affectedDynamics`, `materialise`/`memberOf`, and on the Pkl side the free predicate constructors,
-`hass.SELF` as a runtime unknown, `DynamicEntity`, `isDynamic`.
-
-**Fix — three independent bugs in the surface mechanism** (tabs and `If` are correctly *one*
-mechanism differing only in activation mode — verified at `components.pkl:843` vs `:1368` — and
-that stays; ADR 0007 stands):
-
-1. `Renderer.holds` (`:684`) evaluates an entity-pinned condition by scanning the entire state map.
-   **Fixed by the binding change** — a bound condition becomes a lookup.
-2. `Renderer.bakeGroup` (`:524`) is a `def` doing `dashboard.surfaces.toList` + full scan, called
-   ~5× per node per render → O(nodes × surfaces). Independent missing memo.
-3. An unmatched `ifhost` emits `<div class="fh-cell fh-cols-full">` — a full-width empty flex line.
-   Independent; the one current violation of P7.
-
-ADR 0003 (dynamic groups) and ADR 0004 (predicate engine) are rewritten in place. ADR 0007 stands,
-with its cost claims qualified (they are per-branch-*content* claims and say nothing about
-per-group *selection* cost). `docs/architecture-rendering-pipeline.md` §4b describes the deleted
-half and changes in the same commit.
-
 ## Resolved by the spike
 
 **There is no set-level `present` field; presence collapses into the CLAUSES, which index a deduped
@@ -361,7 +226,7 @@ residuals diverge across members of one set"). "One mechanism, not two parallel 
 from evidence rather than taste.
 
 **Ordering is a LIST of positions, each folding independently.** Superseded in detail by "One
-property vocabulary" below — the shape settled on references rather than lambdas, which removed
+property vocabulary" — the shape settled on references rather than lambdas, which removed
 `StaticSort` and `MemberDef.sortVars` entirely. Read that section, not this paragraph, for the
 current form.
 
@@ -386,6 +251,223 @@ is no separate visibility path to build.
 anything constant across a shape's members onto the case, which is exactly the per-*domain*
 literals (`min`/`max`/`key`/`action`) that motivated the idea. A shared table would only help
 entities appearing in several sets — revisit if that shows up in a measurement, not before.
+
+## var-vs-shape is decided by TYPE
+
+Which slots become per-member `vars` is decided by type, not by diffing:
+
+```
+a Lit  ->  always a var          (a build-time value, so it may vary per member)
+an Xf  ->  always on the shape   (a transform is identical for everyone; the
+                                  entity it reads comes from the member binding)
+```
+
+and the same rule recurses into `children`: a child carrying any literal at any depth becomes a
+hole, one with none (a divider, a fixed header) stays in the shape. A nested set is always a hole.
+
+**Why not diff.** Diffing "does this literal actually differ across the members that happen to
+share this shape" makes the emitted structure depend on MEMBER COUNT — a shape with one member has
+nothing to diff, so its literal stayed on the shape while an identically authored four-member shape
+put it in vars. Verified harmless at runtime (shape indices carry no meaning, and the restructure
+only happens on a rebuild that already repaints the whole body via `Server.reloadRepaints`), but a
+format where one input yields two structures is harder to reason about and to decode.
+
+**The cost**, accepted: a literal that is genuinely constant across members (`min: "1"` on every
+light) is now repeated per member. Few and short, and worth paying for a structure that is a
+function of the authoring alone. Pinned by "the same authoring emits the same structure regardless
+of member count".
+
+## Layout belongs to the shape
+
+`cell` (`columns(n)`, `fullWidth()`, `hug()`) lived on the old `DynamicCase`, shared by every member
+of that case. **Now on `ShapeDef`** (S16/S17), which is where it belongs, because anything that
+legitimately varies the layout also varies the CARD:
+
+```pkl
+.caseOf(q.candidate((e) -> e.supported_features > 4), (e) -> c.slider(e).columns(6))
+.`else`((e) -> c.toggle(e).columns(3))
+```
+
+Different case → different shape → different cell, naturally. A per-member span with the SAME card
+is the exotic case, and arguably should not be encouraged: a set whose members are different widths
+for no structural reason is a layout smell.
+
+**The bug this would have shipped with:** shapes were grouped by `card` + child count, so two
+members with the same card and different authored cells merged into one shape and one cell won
+SILENTLY. Shape identity now includes the cell (`shapeKey`), so a differing cell forces a distinct
+shape — count-independent, consistent with the rule above. S16 pins exactly this: same card, two
+widths, two shapes.
+
+Applying the type rule to `cell` instead (making it a per-member var) was considered and rejected:
+class lists are longer than labels, and they are near-always constant across a shape, so it pays
+C's repetition cost where the benefit is close to zero.
+
+## `limit`: a third member state
+
+`limit: Int?` on the set, applied AFTER ordering. Every candidate still ships — which of them is
+cut depends on the live ordering, so it can only be decided at runtime.
+
+It introduces a member state the format did not have: **present-but-cut**, distinct from absent.
+Under P7 a cut member is absent from the DOM, not hidden in it, so the two look the same to the
+client and differ only in why. Worth naming because the runtime has to distinguish them: an absent
+member has no matching clause, a cut one matched but lost its place.
+
+## Aggregates: count the present members
+
+The reduction that makes these cheap: **an aggregate counts the PRESENT members of a set**, and
+presence is already per-member and already computed. So `count` needs no predicate machinery of its
+own, and the three quantifiers become three comparisons:
+
+```
+any   ->  count > 0
+none  ->  count == 0
+all   ->  count == candidates.length
+```
+
+**That is what retires `Quantifier`.** It existed only because an unbound predicate had to be
+quantified over the whole state map; over a known candidate list there is nothing left for it to
+say. `Agg { op, over: SetNode, of: PropRef? }` plus `AggCmp extends Term` — so a comparison on an
+aggregate is an ORDINARY term and composes with everything: a member clause, a surface condition,
+an `and`/`or`.
+
+```pkl
+q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).count().gt(2)
+q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).any()      // same thing
+```
+
+Two things the spike turned up:
+
+- **An aggregate needs presence, not rendering** — but presence lives on a clause, and a candidate
+  with no clause is dropped. A counted set therefore gets one unconditional marker branch whose
+  shape is never rendered.
+- **`count` over a statically empty set folds to a constant.** `count(∅)` is knowably 0, so
+  `any()` on an empty room becomes `false` and the tile is dropped at build time instead of
+  carrying a condition that can never hold. Same fold as everywhere else, one level up — and it is
+  what makes the live tile-per-room case work (C8).
+
+This closes composite (b): "hide the room while none of its lights are on" is an aggregate over the
+tile's own inner set, and each room's condition carries its own.
+
+## Presence and ordering are one concept
+
+- `candidates` — static, from Pkl.
+- `present ⊆ candidates` — runtime predicate per candidate.
+- `order` — a live key, **compared only within `present`**.
+
+The DOM holds exactly `present`, in `order` restricted to `present`; patches are emitted only when
+that restriction changes. A hidden member's sort key moving emits nothing — it acquires a position
+when it becomes present, via the `Placed` we were already sending. So presence is evaluated for
+every candidate, order only over the present subset.
+
+`Gone`/`Placed` already exist (`Patches.recordDynamic`; wire forms `Patch.Remove` /
+`Patch.Insert(mode, target)`). Given P7, a node that isn't shown isn't a member — so there is no
+separate "node visibility gate" concept to design. Presence *is* membership.
+
+**Trap to design against:** ordering by a continuously live key (brightness, temperature) reorders
+the DOM whenever any present member crosses a neighbour — a stream of `Gone`/`Placed` pairs, which
+is exactly what P7 exists to prevent. A stable tiebreak (`entity_id`) is mandatory; ordering by raw
+sensor values should not be made convenient.
+
+## Composite members
+
+Two problems wore one name, and both fall to the same rule.
+
+**(a) A member renders a subtree.** The candidate is still an entity; the rendering is not a leaf.
+`Node` gains `children`, and the compression walks one level down.
+
+**(b) A member is not an entity and contains a nested set** — "a tile per room". Areas become the
+candidates; each tile holds a set over its own lights:
+
+```pkl
+q.from(dump.areas).render((a) ->
+  c.card(
+    c.title(a.name),
+    q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
+```
+
+**The finding: a nested set can never live in a shared shape**, because two areas never hold the
+same lights. It has to be per-member data. But that is not a new mechanism — it is the SAME rule
+that decides slot-vs-var, applied to child positions: a child that is identical across the members
+sharing a shape stays in the shape; one that varies becomes a `Hole` the member fills.
+
+```json
+"shapes": [ { "card": "card", "slots": {}, "children": [ {"kind":"hole","idx":0} ] } ],
+"members": {
+  "area.stue": { "vars": {"title":"Stue"}, "fills": [ { "kind":"set", "candidates":[…] } ] }
+}
+```
+
+So the skeleton still compresses to ONE shape for three tiles, the title is a var, and only the
+genuinely per-room part — the nested set — is repeated. Verified: each tile's inner set carries its
+own candidates, conditions and shapes, and behaves exactly as it would standalone.
+
+Mechanics worth knowing:
+
+- shapes group by card **and child count**: positions only align at equal arity, and a differing
+  arity is a genuinely different shape.
+- an invariant child (a divider, a fixed header) stays in the shape rather than becoming a hole —
+  the compression really does apply at depth, not just at the top.
+- an empty room yields an empty nested set, not an error.
+- `children`/`fills` render as `[]` on every node in the spike's JSON. The real wire should omit
+  them when empty; that is a circe concern, not a design one.
+
+**An empty room can be dropped at BUILD time** — `lights` is registry data, so
+`.where(q.candidate((a) -> a.lights.length > 0))` removes the tile with no runtime involvement.
+Hiding a room when none of its lights are ON is the different problem: that needs an aggregate over
+the inner set, and is the one part of (b) still missing.
+
+## Ids under recursion — and an invariant that retires itself
+
+First, the correction. I framed this as "alternate a static-position segment and an entity-key
+segment", implying the key segment was load-bearing. **It is not.** With static candidates, a
+member's position in the candidate list is exactly as static as its entity id, and so is the hole
+index, and so is the set's authored path. Walk the whole id:
+
+| segment | varies at runtime? |
+|---|---|
+| set's authored path | no |
+| candidate index / entity id | no — candidates are static |
+| hole index | no — holes are fixed by the shape |
+| inner candidate | no |
+
+**Nothing in an id varies at runtime.** Presence and order do, but neither is part of identity — the
+DOM reorders elements while their ids stay put. So a fully positional id (`3.7.0.2`) would work.
+
+That exposes something worth recording: **§4b's "ids are key-derived, never positional" invariant
+is a CONSEQUENCE of runtime-computed membership, not a law.** It exists because a positional id
+renames every node below an arrival — and arrivals were what the old dynamic groups did. Static
+candidates remove arrivals from the graph entirely, so the invariant retires with the machinery
+that needed it. Anything claiming otherwise in ADR 0003 or §4b should be rewritten as history,
+not as a rule.
+
+**Recommendation: keep entity-keyed ids anyway** — but as a preference, not a requirement:
+
+- they are readable in patches, logs and devtools; `c_3/light.taklys` tells you what a fragment is,
+  `3.7` does not, and live patch debugging is where that pays
+- they survive a rebuild when the entity does, whereas an index shifts when any earlier entity is
+  added or removed. The functional gain is small (a renderer swap forces a full body repaint, so
+  digests reseed regardless) but it is not negative
+- it is the status quo — members are already `{gid}_{entity}` — so switching is churn for no gain
+
+`MemberKey` needs no new variant either way. It stays `Entity`; only the scope qualifying it nests.
+
+**What the WIRE must carry for this to be derivable**, pinned by C11–C13:
+
+- Two sets over the same entity keep entirely independent member entries — their own clauses,
+  vars and conditions. Nothing is shared or merged, so `(set, entity)` separates them and `entity`
+  alone would collide (C11).
+- That holds even in the nastiest arrangement: an entity that is an outer member AND a candidate of
+  a set nested inside its OWN member (C12).
+- **A set carries no id of its own, deliberately.** Identity comes from CONTAINMENT — a set is
+  reached either as a node in the layout tree or as exactly one member's fill, and that path is
+  what the backend keys on. C13 pins the containment being unambiguous: every nested set hangs off
+  one `(member, hole)` route, and the shared shape holds a `Hole` rather than the set, so no set is
+  reachable by two paths.
+
+The spike cannot test the ids themselves — it does not generate them. That belongs with the
+`wire.pkl` → `DashboardBuild` move, and these tests are what it has to keep true.
+
+# The authoring surface
 
 ## The query surface (`query.pkl`)
 
@@ -439,7 +521,7 @@ q.from(dump.all)
                 q.asc(q.prop("friendly_name"))))        // registry fact
 ```
 
-See "The scenarios, in verified authoring syntax" below for the worked examples — those are copied
+See "The scenarios, in verified authoring syntax" for the worked examples — those are copied
 from a test and compile; this one is illustrative.
 
 `q.eq/ne/gt/lt` build a `Pending` — an unresolved comparison. Resolving it against the candidates
@@ -481,245 +563,16 @@ composes with the data form freely:
 unresolved `Group` when one is not, so the same three functions cover both and an author never
 picks between an eager and a lazy variant.
 
-## Attribute-name validation: derive the schema, do not observe it
+## Making an unbound expression unrepresentable
 
-The gap: a typo'd live attribute (`q.prop("brightnes")`) resolves to something that never matches
-and nothing catches it. Fixing it needs a `domain -> {name: type}` schema. Where that schema comes
-from decides whether it is safe to put in the dump.
+Every term carries a binding, so there is no unbound form to construct. Today that binding is
+**set membership**: `wire.Bound` is `{property, op, value}` with no entity, because the set's
+`candidates` say who it applies to. The free constructors that made `stateIs("on")` meaningful on
+its own are gone; a term is only reachable through `q.eq/ne/gt/lt` over a `q.prop(...)`, or through
+`q.candidate(...)` which is resolved against a specific candidate at build time.
 
-**Observing current attribute names is NOT safe.** Measured against the live instance (1069
-entities): 290 unavailable (27%), 308 distinct (domain, attribute) pairs, and **128 of them (42%)
-held by exactly one entity in their domain**. An unavailable entity drops its volatile attributes,
-so one zigbee bulb leaving the mesh would delete an attribute, move the dump's content hash,
-re-seed the package and re-evaluate every dashboard — on routine flapping. That is what
-`CapabilityAttributes` exists to prevent. (~6.8 KB emitted; size was never the issue.)
-
-**Deriving it from capability attributes IS safe**, because those survive unavailability. Verified
-on the live instance — the HA docs do not state this, so it is worth keeping:
-
-| lights | capability-attr kinds | volatile kinds |
-|---|---|---|
-| available (45) | 6 | 12 — `brightness`, `color_mode`, `color_temp_kelvin`, `effect`, `hs_color`, … |
-| unavailable (3) | 5 | **2** — only `friendly_name`, `restored` |
-
-An unavailable `light` still reports `supported_color_modes`, `supported_features`, `effect_list`,
-`min/max_color_temp_kelvin`. So a schema computed FROM those is a pure function of data that is
-already in the dump and already verified non-churning — it inherits their stability, and
-unavailability cannot shrink it.
-
-Also: a state change alone does not move the name set either. A light that is off still carries
-`brightness` as a KEY with a null value (`light.relative_bibliotek`). The intuition that on/off
-would churn a schema is simply wrong.
-
-**The schema carries NAMES AND TYPES ONLY — never a value, not even null.** The observation above
-("a light that is off still carries `brightness` with a null value") describes HA's STATE payload,
-not a proposed dump shape. A `brightness: null` field in the dump would be a value slot with
-nothing in it, and a value slot is exactly the thing that later gets helpfully filled in with the
-live reading at dump time — reintroducing the churn this whole section exists to avoid. Make it
-structurally impossible instead:
-
-```pkl
-// dump.pkl — a Mapping of name -> TYPE NAME. There is nowhere for a value to go.
-local sig_light_ct_xy_44: Mapping<String, String> = new {
-  ["brightness"] = "Int"
-  ["color_temp_kelvin"] = "Int"
-  ["xy_color"] = "List<Float>"
-  ["effect"] = "String"
-}
-
-const hidden e_taklys: hass.LightEntity = new {
-  entity_id = "light.taklys"
-  volatileAttrs = sig_light_ct_xy_44
-}
-```
-
-**Deduped by capability signature**, the same shared-table trick `shapes` and `conditions` use.
-Measured on the live instance: 1069 entities collapse to 214 distinct capability signatures
-(lights: 48 entities, 8 signatures), which is ~59 KB emitted against ~292 KB if written per
-entity.
-
-This is ADR 0013's existing pattern extended from TYPING to the attribute schema: `hass-light.pkl`
-already vendors `ColorMode` and `LightEntityFeature`, so `supported_color_modes: [color_temp, xy]`
-already implies which volatile attributes exist. Consequences:
-
-- coverage is progressive, exactly like ADR 0013 — `light` is modelled, other domains fall through
-  unvalidated until someone models them. That is a feature: an unmodelled domain is untouched.
-- `restored` is an HA internal flag that appears on unavailable entities; exclude it.
-- the check can then live in Pkl (author-time, pkl-lsp) rather than only in `Dashboard.validate`,
-  which keeps the ADR 0006 editor-feedback story intact.
-
-## How aggressively does the build actually narrow?
-
-Measured rather than assumed. What the fold already does:
-
-- a candidate whose presence folds to `false` never reaches the wire
-- a candidate no branch can match is dropped (`liveBranches` empties, the candidate goes)
-- a statically-true term vanishes from a conjunction; a statically-false one decides it
-- a comparison against a property the candidate LACKS folds to false and drops it — so
-  `q.eq(q.optional(q.prop("brightnessMax")), 255)` over a mixed set leaves only the candidates
-  that could ever match
-
-Two real gaps were found by inspecting emitted JSON, both now fixed and pinned:
-
-**Duplicate terms were not collapsed.** A presence residual identical to a branch guard produced
-`and[state==on, state==on]`, because `conjoin` built a `PAnd` directly instead of routing through
-the fold.
-
-**Same-kind nesting was not flattened.** `all(a, all(b, c))` emitted a nested `and` — earlier
-probes missed it because a single-element inner group collapses by accident.
-
-Both matter for more than tidiness: the `conditions` table dedupes BY STRUCTURE, so two authored
-expressions meaning the same thing have to reduce to the same term or they take two table entries
-and the runtime evaluates the same predicate twice. `all`/`any` now canonicalise — flatten
-same-kind nesting, dedupe structurally equal terms, collapse a single survivor — and one level of
-flattening suffices because every group is built through them.
-
-Known remaining slack, not worth fixing yet: an unsatisfiable conjunction (`state==on AND
-state==off`) is not detected, and a typo'd live attribute cannot be, for the reason below.
-
-## Validation: what the build can and cannot check
-
-`q.prop(name)` is resolved against the candidates by counting how many carry it as a property:
-
-| candidates carrying it | resolution |
-|---|---|
-| all | registry fact, readable by the build |
-| none | live attribute — **unvalidatable**, see below |
-| some | **build error**, unless wrapped in `q.optional(...)` |
-
-The middle row is the limit TODAY, not permanently — see "derive the schema, do not observe it":
-volatile attribute VALUES are deliberately kept out of the dump (they would churn its content hash), so the build has no list of legal attribute
-names to check a typo against. `q.prop("brightnes")` resolves to a live attribute that never
-matches, and nothing catches it.
-
-The third row is the one worth having. A property on SOME candidates would otherwise silently
-resolve to a live attribute and quietly stop being the registry fact the author meant — a genuinely
-mixed set, or a set that became mixed when a new domain was added. `q.optional(q.prop(...))`
-accepts it deliberately and reads missing as null. All four cases are pinned in
-`query-surface.test.pkl`.
-
-## The scenarios, in verified authoring syntax
-
-Every snippet below is **copied from `modules/fh-datastar-view/src/test/pkl/query-scenarios.test.pkl`
-and compiles**. That file is the canonical set: each scenario asserts the one wire property it
-exists to demonstrate, so if the surface changes these break first and this section cannot quietly
-drift from what works. Do not edit the snippets here without changing the test.
-
-```pkl
-// S1 — every light in a room, shown while it is on.
-//      One shape shared by three members; one condition shared by all of them.
-q.from(dump.stue.lights)
-  .where(q.eq(q.stateProp, "on"))
-  .render(slider)
-
-// S2 — an interpolated label. Computed at build time, so still a per-member var.
-q.from(dump.stue.lights).render((e) -> c.entityCard(e, label = "Blah \(e.friendly_name)"))
-
-// S3 — a different card per domain. Registry data: resolved at build, no guard on the wire.
-q.from(dump.all)
-  .cases(new Mapping {
-    [q.eq(q.prop("domain"), "light")]        = slider
-    [q.eq(q.prop("domain"), "media_player")] = mediaCard
-  })
-
-// S4 — dispatch on a CAPABILITY. Also registry data, also fully static.
-q.from(dump.stue.lights)
-  .caseOf(q.candidate((e) -> e.supported_features > 4), slider)
-  .`else`(toggle)
-
-// S5 — dispatch on LIVE state. Both shapes stay; the choice rides the wire as a
-//      clause list, first match winning.
-q.from(dump.stue.lights)
-  .caseOf(q.eq(q.stateProp, "on"), slider)
-  .`else`(toggle)
-
-// S6 — omit the `else` and an unmatched candidate is simply ABSENT. This is how
-//      "only while on" is written; the missing fallback is the feature.
-q.from(dump.stue.lights).caseOf(q.eq(q.stateProp, "on"), slider)
-
-// S7 — a list is AND, `any` is OR, and they nest. Dimmables come out
-//      unconditional; the dumb one defers to its state.
-q.from(dump.all)
-  .where(List(
-    q.eq(q.prop("domain"), "light"),
-    q.eq(q.prop("area_id"), "stue"),
-    q.any(List(q.candidate((e) -> e.supported_features > 4),
-               q.eq(q.stateProp, "on")))))
-  .render(slider)
-
-// S8 — a OR (b AND c), the other nesting.
-q.from(dump.all)
-  .where(q.any(List(
-    q.eq(q.prop("domain"), "media_player"),
-    q.all(List(q.eq(q.prop("domain"), "light"),
-               q.eq(q.prop("area_id"), "stue"))))))
-  .render(toggle)
-
-// S9 — multi-key: on first, then brightest, then by name. The registry position
-//      stays a reference; nothing rides per member.
-q.from(dump.stue.lights)
-  .orderBy(List(
-    q.desc(q.eq(q.stateProp, "on")),
-    q.desc(q.prop("brightness")),
-    q.asc(q.prop("friendly_name"))))
-  .render(slider)
-
-// S10 — an all-registry ordering is resolved NOW: `orderBy` is null on the wire
-//       and the runtime only filters. Alphabetical costs it nothing.
-q.from(dump.all)
-  .where(q.eq(q.prop("domain"), "light"))
-  .orderBy(q.asc(q.prop("friendly_name")))
-  .render(toggle)
-
-// S11 — a property only SOME candidates carry is a build error, because it would
-//       silently become a live attribute for the rest. `optional` accepts it and
-//       reads missing as null, so the ones lacking it compare false and drop out.
-q.from(mixedSet).where(q.eq(q.optional(q.prop("brightnessMax")), 255)).render(toggle)
-```
-
-Three of them (S1, S5, S9) also capture their emitted JSON in
-`query-scenarios.test.pkl-expected.pcf`, so a wire-format change shows up as a reviewable diff
-rather than a discussion.
-
-## Typing: `Any` is mostly avoidable after all
-
-Pkl has no user generics — `EntitySet<T>` is rejected outright — but that does not force `Any`
-everywhere. Three moves cover almost all of it:
-
-- **A marker supertype.** `abstract class Candidate { entity_id: String }`, which both entities and
-  areas extend. It says what a set actually requires (an id, nothing else) and rejects a list of
-  the wrong thing. Authors narrow back to the concrete type by annotating the lambda —
-  `.render((e: hass.LightEntity) -> …)` — which works and rejects a wrong annotation.
-- **Union typealiases** where the variants are known: `Scalar = String|Int|Float|Boolean` for
-  comparison values, `Cond = Boolean|Term|Pending|CandidateTerm|Group` for conditions.
-- **Inlining a union** where an alias would be cyclic.
-
-`Any` survives in exactly three places, each for a reason worth knowing:
-
-- `CandidateTerm.fn` and `Group.items` — **a typealias may not be cyclic in Pkl** ("Type alias
-  definitions must not be cyclic"), and `Cond` mentions both classes. Inlining does not help; the
-  union still closes the loop. So the two positions that would close it take `Any`, and `Cond` is
-  used everywhere else.
-- `Node.children` / `fills` take the inlined `Node|SetNode|Hole` rather than a `Child` alias, for
-  the same rule.
-- `applyOp`'s operands, which are genuinely heterogeneous.
-
-The public surface — `from`, `where`, `render`, `orderBy`, `entity`, the comparison builders — is
-now precisely typed.
-
-## The registry lives in the backend
-
-Decided: keeping `area_id`/`floor_id`/etc. in the runtime is acceptable. That is what lets a
-resolved registry property stay a REFERENCE rather than shipping a value per member, and keeps
-`dashboard.json` from carrying what the backend already knows. `RegistryDump` already fetches all
-of it, so this is one table from the existing source, not a second representation of identity —
-candidates are still decided at build time.
-
-The same move is available for `vars` (a bare `friendly_name` label could become a reference
-instead of a literal), which would shrink members further AND dissolve the var-vs-case
-count-dependence below, since there would be no literals left to diff. Not done yet — an
-interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
-mechanisms are needed either way.
+The other binding P6 allows — an explicit reference to a DIFFERENT entity — is **also built**:
+`Bound.entity` is optional, absent meaning "the member". See "Cross-entity references".
 
 ## Cross-entity references
 
@@ -813,53 +666,251 @@ three living-room lights to one entry, and a cross-entity term conjoins with an 
 `wire.referencedEntities` extracts the ids, so the reverse-index key is
 `candidates ++ referencedEntities`.
 
-## Composite members
+## Typing: `Any` is mostly avoidable after all
 
-Two problems wore one name, and both fall to the same rule.
+Pkl has no user generics — `EntitySet<T>` is rejected outright — but that does not force `Any`
+everywhere. Three moves cover almost all of it:
 
-**(a) A member renders a subtree.** The candidate is still an entity; the rendering is not a leaf.
-`Node` gains `children`, and the compression walks one level down.
+- **A marker supertype.** `abstract class Candidate { entity_id: String }`, which both entities and
+  areas extend. It says what a set actually requires (an id, nothing else) and rejects a list of
+  the wrong thing. Authors narrow back to the concrete type by annotating the lambda —
+  `.render((e: hass.LightEntity) -> …)` — which works and rejects a wrong annotation.
+- **Union typealiases** where the variants are known: `Scalar = String|Int|Float|Boolean` for
+  comparison values, `Cond = Boolean|Term|Pending|CandidateTerm|Group` for conditions.
+- **Inlining a union** where an alias would be cyclic.
 
-**(b) A member is not an entity and contains a nested set** — "a tile per room". Areas become the
-candidates; each tile holds a set over its own lights:
+`Any` survives in exactly three places, each for a reason worth knowing:
+
+- `CandidateTerm.fn` and `Group.items` — **a typealias may not be cyclic in Pkl** ("Type alias
+  definitions must not be cyclic"), and `Cond` mentions both classes. Inlining does not help; the
+  union still closes the loop. So the two positions that would close it take `Any`, and `Cond` is
+  used everywhere else.
+- `Node.children` / `fills` take the inlined `Node|SetNode|Hole` rather than a `Child` alias, for
+  the same rule.
+- `applyOp`'s operands, which are genuinely heterogeneous.
+
+The public surface — `from`, `where`, `render`, `orderBy`, `entity`, the comparison builders — is
+now precisely typed.
+
+## The scenarios, in verified authoring syntax
+
+Every snippet below is **copied from `modules/fh-datastar-view/src/test/pkl/query-scenarios.test.pkl`
+and compiles**. That file is the canonical set: each scenario asserts the one wire property it
+exists to demonstrate, so if the surface changes these break first and this section cannot quietly
+drift from what works. Do not edit the snippets here without changing the test.
 
 ```pkl
-q.from(dump.areas).render((a) ->
-  c.card(
-    c.title(a.name),
-    q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
+// S1 — every light in a room, shown while it is on.
+//      One shape shared by three members; one condition shared by all of them.
+q.from(dump.stue.lights)
+  .where(q.eq(q.stateProp, "on"))
+  .render(slider)
+
+// S2 — an interpolated label. Computed at build time, so still a per-member var.
+q.from(dump.stue.lights).render((e) -> c.entityCard(e, label = "Blah \(e.friendly_name)"))
+
+// S3 — a different card per domain. Registry data: resolved at build, no guard on the wire.
+q.from(dump.all)
+  .cases(new Mapping {
+    [q.eq(q.prop("domain"), "light")]        = slider
+    [q.eq(q.prop("domain"), "media_player")] = mediaCard
+  })
+
+// S4 — dispatch on a CAPABILITY. Also registry data, also fully static.
+q.from(dump.stue.lights)
+  .caseOf(q.candidate((e) -> e.supported_features > 4), slider)
+  .`else`(toggle)
+
+// S5 — dispatch on LIVE state. Both shapes stay; the choice rides the wire as a
+//      clause list, first match winning.
+q.from(dump.stue.lights)
+  .caseOf(q.eq(q.stateProp, "on"), slider)
+  .`else`(toggle)
+
+// S6 — omit the `else` and an unmatched candidate is simply ABSENT. This is how
+//      "only while on" is written; the missing fallback is the feature.
+q.from(dump.stue.lights).caseOf(q.eq(q.stateProp, "on"), slider)
+
+// S7 — a list is AND, `any` is OR, and they nest. Dimmables come out
+//      unconditional; the dumb one defers to its state.
+q.from(dump.all)
+  .where(List(
+    q.eq(q.prop("domain"), "light"),
+    q.eq(q.prop("area_id"), "stue"),
+    q.any(List(q.candidate((e) -> e.supported_features > 4),
+               q.eq(q.stateProp, "on")))))
+  .render(slider)
+
+// S8 — a OR (b AND c), the other nesting.
+q.from(dump.all)
+  .where(q.any(List(
+    q.eq(q.prop("domain"), "media_player"),
+    q.all(List(q.eq(q.prop("domain"), "light"),
+               q.eq(q.prop("area_id"), "stue"))))))
+  .render(toggle)
+
+// S9 — multi-key: on first, then brightest, then by name. The registry position
+//      stays a reference; nothing rides per member.
+q.from(dump.stue.lights)
+  .orderBy(List(
+    q.desc(q.eq(q.stateProp, "on")),
+    q.desc(q.prop("brightness")),
+    q.asc(q.prop("friendly_name"))))
+  .render(slider)
+
+// S10 — an all-registry ordering is resolved NOW: `orderBy` is null on the wire
+//       and the runtime only filters. Alphabetical costs it nothing.
+q.from(dump.all)
+  .where(q.eq(q.prop("domain"), "light"))
+  .orderBy(q.asc(q.prop("friendly_name")))
+  .render(toggle)
+
+// S11 — a property only SOME candidates carry is a build error, because it would
+//       silently become a live attribute for the rest. `optional` accepts it and
+//       reads missing as null, so the ones lacking it compare false and drop out.
+q.from(mixedSet).where(q.eq(q.optional(q.prop("brightnessMax")), 255)).render(toggle)
 ```
 
-**The finding: a nested set can never live in a shared shape**, because two areas never hold the
-same lights. It has to be per-member data. But that is not a new mechanism — it is the SAME rule
-that decides slot-vs-var, applied to child positions: a child that is identical across the members
-sharing a shape stays in the shape; one that varies becomes a `Hole` the member fills.
+Three of them (S1, S5, S9) also capture their emitted JSON in
+`query-scenarios.test.pkl-expected.pcf`, so a wire-format change shows up as a reviewable diff
+rather than a discussion.
 
-```json
-"shapes": [ { "card": "card", "slots": {}, "children": [ {"kind":"hole","idx":0} ] } ],
-"members": {
-  "area.stue": { "vars": {"title":"Stue"}, "fills": [ { "kind":"set", "candidates":[…] } ] }
+# What it costs and what it checks
+
+## How aggressively does the build actually narrow?
+
+Measured rather than assumed. What the fold already does:
+
+- a candidate whose presence folds to `false` never reaches the wire
+- a candidate no branch can match is dropped (`liveBranches` empties, the candidate goes)
+- a statically-true term vanishes from a conjunction; a statically-false one decides it
+- a comparison against a property the candidate LACKS folds to false and drops it — so
+  `q.eq(q.optional(q.prop("brightnessMax")), 255)` over a mixed set leaves only the candidates
+  that could ever match
+
+Two real gaps were found by inspecting emitted JSON, both now fixed and pinned:
+
+**Duplicate terms were not collapsed.** A presence residual identical to a branch guard produced
+`and[state==on, state==on]`, because `conjoin` built a `PAnd` directly instead of routing through
+the fold.
+
+**Same-kind nesting was not flattened.** `all(a, all(b, c))` emitted a nested `and` — earlier
+probes missed it because a single-element inner group collapses by accident.
+
+Both matter for more than tidiness: the `conditions` table dedupes BY STRUCTURE, so two authored
+expressions meaning the same thing have to reduce to the same term or they take two table entries
+and the runtime evaluates the same predicate twice. `all`/`any` now canonicalise — flatten
+same-kind nesting, dedupe structurally equal terms, collapse a single survivor — and one level of
+flattening suffices because every group is built through them.
+
+Known remaining slack, not worth fixing yet: an unsatisfiable conjunction (`state==on AND
+state==off`) is not detected (see "Settled as non-issues"), and a typo'd live attribute cannot
+be until the capability-derived schema lands.
+
+## Validation: what the build can and cannot check
+
+`q.prop(name)` is resolved against the candidates by counting how many carry it as a property:
+
+| candidates carrying it | resolution |
+|---|---|
+| all | registry fact, readable by the build |
+| none | live attribute — **unvalidatable** until the schema lands |
+| some | **build error**, unless wrapped in `q.optional(...)` |
+
+The middle row is the limit TODAY, not permanently — see "derive the schema, do not observe it":
+volatile attribute VALUES are deliberately kept out of the dump (they would churn its content hash), so the build has no list of legal attribute
+names to check a typo against. `q.prop("brightnes")` resolves to a live attribute that never
+matches, and nothing catches it.
+
+The third row is the one worth having. A property on SOME candidates would otherwise silently
+resolve to a live attribute and quietly stop being the registry fact the author meant — a genuinely
+mixed set, or a set that became mixed when a new domain was added. `q.optional(q.prop(...))`
+accepts it deliberately and reads missing as null. All four cases are pinned in
+`query-surface.test.pkl`.
+
+## Attribute-name validation: derive the schema, do not observe it
+
+The gap: a typo'd live attribute (`q.prop("brightnes")`) resolves to something that never matches
+and nothing catches it. Fixing it needs a `domain -> {name: type}` schema. Where that schema comes
+from decides whether it is safe to put in the dump.
+
+**Observing current attribute names is NOT safe.** Measured against the live instance (1069
+entities): 290 unavailable (27%), 308 distinct (domain, attribute) pairs, and **128 of them (42%)
+held by exactly one entity in their domain**. An unavailable entity drops its volatile attributes,
+so one zigbee bulb leaving the mesh would delete an attribute, move the dump's content hash,
+re-seed the package and re-evaluate every dashboard — on routine flapping. That is what
+`CapabilityAttributes` exists to prevent. (~6.8 KB emitted; size was never the issue.)
+
+**Deriving it from capability attributes IS safe**, because those survive unavailability. Verified
+on the live instance — the HA docs do not state this, so it is worth keeping:
+
+| lights | capability-attr kinds | volatile kinds |
+|---|---|---|
+| available (45) | 6 | 12 — `brightness`, `color_mode`, `color_temp_kelvin`, `effect`, `hs_color`, … |
+| unavailable (3) | 5 | **2** — only `friendly_name`, `restored` |
+
+An unavailable `light` still reports `supported_color_modes`, `supported_features`, `effect_list`,
+`min/max_color_temp_kelvin`. So a schema computed FROM those is a pure function of data that is
+already in the dump and already verified non-churning — it inherits their stability, and
+unavailability cannot shrink it.
+
+Also: a state change alone does not move the name set either. A light that is off still carries
+`brightness` as a KEY with a null value (`light.relative_bibliotek`). The intuition that on/off
+would churn a schema is simply wrong.
+
+**The schema carries NAMES AND TYPES ONLY — never a value, not even null.** The observation above
+("a light that is off still carries `brightness` with a null value") describes HA's STATE payload,
+not a proposed dump shape. A `brightness: null` field in the dump would be a value slot with
+nothing in it, and a value slot is exactly the thing that later gets helpfully filled in with the
+live reading at dump time — reintroducing the churn this whole section exists to avoid. Make it
+structurally impossible instead:
+
+```pkl
+// dump.pkl — a Mapping of name -> TYPE NAME. There is nowhere for a value to go.
+local sig_light_ct_xy_44: Mapping<String, String> = new {
+  ["brightness"] = "Int"
+  ["color_temp_kelvin"] = "Int"
+  ["xy_color"] = "List<Float>"
+  ["effect"] = "String"
+}
+
+const hidden e_taklys: hass.LightEntity = new {
+  entity_id = "light.taklys"
+  volatileAttrs = sig_light_ct_xy_44
 }
 ```
 
-So the skeleton still compresses to ONE shape for three tiles, the title is a var, and only the
-genuinely per-room part — the nested set — is repeated. Verified: each tile's inner set carries its
-own candidates, conditions and shapes, and behaves exactly as it would standalone.
+**Deduped by capability signature**, the same shared-table trick `shapes` and `conditions` use.
+Measured on the live instance: 1069 entities collapse to 214 distinct capability signatures
+(lights: 48 entities, 8 signatures), which is ~59 KB emitted against ~292 KB if written per
+entity.
 
-Mechanics worth knowing:
+This is ADR 0013's existing pattern extended from TYPING to the attribute schema: `hass-light.pkl`
+already vendors `ColorMode` and `LightEntityFeature`, so `supported_color_modes: [color_temp, xy]`
+already implies which volatile attributes exist. Consequences:
 
-- shapes group by card **and child count**: positions only align at equal arity, and a differing
-  arity is a genuinely different shape.
-- an invariant child (a divider, a fixed header) stays in the shape rather than becoming a hole —
-  the compression really does apply at depth, not just at the top.
-- an empty room yields an empty nested set, not an error.
-- `children`/`fills` render as `[]` on every node in the spike's JSON. The real wire should omit
-  them when empty; that is a circe concern, not a design one.
+- coverage is progressive, exactly like ADR 0013 — `light` is modelled, other domains fall through
+  unvalidated until someone models them. That is a feature: an unmodelled domain is untouched.
+- `restored` is an HA internal flag that appears on unavailable entities; exclude it.
+- the check can then live in Pkl (author-time, pkl-lsp) rather than only in `Dashboard.validate`,
+  which keeps the ADR 0006 editor-feedback story intact.
 
-**An empty room can be dropped at BUILD time** — `lights` is registry data, so
-`.where(q.candidate((a) -> a.lights.length > 0))` removes the tile with no runtime involvement.
-Hiding a room when none of its lights are ON is the different problem: that needs an aggregate over
-the inner set, and is the one part of (b) still missing.
+## The registry lives in the backend
+
+Decided: keeping `area_id`/`floor_id`/etc. in the runtime is acceptable. That is what lets a
+resolved registry property stay a REFERENCE rather than shipping a value per member, and keeps
+`dashboard.json` from carrying what the backend already knows. `RegistryDump` already fetches all
+of it, so this is one table from the existing source, not a second representation of identity —
+candidates are still decided at build time.
+
+The same move is available for `vars` (a bare `friendly_name` label could become a reference
+instead of a literal), which would shrink members further AND dissolve the var-vs-case
+count-dependence ("var-vs-shape is decided by TYPE"), since there would be no literals left to
+diff. Not done yet — an
+interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
+mechanisms are needed either way.
+
+# What this changes in the product
 
 ## One predicate language: what actually changes
 
@@ -904,57 +955,6 @@ case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(
 Sequence it before deleting the free constructors from `components.pkl`, or `If` is left holding
 the only references to them.
 
-## Ids under recursion — and an invariant that retires itself
-
-First, the correction. I framed this as "alternate a static-position segment and an entity-key
-segment", implying the key segment was load-bearing. **It is not.** With static candidates, a
-member's position in the candidate list is exactly as static as its entity id, and so is the hole
-index, and so is the set's authored path. Walk the whole id:
-
-| segment | varies at runtime? |
-|---|---|
-| set's authored path | no |
-| candidate index / entity id | no — candidates are static |
-| hole index | no — holes are fixed by the shape |
-| inner candidate | no |
-
-**Nothing in an id varies at runtime.** Presence and order do, but neither is part of identity — the
-DOM reorders elements while their ids stay put. So a fully positional id (`3.7.0.2`) would work.
-
-That exposes something worth recording: **§4b's "ids are key-derived, never positional" invariant
-is a CONSEQUENCE of runtime-computed membership, not a law.** It exists because a positional id
-renames every node below an arrival — and arrivals were what the old dynamic groups did. Static
-candidates remove arrivals from the graph entirely, so the invariant retires with the machinery
-that needed it. Anything claiming otherwise in ADR 0003 or §4b should be rewritten as history,
-not as a rule.
-
-**Recommendation: keep entity-keyed ids anyway** — but as a preference, not a requirement:
-
-- they are readable in patches, logs and devtools; `c_3/light.taklys` tells you what a fragment is,
-  `3.7` does not, and live patch debugging is where that pays
-- they survive a rebuild when the entity does, whereas an index shifts when any earlier entity is
-  added or removed. The functional gain is small (a renderer swap forces a full body repaint, so
-  digests reseed regardless) but it is not negative
-- it is the status quo — members are already `{gid}_{entity}` — so switching is churn for no gain
-
-`MemberKey` needs no new variant either way. It stays `Entity`; only the scope qualifying it nests.
-
-**What the WIRE must carry for this to be derivable**, pinned by C11–C13:
-
-- Two sets over the same entity keep entirely independent member entries — their own clauses,
-  vars and conditions. Nothing is shared or merged, so `(set, entity)` separates them and `entity`
-  alone would collide (C11).
-- That holds even in the nastiest arrangement: an entity that is an outer member AND a candidate of
-  a set nested inside its OWN member (C12).
-- **A set carries no id of its own, deliberately.** Identity comes from CONTAINMENT — a set is
-  reached either as a node in the layout tree or as exactly one member's fill, and that path is
-  what the backend keys on. C13 pins the containment being unambiguous: every nested set hangs off
-  one `(member, hole)` route, and the shared shape holds a `Hole` rather than the set, so no set is
-  reachable by two paths.
-
-The spike cannot test the ids themselves — it does not generate them. That belongs with the
-`wire.pkl` → `DashboardBuild` move, and these tests are what it has to keep true.
-
 ## What composite changes in the architecture
 
 `docs/architecture-rendering-pipeline.md` §4b opens: *"The dashboard's graph has two halves. The
@@ -979,101 +979,58 @@ stop being true.
 The doc must change in the same commit as the code, per the repo rule. §4b is the section that
 moves; §3's kind table needs the DYNAMICS row reworded.
 
-## Aggregates: count the present members
+## What we keep, delete, and fix
 
-The reduction that makes these cheap: **an aggregate counts the PRESENT members of a set**, and
-presence is already per-member and already computed. So `count` needs no predicate machinery of its
-own, and the three quantifiers become three comparisons:
+**Keep** — the presence-and-order patch machinery: `Gone`/`Placed`, insert anchors,
+`insertOrdered`, `recordDynamic`, the member-graph projections. Retargeted from a runtime query
+result to a static candidate list.
 
-```
-any   ->  count > 0
-none  ->  count == 0
-all   ->  count == candidates.length
-```
+**Delete** — the membership-by-query half: `touchesDynamic`, the full-map matching in
+`affectedDynamics`, `materialise`/`memberOf`, and on the Pkl side the free predicate constructors,
+`hass.SELF` as a runtime unknown, `DynamicEntity`, `isDynamic`.
 
-**That is what retires `Quantifier`.** It existed only because an unbound predicate had to be
-quantified over the whole state map; over a known candidate list there is nothing left for it to
-say. `Agg { op, over: SetNode, of: PropRef? }` plus `AggCmp extends Term` — so a comparison on an
-aggregate is an ORDINARY term and composes with everything: a member clause, a surface condition,
-an `and`/`or`.
+**Fix — three independent bugs in the surface mechanism** (tabs and `If` are correctly *one*
+mechanism differing only in activation mode — verified at `components.pkl:843` vs `:1368` — and
+that stays; ADR 0007 stands):
 
-```pkl
-q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).count().gt(2)
-q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).any()      // same thing
-```
+1. `Renderer.holds` (`:684`) evaluates an entity-pinned condition by scanning the entire state map.
+   **Fixed by the binding change** — a bound condition becomes a lookup.
+2. `Renderer.bakeGroup` (`:524`) is a `def` doing `dashboard.surfaces.toList` + full scan, called
+   ~5× per node per render → O(nodes × surfaces). Independent missing memo.
+3. An unmatched `ifhost` emits `<div class="fh-cell fh-cols-full">` — a full-width empty flex line.
+   Independent; the one current violation of P7.
 
-Two things the spike turned up:
+ADR 0003 (dynamic groups) and ADR 0004 (predicate engine) are rewritten in place. ADR 0007 stands,
+with its cost claims qualified (they are per-branch-*content* claims and say nothing about
+per-group *selection* cost). `docs/architecture-rendering-pipeline.md` §4b describes the deleted
+half and changes in the same commit.
 
-- **An aggregate needs presence, not rendering** — but presence lives on a clause, and a candidate
-  with no clause is dropped. A counted set therefore gets one unconditional marker branch whose
-  shape is never rendered.
-- **`count` over a statically empty set folds to a constant.** `count(∅)` is knowably 0, so
-  `any()` on an empty room becomes `false` and the tile is dropped at build time instead of
-  carrying a condition that can never hold. Same fold as everywhere else, one level up — and it is
-  what makes the live tile-per-room case work (C8).
+## The spike is scaffolding, not a parallel implementation
 
-This closes composite (b): "hide the room while none of its lights are on" is an aggregate over the
-tile's own inner set, and each room's condition carries its own.
+`src/test/pkl/dynamics/{wire,query,fixtures}.pkl` exist so the design can be argued against
+running code. They are NOT a second implementation to maintain, and leaving them as one would be
+this plan's own failure mode: two parallel definitions of the same thing, drifting.
 
-## `limit`: a third member state
+So the machinery moves onto the real code progressively:
 
-`limit: Int?` on the set, applied AFTER ordering. Every candidate still ships — which of them is
-cut depends on the live ordering, so it can only be decided at runtime.
+- **`query.pkl` moves to `lib/query.pkl`** and becomes the shipped authoring namespace, imported
+  as `@fh-dashboard/query.pkl`. It already knows nothing about cards, so nothing else has to move
+  with it.
+- **`wire.pkl` dissolves.** Its classes become the Scala wire model in `model/Dashboard.scala`,
+  and its fold becomes the build-time pass in `DashboardBuild` (which is where the shape
+  compression belongs anyway — see the D1/D2 note). Pkl keeps only what an author touches: the
+  property/term constructors and the chain.
+- **`fixtures.pkl` shrinks to the test home only.** Every scenario that can run against the real
+  generated `@fh-home` dump should, so the tests exercise the actual typed entities and the actual
+  capability data. Fixtures survive only for cases the test home cannot produce — a deliberately
+  mixed-availability set, an entity with a capability nobody owns — and each one that stays should
+  say why.
 
-It introduces a member state the format did not have: **present-but-cut**, distinct from absent.
-Under P7 a cut member is absent from the DOM, not hidden in it, so the two look the same to the
-client and differ only in why. Worth naming because the runtime has to distinguish them: an absent
-member has no matching clause, a cut one matched but lost its place.
+The end state is: no `dynamics/` directory, scenarios running against the real dump, and the
+worked examples still asserting the same wire properties. Until then, treat anything under
+`dynamics/` as a proposal with a shelf life.
 
-## var-vs-shape is decided by TYPE
-
-Which slots become per-member `vars` is decided by type, not by diffing:
-
-```
-a Lit  ->  always a var          (a build-time value, so it may vary per member)
-an Xf  ->  always on the shape   (a transform is identical for everyone; the
-                                  entity it reads comes from the member binding)
-```
-
-and the same rule recurses into `children`: a child carrying any literal at any depth becomes a
-hole, one with none (a divider, a fixed header) stays in the shape. A nested set is always a hole.
-
-**Why not diff.** Diffing "does this literal actually differ across the members that happen to
-share this shape" makes the emitted structure depend on MEMBER COUNT — a shape with one member has
-nothing to diff, so its literal stayed on the shape while an identically authored four-member shape
-put it in vars. Verified harmless at runtime (shape indices carry no meaning, and the restructure
-only happens on a rebuild that already repaints the whole body via `Server.reloadRepaints`), but a
-format where one input yields two structures is harder to reason about and to decode.
-
-**The cost**, accepted: a literal that is genuinely constant across members (`min: "1"` on every
-light) is now repeated per member. Few and short, and worth paying for a structure that is a
-function of the authoring alone. Pinned by "the same authoring emits the same structure regardless
-of member count".
-
-## Layout belongs to the shape
-
-`cell` (`columns(n)`, `fullWidth()`, `hug()`) lived on the old `DynamicCase`, shared by every member
-of that case. **Now on `ShapeDef`** (S16/S17), which is where it belongs, because anything that
-legitimately varies the layout also varies the CARD:
-
-```pkl
-.caseOf(q.candidate((e) -> e.supported_features > 4), (e) -> c.slider(e).columns(6))
-.`else`((e) -> c.toggle(e).columns(3))
-```
-
-Different case → different shape → different cell, naturally. A per-member span with the SAME card
-is the exotic case, and arguably should not be encouraged: a set whose members are different widths
-for no structural reason is a layout smell.
-
-**The bug this would have shipped with:** shapes were grouped by `card` + child count, so two
-members with the same card and different authored cells merged into one shape and one cell won
-SILENTLY. Shape identity now includes the cell (`shapeKey`), so a differing cell forces a distinct
-shape — count-independent, consistent with the rule above. S16 pins exactly this: same card, two
-widths, two shapes.
-
-Applying the type rule to `cell` instead (making it a per-member var) was considered and rejected:
-class lists are longer than labels, and they are near-always constant across a shape, so it pays
-C's repetition cost where the benefit is close to zero.
+# Closing out
 
 ## Settled as non-issues
 
@@ -1118,3 +1075,67 @@ deleting them from `components.pkl`.
   exactly one `(member, hole)` route — so `(set, entity)` is derivable without an id on the wire
   (C11–C13).
 - Do not run the pkl suites concurrently with `dashboardServe` — shared dump cache, fake timeouts.
+
+# Appendix
+
+## Pkl mechanics (verified on 0.32.1, the `pkl-core` pin)
+
+Spiked rather than assumed. The full list now lives in the module `CLAUDE.md` gotchas; kept here
+are the ones that shaped THIS design:
+
+- **A lambda can be a `Mapping` key**, and keys can be applied to dispatch. The Mapping must be
+  `hidden` — functions cannot render to output, which is already how `DynamicGroup.branches` is
+  declared. The language reference confirms non-String keys generally (`[new Dynamic { … }] = …`).
+- **`&&` type-errors when mixing a static `Boolean` with a runtime predicate object**:
+  `Operator `&&` is not defined for operand types `Boolean` and `Bound``. So the build/runtime
+  split is enforced by the type system for free — a state condition cannot be smuggled into a
+  static position.
+- **Structural equality holds for independently-built objects**, and `Map` dedupes by structural
+  key. `distinct`, `groupBy` and `fold` all work on class instances.
+- Consequence: the D1→D2 shape dedup *could* run in Pkl. It should still run in Scala
+  (`DashboardBuild`), because `distinct` alone is not enough — the varying literals must be holed
+  out first, which is a cross-candidate comparison per slot key, easier to test as a pure function.
+  This is now a choice, not a constraint.
+
+## Decisions taken, and the notes behind them
+
+Recorded verbatim, because the reasoning behind several of these is not recoverable from the
+result. (These were dropped by an earlier rewrite of this file and restored from the conversation
+— they predate the first commit, so git does not have them.)
+
+> General notes:
+> - That we do not store all the information in the backend for A is not by itself a good argument
+>   to discard A
+> - The limitation on existing If sounds like a bug and not a design that we want. If we are able
+>   to fix that, would that change the reasoning here?
+>
+> - The capability around loosing ordering on dynamic state values is not good. The dynamic
+>   membership machinery around existing dynamics is maybe something that we should connect this
+>   to so that we can keep both?
+> - In regards to the point above on keeping some of the machinery; I also want to be able to
+>   support things like count() on dynamic properties. So we can say, if more than X elements then
+>   we show this.
+>
+> - for allowing explicit entity refs; only show when on and when time is above Y for.ex
+>
+> FOcus more on the princicples and limitations we need to fix in this plan at the moment rather
+> than how to achieve it specifically as we are still in the design phase.
+
+> [on retiring the dynamic machinery] keep parts if needed.
+
+> [on the dump surface] Add `dump.all` + per-domain lists, number 2 as well, but we need to work
+> on the syntax. It should be more like LINQ ish thing so it can compose
+
+Settled since:
+
+- **Predicate scope: explicit entity refs allowed**, not subject-only.
+- **State-dependent case dispatch: supported.** Members carry a clause list.
+- **Time needs no machinery.** `sensor.time` is an ordinary HA entity, so it flows through the
+  reverse index like any other. What survives is the RULE, not a mechanism: a term whose input has
+  no indexable source must be rejected at validate time, never silently accepted — a node that can
+  never be woken is worse than one that errors.
+- **`If` and tabs stay.** They are one mechanism (`Surface` + activation mode); its problems are
+  bugs, not design.
+- **Registry in the backend: accepted.**
+- **Dynamic-group machinery: retire the query half, keep the patch half.**
+
