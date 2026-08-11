@@ -78,6 +78,21 @@ and morph work. This is why presence must be real removal and anchored insertion
 **P8 — One `where`; the build splits it mechanically.** A term is static exactly when it touches
 only registry facts. Folding happens in the Pkl combinators, so the author never names the seam.
 
+**P9 — Plain Pkl stays first-class.** The query language is for LIVENESS. Static composition —
+a `for` over a typed dump list — must remain the simplest way to write a dashboard, and must never
+become the second-class way:
+
+```pkl
+for (light in dump.stue.lights) { c.slider(light) }     // still the right answer
+```
+
+This is a commitment, not an accident of the current state. `q.` adds ~16 concepts, and they earn
+their place only for what static composition genuinely cannot do: filtering on live state,
+ordering by a live value, counting, limiting, presence. Reaching for `q.from(...)` to render a
+fixed list of lights is a regression in authoring cost with nothing bought. Expect the drift to go
+the other way — toward "use the query language for everything" — and resist it: an author should
+be able to write a useful dashboard having never met `q.`.
+
 ## Limitations this must fix
 
 | | limitation | status |
@@ -1004,6 +1019,25 @@ ADR 0003 (dynamic groups) and ADR 0004 (predicate engine) are rewritten in place
 with its cost claims qualified (they are per-branch-*content* claims and say nothing about
 per-group *selection* cost). `docs/architecture-rendering-pipeline.md` §4b describes the deleted
 half and changes in the same commit.
+
+## First slice: prove the runtime before porting the rest
+
+**The spike proves the BUILD side only.** Pkl → wire format is heavily tested; wire → DOM patches
+is entirely unexercised. Presence-via-clauses, `Gone`/`Placed` driven by a presence projection,
+aggregates counting present members, `limit`'s third member state, and the claim that a frame
+costs O(Δ) are all DESIGNED and none are demonstrated.
+
+So the first move is not "port the format". It is one thin VERTICAL slice — the simplest set (S1:
+lights in a room, shown while on) carried all the way from Pkl through the real `Renderer` to real
+SSE patches — chosen because it exercises the two runtime claims everything else rests on:
+
+- a member appears and disappears as its clause's condition flips, via `Placed`/`Gone` rather than
+  a hidden element (P7)
+- a frame still costs the changed entities, not the candidate count
+
+Everything else — aggregates, ordering, composite, limit — layers onto a path that slice has
+already proven. Porting the whole format first and discovering the runtime cannot consume it
+cleanly is the failure mode this ordering exists to avoid.
 
 ## The spike is scaffolding, not a parallel implementation
 
