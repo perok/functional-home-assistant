@@ -967,6 +967,44 @@ with its cost claims qualified (they are per-branch-*content* claims and say not
 per-group *selection* cost). `docs/architecture-rendering-pipeline.md` §4b describes the deleted
 half and changes in the same commit.
 
+## Phases
+
+Ordered by dependency, and by what can stop without leaving a mess. Each phase is independently
+shippable — if the next one never happens, the tree is still coherent.
+
+**Phase 0 — decoupled fixes.** *Shipped (`f66ba31`).* `bakeGroup` memoised; an unmatched `If`
+collapses. Neither touches the format; both were live bugs.
+
+**Phase 1 — one slice through the runtime.** S1 only: `set` in the Scala wire model, the fold in
+`DashboardBuild`, the renderer consuming it, real SSE patches. Proves presence-via-clauses and
+`Placed`/`Gone`, and settles whether a frame really costs O(Δ). Ships behind whatever gate keeps it
+out of authored dashboards. *Stop here and nothing is worse: dynamic groups still work.*
+
+**Phase 2 — the authoring surface.** `query.pkl` into `lib/`, `wire.pkl` deleted, the scenarios
+re-pointed at the real dump with fixtures kept only for what the test home cannot produce. Authors
+can now write live sets. *Stop here and you have the new thing alongside the old.*
+
+**Phase 3 — ordering, aggregates, limit, composite.** Each is additive over Phase 1's path and
+independently testable. Composite (b) needs aggregates; nothing else has an internal order.
+
+**Phase 4 — `If` takes a candidate set.** Fixes `holds` by construction, retires `Quantifier`,
+collapses the two predicate languages into one. Must precede Phase 5.
+
+**Phase 5 — retire the dynamic-group query half.** Delete `syncMembers`, the full-map matching,
+`hass.SELF`, the free predicate constructors. Only safe once nothing authored uses them AND Phase 4
+has taken `If` off them.
+
+**Phase 6 — the attribute schema.** Capability-derived, in the dump; turns the unknown-name warning
+into a hard error. Independent of 1–5; slot it wherever convenient.
+
+**Phase 7 — docs.** ADR 0003/0004 rewritten, ADR 0007 cost claims qualified,
+`architecture-rendering-pipeline.md` §4b and §3's DYNAMICS row. The repo rule says these move with
+the code, so in practice each phase carries its own slice of this rather than deferring it here.
+
+**Rollback shape.** Phases 1–3 add a node kind the old renderer never emits, so reverting is
+deleting the new path. Phase 5 is the first irreversible one — after it, the old dynamic groups are
+gone. Everything before it can stop indefinitely without leaving the tree in a half-state.
+
 ## First slice: prove the runtime before porting the rest
 
 **The spike proves the BUILD side only.** Pkl → wire format is heavily tested; wire → DOM patches
