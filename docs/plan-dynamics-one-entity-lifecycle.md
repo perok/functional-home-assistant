@@ -243,65 +243,26 @@ set(candidates=[a,b,c])
 ```
 
 `byEntity: Map[String, Set[NodeId]]` already does this — each candidate points at the set node, so
-any member change wakes the count node, its digest moves, one morph. `count > 2` as a surface
-condition is then an ordinary bound predicate.
+any member change wakes the count node, its digest moves, one morph.
+
+**Sketch only.** Nothing here is spiked and there is no wire representation, so `count > 2` as a
+condition is an intention rather than a design. See "Not yet designed".
 
 ## Making an unbound expression unrepresentable
 
-Today it is trivially representable — the free constructors take no subject:
+Every term carries a binding, so there is no unbound form to construct. Today that binding is
+**set membership**: `wire.Bound` is `{property, op, value}` with no entity, because the set's
+`candidates` say who it applies to. The free constructors that made `stateIs("on")` meaningful on
+its own are gone; a term is only reachable through `q.eq/ne/gt/lt` over a `q.prop(...)`, or through
+`q.candidate(...)` which is resolved against a specific candidate at build time.
 
-```pkl
-function stateIs(s: String): Cmp = cmp("state", "eq", s)   // no subject anywhere
-```
-
-Fix: **delete the free constructors; make the binding a non-null field.**
-
-```pkl
-class Bound extends Predicate {
-  entity: String            // non-null -> unconstructible without a subject
-  property: String          // "state" | "attr:<name>" only
-  op: PredicateOp
-  value: Any
-}
-
-abstract class Entity {
-  function stateIs(s: String): Bound = new { entity = entity_id; property = "state"; op = "eq"; value = s }
-}
-```
-
-`domainIs`/`entityIs` disappear from the runtime vocabulary — domain is a build-time filter, entity
-is now the binding — leaving runtime comparisons as `state` and `attr:*` only.
-
-Pkl is the primary guarantee; a hand-written AST or hand-edited `dashboard.json` is on its own. A
-cheap non-null `entity` check goes in `Dashboard.validate` as belt-and-braces, not as the mechanism.
-
-## LINQ surface (shape agreed, details open)
-
-One `where`, with folding in the combinators:
-
-```pkl
-e.domain.is(hass.domains.Light)   // -> Static(true|false)  — registry fact
-e.stateIs("on")                   // -> Bound{...}          — live
-
-Static(false).and(x) -> Static(false)   // candidate dropped from `candidates`
-Static(true).and(x)  -> x               // term vanishes
-Static(true).or(x)   -> Static(true)    // always present; `present` omitted
-```
-
-`Static` never reaches the wire, so no `whereStatic`/`where` split is needed and `inArea` is just
-sugar for `where((e) -> e.area_id.is("stue"))`. Case dispatch uses the same folding:
-
-```pkl
-.render(new Cases {
-  [(e) -> e.domain.is(Light)]       = (e) -> c.slider(e)
-  [(e) -> e.domain.is(MediaPlayer)] = (e) -> c.mediaCard(e)
-  default                           = (e) -> c.entityCard(e)
-})
-```
+**Not yet built: the other binding P6 allows — an explicit reference to a DIFFERENT entity.** See
+"Cross-entity references" below; this is a known hole, not a settled design.
 
 ## Pkl mechanics (verified on 0.32.1, the `pkl-core` pin)
 
-Spiked rather than assumed, per the module's "verify semantics empirically" rule:
+Spiked rather than assumed. The full list now lives in the module `CLAUDE.md` gotchas; kept here
+are the ones that shaped THIS design:
 
 - **A lambda can be a `Mapping` key**, and keys can be applied to dispatch. The Mapping must be
   `hidden` — functions cannot render to output, which is already how `DynamicGroup.branches` is
@@ -401,29 +362,10 @@ rows of indices plus their varying literals. Pinned by `dynamics-spike.test.pkl`
 residuals diverge across members of one set"). "One mechanism, not two parallel ones" arriving
 from evidence rather than taste.
 
-**Ordering is a LIST of keys — ordinary lexicographic sorting — and each POSITION folds
-independently.** `orderBy` is `List<OrderTerm>`, most significant first:
-
-| all positions | emitted | runtime cost |
-|---|---|---|
-| static (`e.area_id`, `e.friendly_name`) | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
-| any position live | the term list | O(P log P) stable sort |
-
-A static position can only be folded away when the *whole* ordering is static. If a live key
-outranks it — or it outranks a live key, as in "by area, then brightness" — the runtime still has
-to apply it, so its per-member value rides in `MemberDef.sortVars` and the term becomes
-`StaticSort{slot}`. Verified end to end for "on first, then brightest, then by name":
-
-```json
-"orderBy": [ {"property":"state","equals":"on","dir":"desc"},
-             {"property":"attr:brightness","dir":"desc"},
-             {"slot":0,"dir":"asc"} ]
-"members": { "light.taklys": { ..., "sortVars":["Taklys"] } }
-```
-
-Build-time lexicographic sorting works by stable-sorting from the least significant key outwards
-(Pkl's sort is stable — verified). `SortKey.equals` makes a key boolean, so "state is on" sorts
-the on-ones first rather than sorting state strings alphabetically.
+**Ordering is a LIST of positions, each folding independently.** Superseded in detail by "One
+property vocabulary" below — the shape settled on references rather than lambdas, which removed
+`StaticSort` and `MemberDef.sortVars` entirely. Read that section, not this paragraph, for the
+current form.
 
 **The one error case is a single POSITION that folds inconsistently across candidates** — static
 for one candidate, live for another. Those two values are not mutually comparable (a brightness
@@ -767,6 +709,37 @@ instead of a literal), which would shrink members further AND dissolve the var-v
 count-dependence below, since there would be no literals left to diff. Not done yet — an
 interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
 mechanisms are needed either way.
+
+## Cross-entity references — decided, not built
+
+**This is the one live inconsistency in the plan.** P6 says an expression carries "either an
+explicit entity, or set membership", and the design question about `when` scope was answered
+*"allow explicit entity refs"*, with the motivating example:
+
+> for allowing explicit entity refs; only show when on and when time is above Y for.ex
+
+Only the set-membership half exists. `wire.Bound` has no `entity` field, so every term is about
+the member. There is currently **no way to write "show this light while `binary_sensor.door` is
+open"**, and the motivating example is unexpressible — it conjoins a fact about the member (its
+state) with a fact about a different entity (`sensor.time`).
+
+Note this does not contradict the time resolution: `sensor.time` being an ordinary entity is what
+makes the example *possible in principle*: it needs no new source, only a way to name another
+entity in a term.
+
+The shape is not hard — an optional `entity` on `Bound`, absent meaning "the member" — but two
+things need deciding rather than assuming:
+
+- **Indexing.** A node whose condition names other entities must be woken by them, so those ids
+  have to join the node's reverse-index key. For a set that is the set node's key, not a member's.
+- **Scope.** Does a cross-entity term belong on a member's clause (per-member presence), or is it
+  really a property of the whole set — in which case it is a surface condition (`If`) rather than a
+  member condition, and the existing mechanism already covers it.
+
+The second question may dissolve the first: "show these lights only in the evening" is a statement
+about the whole set, and `Activation.State` already expresses it. If every realistic cross-entity
+case is set-wide, `Bound` never needs an entity and P6's first half is satisfied by surfaces
+instead. Worth settling before building either.
 
 ## Not yet designed
 
