@@ -353,6 +353,139 @@ facts {
     s.shapes[m.clauses[0].shape].slots.containsKey("fill")
   }
 
+  // 19 — the same two-case set, checked across EVERY member rather than one.
+  // Each entity must get its own literals in each of its clauses.
+  ["S19 every member gets its own literals in every clause"] {
+    local brightCard = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name },
+                  "fill", new wire.Xf { transform = "$attr.brightness" })
+    }
+    local plainCard = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name },
+                  "area", new wire.Lit { literal = e.area_id })
+    }
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .caseOf(q.gt(q.prop("brightness"), 128), brightCard)
+      .`else`(plainCard)
+      .build()
+
+    // four lights, three in stue and one in kjokken
+    s.candidates.length == 4
+    // every member has both clauses, each with the right label
+    s.members.toMap().every((id, m) ->
+      m.clauses.length == 2 &&
+      m.clauses[0].vars["label"] == m.clauses[1].vars["label"])
+    // ...and the fallback's area is that member's OWN area, not a shared one
+    s.members["light.taklys"].clauses[1].vars["area"] == "stue"
+    s.members["light.kjokken"].clauses[1].vars["area"] == "kjokken"
+    s.members["light.taklys"].clauses[0].vars["label"] == "Taklys"
+    s.members["light.kjokken"].clauses[0].vars["label"] == "Kjøkken"
+  }
+
+  // 20 — MIXED clause counts in one set. The first case combines a STATIC
+  // capability check with a LIVE one, so it folds away entirely for the
+  // non-dimmable light: that member has one clause, the others have two.
+  ["S20 members of one set can have different clause counts"] {
+    local brightCard = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+    }
+    local plainCard = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name },
+                  "area", new wire.Lit { literal = e.area_id })
+    }
+    local s = q.from(stueLights)
+      .caseOf(List(q.candidate((e) -> e.supported_features > 4),
+                   q.gt(q.prop("brightness"), 128)), brightCard)
+      .`else`(plainCard)
+      .build()
+
+    // taklys/spot are dimmable -> the guard survives as a live residual
+    s.members["light.taklys"].clauses.length == 2
+    s.members["light.spot"].clauses.length == 2
+    // lampe is not -> the whole first case folded false and vanished
+    s.members["light.lampe"].clauses.length == 1
+    s.shapes[s.members["light.lampe"].clauses.first.shape].card == "entityCard"
+    s.members["light.lampe"].clauses.first.vars["area"] == "stue"
+    // and the one that survived is still the UNCONDITIONAL fallback
+    s.conditions[s.members["light.lampe"].clauses.first.cond] == null
+  }
+
+  // 21 — `fills` are per clause too: a nested set in one case and not the other.
+  ["S21 a nested set in one clause only"] {
+    local withInner = (e) -> new wire.Node {
+      card = "col"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+      children = List(q.from(stueLights).where(q.eq(q.stateProp, "on")).render(toggle).build())
+    }
+    local leafOnly = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+    }
+    local s = q.from(stueLights)
+      .caseOf(q.eq(q.stateProp, "on"), withInner)
+      .`else`(leafOnly)
+      .build()
+
+    local m = s.members["light.taklys"]
+    m.clauses.length == 2
+    // the clause whose shape has a hole carries a fill; the leaf clause does not
+    m.clauses[0].fills.length == 1
+    m.clauses[0].fills.first is wire.SetNode
+    m.clauses[1].fills.isEmpty
+  }
+
+  // 22 — two cases rendering the SAME card with different literals. They share
+  // one shape (same card, same arity, same cell), so one member has two clauses
+  // pointing at the SAME shape index with DIFFERENT vars. This is the case that
+  // would break if vars had stayed on the member.
+  ["S22 two clauses can share a shape and still differ in vars"] {
+    local loud = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map("label", new wire.Lit { literal = "ON — \(e.friendly_name)" })
+    }
+    local quiet = (e) -> new wire.Node {
+      card = "entityCard"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+    }
+    local s = q.from(stueLights)
+      .caseOf(q.eq(q.stateProp, "on"), loud)
+      .`else`(quiet)
+      .build()
+
+    // ONE shape, because both cases render the same card the same way
+    s.shapes.length == 1
+    local m = s.members["light.taklys"]
+    m.clauses.length == 2
+    m.clauses[0].shape == m.clauses[1].shape
+    // ...but the two clauses carry different text
+    m.clauses[0].vars["label"] == "ON — Taklys"
+    m.clauses[1].vars["label"] == "Taklys"
+  }
+
+  // 23 — a first case that folds statically TRUE truncates the list: nothing
+  // after an unconditional clause can ever win, so it is not emitted.
+  ["S23 an unconditional first case drops the fallback"] {
+    local always = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+    }
+    local s = q.from(stueLights)
+      .caseOf(q.candidate((e) -> e.area_id == "stue"), always)   // true for all of them
+      .`else`(toggle)
+      .build()
+
+    s.members.values.every((m) -> m.clauses.length == 1)
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
+    // only the winning shape is emitted; the dead fallback never reaches the wire
+    s.shapes.length == 1
+    s.shapes.first.card == "slider"
+  }
+
   // 11 — a property only some candidates carry. Ambiguous by default, because
   // it would silently become a live attribute for the rest.
   ["S11 a property only some candidates have needs `optional`"] {
