@@ -106,12 +106,20 @@ abstract class Slot
 class Lit extends Slot { literal: String }
 class Xf extends Slot { transform: String; reactive: Boolean = true }
 
+/// Layout classes on a member's wrapper — `columns(n)`, `fullWidth()`, `hug()`.
+/// Lives on the SHAPE, not per member: anything that legitimately varies the
+/// layout also varies the CARD, so a different case gives a different shape and
+/// therefore a different cell. A per-member span with the same card is exotic
+/// and arguably a layout smell.
+class Cell { classes: List<String> }
+
 /// What a render lambda produces for one concrete candidate. `children` may hold
 /// further [[Node]]s (a member rendering a subtree) or a whole [[SetNode]] (a set
 /// nested inside a member — the "tile per room" shape).
 class Node {
   card: String
   slots: Map<String, Slot>
+  cell: Cell? = null
   children: List<Node|SetNode|Hole> = List()
 }
 
@@ -134,6 +142,7 @@ class Hole { kind: "hole" = "hole"; idx: Int }
 class ShapeDef {
   card: String
   slots: Map<String, Slot>
+  cell: Cell? = null
   /// Literal children, with a [[Hole]] wherever the child varies per member.
   children: List<Node|SetNode|Hole> = List()
 }
@@ -269,9 +278,14 @@ local function varyingChildren(nodes: List<Node>): List<Int> =
   nodes.first.children.toList().mapIndexed((i, c) -> Pair(i, c))
     .filter((p) -> containsLit(p.second)).map((p) -> p.first)
 
+/// Shape identity: card, arity, AND cell. See the grouping note in [[buildSet]].
+local function shapeKey(n: Node): String =
+  "\(n.card)/\(n.children.length)/\(if (n.cell == null) "-" else n.cell.classes.join(","))"
+
 local function shapeOf(n: Node, varying: List<String>, varyingKids: List<Int>): ShapeDef =
   new ShapeDef {
     card = n.card
+    cell = n.cell
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
     children = n.children.toList().mapIndexed((i, c) ->
       if (varyingKids.contains(i)) new Hole { idx = varyingKids.findIndex((x) -> x == i) } else c)
@@ -475,7 +489,9 @@ function buildSet(
   //    Grouped by card AND child count: positions only align between nodes with
   //    the same arity, and a differing arity is a genuinely different shape.
   let (allNodes = rendered.flatMap((p) -> p.second.map((q) -> q.first)))
-  let (byCard = allNodes.groupBy((n) -> "\(n.card)/\(n.children.length)"))
+  //    The cell is part of the key: without it, two members with the same card
+  //    but different `columns(n)` would merge and one cell would silently win.
+  let (byCard = allNodes.groupBy((n) -> shapeKey(n)))
   let (shapeDefs = byCard.keys.toList().sort().map((k) ->
         shapeOf(byCard[k].first, varyingKeys(byCard[k]), varyingChildren(byCard[k]))))
   let (varyingByCard = byCard.mapValues((_k, ns) -> varyingKeys(ns)))
@@ -495,7 +511,7 @@ function buildSet(
     shapes = shapeDefs
     members = rendered.toMap((p) -> p.first.entity_id, (p) ->
       let (winning = p.second.first.first)
-        let (key = "\(winning.card)/\(winning.children.length)")
+        let (key = shapeKey(winning))
           new MemberDef {
             vars = varyingByCard[key]
               .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
@@ -503,8 +519,7 @@ function buildSet(
             clauses = p.second.map((q) ->
               new Clause {
                 cond = conds.findIndex((t) -> t == q.second)
-                shape = shapeIndex.findIndex((c) ->
-                  c == "\(q.first.card)/\(q.first.children.length)")
+                shape = shapeIndex.findIndex((c) -> c == shapeKey(q.first))
               })
           })
   }

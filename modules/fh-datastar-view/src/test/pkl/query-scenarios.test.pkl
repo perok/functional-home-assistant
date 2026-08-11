@@ -258,6 +258,54 @@ facts {
     q.entity("light.made_up").stateIs("on").entity == "light.made_up"
   }
 
+  // 16 — LAYOUT. `.columns(n)` on a rendered card reaches the wire, and because
+  // it is part of shape IDENTITY, two cases with different widths become two
+  // shapes rather than silently sharing one.
+  ["S16 columns on a case reaches the wire, and differing cells split the shape"] {
+    local wide = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+      cell = new wire.Cell { classes = List("fh-cols-6") }
+    }
+    local narrow = (e) -> new wire.Node {
+      card = "slider"                                   // SAME card...
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+      cell = new wire.Cell { classes = List("fh-cols-3") }  // ...different width
+    }
+
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .caseOf(q.candidate((e) -> e.supported_features > 4), wide)
+      .`else`(narrow)
+      .build()
+
+    // same card, different cell => TWO shapes, not one with a silently-won cell
+    s.shapes.length == 2
+    s.shapes.every((sh) -> sh.card == "slider")
+    s.shapes.map((sh) -> sh.cell.classes.first).toList().sort() ==
+      List("fh-cols-3", "fh-cols-6")
+
+    // the dimmables take the wide one, the dumb light the narrow one
+    local cellOf = (id: String) -> s.shapes[s.members[id].clauses.first.shape].cell
+    (cellOf.apply("light.taklys")).classes == List("fh-cols-6")
+    (cellOf.apply("light.lampe")).classes == List("fh-cols-3")
+  }
+
+  ["S17 the same cell on the same card still shares one shape"] {
+    local sized = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+      cell = new wire.Cell { classes = List("fh-cols-6") }
+    }
+    local s = q.from(allEntities).where(q.eq(q.prop("domain"), "light"))
+      .render(sized).build()
+
+    s.shapes.length == 1
+    s.shapes.first.cell.classes == List("fh-cols-6")
+    // layout is on the shape, never repeated per member
+    s.members.values.every((m) -> !m.vars.containsKey("cell"))
+  }
+
   // 11 — a property only some candidates carry. Ambiguous by default, because
   // it would silently become a live attribute for the rest.
   ["S11 a property only some candidates have needs `optional`"] {

@@ -1039,11 +1039,8 @@ of member count".
 ## Layout belongs to the shape
 
 `cell` (`columns(n)`, `fullWidth()`, `hug()`) lived on the old `DynamicCase`, shared by every member
-of that case. The spike currently carries it **nowhere** — `wire.Node` has no `cell` field — so
-`.columns(3)` inside a render lambda is silently dropped today. That is a gap, not a design.
-
-It belongs on `ShapeDef`, and the reason is that anything which legitimately varies the layout also
-varies the CARD:
+of that case. **Now on `ShapeDef`** (S16/S17), which is where it belongs, because anything that
+legitimately varies the layout also varies the CARD:
 
 ```pkl
 .caseOf(q.candidate((e) -> e.supported_features > 4), (e) -> c.slider(e).columns(6))
@@ -1054,10 +1051,11 @@ Different case → different shape → different cell, naturally. A per-member s
 is the exotic case, and arguably should not be encouraged: a set whose members are different widths
 for no structural reason is a layout smell.
 
-**The latent bug to fix when adding it:** shapes are grouped by `card` + child count. Two members
-with the same card but different authored cells would merge into one shape and one cell would
-SILENTLY WIN. The grouping key must include the cell, so a differing cell forces a distinct shape —
-which is also count-independent, consistent with the rule above.
+**The bug this would have shipped with:** shapes were grouped by `card` + child count, so two
+members with the same card and different authored cells merged into one shape and one cell won
+SILENTLY. Shape identity now includes the cell (`shapeKey`), so a differing cell forces a distinct
+shape — count-independent, consistent with the rule above. S16 pins exactly this: same card, two
+widths, two shapes.
 
 Applying the type rule to `cell` instead (making it a per-member var) was considered and rejected:
 class lists are longer than labels, and they are near-always constant across a shape, so it pays
@@ -1067,9 +1065,6 @@ C's repetition cost where the benefit is close to zero.
 
 Named so they are not mistaken for oversights. The first two are wanted; the rest are known
 trade-offs.
-
-**Per-member layout — and a latent bug in the current spike.** See "Layout belongs to the shape"
-below.
 
 **NOT a limitation after all — cross-set interleaving.** Parked earlier as "two sets are two DOM
 regions". But `from` takes any `List<Candidate>`, so concatenate the sources into ONE set and
