@@ -1,0 +1,238 @@
+examples {
+  ["S1 every light in a room, shown while it is on"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot"
+      ],
+      "conditions": [
+        null,
+        {
+          "kind": "cmp",
+          "property": "state",
+          "op": "eq",
+          "value": "on"
+        }
+      ],
+      "shapes": [
+        {
+          "card": "slider",
+          "slots": {
+            "state": {
+              "transform": "$state",
+              "reactive": true
+            }
+          }
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+  ["S5 a slider while on, a toggle while off"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot"
+      ],
+      "conditions": [
+        null,
+        {
+          "kind": "cmp",
+          "property": "state",
+          "op": "eq",
+          "value": "on"
+        }
+      ],
+      "shapes": [
+        {
+          "card": "slider",
+          "slots": {
+            "state": {
+              "transform": "$state",
+              "reactive": true
+            }
+          }
+        },
+        {
+          "card": "toggle",
+          "slots": {}
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            },
+            {
+              "cond": 0,
+              "shape": 1
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            },
+            {
+              "cond": 0,
+              "shape": 1
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "clauses": [
+            {
+              "cond": 1,
+              "shape": 0
+            },
+            {
+              "cond": 0,
+              "shape": 1
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+  ["S9 ordered: on first, then brightest, then by name"] {
+    """
+    {
+      "kind": "set",
+      "candidates": [
+        "light.taklys",
+        "light.lampe",
+        "light.spot"
+      ],
+      "orderBy": [
+        {
+          "by": {
+            "kind": "cmp",
+            "property": "state",
+            "op": "eq",
+            "value": "on"
+          },
+          "dir": "desc"
+        },
+        {
+          "by": {
+            "kind": "prop",
+            "property": "attr:brightness"
+          },
+          "dir": "desc"
+        },
+        {
+          "by": {
+            "kind": "prop",
+            "property": "reg:friendly_name"
+          },
+          "dir": "asc"
+        }
+      ],
+      "conditions": [
+        null
+      ],
+      "shapes": [
+        {
+          "card": "slider",
+          "slots": {
+            "state": {
+              "transform": "$state",
+              "reactive": true
+            }
+          }
+        }
+      ],
+      "members": {
+        "light.taklys": {
+          "vars": {
+            "label": "Taklys"
+          },
+          "clauses": [
+            {
+              "cond": 0,
+              "shape": 0
+            }
+          ]
+        },
+        "light.lampe": {
+          "vars": {
+            "label": "Lampe"
+          },
+          "clauses": [
+            {
+              "cond": 0,
+              "shape": 0
+            }
+          ]
+        },
+        "light.spot": {
+          "vars": {
+            "label": "Spot"
+          },
+          "clauses": [
+            {
+              "cond": 0,
+              "shape": 0
+            }
+          ]
+        }
+      }
+    }
+    """
+  }
+}

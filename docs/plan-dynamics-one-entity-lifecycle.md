@@ -412,15 +412,15 @@ identically:
 
 ```pkl
 q.from(dump.all)
-  .where(q.eq(q.prop("domain"), "light"))          // data form — no lambda
-  .where((e) -> e.supported_features > 4)          // lambda form — reads the candidate
-  .where((e) -> q.any(List(                        // a OR (b AND c)
-      e.domain == "media_player",
-      q.all(List(e.domain == "light", e.area_id == "stue")))))
-  .orderBy(List(q.desc(q.eq(q.stateProp, "on")),   // sort by a predicate's truth
-                q.desc(q.prop("brightness")),      // live attribute
-                q.asc(q.prop("friendly_name"))))   // registry fact
+  .where(q.eq(q.prop("domain"), "light"))               // data form — no lambda
+  .where(q.candidate((e) -> e.supported_features > 4))  // reads the candidate, composes
+  .orderBy(List(q.desc(q.eq(q.stateProp, "on")),        // sort by a predicate's truth
+                q.desc(q.prop("brightness")),           // live attribute
+                q.asc(q.prop("friendly_name"))))        // registry fact
 ```
+
+See "The scenarios, in verified authoring syntax" below for the worked examples — those are copied
+from a test and compile; this one is illustrative.
 
 `q.eq/ne/gt/lt` build a `Pending` — an unresolved comparison. Resolving it against the candidates
 either FOLDS it to a `Boolean` (the build could read the property) or produces a live `Bound`. So
@@ -577,6 +577,89 @@ resolve to a live attribute and quietly stop being the registry fact the author 
 mixed set, or a set that became mixed when a new domain was added. `q.optional(q.prop(...))`
 accepts it deliberately and reads missing as null. All four cases are pinned in
 `query-surface.test.pkl`.
+
+## The scenarios, in verified authoring syntax
+
+Every snippet below is **copied from `modules/fh-datastar-view/src/test/pkl/query-scenarios.test.pkl`
+and compiles**. That file is the canonical set: each scenario asserts the one wire property it
+exists to demonstrate, so if the surface changes these break first and this section cannot quietly
+drift from what works. Do not edit the snippets here without changing the test.
+
+```pkl
+// S1 — every light in a room, shown while it is on.
+//      One shape shared by three members; one condition shared by all of them.
+q.from(dump.stue.lights)
+  .where(q.eq(q.stateProp, "on"))
+  .render(slider)
+
+// S2 — an interpolated label. Computed at build time, so still a per-member var.
+q.from(dump.stue.lights).render((e) -> c.entityCard(e, label = "Blah \(e.friendly_name)"))
+
+// S3 — a different card per domain. Registry data: resolved at build, no guard on the wire.
+q.from(dump.all)
+  .cases(new Mapping {
+    [q.eq(q.prop("domain"), "light")]        = slider
+    [q.eq(q.prop("domain"), "media_player")] = mediaCard
+  })
+
+// S4 — dispatch on a CAPABILITY. Also registry data, also fully static.
+q.from(dump.stue.lights)
+  .caseOf(q.candidate((e) -> e.supported_features > 4), slider)
+  .`else`(toggle)
+
+// S5 — dispatch on LIVE state. Both shapes stay; the choice rides the wire as a
+//      clause list, first match winning.
+q.from(dump.stue.lights)
+  .caseOf(q.eq(q.stateProp, "on"), slider)
+  .`else`(toggle)
+
+// S6 — omit the `else` and an unmatched candidate is simply ABSENT. This is how
+//      "only while on" is written; the missing fallback is the feature.
+q.from(dump.stue.lights).caseOf(q.eq(q.stateProp, "on"), slider)
+
+// S7 — a list is AND, `any` is OR, and they nest. Dimmables come out
+//      unconditional; the dumb one defers to its state.
+q.from(dump.all)
+  .where(List(
+    q.eq(q.prop("domain"), "light"),
+    q.eq(q.prop("area_id"), "stue"),
+    q.any(List(q.candidate((e) -> e.supported_features > 4),
+               q.eq(q.stateProp, "on")))))
+  .render(slider)
+
+// S8 — a OR (b AND c), the other nesting.
+q.from(dump.all)
+  .where(q.any(List(
+    q.eq(q.prop("domain"), "media_player"),
+    q.all(List(q.eq(q.prop("domain"), "light"),
+               q.eq(q.prop("area_id"), "stue"))))))
+  .render(toggle)
+
+// S9 — multi-key: on first, then brightest, then by name. The registry position
+//      stays a reference; nothing rides per member.
+q.from(dump.stue.lights)
+  .orderBy(List(
+    q.desc(q.eq(q.stateProp, "on")),
+    q.desc(q.prop("brightness")),
+    q.asc(q.prop("friendly_name"))))
+  .render(slider)
+
+// S10 — an all-registry ordering is resolved NOW: `orderBy` is null on the wire
+//       and the runtime only filters. Alphabetical costs it nothing.
+q.from(dump.all)
+  .where(q.eq(q.prop("domain"), "light"))
+  .orderBy(q.asc(q.prop("friendly_name")))
+  .render(toggle)
+
+// S11 — a property only SOME candidates carry is a build error, because it would
+//       silently become a live attribute for the rest. `optional` accepts it and
+//       reads missing as null, so the ones lacking it compare false and drop out.
+q.from(mixedSet).where(q.eq(q.optional(q.prop("brightnessMax")), 255)).render(toggle)
+```
+
+Three of them (S1, S5, S9) also capture their emitted JSON in
+`query-scenarios.test.pkl-expected.pcf`, so a wire-format change shows up as a reviewable diff
+rather than a discussion.
 
 ## Typing: Pkl has no user generics
 

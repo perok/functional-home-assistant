@@ -1,0 +1,222 @@
+/// SPIKE — the AUTHORING scenarios, in the syntax an author would actually
+/// write. `query-surface.test.pkl` tests the mechanics; this file is the set of
+/// worked examples the plan quotes, so that the plan cannot drift from what
+/// compiles.
+///
+/// Every scenario is written the way it would appear in a dashboard, and asserts
+/// the one wire property that scenario exists to demonstrate. The
+/// `.pkl-expected.pcf` sibling holds the emitted JSON for the interesting ones.
+///
+/// If you change the surface, these break first — that is the point.
+amends "pkl:test"
+
+import "dynamics/query.pkl" as q
+import "dynamics/wire.pkl"
+import "dynamics/fixtures.pkl"
+
+// Stand-ins for `components.pkl` cards. A render lambda returns a Node; that is
+// the whole seam between the query language and the card library.
+local slider = (e) -> new wire.Node {
+  card = "slider"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name },
+              "state", new wire.Xf { transform = "$state" })
+}
+local toggle = (e) -> new wire.Node {
+  card = "toggle"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name })
+}
+local mediaCard = (e) -> new wire.Node {
+  card = "mediaCard"
+  slots = Map("label", new wire.Lit { literal = e.friendly_name })
+}
+local entityCard = (e) -> new wire.Node {
+  card = "entityCard"
+  slots = Map("label", new wire.Lit { literal = "Blah \(e.friendly_name)" })
+}
+
+// The dump stand-in. `dump.stue.lights` in a real dashboard.
+local allEntities = fixtures.all
+local stueLights = fixtures.all.filter((e) -> e.area_id == "stue" && e.domain == "light")
+
+facts {
+  // 1 — the simplest useful set: these lights, while they are on.
+  ["S1 every light in a room, shown while it is on"] {
+    local s = q.from(stueLights)
+      .where(q.eq(q.stateProp, "on"))
+      .render(slider)
+      .build()
+
+    s.candidates.length == 3
+    s.shapes.length == 1
+    // the live slot is shared; only the per-entity label differs
+    s.shapes.first.slots.containsKey("state")
+    s.members["light.taklys"].vars["label"] == "Taklys"
+    // one condition, shared by all three members
+    s.conditions.length == 2
+    s.members.values.every((m) -> m.clauses.first.cond == 1)
+  }
+
+  // 2 — a computed label. Still a build-time literal, so still a per-member var.
+  ["S2 an interpolated label"] {
+    local s = q.from(stueLights)
+      .render(entityCard)
+      .build()
+
+    s.members["light.taklys"].vars["label"] == "Blah Taklys"
+    s.members["light.spot"].vars["label"] == "Blah Spot"
+    // nothing defers
+    s.conditions == List(null)
+  }
+
+  // 3 — a different card per domain. Registry data, so it resolves at build time
+  // and no guard reaches the wire.
+  ["S3 a different card per domain"] {
+    local s = q.from(allEntities)
+      .cases(new Mapping {
+        [q.eq(q.prop("domain"), "light")] = slider
+        [q.eq(q.prop("domain"), "media_player")] = mediaCard
+      })
+      .build()
+
+    s.shapes.length == 2
+    s.members.values.every((m) -> m.clauses.length == 1)
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
+  }
+
+  // 4 — dispatch on a CAPABILITY. Also registry data, also fully static.
+  ["S4 a slider for dimmables, a toggle for the rest"] {
+    local s = q.from(stueLights)
+      .caseOf(q.candidate((e) -> e.supported_features > 4), slider)
+      .`else`(toggle)
+      .build()
+
+    s.members["light.taklys"].clauses.length == 1
+    s.members["light.lampe"].clauses.length == 1
+    s.members["light.taklys"].clauses.first.shape !=
+      s.members["light.lampe"].clauses.first.shape
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] == null)
+  }
+
+  // 5 — dispatch on LIVE state. Both shapes stay possible and the choice rides
+  // the wire as a clause list, first match winning.
+  ["S5 a slider while on, a toggle while off"] {
+    local s = q.from(stueLights)
+      .caseOf(q.eq(q.stateProp, "on"), slider)
+      .`else`(toggle)
+      .build()
+
+    s.members["light.taklys"].clauses.length == 2
+    s.conditions[s.members["light.taklys"].clauses[0].cond].property == "state"
+    s.conditions[s.members["light.taklys"].clauses[1].cond] == null
+  }
+
+  // 6 — no `else`. A candidate matching no clause is simply absent, which is
+  // how "only show it while on" is written.
+  ["S6 present only while on — omit the else"] {
+    local s = q.from(stueLights)
+      .caseOf(q.eq(q.stateProp, "on"), slider)
+      .build()
+
+    s.members.values.every((m) -> m.clauses.length == 1)
+    s.members.values.every((m) -> s.conditions[m.clauses.first.cond] != null)
+  }
+
+  // 7 — mixed boolean structure. A list is AND, `any` is OR, and they nest.
+  ["S7 lights in the living room, dimmable OR currently on"] {
+    local s = q.from(allEntities)
+      .where(List(
+        q.eq(q.prop("domain"), "light"),
+        q.eq(q.prop("area_id"), "stue"),
+        q.any(List(q.candidate((e) -> e.supported_features > 4),
+                   q.eq(q.stateProp, "on")))))
+      .render(slider)
+      .build()
+
+    s.candidates.length == 3
+    // the dimmables are unconditional, the dumb one defers to its state
+    s.conditions[s.members["light.taklys"].clauses.first.cond] == null
+    s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
+  }
+
+  // 8 — `a OR (b AND c)`, the other nesting.
+  ["S8 the TV, or any living-room light"] {
+    local s = q.from(allEntities)
+      .where(q.any(List(
+        q.eq(q.prop("domain"), "media_player"),
+        q.all(List(q.eq(q.prop("domain"), "light"),
+                   q.eq(q.prop("area_id"), "stue"))))))
+      .render(toggle)
+      .build()
+
+    s.candidates.length == 4
+    s.candidates.contains("media_player.tv")
+    !s.candidates.contains("light.kjokken")
+  }
+
+  // 9 — multi-key ordering: on first, then brightest, then by name.
+  ["S9 ordered: on first, then brightest, then by name"] {
+    local s = q.from(stueLights)
+      .orderBy(List(
+        q.desc(q.eq(q.stateProp, "on")),
+        q.desc(q.prop("brightness")),
+        q.asc(q.prop("friendly_name"))))
+      .render(slider)
+      .build()
+
+    s.orderBy.length == 3
+    (s.orderBy[0] as wire.LiveSort).by is wire.Bound
+    ((s.orderBy[1] as wire.LiveSort).by as wire.PropRef).property == "attr:brightness"
+    // the registry position stays a reference; nothing rides per member
+    ((s.orderBy[2] as wire.LiveSort).by as wire.PropRef).property == "reg:friendly_name"
+  }
+
+  // 10 — an ordering made only of registry facts is resolved NOW. The runtime
+  // filters and preserves the order; it never compares anything.
+  ["S10 alphabetical costs the runtime nothing"] {
+    local s = q.from(allEntities)
+      .where(q.eq(q.prop("domain"), "light"))
+      .orderBy(q.asc(q.prop("friendly_name")))
+      .render(toggle)
+      .build()
+
+    s.orderBy == null
+    s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
+  }
+
+  // 11 — a property only some candidates carry. Ambiguous by default, because
+  // it would silently become a live attribute for the rest.
+  ["S11 a property only some candidates have needs `optional`"] {
+    module.catchOrNull(() ->
+      q.from(fixtures.mixed).where(q.eq(q.prop("brightnessMax"), 255)).render(toggle).build()
+    ) != null
+
+    local s = q.from(fixtures.mixed)
+      .where(q.eq(q.optional(q.prop("brightnessMax")), 255))
+      .render(toggle)
+      .build()
+    // the one lacking it compares false and drops out
+    s.candidates == List("light.dimmer")
+  }
+}
+
+/// JSON for the scenarios whose SHAPE is the interesting part. Rendered as text
+/// because an `examples` block cannot round-trip typed instances.
+local function asJson(v: Any): String = new JsonRenderer { indent = "  " }.renderValue(v)
+
+examples {
+  ["S1 every light in a room, shown while it is on"] {
+    asJson(q.from(stueLights).where(q.eq(q.stateProp, "on")).render(slider).build())
+  }
+
+  ["S5 a slider while on, a toggle while off"] {
+    asJson(q.from(stueLights).caseOf(q.eq(q.stateProp, "on"), slider).`else`(toggle).build())
+  }
+
+  ["S9 ordered: on first, then brightest, then by name"] {
+    asJson(q.from(stueLights)
+      .orderBy(List(q.desc(q.eq(q.stateProp, "on")),
+                    q.desc(q.prop("brightness")),
+                    q.asc(q.prop("friendly_name"))))
+      .render(slider).build())
+  }
+}
