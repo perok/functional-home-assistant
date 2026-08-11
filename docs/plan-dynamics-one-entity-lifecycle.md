@@ -461,6 +461,40 @@ composes with the data form freely:
 unresolved `Group` when one is not, so the same three functions cover both and an author never
 picks between an eager and a lazy variant.
 
+## Attribute-name validation belongs in the backend, not the dump
+
+The gap: a typo'd live attribute (`q.prop("brightnes")`) resolves to an attribute that never
+matches and nothing catches it. The obvious fix is to teach the dump the volatile attribute names
+(a `domain -> {name: type}` map). Measured against the live instance (1069 entities), that is the
+wrong place:
+
+| measure | value |
+|---|---|
+| entities / unavailable | 1069 / **290 (27%)** |
+| distinct (domain, attribute) pairs | 308 |
+| **attributes held by exactly ONE entity in their domain** | **128 (42%)** |
+| emitted size | ~6.8 KB |
+
+Size is fine. The blocker is churn. Two findings, both empirical:
+
+- **Attribute names are stable across on/off.** A light that is off still carries `brightness` as
+  a KEY with a null value (`light.relative_bibliotek`, state=off, `brightness=None`). So state
+  changes alone would NOT move the schema — the intuition that they would is wrong.
+- **An UNAVAILABLE entity loses its attribute keys entirely** (`light.philips_lct001_light`). With
+  27% of entities unavailable at any moment and 42% of attributes held by a single entity, one
+  zigbee bulb dropping off the mesh deletes an attribute from the schema, changes the dump's
+  content hash, re-seeds the package and re-evaluates every dashboard — on routine device
+  flapping rather than on real change. That is exactly what `CapabilityAttributes` exists to
+  prevent.
+
+So the schema should live in the BACKEND, beside the registry table, and the check should move to
+`Dashboard.validate` — already the validation boundary, and nothing there feeds a content hash.
+The backend fetches all of this anyway.
+
+The cost, stated plainly: the error surfaces at server-eval rather than in pkl-lsp while typing,
+which is a real ergonomic loss given ADR 0006 values editor feedback. Catching it at dashboard
+load is still far better than never.
+
 ## How aggressively does the build actually narrow?
 
 Measured rather than assumed. What the fold already does:
