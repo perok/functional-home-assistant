@@ -948,6 +948,22 @@ not as a rule.
 
 `MemberKey` needs no new variant either way. It stays `Entity`; only the scope qualifying it nests.
 
+**What the WIRE must carry for this to be derivable**, pinned by C11–C13:
+
+- Two sets over the same entity keep entirely independent member entries — their own clauses,
+  vars and conditions. Nothing is shared or merged, so `(set, entity)` separates them and `entity`
+  alone would collide (C11).
+- That holds even in the nastiest arrangement: an entity that is an outer member AND a candidate of
+  a set nested inside its OWN member (C12).
+- **A set carries no id of its own, deliberately.** Identity comes from CONTAINMENT — a set is
+  reached either as a node in the layout tree or as exactly one member's fill, and that path is
+  what the backend keys on. C13 pins the containment being unambiguous: every nested set hangs off
+  one `(member, hole)` route, and the shared shape holds a `Hole` rather than the set, so no set is
+  reachable by two paths.
+
+The spike cannot test the ids themselves — it does not generate them. That belongs with the
+`wire.pkl` → `DashboardBuild` move, and these tests are what it has to keep true.
+
 ## What composite changes in the architecture
 
 `docs/architecture-rendering-pipeline.md` §4b opens: *"The dashboard's graph has two halves. The

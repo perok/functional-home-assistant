@@ -183,6 +183,72 @@ facts {
   ["C10 no limit means no cap on the wire"] {
     q.from(fixtures.stue.lights).render(slider).build().limit == null
   }
+
+  // THE SAME ENTITY IN TWO SETS. The id scheme says a member is identified by
+  // (set, entity) rather than by entity alone. These pin what the WIRE must
+  // carry for that to be derivable — because if the format were ambiguous here,
+  // the backend could not assign distinct ids no matter how it walked.
+  ["C11 two sets over the same entity keep independent members"] {
+    local asSlider = (e) -> new wire.Node {
+      card = "slider"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+    }
+    local asRow = (e) -> new wire.Node {
+      card = "row"
+      slots = Map("caption", new wire.Lit { literal = "in \((e as fixtures.Ent).area_id)" })
+    }
+
+    // taklys is a candidate of BOTH, rendered differently and gated differently
+    local a = q.from(fixtures.stue.lights).render(asSlider).build()
+    local b = q.from(fixtures.stue.lights).where(q.eq(q.stateProp, "on")).render(asRow).build()
+
+    a.candidates.contains("light.taklys")
+    b.candidates.contains("light.taklys")
+
+    // each set carries its OWN member entry — nothing is shared or merged
+    a.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+    b.members["light.taklys"].clauses.first.vars["caption"] == "in stue"
+    // and its own conditions: a is unconditional, b defers on state
+    a.conditions[a.members["light.taklys"].clauses.first.cond] == null
+    b.conditions[b.members["light.taklys"].clauses.first.cond] != null
+  }
+
+  // The nastier version: the same entity in an outer set AND in a nested set
+  // inside one of that outer set's own members.
+  ["C12 the same entity nested inside a set that already holds it"] {
+    local nesting = (e) -> new wire.Node {
+      card = "col"
+      slots = Map("label", new wire.Lit { literal = e.friendly_name })
+      children = List(
+        q.from(fixtures.stue.lights).where(q.eq(q.stateProp, "on")).render(slider).build())
+    }
+    local s = q.from(fixtures.stue.lights).render(nesting).build()
+
+    // taklys is an outer member...
+    s.candidates.contains("light.taklys")
+    // ...and also a candidate of the set nested inside its OWN member
+    local inner = s.members["light.taklys"].clauses.first.fills.first as wire.SetNode
+    inner.candidates.contains("light.taklys")
+    // the two are distinct entries in distinct SetNodes, so (set, entity)
+    // separates them; entity alone would collide
+    inner.members["light.taklys"].clauses.first.vars["label"] == "Taklys"
+  }
+
+  // What the format does NOT carry, deliberately: a set has no id of its own.
+  // Identity comes from CONTAINMENT — a set is reached either as a node in the
+  // layout tree or as a member's fill, and that path is what the backend keys
+  // on. This asserts the containment is unambiguous: every nested set is
+  // reachable by exactly one (member, hole) route.
+  ["C13 a set carries no id — containment supplies it"] {
+    local s = q.from(fixtures.areas).render(roomTile).build()
+
+    // each area's inner set is reachable only through THAT member's fill
+    s.members.toMap().every((id, m) ->
+      m.clauses.length == 1 && m.clauses.first.fills.length == 1)
+    // and the shape holds a hole, not the set — so no set is duplicated between
+    // the shared shape and a member
+    s.shapes.first.children.every((c) -> c is wire.Hole)
+  }
 }
 
 local function asJson(v: Any): String = new JsonRenderer { indent = "  " }.renderValue(v)
