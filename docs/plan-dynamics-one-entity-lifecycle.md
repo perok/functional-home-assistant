@@ -1,7 +1,14 @@
 # Dynamics: one entity lifecycle
 
-> Status: design. Nothing here is implemented. The wire format and the LINQ surface are
-> still being hashed out — this records the shape and the reasoning, not a commitment.
+> Status: **design settled, nothing implemented in the product.** Every decision here is spiked
+> and tested against running Pkl under `modules/fh-datastar-view/src/test/pkl/` — but that spike is
+> scaffolding, not the shipped library (see "The spike is scaffolding"). What remains is moving it
+> onto the real code.
+>
+> **Reading order.** Sections accumulated as the design was argued out, so they are roughly
+> chronological rather than logical. For a first read: Context → Principles → Limitations → The
+> wire format → The scenarios (the verified authoring examples) → What we keep, delete, and fix.
+> Everything between is the reasoning behind a specific decision, and each says which.
 
 ## Context
 
@@ -114,9 +121,9 @@ only registry facts. Folding happens in the Pkl combinators, so the author never
 | **L1** | Two entity lifecycles — typed static vs untyped `$self` | the core; addressed by P1 |
 | **L2** | The runtime predicate is registry-blind (no `area_id`/`floor_id`/…) | resolved by P2 — those become build-time selection, so the need disappears rather than being met |
 | **L3** | Membership costs a full-map scan, because the candidate set is a runtime query | resolved by P5 |
-| **L4** | No set-level derivations — no count, no aggregate, and ordering is `entity_id` only (`materialise` sorts `states.toVector.sortBy(_._1)`) | **ordering designed and spiked; count/aggregates still open** |
+| **L4** | No set-level derivations — no count, no aggregate, and ordering is `entity_id` only (`materialise` sorts `states.toVector.sortBy(_._1)`) | resolved — ordering and aggregates both spiked |
 | **L5** | A predicate term with no indexable source silently never updates | resolved for the motivating case (`sensor.time` is an entity); the validate-time rejection is still to build |
-| **L6** | The surface mechanism has three bugs — uncached `bakeGroup`, whole-map `holds`, non-collapsing empty `ifhost` | **open**, and independent of everything else here |
+| **L6** | The surface mechanism has three bugs — uncached `bakeGroup`, whole-map `holds`, non-collapsing empty `ifhost` | designed, **not built**: `holds` is fixed by construction once `If` takes a candidate set; the other two are independent |
 | **L7** | Ghost members on entity removal (ADR 0003 open item) | resolved for free — removal is a registry change, hence a rebuild |
 | **L8** | The static selection vocabulary does not compose | resolved by `query.pkl` |
 
@@ -140,7 +147,7 @@ the DOM whenever any present member crosses a neighbour — a stream of `Gone`/`
 is exactly what P7 exists to prevent. A stable tiebreak (`entity_id`) is mandatory; ordering by raw
 sensor values should not be made convenient.
 
-## Wire format: D2 (leaning, not committed)
+## The wire format
 
 Authored:
 
@@ -163,9 +170,9 @@ Emitted:
      "fill": {"transform":"$round($attr.brightness*100/255)","reactive":true},
      "key":{"literal":"brightness"},"min":{"literal":"1"},"max":{"literal":"255"},
      "action":{"literal":"light/turn_on"}}}],
- "members":{"light.a":{"vars":{"label":"Taklys"},"clauses":[{"cond":1,"shape":0}]},
-            "light.b":{"vars":{"label":"Lampe"}, "clauses":[{"cond":1,"shape":0}]},
-            "light.c":{"vars":{"label":"Spot"},  "clauses":[{"cond":1,"shape":0}]}}}
+ "members":{"light.a":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Taklys"}}]},
+            "light.b":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Lampe"}}]},
+            "light.c":{"clauses":[{"cond":1,"shape":0,"vars":{"label":"Spot"}}]}}}
 ```
 
 **A clause is a COMPLETE rendering, not just a selector.** `vars`/`fills` live on the clause, not
@@ -206,7 +213,7 @@ winning:
 First match wins, so `light.a` is a slider while on and a toggle otherwise; had the fallback been
 absent it would simply be absent while off.
 
-Re-dispatch is free in practice: a member only re-evaluates its alts when its own entity changes,
+Re-dispatch is free in practice: a member only re-evaluates its clauses when its own entity changes,
 which is when it was re-rendering anyway.
 
 ### Complexity
@@ -239,22 +246,6 @@ bug. `$self` as a *template parameter over a statically known list*, bound at re
 construction before any state arrives, is fine. Same token, different lifecycle — that distinction
 is the whole plan.
 
-## Set-derived values (count, aggregates)
-
-A member set is a node; derived values over it are child nodes sharing its candidate list:
-
-```
-set(candidates=[a,b,c])
-  ├── member(a), member(b)        ← presence + order
-  └── count(where: on) = 2        ← sub-node, same candidates as index key
-```
-
-`byEntity: Map[String, Set[NodeId]]` already does this — each candidate points at the set node, so
-any member change wakes the count node, its digest moves, one morph.
-
-**Sketch only.** Nothing here is spiked and there is no wire representation, so `count > 2` as a
-condition is an intention rather than a design. See "Not yet designed".
-
 ## Making an unbound expression unrepresentable
 
 Every term carries a binding, so there is no unbound form to construct. Today that binding is
@@ -263,8 +254,8 @@ Every term carries a binding, so there is no unbound form to construct. Today th
 its own are gone; a term is only reachable through `q.eq/ne/gt/lt` over a `q.prop(...)`, or through
 `q.candidate(...)` which is resolved against a specific candidate at build time.
 
-**Not yet built: the other binding P6 allows — an explicit reference to a DIFFERENT entity.** See
-"Cross-entity references" below; this is a known hole, not a settled design.
+The other binding P6 allows — an explicit reference to a DIFFERENT entity — is **also built**:
+`Bound.entity` is optional, absent meaning "the member". See "Cross-entity references".
 
 ## Pkl mechanics (verified on 0.32.1, the `pkl-core` pin)
 
@@ -338,7 +329,7 @@ half and changes in the same commit.
 
 ## Resolved by the spike
 
-**There is no set-level `present` field; presence collapses into `alts`, which index a deduped
+**There is no set-level `present` field; presence collapses into the CLAUSES, which index a deduped
 condition table.**
 
 The problem, from one authored expression `e.supported_features > 4 || e.stateIs("on")` over four
@@ -777,7 +768,7 @@ build time from `area_id`:
 
 ```pkl
 q.from(dump.all.lights)
-  .where(q.candidate((e) -> q.entityIs(motionSensorFor(e.area_id)).eq(q.stateProp, "on")))
+  .where(q.candidate((e) -> q.entity(motionSensorFor(e.area_id)).eq(q.stateProp, "on")))
 ```
 
 `motionSensorFor` is ordinary Pkl over the dump, so the REFERENCE is resolved at build time to a
@@ -905,8 +896,8 @@ case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(
 **The three items that collapse into one:**
 
 - the two predicate languages become one (P4 stops being aspirational)
-- `q.from(set).any(...)` / `.count(...)` IS the aggregate listed under "Not yet designed" — the
-  same expression, read as a boolean instead of a branch selector
+- `q.from(set).any(...)` / `.count(...)` IS the aggregate (see "Aggregates: count the present
+  members") — the same expression, read as a boolean instead of a branch selector
 - and it is composite (b)'s missing piece: "hide the room when none of its lights are on" is an
   aggregate over the tile's inner set
 
@@ -1084,24 +1075,25 @@ Applying the type rule to `cell` instead (making it a per-member var) was consid
 class lists are longer than labels, and they are near-always constant across a shape, so it pays
 C's repetition cost where the benefit is close to zero.
 
-## Not yet designed
+## Settled as non-issues
 
-Named so they are not mistaken for oversights. The first two are wanted; the rest are known
-trade-offs.
+Kept so they are not re-opened.
 
-**NOT a limitation after all — cross-set interleaving.** Parked earlier as "two sets are two DOM
-regions". But `from` takes any `List<Candidate>`, so concatenate the sources into ONE set and
-dispatch with `.cases(...)`; that interleaves. The only thing genuinely impossible is interleaving
-two SEPARATELY AUTHORED sets in different parts of the layout, which is obvious rather than a flaw.
+**Cross-set interleaving is not a limitation.** Parked earlier as "two sets are two DOM regions",
+but `from` takes any `List<Candidate>`: concatenate the sources into ONE set and dispatch with
+`.cases(...)`. The only thing genuinely impossible is interleaving two SEPARATELY AUTHORED sets in
+different parts of the layout, which is obvious rather than a flaw.
 
-**Out of scope — unsatisfiable conjunctions** (`state == on AND state == off`). An obvious authoring
-bug when it happens, and the rabbit hole gets deep fast (partial orders, attribute ranges, cross-
-entity terms). Not worth the machinery.
+**Unsatisfiable conjunctions are out of scope** (`state == on AND state == off`). An obvious
+authoring bug when it happens, and the rabbit hole gets deep fast — partial orders, attribute
+ranges, cross-entity terms. Not worth the machinery.
 
-## Open questions
+## Nothing is undesigned
 
-- The LINQ surface beyond the sketch above — `orderBy` stability rules, what `derived` values exist
-  besides `count`, and whether `render` composition needs anything past `Cases`.
+Every design question raised in this plan is answered and spiked. What remains is implementation,
+listed in "What we keep, delete, and fix" and "The spike is scaffolding". The one sequencing note:
+`If` currently holds the only uses of the free predicate constructors, so migrate it before
+deleting them from `components.pkl`.
 
 ## How we would know it works
 
@@ -1118,4 +1110,11 @@ entity terms). Not worth the machinery.
   a synthetic large state map (the "2 000-entity house" shape at `Renderer.scala:382`).
 - An unbound expression is unconstructible in Pkl; `Dashboard.validate` rejects one arriving by
   hand with a located message.
+- The emitted structure is a function of the AUTHORING ALONE — the same authoring yields the same
+  shapes and vars regardless of how many entities share a shape (the type rule, not a diff).
+- A member whose clauses point at different shapes carries each shape's own literals; the fallback
+  never renders with blanks (S18–S22).
+- Two sets over the same entity keep independent members, and every nested set is reachable by
+  exactly one `(member, hole)` route — so `(set, entity)` is derivable without an id on the wire
+  (C11–C13).
 - Do not run the pkl suites concurrently with `dashboardServe` — shared dump cache, fake timeouts.
