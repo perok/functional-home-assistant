@@ -207,18 +207,30 @@ semantics, and the suite still pins the ones it covers (full list with evidence:
 - **Never name a parameter or local after the property it initialises.** In
   `new Thing { items = items }` the RHS binds to the object's OWN member, not the parameter,
   and recurses ~10 000 deep. The trace points at the field, not the cause, so it reads like a
-  cycle in your data. This is the single most frequent trap here — it hit six times in one
-  session (`items`, `op`, `orderBy`, `shapes`, `entities`, `value`). Suffix the parameter
-  (`cmpOp`, `xs`, `shapeDefs`).
+  cycle in your data. This is the single most frequent trap here — it hit EIGHT times in one
+  session (`items`, `op`, `orderBy`, `shapes`, `entities`, `value`, `id`, `agg`). Suffix the
+  parameter (`cmpOp`, `xs`, `shapeDefs`).
+
+  **Qualifying with `this` does NOT escape it.** `new { agg = this.agg }` recurses just the same,
+  because `this` inside a `new {}` body is the object being built. Capture the receiver first:
+  `let (l = this) new { agg = l.agg }`. That is the same `let (l = this)` the fluent-method entry
+  above calls for, and it is needed for plain field copies too, not only for method chaining.
 - A module-level function called from inside a **class body** must be `const` (the error says
   so, and offers self-import as the alternative).
 - Classes are **closed for extension** by default — `open class` (or `abstract class`) to
   subclass. Only stdlib members may have **type parameters**: user-defined generics
-  (`class Box<T>`) are rejected outright, so a container over a varying element type takes
-  `Any` and callers recover typing by annotating the lambda parameter — `(e: LightEntity) -> …`
-  works and a WRONG annotation is caught at application.
-- Reserved words that bite as field/property names: **`case`**, **`out`**, `import`, `else`,
-  `when`. Backtick them or pick another name (`shape` rather than `case`).
+  (`class Box<T>`) are rejected outright. That does NOT force `Any` everywhere: a marker
+  supertype (`abstract class Candidate { entity_id: String }`) states what a container requires,
+  and callers recover the concrete type by annotating the lambda parameter — `(e: LightEntity) -> …`
+  works, and a WRONG annotation is caught at application.
+- **A typealias may not be cyclic** — "Type alias definitions must not be cyclic". An alias whose
+  union mentions a class that contains the alias is rejected, and INLINING the union does not
+  help, because the union still closes the loop. Keep the alias for the non-recursive positions
+  and let the one or two that would close it take `Any`, with a comment saying why.
+- Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
+  (the type-test operator), `import`, `else`, `when`. Backtick them or pick another name —
+  `shape` rather than `case`, `stateIs` rather than `is`. Backticking reads badly at the CALL
+  site, so for a method prefer renaming.
 - `getProperty(name)` / `getPropertyOrNull(name)` / `hasProperty(name)` let the build read a
   property BY NAME — the basis for resolving a named property against candidates.
 - Structural equality holds for independently-built objects, and `Map`/`distinct`/`groupBy`
