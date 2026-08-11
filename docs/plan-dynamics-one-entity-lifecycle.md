@@ -399,48 +399,74 @@ q.from(dump.all)
   reference (sort by value) or a `Term` (sort by whether it holds). One fewer concept, and it
   reuses the predicate vocabulary.
 
-## Ordering is declarative references, not lambdas
+## One property vocabulary, shared by predicates and ordering
 
-`orderBy` takes a LIST of references, while `where` takes a lambda — and that asymmetry is real
-rather than sloppy: a `where` predicate genuinely depends on the candidate, an ordering key never
-does. `attr:brightness` and `reg:area_id` are the same reference for every member.
+A property is NAMED, not namespaced by the author: `q.prop("friendly_name")`. The build resolves
+where it comes from — a registry fact when every candidate carries it as a property (so
+`getProperty` can read it), a live attribute otherwise. `friendly_name` is genuinely both, and an
+author should not have to know which we picked. `q.attr(n)` forces the live reading when a name is
+both and you want live.
+
+The same references drive filtering and ordering, so a predicate and a sort key are written
+identically:
 
 ```pkl
-.orderBy(List(q.desc(q.byStateIs("on")),      // sort by a predicate's truth
-              q.desc(q.byAttr("brightness")), // live attribute value
-              q.asc(q.byReg("friendly_name")) // registry fact
-))
+q.from(dump.all)
+  .where(q.eq(q.prop("domain"), "light"))          // data form — no lambda
+  .where((e) -> e.supported_features > 4)          // lambda form — reads the candidate
+  .where((e) -> q.any(List(                        // a OR (b AND c)
+      e.domain == "media_player",
+      q.all(List(e.domain == "light", e.area_id == "stue")))))
+  .orderBy(List(q.desc(q.eq(q.stateProp, "on")),   // sort by a predicate's truth
+                q.desc(q.prop("brightness")),      // live attribute
+                q.asc(q.prop("friendly_name"))))   // registry fact
 ```
 
-Three reference constructors, no lambdas: `byState()`/`byStateIs(s)`, `byAttr(n)`, `byReg(n)`.
-For a genuinely COMPUTED ordering, sort the input list with ordinary Pkl before `from` — no API
-needed, and it is visibly a build-time decision.
+`q.eq/ne/gt/lt` build a `Pending` — an unresolved comparison. Resolving it against the candidates
+either FOLDS it to a `Boolean` (the build could read the property) or produces a live `Bound`. So
+the static/live split is reached through one vocabulary instead of two, and the author never picks
+a side.
 
-Dropping lambdas removed a surprising amount: `StaticSort`, `MemberDef.sortVars`, the
-static/live-divergence error, and the "does this position fold consistently across candidates"
-check. Nothing can diverge when every position is a reference.
+**Boolean structure.** A list is conjunction and `q.any` is disjunction, and they nest both ways —
+`a OR (b AND c)` is `q.any(List(a, q.all(List(b, c))))`, tested. The top-level shape is whatever
+you write; a list is not imposed.
 
-Two outcomes remain, and the optimisation survives:
+**`orderBy` takes one position or a list**, and is declarative rather than a lambda: a `where`
+predicate genuinely depends on the candidate, an ordering key never does. For a genuinely COMPUTED
+ordering, sort the input list with ordinary Pkl before `from`.
+
+Dropping lambdas from ordering removed `StaticSort`, `MemberDef.sortVars`, the static/live
+divergence error, and the fold-consistency check — nothing can diverge when every position is a
+reference. Two outcomes remain:
 
 | positions | emitted | runtime |
 |---|---|---|
-| all `reg:` | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
-| any live | the whole list, `reg:` ones still references | O(P log P) stable sort |
+| all build-readable | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
+| any live | the whole list, readable ones still references | O(P log P) stable sort |
 
-The build can pre-sort a `reg:`-only ordering because it can read a fact BY NAME
-(`e.getProperty("friendly_name")` — verified). That is also why `byReg` names the fact instead of
-reading it: `(e) -> e.friendly_name` returns a string, and the build cannot see where it came from.
+## Typing: Pkl has no user generics
+
+`EntitySet<T>` is impossible — "Only standard library members can have type parameters" — so
+candidates are `Any`, Pkl's untyped top type. That costs completion, which is the point of the
+typed dump, and the recovery is the author annotating the lambda:
+
+```pkl
+.render((e: hass.LightEntity) -> c.slider(e.colourTemp))
+```
+
+Verified that this both works and rejects a wrong annotation. `from` stays flexible (a tile per
+room will make AREAS the candidates), and capability typing is opt-in where it matters.
 
 ## The registry lives in the backend
 
 Decided: keeping `area_id`/`floor_id`/etc. in the runtime is acceptable. That is what lets a
-`reg:` position stay a reference rather than shipping a value per member, and it keeps
-`dashboard.json` from growing with things the backend already knows. Note the backend already
-fetches all of this — `RegistryDump` — so it is one table from the existing source, not a second
-representation of identity: candidates are still decided at build time.
+resolved registry property stay a REFERENCE rather than shipping a value per member, and keeps
+`dashboard.json` from carrying what the backend already knows. `RegistryDump` already fetches all
+of it, so this is one table from the existing source, not a second representation of identity —
+candidates are still decided at build time.
 
-The same move is available for `vars` (a bare `friendly_name` label could become a `reg:`
-reference instead of a literal), which would shrink members further AND dissolve the var-vs-case
+The same move is available for `vars` (a bare `friendly_name` label could become a reference
+instead of a literal), which would shrink members further AND dissolve the var-vs-case
 count-dependence below, since there would be no literals left to diff. Not done yet — an
 interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
 mechanisms are needed either way.

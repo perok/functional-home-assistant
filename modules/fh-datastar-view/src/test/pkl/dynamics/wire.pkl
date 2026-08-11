@@ -138,6 +138,46 @@ local function shapeOf(n: Node, varying: List<String>): ShapeDef =
 /// reading it, since the build cannot introspect `(e) -> e.friendly_name`.
 class PropRef { kind: "prop" = "prop"; property: String }
 
+/// A named property, NOT namespaced by the author. The build resolves where it
+/// comes from: a registry fact when every candidate carries it as a property
+/// (so the build can read it with `getProperty`), a live attribute otherwise.
+/// `friendly_name` is both, and an author should not have to know which.
+open class PropName { name: String }
+
+/// Force the LIVE reading of a name that is also a registry fact.
+class LiveAttr extends PropName {}
+
+/// An UNRESOLVED comparison — the key is still a [[PropName]]. Resolving it
+/// against the candidates either folds it to a `Boolean` (a registry fact the
+/// build can read) or produces a live [[Bound]].
+class Pending { key: PropName; op: String; value: Any }
+
+/// Where a named property actually comes from, for these candidates.
+function resolveProp(items: List<Any>, p: PropName): PropRef =
+  if (p.name == "state") new PropRef { property = "state" }
+  else if (p is LiveAttr) new PropRef { property = "attr:" + p.name }
+  else if (!items.isEmpty && items.every((e) -> e.hasProperty(p.name)))
+    new PropRef { property = "reg:" + p.name }
+  else new PropRef { property = "attr:" + p.name }
+
+/// True when the build can read this property itself.
+function isBuildReadable(items: List<Any>, p: PropName): Boolean =
+  resolveProp(items, p).property.startsWith("reg:")
+
+local function applyOp(op: String, l: Any, r: Any): Boolean =
+  if (op == "eq") l == r
+  else if (op == "ne") l != r
+  else if (op == "gt") l > r
+  else if (op == "lt") l < r
+  else throw("unknown op \(op)")
+
+/// Resolve one pending comparison for ONE candidate: folded to a Boolean when
+/// the build can read the property, otherwise a live term. This is the same
+/// static/live split as everywhere else, now reached through one vocabulary.
+function resolvePending(items: List<Any>, e: Any, pd: Pending): Boolean|Term =
+  if (isBuildReadable(items, pd.key)) applyOp(pd.op, e.getProperty(pd.key.name), pd.value)
+  else new Bound { property = resolveProp(items, pd.key).property; op = pd.op; value = pd.value }
+
 /// One ordering position on the wire: a property reference or a [[Term]] whose
 /// truth is the key, plus a direction. There is no "static" variant — a
 /// registry position stays a `reg:` reference and the backend resolves it, so
@@ -151,13 +191,7 @@ typealias OrderTerm = LiveSort
 /// same reference for every member — so `orderBy` is a declarative list, unlike
 /// `where`, which genuinely is a per-candidate predicate. To order by something
 /// COMPUTED, sort the input list with ordinary Pkl before `from`.
-class OrderSpec { by: PropRef|Term; dir: String = "asc" }
-
-/// A `reg:` reference names a registry fact, which the BUILD can read by name
-/// via `getProperty` — so an ordering made only of them is resolved now.
-/// Anything else needs live state.
-local function regName(k: PropRef|Term): String? =
-  if (k is PropRef && k.property.startsWith("reg:")) k.property.drop(4) else null
+class OrderSpec { by: PropName|Pending; dir: String = "asc" }
 
 class Ordering {
   entities: List<Any>
@@ -165,30 +199,41 @@ class Ordering {
   terms: List<OrderTerm>?
 }
 
-/// Fold the ordering. Two outcomes, no error case — every position is a
-/// reference, so nothing can diverge across candidates:
+/// Fold the ordering. No error case — every position is a reference, so nothing
+/// can diverge across candidates.
 ///
-///   - every position is a `reg:` fact => sort the candidates NOW (stable sort
-///     from the least significant key outwards) and emit nothing. The runtime
-///     filters to the present members and preserves the order: O(P), no
-///     comparisons.
-///   - any position needs live state => emit the whole list. `reg:` positions
-///     stay references and the backend resolves them, so they cost nothing per
-///     member even when they outrank a live key.
+///   - every position is build-readable => sort the candidates NOW (stable sort
+///     from the least significant key outwards) and emit nothing.
+///   - any position needs live state => emit the whole list; build-readable
+///     positions stay `reg:` references the backend resolves, costing nothing
+///     per member even when they outrank a live key.
 function foldOrder(items: List<Any>, specs: List<OrderSpec>): Ordering =
-  let (names = specs.map((s) -> regName(s.by)))
+  let (readable = specs.map((s) ->
+        if (s.by is Pending) isBuildReadable(items, (s.by as Pending).key)
+        else isBuildReadable(items, s.by as PropName)))
     if (specs.isEmpty || items.isEmpty)
       new Ordering { entities = items; terms = null }
-    else if (names.every((n) -> n != null))
+    else if (readable.every((b) -> b))
       new Ordering {
-        entities = names.reverse().fold(items, (acc, n) ->
-          acc.sortBy((e) -> e.getProperty(n)))
+        entities = specs.reverse().fold(items, (acc, s) ->
+          if (s.by is Pending)
+            let (pd = s.by as Pending)
+              acc.sortBy((e) -> resolvePending(items, e, pd) as Boolean)
+          else acc.sortBy((e) -> e.getProperty((s.by as PropName).name)))
         terms = null
       }
     else
       new Ordering {
         entities = items
-        terms = specs.map((s) -> new LiveSort { by = s.by; dir = s.dir })
+        terms = specs.map((s) ->
+          new LiveSort {
+            by =
+              if (s.by is Pending)
+                let (pd = s.by as Pending)
+                  new Bound { property = resolveProp(items, pd.key).property; op = pd.op; value = pd.value }
+              else resolveProp(items, s.by as PropName)
+            dir = s.dir
+          })
       }
 
 /// Conjoin a candidate's presence residual with one branch's residual. Either

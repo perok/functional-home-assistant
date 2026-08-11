@@ -33,42 +33,52 @@ function any(items: List<Boolean|wire.Term>): Boolean|wire.Term = wire.any(items
 function not(item: Boolean|wire.Term): Boolean|wire.Term =
   if (item is Boolean) !item else new wire.PNot { item = item as wire.Term }
 
+// ---- property references, shared by predicates AND ordering ----------------
+//
+// ONE vocabulary. A property is named, not namespaced: the author says
+// `q.prop("friendly_name")` and the BUILD decides where it comes from — a
+// registry fact if every candidate carries it as a property (build-readable via
+// `getProperty`), a live attribute otherwise. `friendly_name` happens to be
+// both, and the author should not have to know or care which we use.
+//
+// The same references feed `where` and `orderBy`, so a predicate and a sort key
+// are written the same way.
+
+/// A named property, namespace-resolved at build time (see `wire.resolveProp`).
+typealias PropName = wire.PropName
+
+function prop(n: String): wire.PropName = new { name = n }
+
+/// The live state value.
+const stateProp: wire.PropName = new wire.PropName { name = "state" }
+
+/// Force the LIVE attribute reading of a name that is also a registry fact.
+function attr(n: String): wire.LiveAttr = new { name = n }
+
+// ---- comparisons: the same terms work in `where` and in `orderBy` ----------
+
+// Parameters are deliberately NOT named after the properties they set: inside a
+// `new { op = op }` the RHS binds to the object's own member and recurses.
+const local function cmp(k: wire.PropName, cmpOp: String, v: Any): wire.Pending =
+  new { key = k; op = cmpOp; value = v }
+
+function eq(k: wire.PropName, v: Any): wire.Pending = cmp(k, "eq", v)
+function ne(k: wire.PropName, v: Any): wire.Pending = cmp(k, "ne", v)
+function gt(k: wire.PropName, v: Any): wire.Pending = cmp(k, "gt", v)
+function lt(k: wire.PropName, v: Any): wire.Pending = cmp(k, "lt", v)
+
 // ---- ordering --------------------------------------------------------------
 //
-// A LIVE key does not depend on the candidate — `attr:brightness` is the same
-// reference for every member — so it needs no lambda. A REGISTRY key does not
-// either, provided you name the fact rather than read it: the build cannot see
-// that `(e) -> e.friendly_name` came from `friendly_name`, so `byReg` is what
-// lets the value stay off the wire and be looked up in the backend instead.
-// A lambda remains available for genuinely COMPUTED keys, which do ride along
-// per member.
+// A LIST of positions rather than a lambda: a `where` predicate genuinely
+// depends on the candidate, an ordering key never does. `orderBy` accepts a
+// single position or a list, since one key is the common case.
 
-/// Order by the live state VALUE.
-function byState(): wire.PropRef = new { property = "state" }
-
-/// Order by whether the live state equals `s` — a predicate, so the on-ones
-/// sort first under [[desc]]. Reuses the predicate vocabulary instead of
-/// bolting a comparison onto a key.
-function byStateIs(s: String): wire.Bound = new { property = "state"; op = "eq"; value = s }
-
-/// Order by a live attribute value.
-function byAttr(name: String): wire.PropRef = new { property = "attr:" + name }
-
-/// Order by a registry fact. The BUILD can read it by name, so an ordering made
-/// only of `byReg` positions is resolved at build time and emits nothing; mixed
-/// with a live key it stays a reference the backend resolves.
-function byReg(name: String): wire.PropRef = new { property = "reg:" + name }
-
-/// Ascending (the default, so a bare reference works too).
-function asc(k: wire.PropRef|wire.Term): wire.OrderSpec = new { by = k; dir = "asc" }
-
-/// Descending. Ordering by a PREDICATE sorts by whether it holds, so
-/// `desc(q.byState("on"))` puts the on-ones first.
-function desc(k: wire.PropRef|wire.Term): wire.OrderSpec = new { by = k; dir = "desc" }
+function asc(k: wire.PropName|wire.Pending): wire.OrderSpec = new { by = k; dir = "asc" }
+function desc(k: wire.PropName|wire.Pending): wire.OrderSpec = new { by = k; dir = "desc" }
 
 // `const` because [[EntitySet.orderBy]] calls it from a class body.
-const local function spec(k: wire.OrderSpec|wire.PropRef|wire.Term): wire.OrderSpec =
-  if (k is wire.OrderSpec) k else new wire.OrderSpec { by = k as (wire.PropRef|wire.Term) }
+const local function spec(k: wire.OrderSpec|wire.PropName|wire.Pending): wire.OrderSpec =
+  if (k is wire.OrderSpec) k else new wire.OrderSpec { by = k as (PropName|wire.Pending) }
 
 // ---- the set ---------------------------------------------------------------
 
@@ -77,21 +87,28 @@ const local function spec(k: wire.OrderSpec|wire.PropRef|wire.Term): wire.OrderS
 /// fold. Nothing is evaluated until `build()`.
 class EntitySet {
   hidden items: List<Any>
-  hidden filters: List<(Any) -> Boolean|wire.Term|List<Boolean|wire.Term>> = List()
+  hidden filters: List<Filter> = List()
   hidden branches: List<wire.Branch> = List()
   hidden specs: List<wire.OrderSpec> = List()
 
-  /// Keep candidates matching `f`. A `List` result is conjunction. Static terms
-  /// drop candidates at build time; live terms become the member's condition —
-  /// one method, because it is one fold.
-  function where(f: (Any) -> Boolean|wire.Term|List<Boolean|wire.Term>): EntitySet =
+  /// Keep candidates matching the condition. Accepts either a LAMBDA (needed
+  /// when the term reads the candidate directly, `(e) -> e.domain == "light"`)
+  /// or the DATA form built from the same property references ordering uses
+  /// (`q.eq(q.prop("domain"), "light")`), which needs no lambda at all.
+  ///
+  /// A `List` result is conjunction. Static terms drop candidates at build
+  /// time; live terms become the member's condition — one method, one fold.
+  function where(f: Filter): EntitySet =
     let (l = this) (l) { filters = l.filters.add(f) }
 
   /// Lexicographic, most significant first. A declarative LIST rather than a
   /// lambda — unlike [[where]], an ordering key never depends on the individual
   /// candidate. Sort the input list with ordinary Pkl for computed orderings.
-  function orderBy(ks: List<wire.OrderSpec|wire.PropRef|wire.Term>): EntitySet =
-    let (l = this) (l) { specs = l.specs + ks.map((k) -> spec(k)) }
+  /// One position, or a list of them (lexicographic, most significant first).
+  function orderBy(ks: List<wire.OrderSpec|wire.PropName|wire.Pending>|wire.OrderSpec|wire.PropName|wire.Pending): EntitySet =
+    let (l = this)
+      let (asList = if (ks is List) ks as List<wire.OrderSpec|wire.PropName|wire.Pending> else List(ks))
+        (l) { specs = l.specs + asList.map((k) -> spec(k)) }
 
   /// One guarded rendering. `g` returning a `Boolean` folds at build time; a
   /// `Term` defers to the wire.
@@ -119,11 +136,23 @@ class EntitySet {
       wire.buildSet(
         l.items,
         l.branches,
-        (e) -> wire.all(l.filters.map((f) ->
-          let (r = f.apply(e))
-            if (r is List) wire.all(r as List<Boolean|wire.Term>) else r as (Boolean|wire.Term))),
+        (e) -> wire.all(l.filters.map((f) -> normalise(l.items, e, f))),
         l.specs)
 }
+
+/// Reduce one filter, in either form, to a single folded term for candidate `e`.
+const local function normalise(items: List<Any>, e: Any, f: Any): Boolean|wire.Term =
+  let (r = if (f is Function) (f as ((Any) -> Any)).apply(e) else f)
+    if (r is List)
+      wire.all((r as List<Any>).map((x) -> normalise(items, e, x)))
+    else if (r is wire.Pending) wire.resolvePending(items, e, r as wire.Pending)
+    else r as (Boolean|wire.Term)
+
+/// What `where` accepts: a lambda over the candidate, or the data form.
+typealias Filter =
+  ((Any) -> Boolean|wire.Term|wire.Pending|List<Boolean|wire.Term|wire.Pending>)
+  |wire.Pending
+  |List<Boolean|wire.Term|wire.Pending>
 
 /// Start a query. Flexible by design — any list of things with an `entity_id`.
 function from(xs: List<Any>): EntitySet = new EntitySet { items = xs }

@@ -58,6 +58,58 @@ facts {
     s.conditions[s.members["light.lampe"].clauses.first.cond].property == "state"
   }
 
+  // A list is AND and `any` is OR, so BOTH nestings are expressible. The
+  // top-level shape is whichever you write — a list is not forced on you.
+  ["`a OR (b AND c)`: `all` nests inside `any` just as `any` nests inside a list"] {
+    local s = q.from(fixtures.all)
+      .where((e) -> q.any(List(
+        e.domain == "media_player",
+        q.all(List(e.domain == "light", e.area_id == "stue")))))
+      .render(toggle)
+      .build()
+    // the TV, plus the three stue lights — but not the kjokken light
+    s.candidates.length == 4
+    s.candidates.contains("media_player.tv")
+    !s.candidates.contains("light.kjokken")
+  }
+
+  // ONE vocabulary: the same property references drive predicates and ordering,
+  // and the data form needs no lambda at all.
+  ["the data form of `where` folds a registry property at build time"] {
+    local s = q.from(fixtures.all)
+      .where(q.eq(q.prop("domain"), "light"))
+      .render(toggle)
+      .build()
+    s.candidates.length == 4
+    !s.candidates.contains("media_player.tv")
+    // `domain` is a candidate property, so the build read it — nothing deferred
+    s.conditions == List(null)
+  }
+
+  ["the data form defers a property the build cannot read"] {
+    local s = q.from(fixtures.all)
+      .where(q.eq(q.stateProp, "on"))
+      .render(toggle)
+      .build()
+    s.conditions.length == 2
+    s.conditions[1].property == "state"
+  }
+
+  ["a name that is not a candidate property resolves to a live attribute"] {
+    local s = q.from(fixtures.all)
+      .where(q.gt(q.prop("brightness"), 40))
+      .render(toggle)
+      .build()
+    s.conditions[1].property == "attr:brightness"
+  }
+
+  ["`orderBy` takes one position as well as a list"] {
+    local one = q.from(fixtures.all).where((e) -> e.domain == "light")
+      .orderBy(q.desc(q.prop("brightness"))).render(toggle).build()
+    one.orderBy.length == 1
+    (one.orderBy.first as wire.LiveSort).dir == "desc"
+  }
+
   ["`not` folds statically when its operand is static"] {
     q.not(true) == false
     q.not(false) == true
@@ -109,9 +161,9 @@ facts {
     local s = q.from(fixtures.all)
       .where((e) -> e.domain == "light")
       .orderBy(List(
-        q.desc(q.byStateIs("on")),
-        q.desc(q.byAttr("brightness")),
-        q.asc(q.byReg("friendly_name"))))
+        q.desc(q.eq(q.stateProp, "on")),
+        q.desc(q.prop("brightness")),
+        q.asc(q.prop("friendly_name"))))
       .render(toggle)
       .build()
     s.orderBy.length == 3
@@ -127,7 +179,7 @@ facts {
   ["an all-registry ordering is resolved at build time"] {
     local s = q.from(fixtures.all)
       .where((e) -> e.domain == "light")
-      .orderBy(List(q.asc(q.byReg("friendly_name"))))
+      .orderBy(List(q.asc(q.prop("friendly_name"))))
       .render(toggle)
       .build()
     // fully static: sorted now, nothing emitted
