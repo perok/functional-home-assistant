@@ -1983,13 +1983,32 @@ object Renderer {
 
   /** Evaluate a query predicate against one entity's live state. The entity's
     * id and domain come off the [[EntityState]] itself.
+    *
+    * A `Cmp` naming another entity cannot be resolved from a single state, so
+    * this treats it as false; use [[matchesIn]] where the snapshot is
+    * available.
     */
   def matches(p: Predicate, st: EntityState): Boolean =
+    matchesIn(p, st, Map.empty)
+
+  /** [[matches]] with the snapshot in hand, so a guard may name a DIFFERENT
+    * entity than its subject. `Cmp.entity` absent still means "the subject".
+    */
+  def matchesIn(
+      p: Predicate,
+      subject: EntityState,
+      states: Map[String, EntityState]
+  ): Boolean =
     p match {
-      case Predicate.And(items)               => items.forall(matches(_, st))
-      case Predicate.Or(items)                => items.exists(matches(_, st))
-      case Predicate.Not(item)                => !matches(item, st)
-      case Predicate.Cmp(property, op, value) =>
+      case Predicate.And(items) => items.forall(matchesIn(_, subject, states))
+      case Predicate.Or(items)  => items.exists(matchesIn(_, subject, states))
+      case Predicate.Not(item)  => !matchesIn(item, subject, states)
+      case Predicate.Cmp(_, _, _, Some(other)) if !states.contains(other) =>
+        // Named an entity the snapshot does not have: it can never hold, and
+        // saying so beats reading the subject's value by accident.
+        false
+      case Predicate.Cmp(property, op, value, entity) =>
+        val st = entity.flatMap(states.get).getOrElse(subject)
         val lhs = property match {
           case "domain" => st.domain
           case "state"  => st.state

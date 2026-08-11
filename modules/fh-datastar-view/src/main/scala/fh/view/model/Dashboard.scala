@@ -195,7 +195,27 @@ object Predicate:
   case class And(items: List[Predicate]) extends Predicate
   case class Or(items: List[Predicate]) extends Predicate
   case class Not(item: Predicate) extends Predicate
-  case class Cmp(property: String, op: Op, value: Json) extends Predicate
+
+  /** `entity` absent means "the subject" — the set member this guard is
+    * attached to, which is the common case and leaves every existing predicate
+    * unchanged. Present names a DIFFERENT entity, resolved at BUILD time ("show
+    * each light while its own room's motion sensor is on"), and those ids must
+    * reach the reverse index or the node is never woken by them — see
+    * [[referencedEntities]].
+    */
+  case class Cmp(
+      property: String,
+      op: Op,
+      value: Json,
+      entity: Option[String] = None
+  ) extends Predicate
+
+  /** Every entity a predicate names besides its subject. */
+  def referencedEntities(p: Predicate): List[String] = p match
+    case Cmp(_, _, _, e) => e.toList
+    case And(items)      => items.flatMap(referencedEntities)
+    case Or(items)       => items.flatMap(referencedEntities)
+    case Not(item)       => referencedEntities(item)
 
 /** How a [[Activation.State]] condition is quantified over the WHOLE live state
   * map. A [[Predicate]] tests ONE entity; a surface's activation must decide
@@ -332,6 +352,60 @@ object LayoutNode:
       // .fh-group`) — e.g. `fh-cols-full` to span a parent grid.
       cell: Option[Cell] = None
   ) extends LayoutNode
+
+  /** A set over a STATICALLY KNOWN candidate list — the replacement for
+    * [[Dynamic]], whose membership was a runtime query over every entity.
+    *
+    * The candidates are decided at build time from the typed dump, so the
+    * runtime never invents a member: it decides only PRESENCE (which candidates
+    * render) and ORDER. See `docs/plan-dynamics-one-entity-lifecycle.md`.
+    *
+    *   - `candidates`: entity ids, in render order. When the ordering folded to
+    *     registry facts this list is already sorted and [[orderBy]] is empty —
+    *     the runtime filters and preserves it, with no comparisons.
+    *   - `members`: per candidate, its guarded renderings.
+    *   - `limit`: at most this many PRESENT members, applied after ordering.
+    */
+  case class SetNode(
+      candidates: List[String] = Nil,
+      members: Map[String, SetMember] = Map.empty,
+      orderBy: List[SortTerm] = Nil,
+      limit: Option[Int] = None,
+      cell: Option[Cell] = None
+  ) extends LayoutNode:
+    /** Every entity that can wake this set: its candidates, plus any entity a
+      * guard NAMES besides the member ("show while the hall sensor is on").
+      */
+    def liveEntities: List[String] =
+      (candidates ++ members.values
+        .flatMap(_.clauses)
+        .flatMap(c =>
+          c.when.toList.flatMap(Predicate.referencedEntities)
+        )).distinct
+
+  /** One candidate's renderings, tried in order. The first whose `when` holds
+    * decides; falling off the end means the member is NOT RENDERED — which is
+    * why there is no separate presence field.
+    */
+  case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
+
+  /** A guard plus the COMPLETE node it renders. Nothing is shared between
+    * clauses or members, so a clause cannot be wrong about which member it
+    * belongs to — see the "Rejected: the compressed format" note in the plan.
+    */
+  case class SetClause(
+      when: Option[Predicate] = None,
+      node: LayoutNode
+  ) derives ConfiguredDecoder
+
+  /** One lexicographic ordering position, most significant first. `by` is a
+    * property reference (sort by its value) or a predicate (sort by whether it
+    * holds).
+    */
+  case class SortTerm(
+      by: Predicate,
+      dir: String = "asc"
+  ) derives ConfiguredDecoder
 
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
