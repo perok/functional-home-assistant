@@ -125,6 +125,64 @@ facts {
     s.candidates == List("area.stue", "area.kjokken")
     !s.candidates.contains("area.bod")
   }
+
+  // AGGREGATES. The reduction that makes these cheap: an aggregate counts the
+  // PRESENT members of a set, and presence is already per-member and already
+  // computed. So `count` needs no predicate machinery of its own, and
+  // any/none/all are three comparisons rather than three quantifiers.
+  ["C7 count is a comparison, and any/none/all derive from it"] {
+    local onLights = q.from(fixtures.stue.lights).where(q.eq(q.stateProp, "on"))
+
+    onLights.count().gt(2) is wire.AggCmp
+    (onLights.count().gt(2) as wire.AggCmp).agg.op == "count"
+    // any/none are the same aggregate, compared differently — no Quantifier
+    (onLights.any() as wire.AggCmp).op == "gt"
+    (onLights.any() as wire.AggCmp).value == 0
+    (onLights.none() as wire.AggCmp).op == "eq"
+    (onLights.none() as wire.AggCmp).value == 0
+    // the aggregate carries the set it counts, so the runtime needs no lookup
+    (onLights.any() as wire.AggCmp).agg.over.candidates.length == 3
+  }
+
+  // The live half of the tile-per-room case, which is what aggregates were
+  // blocking: hide the room while none of its lights are on.
+  ["C8 hide a room while none of its lights are on"] {
+    local roomsWithLightOn = q.from(fixtures.areas)
+      .where(q.candidate((a) ->
+        q.from((a as fixtures.Area).lights).where(q.eq(q.stateProp, "on")).any()))
+      .render(roomTile)
+      .build()
+
+    // the empty room is gone at BUILD time — an empty set can never be non-empty
+    !roomsWithLightOn.candidates.contains("area.bod")
+    // the others defer: each carries an aggregate over its OWN lights
+    local stueCond = roomsWithLightOn.conditions[
+      roomsWithLightOn.members["area.stue"].clauses.first.cond] as wire.AggCmp
+    stueCond.agg.over.candidates.length == 3
+    local kjokkenCond = roomsWithLightOn.conditions[
+      roomsWithLightOn.members["area.kjokken"].clauses.first.cond] as wire.AggCmp
+    kjokkenCond.agg.over.candidates.length == 1
+  }
+
+  // LIMIT. A third member state — present-but-cut — distinct from absent.
+  // Applied after ordering, so "the three brightest" is well defined.
+  ["C9 limit: the three brightest"] {
+    local s = q.from(fixtures.all)
+      .where(q.eq(q.prop("domain"), "light"))
+      .orderBy(q.desc(q.prop("brightness")))
+      .limit(3)
+      .render(slider)
+      .build()
+
+    s.limit == 3
+    // every candidate still ships — which of them is cut is a runtime decision,
+    // because it depends on the live ordering
+    s.candidates.length == 4
+  }
+
+  ["C10 no limit means no cap on the wire"] {
+    q.from(fixtures.stue.lights).render(slider).build().limit == null
+  }
 }
 
 local function asJson(v: Any): String = new JsonRenderer { indent = "  " }.renderValue(v)

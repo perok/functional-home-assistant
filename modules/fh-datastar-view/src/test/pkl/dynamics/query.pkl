@@ -174,6 +174,7 @@ class EntitySet {
   hidden filters: List<Filter> = List()
   hidden branches: List<wire.Branch> = List()
   hidden specs: List<wire.OrderSpec> = List()
+  hidden cap: Int? = null
 
   /// Keep candidates matching the condition. Accepts either a LAMBDA (needed
   /// when the term reads the candidate directly, `(e) -> e.domain == "light"`)
@@ -222,13 +223,75 @@ class EntitySet {
   /// The only rendering, when there is nothing to dispatch on.
   function render(r: (wire.Candidate) -> wire.Node): EntitySet = caseOf((_e) -> true, r)
 
+  /// Show at most `n` present members, after ordering. "The three brightest."
+  function limit(n: Int): EntitySet = let (l = this) (l) { cap = n }
+
+  /// An aggregate needs PRESENCE, not rendering — but presence lives on a
+  /// clause, and a candidate with no clause is dropped. So a set being counted
+  /// gets one unconditional marker branch; its shape is never rendered.
+  hidden countable: EntitySet =
+    let (l = this)
+      if (!l.branches.isEmpty) l
+      else (l) {
+        branches = List(new wire.Branch {
+          key = (_e) -> true
+          render = (_e) -> new wire.Node { card = " count"; slots = Map() }
+        })
+      }
+
+  /// How many of this set's members are present. `any`/`none`/`all` are
+  /// comparisons on it, not separate quantifiers.
+  function count(): AggRef =
+    let (l = this) new { agg = new wire.Agg { op = "count"; over = l.countable.build() } }
+  function any(): wire.Cond = count().gt(0)
+  function none(): wire.Cond = count().eq(0)
+  function all(): wire.Cond =
+    let (l = this) count().eq(l.countable.build().candidates.length)
+
+  /// An extremum over a property of the present members.
+  function min(p: wire.PropName): AggRef =
+    let (l = this)
+      new { agg = new wire.Agg { op = "min"; over = l.countable.build(); of = wire.resolveProp(l.items, p) } }
+  function max(p: wire.PropName): AggRef =
+    let (l = this)
+      new { agg = new wire.Agg { op = "max"; over = l.countable.build(); of = wire.resolveProp(l.items, p) } }
+
   function build(): wire.SetNode =
     let (l = this)
       wire.buildSet(
         l.items,
         l.branches,
         (e) -> wire.all(l.filters.map((f) -> normalise(l.items, e, f))),
-        l.specs)
+        l.specs,
+        l.cap)
+}
+
+/// A derived value, comparable into an ordinary Term.
+/// A derived value, comparable into an ordinary Term — or into a CONSTANT when
+/// the set is statically empty. `count` over no candidates is knowably 0, so
+/// `any()` on an empty room folds to `false` and the tile is dropped at build
+/// time rather than carrying a condition that can never hold. Same fold as
+/// everywhere else, applied one level up.
+class AggRef {
+  agg: wire.Agg
+
+  hidden knownCount: Int? =
+    if (agg.op == "count" && agg.over.candidates.isEmpty) 0 else null
+  // `let (l = this)`: inside `new { agg = … }` a bare `this` — and even
+  // `this.agg` — rebinds to the object being built, so the field initialises
+  // from itself and recurses.
+  function gt(v: wire.Scalar): wire.Cond =
+    let (l = this)
+      if (l.knownCount != null) l.knownCount!! > (v as Int)
+      else new wire.AggCmp { agg = l.agg; op = "gt"; value = v }
+  function lt(v: wire.Scalar): wire.Cond =
+    let (l = this)
+      if (l.knownCount != null) l.knownCount!! < (v as Int)
+      else new wire.AggCmp { agg = l.agg; op = "lt"; value = v }
+  function eq(v: wire.Scalar): wire.Cond =
+    let (l = this)
+      if (l.knownCount != null) l.knownCount!! == v
+      else new wire.AggCmp { agg = l.agg; op = "eq"; value = v }
 }
 
 /// Reduce one filter, in either form, to a single folded term for candidate `e`.

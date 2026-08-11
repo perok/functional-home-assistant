@@ -965,21 +965,56 @@ stop being true.
 The doc must change in the same commit as the code, per the repo rule. §4b is the section that
 moves; §3's kind table needs the DYNAMICS row reworded.
 
+## Aggregates: count the present members
+
+The reduction that makes these cheap: **an aggregate counts the PRESENT members of a set**, and
+presence is already per-member and already computed. So `count` needs no predicate machinery of its
+own, and the three quantifiers become three comparisons:
+
+```
+any   ->  count > 0
+none  ->  count == 0
+all   ->  count == candidates.length
+```
+
+**That is what retires `Quantifier`.** It existed only because an unbound predicate had to be
+quantified over the whole state map; over a known candidate list there is nothing left for it to
+say. `Agg { op, over: SetNode, of: PropRef? }` plus `AggCmp extends Term` — so a comparison on an
+aggregate is an ORDINARY term and composes with everything: a member clause, a surface condition,
+an `and`/`or`.
+
+```pkl
+q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).count().gt(2)
+q.from(dump.stue.lights).where(q.eq(q.stateProp, "on")).any()      // same thing
+```
+
+Two things the spike turned up:
+
+- **An aggregate needs presence, not rendering** — but presence lives on a clause, and a candidate
+  with no clause is dropped. A counted set therefore gets one unconditional marker branch whose
+  shape is never rendered.
+- **`count` over a statically empty set folds to a constant.** `count(∅)` is knowably 0, so
+  `any()` on an empty room becomes `false` and the tile is dropped at build time instead of
+  carrying a condition that can never hold. Same fold as everywhere else, one level up — and it is
+  what makes the live tile-per-room case work (C8).
+
+This closes composite (b): "hide the room while none of its lights are on" is an aggregate over the
+tile's own inner set, and each room's condition carries its own.
+
+## `limit`: a third member state
+
+`limit: Int?` on the set, applied AFTER ordering. Every candidate still ships — which of them is
+cut depends on the live ordering, so it can only be decided at runtime.
+
+It introduces a member state the format did not have: **present-but-cut**, distinct from absent.
+Under P7 a cut member is absent from the DOM, not hidden in it, so the two look the same to the
+client and differ only in why. Worth naming because the runtime has to distinguish them: an absent
+member has no matching clause, a cut one matched but lost its place.
+
 ## Not yet designed
 
 Named so they are not mistaken for oversights. The first two are wanted; the rest are known
 trade-offs.
-
-**Composite members — the structural half is now spiked** (`composite.test.pkl`). See "Composite
-members" below. What remains is the live variant of an empty-room test, which needs aggregates.
-
-**Aggregates.** `count`/`any`/`all`/`min` over a set. Sketched (a derived value is a node whose
-index key is the candidate list) but never spiked, and no wire representation exists. (b) depends
-on it, and so does "show this when more than X are on".
-
-**`limit` / take N.** "The three brightest" is runtime — it depends on live ordering — and there is
-no `limit` field. Cheap to add after ordering, but it introduces a third member state:
-present-but-cut, distinct from absent.
 
 **Per-member layout.** `cell` (`columns(n)`, `fullWidth()`) lived on the old `DynamicCase`. Under
 `shapes` it belongs to the shape, so a per-member span would have to become a var. Unspecified.

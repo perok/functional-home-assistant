@@ -154,8 +154,45 @@ class MemberDef {
   clauses: List<Clause>
 }
 
+/// A derived value over a set: how many of its members are PRESENT, or an
+/// extremum over one of their properties.
+///
+/// The important reduction: an aggregate does not need its own predicate
+/// machinery. Presence is already per-member and already computed, so `count` is
+/// just |present(set)| — and `any`/`none`/`all` are three comparisons on it
+/// rather than three quantifiers. That is what lets [[Quantifier]] retire: it
+/// existed only because an unbound predicate had to be quantified over the whole
+/// state map.
+///
+///     any   ->  count > 0
+///     none  ->  count == 0
+///     all   ->  count == candidates.length
+class Agg {
+  kind: "agg" = "agg"
+  /// "count" | "min" | "max" | "sum"
+  op: String
+  /// The set whose present members are aggregated.
+  over: SetNode
+  /// Which property to reduce, for min/max/sum. Null for count.
+  of: PropRef? = null
+}
+
+/// Comparing an aggregate yields an ordinary [[Term]], so it composes with
+/// everything: a member clause, a surface condition, an `and`/`or`.
+class AggCmp extends Term {
+  kind: "aggcmp" = "aggcmp"
+  agg: Agg
+  op: String
+  value: Scalar
+}
+
 class SetNode {
   kind: "set" = "set"
+  /// Show at most this many PRESENT members, after ordering. A member beyond the
+  /// cut is not rendered at all — P7: absent from the DOM, not hidden in it. So a
+  /// member has three states, not two: absent (no clause matched), present, and
+  /// present-but-cut.
+  limit: Int? = null
   /// In render order. When the ordering key folded to registry facts this list
   /// is already sorted and [[orderBy]] is null: the runtime filters to the
   /// present members and preserves this order, O(P) with no comparisons.
@@ -391,7 +428,8 @@ function buildSet(
   entities: List<Candidate>,
   branches: List<Branch>,
   presence: (Candidate) -> Boolean|Term,
-  orderSpecs: List<OrderSpec>
+  orderSpecs: List<OrderSpec>,
+  cap: Int?
 ): SetNode =
   // 0. fold the ordering first: keys that are all registry-derived sort the
   //    candidates now and emit nothing, so the runtime never compares them.
@@ -432,6 +470,7 @@ function buildSet(
         .distinct)
   new SetNode {
     candidates = dispatched.map((p) -> p.first.entity_id)
+    limit = cap
     orderBy = ordered.terms
     conditions = conds
     shapes = shapeDefs
