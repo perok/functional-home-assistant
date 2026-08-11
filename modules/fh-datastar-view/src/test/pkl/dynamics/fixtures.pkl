@@ -3,7 +3,7 @@ module fixtures
 
 import "wire.pkl"
 
-open class Ent {
+open class Ent extends wire.Candidate {
   entity_id: String
   domain: String
   friendly_name: String
@@ -46,8 +46,7 @@ motionByArea: Mapping<String, String> = new {
 /// so its presence can only ever be static or come from an aggregate over its
 /// contents. `entity_id` is what the wire keys members by; areas borrow the
 /// field rather than introducing a second identity concept.
-class Area {
-  entity_id: String
+class Area extends wire.Candidate {
   name: String
   lights: List<Ent>
 }

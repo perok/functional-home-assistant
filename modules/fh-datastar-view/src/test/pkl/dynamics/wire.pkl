@@ -1,6 +1,17 @@
 /// SPIKE: the proposed `set` wire shape and the build-time fold that produces it.
 module wire
 
+/// Anything a set can hold as a member. The ONE thing every candidate must have
+/// is an id — an entity has a domain and attributes, an area has a name and a
+/// light list, and the query language cares about neither. This replaces `Any`:
+/// Pkl has no user generics, so a marker supertype is how a container says what
+/// it requires, and a lambda annotation (`(e: LightEntity) -> …`) narrows back to
+/// the concrete type where the author needs it.
+abstract class Candidate { entity_id: String }
+
+/// A comparison value. Not `Any` — only scalars are comparable.
+typealias Scalar = String|Int|Float|Boolean
+
 // ---- runtime predicate terms (always carry a binding) ----
 
 abstract class Term { kind: String }
@@ -14,7 +25,7 @@ class Bound extends Term {
   entity: String? = null
   property: String
   op: String
-  value: Any
+  value: Scalar
 }
 
 /// A named property that the entity does not carry. Warns rather than errors
@@ -101,7 +112,7 @@ class Xf extends Slot { transform: String; reactive: Boolean = true }
 class Node {
   card: String
   slots: Map<String, Slot>
-  children: List<Any> = List()
+  children: List<Node|SetNode|Hole> = List()
 }
 
 /// A gap in a shape's `children`, filled per member from [[MemberDef.fills]].
@@ -109,6 +120,10 @@ class Node {
 /// shape — the same rule that decides slot-vs-var. A nested set is always a hole
 /// in practice: two areas never have the same lights.
 class Hole { kind: "hole" = "hole"; idx: Int }
+
+// NOTE: `Child` cannot be a typealias — `Node.children` would make the alias
+// cyclic and Pkl rejects that ("Type alias definitions must not be cyclic").
+// The union is inlined at each use instead, which the compiler accepts.
 
 // ---- the emitted wire node ----
 
@@ -120,7 +135,7 @@ class ShapeDef {
   card: String
   slots: Map<String, Slot>
   /// Literal children, with a [[Hole]] wherever the child varies per member.
-  children: List<Any> = List()
+  children: List<Node|SetNode|Hole> = List()
 }
 
 /// One guarded rendering rule for a member: "if `cond` holds, render `shape`".
@@ -135,7 +150,7 @@ class Clause { cond: Int; shape: Int }
 class MemberDef {
   vars: Map<String, String>
   /// Fillers for this member's shape holes, indexed by [[Hole.idx]].
-  fills: List<Any> = List()
+  fills: List<Node|SetNode|Hole> = List()
   clauses: List<Clause>
 }
 
@@ -162,15 +177,15 @@ class SetNode {
 /// render when it wins. The key returns `Boolean` (folds at build time) or a
 /// `Term` (defers to the wire) — mixed via [[all]].
 class Branch {
-  key: (Any) -> Boolean|Term
-  render: (Any) -> Node
+  key: (Candidate) -> Boolean|Term
+  render: (Candidate) -> Node
 }
 
 /// Which branches survive for one candidate, in author order, with their
 /// residual runtime condition. A branch whose key folded to `false` is gone; a
 /// branch that folded to `true` is unconditional and ends the list (nothing
 /// after it can ever win).
-local function liveBranches(e: Any, branches: List<Branch>): List<Pair<Branch, Term?>> =
+local function liveBranches(e: Candidate, branches: List<Branch>): List<Pair<Branch, Term?>> =
   let (evaluated = branches
         .map((b) -> Pair(b, b.key.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
@@ -233,18 +248,27 @@ class LiveAttr extends PropName {}
 /// time. A first-class term rather than a bare lambda, so it composes: it can
 /// sit inside `any`/`all`/`not` where a lambda could not, because a lambda has
 /// no candidate in scope outside `where`.
-class CandidateTerm { fn: (Any) -> Any }
+/// `fn`'s return is `Any` and not `Cond` ONLY because a typealias may not be
+/// cyclic in Pkl, and `Cond` mentions `CandidateTerm`. Everything the resolver
+/// accepts is still a `Cond`; the looseness stops at this one field.
+class CandidateTerm { fn: (Candidate) -> Any }
+
+/// Everything that can appear where a condition is expected, resolved or not.
+/// Usable in every NON-recursive position (function parameters, list elements);
+/// the two positions that would close the loop take `Any` and say why.
+typealias Cond = Boolean|Term|Pending|CandidateTerm|Group
 
 /// An UNRESOLVED boolean group. `all`/`any`/`not` fold immediately when every
 /// operand is already resolved; when one is still a [[Pending]] or a
 /// [[CandidateTerm]] they produce this instead, and the fold happens per
 /// candidate. Same operators either way — the author cannot tell.
+/// `items` is `List<Any>` for the same alias-cycle reason as [[CandidateTerm.fn]].
 class Group { gop: String; items: List<Any> }
 
 /// An UNRESOLVED comparison — the key is still a [[PropName]]. Resolving it
 /// against the candidates either folds it to a `Boolean` (a registry fact the
 /// build can read) or produces a live [[Bound]].
-class Pending { key: PropName; op: String; value: Any }
+class Pending { key: PropName; op: String; value: Scalar }
 
 /// Where a named property actually comes from, for these candidates.
 ///
@@ -257,7 +281,7 @@ class Pending { key: PropName; op: String; value: Any }
 ///                            It would otherwise silently resolve to a live
 ///                            attribute and quietly stop being the registry
 ///                            fact the author meant.
-function resolveProp(items: List<Any>, p: PropName): PropRef =
+function resolveProp(items: List<Candidate>, p: PropName): PropRef =
   if (p.name == "state") new PropRef { property = "state" }
   else if (p is LiveAttr) new PropRef { property = "attr:" + p.name }
   else
@@ -274,7 +298,7 @@ function resolveProp(items: List<Any>, p: PropName): PropRef =
         """)
 
 /// True when the build can read this property itself.
-function isBuildReadable(items: List<Any>, p: PropName): Boolean =
+function isBuildReadable(items: List<Candidate>, p: PropName): Boolean =
   resolveProp(items, p).property.startsWith("reg:")
 
 local function applyOp(op: String, l: Any, r: Any): Boolean =
@@ -287,7 +311,7 @@ local function applyOp(op: String, l: Any, r: Any): Boolean =
 /// Resolve one pending comparison for ONE candidate: folded to a Boolean when
 /// the build can read the property, otherwise a live term. This is the same
 /// static/live split as everywhere else, now reached through one vocabulary.
-function resolvePending(items: List<Any>, e: Any, pd: Pending): Boolean|Term =
+function resolvePending(items: List<Candidate>, e: Candidate, pd: Pending): Boolean|Term =
   if (isBuildReadable(items, pd.key))
     applyOp(pd.op, e.getPropertyOrNull(pd.key.name), pd.value)
   else new Bound { property = resolveProp(items, pd.key).property; op = pd.op; value = pd.value }
@@ -308,7 +332,7 @@ typealias OrderTerm = LiveSort
 class OrderSpec { by: PropName|Pending; dir: String = "asc" }
 
 class Ordering {
-  entities: List<Any>
+  entities: List<Candidate>
   /// Null when the whole ordering was resolved at build time.
   terms: List<OrderTerm>?
 }
@@ -321,7 +345,7 @@ class Ordering {
 ///   - any position needs live state => emit the whole list; build-readable
 ///     positions stay `reg:` references the backend resolves, costing nothing
 ///     per member even when they outrank a live key.
-function foldOrder(items: List<Any>, specs: List<OrderSpec>): Ordering =
+function foldOrder(items: List<Candidate>, specs: List<OrderSpec>): Ordering =
   let (readable = specs.map((s) ->
         if (s.by is Pending) isBuildReadable(items, (s.by as Pending).key)
         else isBuildReadable(items, s.by as PropName)))
@@ -364,9 +388,9 @@ local function conjoin(presence: Boolean|Term, branch: Term?): Term? =
 
 /// Build the wire node from a static candidate list and authored branches.
 function buildSet(
-  entities: List<Any>,
+  entities: List<Candidate>,
   branches: List<Branch>,
-  presence: (Any) -> Boolean|Term,
+  presence: (Candidate) -> Boolean|Term,
   orderSpecs: List<OrderSpec>
 ): SetNode =
   // 0. fold the ordering first: keys that are all registry-derived sort the

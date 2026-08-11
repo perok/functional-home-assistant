@@ -683,18 +683,31 @@ Three of them (S1, S5, S9) also capture their emitted JSON in
 `query-scenarios.test.pkl-expected.pcf`, so a wire-format change shows up as a reviewable diff
 rather than a discussion.
 
-## Typing: Pkl has no user generics
+## Typing: `Any` is mostly avoidable after all
 
-`EntitySet<T>` is impossible — "Only standard library members can have type parameters" — so
-candidates are `Any`, Pkl's untyped top type. That costs completion, which is the point of the
-typed dump, and the recovery is the author annotating the lambda:
+Pkl has no user generics — `EntitySet<T>` is rejected outright — but that does not force `Any`
+everywhere. Three moves cover almost all of it:
 
-```pkl
-.render((e: hass.LightEntity) -> c.slider(e.colourTemp))
-```
+- **A marker supertype.** `abstract class Candidate { entity_id: String }`, which both entities and
+  areas extend. It says what a set actually requires (an id, nothing else) and rejects a list of
+  the wrong thing. Authors narrow back to the concrete type by annotating the lambda —
+  `.render((e: hass.LightEntity) -> …)` — which works and rejects a wrong annotation.
+- **Union typealiases** where the variants are known: `Scalar = String|Int|Float|Boolean` for
+  comparison values, `Cond = Boolean|Term|Pending|CandidateTerm|Group` for conditions.
+- **Inlining a union** where an alias would be cyclic.
 
-Verified that this both works and rejects a wrong annotation. `from` stays flexible (a tile per
-room will make AREAS the candidates), and capability typing is opt-in where it matters.
+`Any` survives in exactly three places, each for a reason worth knowing:
+
+- `CandidateTerm.fn` and `Group.items` — **a typealias may not be cyclic in Pkl** ("Type alias
+  definitions must not be cyclic"), and `Cond` mentions both classes. Inlining does not help; the
+  union still closes the loop. So the two positions that would close it take `Any`, and `Cond` is
+  used everywhere else.
+- `Node.children` / `fills` take the inlined `Node|SetNode|Hole` rather than a `Child` alias, for
+  the same rule.
+- `applyOp`'s operands, which are genuinely heterogeneous.
+
+The public surface — `from`, `where`, `render`, `orderBy`, `entity`, the comparison builders — is
+now precisely typed.
 
 ## The registry lives in the backend
 
