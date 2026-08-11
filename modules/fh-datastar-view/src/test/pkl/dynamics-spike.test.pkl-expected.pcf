@@ -96,11 +96,7 @@ examples {
       "shapes": [
         {
           "card": "mediaCard",
-          "slots": {
-            "label": {
-              "literal": "TV"
-            }
-          },
+          "slots": {},
           "children": []
         },
         {
@@ -147,7 +143,9 @@ examples {
           ]
         },
         "media_player.tv": {
-          "vars": {},
+          "vars": {
+            "label": "TV"
+          },
           "fills": [],
           "clauses": [
             {

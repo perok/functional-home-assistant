@@ -1011,36 +1011,79 @@ Under P7 a cut member is absent from the DOM, not hidden in it, so the two look 
 client and differ only in why. Worth naming because the runtime has to distinguish them: an absent
 member has no matching clause, a cut one matched but lost its place.
 
+## var-vs-shape is decided by TYPE
+
+Which slots become per-member `vars` is decided by type, not by diffing:
+
+```
+a Lit  ->  always a var          (a build-time value, so it may vary per member)
+an Xf  ->  always on the shape   (a transform is identical for everyone; the
+                                  entity it reads comes from the member binding)
+```
+
+and the same rule recurses into `children`: a child carrying any literal at any depth becomes a
+hole, one with none (a divider, a fixed header) stays in the shape. A nested set is always a hole.
+
+**Why not diff.** Diffing "does this literal actually differ across the members that happen to
+share this shape" makes the emitted structure depend on MEMBER COUNT — a shape with one member has
+nothing to diff, so its literal stayed on the shape while an identically authored four-member shape
+put it in vars. Verified harmless at runtime (shape indices carry no meaning, and the restructure
+only happens on a rebuild that already repaints the whole body via `Server.reloadRepaints`), but a
+format where one input yields two structures is harder to reason about and to decode.
+
+**The cost**, accepted: a literal that is genuinely constant across members (`min: "1"` on every
+light) is now repeated per member. Few and short, and worth paying for a structure that is a
+function of the authoring alone. Pinned by "the same authoring emits the same structure regardless
+of member count".
+
+## Layout belongs to the shape
+
+`cell` (`columns(n)`, `fullWidth()`, `hug()`) lived on the old `DynamicCase`, shared by every member
+of that case. The spike currently carries it **nowhere** — `wire.Node` has no `cell` field — so
+`.columns(3)` inside a render lambda is silently dropped today. That is a gap, not a design.
+
+It belongs on `ShapeDef`, and the reason is that anything which legitimately varies the layout also
+varies the CARD:
+
+```pkl
+.caseOf(q.candidate((e) -> e.supported_features > 4), (e) -> c.slider(e).columns(6))
+.`else`((e) -> c.toggle(e).columns(3))
+```
+
+Different case → different shape → different cell, naturally. A per-member span with the SAME card
+is the exotic case, and arguably should not be encouraged: a set whose members are different widths
+for no structural reason is a layout smell.
+
+**The latent bug to fix when adding it:** shapes are grouped by `card` + child count. Two members
+with the same card but different authored cells would merge into one shape and one cell would
+SILENTLY WIN. The grouping key must include the cell, so a differing cell forces a distinct shape —
+which is also count-independent, consistent with the rule above.
+
+Applying the type rule to `cell` instead (making it a per-member var) was considered and rejected:
+class lists are longer than labels, and they are near-always constant across a shape, so it pays
+C's repetition cost where the benefit is close to zero.
+
 ## Not yet designed
 
 Named so they are not mistaken for oversights. The first two are wanted; the rest are known
 trade-offs.
 
-**Per-member layout.** `cell` (`columns(n)`, `fullWidth()`) lived on the old `DynamicCase`. Under
-`shapes` it belongs to the shape, so a per-member span would have to become a var. Unspecified.
+**Per-member layout — and a latent bug in the current spike.** See "Layout belongs to the shape"
+below.
 
-**Cross-set interleaving.** Two sets are two DOM regions and cannot be ordered against each other.
-Accepted, not solved — it is the price of splitting a query into two.
+**NOT a limitation after all — cross-set interleaving.** Parked earlier as "two sets are two DOM
+regions". But `from` takes any `List<Candidate>`, so concatenate the sources into ONE set and
+dispatch with `.cases(...)`; that interleaves. The only thing genuinely impossible is interleaving
+two SEPARATELY AUTHORED sets in different parts of the layout, which is obvious rather than a flaw.
 
-**Unsatisfiable conjunctions** (`state == on AND state == off`) are not detected. Exotic; detecting
-it means a satisfiability check.
+**Out of scope — unsatisfiable conjunctions** (`state == on AND state == off`). An obvious authoring
+bug when it happens, and the rabbit hole gets deep fast (partial orders, attribute ranges, cross-
+entity terms). Not worth the machinery.
 
 ## Open questions
 
 - The LINQ surface beyond the sketch above — `orderBy` stability rules, what `derived` values exist
   besides `count`, and whether `render` composition needs anything past `Cases`.
-- **var-vs-case is count-dependent.** The spike decides by diffing the members that share a shape,
-  so a single-member shape has nothing to diff and bakes its entity-derived literal onto the case;
-  adding a second entity of that kind restructures the emitted shape. Pinned by
-  `dynamics-spike.test.pkl` ("single-member shapes bake their literal onto the case").
-
-  *Probably cosmetic, but unverified.* It would only matter if a shape index carried meaning
-  beyond selecting card + slots — it does not today — and adding an entity is a registry change,
-  which already forces a rebuild, renderer swap and full body repaint, so the reshuffle rides
-  along with work that was happening anyway. Before relying on that, confirm the repaint claim
-  against `Server.reloadRepaints` rather than taking it from this document. If it turns out to
-  matter, the stable rule is P2 applied directly — a literal slot is always a per-member var, a
-  transform slot always stays on the case — at the cost of repeating genuinely constant literals.
 
 ## How we would know it works
 

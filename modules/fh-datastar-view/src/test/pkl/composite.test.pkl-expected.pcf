@@ -121,17 +121,15 @@ examples {
               "shapes": [
                 {
                   "card": "slider",
-                  "slots": {
-                    "label": {
-                      "literal": "Kjøkken"
-                    }
-                  },
+                  "slots": {},
                   "children": []
                 }
               ],
               "members": {
                 "light.kjokken": {
-                  "vars": {},
+                  "vars": {
+                    "label": "Kjøkken"
+                  },
                   "fills": [],
                   "clauses": [
                     {

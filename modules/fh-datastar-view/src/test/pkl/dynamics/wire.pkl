@@ -230,14 +230,35 @@ local function liveBranches(e: Candidate, branches: List<Branch>): List<Pair<Bra
       (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
         .map((p) -> Pair(p.first, if (p.second is Term) p.second as Term else null))
 
-/// Slot keys whose LITERAL value differs across the members sharing a shape.
-/// Those become per-member `vars`; everything identical stays on the case.
-/// This is the D1 -> D2 compression: emit one case, not one node per member.
+/// Which slots become per-member `vars`. The rule is by TYPE, not by diffing:
+///
+///   a `Lit`  -> always a var    (it is a build-time value, so it may vary)
+///   an `Xf`  -> always on the shape (a transform is the same for every member;
+///              the entity it reads comes from the member binding)
+///
+/// Deciding by diff instead — "does this literal actually differ across the
+/// members that happen to share this shape" — makes the emitted structure depend
+/// on MEMBER COUNT: a shape with one member has nothing to diff, so its literal
+/// stays on the shape, and adding a second entity of that kind restructures the
+/// output from the same authoring. Harmless at runtime, but a format where one
+/// input yields two structures is harder to reason about and to decode.
+///
+/// The cost of the type rule is repeating a literal that is genuinely constant
+/// across members (`min: "1"` for every light). Few and short, and worth paying
+/// for a structure that is a function of the authoring alone.
 local function varyingKeys(nodes: List<Node>): List<String> =
-  if (nodes.length <= 1) List()
+  nodes.first.slots.keys.toList().filter((k) -> nodes.first.slots[k] is Lit)
+
+/// Does this child carry any build-time literal, at any depth? If so it may vary
+/// per member and must be a hole — the same type rule as [[varyingKeys]], applied
+/// to structure. A nested set is always per-member; a child with no literals (a
+/// divider, a fixed header) is the same for everyone and stays in the shape.
+local function containsLit(c: Node|SetNode|Hole): Boolean =
+  if (c is SetNode) true
+  else if (c is Hole) true
   else
-    nodes.first.slots.keys.toList().filter((k) ->
-      nodes.any((n) -> n.slots[k] != nodes.first.slots[k]))
+    let (n = c as Node)
+      n.slots.values.any((s) -> s is Lit) || n.children.any((k) -> containsLit(k))
 
 /// CHILD positions that differ across the members sharing a shape. Exactly the
 /// same rule as [[varyingKeys]], applied one level down: a child that is the
@@ -245,10 +266,8 @@ local function varyingKeys(nodes: List<Node>): List<String> =
 /// member fills. A nested `SetNode` is always in here — two areas never hold the
 /// same lights — which is why a nested set can never live in a shared shape.
 local function varyingChildren(nodes: List<Node>): List<Int> =
-  if (nodes.length <= 1) List()
-  else
-    nodes.first.children.toList().mapIndexed((i, _c) -> i).filter((i) ->
-      nodes.any((n) -> n.children.getOrNull(i) != nodes.first.children[i]))
+  nodes.first.children.toList().mapIndexed((i, c) -> Pair(i, c))
+    .filter((p) -> containsLit(p.second)).map((p) -> p.first)
 
 local function shapeOf(n: Node, varying: List<String>, varyingKids: List<Int>): ShapeDef =
   new ShapeDef {

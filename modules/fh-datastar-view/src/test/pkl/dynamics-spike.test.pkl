@@ -239,21 +239,30 @@ facts {
     s.candidates == List("light.kjokken", "light.lampe", "light.spot", "light.taklys")
   }
 
-  // OPEN QUESTION, pinned so it cannot hide. `varyingKeys` decides var-vs-case
-  // by DIFFING the members that happen to share a shape, so a shape with one
-  // member has nothing to diff and its entity-derived literal stays baked on
-  // the case. Adding a second media_player would silently restructure the
-  // emitted shape. The stable alternative is the P2 rule applied directly —
-  // a `Lit` is always a var, an `Xf` always stays on the case — at the cost of
-  // per-member repetition for literals that are genuinely constant.
-  ["single-member shapes bake their literal onto the case (count-dependent!)"] {
+  // COUNT-INDEPENDENCE. var-vs-shape is decided by TYPE, not by diffing the
+  // members that happen to share a shape. A literal is always a var, a transform
+  // is always on the shape — so the emitted structure is a function of the
+  // authoring alone, and adding a second entity of some kind never restructures
+  // the output.
+  ["the same authoring emits the same structure regardless of member count"] {
     local s = wire.buildSet(fixtures.all, List(lightBranch, mediaBranch), alwaysPresent, List(), null)
     local media = s.shapes.filter((c) -> c.card == "mediaCard").first
-    media.slots.containsKey("label")
-    s.members["media_player.tv"].vars.isEmpty
-    // the multi-member shape does the opposite with the same authored slot
-    s.shapes.filter((c) -> c.card == "slider").first.slots.isEmpty
+    local slider = s.shapes.filter((c) -> c.card == "slider").first
+
+    // mediaCard has ONE member, slider has four — and both put the literal in
+    // vars, because both were authored the same way
+    !media.slots.containsKey("label")
+    !slider.slots.containsKey("label")
+    s.members["media_player.tv"].vars["label"] == "TV"
     s.members["light.taklys"].vars["label"] == "Taklys"
+  }
+
+  ["a transform stays on the shape — it is the same for every member"] {
+    local s = wire.buildSet(stueLights, List(sliderBranch), alwaysPresent, List(), null)
+    // `state` is an Xf: the entity it reads comes from the member binding, so
+    // one copy serves everyone
+    s.shapes.first.slots.containsKey("state")
+    s.members.values.every((m) -> !m.vars.containsKey("state"))
   }
 
   ["a statically-false candidate never reaches the wire"] {
