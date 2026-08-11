@@ -1025,6 +1025,26 @@ the code, so in practice each phase carries its own slice of this rather than de
 deleting the new path. Phase 5 is the first irreversible one — after it, the old dynamic groups are
 gone. Everything before it can stop indefinitely without leaving the tree in a half-state.
 
+**After the plan: seed the changelog with the membership a swap already knows.** Found while
+writing `SetNodeSuite`; deferred deliberately, on the grounds that a restart or a dashboard edit
+does not have to be byte-perfect.
+
+`Patches.recordDynamic` chooses a wholesale mount fill over a per-member delta when
+`!base.hasChildOf(gid)` — the shared changelog holds no `<gid>_<entity>` entry to patch against.
+A fresh log has none, so the FIRST membership change in each container fills its mount and, in
+doing so, writes the entries that make every later change a delta. The log rotates per renderer
+swap, not per connection, so the cost is one extra mount fill per container per restart or
+dashboard edit. Self-healing after one frame, and identical for the old dynamic groups — the set
+node neither introduced it nor makes it worse.
+
+The client is not the reason. Anyone who painted the body demonstrably holds every member; it is
+the SHARED log that cannot vouch for a baseline. So the fix is to seed it at swap with the
+membership the renderer could already derive — which is why it is not a one-liner: it means
+materialising membership at swap time from the current snapshot, and "the recorder is the only
+writer" (`architecture-rendering-pipeline.md` §4b) is exactly the invariant that guards against a
+derived value becoming a frame's "before". Wrong there is silent. Worth doing on its own, against
+the recorder, with its own tests — not folded into a phase.
+
 ## First slice: prove the runtime before porting the rest
 
 **The spike proves the BUILD side only.** Pkl → wire format is heavily tested; wire → DOM patches
