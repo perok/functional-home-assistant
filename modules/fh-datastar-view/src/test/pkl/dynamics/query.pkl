@@ -34,17 +34,41 @@ function not(item: Boolean|wire.Term): Boolean|wire.Term =
   if (item is Boolean) !item else new wire.PNot { item = item as wire.Term }
 
 // ---- ordering --------------------------------------------------------------
+//
+// A LIVE key does not depend on the candidate — `attr:brightness` is the same
+// reference for every member — so it needs no lambda. A REGISTRY key does not
+// either, provided you name the fact rather than read it: the build cannot see
+// that `(e) -> e.friendly_name` came from `friendly_name`, so `byReg` is what
+// lets the value stay off the wire and be looked up in the backend instead.
+// A lambda remains available for genuinely COMPUTED keys, which do ride along
+// per member.
 
-/// Ascending (the default, so a bare lambda works too).
-function asc(k: (Any) -> Any): wire.OrderSpec = new { key = k; dir = "asc" }
+/// Order by the live state VALUE.
+function byState(): wire.PropRef = new { property = "state" }
+
+/// Order by whether the live state equals `s` — a predicate, so the on-ones
+/// sort first under [[desc]]. Reuses the predicate vocabulary instead of
+/// bolting a comparison onto a key.
+function byStateIs(s: String): wire.Bound = new { property = "state"; op = "eq"; value = s }
+
+/// Order by a live attribute value.
+function byAttr(name: String): wire.PropRef = new { property = "attr:" + name }
+
+/// Order by a registry fact. The BUILD can read it by name, so an ordering made
+/// only of `byReg` positions is resolved at build time and emits nothing; mixed
+/// with a live key it stays a reference the backend resolves.
+function byReg(name: String): wire.PropRef = new { property = "reg:" + name }
+
+/// Ascending (the default, so a bare reference works too).
+function asc(k: wire.PropRef|wire.Term): wire.OrderSpec = new { by = k; dir = "asc" }
 
 /// Descending. Ordering by a PREDICATE sorts by whether it holds, so
-/// `desc((e) -> e.stateIs("on"))` puts the on-ones first.
-function desc(k: (Any) -> Any): wire.OrderSpec = new { key = k; dir = "desc" }
+/// `desc(q.byState("on"))` puts the on-ones first.
+function desc(k: wire.PropRef|wire.Term): wire.OrderSpec = new { by = k; dir = "desc" }
 
 // `const` because [[EntitySet.orderBy]] calls it from a class body.
-const local function spec(k: wire.OrderSpec|((Any) -> Any)): wire.OrderSpec =
-  if (k is wire.OrderSpec) k else new wire.OrderSpec { key = k as ((Any) -> Any) }
+const local function spec(k: wire.OrderSpec|wire.PropRef|wire.Term): wire.OrderSpec =
+  if (k is wire.OrderSpec) k else new wire.OrderSpec { by = k as (wire.PropRef|wire.Term) }
 
 // ---- the set ---------------------------------------------------------------
 
@@ -63,9 +87,10 @@ class EntitySet {
   function where(f: (Any) -> Boolean|wire.Term|List<Boolean|wire.Term>): EntitySet =
     let (l = this) (l) { filters = l.filters.add(f) }
 
-  /// Lexicographic, most significant first. Accepts bare lambdas (ascending)
-  /// and [[asc]]/[[desc]] specs.
-  function orderBy(ks: List<wire.OrderSpec|((Any) -> Any)>): EntitySet =
+  /// Lexicographic, most significant first. A declarative LIST rather than a
+  /// lambda — unlike [[where]], an ordering key never depends on the individual
+  /// candidate. Sort the input list with ordinary Pkl for computed orderings.
+  function orderBy(ks: List<wire.OrderSpec|wire.PropRef|wire.Term>): EntitySet =
     let (l = this) (l) { specs = l.specs + ks.map((k) -> spec(k)) }
 
   /// One guarded rendering. `g` returning a `Boolean` folds at build time; a

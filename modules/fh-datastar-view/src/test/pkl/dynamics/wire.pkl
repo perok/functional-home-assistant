@@ -75,13 +75,7 @@ class Clause { cond: Int; shape: Int }
 /// A member is a `cond` expression: its clauses are tried in order and the first
 /// whose guard holds decides the rendering. Falling off the end means the member
 /// is NOT RENDERED — which is why there is no separate presence field.
-class MemberDef {
-  vars: Map<String, String>
-  clauses: List<Clause>
-  /// Values for the STATIC ordering positions, indexed by [[StaticSort.slot]].
-  /// Empty unless a live key outranks a static one.
-  sortVars: List<String> = List()
-}
+class MemberDef { vars: Map<String, String>; clauses: List<Clause> }
 
 class SetNode {
   kind: "set" = "set"
@@ -137,81 +131,65 @@ local function shapeOf(n: Node, varying: List<String>): ShapeDef =
     slots = n.slots.filter((k, _v) -> !varying.contains(k))
   }
 
-/// A live PROPERTY reference — sort by its value.
+/// A PROPERTY REFERENCE the runtime resolves per member. The prefix says where
+/// from: bare `state`, `attr:<name>` from live attributes, `reg:<name>` from the
+/// backend's registry table. A `reg:` reference is why a registry-derived key
+/// needs no per-member value on the wire — but it requires naming the FACT, not
+/// reading it, since the build cannot introspect `(e) -> e.friendly_name`.
 class PropRef { kind: "prop" = "prop"; property: String }
 
-/// A live ordering position: either a property value, or a [[Term]] whose truth
-/// is the key ("on first"). Ordering by a predicate reuses the predicate
-/// vocabulary rather than bolting a comparison onto a key.
+/// One ordering position on the wire: a property reference or a [[Term]] whose
+/// truth is the key, plus a direction. There is no "static" variant — a
+/// registry position stays a `reg:` reference and the backend resolves it, so
+/// nothing rides per member.
 class LiveSort { by: PropRef|Term; dir: String = "asc" }
 
-/// A STATIC ordering position: a registry fact, known at build time, that could
-/// not be folded away because a live key is involved. Each member carries its
-/// value in [[MemberDef.sortVars]] at index `slot`.
-class StaticSort { slot: Int; dir: String = "asc" }
+typealias OrderTerm = LiveSort
 
-typealias OrderTerm = LiveSort|StaticSort
+/// An authored ordering position. NOT a lambda: an ordering key never depends
+/// on the individual candidate — `attr:brightness` and `reg:area_id` are the
+/// same reference for every member — so `orderBy` is a declarative list, unlike
+/// `where`, which genuinely is a per-candidate predicate. To order by something
+/// COMPUTED, sort the input list with ordinary Pkl before `from`.
+class OrderSpec { by: PropRef|Term; dir: String = "asc" }
 
-/// An authored ordering position: how to get the key, and which direction.
-class OrderSpec { key: (Any) -> Any; dir: String = "asc" }
-
-/// True when a key expression must be resolved at runtime.
-local function isLive(k: Any): Boolean = k is PropRef || k is Term
+/// A `reg:` reference names a registry fact, which the BUILD can read by name
+/// via `getProperty` — so an ordering made only of them is resolved now.
+/// Anything else needs live state.
+local function regName(k: PropRef|Term): String? =
+  if (k is PropRef && k.property.startsWith("reg:")) k.property.drop(4) else null
 
 class Ordering {
   entities: List<Any>
-  /// Null when the whole ordering folded away at build time.
+  /// Null when the whole ordering was resolved at build time.
   terms: List<OrderTerm>?
-  sortVars: Map<String, List<String>>
 }
 
-/// Sort lexicographically by several keys at build time: stable-sort by the
-/// LEAST significant key first, then outwards. Verified: Pkl's sort is stable.
-local function sortLex(entities: List<Any>, keys: List<(Any) -> Any>): List<Any> =
-  keys.reverse().fold(entities, (acc, k) -> acc.sortBy((e) -> k.apply(e)))
-
-/// Fold a LIST of ordering keys. Multi-key ordering is ordinary lexicographic
-/// sorting, and each position folds independently:
+/// Fold the ordering. Two outcomes, no error case — every position is a
+/// reference, so nothing can diverge across candidates:
 ///
-///   - EVERY position static => the whole order is decided now. Sort the
-///     candidates and emit nothing; the runtime filters and preserves it.
-///   - some position live => emit the term list. Static positions still have to
-///     be applied by the runtime (a static key may OUTRANK a live one — "by area,
-///     then brightness"), so their per-member values ride in `sortVars`.
-///
-/// The only error is a single POSITION that folds inconsistently across
-/// candidates — static for one, live for another. Those two values are not
-/// mutually comparable, and unlike presence there is nothing useful to do with
-/// the divergence.
+///   - every position is a `reg:` fact => sort the candidates NOW (stable sort
+///     from the least significant key outwards) and emit nothing. The runtime
+///     filters to the present members and preserves the order: O(P), no
+///     comparisons.
+///   - any position needs live state => emit the whole list. `reg:` positions
+///     stay references and the backend resolves them, so they cost nothing per
+///     member even when they outrank a live key.
 function foldOrder(items: List<Any>, specs: List<OrderSpec>): Ordering =
-  if (specs.isEmpty || items.isEmpty)
-    new Ordering { entities = items; terms = null; sortVars = Map() }
-  else
-    let (live = specs.map((s) -> isLive(s.key.apply(items.first))))
-    let (_checked = specs.toList().mapIndexed((i, s) ->
-          if (items.every((e) -> isLive(s.key.apply(e)) == live[i])) true
-          else throw("""
-            Ordering position \(i) does not fold to one form across the set: it
-            yields a build-time value for some candidates and a live key for
-            others. Those are not mutually comparable. Order by a single
-            property at each position, or split the set.
-            """)))
-      if (live.every((b) -> b == false))
-        new Ordering {
-          entities = sortLex(items, specs.map((s) -> s.key))
-          terms = null
-          sortVars = Map()
-        }
-      else
-        let (staticPositions = specs.toList().mapIndexed((i, _s) -> i).filter((i) -> !live[i]))
-          new Ordering {
-            entities = items
-            terms = specs.toList().mapIndexed((i, s) ->
-              if (live[i]) new LiveSort { by = s.key.apply(items.first) as (PropRef|Term); dir = s.dir }
-              else new StaticSort { slot = staticPositions.findIndex((x) -> x == i); dir = s.dir })
-            sortVars = items.toMap((e) -> e.entity_id, (e) ->
-              staticPositions.map((i) -> specs[i].key.apply(e).toString()))
-          }
+  let (names = specs.map((s) -> regName(s.by)))
+    if (specs.isEmpty || items.isEmpty)
+      new Ordering { entities = items; terms = null }
+    else if (names.every((n) -> n != null))
+      new Ordering {
+        entities = names.reverse().fold(items, (acc, n) ->
+          acc.sortBy((e) -> e.getProperty(n)))
+        terms = null
+      }
+    else
+      new Ordering {
+        entities = items
+        terms = specs.map((s) -> new LiveSort { by = s.by; dir = s.dir })
+      }
 
 /// Conjoin a candidate's presence residual with one branch's residual. Either
 /// may be statically decided; the result is the runtime condition the wire must
@@ -273,7 +251,6 @@ function buildSet(
         new MemberDef {
           vars = varyingByCard[winning.card]
             .toMap((k) -> k, (k) -> (winning.slots[k] as Lit).literal)
-          sortVars = ordered.sortVars.getOrNull(p.first.entity_id) ?? List()
           clauses = p.second.map((q) ->
             new Clause {
               cond = conds.findIndex((t) -> t == q.second)

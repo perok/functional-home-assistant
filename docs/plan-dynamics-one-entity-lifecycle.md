@@ -399,23 +399,51 @@ q.from(dump.all)
   reference (sort by value) or a `Term` (sort by whether it holds). One fewer concept, and it
   reuses the predicate vocabulary.
 
-## Deferred: whether per-member static values are allowed at all
+## Ordering is declarative references, not lambdas
 
-`sortVars` (and `vars`) carry registry-derived values per member. Some registry facts are mirrored
-in HA state attributes — `friendly_name`, `device_class`, `unit_of_measurement` — so those can be
-emitted as a property reference instead and cost nothing. Others (`area_id`, `floor_id`,
-`device_id`, `entity_category`) exist only in the registry and have nowhere to be read from at
-runtime.
+`orderBy` takes a LIST of references, while `where` takes a lambda — and that asymmetry is real
+rather than sloppy: a `where` predicate genuinely depends on the candidate, an ordering key never
+does. `attr:brightness` and `reg:area_id` are the same reference for every member.
 
-The open question is whether to forbid per-member static values entirely. Doing so forces one of
-two things: restrict ordering and labels to attribute-backed facts, or **keep a registry table in
-the runtime** so any fact can be looked up by `entity_id`. The second shrinks the wire but puts
-the same fact in two places — a weaker version of the duplication this plan exists to remove — for
-single-digit KB of server memory. Note also that `dashboard.json` never reaches the browser: it is
-a build artifact, and the runtime holds the model in memory, so its size costs eval time and
-memory, not client work.
+```pkl
+.orderBy(List(q.desc(q.byStateIs("on")),      // sort by a predicate's truth
+              q.desc(q.byAttr("brightness")), // live attribute value
+              q.asc(q.byReg("friendly_name")) // registry fact
+))
+```
 
-Not currently driving the design either way. Revisit only if the wire or the runtime pushes back.
+Three reference constructors, no lambdas: `byState()`/`byStateIs(s)`, `byAttr(n)`, `byReg(n)`.
+For a genuinely COMPUTED ordering, sort the input list with ordinary Pkl before `from` — no API
+needed, and it is visibly a build-time decision.
+
+Dropping lambdas removed a surprising amount: `StaticSort`, `MemberDef.sortVars`, the
+static/live-divergence error, and the "does this position fold consistently across candidates"
+check. Nothing can diverge when every position is a reference.
+
+Two outcomes remain, and the optimisation survives:
+
+| positions | emitted | runtime |
+|---|---|---|
+| all `reg:` | **nothing; `candidates` pre-sorted** | O(P) filter, no comparisons |
+| any live | the whole list, `reg:` ones still references | O(P log P) stable sort |
+
+The build can pre-sort a `reg:`-only ordering because it can read a fact BY NAME
+(`e.getProperty("friendly_name")` — verified). That is also why `byReg` names the fact instead of
+reading it: `(e) -> e.friendly_name` returns a string, and the build cannot see where it came from.
+
+## The registry lives in the backend
+
+Decided: keeping `area_id`/`floor_id`/etc. in the runtime is acceptable. That is what lets a
+`reg:` position stay a reference rather than shipping a value per member, and it keeps
+`dashboard.json` from growing with things the backend already knows. Note the backend already
+fetches all of this — `RegistryDump` — so it is one table from the existing source, not a second
+representation of identity: candidates are still decided at build time.
+
+The same move is available for `vars` (a bare `friendly_name` label could become a `reg:`
+reference instead of a literal), which would shrink members further AND dissolve the var-vs-case
+count-dependence below, since there would be no literals left to diff. Not done yet — an
+interpolated label like `"Blah \(e.friendly_name)"` is computed and must stay a literal, so both
+mechanisms are needed either way.
 
 ## Open questions
 

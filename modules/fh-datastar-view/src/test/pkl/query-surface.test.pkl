@@ -109,9 +109,9 @@ facts {
     local s = q.from(fixtures.all)
       .where((e) -> e.domain == "light")
       .orderBy(List(
-        q.desc((e) -> e.stateIs("on")),
-        q.desc((e) -> e.attrKey("brightness")),
-        (e) -> e.friendly_name))
+        q.desc(q.byStateIs("on")),
+        q.desc(q.byAttr("brightness")),
+        q.asc(q.byReg("friendly_name"))))
       .render(toggle)
       .build()
     s.orderBy.length == 3
@@ -119,15 +119,15 @@ facts {
     (s.orderBy[0] as wire.LiveSort).dir == "desc"
     (s.orderBy[1] as wire.LiveSort).by is wire.PropRef
     ((s.orderBy[1] as wire.LiveSort).by as wire.PropRef).property == "attr:brightness"
-    // the static tail cannot fold away, so it rides per member
-    s.orderBy[2] is wire.StaticSort
-    s.members["light.taklys"].sortVars == List("Taklys")
+    // the registry tail stays a REFERENCE the backend resolves — nothing per member
+    (s.orderBy[2] as wire.LiveSort).by is wire.PropRef
+    ((s.orderBy[2] as wire.LiveSort).by as wire.PropRef).property == "reg:friendly_name"
   }
 
-  ["a bare lambda in orderBy is ascending"] {
+  ["an all-registry ordering is resolved at build time"] {
     local s = q.from(fixtures.all)
       .where((e) -> e.domain == "light")
-      .orderBy(List((e) -> e.friendly_name))
+      .orderBy(List(q.asc(q.byReg("friendly_name"))))
       .render(toggle)
       .build()
     // fully static: sorted now, nothing emitted
