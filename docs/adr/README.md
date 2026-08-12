@@ -19,7 +19,7 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 
 - [0001 — Entity card + per-slot value transforms via JSONata](0001-entity-card-and-value-transforms.md)
 - [0002 — Multiple dashboards, popup surfaces, and navigation](0002-multi-dashboard-popups-and-navigation.md)
-- [0003 — Dynamic groups: live membership + per-entity card dispatch](0003-dynamic-groups.md)
+- [0003 — Candidate sets: static membership, live presence and order](0003-dynamic-groups.md)
 - [0004 — The slot model; AST (not JSONata) for queries; attribute memoization](0004-label-as-slot-and-predicate-engine.md)
 - [0005 — Node-scoped UI state and the URL mirror](0005-node-state-and-the-url-mirror.md)
 - [0006 — Pkl as the dashboard authoring language](0006-pkl-authoring-track.md)

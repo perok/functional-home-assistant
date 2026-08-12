@@ -315,14 +315,14 @@ flowchart TB
 
   STAT --> STATW["touched: node -&gt; version<br/>a materialised MEMBER arrives here too"]
 
-  DYN --> REPL["touched, per member whose CASE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
+  DYN --> REPL["touched, per member whose CLAUSE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
   REPL --> SAME{"membership<br/>moved?"}
   SAME -->|no| OUT
   SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
   SET -->|nobody| OUT
   SET -->|somebody| CHURN{"is the UNCHANGED set empty?<br/>(everything arrived, or everything left)"}
   CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
-  CHURN -->|no| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
+  CHURN -->|no| EST{"log.holdsAnyOf the members<br/>is there a base to patch against?"}
   EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
   EST -->|no, fresh log after swap or fill| FILL
 
@@ -607,12 +607,11 @@ Live list — delete an entry when it is answered, and say where the answer land
   version skew in it at all. Tackle it if a real deployment shows a persistent skew, and measure
   before widening the bound.
 
-- **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
-  delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
-  offers its id to `insertInto` as an anchor. The answer is to drop the `LiveSlug` outright rather
-  than to teach the delta path about it (a removal already forces a registry watch → renderer swap
-  → fresh log); the gap is that an `r` frame does not always have a registry event behind it. See
-  ADR 0003's open section.
+- ~~**An entity that VANISHES leaves a ghost member.**~~ *Closed by candidate sets.* Membership was
+  maintained from deltas and a removal produces no `StateChange`, so the graph kept a member whose
+  element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
+  and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
+  go stale (ADR 0003).
 - **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth

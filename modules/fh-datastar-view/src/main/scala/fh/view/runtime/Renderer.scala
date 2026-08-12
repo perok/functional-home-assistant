@@ -290,7 +290,7 @@ class Renderer(
   /** A container whose children are MEMBERS rather than authored nodes: a
     * [[LayoutNode.SetNode]]'s candidates are decided at BUILD time, so the
     * runtime decides only presence and order
-    * (`docs/plan-dynamics-one-entity-lifecycle.md`).
+    * (`docs/adr/0003-dynamic-groups.md`).
     *
     * One shape, deliberately. This was a trait over two implementations while
     * query-driven groups existed, and every difference between them was a

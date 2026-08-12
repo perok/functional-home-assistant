@@ -44,9 +44,11 @@ member it belongs to, and rendering one needs no lookup or merge. A set nested
 inside a member's node is an ordinary child with an ordinary id, so "a tile per
 room, each holding that room's lights" needs no new concept.
 
-`docs/plan-dynamics-one-entity-lifecycle.md` has the full derivation, the
-measurements behind the wire format, and the alternatives that were built and
-rejected.
+The derivation that produced this shape — including the compressed wire format
+that was built, measured at ~2.5×, and reverted — lived in
+`docs/plan-dynamics-one-entity-lifecycle.md` until its decisions landed here and
+in ADRs 0004/0007/0013. It is in git history; the part still worth acting on is
+issue #108.
 
 ### Why the candidates stopped being a query
 
@@ -196,6 +198,28 @@ leaving a ghost member, because membership was maintained from deltas and
 `StateStore` publishes no `StateChange` for a removal. Candidates come from the
 dump, an entity vanishing is a registry change, and a registry change rebuilds
 the renderer. There is nothing left to go stale.
+
+## Settled, so they are not re-opened
+
+**Cross-set interleaving is not a limitation.** Two sets are two DOM regions, but
+`from` takes any `List<hass.Entity>` — concatenate the sources into one set and
+dispatch with `.cases(...)`. The only thing genuinely impossible is interleaving
+two SEPARATELY AUTHORED sets in different parts of the layout, which is obvious
+rather than a flaw.
+
+**Unsatisfiable conjunctions are out of scope.** `state == on AND state == off`
+folds to nothing and is not detected. An obvious authoring bug when it happens,
+and the rabbit hole gets deep fast — partial orders, attribute ranges,
+cross-entity terms. Not worth the machinery.
+
+**The wire is linear in candidates, and that is the trade.** ~982 B per candidate
+measured on a real entity card, so an unscoped `q.from(dump.all)` over a
+1069-entity house is ~1.8 MB of `dashboard.json` and ~900 ms of eval, where the
+old query group expressed the same thing in ~1 KB. It costs eval time, server
+memory and editor latency — never client bytes, since `dashboard.json` does not
+reach the browser. Scoped sets are cheap and strictly better. Issue #108 tracks
+the unbounded case, including the compressed wire format that was built,
+measured at ~2.5×, and reverted.
 
 ## Consequences
 

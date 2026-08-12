@@ -1334,7 +1334,7 @@ class PNot extends Predicate {
 // module owns the layout vocabulary; putting them in `query.pkl` would split
 // ownership of the wire between two modules.
 //
-// See `docs/plan-dynamics-one-entity-lifecycle.md` for why membership is static
+// See `docs/adr/0003-dynamic-groups.md` for why membership is static
 // and the runtime decides only presence.
 
 /// One guarded rendering for a member: "if `when` holds, render `node`".

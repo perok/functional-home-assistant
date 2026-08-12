@@ -4,7 +4,7 @@
 
 > **Superseded in part (2026-08-12).** The render-lambda dynamic-group half of this plan is gone
 > with the mechanism it improved: there is no `DynamicGroup` and no `hass.SELF`, and a set is
-> authored as a `q.from(...)` chain (ADR 0003, `plan-dynamics-one-entity-lifecycle.md`). The
+> authored as a `q.from(...)` chain (ADR 0003, `adr/0003-dynamic-groups.md`). The
 > call-style card factories, and the Pkl spike results this file records, still stand — those
 > results are cited from the module `CLAUDE.md` and are the reason to keep this file.
 

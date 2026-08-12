@@ -67,7 +67,7 @@ those became comparisons on a count over a NAMED set: `any` is `count > 0`,
 it says what an author meant. "Some entity in the house is both `light.x` and
 on" was always a circumlocution for "`light.x` is on", and "any light is on" was
 never expressible at all without meaning *every* light HA knows about. See
-`docs/plan-dynamics-one-entity-lifecycle.md`.
+ADR 0003.
 
 ### Shared-pass placement (the cache consequence)
 

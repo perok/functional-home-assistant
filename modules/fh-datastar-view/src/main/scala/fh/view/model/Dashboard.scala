@@ -347,7 +347,7 @@ object LayoutNode:
     *
     * The candidates are decided at build time from the typed dump, so the
     * runtime never invents a member: it decides only PRESENCE (which candidates
-    * render) and ORDER. See `docs/plan-dynamics-one-entity-lifecycle.md`.
+    * render) and ORDER. See `docs/adr/0003-dynamic-groups.md`.
     *
     *   - `candidates`: entity ids, in render order. When the ordering folded to
     *     registry facts this list is already sorted and [[orderBy]] is empty —

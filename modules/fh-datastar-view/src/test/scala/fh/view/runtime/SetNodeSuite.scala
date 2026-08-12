@@ -5,8 +5,8 @@ import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
-/** The candidate-set node (`docs/plan-dynamics-one-entity-lifecycle.md`), one
-  * slice through the real runtime: presence decided by a member's clauses,
+/** The candidate-set node (`docs/adr/0003-dynamic-groups.md`), one slice
+  * through the real runtime: presence decided by a member's clauses,
   * `Placed`/`Gone` as the patch pair, and the AUTHORED candidate order rather
   * than an entity-id sort.
   *
