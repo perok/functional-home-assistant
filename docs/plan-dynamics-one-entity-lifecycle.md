@@ -1,12 +1,15 @@
 # Dynamics: one entity lifecycle
 
-> Status: **phases 0-5 and 7 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the
+> Status: **phases 0-7 shipped — the plan is done.** The authoring surface is `@fh-dashboard/query.pkl`, the
 > runtime consumes candidate sets and nothing else, `If` takes a subject-free condition, and the
 > query half is DELETED — no `LayoutNode.Dynamic`, no `hass.SELF`, no free predicate constructors.
 > The spike that argued the design is gone, its scenarios ported onto the real library in
-> `query.test.pkl`. ADRs 0002/0003/0004/0007 and the pipeline map moved with the code, so phase 7 is
-> absorbed. What remains is **phase 6** (the capability-derived attribute schema, independent of
-> everything else) and the deferred changelog-seeding fix.
+> `query.test.pkl`. A live attribute name is checked against a capability-DERIVED schema, so a typo
+> is a build error rather than a card that silently never updates. ADRs 0002/0003/0004/0007 and the
+> pipeline map moved with the code, so phase 7 is absorbed.
+>
+> What remains are the two after-the-plan items, both recorded at the end of "Phases": folding
+> `toggleTap`'s `$domain` lookup to a literal, and seeding the changelog at renderer swap.
 >
 > **How this is organised.** *Why* states the problem, the principles and the limitations being
 > fixed. *The format* and *The authoring surface* are the design. *What it costs and what it checks*
@@ -1275,8 +1278,42 @@ Four things worth keeping:
 `$lookup($domain)` too, and a candidate's domain is now known at build time. Same reasoning as the
 slider, one more literal; left out to keep this change's blast radius honest.
 
-**Phase 6 — the attribute schema.** Capability-derived, in the dump; turns the unknown-name warning
-into a hard error. Independent of 1–5; slot it wherever convenient.
+**Phase 6 — the attribute schema.** *Shipped, and it needed no dump change at all.*
+
+The design above puts a deduped `sig_*` signature table in the dump (~59 KB) and a `volatileAttrs`
+reference on each entity. That was one step too literal. `hass.pkl` already states the rule this
+should follow — *"deliberately computed here rather than baked in by the generator, so the rule for
+what counts as colour lives in exactly one place next to the vendored constants it reads"* — and
+every input the schema needs (`colourModes`, `effects`, `supported_features`) is ALREADY on the
+entity. So `volatileAttrs` is derived in `hass.pkl` beside `supportsColour`/`supportsBrightness`:
+zero bytes emitted, no generator change, no signature table, and one place where the rule lives.
+
+Verified against the live instance before writing it, because the whole design rests on the claim
+that capabilities predict the attribute set. Over 45 available lights, `supported_color_modes`
+predicts it EXACTLY:
+
+| modes | reported, always |
+|---|---|
+| `onoff` | `color_mode` |
+| `brightness` | + `brightness` |
+| `color_temp` | + `color_temp_kelvin`, `hs_color`, `rgb_color`, `xy_color` |
+| `color_temp,xy` + `effect_list` | + `effect` |
+
+Two things the measurement changed:
+
+- **A colour-TEMP light reports the colour representations too** — HA converts the temperature into
+  them, so `hs_color`/`rgb_color`/`xy_color` arrive together with it. The condition is therefore
+  `supportsColour || color_temp ∈ modes`, not `supportsColour`.
+- **Key on the MODE, not on `supportsColourTemp`.** That predicate asks whether we know the kelvin
+  BOUNDS (the `colourTemp` group the slider needs) — a different question, and a light can report a
+  temperature without us having them.
+
+**The residue is integration-specific attributes**, which are real but underivable: `off_brightness`
+and `off_with_transition` (Hue), `group_entities` and `entity_id` (light-group helpers). A hard
+error would reject those, so `q.attr(name)` is the escape hatch — it already meant "the live
+reading of this name", and now also means "unchecked". Coverage stays progressive: the check runs
+only against candidates whose schema is NON-EMPTY, so an unmodelled domain is untouched rather than
+newly rejected, and modelling a domain is what switches its validation on.
 
 **Phase 7 — docs.** *Shipped, folded into the phases that caused it*, which is what the repo rule
 asks for. ADR 0003 rewritten in place (it now describes candidate sets, and its "ghost member" open
@@ -1289,30 +1326,14 @@ two-kinds table collapsed to one.
 deleting the new path. **Phase 5 was the irreversible one** and it has happened: the old dynamic
 groups are gone, and `kind: "dynamic"` no longer decodes.
 
-**A breaking authoring change strands every existing workspace, and nothing says so.**
-
-Found the hard way: phases 4 and 5 ported the repo's own entries, but a workspace is seeded
-WRITE-ONCE (ADR 0010) — so `dashboard-local-dev-server/`'s copies of `pkl-demo`/`pkl-if` kept
-calling `c.DynamicGroup` and `c.entityIs` and failed at eval on the next start. The server logs
-`Skipping dashboard '<slug>' (build failed)` and serves the rest, which is the right runtime
-behaviour and the wrong authoring one: the message names the symbol but not the replacement, and
-nothing had warned that an upgrade would break a file the user owns.
-
-Write-once is correct and should stay — these are the user's dashboards. What is missing is the
-other half:
-
-- the lib is content-versioned already, so a workspace could record the `@fh-dashboard` version its
-  entries were last known to build against, and a start that crosses a BREAKING boundary could say
-  so up front rather than per-entry at eval time;
-- the eval failure could name the migration, not just the missing symbol — `entityIs(x).and(...)`
-  -> `q.entity(x).stateIs(...)` is mechanical, and the error already knows which symbol was asked
-  for;
-- `fh push --write`-style tooling could offer the rewrite, with the dated-backup rule
-  (`name.backup.<date>`) that already governs every other user-file change.
-
-Not built. Recorded because the next breaking change will do this again, and because "the demos in
-the repo are ported" is not the same claim as "existing workspaces still build" — this plan made
-the first and quietly assumed the second.
+**After the plan: fold `toggleTap`'s `$domain` lookup to a literal.** The last
+build-time-fact-at-runtime transform, and the one the icon and slider folds did not reach. It picks
+the SERVICE from the domain (`scene/turn_on` vs the `homeassistant/toggle` default) and cannot
+simply fold, because `toggleTap` is a `const` with no entity — it is passed as `.tap(c.toggleTap)`,
+so at construction it does not know what it will be attached to. The card does. So this is a small
+change to the tap vocabulary — a `Tap` carrying `(hass.Entity) -> String` that the card applies when
+it builds its slots — not a table edit. Worth doing after phase 6, with the same test shape as the
+icons: assert no `$lookup` survives in a member.
 
 **After the plan: seed the changelog with the membership a swap already knows.** Found while
 writing `SetNodeSuite`; deferred deliberately, on the grounds that a restart or a dashboard edit

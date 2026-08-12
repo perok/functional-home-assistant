@@ -16,23 +16,30 @@ import "../../main/resources/dashboards/lib/hass.pkl" as hass
 // A stand-in dump. Two rooms, one light that is dimmable and one that is not,
 // plus a sensor with a capability nothing else has — the mixed set that makes
 // property resolution ambiguous.
+// `colourModes` is not decoration: it is what `volatileAttrs` derives from, so
+// a light declared without it can report only `color_mode` and a query for
+// `brightness` over it is (correctly) a build error. HA mandates the attribute
+// on every light, so a fixture lacking it was modelling nothing real.
 local taklys: hass.LightEntity = new {
   entity_id = "light.taklys"
   friendly_name = "Taklys"
   area_id = "stue"
   supported_features = 8
+  colourModes { "color_temp" }
 }
 local lampe: hass.LightEntity = new {
   entity_id = "light.lampe"
   friendly_name = "Lampe"
   area_id = "stue"
   supported_features = 0
+  colourModes { "brightness" }
 }
 local kjokken: hass.LightEntity = new {
   entity_id = "light.kjokken"
   friendly_name = "Kjøkken"
   area_id = "kjokken"
   supported_features = 8
+  colourModes { "color_temp" }
 }
 local motion: hass.SensorEntity = new {
   entity_id = "binary_sensor.stue_motion"
@@ -407,6 +414,53 @@ facts {
     guards.apply(s).every((g) -> g.property == "attr:brightness")
   }
 
+  // ---- the live-attribute schema ---------------------------------------------
+  // Derived from capabilities, never observed (`hass.Entity.volatileAttrs`).
+  // What it buys: a typo'd attribute used to resolve to a live read that never
+  // matched — a card that silently never updated — and now names itself.
+
+  ["a light's schema follows the modes it supports"] {
+    // `lampe` is brightness-only, `taklys` colour-temp: HA converts a colour
+    // temperature into the colour representations, so all of them arrive.
+    lampe.volatileAttrs.keys == Set("color_mode", "brightness")
+    taklys.volatileAttrs.keys ==
+      Set("color_mode", "brightness", "color_temp_kelvin", "hs_color", "rgb_color", "xy_color")
+    // Names and TYPES, never a value — a value slot is what would later get
+    // filled with the live reading and churn the dump's content hash.
+    taklys.volatileAttrs["brightness"] == "Int"
+    taklys.volatileAttrs["xy_color"] == "List<Float>"
+  }
+
+  ["a typo'd live attribute is a BUILD error, not a guard that never matches"] {
+    module.catch(() ->
+      q.from(stue).where(q.eq(q.prop("brightnes"), 5)).render((e) -> c.entityCard(e)).build()
+    ).contains("No candidate can report a live attribute called 'brightnes'")
+  }
+
+  ["`q.attr` is the escape hatch for a name the schema does not model"] {
+    // Integration-specific attributes are real but underivable — `off_brightness`
+    // comes from Hue, `group_entities` from a light-group helper. `attr` means
+    // "a live attribute, unchecked", which is the same thing it already meant
+    // for a name that is ALSO a registry fact.
+    local s = q.from(stue)
+      .where(q.eq(q.attr("off_brightness"), 5))
+      .render((e) -> c.entityCard(e))
+      .build()
+    guards.apply(s).every((g) -> g.property == "attr:off_brightness")
+  }
+
+  ["an UNMODELLED domain is not newly rejected"] {
+    // Progressive coverage, as with the capability typing: an empty schema means
+    // "nobody has modelled this domain", not "this entity reports nothing". A
+    // sensor's attributes stay unchecked until someone models sensors.
+    motion.volatileAttrs.isEmpty
+    local s = q.from(List(motion))
+      .where(q.eq(q.prop("whatever_it_reports"), 5))
+      .render((e) -> c.entityCard(e))
+      .build()
+    guards.apply(s).every((g) -> g.property == "attr:whatever_it_reports")
+  }
+
   ["`not` folds statically when its operand does"] {
     local s = q.from(allEnts)
       .where(q.not(q.eq(q.prop("area_id"), "stue")))
@@ -431,7 +485,9 @@ facts {
     local s = q.from(stue)
       .where(q.all(List(
         q.eq(q.stateProp, "on"),
-        q.all(List(q.eq(q.prop("brightness"), 5), q.eq(q.prop("effect"), "x"))))))
+        q.all(List(
+          q.eq(q.prop("brightness"), 5),
+          q.eq(q.prop("color_temp_kelvin"), 2700))))))
       .render((e) -> c.entityCard(e))
       .build()
     local g = memberOf.apply(s, "light.taklys")[0].`when`

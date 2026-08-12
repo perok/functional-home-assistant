@@ -179,22 +179,51 @@ const stateProp: PropName = new PropName { name = "state" }
 function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
   new { fn = f }
 
+/// A live attribute name, checked against what the candidates can actually
+/// report ([[hass.Entity.volatileAttrs]]).
+///
+/// The point is the typo: `q.prop("brightnes")` used to resolve to a live
+/// attribute that never matched, and nothing caught it — a card that silently
+/// never updates. Now it names itself at build time.
+///
+/// Checked only against candidates whose schema is NON-EMPTY, because empty
+/// means "this domain is not modelled yet" rather than "this entity reports
+/// nothing" (ADR 0013's progressive coverage). So adding a domain to the schema
+/// turns validation ON for it, and never turns it on for one nobody has
+/// modelled. A name ANY modelled candidate can report is accepted — a mixed set
+/// is not the place to argue about it.
+const local function checkLive(items: List<hass.Entity>, name: String): String =
+  let (modelled = items.filter((e) -> !e.volatileAttrs.isEmpty))
+    if (modelled.isEmpty || modelled.any((e) -> e.volatileAttrs.containsKey(name)))
+      "attr:" + name
+    else
+      throw("""
+        No candidate can report a live attribute called '\(name)'.
+
+        The ones that could say what they report list: \(
+          modelled
+            .flatMap((e) -> e.volatileAttrs.keys.toList())
+            .distinct
+            .sort()
+            .join(", ")
+        ).
+
+        If this is a real attribute the schema does not model yet — an
+        integration-specific one such as `off_brightness` — write
+        `q.attr("\(name)")`, which means "a live attribute, unchecked".
+        """)
+
 /// Where a named property actually comes from, for these candidates.
 ///
 /// ALL candidates have it  => a registry fact, readable by the build.
-/// NONE have it            => a live attribute. Not validatable further today:
-///                            volatile attribute values are deliberately absent
-///                            from the dump (they would churn its content
-///                            hash), so there is no list of legal names to
-///                            check a typo against. The capability-derived
-///                            schema closes this.
+/// NONE have it            => a live attribute, checked by [[checkLive]].
 /// SOME have it            => AMBIGUOUS, and a build error unless `optional`.
 const local function resolveProp(items: List<hass.Entity>, p: PropName): String =
   if (p.name == "state") "state"
   else if (p is LiveAttr) "attr:" + p.name
   else
     let (have = items.filter((e) -> e.hasProperty(p.name)).length)
-      if (items.isEmpty || have == 0) "attr:" + p.name
+      if (items.isEmpty || have == 0) checkLive(items, p.name)
       else if (have == items.length) "reg:" + p.name
       else if (p.optional) "reg:" + p.name
       else throw("""
