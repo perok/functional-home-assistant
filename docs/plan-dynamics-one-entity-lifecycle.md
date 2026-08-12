@@ -1129,10 +1129,30 @@ That is one concept instead of three — no marker supertype, no `candidateKey`,
 phase 1. The `Candidate` marker was spiked, built here, and reverted: with rooms as ordinary layout
 it buys nothing, and `hass.Entity` is the more precise type for `from`.
 
-The nesting work is not wasted: a set inside a MEMBER is still reachable whenever the outer
-membership is genuinely live, and two of its findings were bugs on the existing path either way
-(container selection reading the static index, and `hasChildOf` parsing ids). But the motivating
-example is not the case for it, and the plan should not have said it was.
+**A set inside another set's `render` IS supported, and it is the right tool when the OUTER
+membership is live.** That is the whole criterion, and it is what separates the two shapes:
+
+| outer membership | write it as |
+|---|---|
+| registry data — rooms, floors, a fixed list | a plain `for`, with a set inside |
+| live — groups that are on, thermostats heating, players playing | `q.from(...).render(... q.from(...) ...)` |
+
+HA light groups are the clean example, since the dump already carries `members`:
+
+```pkl
+q.from(dump.groups).where(q.eq(q.stateProp, "on"))
+  .render((g) -> (c.column) { children {
+    new c.SectionTitle { text = g.friendly_name }
+    q.from(g.members).where(q.eq(q.stateProp, "on")).render((e) -> c.slider(e)).build()
+  } })
+```
+
+Plain Pkl cannot express that — which groups to show is a live question. The inner set gets its own
+id and its members patch themselves, so a bulb changing never re-renders the group tile.
+
+So the nesting work stands; only the AREA framing was wrong. Two of its findings were bugs on the
+existing path either way (container selection reading the static index, and `hasChildOf` parsing
+ids).
 
 *Superseded — kept for the reasoning:*
 

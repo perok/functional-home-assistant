@@ -298,6 +298,36 @@ facts {
     card.children.toList()[1].children.toList()[0].slots["label"] == "Kjøkken"
   }
 
+  ["a set NESTS inside another's render, when the outer membership is live"] {
+    // The case plain Pkl cannot reach: which GROUPS are on is live, so the
+    // outer loop has to be a query too. Contrast the room test above — rooms
+    // are registry data, so that outer loop is a `for`. Live outer membership
+    // is the whole criterion for reaching for a nested set.
+    local grp: hass.LightEntity = new {
+      entity_id = "light.stue_group"
+      friendly_name = "Stue"
+      members = stue
+    }
+    local s = q.from(List(grp))
+      .where(q.eq(q.stateProp, "on"))
+      .render((g) -> (c.column) { children {
+        new c.SectionTitle { text = g.friendly_name }
+        q.from(g.members).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+      } })
+      .build()
+
+    // The outer set is live: the group's tile appears only while it is on.
+    ids.apply(s) == List("light.stue_group")
+    memberOf.apply(s, "light.stue_group")[0].`when`.property == "state"
+    // ...and the tile holds a set of its own, with its own guards. The runtime
+    // gives that inner set its own id, so a bulb patches its own element
+    // rather than re-rendering the group tile.
+    local inner = memberOf.apply(s, "light.stue_group")[0].node.children.toList()[1]
+    inner.kind == "set"
+    inner.candidates.toList() == List("light.taklys", "light.lampe")
+    inner.members["light.lampe"].clauses.toList()[0].`when`.property == "state"
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"
