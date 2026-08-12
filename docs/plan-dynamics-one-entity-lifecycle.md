@@ -899,17 +899,38 @@ c.iff(q.from(dump.stue.lights).any(q.eq(q.stateProp, "on"))).then(banner)
 c.iff(q.from(dump.stue.lights).count(q.eq(q.stateProp, "on")).gt(2)).then(banner)
 ```
 
-**Runtime.**
+**Runtime.** *Revised now that `count` is shipped — this section used to propose carrying `over`
+and keeping the quantifier, and both turn out to be unnecessary.*
 
 ```scala
 // today
 case State(condition: Predicate, quantifier: Quantifier)
 case Quantifier.Any => states.values.exists(Renderer.matches(condition, _))   // O(all entities)
 
-// unified
-case State(over: List[String], condition: Term, quantifier: Quantifier)
-case Quantifier.Any => over.exists(id => states.get(id).exists(Renderer.matches(condition, _)))
+// unified: ONE subject-free predicate, no set beside it and no quantifier
+case State(condition: Predicate)
+def holds(c: Predicate, states) = Renderer.matchesIn(c, EntityState.none, states)
 ```
+
+There is nothing left for `over` to be. A `Predicate.Count` already carries its own candidate list,
+and a `Cmp` with `entity` already names its own entity — so **every predicate an `If` can legally
+hold is subject-free**, and evaluating one is a lookup rather than a scan. `Quantifier` goes with
+the scan it existed to describe.
+
+That makes the validate rule sharp, and it is the piece to build carefully: an `If` condition
+containing a `Cmp` with no `entity` is a BUILD ERROR. It is the unbound predicate P6 forbids —
+today it silently means "some entity in the house", which is never what an author meant.
+
+**Migration, in order** (the tree must not sit half-way, per the rollback shape):
+
+1. `Activation.State` drops `quantifier`; `holds` becomes the subject-free evaluation; `Quantifier`
+   is deleted (`Dashboard.scala`, `Renderer.scala`, and three suites name it).
+2. `Dashboard.validate` rejects a subject-bearing `Cmp` under an `If`.
+3. The Pkl `If`/`StateActivation` builder takes the new condition; `pkl-if.pkl` and the fixture
+   dashboards move from `c.entityIs("light.a").and(c.stateIs("on"))` to
+   `q.entity(dump.e_a).stateIs("on")` — the same statement, with the entity named once.
+4. Only then delete the free constructors from `components.pkl`, which `If` currently holds the
+   last references to.
 
 `over` is the same static candidate list a set already has, so the scan becomes a walk of N knowns
 — **L6's `holds` bug fixed by construction**, not by adding a pinned-condition shortcut.
@@ -1189,8 +1210,13 @@ the runtime holds no registry table — so that combination throws at build time
 rather than ordering by the wrong thing. Registry keys after every live one are free: pre-sorting
 the candidates supplies them, because the runtime's sort is stable over candidate order.
 
-**Phase 4 — `If` takes a candidate set.** Fixes `holds` by construction, retires `Quantifier`,
-collapses the two predicate languages into one. Must precede Phase 5.
+**Phase 4 — `If` takes a subject-free predicate.** Fixes `holds` by construction, retires
+`Quantifier`, collapses the two predicate languages into one. Must precede Phase 5.
+
+Not started. It is the first phase that changes AUTHORING — `pkl-if.pkl` and several fixtures spell
+their conditions with the free constructors — so it wants doing in one go, in the four steps under
+"One predicate language: what actually changes". Everything before it is shipped and coherent;
+starting this one half-way is the state the rollback shape exists to avoid.
 
 **Phase 5 — retire the dynamic-group query half.** Delete `syncMembers`, the full-map matching,
 `hass.SELF`, the free predicate constructors. Only safe once nothing authored uses them AND Phase 4
