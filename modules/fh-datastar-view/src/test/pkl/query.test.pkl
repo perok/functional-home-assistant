@@ -265,6 +265,39 @@ facts {
     cond.candidates.toList().length == 2
   }
 
+  ["a tile per room is PLAIN Pkl around a set, not a query over rooms"] {
+    // Which rooms exist is registry data — static, known now, never moving — so
+    // iterating them is an ordinary `for`. Only the lights inside need the
+    // query language, because only their presence is live. Reaching for
+    // `q.from(rooms)` here would be the drift P9 exists to stop: it buys
+    // nothing and costs a concept.
+    local rooms = new Mapping<String, List<hass.LightEntity>> {
+      ["Stue"] = stue
+      ["Kjøkken"] = List(kjokken)
+    }
+    local card = (c.grid) {
+      children {
+        for (name, lights in rooms) {
+          (c.column) {
+            children {
+              new c.SectionTitle { text = name }
+              q.from(lights).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+            }
+          }
+        }
+      }
+    }
+    // The rooms are ordinary layout; each holds one set of its own.
+    card.children.toList().length == 2
+    local stueSet = card.children.toList()[0].children.toList()[1]
+    stueSet.kind == "set"
+    stueSet.candidates.toList() == List("light.taklys", "light.lampe")
+    stueSet.members["light.taklys"].clauses.toList()[0].`when`.property == "state"
+    // ...and a room's title is a LITERAL, which is why the tile needs no
+    // patch target of its own.
+    card.children.toList()[1].children.toList()[0].slots["label"] == "Kjøkken"
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"

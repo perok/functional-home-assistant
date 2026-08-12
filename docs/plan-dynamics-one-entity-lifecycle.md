@@ -340,14 +340,21 @@ Two problems wore one name, and both fall to the same rule.
 **(a) A member renders a subtree.** The candidate is still an entity; the rendering is not a leaf.
 `Node` gains `children`, and the compression walks one level down.
 
-**(b) A member is not an entity and contains a nested set** — "a tile per room". Areas become the
-candidates; each tile holds a set over its own lights:
+**(b) A container holds a nested set** — "a tile per room", each tile holding a set over its own
+lights.
+
+> **Corrected in the building.** This section originally read "areas become the candidates", with
+> `q.from(dump.areas).render(...)` around the inner set. That is P9's drift: which rooms exist is
+> registry data, so the outer loop is plain Pkl and only the lights need a query. The example below
+> is the shipped one; the marker supertype the old framing required was built and reverted.
 
 ```pkl
-q.from(dump.areas).render((a) ->
-  c.card(
-    c.title(a.name),
-    q.from(a.lights).where(q.eq(q.stateProp, "on")).render(slider)))
+for (name, lights in rooms) {
+  (c.column) { children {
+    new c.SectionTitle { text = name }
+    q.from(lights).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+  } }
+}
 ```
 
 **A nested set is simply a child of the member's node.** The compressed format needed a hole/fill
@@ -1103,9 +1110,29 @@ Three things it needed, each silent when wrong:
   member's id starts with the outer gid and a container would otherwise look established on the
   strength of its grandchildren.
 
-What is NOT authorable yet is the motivating example, "a tile per ROOM": `q.from` takes
-`List<hass.Entity>` and an area is not an entity. That is the `Candidate` marker supertype the spike
-designed, and it is the remaining piece of (b). A set nested inside an ENTITY's tile works today.
+**A tile per room needs none of this, and the `Candidate` marker is withdrawn.** This plan framed
+composite (b) as "areas become the candidates", and that was wrong — it is exactly the drift P9
+exists to stop. WHICH ROOMS EXIST is registry data: static, known at build time, never moving. There
+is no liveness in it, so it is a plain `for`, and only the lights inside need a query:
+
+```pkl
+for (name, lights in rooms) {
+  (c.column) { children {
+    new c.SectionTitle { text = name }
+    q.from(lights).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+  } }
+}
+```
+
+That is one concept instead of three — no marker supertype, no `candidateKey`, no area-as-candidate
+— and it works through the STATIC index, which has registered a set as a child of a container since
+phase 1. The `Candidate` marker was spiked, built here, and reverted: with rooms as ordinary layout
+it buys nothing, and `hass.Entity` is the more precise type for `from`.
+
+The nesting work is not wasted: a set inside a MEMBER is still reachable whenever the outer
+membership is genuinely live, and two of its findings were bugs on the existing path either way
+(container selection reading the static index, and `hasChildOf` parsing ids). But the motivating
+example is not the case for it, and the plan should not have said it was.
 
 *Superseded — kept for the reasoning:*
 
