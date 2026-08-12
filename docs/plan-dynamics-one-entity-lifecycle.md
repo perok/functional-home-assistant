@@ -1077,6 +1077,38 @@ so the member stays the single patch target, and the only real work was the reve
 member, whose children are not addressable. Without `Member.entitiesOf` walking them, a tile whose
 child binds a second entity silently stops updating.
 
+**(b) is shipped in the runtime.** A set nested inside a member is an ordinary container with an
+ordinary id: the whole tree of sets is enumerated at renderer construction (candidates are static,
+so it is knowable before any state arrives), and the inner members are graph nodes that patch
+themselves. A bulb going out removes its own element; its tile is never re-rendered and the other
+tiles are not touched.
+
+**The `self`/`mount` split turned out to need no template support at all.** The tile's own bytes are
+everything except the inner group, and the inner group is the mount — synthesised, as agreed. The
+reason it costs nothing: a tile's content is a REGISTRY fact, hence a literal, and
+`Dashboard.validate` already refuses a live slot on a container with no `self`. So the case that
+would have forced a template split is the case the existing rule already rejects, and a card that
+wants a live title declares a `self` exactly as `Tabs` does.
+
+Three things it needed, each silent when wrong:
+
+- **`Member.entitiesOf` must NOT descend into a nested set.** Its members are tracked as members;
+  descending would wake the whole tile on any bulb inside it, re-rendering and re-supplying
+  everything the inner members had just patched for themselves.
+- **`affectedDynamics` reads `memberSources`, not the static index.** A nested set is not in the
+  static index — it hangs off a member, which is the dynamic half — so selecting from the index
+  meant the inner set synced, its members moved, and nothing recorded it. That was the bug: correct
+  ids, correct HTML, zero patches.
+- **`hasChildOf` became `holdsAnyOf`** — named ids rather than an id prefix, since an inner
+  member's id starts with the outer gid and a container would otherwise look established on the
+  strength of its grandchildren.
+
+What is NOT authorable yet is the motivating example, "a tile per ROOM": `q.from` takes
+`List<hass.Entity>` and an area is not an entity. That is the `Candidate` marker supertype the spike
+designed, and it is the remaining piece of (b). A set nested inside an ENTITY's tile works today.
+
+*Superseded — kept for the reasoning:*
+
 **(b), a nested set, needs the `self`/`mount` split first.** The tile's own rendering would contain
 the inner members' bytes, and both would be logged — breaking "no node logs a fragment containing
 another", the invariant `DynamicGroupSuite` already pins. So a tile holding a set is shaped like a

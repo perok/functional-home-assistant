@@ -67,6 +67,10 @@ private[runtime] object Member {
   def entitiesOf(node: LayoutNode): List[String] = node match {
     case c: LayoutNode.Component =>
       (c.liveEntities ++ c.children.flatMap(entitiesOf)).distinct
+    // Deliberately NOT into a nested set: its members are tracked as members,
+    // and they patch themselves. Descending here would wake the whole tile on
+    // any bulb inside it — re-rendering, and re-supplying, everything the inner
+    // members had just patched for themselves.
     case _ => Nil
   }
 }
@@ -80,7 +84,11 @@ private[runtime] case class Member(
     root: String,
     key: MemberKey,
     id: NodeId,
-    node: LayoutNode.Component
+    node: LayoutNode.Component,
+    // Which of the candidate's clauses produced this node. Part of the id of
+    // any set nested inside it, so that two clauses holding sets cannot share
+    // one — a query group has no clauses and leaves it 0.
+    clause: Int = 0
 )
 
 /** What one frame did to one dynamic group's membership: the member lists the
@@ -108,8 +116,9 @@ private object GroupMembers {
   def of(members: Vector[Member]): GroupMembers =
     GroupMembers(
       members,
-      members.toList.collect { case Member(_, _, MemberKey.Entity(e), _, _) =>
-        e
+      members.toList.collect {
+        case Member(_, _, MemberKey.Entity(e), _, _, _) =>
+          e
       }
     )
 }
@@ -210,11 +219,6 @@ class Renderer(
         .mapValues(_.toSet)
         .toMap
 
-    val dynamicIds: List[NodeId] =
-      indexed.collect {
-        case (id, (_: LayoutNode.Dynamic, _)) => id
-        case (id, (_: LayoutNode.SetNode, _)) => id
-      }.toList
   }
 
   private val mainIndex = new Index(dashboard.card, "")
@@ -455,13 +459,14 @@ class Renderer(
       s.members
         .get(entityId)
         .flatMap(
-          _.clauses.find(_.when.forall(Renderer.matchesIn(_, subject, states)))
+          _.clauses.zipWithIndex
+            .find(_._1.when.forall(Renderer.matchesIn(_, subject, states)))
         )
-        // Phase 1 renders leaf members only. A clause node that is a nested
-        // set — "a tile per room" — is phase 3, and until then it is dropped
-        // rather than half-rendered.
-        .collect { case LayoutNode.SetClause(_, c: LayoutNode.Component) =>
-          member(gid, entityId, c)
+        // A clause whose node is itself a set has no rendering of its own to
+        // be, so it is not a member; a set nested INSIDE a component clause is
+        // the supported shape.
+        .collect { case (LayoutNode.SetClause(_, c: LayoutNode.Component), i) =>
+          member(gid, entityId, c, i)
         }
     }
 
@@ -509,17 +514,100 @@ class Renderer(
   private def member(
       gid: NodeId,
       entityId: String,
-      node: LayoutNode.Component
+      node: LayoutNode.Component,
+      clause: Int = 0
   ): Member = {
     val key = MemberKey.Entity(entityId)
-    Member(gid, rootOf(gid).getOrElse(""), key, memberId(gid, key), node)
+    Member(
+      gid,
+      rootOf(gid).getOrElse(""),
+      key,
+      memberId(gid, key),
+      node,
+      clause
+    )
   }
 
-  private val memberSources: Map[NodeId, MemberSource] =
-    allIndexed.collect {
+  /** Every member container, INCLUDING the ones nested inside a member — "a
+    * tile per room", where each tile holds a set over that room's lights.
+    *
+    * They can all be enumerated here because a set's candidates are static, so
+    * the whole tree of sets is knowable before any state arrives. That is what
+    * makes an inner set an ordinary container with an ordinary id rather than
+    * something materialised per frame, and it is why the inner members patch
+    * themselves instead of the tile re-rendering.
+    *
+    * The id says where the set hangs: `<member>_<clause>_<child path>`. Every
+    * segment is static — a candidate cannot move, and neither can a clause
+    * index or a child index.
+    */
+  private val memberSources: Map[NodeId, MemberSource] = {
+    def nested(
+        gid: NodeId,
+        s: LayoutNode.SetNode
+    ): List[(NodeId, MemberSource)] =
+      for {
+        candidate <- s.candidates
+        (clause, ci) <- s.members
+          .get(candidate)
+          .toList
+          .flatMap(_.clauses)
+          .zipWithIndex
+        base = NodeId.derived(
+          s"${memberId(gid, MemberKey.Entity(candidate))}_$ci"
+        )
+        found <- setsIn(base, clause.node, Nil)
+      } yield found
+
+    def setsIn(
+        base: NodeId,
+        node: LayoutNode,
+        path: List[Int]
+    ): List[(NodeId, MemberSource)] = node match {
+      case c: LayoutNode.Component =>
+        c.children.zipWithIndex.flatMap { case (child, i) =>
+          setsIn(base, child, path :+ i)
+        }
+      case inner: LayoutNode.SetNode =>
+        val id = NodeId.derived(s"${base}_${path.mkString("_")}")
+        (id -> CandidateSource(inner)) :: nested(id, inner)
+      case _ => Nil
+    }
+
+    val roots = allIndexed.collect {
       case (id, (d: LayoutNode.Dynamic, _, _)) => id -> QuerySource(d)
       case (id, (s: LayoutNode.SetNode, _, _)) => id -> CandidateSource(s)
     }
+    roots ++ roots.toList.flatMap {
+      case (gid, CandidateSource(s)) => nested(gid, s)
+      case _                         => Nil
+    }
+  }
+
+  /** Which layout tree each member container is in — `""` for the main page,
+    * else the surface id. A nested set inherits its tile's, because it is not
+    * in the static index to be looked up in.
+    */
+  // `lazy`: `prefixToRoot` is a val defined further down the class body.
+  private lazy val sourceRoot: Map[NodeId, String] =
+    memberSources.keys.map { gid =>
+      gid -> allIndexed
+        .get(gid)
+        .map { case (_, _, prefix) => prefixToRoot(prefix) }
+        .getOrElse(
+          // A nested set: find the outermost container its id hangs off. Only
+          // roots are in `allIndexed`, and a root's id is a prefix of every id
+          // below it, so the longest match that IS indexed is the owner.
+          allIndexed.keys
+            .filter(id => gid.startsWith(id + "_"))
+            .toList
+            .sortBy(-_.length)
+            .headOption
+            .flatMap(id => allIndexed.get(id))
+            .map { case (_, _, prefix) => prefixToRoot(prefix) }
+            .getOrElse("")
+        )
+    }.toMap
 
   /** member id -> the container that owns it, for every member that can be
     * named ahead of time. A candidate set's members are static, so this is an
@@ -746,26 +834,38 @@ class Renderer(
           .flatMap(gid => membersOf(gid, states).find(_.id == id))
       )
 
-  private def touchesDynamic(id: NodeId, change: StateChange): Boolean =
-    memberSources.get(id).exists(_.affected(change).nonEmpty)
-
   /** Main-page member containers whose MEMBERSHIP this frame could have moved.
     * No entity list: a member that merely ticked is found through the reverse
     * index now, so the only question left here is which groups to ask about
     * membership.
     */
   def affectedDynamics(changes: List[StateChange]): List[NodeId] =
-    mainIndex.dynamicIds.filter(id => changes.exists(touchesDynamic(id, _)))
+    containersIn("", changes)
 
   /** Like [[affectedDynamics]], scoped to one open surface. */
   def affectedSurfaceDynamics(
       surfaceId: String,
       changes: List[StateChange]
+  ): List[NodeId] = containersIn(surfaceId, changes)
+
+  /** Read off [[memberSources]] rather than the static index, because a set
+    * NESTED inside a member is not in the static index — it hangs off a member,
+    * which is the dynamic half. Selecting from the index instead is silent when
+    * wrong: the inner set syncs, its members move, and nothing records it.
+    */
+  private def containersIn(
+      root: String,
+      changes: List[StateChange]
   ): List[NodeId] =
-    surfaceIndexes
-      .get(surfaceId)
+    memberSources.iterator
+      .collect {
+        case (gid, src)
+            if sourceRoot.getOrElse(gid, "") == root &&
+              changes.exists(src.affected(_).nonEmpty) =>
+          gid
+      }
       .toList
-      .flatMap(_.dynamicIds.filter(id => changes.exists(touchesDynamic(id, _))))
+      .sorted
 
   /** [[bakeGroup]], for the flip path. A state group's members are a FIXED,
     * tiny set (its branches), which is why — unlike a dynamic group over
@@ -2004,11 +2104,14 @@ class Renderer(
       structuralVars(m.id),
       m.node.slots,
       // A member may render a SUBTREE — a card with children, not only a leaf.
-      // The children come out INSIDE the member's bytes and have no ids of
-      // their own, so the member stays the single patch target for everything
-      // it holds; a child's entity changing re-renders the member. That is why
-      // [[Renderer.memberEntities]] has to walk them.
-      m.node.children.map(memberChild(m, _, states)),
+      // Ordinary children come out INSIDE the member's bytes with no ids of
+      // their own, so the member is the single patch target for them and a
+      // child's entity changing re-renders it (which is why
+      // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
+      // is addressable, and [[Member.entitiesOf]] stops there.
+      m.node.children.zipWithIndex.map { case (child, i) =>
+        memberChild(m, child, List(i), m.clause, states)
+      },
       states
     )
     s"""<div class="fh-cell${Renderer.cellClasses(
@@ -2016,18 +2119,22 @@ class Renderer(
       )}" id="${m.id}">$html</div>"""
   }
 
-  /** One node inside a member, rendered whole and unaddressed.
+  /** One node inside a member. Ordinary children render whole and unaddressed —
+    * the member is their patch target. A nested SET is the exception: it is an
+    * addressable container of its own, so it renders as its group element and
+    * its members are patched individually rather than through the tile.
     *
-    * A nested SET is not renderable here: it would put its own members' bytes
-    * inside the member's, and then two log entries would claim the same region
-    * — the "no node logs a fragment containing another" invariant. Giving a
-    * tile a nested set needs the `self`/`mount` split a bake host uses, so it
-    * is its own piece of work; `CandidateSource.memberOf` drops such a clause
-    * rather than letting it arrive here.
+    * That split is the synthesised `self`/`mount`: the tile's own bytes are
+    * everything except the inner group, and the inner group is the mount. It
+    * needs no template support because the tile's own content is static —
+    * `Dashboard.validate` already refuses a live slot on a container with no
+    * `self`, and a room's NAME is a registry fact, hence a literal.
     */
   private def memberChild(
       m: Member,
       node: LayoutNode,
+      path: List[Int],
+      clauseIdx: Int,
       states: Map[String, EntityState]
   ): String = node match {
     case c: LayoutNode.Component =>
@@ -2035,12 +2142,27 @@ class Renderer(
         c.card,
         structuralVars(m.id),
         c.slots,
-        c.children.map(memberChild(m, _, states)),
+        c.children.zipWithIndex.map { case (child, i) =>
+          memberChild(m, child, path :+ i, clauseIdx, states)
+        },
         states
       )
       s"""<div class="fh-cell${Renderer.cellClasses(c.cell)}">$html</div>"""
+    case inner: LayoutNode.SetNode =>
+      renderDynamic(innerSetId(m.id, clauseIdx, path), inner.cell, states)
     case _ => ""
   }
+
+  /** Where a set nested inside a member hangs, as an id. Must agree with the
+    * enumeration in [[memberSources]] — they are the same scheme read from the
+    * two ends, and a mismatch renders an empty group with no error.
+    */
+  private def innerSetId(
+      member: NodeId,
+      clauseIdx: Int,
+      path: List[Int]
+  ): NodeId =
+    NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}")
 
   private def renderTemplate(
       cardName: String,

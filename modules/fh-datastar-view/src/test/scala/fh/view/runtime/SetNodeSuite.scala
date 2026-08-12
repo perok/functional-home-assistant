@@ -390,6 +390,69 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
+  test("a tile per room: the inner set is addressable, the tile is not") {
+    // Composite (b). The outer candidates are the rooms; each tile holds a set
+    // over that room's own lights. What makes it worth nesting rather than
+    // composing bytes: a bulb patches ITS OWN element, and the tile — whose
+    // content is a registry fact and so a literal — is never re-rendered.
+    val cards = tile ++ Map(
+      "col" -> CardDef("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+    )
+    def room(id: String, lights: List[String]) =
+      id -> LayoutNode.SetMember(
+        List(
+          LayoutNode.SetClause(
+            None,
+            LayoutNode.Component(
+              "col",
+              children = List(
+                LayoutNode.SetNode(
+                  candidates = lights,
+                  members = lights.map { l =>
+                    l -> LayoutNode.SetMember(
+                      List(LayoutNode.SetClause(Some(whileOn), tileNode(l)))
+                    )
+                  }.toMap
+                )
+              )
+            )
+          )
+        )
+      )
+    val dash = Dashboard(
+      cards = cards,
+      card = LayoutNode.SetNode(
+        candidates = List("area.stue", "area.bad"),
+        members = Map(
+          room("area.stue", List("light.a", "light.b", "light.d")),
+          room("area.bad", List("light.c"))
+        )
+      )
+    )
+    val states =
+      List("light.a", "light.b", "light.c", "light.d").map(id => id -> on(id))
+    SharedHarness.create(dash, states.toMap).flatMap { h =>
+      for {
+        html <- h.opening(None)
+        // Establish the inner mount, as every delta test here must.
+        _ <- h.step(off("light.d"))
+        patches <- h.step(off("light.b"))
+      } yield {
+        // Each inner member has its own element, under its own room's set.
+        assert(html.contains("""id="c_area_stue_0_0_light_a""""), clue = html)
+        assert(html.contains("""id="c_area_stue_0_0_light_b""""), clue = html)
+        assert(html.contains("""id="c_area_bad_0_0_light_c""""), clue = html)
+        // A bulb going out removes ITS element. The tile is untouched — no
+        // patch names the room, and nothing re-sends the other room at all.
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode remove"), clue = p)
+        assert(p.contains("selector #c_area_stue_0_0_light_b"), clue = p)
+        assert(!p.contains("c_area_bad"), clue = p)
+      }
+    }
+  }
+
   test("a COUNT over other entities decides presence, and wakes the member") {
     // "Show this while more than one light in the room is on." The counted
     // lights are not candidates of this set — only the count names them — so

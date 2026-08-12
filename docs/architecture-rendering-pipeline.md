@@ -394,9 +394,19 @@ a member is placed:
 | placement | entity id | the authored candidate order |
 
 The set is the newer of the two and the one being built toward
-(`docs/plan-dynamics-one-entity-lifecycle.md`), authored through `@fh-dashboard/query.pkl`. A
-clause whose node is a nested set is still dropped rather than half-rendered — that, and
-aggregates, are what remain of phase 3 there.
+(`docs/plan-dynamics-one-entity-lifecycle.md`), authored through `@fh-dashboard/query.pkl`.
+
+**Sets NEST.** A set inside a member — "a tile per room" — is an ordinary container with an ordinary
+id, because a set's candidates are static and so the whole tree of them is enumerated at renderer
+construction (`Renderer.memberSources`), before any state arrives. Its id says where it hangs:
+`<member>_<clause>_<child path>`, every segment static. The inner members are graph nodes like any
+other, so a bulb patches its own element and its tile is never re-rendered — which is the point of
+nesting rather than composing bytes.
+
+Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
+would wake the tile on every bulb inside it), and container selection reads `memberSources` rather
+than the static index (a nested set is not in the index — it hangs off a member, which is the
+dynamic half).
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
 neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's

@@ -370,7 +370,7 @@ private[runtime] object Patches {
     *   - the unchanged set is EMPTY (`was` or `now` is), so there is nothing to
     *     re-send: everything arrived, or everything left. One patch instead of
     *     N, identical bytes.
-    *   - `hasChildOf` is false — the log holds no children to patch AGAINST,
+    *   - `holdsAnyOf` is false — the log knows none of the members to patch
     *     after a renderer swap or an earlier fill — and a delta would be
     *     patching a baseline nobody can vouch for. Correctness, not cost.
     *
@@ -409,7 +409,11 @@ private[runtime] object Patches {
       val churn = added.size + removed.size + moved.size
       // The query boundary moved but the RENDERED membership did not.
       if (churn == 0) base
-      else if (was.isEmpty || now.isEmpty || !base.hasChildOf(gid))
+      else if (
+        was.isEmpty || now.isEmpty || !base.holdsAnyOf(
+          was.map(renderer.dynamicChildId(gid, _))
+        )
+      )
         // Touched as well as filled: the fill re-supplies the mount, and the
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
