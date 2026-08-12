@@ -12,6 +12,17 @@ import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 
+// Icon fixtures, shaped as PklDump generates them: a capability attribute lives
+// on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
+// test that just sets `icon = ...` on a `hass.LightEntity` is testing a shape
+// the dump never produces.
+local class E_with_icon extends hass.LightEntity {
+  icon: String = "mdi:ceiling-light"
+  device_class: String = "running"
+}
+local class E_temp extends hass.SensorEntity { device_class: String = "temperature" }
+local class E_custom_icon extends hass.LightEntity { icon: String = "hue:bulb-sultan" }
+
 // D1 helpers: there are no shared tables any more, so "how many distinct shapes
 // / conditions" is a question you ask of the members.
 local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
@@ -50,6 +61,48 @@ facts {
     a.or(b).kind == "or"
     a.not().item.property == "state"
     a.not().kind == "not"
+  }
+
+  // ---- entity icons -----------------------------------------------------------
+  // Resolved at BUILD time, in Home Assistant's own precedence: the entity's own
+  // `icon` beats its device_class, which beats its domain. All three are
+  // registry facts, so the slot is a LITERAL — it used to be a
+  // `$lookup($domain)` JSONata transform on every card.
+
+  ["an entity's OWN icon wins, as the MDI class"] {
+    // Its own icon wins over the `running` device_class it also carries.
+    c.entityCard(new E_with_icon { entity_id = "light.k" }).slots["icon"]
+      == "mdi-ceiling-light"
+  }
+
+  ["device_class beats the domain, so a temperature sensor is not a generic one"] {
+    local plain: hass.SensorEntity = new { entity_id = "sensor.p" }
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi-thermometer"
+    // No device_class at all -> the domain default, and no eval error for
+    // reading a property this entity does not have.
+    c.entityCard(plain).slots["icon"] == "mdi-eye"
+  }
+
+  ["a NON-mdi icon set falls through, rather than emitting a dead class"] {
+    // Six entities on the reference instance carry `hue:` icons from a HACS
+    // integration whose glyphs we do not ship. A class the stylesheet does not
+    // define renders as blank space, which is visibly worse than the default.
+    c.entityCard(new E_custom_icon { entity_id = "light.h" }).slots["icon"]
+      == "mdi-lightbulb"
+  }
+
+  ["an unknown domain emits NO icon slot, so the header renders none"] {
+    local odd: hass.GenericEntity = new {
+      entity_id = "wibble.x"
+      domain = "wibble"
+    }
+    !c.entityCard(odd).slots.containsKey("icon")
+  }
+
+  ["an author override takes either spelling"] {
+    local e: hass.LightEntity = new { entity_id = "light.k" }
+    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi-fridge"
+    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi-fridge"
   }
 
   ["a node has no cell until a layout builder adds one"] {

@@ -45,6 +45,35 @@ import "theme.pkl" as themeMod
 const local beerVersion: String = "4.0.23"
 const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
 
+/// Material Design Icons — HA's OWN icon set, so an entity's `icon` attribute
+/// (`mdi:thermometer`) renders as the glyph its author picked instead of being
+/// translated into some near-equivalent. Pinned for the same reason as BeerCSS.
+///
+/// **The cost, and the way out.** This is ~394 KB of woff2 plus ~100 KB of CSS
+/// for ~7 500 icons, of which one dashboard uses a few dozen. It is here
+/// because it is one line and it works; it is not the end state.
+///
+/// The end state is to INLINE the icons actually used, at build time, as SVG
+/// paths — which is available because every icon name is known at build time
+/// (`components.iconFor` resolves it from the dump, not from live state). The
+/// shape:
+///
+///   - add `@mdi/js` as a BUILD dependency (name -> path data, tree-shakeable);
+///   - resolve the name to its path where `iconFor` resolves the name today,
+///     and emit the path as the literal slot value;
+///   - the card template becomes
+///     `<svg viewBox="0 0 24 24"><path d="{{{icon}}}"/></svg>`, and
+///     `.entity header i` becomes a rule on that `svg`;
+///   - drop this stylesheet, and the `mdi ` class prefix with it.
+///
+/// That trades ~500 KB of always-loaded font for a few KB of markup that is
+/// already being sent, and removes a CDN round trip from first paint — which
+/// matters most on the PWA/remote path, where the font is not warm in cache.
+/// The reason it is not done here is scope, not doubt.
+const local mdiVersion: String = "7.4.47"
+const local mdiCdn: String =
+  "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
+
 /// A mapping rendered as CSS custom-property declarations
 /// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
 /// class bodies may only reference `const` module members.
@@ -148,6 +177,7 @@ class BeerTheme extends themeMod.Theme {
 
   stylesheets {
     "\(beerCdn)/beer.min.css"
+    mdiCdn
   }
 
   // Required by this theme's CSS, not for behavior (which stays Datastar's):
@@ -206,9 +236,12 @@ class BeerTheme extends themeMod.Theme {
     .section{color:var(--primary)}
     .state{color:var(--on-surface-variant)}
     .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}
-    /* Domain icon in the entity-card header (Material Symbols — the font
-       ships in the BeerCSS dist). */
-    .entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
+    /* Entity icon in the card header. MDI, not the Material Symbols the
+       BeerCSS dist bundles — HA's own `icon` attribute is an MDI name, so this
+       is the set that can render what an author actually chose. The
+       `font-family` is restated because BeerCSS styles a bare `<i>` as Material
+       Symbols and would otherwise win the cascade over `.mdi:before`. */
+    .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
