@@ -82,6 +82,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
 | `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
+| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in `components.pkl`, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
 
 A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
 renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
