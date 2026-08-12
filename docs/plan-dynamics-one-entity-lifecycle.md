@@ -1289,6 +1289,31 @@ two-kinds table collapsed to one.
 deleting the new path. **Phase 5 was the irreversible one** and it has happened: the old dynamic
 groups are gone, and `kind: "dynamic"` no longer decodes.
 
+**A breaking authoring change strands every existing workspace, and nothing says so.**
+
+Found the hard way: phases 4 and 5 ported the repo's own entries, but a workspace is seeded
+WRITE-ONCE (ADR 0010) — so `dashboard-local-dev-server/`'s copies of `pkl-demo`/`pkl-if` kept
+calling `c.DynamicGroup` and `c.entityIs` and failed at eval on the next start. The server logs
+`Skipping dashboard '<slug>' (build failed)` and serves the rest, which is the right runtime
+behaviour and the wrong authoring one: the message names the symbol but not the replacement, and
+nothing had warned that an upgrade would break a file the user owns.
+
+Write-once is correct and should stay — these are the user's dashboards. What is missing is the
+other half:
+
+- the lib is content-versioned already, so a workspace could record the `@fh-dashboard` version its
+  entries were last known to build against, and a start that crosses a BREAKING boundary could say
+  so up front rather than per-entry at eval time;
+- the eval failure could name the migration, not just the missing symbol — `entityIs(x).and(...)`
+  -> `q.entity(x).stateIs(...)` is mechanical, and the error already knows which symbol was asked
+  for;
+- `fh push --write`-style tooling could offer the rewrite, with the dated-backup rule
+  (`name.backup.<date>`) that already governs every other user-file change.
+
+Not built. Recorded because the next breaking change will do this again, and because "the demos in
+the repo are ported" is not the same claim as "existing workspaces still build" — this plan made
+the first and quietly assumed the second.
+
 **After the plan: seed the changelog with the membership a swap already knows.** Found while
 writing `SetNodeSuite`; deferred deliberately, on the grounds that a restart or a dashboard edit
 does not have to be byte-perfect.
