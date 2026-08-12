@@ -125,13 +125,11 @@
           "else" : {
             "activation" : {
               "condition" : {
-                "kind" : "cmp",
-                "op" : "ne",
-                "property" : "domain",
-                "value" : "__never__"
+                "items" : [
+                ],
+                "kind" : "and"
               },
-              "kind" : "state",
-              "quantifier" : "any"
+              "kind" : "state"
             },
             "bakeAs" : "branch",
             "bakeIndex" : 1,
@@ -169,24 +167,13 @@
           "then" : {
             "activation" : {
               "condition" : {
-                "items" : [
-                  {
-                    "kind" : "cmp",
-                    "op" : "eq",
-                    "property" : "entity_id",
-                    "value" : "light.kitchen"
-                  },
-                  {
-                    "kind" : "cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
-                  }
-                ],
-                "kind" : "and"
+                "entity" : "light.kitchen",
+                "kind" : "cmp",
+                "op" : "eq",
+                "property" : "state",
+                "value" : "on"
               },
-              "kind" : "state",
-              "quantifier" : "any"
+              "kind" : "state"
             },
             "bakeAs" : "branch",
             "bakeIndex" : 0,

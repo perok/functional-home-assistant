@@ -624,8 +624,10 @@ exist.
 
 Two findings from the cache work, which sit between the ADRs and so are easy to lose:
 
-- An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
-  on the RESOLVED selection rather than on what the selection reads.
+- An `if`/`else` host's branch is keyed on the RESOLVED selection rather than on what the selection
+  reads. That was forced when the condition was quantified over the whole entity map; it stays
+  because it is still the smaller key — a subject-free condition names its entities, but a count
+  names all of its candidates, where the selection it resolves to is one number.
 - The cache holds ONE generation per node PER SELECTION, and the asymmetry is the point: `plan`
   selects the nodes whose entity just moved, so a full `(nodeId, inputs)` key would grow forever at a
   near-zero hit rate — but the selection half of that key does not churn, and bucketing on it is what

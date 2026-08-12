@@ -40,7 +40,7 @@ A **surface** (`model.Surface`) is a named layout subtree registered in
 for a **state-activated** one (an if/else branch — ADR 0007), while its
 condition over live entity state selects it. Its fields are `(content,
 bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
-`User(defaultOpen) | State(condition, quantifier)`:
+`User(defaultOpen) | State(condition)`:
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the

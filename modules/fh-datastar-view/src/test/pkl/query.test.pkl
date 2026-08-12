@@ -460,6 +460,46 @@ facts {
     memberOf.apply(s, "light.lampe")[0].node.children.toList()[1].slots["entity_id"] == "light.lampe"
   }
 
+  // ---- `If` takes a subject-free condition -----------------------------------
+  // A surface has no member to be the subject, so the condition must name what
+  // it reads. These pin the three ways it can.
+
+  ["an `If` over one entity names it, so the runtime looks it up"] {
+    local branch = c.iff(q.entity(taklys).stateIs("on")).then(c.title("on"))
+    local cond = branch.inlineSurfaces["then"].activation.condition
+    cond.property == "state"
+    cond.entity == "light.taklys"
+  }
+
+  ["an `If` over a SET is a count — no quantifier, and no card"] {
+    local branch = c.iff(q.from(stue).where(q.eq(q.stateProp, "on")).any())
+      .then(c.title("some light is on"))
+    local cond = branch.inlineSurfaces["then"].activation.condition
+    cond.kind == "count"
+    cond.op == "gt"
+    cond.value == 0
+    cond.candidates.toList() == List("light.taklys", "light.lampe")
+  }
+
+  ["the `else` member's condition is vacuously true and reads nothing"] {
+    local branch = c.iff(q.entity(taklys).stateIs("on"))
+      .then(c.title("on"))
+      .`else`(c.title("off"))
+    local cond = branch.inlineSurfaces["else"].activation.condition
+    cond.kind == "and"
+    cond.items.toList().isEmpty
+  }
+
+  ["a condition the BUILD settled is still an ordinary condition"] {
+    // `any()` over a set no candidate can join folds to `false` before anything
+    // runs, so the branch it guards simply never shows.
+    local never = c.iff(q.from(stue).where(false).any()).then(c.title("x"))
+    never.inlineSurfaces["then"].activation.condition.kind == "or"
+    never.inlineSurfaces["then"].activation.condition.items.toList().isEmpty
+    // ...and the mirror.
+    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition.kind == "and"
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"

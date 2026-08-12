@@ -218,17 +218,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def elementPatches(batch: List[ServerSentEvent]): List[String] =
     batch.map(_.renderString).filterNot(_.contains("datastar-patch-signals"))
 
-  val always: Predicate =
-    Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+  // An empty conjunction is vacuously true, and reads no entity — so an `else`
+  // member is an ordinary condition with no subject to supply.
+  val always: Predicate = Predicate.And(Nil)
 
-  // "Entity X is in state Y": the entity_id pin + the default Any quantifier.
+  // "Entity X is in state Y": the condition names its entity, so evaluating it
+  // is one lookup rather than a scan.
   def entityIs(id: String, state: String): Predicate =
-    Predicate.And(
-      List(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
-        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
-      )
-    )
+    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   val armedCond = entityIs("alarm.h", "armed")
 

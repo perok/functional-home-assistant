@@ -1,10 +1,11 @@
 # Dynamics: one entity lifecycle
 
-> Status: **phases 0-3 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the runtime
-> consumes candidate sets, and the spike that argued the design is gone — its scenarios ported onto
-> the real library in `query.test.pkl`. What remains is phase 4 (`If` takes a candidate set), phase
-> 5 (retire the query half of dynamic groups), phase 6 (the attribute schema) and phase 7 (the ADR
-> rewrites), plus the deferred changelog-seeding fix.
+> Status: **phases 0-4 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the runtime
+> consumes candidate sets, `If` takes a subject-free condition, and the spike that argued the design
+> is gone — its scenarios ported onto the real library in `query.test.pkl`. What remains is phase 5
+> (retire the query half of dynamic groups), phase 6 (the attribute schema) and phase 7 (the last
+> ADR rewrites — 0003/0004; 0002 and 0007 moved with phase 4), plus the deferred changelog-seeding
+> fix.
 >
 > **How this is organised.** *Why* states the problem, the principles and the limitations being
 > fixed. *The format* and *The authoring surface* are the design. *What it costs and what it checks*
@@ -903,11 +904,11 @@ c.iff(q.from(dump.stue.lights).count(q.eq(q.stateProp, "on")).gt(2)).then(banner
 and keeping the quantifier, and both turn out to be unnecessary.*
 
 ```scala
-// today
+// was
 case State(condition: Predicate, quantifier: Quantifier)
 case Quantifier.Any => states.values.exists(Renderer.matches(condition, _))   // O(all entities)
 
-// unified: ONE subject-free predicate, no set beside it and no quantifier
+// now: ONE subject-free predicate, no set beside it and no quantifier
 case State(condition: Predicate)
 def holds(c: Predicate, states) = Renderer.matchesIn(c, EntityState.none, states)
 ```
@@ -921,19 +922,23 @@ That makes the validate rule sharp, and it is the piece to build carefully: an `
 containing a `Cmp` with no `entity` is a BUILD ERROR. It is the unbound predicate P6 forbids —
 today it silently means "some entity in the house", which is never what an author meant.
 
-**Migration, in order** (the tree must not sit half-way, per the rollback shape):
+**Migration, in order** (the tree must not sit half-way, per the rollback shape) — *done*:
 
 1. `Activation.State` drops `quantifier`; `holds` becomes the subject-free evaluation; `Quantifier`
    is deleted (`Dashboard.scala`, `Renderer.scala`, and three suites name it).
-2. `Dashboard.validate` rejects a subject-bearing `Cmp` under an `If`.
+2. `Dashboard.validate` rejects a subject-FREE `Cmp` under an `If` — one that names no entity, and
+   so would read a subject the surface cannot supply.
 3. The Pkl `If`/`StateActivation` builder takes the new condition; `pkl-if.pkl` and the fixture
    dashboards move from `c.entityIs("light.a").and(c.stateIs("on"))` to
    `q.entity(dump.e_a).stateIs("on")` — the same statement, with the entity named once.
-4. Only then delete the free constructors from `components.pkl`, which `If` currently holds the
-   last references to.
 
-`over` is the same static candidate list a set already has, so the scan becomes a walk of N knowns
-— **L6's `holds` bug fixed by construction**, not by adding a pinned-condition shortcut.
+A fourth step was planned — delete the free constructors from `components.pkl` — and does NOT
+belong here. `If` no longer references them, but `DynamicGroup`'s cases still do, legitimately: a
+case's subject IS the member it renders. They retire with the query half, in phase 5.
+
+L6's `holds` bug is fixed **by construction**: a condition names what it reads, so evaluating one is
+a lookup. No `over` field was needed — a `Cmp` with an entity and a `Count` with candidates already
+cover everything an `If` can hold.
 
 **The three items that collapse into one:**
 
@@ -943,8 +948,7 @@ today it silently means "some entity in the house", which is never what an autho
 - and it is composite (b)'s missing piece: "hide the room when none of its lights are on" is an
   aggregate over the tile's inner set
 
-Sequence it before deleting the free constructors from `components.pkl`, or `If` is left holding
-the only references to them.
+
 
 ## What composite changes in the architecture
 
@@ -1213,10 +1217,30 @@ the candidates supplies them, because the runtime's sort is stable over candidat
 **Phase 4 — `If` takes a subject-free predicate.** Fixes `holds` by construction, retires
 `Quantifier`, collapses the two predicate languages into one. Must precede Phase 5.
 
-Not started. It is the first phase that changes AUTHORING — `pkl-if.pkl` and several fixtures spell
-their conditions with the free constructors — so it wants doing in one go, in the four steps under
-"One predicate language: what actually changes". Everything before it is shipped and coherent;
-starting this one half-way is the state the rollback shape exists to avoid.
+*Shipped*, in the four steps under "One predicate language: what actually changes". `Quantifier` is
+deleted; `Activation.State` is the condition alone; `Renderer.holds` is
+`matchesIn(condition, EntityState.none, states)`, where `EntityState.none` stands in for the subject
+`Dashboard.validate` has proven nothing reads. On the Pkl side `iffNone`/`iffAll` are gone and
+`c.iff` takes a `query.pkl` condition; `pkl-if.pkl`, the two Pkl-driven suites and the
+`fixture-surfaces` snapshot moved with it.
+
+Three things it turned up:
+
+- **The `else` member needed a subject-free "always".** It was
+  `domain != "__never__"` — a comparison, so `validate` now rejects it. `Predicate.And(Nil)` is
+  vacuously true and reads nothing, and its mirror `Or(Nil)` is what `iff` makes of a condition the
+  build already settled as `false`. Which is the other half: **`iff` had to accept a `Boolean`**,
+  because a count over statically-resolved candidates IS a number and `q.from(emptyRoom).any()`
+  folds before anything runs. Taking it keeps the fold an ordinary condition instead of a type error
+  the author routes around.
+- **`conditionTouched` became exact, and lost a special case.** It compared the changed entity's own
+  match before and after, and had to treat a first-appearance (`previous = None`) as always-touching
+  — an `all`/`none` aggregate could move with no per-entity flip. A subject-free condition names
+  what it reads, so the pre-test is now set membership against a per-group entity set computed once,
+  and an entity's first appearance is covered by the same test as any other change.
+- **`Cmp.entity` did the whole job.** The step was written as "give `If` a candidate set"; nothing
+  needed a set. A comparison naming its entity and a `Count` carrying its candidates already cover
+  every condition an `If` can hold, so no `over` field was added and none is missing.
 
 **Phase 5 — retire the dynamic-group query half.** Delete `syncMembers`, the full-map matching,
 `hass.SELF`, the free predicate constructors. Only safe once nothing authored uses them AND Phase 4

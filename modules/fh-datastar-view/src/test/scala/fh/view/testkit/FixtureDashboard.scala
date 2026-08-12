@@ -92,17 +92,12 @@ object FixtureDashboard {
       "state" -> SlotSource(Some(e.entityId))
     )
 
-  /** "Entity `id` is in state `state`" — the entity_id-pinned condition a
-    * state-activated surface flips on (the [[fh.view.model.Activation.State]]
-    * idiom from ADR 0007).
+  /** "Entity `id` is in state `state`" — the condition a state-activated
+    * surface flips on (the [[fh.view.model.Activation.State]] idiom from ADR
+    * 0007). It NAMES its entity: a state condition has no subject to supply.
     */
   private def entityIs(id: String, state: String): Predicate =
-    Predicate.And(
-      List(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
-        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
-      )
-    )
+    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   /** An If/else dashboard (ADR 0007's state-activated surfaces): an `ifhost`
     * root (id "c") whose `then` branch is baked while `condEntity` holds
@@ -138,9 +133,8 @@ object FixtureDashboard {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(1),
-          activation = Activation.State(
-            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
-          )
+          // An empty conjunction is vacuously true and reads no entity.
+          activation = Activation.State(Predicate.And(Nil))
         )
       ),
       slug = "ifhome",

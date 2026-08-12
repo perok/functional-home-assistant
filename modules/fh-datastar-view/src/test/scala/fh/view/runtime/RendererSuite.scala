@@ -9,7 +9,6 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  Quantifier,
   SlotSource,
   Surface,
   Theme
@@ -1153,18 +1152,14 @@ class RendererSuite extends munit.FunSuite {
   // ---------------------------------------------------------------------------
 
   // The always-true predicate an authoring layer uses for an `else` member —
-  // deliberately an ordinary condition, so the else needs no special casing.
-  private val always: Predicate =
-    Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+  // an empty conjunction is vacuously true and reads no entity, so the else
+  // needs no special casing and no subject.
+  private val always: Predicate = Predicate.And(Nil)
 
-  // "Entity X is in state Y" — the entity_id pin + Any quantifier idiom.
+  // "Entity X is in state Y" — the condition names its entity, so evaluating it
+  // is one lookup.
   private def entityIs(id: String, state: String): Predicate =
-    Predicate.And(
-      List(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
-        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
-      )
-    )
+    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   // The If host: a plain component card with one {{{branch}}} bake hole — no
   // tab bar, no signal, no ui state; the backend never required them.
@@ -1256,9 +1251,13 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.renderNodeById("c", states), None)
   }
 
-  test("resolveActiveByState quantifiers: any = ∃, none = ∄, all = ∀") {
+  // What the quantifiers became: a comparison on how many of a NAMED set are
+  // present. `any` is count > 0, `none` is count == 0, `all` is count == length
+  // — the same three answers, over the set the author meant rather than every
+  // entity in the house.
+  test("a state condition counts a named set: any/none/all as comparisons") {
     val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-    def dash(q: Quantifier) = Dashboard(
+    def dash(cond: Predicate) = Dashboard(
       ifCards,
       LayoutNode.Component("ifhost"),
       surfaces = Map(
@@ -1267,26 +1266,37 @@ class RendererSuite extends munit.FunSuite {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(0),
-          activation = Activation.State(on, q)
+          activation = Activation.State(cond)
         )
       )
+    )
+    def count(op: Op, n: Int) = Predicate.Count(
+      candidates = List("l.a", "l.b"),
+      when = Map("l.a" -> on, "l.b" -> on),
+      op = op,
+      value = Json.fromInt(n)
     )
     val mixed = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "off"))
     val allOn = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "on"))
     val allOff = Map("l.a" -> st("l.a", "off"), "l.b" -> st("l.b", "off"))
 
-    val anyR = Renderer.create(dash(Quantifier.Any))
+    val anyR = Renderer.create(dash(count(Op.Gt, 0)))
     assertEquals(anyR.resolveActiveByState("c", mixed), Some(0))
     assertEquals(anyR.resolveActiveByState("c", allOff), None)
 
-    // none is ∄ — NOT a Not inside the condition (that would still be ∃).
-    val noneR = Renderer.create(dash(Quantifier.None))
+    val noneR = Renderer.create(dash(count(Op.Eq, 0)))
     assertEquals(noneR.resolveActiveByState("c", allOff), Some(0))
     assertEquals(noneR.resolveActiveByState("c", mixed), None)
 
-    val allR = Renderer.create(dash(Quantifier.All))
+    val allR = Renderer.create(dash(count(Op.Eq, 2)))
     assertEquals(allR.resolveActiveByState("c", allOn), Some(0))
     assertEquals(allR.resolveActiveByState("c", mixed), None)
+
+    // A lone entity needs no set at all: the condition names it, so the answer
+    // is a lookup and an unrelated entity's state cannot decide it.
+    val oneR = Renderer.create(dash(entityIs("l.a", "on")))
+    assertEquals(oneR.resolveActiveByState("c", mixed), Some(0))
+    assertEquals(oneR.resolveActiveByState("c", allOff), None)
   }
 
   test("state members bake by condition and never enter selectedSurfaces") {

@@ -11,7 +11,6 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
-  Quantifier,
   SlotSource,
   Surface
 }
@@ -70,13 +69,22 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   )
 
+  // "At least one of these lights is on", as a count over the two it names.
   private val anyLightOn: Predicate =
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+    Predicate.Count(
+      candidates = List("light.a", "light.b"),
+      when = Map(
+        "light.a" -> Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
+        "light.b" -> Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+      ),
+      op = Op.Gt,
+      value = Json.fromInt(0)
+    )
 
   /** `c_0` binds sensor.t, `c_1` binds sensor.other, `c_2` is a banner bound to
-    * sensor.t whose bake group is chosen by a QUANTIFIED condition over every
-    * light — an input that appears nowhere in its `entitiesForNode`. `c_3` is a
-    * dynamic group over lights.
+    * sensor.t whose bake group is chosen by a condition counting the lights —
+    * inputs that appear nowhere in its `entitiesForNode`. `c_3` is a dynamic
+    * group over lights.
     */
   private val dashboard = Dashboard(
     cards,
@@ -109,16 +117,14 @@ class RenderInputsSuite extends munit.FunSuite {
         bakeInto = Some("c_2"),
         bakeAs = Some("branch"),
         bakeIndex = Some(0),
-        activation = Activation.State(anyLightOn, Quantifier.Any)
+        activation = Activation.State(anyLightOn)
       ),
       "dark" -> Surface(
         bound("sensor.b"),
         bakeInto = Some("c_2"),
         bakeAs = Some("branch"),
         bakeIndex = Some(1),
-        activation = Activation.State(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
-        )
+        activation = Activation.State(Predicate.And(Nil))
       )
     )
   )
@@ -159,10 +165,11 @@ class RenderInputsSuite extends munit.FunSuite {
       ),
     // An entity only c_1 binds.
     st("sensor.other", "2"),
-    // Flips c_2's bake group (Any) AND changes a dynamic member's case.
+    // Flips c_2's bake group (the count crosses 0) AND changes a dynamic
+    // member's case.
     st("light.a", "on"),
     // THE adversarial step: an entity c_2 does not bind, whose change leaves
-    // the quantified condition where it already was. c_2's bytes must not move,
+    // the count's comparison where it already was. c_2's bytes must not move,
     // and its key must say so.
     st("light.b", "on"),
     st("light.a", "off"),

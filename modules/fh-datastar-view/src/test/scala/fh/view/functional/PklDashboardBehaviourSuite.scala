@@ -121,13 +121,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
        |card = (c.column) {
        |  children {
        |    c.title("Branch")
        |    c
-       |      .iff(c.entityIs(dump.entities.${light.dumpKey}.entity_id).and(c.stateIs("on")))
+       |      .iff(q.entity(dump.entities.${light.dumpKey}).stateIs("on"))
        |      .then((c.column) {
        |        children {
        |          c.title("Light is on")

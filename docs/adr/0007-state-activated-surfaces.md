@@ -33,7 +33,7 @@ group whose member is selected by a **condition** instead of a click:
   (inactive surfaces are simply never consulted), not a guard bolted onto the
   patch loop.
 - **`Surface.activation` is a sum**, replacing the flat `defaultOpen` flag:
-  `User(defaultOpen)` | `State(condition: Predicate, quantifier)`. The sum
+  `User(defaultOpen)` | `State(condition: Predicate)`. The sum
   makes the invalid combination (a default-open flag AND a condition on one
   member) unrepresentable; a bake group must be mode-homogeneous
   (`Dashboard.validate` rejects mixing). The flat wire field is retired — no
@@ -43,19 +43,31 @@ group whose member is selected by a **condition** instead of a click:
 ### Selection semantics
 
 A state-selected group takes the **first member in `bakeIndex` order whose
-quantified condition holds**; no member holding bakes empty content (the host
-renders its wrapper empty — the same stable morph target). An `else` branch is
-just the last member with an always-true condition; `else if` is one more
-member in between (the authoring layer currently expresses that by nesting an
-`If` in `else`; a flat `.elseIf` needs no wire change).
+condition holds**; no member holding bakes empty content (the host renders its
+wrapper empty — the same stable morph target). An `else` branch is just the last
+member with an always-true condition — `Predicate.And(Nil)`, vacuously true and
+reading nothing; `else if` is one more member in between (the authoring layer
+currently expresses that by nesting an `If` in `else`; a flat `.elseIf` needs no
+wire change).
 
-A `Predicate` (ADR 0004) tests ONE entity, but a surface's condition must
-decide over the whole state map, so `Activation.State` carries a
-**quantifier**: `any` (∃ — with an `entity_id` pin, the "entity X is in state
-Y" case), `none` (∄ — deliberately its own quantifier: `Not` inside the
-condition still quantifies existentially), `all` (∀). `Cmp` gained the
-`entity_id` property (`Renderer.matches`) so a condition can pin one entity;
-the Pkl helper is `entityIs(id)`.
+**The condition is SUBJECT-FREE**, and that is what removed the quantifier. A
+`Predicate` (ADR 0004) normally tests whichever entity supplies its subject — a
+set member, a dynamic case — but a surface supplies none. So every comparison in
+a state condition names its own entity (`Cmp.entity`) and a `Predicate.Count`
+carries its own candidates; `Dashboard.validate` rejects one that does not, with
+a located message. Evaluating a condition is then a handful of lookups
+(`Renderer.holds` → `matchesIn` against `EntityState.none`, which nothing
+reads), and `conditionTouched` is exact rather than a heuristic: a group's
+conditions read a known entity set, so a change outside it cannot move the
+selection.
+
+The quantifier it replaced was `any`/`none`/`all` over the WHOLE state map, and
+those became comparisons on a count over a NAMED set: `any` is `count > 0`,
+`none` is `count == 0`, `all` is `count == length`. That is not only cheaper —
+it says what an author meant. "Some entity in the house is both `light.x` and
+on" was always a circumlocution for "`light.x` is on", and "any light is on" was
+never expressible at all without meaning *every* light HA knows about. See
+`docs/plan-dynamics-one-entity-lifecycle.md`.
 
 ### Shared-pass placement (the cache consequence)
 
@@ -75,9 +87,8 @@ panel is tagged with the tab panel instead.
 Per state change, the recording pass does two things:
 
 1. **Flips** (`Renderer.affectedStateGroups`, same two-step cost model as
-   `dynamicDelta`: O(1) shortcut — the changed entity's own match must have
-   flipped for some member's condition — before the full before/after
-   selection compare): record where the branch went, **prune** the group's
+   `dynamicDelta`: O(1) shortcut — the change must touch an entity the group's
+   conditions actually name — before the full before/after selection compare): record where the branch went, **prune** the group's
    cache entries, and defer the render. Hidden-branch churn deliberately leaves
    stale cache entries; the flip-prune is what makes that correct.
 
@@ -119,18 +130,28 @@ to prevent it because nothing tested two clients on different tabs across a flip
 
 ### Authoring (Pkl)
 
-`c.iff(cond)` / `c.iffNone(cond)` / `c.iffAll(cond)` return an `If` node
-supporting both a builder and an amend form (both set the same hidden
-properties; the derived `inlineSurfaces` is late-bound, so either path
-re-derives it):
+`c.iff(cond)` returns an `If` node supporting both a builder and an amend form
+(both set the same hidden properties; the derived `inlineSurfaces` is
+late-bound, so either path re-derives it). The condition comes from `query.pkl`,
+which is what makes it name its entities:
 
 ```pkl
-c.iff(c.entityIs("alarm_control_panel.home").and(c.stateIs("armed_away")))
+c.iff(q.entity(dump.e_alarm).stateIs("armed_away"))          // one entity
   .then(c.title("⚠ Alarm armed"))
   .`else`(c.title("All quiet"))
 
+c.iff(q.from(dump.areas.stue.lights)                          // a named set
+        .where(q.eq(q.stateProp, "on")).any())
+  .then(c.title("Someone is up"))
+
 (c.iff(...)) { `then` { c.title("…") c.entityCard(e) } `else` { c.title("…") } }
 ```
+
+`iff` also accepts a `Boolean`, because the fold can settle a count before
+anything runs (`q.from(emptyRoom).any()` is `false`); it becomes an
+always/never condition rather than a type error the author has to route around.
+`iffNone`/`iffAll` are gone with the quantifiers — `.none()`/`.all()` on the set
+say the same thing about the set the author named.
 
 `else` is a Pkl reserved word — backticks at the property, the method, and
 every call site (verified; see the then/else spike in
@@ -155,7 +176,7 @@ group shares one bake var. Demo entry: `pkl-if.pkl`.
   "click"): renders every branch once per connection and turns a global state
   flip into a walk over every session's open set — contorting per-client
   machinery to carry server truth.
-- **A flat `defaultOpen` + optional `condition`/`quantifier` on `Surface`**:
+- **A flat `defaultOpen` + optional `condition` on `Surface`**:
   representable nonsense (both set at once) and an implicit mode; the
   `Activation` sum states the mode and scopes each mode's fields.
 
@@ -167,7 +188,7 @@ group shares one bake var. Demo entry: `pkl-if.pkl`.
   activation modes: user-triggered selections are per-client truth and decide
   who a patch reaches, state-driven ones are server truth and reach everyone.
   New conditional UI should pick a mode, not a new mechanism.
-- Verified by `RendererSuite` (selection/quantifiers/owner split),
+- Verified by `RendererSuite` (selection/counting/owner split),
   `ServerSuite` (hidden-branch silence, flip morph + prune, nesting, popup
   containment), `BuildPhaseSuite` (activation decode/validate/hoist) and
   `PklBuildSuite` (full-pipeline If entries + the `pkl-if` snapshot).

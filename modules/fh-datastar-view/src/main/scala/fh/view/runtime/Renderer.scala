@@ -11,7 +11,6 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
-  Quantifier,
   SlotSource,
   Surface
 }
@@ -1051,23 +1050,16 @@ class Renderer(
   private def stateGidsAtRoot(root: String): List[NodeId] =
     stateGidsByRoot.getOrElse(root, Nil)
 
-  /** Whether a state condition, quantified over the WHOLE live state map,
-    * holds. See [[fh.view.model.Quantifier]] for why `none` is its own
-    * quantifier and not a `Not` in the condition.
+  /** Whether a state condition holds. It is SUBJECT-FREE — `Dashboard.validate`
+    * rejects a `Cmp` in one that does not name its entity — so this is a
+    * handful of lookups rather than the whole-map scan a quantifier needed.
+    * [[EntityState.none]] stands in for the subject nothing reads.
     */
   private def holds(
       condition: Predicate,
-      quantifier: Quantifier,
       states: Map[String, EntityState]
   ): Boolean =
-    quantifier match {
-      case Quantifier.Any =>
-        states.values.exists(Renderer.matches(condition, _))
-      case Quantifier.None =>
-        !states.values.exists(Renderer.matches(condition, _))
-      case Quantifier.All =>
-        states.values.forall(Renderer.matches(condition, _))
-    }
+    Renderer.matchesIn(condition, EntityState.none, states)
 
   /** FIRST match in `bakeIndex` order, so an "else" is just a member with an
     * always-true condition at the last index and an `elseif` is one more
@@ -1085,43 +1077,44 @@ class Renderer(
       dashboard.surfaces
         .get(sid)
         .exists(_.activation match {
-          case Activation.State(condition, quantifier) =>
-            holds(condition, quantifier, states)
+          case Activation.State(condition) =>
+            holds(condition, states)
           case _ => false
         })
     )
     Option.when(idx >= 0)(idx)
   }
 
+  /** Every entity a state group's conditions read. Exact, because a state
+    * condition is subject-free: a comparison names its entity, a count names
+    * its candidates, and nothing else reaches the snapshot. So a change to an
+    * entity outside this set cannot move the group's selection — including the
+    * entity's first appearance, which a quantified condition could not rule
+    * out.
+    */
+  private lazy val stateGroupEntities: Map[NodeId, Set[String]] =
+    stateBakeOwnerIds.map { gid =>
+      gid -> bakeGroup(gid).flatMap { sid =>
+        dashboard.surfaces
+          .get(sid)
+          .toList
+          .flatMap(_.activation match {
+            case Activation.State(c) => Predicate.referencedEntities(c)
+            case _                   => Nil
+          })
+      }.toSet
+    }.toMap
+
   /** The O(1) pre-test of the flip check, same cost model as
-    * [[touchesDynamic]]: a state change can only move a group's selection if
-    * the CHANGED entity's own match flipped for some member's condition, since
-    * the quantified aggregate (any/none/all) is over per-entity matches and
-    * only this entity's changed. A newly-seen entity (`previous = None`) skips
-    * the shortcut — its mere appearance can move an `all`/`none` aggregate with
-    * no per-entity flip at all.
+    * [[touchesDynamic]].
     */
   private def conditionTouched(
       gid: NodeId,
       changes: List[StateChange]
-  ): Boolean =
-    changes.exists(conditionTouched(gid, _))
-
-  private def conditionTouched(gid: NodeId, change: StateChange): Boolean =
-    change.previous match {
-      case None       => true
-      case Some(prev) =>
-        bakeGroup(gid).exists(sid =>
-          dashboard.surfaces
-            .get(sid)
-            .exists(_.activation match {
-              case Activation.State(condition, _) =>
-                Renderer.matches(condition, prev) !=
-                  Renderer.matches(condition, change.current)
-              case _ => false
-            })
-        )
-    }
+  ): Boolean = {
+    val reads = stateGroupEntities.getOrElse(gid, Set.empty)
+    changes.exists(c => reads.contains(c.current.entityId))
+  }
 
   /** Walks only through currently-selected members: a flip inside a hidden
     * branch is unreachable DOM, and when its ancestor later flips it in, the

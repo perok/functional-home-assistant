@@ -764,6 +764,7 @@ class PklBuildSuite extends munit.FunSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |import "@fh-dashboard/theme.pkl" as th
        |
@@ -777,7 +778,7 @@ class PklBuildSuite extends munit.FunSuite {
        |        ["Light"] { c.entityCard(dump.entities.light_kitchen) }
        |      }
        |    }
-       |    c.iff(c.entityIs("light.kitchen").and(c.stateIs("on")))
+       |    c.iff(q.entity(dump.entities.light_kitchen).stateIs("on"))
        |      .then(c.entityCard(dump.entities.light_kitchen))
        |      .`else`(c.entityCard(dump.entities.sensor_outside_temp))
        |  }

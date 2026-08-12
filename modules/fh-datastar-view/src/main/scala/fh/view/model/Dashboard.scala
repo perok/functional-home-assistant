@@ -252,31 +252,20 @@ object Predicate:
     case Count(candidates, when, _, _) =>
       candidates ++ when.values.flatMap(referencedEntities)
 
-/** How a [[Activation.State]] condition is quantified over the WHOLE live state
-  * map. A [[Predicate]] tests ONE entity; a surface's activation must decide
-  * over all of them, so the condition needs a quantifier:
-  *
-  *   - [[Any]]: some entity matches the condition (∃) — with an `entity_id` pin
-  *     inside the condition, the "entity X is in state Y" case.
-  *   - [[None]]: no entity matches (∄) — deliberately its own quantifier, NOT
-  *     expressible as a `Not` inside the condition (which still quantifies
-  *     existentially: "some entity fails the test").
-  *   - [[All]]: every entity matches (∀).
-  *
-  * Encoded as the lowercase strings `"any"`/`"none"`/`"all"`; decoding is
-  * case-insensitive (mirroring [[Op]]). The case names shadow `scala.Any` /
-  * `scala.None` only at unqualified use sites — always reference them as
-  * `Quantifier.Any` etc.
-  */
-enum Quantifier:
-  case Any, None, All
-
-object Quantifier:
-  given Decoder[Quantifier] = Decoder[String].emap(s =>
-    values
-      .find(_.toString.equalsIgnoreCase(s))
-      .toRight(s"unknown quantifier: $s")
-  )
+  /** Does this read an entity it does not name? True for a `Cmp` with no
+    * `entity`, which only means something where a SUBJECT is supplied — a set
+    * member's guard, a dynamic case. A [[Activation.State]] supplies none, so
+    * one there used to mean "some entity in the house" and is now rejected.
+    *
+    * A count's guards are excluded deliberately: each is evaluated against its
+    * own candidate, so an unnamed subject inside one is bound.
+    */
+  def hasFreeSubject(p: Predicate): Boolean = p match
+    case Cmp(_, _, _, entity) => entity.isEmpty
+    case And(items)           => items.exists(hasFreeSubject)
+    case Or(items)            => items.exists(hasFreeSubject)
+    case Not(item)            => hasFreeSubject(item)
+    case _: Count             => false
 
 /** How a [[Surface]] becomes visible — its activation MODE, a sum so the
   * invalid combination (a default-open flag AND a state condition on one
@@ -286,13 +275,17 @@ object Quantifier:
   *     open, a tab click), optionally from the first paint (`defaultOpen`).
   *     Which member the client sees is per-connection state (uiState — ADR
   *     0005), so these surfaces render per session.
-  *   - [[State]] (`{kind:"state", condition, quantifier}`): shown while its
-  *     quantified `condition` holds over live entity state (an If/else branch).
-  *     The choice is server truth — a pure function of entity state, identical
-  *     for every viewer — so these surfaces ride the SHARED per-slug render
-  *     pass and never enter a session's open set. An "else" member is simply
-  *     `State(condition = <an always-true predicate>)` at a later `bakeIndex`
-  *     (selection is first-match in `bakeIndex` order — see
+  *   - [[State]] (`{kind:"state", condition}`): shown while its `condition`
+  *     holds over live entity state (an If/else branch). The condition is
+  *     SUBJECT-FREE — every comparison in it names its own entity and a
+  *     [[Predicate.Count]] carries its own candidates — so evaluating it is a
+  *     handful of lookups, not a scan. [[Dashboard.validate]] rejects one that
+  *     reads an unnamed subject. The choice is server truth — a pure function
+  *     of entity state, identical for every viewer — so these surfaces ride the
+  *     SHARED per-slug render pass and never enter a session's open set. An
+  *     "else" member is simply `State(condition = Predicate.And(Nil))` — an
+  *     empty conjunction is vacuously true and reads nothing — at a later
+  *     `bakeIndex` (selection is first-match in `bakeIndex` order — see
   *     `Renderer.resolveActiveByState`); no member matching bakes empty
   *     content.
   *
@@ -303,7 +296,7 @@ object Quantifier:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case State(condition: Predicate, quantifier: Quantifier = Quantifier.Any)
+  case State(condition: Predicate)
 
 /** One branch of a [[LayoutNode.Dynamic]] group: entities matching the group's
   * query are rendered with the first case whose `when` predicate matches.
@@ -828,12 +821,29 @@ case class Dashboard(
             .toList
         }
 
+    // A state activation has no subject to supply, so every comparison in its
+    // condition must name its own entity. Before candidate sets an unnamed one
+    // was quantified over the whole state map, which cost a scan and never said
+    // what the author meant ("some entity is both light.x and on").
+    val unboundConditions: List[String] =
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+        s.activation match
+          case Activation.State(c) if Predicate.hasFreeSubject(c) =>
+            List(
+              s"surface '$sid' is shown by a condition that compares an " +
+                "unnamed entity; a state condition must name the entity each " +
+                "comparison reads"
+            )
+          case _ => Nil
+      }
+
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     chromeErrors ++
       danglingBakes ++
       activationErrors ++
+      unboundConditions ++
       walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")

@@ -223,17 +223,19 @@ class UserActivation {
 }
 
 /// STATE activation (mirrors fh.view.model.Activation.State): the surface is
-/// shown while its quantified `condition` holds over live entity state — server
-/// truth, identical for every viewer (an [[If]] branch). A [[Predicate]] tests
-/// ONE entity, so the condition needs a `quantifier` over the whole state map:
-/// "any" = some entity matches (∃ — with an [[entityIs]] pin, the "entity X is
-/// in state Y" case), "none" = no entity matches (∄ — deliberately its own
-/// quantifier, NOT a `.not()` inside the condition, which would still quantify
-/// existentially), "all" = every entity matches (∀).
+/// shown while `condition` holds over live entity state — server truth,
+/// identical for every viewer (an [[If]] branch).
+///
+/// The condition is SUBJECT-FREE: there is no member here to be its subject, so
+/// every comparison must name its own entity (`query.entity(e).stateIs("on")`)
+/// and a [[Count]] carries its own candidates. There is no quantifier — over a
+/// named set `any` is `count > 0`, `none` is `count == 0` and `all` is
+/// `count == length`, which `query.pkl` builds — and a comparison that names no
+/// entity is a `Dashboard.validate` error rather than the old "some entity in
+/// the house".
 class StateActivation {
   kind: "state" = "state"
   condition: Predicate
-  quantifier: "any"|"none"|"all" = "any"
 }
 
 /// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
@@ -1261,9 +1263,10 @@ const always: Cmp = cmp("domain", "ne", "__never__")
 function domainIs(d: String): Cmp = cmp("domain", "eq", d)
 /// `state == s`, e.g. `stateIs("on")`.
 function stateIs(s: String): Cmp = cmp("state", "eq", s)
-/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — pins a condition to
-/// ONE entity, so an existentially quantified [[StateActivation]] ("any")
-/// reads "entity X is in state Y": `entityIs(...).and(stateIs("on"))`.
+/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — how a [[DynamicGroup]]
+/// query enumerates an explicit entity set. NOT how a [[StateActivation]] names
+/// its entity: that takes `query.entity(e)`, which sets `Cmp.entity` so the
+/// runtime looks the entity up instead of testing whichever one it is holding.
 function entityIs(id: String): Cmp = cmp("entity_id", "eq", id)
 /// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
 function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
@@ -1411,24 +1414,35 @@ class SortHolds extends SortKey {
 // An If is NOT a new wire kind: it reuses the tabs machinery literally — a
 // host card with one bake hole + one inline surface per branch
 // (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
-// quantified condition over live entity state ([[StateActivation]]) instead of
-// the client's selection, so the choice is server truth, shared by every viewer.
+// condition over live entity state ([[StateActivation]]) instead of the
+// client's selection, so the choice is server truth, shared by every viewer.
 // Hidden-branch silence is structural: branch nodes live in surface indexes,
 // never the main reverse index, so the inactive branch is not rendered and
 // receives no updates.
 
-// Build a [[StateActivation]]. `p`/`q` are NOT named after the properties they
-// set (the amend-scoping gotcha — `condition = condition` inside the `new`
-// would self-recurse); `const local` because [[If.inlineSurfaces]] calls it
-// from the class body.
-const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): StateActivation =
-  new { condition = p; quantifier = q }
+// Build a [[StateActivation]]. `p` is NOT named after the property it sets
+// (the amend-scoping gotcha — `condition = condition` inside the `new` would
+// self-recurse); `const local` because [[If.inlineSurfaces]] calls it from the
+// class body.
+const local function stateActivation(p: Predicate): StateActivation =
+  new { condition = p }
 
-/// A conditional section: the `then` cards are shown while the quantified
-/// `condition` holds over live entity state, the (optional) `else` cards while
-/// it does not. Built by [[iff]]/[[iffNone]]/[[iffAll]] — builder calls for
-/// single-card branches, the amend form for multi-card ones:
-///   c.iff(c.entityIs("light.x").and(c.stateIs("on")))
+/// The `else` branch's condition, and what [[iff]] makes of a condition the
+/// build already settled as true. An empty conjunction is vacuously true and
+/// reads nothing — unlike [[always]], which compares a subject an [[If]] does
+/// not have. `const` because [[If.inlineSurfaces]] reads it from the class body.
+const alwaysHolds: PAnd = new PAnd { items = new Listing {} }
+
+/// The mirror: an empty disjunction never holds. What [[iff]] makes of a
+/// condition the build settled as false — `q.from(emptyRoom).any()` folds to
+/// `false`, and the branch it guards then simply never shows.
+const neverHolds: POr = new POr { items = new Listing {} }
+
+/// A conditional section: the `then` cards are shown while `condition` holds
+/// over live entity state, the (optional) `else` cards while it does not. Built
+/// by [[iff]] — builder calls for single-card branches, the amend form for
+/// multi-card ones:
+///   c.iff(q.entity(dump.e_x).stateIs("on"))
 ///     .then(c.title("on")).`else`(c.title("off"))
 ///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
 /// With no matching member (a condition that fails and no `else`) the host
@@ -1452,7 +1466,6 @@ class If extends Node {
   // flow into a grandparent grid.)
   cell = new Cell { classes { "fh-cols-full" } }
   hidden condition: Predicate
-  hidden quant: "any"|"none"|"all" = "any"
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
   // backticked for visual pairing (backticks are pure quoting, not identity).
   hidden `then`: Listing<LayoutNode> = new {}
@@ -1468,7 +1481,7 @@ class If extends Node {
       bakeInto = NODE_ID
       bakeAs = "branch"
       bakeIndex = 0
-      activation = stateActivation(condition, quant)
+      activation = stateActivation(condition)
     }
     when (!`else`.isEmpty) {
       ["else"] = new SurfaceDef {
@@ -1476,7 +1489,7 @@ class If extends Node {
         bakeInto = NODE_ID
         bakeAs = "branch"
         bakeIndex = 1
-        activation = stateActivation(always, "any")
+        activation = stateActivation(alwaysHolds)
       }
     }
   }
@@ -1493,13 +1506,19 @@ class If extends Node {
 }
 
 /// A conditional section as a call: `c.iff(p).then(...).`else`(...)` — shown
-/// while SOME entity matches `p` (quantifier "any"; pin one entity with
-/// [[entityIs]]). See [[If]] for the amend form.
-function iff(p: Predicate): If = new If { condition = p }
-/// [[iff]] with quantifier "none": shown while NO entity matches `p`.
-function iffNone(p: Predicate): If = new If { condition = p; quant = "none" }
-/// [[iff]] with quantifier "all": shown while EVERY entity matches `p`.
-function iffAll(p: Predicate): If = new If { condition = p; quant = "all" }
+/// while `p` holds. `p` must name the entities it reads; build it with
+/// `query.entity(e)` for one entity, or `query.from(list).any()`/`.none()`/
+/// `.all()`/`.count(...)` over a set. See [[If]] for the amend form.
+/// A `Boolean` is accepted because the build FOLDS: a count over a set whose
+/// candidates all resolve statically is a number, so `q.from(emptyRoom).any()`
+/// is `false` before anything runs. Taking it here keeps that an ordinary
+/// condition instead of a type error the author has to route around.
+function iff(p: Predicate|Boolean): If =
+  new If {
+    condition =
+      if (p is Boolean) (if (p) alwaysHolds else neverHolds)
+      else p
+  }
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
