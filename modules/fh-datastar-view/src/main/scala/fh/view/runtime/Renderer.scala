@@ -605,7 +605,14 @@ class Renderer(
             )
             .map(_.id)
             .toSet
-          (rebuilt, swapped)
+          // Hand BACK the old value when the rebuild produced the same list —
+          // the common case, since most ticks do not make two members cross.
+          // `install` skips on `eq`, so without this a set with an ordering
+          // would rebuild its id and entity indices on every frame that touched
+          // it, which is the cost the incremental path exists to avoid. One
+          // vector comparison buys it back.
+          if (rebuilt.members == was.members) (was, swapped)
+          else (rebuilt, swapped)
         } else
           touched.foldLeft((was, Set.empty[NodeId])) {
             case ((group, swapped), entityId) =>

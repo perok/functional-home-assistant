@@ -240,6 +240,31 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
+  test("an ordering key moving WITHOUT crossing anyone emits nothing") {
+    // A live-ordered set rebuilds its member list rather than patching one
+    // place in it — but rebuilding is not repainting. What reaches the client
+    // is still a diff of the member lists, so a brightness that moves without
+    // overtaking a neighbour costs zero patches, exactly as it does for a set
+    // with no ordering at all.
+    val dash = sorted(
+      List("light.a", "light.b", "light.c"),
+      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+    )
+    val states = Map(
+      "light.a" -> bri("light.a", 90),
+      "light.b" -> bri("light.b", 50),
+      "light.c" -> bri("light.c", 10)
+    )
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        _ <- h.opening(None)
+        _ <- h.step(off("light.c"))
+        // b climbs, but stays under a and over c: same order, no patches.
+        patches <- h.step(bri("light.b", 80))
+      } yield assertEquals(patches, Nil, clue = patches)
+    }
+  }
+
   test("a reorder is Gone/Placed, and only for the member that moved") {
     val dash = sorted(
       List("light.a", "light.b", "light.c", "light.d"),
