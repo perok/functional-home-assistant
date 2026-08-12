@@ -424,6 +424,23 @@ class Renderer(
     * segment is static — a candidate cannot move, and neither can a clause
     * index or a child index.
     */
+  /** Where a set nested inside a member hangs, as an id — THE definition of the
+    * scheme, read from both ends: [[memberSources]] registers a container under
+    * it, and [[memberChild]] renders the element under it.
+    *
+    * It was written out twice, once per end, with a comment asking them to
+    * agree. They did, but the failure mode if they ever stopped is silent in
+    * the worst way: the markup and the ids are both correct, the graph syncs,
+    * and no patch is ever emitted because the container the recorder knows
+    * about is not the element the browser has.
+    */
+  private def innerSetId(
+      member: NodeId,
+      clauseIdx: Int,
+      path: List[Int]
+  ): NodeId =
+    NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}")
+
   private val memberSources: Map[NodeId, MemberSource] = {
     def nested(
         gid: NodeId,
@@ -436,23 +453,26 @@ class Renderer(
           .toList
           .flatMap(_.clauses)
           .zipWithIndex
-        base = NodeId.derived(
-          s"${memberId(gid, MemberKey.Entity(candidate))}_$ci"
+        found <- setsIn(
+          memberId(gid, MemberKey.Entity(candidate)),
+          ci,
+          clause.node,
+          Nil
         )
-        found <- setsIn(base, clause.node, Nil)
       } yield found
 
     def setsIn(
-        base: NodeId,
+        member: NodeId,
+        clauseIdx: Int,
         node: LayoutNode,
         path: List[Int]
     ): List[(NodeId, MemberSource)] = node match {
       case c: LayoutNode.Component =>
         c.children.zipWithIndex.flatMap { case (child, i) =>
-          setsIn(base, child, path :+ i)
+          setsIn(member, clauseIdx, child, path :+ i)
         }
       case inner: LayoutNode.SetNode =>
-        val id = NodeId.derived(s"${base}_${path.mkString("_")}")
+        val id = innerSetId(member, clauseIdx, path)
         (id -> MemberSource(inner)) :: nested(id, inner)
     }
 
@@ -2004,17 +2024,6 @@ class Renderer(
     case inner: LayoutNode.SetNode =>
       renderDynamic(innerSetId(m.id, clauseIdx, path), inner.cell, states)
   }
-
-  /** Where a set nested inside a member hangs, as an id. Must agree with the
-    * enumeration in [[memberSources]] — they are the same scheme read from the
-    * two ends, and a mismatch renders an empty group with no error.
-    */
-  private def innerSetId(
-      member: NodeId,
-      clauseIdx: Int,
-      path: List[Int]
-  ): NodeId =
-    NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}")
 
   private def renderTemplate(
       cardName: String,

@@ -409,6 +409,12 @@ would wake the tile on every bulb inside it), and container selection reads `mem
 than the static index (a nested set is not in the index — it hangs off a member, which is the
 dynamic half). The second was a real bug: correct ids, correct HTML, zero patches.
 
+The id scheme itself is ONE function, `Renderer.innerSetId`, read from both ends — `memberSources`
+registers a container under it, `memberChild` paints an element under it. It used to be written out
+once per end with a comment asking the two to agree, which is the same silent failure again: the
+recorder maintains a container the browser does not have. `SetNodeSuite` pins the property that
+outlives the refactor — every group the markup shows is one the graph registered, two levels deep.
+
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
 neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's
 member list instead of patching one place in it (`MemberSource.stable`). The cost is O(candidates)

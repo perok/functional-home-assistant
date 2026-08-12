@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 /** The candidate-set node (`docs/plan-dynamics-one-entity-lifecycle.md`), one
@@ -451,6 +452,80 @@ class SetNodeSuite extends ServerHarness {
         assert(!p.contains("c_area_bad"), clue = p)
       }
     }
+  }
+
+  test("every nested group the markup shows is one the graph registered") {
+    // The failure this catches is the worst-behaved one in the whole set path:
+    // the ids are right, the HTML is right, the graph syncs — and NO PATCH is
+    // ever emitted, because the container the recorder maintains is not the
+    // element the browser has. It happened once already (`affectedDynamics`
+    // reading the static index, which cannot hold a nested set).
+    //
+    // The id scheme is one function now (`Renderer.innerSetId`, read by both
+    // `memberSources` and `memberChild`), so the two ends cannot drift by
+    // spelling. This pins the property that survives that refactor: whatever
+    // the renderer PAINTS as a group is something the renderer KNOWS as a
+    // container. Two levels deep, so a scheme that happens to work at one level
+    // does not pass.
+    val cards = tile ++ Map(
+      "col" -> CardDef("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+    )
+    def wrap(children: List[LayoutNode]) =
+      LayoutNode.Component("col", children = children)
+    def leafSet(ids: List[String]) = LayoutNode.SetNode(
+      candidates = ids,
+      members = ids.map { l =>
+        l -> LayoutNode.SetMember(List(LayoutNode.SetClause(None, tileNode(l))))
+      }.toMap
+    )
+    // outer set -> member -> col -> middle set -> member -> col -> leaf set
+    val middle = LayoutNode.SetNode(
+      candidates = List("area.stue"),
+      members = Map(
+        "area.stue" -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              None,
+              wrap(List(leafSet(List("light.a", "light.b"))))
+            )
+          )
+        )
+      )
+    )
+    val dash = Dashboard(
+      cards = cards,
+      card = LayoutNode.SetNode(
+        candidates = List("floor.up"),
+        members = Map(
+          "floor.up" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(None, wrap(List(middle))))
+          )
+        )
+      )
+    )
+    val r = Renderer.create(dash)
+    val states = List("light.a", "light.b").map(id => id -> on(id)).toMap
+    val html = r.renderBody(states)
+
+    // Every `fh-group` element in the markup is a container the graph knows.
+    val painted = """id="([^"]+)"""".r
+      .findAllMatchIn(html)
+      .map(_.group(1))
+      .filter(id => html.contains(s"""fh-group" id="$id""""))
+      .toList
+    assert(
+      painted.length >= 3,
+      clue = s"expected 3 nested groups, got $painted"
+    )
+    painted.foreach(id =>
+      assert(
+        r.isDynamicContainer(id),
+        clue = s"painted group '$id' is not a registered container; html: $html"
+      )
+    )
+    // ...and the deepest one really is two levels down, so this is not passing
+    // on the root alone.
+    assert(painted.exists(_.count(_ == '_') >= 6), clue = painted)
   }
 
   test("a COUNT over other entities decides presence, and wakes the member") {
