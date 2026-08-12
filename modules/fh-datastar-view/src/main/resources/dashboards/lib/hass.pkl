@@ -178,6 +178,16 @@ abstract class Floor {
   /// Vertical ordering from the floor registry — a basement is negative. Lets a
   /// dashboard sort floors the way the house is stacked instead of by name.
   level: Int? = null
+
+  // The same five names as [[Area]] and the dump's house-wide lists, so the
+  // three scopes are one vocabulary. DERIVED from `areas` rather than filled by
+  // the generator: a floor's entities are its areas' entities by definition, and
+  // deriving them keeps that impossible to disagree about.
+  hidden lights: List<LightEntity> = areas.flatMap((a) -> a.lights)
+  hidden sensors: List<SensorEntity> = areas.flatMap((a) -> a.sensors)
+  hidden switches: List<SwitchEntity> = areas.flatMap((a) -> a.switches)
+  hidden generic: List<Entity> = areas.flatMap((a) -> a.generic)
+  hidden all: List<Entity> = areas.flatMap((a) -> a.all)
 }
 
 /// One physical device. The OTHER grouping an entity belongs to, orthogonal to
@@ -191,4 +201,19 @@ abstract class Device {
   manufacturer: String? = null
   model: String? = null
   hidden entities: List<Entity> = List()
+
+  // The shared five again. `entities` is the raw list the generator fills, and
+  // `all` is its alias — one name for "everything in this scope" wherever you
+  // are. The per-domain ones are type tests over it, which is why a device's
+  // lists need no generator support: a device is a handful of entities, not a
+  // registry join.
+  hidden all: List<Entity> = entities
+  hidden lights: List<LightEntity> =
+    entities.filter((e) -> e is LightEntity) as List<LightEntity>
+  hidden sensors: List<SensorEntity> =
+    entities.filter((e) -> e is SensorEntity) as List<SensorEntity>
+  hidden switches: List<SwitchEntity> =
+    entities.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
+  hidden generic: List<Entity> = entities.filter((e) ->
+    !(e is LightEntity) && !(e is SensorEntity) && !(e is SwitchEntity))
 }

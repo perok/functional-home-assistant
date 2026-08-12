@@ -115,29 +115,37 @@ class PklDumpMembersSuite extends munit.FunSuite {
         entity("media_player.tv", "media_player")
       )
     )
+    // Assigned, not declared: the types and the `List()` defaults live in
+    // `@fh-dashboard/dump-base.pkl`, which the module extends.
     assert(
-      src.contains(
-        "hidden lights: List<hass.LightEntity> = List(e_light_a, e_light_b)"
-      ),
+      src.contains("""extends "@fh-dashboard/dump-base.pkl""""),
       clue = src
     )
+    assert(src.contains("lights = List(e_light_a, e_light_b)"), clue = src)
+    assert(src.contains("switches = List(e_switch_z)"), clue = src)
+    assert(src.contains("sensors = List(e_sensor_s)"), clue = src)
+    // `generic` is the complement of the modelled domains — a media_player has
+    // no typed class yet, so it lands here and `all` (derived in the base)
+    // stays exactly the union of the four.
+    assert(src.contains("generic = List(e_media_player_tv)"), clue = src)
+    // `all` is derived, so the generator must NOT emit it — two sources for one
+    // list is how they come to disagree.
+    assert(!src.contains("all ="), clue = src)
+  }
+
+  test("an empty house emits no list assignments, and that is the point") {
+    // The failure this guards is specific: the starter dashboard queries these
+    // lists having never seen this dump, so a home with no switches must answer
+    // `List()` rather than `Cannot find property` on its first boot. Declaring
+    // them in the base is what makes the absence safe — so the generator is
+    // free to say nothing here, and `PklBuildSuite` proves the starter still
+    // builds against a house with no switches in it.
+    val src = PklDump.render(dump())
+    assert(!src.contains("lights ="), clue = src)
+    assert(!src.contains("generic ="), clue = src)
     assert(
-      src.contains(
-        "hidden switches: List<hass.SwitchEntity> = List(e_switch_z)"
-      ),
+      src.contains("""extends "@fh-dashboard/dump-base.pkl""""),
       clue = src
     )
-    // `all` spans every domain, modelled or not — a media_player has no typed
-    // class yet and still belongs in it.
-    assert(
-      src.contains(
-        "hidden all: List<hass.Entity> = List(e_light_a, e_light_b, " +
-          "e_media_player_tv, e_sensor_s, e_switch_z)"
-      ),
-      clue = src
-    )
-    // Hidden, because these are the same entities `entities` already holds —
-    // rendering them would emit the whole house twice.
-    assert(!src.contains("\nlights:"), clue = src)
   }
 }
