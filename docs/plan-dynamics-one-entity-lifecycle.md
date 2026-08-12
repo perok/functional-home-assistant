@@ -1,9 +1,10 @@
 # Dynamics: one entity lifecycle
 
-> Status: **design settled, nothing implemented in the product.** Every decision here is spiked
-> and tested against running Pkl under `modules/fh-datastar-view/src/test/pkl/` — but that spike is
-> scaffolding, not the shipped library (see "The spike is scaffolding"). What remains is moving it
-> onto the real code.
+> Status: **phases 0-3 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the runtime
+> consumes candidate sets, and the spike that argued the design is gone — its scenarios ported onto
+> the real library in `query.test.pkl`. What remains is phase 4 (`If` takes a candidate set), phase
+> 5 (retire the query half of dynamic groups), phase 6 (the attribute schema) and phase 7 (the ADR
+> rewrites), plus the deferred changelog-seeding fix.
 >
 > **How this is organised.** *Why* states the problem, the principles and the limitations being
 > fixed. *The format* and *The authoring surface* are the design. *What it costs and what it checks*
@@ -1247,11 +1248,13 @@ cleanly is the failure mode this ordering exists to avoid.
 
 ## The spike is scaffolding, not a parallel implementation
 
-`src/test/pkl/dynamics/{wire,query,fixtures}.pkl` exist so the design can be argued against
-running code. They are NOT a second implementation to maintain, and leaving them as one would be
-this plan's own failure mode: two parallel definitions of the same thing, drifting.
+*Done — kept because the REASONING is what stopped it becoming a second implementation.*
 
-So the machinery moves onto the real code progressively:
+`src/test/pkl/dynamics/{wire,query,fixtures}.pkl` existed so the design could be argued against
+running code. They were NOT a second implementation to maintain, and leaving them as one would have
+been this plan's own failure mode: two parallel definitions of the same thing, drifting.
+
+The machinery moved onto the real code as follows:
 
 - **`query.pkl` moves to `lib/query.pkl`** and becomes the shipped authoring namespace, imported
   as `@fh-dashboard/query.pkl`. It already knows nothing about cards, so nothing else has to move
@@ -1261,19 +1264,19 @@ So the machinery moves onto the real code progressively:
   (which owns the `LayoutNode` hierarchy — `DynamicGroup` sits beside them). Its predicate
   hierarchy dissolves entirely into the EXISTING `components.Predicate`, so there is one predicate
   language rather than two that agree. Its fold moves into `lib/query.pkl`, unchanged in shape.
-- **Delete the spike at the END OF PHASE 3**, not before, and only after checking the shipped
-  syntax against it — the scenarios it pins are the acceptance criteria for phases 2 and 3, and
-  they are worth more as a checklist than as an early cleanup. Until then it is a proposal with a
-  shelf life, not a second implementation to maintain: nothing imports it.
+- **Done.** The spike is deleted; its SCENARIOS were ported, not dropped. `query.test.pkl` runs them
+  against the real `components.pkl`/`query.pkl`/`hass.pkl` with typed entities, so what they pin is
+  now the shipped syntax rather than a parallel model. One group was superseded rather than ported:
+  the area-candidate composite scenarios (C3–C8), which encoded the framing this plan got wrong —
+  rooms are static composition, so they are pinned as plain Pkl around a set instead.
 - **`fixtures.pkl` shrinks to the test home only.** Every scenario that can run against the real
   generated `@fh-home` dump should, so the tests exercise the actual typed entities and the actual
   capability data. Fixtures survive only for cases the test home cannot produce — a deliberately
   mixed-availability set, an entity with a capability nobody owns — and each one that stays should
   say why.
 
-The end state is: no `dynamics/` directory, scenarios running against the real dump, and the
-worked examples still asserting the same wire properties. Until then, treat anything under
-`dynamics/` as a proposal with a shelf life.
+That end state is reached: no `dynamics/` directory, and the worked examples assert the same wire
+properties against the shipped library.
 
 # Closing out
 

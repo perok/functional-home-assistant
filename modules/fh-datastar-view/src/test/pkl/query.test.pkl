@@ -328,6 +328,138 @@ facts {
     inner.members["light.lampe"].clauses.toList()[0].`when`.property == "state"
   }
 
+  // ---- ported from the spike's scenario suites, now against the real lib ----
+
+  ["S2 an interpolated label is computed at build time, so it is a literal"] {
+    local s = q.from(stue)
+      .render((e) -> (c.entityCard(e)) { label = "Blah \(e.friendly_name)" })
+      .build()
+    memberOf.apply(s, "light.taklys")[0].node.slots["label"] == "Blah Taklys"
+  }
+
+  ["S3 a different card per domain, resolved at build time"] {
+    local s = q.from(allEnts)
+      .cases(new Mapping {
+        [q.eq(q.prop("domain"), "light")] = (e) -> c.entityCard(e)
+        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.navigate("/"))
+      })
+      .build()
+    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    // The motion sensor is a SensorEntity, so it takes the sensor branch.
+    memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pill"
+    guards.apply(s).every((g) -> g == null)
+  }
+
+  ["S8 a OR (b AND c) — `all` nests inside `any`"] {
+    local s = q.from(allEnts)
+      .where(q.any(List(
+        q.eq(q.prop("domain"), "media_player"),
+        q.all(List(q.eq(q.prop("domain"), "light"), q.eq(q.prop("area_id"), "stue"))))))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s) == List("light.taklys", "light.lampe")
+  }
+
+  ["S14 `q.entity(x).stateIs(...)` is the one-entity shorthand"] {
+    local t = q.entity(motion).stateIs("on")
+    t.entity == "binary_sensor.stue_motion"
+    t.property == "state"
+    t.op == "eq"
+    t.value == "on"
+  }
+
+  ["S23 an unconditional case drops everything after it"] {
+    // Nothing after a branch that always wins can ever match, so it never
+    // reaches the wire.
+    local s = q.from(stue)
+      .caseOf(q.candidate((_e) -> true), (e) -> c.entityCard(e))
+      .`else`((e) -> c.pill("never", c.navigate("/")))
+      .build()
+    memberOf.apply(s, "light.taklys").length == 1
+    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+  }
+
+  ["chained `where`s conjoin"] {
+    local s = q.from(allEnts)
+      .where(q.eq(q.prop("domain"), "light"))
+      .where(q.eq(q.prop("area_id"), "stue"))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s) == List("light.taklys", "light.lampe")
+  }
+
+  ["`attr` forces the LIVE reading of a name that is also a registry fact"] {
+    // `friendly_name` is both. Without `attr` the build reads it and folds;
+    // with it, the comparison defers.
+    local s = q.from(stue)
+      .where(q.eq(q.attr("friendly_name"), "Taklys"))
+      .render((e) -> c.entityCard(e))
+      .build()
+    guards.apply(s).every((g) -> g.property == "attr:friendly_name")
+    ids.apply(s).length == 2
+  }
+
+  ["a name NO candidate carries resolves to a live attribute"] {
+    local s = q.from(stue)
+      .where(q.eq(q.prop("brightness"), 5))
+      .render((e) -> c.entityCard(e))
+      .build()
+    guards.apply(s).every((g) -> g.property == "attr:brightness")
+  }
+
+  ["`not` folds statically when its operand does"] {
+    local s = q.from(allEnts)
+      .where(q.not(q.eq(q.prop("area_id"), "stue")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    ids.apply(s) == List("light.kjokken")
+  }
+
+  ["a presence residual equal to its branch guard collapses to ONE term"] {
+    // Not tidiness: the runtime would otherwise evaluate `state == on` twice
+    // per member. The fold has to canonicalise, not just build an `and`.
+    local s = q.from(stue)
+      .where(q.eq(q.stateProp, "on"))
+      .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
+      .build()
+    memberOf.apply(s, "light.taklys")[0].`when`.kind == "cmp"
+  }
+
+  ["same-kind nesting FLATTENS instead of nesting"] {
+    // A single-element inner group collapses by accident, which is how this
+    // hid in the spike — so the inner group needs two live terms.
+    local s = q.from(stue)
+      .where(q.all(List(
+        q.eq(q.stateProp, "on"),
+        q.all(List(q.eq(q.prop("brightness"), 5), q.eq(q.prop("effect"), "x"))))))
+      .render((e) -> c.entityCard(e))
+      .build()
+    local g = memberOf.apply(s, "light.taklys")[0].`when`
+    g.kind == "and"
+    g.items.toList().length == 3
+    g.items.toList().every((i) -> i.kind == "cmp")
+  }
+
+  ["two spellings of the same filter produce the SAME term"] {
+    // Structural equality is what a backend intern (or a human diff) relies on.
+    local a = q.from(stue).where(q.all(List(q.eq(q.stateProp, "on")))).render((e) -> c.entityCard(e)).build()
+    local b = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+    memberOf.apply(a, "light.taklys")[0].`when` == memberOf.apply(b, "light.taklys")[0].`when`
+  }
+
+  ["C2 an invariant child is simply repeated on every member"] {
+    local s = q.from(stue)
+      .render((e) -> (c.column) { children {
+        new c.SectionTitle { text = "Light" }
+        c.entityCard(e)
+      } })
+      .build()
+    local heads = clausesOf.apply(s).map((cl) -> cl.node.children.toList()[0].slots["label"])
+    heads == List("Light", "Light")
+    // ...and each member's own card still carries its own entity.
+    memberOf.apply(s, "light.lampe")[0].node.children.toList()[1].slots["entity_id"] == "light.lampe"
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"
