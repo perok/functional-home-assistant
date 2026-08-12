@@ -14,7 +14,7 @@ what its viewer has selected).
 >   its rationale*, this file owns *the shape of the thing*. They are not alternatives to each other.
 >   ADRs [0011](adr/0011-the-live-connection.md) and
 >   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
->   [0003](adr/0003-dynamic-groups.md) (dynamic groups) and
+>   [0003](adr/0003-dynamic-groups.md) (candidate sets) and
 >   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
@@ -39,7 +39,7 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    SYNC["Renderer.syncMembers<br/>apply the frame to every dynamic group's MEMBER GRAPH<br/>before the gate, and for every group:<br/>the graph tracks the stream, not who is watching"]
+    SYNC["Renderer.syncMembers<br/>apply the frame to every set's MEMBER GRAPH<br/>before the gate, and for every set:<br/>the graph tracks the stream, not who is watching"]
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · dynamics · flips"]
     REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
@@ -211,7 +211,7 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
 
 every slug's recorder wakes
   read snapshot+version together, and sessions.openSets(slug) + floor(slug)
-  syncMembers -> apply the frame to EVERY dynamic group's member graph, and
+  syncMembers -> apply the frame to EVERY set's member graph, and
       report what it did to each: the member lists before and after, plus the
       members whose CASE was replaced in place. BEFORE the gate and for
       every group, not the visible ones: the graph tracks the state stream, so
@@ -227,12 +227,12 @@ every slug's recorder wakes
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
   plan    -> staticIds (members included — they are in the reverse index),
-             dynamics (which groups to ask about MEMBERSHIP), flips
+             dynamics (which sets to ask about PRESENCE/ORDER), flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version    // members are in here: they are in
                                            // the reverse index like any node
-      dynamics       -> the members whose CASE was replaced (no entity edge can
+      dynamics       -> the members whose CLAUSE was replaced (no entity edge can
                         name a card binding nothing live), then Gone/Placed per
                         membership move, or a filled mount
                         (a fill is recorded as `filled`, which raises the
@@ -309,7 +309,7 @@ flowchart TB
 
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["DYNAMICS<br/>a member container whose MEMBERSHIP may have moved<br/>(a query-driven group, or a candidate SET whose presence moved)"]
+  REQ --> DYN["DYNAMICS<br/>a candidate set whose PRESENCE or ORDER may have moved"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
@@ -369,7 +369,7 @@ because the *pass* was shared. Once the render moved to the viewer, both disappe
 
 **A branch fill forgets by MOUNT, not by prefix.** A branch's content ids are `s_<surface>__…`,
 which no prefix of the container's id reaches, so the patch names the surfaces at that mount
-(`Patches.hostEvicts`) as what it made unknown. A dynamic mount's children *are* `gid_…`, so there
+(`Patches.hostEvicts`) as what it made unknown. A set mount's children *are* `gid_…`, so there
 the container's id is the right root.
 
 ---
@@ -381,20 +381,21 @@ from the `Dashboard`: every authored node, keyed by its location-derived id. The
 (`MemberGraph`) is a container's members, and it is maintained by the state stream rather than
 computed.
 
-**Two kinds of container feed it**, behind one interface (`Renderer.MemberSource`) — everything
-below this paragraph is true of both, and they differ only in where a candidate comes from and how
-a member is placed:
+**One kind of container feeds it**: `LayoutNode.SetNode`, via `Renderer.MemberSource`.
 
-| | `LayoutNode.Dynamic` (`QuerySource`) | `LayoutNode.SetNode` (`CandidateSource`) |
-|---|---|---|
-| candidates | every entity in the house | a STATIC list, decided at build time |
-| what the runtime decides | membership | presence and ORDER — it never invents a member |
-| a member's node | the matched case, with `entity_id` injected | the clause's COMPLETE node, `entity_id` already on it |
-| woken by | a change the group's query matched either side of | a change to a candidate, **or to an entity a guard names** |
-| placement | entity id | the authored candidate order |
+| | |
+|---|---|
+| candidates | a STATIC list, decided at build time |
+| what the runtime decides | presence and ORDER — it never invents a member |
+| a member's node | the clause's COMPLETE node, `entity_id` already on it |
+| woken by | a change to a candidate, **or to an entity a guard names** |
+| placement | the authored candidate order |
 
-The set is the newer of the two and the one being built toward
-(`docs/plan-dynamics-one-entity-lifecycle.md`), authored through `@fh-dashboard/query.pkl`.
+`MemberSource` was a trait over two implementations until query-driven groups
+(`LayoutNode.Dynamic`) were deleted, and every difference between them followed from one thing: a
+query group's members were invented at runtime, so it could not say who its candidates were, could
+not place them by anything but entity id, and had to rescan the whole state map to find them. ADR
+0003 has the rest; sets are authored through `@fh-dashboard/query.pkl`.
 
 **Sets NEST.** A set inside a member — "a tile per room" — is an ordinary container with an ordinary
 id, because a set's candidates are static and so the whole tree of them is enumerated at renderer
@@ -406,7 +407,7 @@ nesting rather than composing bytes.
 Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
 would wake the tile on every bulb inside it), and container selection reads `memberSources` rather
 than the static index (a nested set is not in the index — it hangs off a member, which is the
-dynamic half).
+dynamic half). The second was a real bug: correct ids, correct HTML, zero patches.
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
 neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's

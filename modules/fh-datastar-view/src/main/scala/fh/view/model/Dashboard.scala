@@ -40,10 +40,6 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * changes with state — so it does not register a needless live dependency. A
   * literal slot carries no entity and is excluded regardless.
   *
-  * In a [[LayoutNode.Dynamic]] case the matched entity is injected as the
-  * `entity_id` param per match, so an inheriting (`entityId = None`) slot binds
-  * to each match automatically — no per-slot placeholder.
-  *
   * `literal` is the cheapest slot: a hardcoded value used verbatim — no entity,
   * no JSONata, no compilation. A label like `"Kitchen"` or a constant action
   * URL is this, not a `"Kitchen"` JSONata string-literal `transform`. It is
@@ -112,13 +108,11 @@ object SlotSource:
   *     — a live entity transform OR a constant literal. This is the *one*
   *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
   *     like a `label`/`min` is a literal slot, a live value is a transform
-  *     slot. The only non-slot template vars are backend-*injected* ones the
-  *     author never supplies (`id`, and the matched `entity_id` inside a
-  *     dynamic case — see
-  *     [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]), so they
-  *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
-  *     no entry either — [[Dashboard.validate]] only flags missing *required*
-  *     slots and ignores extra ones.
+  *     slot. The only non-slot template var is the backend-*injected* `id`
+  *     ([[Dashboard.injectedStatic]]), which the author never supplies and so
+  *     needs no entry. Optional pieces (a tap `action`, a `secondary` line)
+  *     need no entry either — [[Dashboard.validate]] only flags missing
+  *     *required* slots and ignores extra ones.
   *   - `wrapAsCell`: whether the renderer wraps this card's HTML in the id'd
   *     `.fh-cell` layout/morph wrapper (see `Renderer.render`). ON by default —
   *     every node is a cell, so containers lay their children out uniformly and
@@ -298,19 +292,6 @@ enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
   case State(condition: Predicate)
 
-/** One branch of a [[LayoutNode.Dynamic]] group: entities matching the group's
-  * query are rendered with the first case whose `when` predicate matches.
-  */
-case class DynamicCase(
-    when: Predicate,
-    card: String,
-    slots: Map[String, SlotSource] = Map.empty,
-    // Layout-cell classes for each per-entity member wrapper this case renders
-    // (every member of the branch shares them — the wrapper class set is
-    // static wire data, so in-place morphs re-emit it unchanged).
-    cell: Option[Cell] = None
-) derives ConfiguredDecoder
-
 /** A node in the recursive dashboard layout tree. */
 sealed trait LayoutNode derives ConfiguredDecoder
 object LayoutNode:
@@ -362,27 +343,7 @@ object LayoutNode:
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
-  /** A runtime-resolved group with per-entity template dispatch.
-    *
-    *   - `query`: overall membership filter (absent = match all entities).
-    *   - `cases`: each matched entity renders with the first case whose `when`
-    *     matches (skipped if none). The renderer injects `id` and sets the
-    *     matched entity as the `entity_id` slot per match, so every inheriting
-    *     slot (the `label`'s `$attr.friendly_name`, value/action slots)
-    *     resolves against the match; a slot that names its own entity, or a
-    *     constant literal, is left untouched. The group's own id is
-    *     location-derived.
-    */
-  case class Dynamic(
-      query: Option[Predicate] = None,
-      cases: List[DynamicCase] = Nil,
-      // Layout-cell classes for the group's own root wrapper (`.fh-cell
-      // .fh-group`) — e.g. `fh-cols-full` to span a parent grid.
-      cell: Option[Cell] = None
-  ) extends LayoutNode
-
-  /** A set over a STATICALLY KNOWN candidate list — the replacement for
-    * [[Dynamic]], whose membership was a runtime query over every entity.
+  /** A set over a STATICALLY KNOWN candidate list.
     *
     * The candidates are decided at build time from the typed dump, so the
     * runtime never invents a member: it decides only PRESENCE (which candidates
@@ -705,29 +666,10 @@ case class Dashboard(
             slots.keySet
           ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
             wrapErrors ++ children(kids, path)
-        case LayoutNode.Dynamic(_, cases, cell) =>
-          cellErrors(LayoutNode.pathId(path), cell) ++
-            cases.flatMap { c =>
-              val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
-              checkRef(
-                nodeId,
-                c.card,
-                Dashboard.injectedDynamic,
-                c.slots.keySet
-              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell) ++
-                Option
-                  .when(noWrap(c.card))(
-                    s"$nodeId: card '${c.card}' has wrapAsCell=false and " +
-                      "cannot be a dynamic-group case — every member is " +
-                      "wrapped as its own per-entity patch target"
-                  )
-                  .toList
-            }
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
-        // as the ordinary node it is. The `noWrap` rejection is the same as a
-        // dynamic case's, for the same reason: every member is its own
-        // per-candidate patch target.
+        // as the ordinary node it is. `noWrap` is rejected because every member
+        // is its own per-candidate patch target.
         case s: LayoutNode.SetNode =>
           val setId = LayoutNode.pathId(path)
           cellErrors(setId, s.cell) ++
@@ -781,7 +723,6 @@ case class Dashboard(
             }
           // Neither member container hosts a bake: a member renders with no
           // children and no bake group.
-          case _: LayoutNode.Dynamic => Nil
           case _: LayoutNode.SetNode => Nil
         })
       val known: Set[NodeId] =
@@ -892,7 +833,6 @@ case class Dashboard(
     def slotsOf(n: LayoutNode): List[SlotSource] = n match
       case c: LayoutNode.Component =>
         c.slots.values.toList ++ c.children.flatMap(slotsOf)
-      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
       case s: LayoutNode.SetNode =>
         s.members.values.toList
           .flatMap(_.clauses)
@@ -960,9 +900,3 @@ object Dashboard:
     * injected `panel`.)
     */
   val injectedStatic: Set[String] = Set("id")
-
-  /** Backend-injected vars inside a *dynamic* case: the static set plus the
-    * matched entity's `entity_id` (the case strips the build-time `entity_id`
-    * slot; the renderer sets the matched one per render).
-    */
-  val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id")

@@ -6,7 +6,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
@@ -95,20 +94,31 @@ class RenderInputsSuite extends munit.FunSuite {
         "banner",
         slots = Map("title" -> SlotSource(Some("sensor.t")))
       ),
-      LayoutNode.Dynamic(
-        query = Some(Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))),
-        cases = List(
-          DynamicCase(
-            Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
-            "btn",
-            slots = Map("label" -> SlotSource(None, "$state"))
-          ),
-          DynamicCase(
-            Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-            "btn",
-            slots = Map("label" -> lit("off"))
+      LayoutNode.SetNode(
+        candidates = List("light.a", "light.b"),
+        members = List("light.a", "light.b").map { id =>
+          id -> LayoutNode.SetMember(
+            List(
+              LayoutNode.SetClause(
+                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                LayoutNode.Component(
+                  "btn",
+                  Map(
+                    "entity_id" -> lit(id),
+                    "label" -> SlotSource(None, "$state")
+                  )
+                )
+              ),
+              LayoutNode.SetClause(
+                None,
+                LayoutNode.Component(
+                  "btn",
+                  Map("entity_id" -> lit(id), "label" -> lit("off"))
+                )
+              )
+            )
           )
-        )
+        }.toMap
       )
     ),
     surfaces = Map(

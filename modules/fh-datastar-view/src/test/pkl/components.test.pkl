@@ -7,6 +7,10 @@
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+
+local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 
 // D1 helpers: there are no shared tables any more, so "how many distinct shapes
 // / conditions" is a question you ask of the members.
@@ -16,43 +20,36 @@ local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
 local firstNode = (s) -> s.members.values.first.clauses.first.node
 
 facts {
-  ["predicate constructors carry the right property and op"] {
-    c.domainIs("light").property == "domain"
-    c.domainIs("light").op == "eq"
-    c.domainIs("light").value == "light"
+  // The predicate vocabulary lives in `query.pkl` now: there are no free
+  // constructors, so every term carries a binding by construction (a set's
+  // candidate, or the entity `q.entity` names). These pin the PROPERTY NAMES
+  // the runtime reads — `state`, `attr:<name>`, `domain` — which is the part
+  // the two sides have to agree on.
+  ["a term carries the property name the runtime reads"] {
+    local st = q.entity(kitchen).stateIs("on")
+    st.property == "state"
+    st.op == "eq"
+    st.entity == "light.kitchen"
 
-    c.stateIs("on").property == "state"
-    c.entityIs("light.kitchen").property == "entity_id"
-    c.deviceClassIs("battery").property == "attr:device_class"
-    c.attrBelow("battery_level", 20).property == "attr:battery_level"
-    c.attrBelow("battery_level", 20).op == "lt"
-    c.stateBelow(20).property == "state"
-    c.stateBelow(20).op == "lt"
+    q.entity(kitchen).lt(q.prop("brightness"), 20).property == "attr:brightness"
+    q.entity(kitchen).lt(q.prop("brightness"), 20).op == "lt"
   }
 
   ["a numeric threshold stays a number, not a string"] {
-    c.attrBelow("battery_level", 20).value is Int
-    c.stateBelow(20).value is Int
+    q.entity(kitchen).lt(q.prop("brightness"), 20).value is Int
   }
 
   ["combinators nest without rebinding `this` to the new object"] {
-    c.domainIs("light").and(c.stateIs("on")).items.toList().length == 2
-    c.domainIs("light").and(c.stateIs("on")).items.toList()[0].property == "domain"
-    c.domainIs("light").or(c.stateIs("on")).kind == "or"
-    c.stateIs("on").not().item.property == "state"
-    c.stateIs("on").not().kind == "not"
-  }
-
-  ["lowBattery is device_class AND state below threshold"] {
-    c.lowBattery(20).kind == "and"
-    c.lowBattery(20).items.toList().length == 2
-    c.lowBattery(20).items.toList()[0].property == "attr:device_class"
-    c.lowBattery(20).items.toList()[1].property == "state"
-  }
-
-  ["`always` matches everything via a domain no entity can have"] {
-    c.always.property == "domain"
-    c.always.op == "ne"
+    // The Pkl trap this pins: a bare `this` inside a `new {}` body rebinds to
+    // the object being built, so `and`/`or`/`not` must capture the receiver
+    // first. Silent when broken — the term comes out referring to itself.
+    local a = q.entity(kitchen).stateIs("on")
+    local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
+    a.and(b).items.toList().length == 2
+    a.and(b).items.toList()[0].property == "state"
+    a.or(b).kind == "or"
+    a.not().item.property == "state"
+    a.not().kind == "not"
   }
 
   ["a node has no cell until a layout builder adds one"] {

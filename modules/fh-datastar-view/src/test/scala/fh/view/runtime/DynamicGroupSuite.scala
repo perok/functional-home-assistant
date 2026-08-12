@@ -7,7 +7,6 @@ import cats.syntax.all.*
 import fh.view.model.{
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
@@ -43,19 +42,15 @@ class DynamicGroupSuite extends ServerHarness {
       "bright" -> CardDef("<b>{{state}}</b>", slots = List("state")),
       "dim" -> CardDef("<i>{{state}}</i>", slots = List("state"))
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          slots = Map("state" -> SlotSource())
+          Map("state" -> SlotSource())
         ),
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "dim",
-          slots = Map("state" -> SlotSource())
-        )
+        (None, "dim", Map("state" -> SlotSource()))
       )
     )
   )
@@ -71,13 +66,13 @@ class DynamicGroupSuite extends ServerHarness {
         slots = List("state", "extra")
       )
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          None,
           "dot",
-          slots = Map(
+          Map(
             "state" -> SlotSource(),
             "extra" -> SlotSource(Some("sensor.outside"))
           )
@@ -95,19 +90,15 @@ class DynamicGroupSuite extends ServerHarness {
       "live" -> CardDef("<b>{{state}}</b>", slots = List("state")),
       "plain" -> CardDef("<i>{{label}}</i>", slots = List("label"))
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          slots = Map("state" -> SlotSource())
+          Map("state" -> SlotSource())
         ),
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "plain",
-          slots = Map("label" -> SlotSource(literal = Some("off-duty")))
-        )
+        (None, "plain", Map("label" -> SlotSource(literal = Some("off-duty"))))
       )
     )
   )
@@ -430,15 +421,9 @@ class DynamicGroupSuite extends ServerHarness {
     card = LayoutNode.Component("col"),
     surfaces = Map(
       "det" -> Surface(
-        LayoutNode.Dynamic(
-          query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-          cases = List(
-            DynamicCase(
-              Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-              "dot",
-              slots = Map("state" -> SlotSource())
-            )
-          )
+        onSet(
+          List("light.a", "light.b"),
+          List((None, "dot", Map("state" -> SlotSource())))
         )
       )
     )
@@ -531,7 +516,7 @@ class DynamicGroupSuite extends ServerHarness {
       }
   }
 
-  test("open surface's dynamic group gets the same per-entity treatment") {
+  test("a set inside an open surface gets the same per-member treatment") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
     (for {

@@ -136,11 +136,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to half — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
   `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`centered()`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Dynamic groups flow
+  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Candidate sets flow
   their members the same way (`.fh-group`).
-- Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
-  And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
-  entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
+- Candidate sets: a `LayoutNode.SetNode` carries a STATIC candidate list (decided at build time
+  from the dump) plus per-candidate guarded renderings; the runtime decides only PRESENCE (the
+  first clause whose `when` holds; none = not rendered) and ORDER. Authored through
+  `@fh-dashboard/query.pkl`. The query-driven `LayoutNode.Dynamic` it replaced is deleted — see
+  ADR 0003 for why, and `docs/plan-dynamics-one-entity-lifecycle.md` for the derivation.
 - **Pkl authoring (ADR 0006)** — the authoring language: dashboards are [Pkl](https://pkl-lang.org),
   typed cards + editor completion. `fh.view.build.SourceEval` is the (Pkl-only) seam;
   everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
@@ -159,8 +161,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
-  tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
-  typed Predicate AST), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
+  tabs, popups/surfaces, candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
   surfaces on the tabs machinery, ADR 0007; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`

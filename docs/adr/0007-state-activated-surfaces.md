@@ -14,8 +14,8 @@ gated on live entity state. The requirements that shaped the design:
   churn must produce zero renders and zero SSE patches;
 - the choice is **server truth** (a pure function of entity state, identical
   for every viewer), unlike a tab, whose active member is per-client;
-- `LayoutNode.Dynamic` doesn't fit: it is a per-entity comprehension, not a
-  gate around an authored subtree.
+- a member container doesn't fit: it is a per-entity comprehension, not a gate
+  around an authored subtree.
 
 ## The decision: reuse the tabs machinery literally
 

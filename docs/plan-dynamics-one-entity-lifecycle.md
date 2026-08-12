@@ -1,11 +1,12 @@
 # Dynamics: one entity lifecycle
 
-> Status: **phases 0-4 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the runtime
-> consumes candidate sets, `If` takes a subject-free condition, and the spike that argued the design
-> is gone — its scenarios ported onto the real library in `query.test.pkl`. What remains is phase 5
-> (retire the query half of dynamic groups), phase 6 (the attribute schema) and phase 7 (the last
-> ADR rewrites — 0003/0004; 0002 and 0007 moved with phase 4), plus the deferred changelog-seeding
-> fix.
+> Status: **phases 0-5 and 7 shipped.** The authoring surface is `@fh-dashboard/query.pkl`, the
+> runtime consumes candidate sets and nothing else, `If` takes a subject-free condition, and the
+> query half is DELETED — no `LayoutNode.Dynamic`, no `hass.SELF`, no free predicate constructors.
+> The spike that argued the design is gone, its scenarios ported onto the real library in
+> `query.test.pkl`. ADRs 0002/0003/0004/0007 and the pipeline map moved with the code, so phase 7 is
+> absorbed. What remains is **phase 6** (the capability-derived attribute schema, independent of
+> everything else) and the deferred changelog-seeding fix.
 >
 > **How this is organised.** *Why* states the problem, the principles and the limitations being
 > fixed. *The format* and *The authoring surface* are the design. *What it costs and what it checks*
@@ -1242,20 +1243,51 @@ Three things it turned up:
   needed a set. A comparison naming its entity and a `Count` carrying its candidates already cover
   every condition an `If` can hold, so no `over` field was added and none is missing.
 
-**Phase 5 — retire the dynamic-group query half.** Delete `syncMembers`, the full-map matching,
-`hass.SELF`, the free predicate constructors. Only safe once nothing authored uses them AND Phase 4
-has taken `If` off them.
+**Phase 5 — retire the dynamic-group query half.** *Shipped.* `LayoutNode.Dynamic`, `DynamicCase`,
+the full-map matching, `QuerySource`, the id-prefix member search, `hass.SELF`/`DynamicEntity`/
+`isDynamic`, `DynamicGroup`/`Case`/`caseOf`, and the free predicate constructors are all gone.
+
+Four things worth keeping:
+
+- **The plan's ordering missed a prerequisite.** `dashboard_default.pkl` — the starter bundled into
+  the jar — names NO concrete entity by design, so that it renders on any installation. A candidate
+  set needs candidates, and the dump had no house-wide list to point `q.from` at. `dump.lights`/
+  `switches`/`sensors`/`all` (named exactly as `hass.Area`'s per-room lists) landed first, and the
+  starter is ported onto them; it still names nothing concrete. Nothing had ever EVALUATED that
+  entry either, so it now builds in `PklBuildSuite` against a house it was not written for — the
+  fixture has no switches, so an empty domain list must build rather than throw.
+- **The motivating measurement is realised.** A slider's `action`/`key`/`min`/`max` were four
+  `reactive: false` `$lookup($domain)` transforms per member; they are literals now, and the whole
+  runtime config tier is deleted. `isDynamic` was also the only reason a slider could LACK a spec,
+  so its entity constraint got strictly sharper — `spec` is non-null by type.
+- **`MemberSource` collapsed from a trait to one case class.** Every difference between the two
+  implementations followed from one thing: a query group's members were invented at runtime. That
+  also retired `knownMembers` ("empty means unknowable") and the id-prefix fallback in `memberAt`,
+  which could never distinguish `c_1_light_a_b` (set `c_1`, entity `light.a_b`) from a member of a
+  set called `c_1_light_a`.
+- **A fold property nothing had pinned:** the fold drops a branch whose guard cannot hold BEFORE
+  applying its render lambda. That is what makes per-domain dispatch over a mixed set work at all
+  (`c.slider` takes a light; a media_player must never reach it), and it is silent when broken — the
+  error surfaces inside the card factory, nowhere near the `caseOf` that caused it. Pinned in
+  `query.test.pkl`.
+
+**Still available, deliberately not taken here:** `entityCard`'s `icon` slot is a
+`$lookup($domain)` too, and a candidate's domain is now known at build time. Same reasoning as the
+slider, one more literal; left out to keep this change's blast radius honest.
 
 **Phase 6 — the attribute schema.** Capability-derived, in the dump; turns the unknown-name warning
 into a hard error. Independent of 1–5; slot it wherever convenient.
 
-**Phase 7 — docs.** ADR 0003/0004 rewritten, ADR 0007 cost claims qualified,
-`architecture-rendering-pipeline.md` §4b and §3's DYNAMICS row. The repo rule says these move with
-the code, so in practice each phase carries its own slice of this rather than deferring it here.
+**Phase 7 — docs.** *Shipped, folded into the phases that caused it*, which is what the repo rule
+asks for. ADR 0003 rewritten in place (it now describes candidate sets, and its "ghost member" open
+item is closed by construction), ADR 0004's cost argument re-grounded (the scan it rested on is
+gone; the AST is kept because a predicate is foldable DATA), ADR 0007 rewritten for the subject-free
+condition, ADR 0002's activation sum corrected, and the pipeline map's §3 kind table + §4b
+two-kinds table collapsed to one.
 
-**Rollback shape.** Phases 1–3 add a node kind the old renderer never emits, so reverting is
-deleting the new path. Phase 5 is the first irreversible one — after it, the old dynamic groups are
-gone. Everything before it can stop indefinitely without leaving the tree in a half-state.
+**Rollback shape.** Phases 1–3 added a node kind the old renderer never emitted, so reverting was
+deleting the new path. **Phase 5 was the irreversible one** and it has happened: the old dynamic
+groups are gone, and `kind: "dynamic"` no longer decodes.
 
 **After the plan: seed the changelog with the membership a swap already knows.** Found while
 writing `SetNodeSuite`; deferred deliberately, on the grounds that a restart or a dashboard edit

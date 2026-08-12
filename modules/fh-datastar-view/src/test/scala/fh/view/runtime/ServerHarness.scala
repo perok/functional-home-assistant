@@ -9,7 +9,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
@@ -176,20 +175,48 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def off(id: String): EntityState = st(id, "off")
 
-  // A dynamic group of on-state entities as the layout root (group id "c"); each
+  /** A candidate set where every candidate carries the same clause list.
+    *
+    * `clauses` is `(extra guard, card, slots)` per clause, tried in order, and
+    * every clause is additionally guarded on `state == on` — so a candidate is
+    * present exactly while it is on, which is what these suites drive. Each
+    * member's node names its OWN entity, because the build knows the candidate.
+    */
+  def onSet(
+      candidates: List[String],
+      clauses: List[(Option[Predicate], String, Map[String, SlotSource])]
+  ): LayoutNode.SetNode =
+    LayoutNode.SetNode(
+      candidates = candidates,
+      members = candidates.map { id =>
+        id -> LayoutNode.SetMember(clauses.map { case (extra, card, slots) =>
+          LayoutNode.SetClause(
+            when = Some(
+              extra.fold[Predicate](isOn)(e => Predicate.And(List(isOn, e)))
+            ),
+            node = LayoutNode.Component(
+              card,
+              slots.updated("entity_id", SlotSource(literal = Some(id)))
+            )
+          )
+        })
+      }.toMap
+    )
+
+  val isOn: Predicate = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+
+  // A set of on-state entities as the layout root (group id "c"); each present
   // member renders `<span>on</span>` in an `fh-cell` wrapper `c_<slug>`.
   def dynDash = Dashboard(
     cards =
       Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "dot",
-          slots = Map("state" -> SlotSource())
-        )
-      )
+    // Candidates in entity-id order, which is what the placement assertions
+    // were written against when membership was a sorted query result. A set
+    // places by AUTHORED order, so writing them sorted keeps every answer the
+    // same while making the order a build-time decision.
+    card = onSet(
+      List("light.a", "light.b", "light.c", "light.d", "light.z"),
+      List((None, "dot", Map("state" -> SlotSource())))
     )
   )
 

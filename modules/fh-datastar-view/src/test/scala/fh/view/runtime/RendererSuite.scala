@@ -5,7 +5,6 @@ import fh.view.model.{
   CardDef,
   Cell,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   Op,
   Predicate,
@@ -125,6 +124,40 @@ class RendererSuite extends munit.FunSuite {
     val d = Dashboard(cards, layout)
     Renderer.create(d)
   }
+
+  /** A candidate set whose members are all present while their entity is on —
+    * the shape these tests drove as a `state == on` query group. Each clause is
+    * `(extra guard, card, slots, cell)`; the node names its own entity, because
+    * the build knows the candidate.
+    */
+  private def onSet(
+      candidates: List[String],
+      clauses: List[
+        (Option[Predicate], String, Map[String, SlotSource], Option[Cell])
+      ],
+      guardOn: Boolean = true
+  ): LayoutNode.SetNode =
+    LayoutNode.SetNode(
+      candidates = candidates,
+      members = candidates.map { id =>
+        id -> LayoutNode.SetMember(clauses.map {
+          case (extra, card, slots, cl) =>
+            val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+            LayoutNode.SetClause(
+              when = (if (guardOn) List(on) else Nil) ++ extra.toList match {
+                case Nil      => None
+                case g :: Nil => Some(g)
+                case gs       => Some(Predicate.And(gs))
+              },
+              node = LayoutNode.Component(
+                card,
+                slots.updated("entity_id", SlotSource(literal = Some(id))),
+                cell = cl
+              )
+            )
+        })
+      }.toMap
+    )
 
   // A single component as the layout root gets the path id "c".
   private val card = LayoutNode.Component(
@@ -370,23 +403,17 @@ class RendererSuite extends munit.FunSuite {
       sized.validate().exists(_.contains("carries cell params")),
       clue = sized.validate()
     )
-    // A dynamic case: every member is a wrapped per-entity patch target.
-    val dynCase = Dashboard(
+    // A set clause: every member is a wrapped per-candidate patch target.
+    val clause = Dashboard(
       bareCards,
-      LayoutNode.Dynamic(
-        query = None,
-        cases = List(
-          DynamicCase(
-            Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-            "naked",
-            slots = Map("state" -> lit("x"))
-          )
-        )
+      onSet(
+        List("light.a"),
+        List((None, "naked", Map("state" -> lit("x")), None))
       )
     )
     assert(
-      dynCase.validate().exists(_.contains("cannot be a dynamic-group case")),
-      clue = dynCase.validate()
+      clause.validate().exists(_.contains("cannot be a set clause")),
+      clue = clause.validate()
     )
   }
 
@@ -404,19 +431,13 @@ class RendererSuite extends munit.FunSuite {
       """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
     )
 
-    val dyn = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-          "btn",
-          slots = Map("label" -> lit("L")),
-          cell = Some(Cell(classes = List("fh-cols-4")))
-        )
-      ),
-      cell = Some(Cell(classes = List("fh-cols-full")))
-    )
-    // Rendered through the document path: a dynamic group root composes its
+    val dyn = onSet(
+      List("light.a"),
+      List(
+        (None, "btn", Map("label" -> lit("L")), Some(Cell(List("fh-cols-4"))))
+      )
+    ).copy(cell = Some(Cell(classes = List("fh-cols-full"))))
+    // Rendered through the document path: a member container composes its
     // members, so it has no rendering of its OWN and is not addressable by id.
     val html = renderer(dyn).renderBody(Map("light.a" -> st("light.a", "on")))
     assertEquals(
@@ -557,24 +578,54 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
   }
 
-  test("dynamic group filters by query and dispatches per matching case") {
-    val dyn = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-          "btn",
-          // label is a slot now (no entityId → inherits the matched entity, which
-          // the renderer injects as the entity_id param), so it resolves to the
-          // matched entity's live friendly_name.
-          slots = Map(
-            "label" -> SlotSource(transform = "$attr.friendly_name")
+  test("a set dispatches per clause and wraps each member on its own") {
+    // Presence is `battery < 20`; the FIRST clause whose guard holds decides
+    // the rendering, so light.a takes the btn clause and sensor.b the card one.
+    def low = Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
+    val set = LayoutNode.SetNode(
+      candidates = List("light.a", "sensor.b", "sensor.c"),
+      members = Map(
+        "light.a" -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              Some(low),
+              LayoutNode.Component(
+                "btn",
+                Map(
+                  "entity_id" -> lit("light.a"),
+                  "label" -> SlotSource(transform = "$attr.friendly_name")
+                )
+              )
+            )
           )
         ),
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "card",
-          slots = Map("state" -> SlotSource())
+        "sensor.b" -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              Some(low),
+              LayoutNode.Component(
+                "card",
+                Map(
+                  "entity_id" -> lit("sensor.b"),
+                  "state" -> SlotSource()
+                )
+              )
+            )
+          )
+        ),
+        "sensor.c" -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              Some(low),
+              LayoutNode.Component(
+                "card",
+                Map(
+                  "entity_id" -> lit("sensor.c"),
+                  "state" -> SlotSource()
+                )
+              )
+            )
+          )
         )
       )
     )
@@ -588,18 +639,16 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> st("sensor.b", "hot", "battery" -> Json.fromInt(5)),
       "sensor.c" -> st("sensor.c", "cold", "battery" -> Json.fromInt(50))
     )
-    val r = renderer(dyn)
-    // dynamic as layout root -> the group's own id'd container "c" is the outer
-    // morph target (itself a cell, plus `fh-group`); each child is ALSO wrapped
-    // in its own id'd `fh-cell` (the per-entity patch target)
+    val r = renderer(set)
+    // A set as layout root -> its own id'd container "c" is the outer morph
+    // target (itself a cell, plus `fh-group`); each present member is ALSO
+    // wrapped in its own id'd `fh-cell` — the per-candidate patch target
     // `<groupId>_<sanitized entity>`.
     val html = r.renderBody(states)
     assert(
       html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
       clue = html
     )
-    // light.a dispatched to the btn case, sensor.b to the card case, each in its
-    // own per-entity wrapper.
     assert(
       html.contains(
         """<div class="fh-cell" id="c_light_a"><button>Lamp</button></div>"""
@@ -612,10 +661,11 @@ class RendererSuite extends munit.FunSuite {
       ),
       clue = html
     )
-    // sensor.c excluded by the membership query (battery 50)
+    // sensor.c's only clause does not hold (battery 50), so it is ABSENT — not
+    // hidden, not rendered blank.
     assert(!html.contains("cold"), clue = html)
-    // the group is indexed under its own id "c" and re-renders on a change that
-    // touches its query.
+    assert(!html.contains("c_sensor_c"), clue = html)
+    // The set is indexed under its own id, and a candidate's change selects it.
     assertEquals(
       r.affectedDynamicIds(
         StateChange("light.a", None, states("light.a"))
@@ -624,65 +674,24 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test(
-    "affectedDynamicIds includes a group only when the change touches its query"
-  ) {
-    def group(query: Option[Predicate]): LayoutNode =
-      LayoutNode.Dynamic(
-        query = query,
-        cases = List(
-          DynamicCase(
-            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-            "card",
-            slots = Map("state" -> SlotSource())
-          )
-        )
-      )
+  test("affectedDynamicIds selects a set only for an entity it reads") {
     val r = renderer(
-      group(Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))))
+      onSet(
+        List("light.a", "light.b"),
+        List((None, "card", Map("state" -> SlotSource()), None))
+      )
     )
-    def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
-    def high(id: String) =
-      st(id, "x", "battery" -> Json.fromInt(50)) // no match
-
-    // in-place update of a member (prev ∧ cur), an add (¬prev ∧ cur), and a
-    // remove (prev ∧ ¬cur) all re-render the group; a newly-seen match too.
+    def ch(id: String) = StateChange(id, None, st(id, "on"))
+    // A candidate selects it whichever way its presence moved — WHICH way is
+    // the frame's question (`syncMembers`), not one change's.
+    assertEquals(r.affectedDynamicIds(ch("light.a")), List("c"))
+    // An entity the set neither holds nor names cannot move it. This is the
+    // whole cost claim: a frame is O(changed), not O(candidates), and an
+    // unrelated house-wide change reaches nothing.
+    assertEquals(r.affectedDynamicIds(ch("sensor.z")), Nil)
+    // One frame, several candidates: ONE entry.
     assertEquals(
-      r.affectedDynamicIds(
-        StateChange("sensor.b", Some(low("sensor.b")), low("sensor.b"))
-      ),
-      List("c")
-    )
-    assertEquals(
-      r.affectedDynamicIds(
-        StateChange("sensor.b", Some(high("sensor.b")), low("sensor.b"))
-      ),
-      List("c")
-    )
-    assertEquals(
-      r.affectedDynamicIds(
-        StateChange("sensor.b", Some(low("sensor.b")), high("sensor.b"))
-      ),
-      List("c")
-    )
-    assertEquals(
-      r.affectedDynamicIds(StateChange("sensor.b", None, low("sensor.b"))),
-      List("c")
-    )
-    // An entity that matches neither before nor after leaves the group's HTML
-    // unchanged, so it is skipped — the whole point of the filter.
-    assertEquals(
-      r.affectedDynamicIds(
-        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
-      ),
-      Nil
-    )
-    // A query-less group matches everything, so any change affects it.
-    val all = renderer(group(None))
-    assertEquals(
-      all.affectedDynamicIds(
-        StateChange("sensor.z", Some(high("sensor.z")), high("sensor.z"))
-      ),
+      r.affectedDynamics(List(ch("light.a"), ch("light.b"))),
       List("c")
     )
   }
@@ -696,32 +705,6 @@ class RendererSuite extends munit.FunSuite {
     )
     val html = renderer(node).renderNodeById("c", Map.empty).get
     assert(html.contains("<button>Hi</button>"), clue = html)
-  }
-
-  test("a dynamic case's constant label slot is NOT rebound to the match") {
-    // A per-case literal label (entityId = None) must survive: the matched
-    // entity's friendly_name does not override an author-fixed label.
-    val dyn = LayoutNode.Dynamic(
-      query = None,
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-          "btn",
-          slots = Map("label" -> SlotSource(transform = "\"Fixed\""))
-        )
-      )
-    )
-    val states =
-      Map(
-        "light.a" -> st(
-          "light.a",
-          "on",
-          "friendly_name" -> Json.fromString("Lamp")
-        )
-      )
-    val html = renderer(dyn).renderBody(states)
-    assert(html.contains("<button>Fixed</button>"), clue = html)
-    assert(!html.contains("Lamp"), clue = html)
   }
 
   test("EntityState.javaAttributes is converted once and reused") {
@@ -1098,16 +1081,11 @@ class RendererSuite extends munit.FunSuite {
   // Per-entity dynamic-group patches (Tier 1 + Tier 2)
   // ---------------------------------------------------------------------------
 
-  // A dynamic group (as the layout root, so group id "c") of on-state entities.
-  private val onGroup = LayoutNode.Dynamic(
-    query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-    cases = List(
-      DynamicCase(
-        Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-        "card",
-        slots = Map("state" -> SlotSource())
-      )
-    )
+  // A set (as the layout root, so group id "c") shown while each candidate is
+  // on. `light.z` is a candidate no test turns on — the id-slugging case.
+  private val onGroup = onSet(
+    List("light.a", "light.b", "light.c", "light-b.x", "light.z"),
+    List((None, "card", Map("state" -> SlotSource()), None))
   )
 
   test("dynamicChildId slugs the entity id under the group id") {
@@ -1467,15 +1445,17 @@ class RendererSuite extends munit.FunSuite {
 
   test("affectedDynamics surfaces the membership delta per group") {
     val r = renderer(
-      LayoutNode.Dynamic(
-        query = Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
-        cases = List(
-          DynamicCase(
-            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+      onSet(
+        List("s.b", "s.c"),
+        List(
+          (
+            Some(Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))),
             "card",
-            slots = Map("state" -> SlotSource())
+            Map("state" -> SlotSource()),
+            None
           )
-        )
+        ),
+        guardOn = false
       )
     )
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches

@@ -24,9 +24,9 @@ bypassUnavailable = true, literal, reactive = true }`. A slot is one of:
   verbatim — no entity, no JSONata, no compilation. Hardcoded labels, `min`/
   `max`, constant action URLs.
 - **An inheriting transform** (`entityId: None`): binds to the component's
-  subject — the magical `entity_id` slot (ADR 0001) — or, in a dynamic case,
-  the matched entity injected per render. A card binds its entity once; every
-  slot reads it.
+  subject — the magical `entity_id` slot (ADR 0001). A card binds its entity
+  once; every slot reads it. A set's clause node carries that slot as a literal,
+  because the build knows the candidate.
 - **An own-entity transform** (`entityId: Some(other)`): the multi-entity card
   (`c.exprOf(other, …)` makes a `value`/`secondary` read another entity); the
   card joins both entities' live-dependency sets.
@@ -42,39 +42,44 @@ entity for identity only (an onclick/action, the slider's `$domain` config) is
 a pure function of `$domain`/`$entity_id`: it stays out of `liveEntities`, and
 the renderer resolves it **once per `(entity, transform)`** and memoizes
 (`Renderer.identityCache`; `$entity_id` is in the key since action URLs embed
-it). This is what keeps the dynamic render path cheap — a group re-render's
-action/config slots are cache lookups, not JSONata evals. Live slots always
-re-resolve.
+it). This keeps a member re-render cheap: its action slots are cache lookups, not
+JSONata evals. Live slots always re-resolve.
+
+The slider's config used to be the biggest user of this — `action`/`key`/`min`/
+`max` each rode as a `$lookup($domain)` because a query group's member was
+unknown until it matched. Over static candidates all four are LITERALS, which
+beats a memoized transform outright (ADR 0003).
 
 **Labels are slots, everywhere.** A single `label` argument carries both forms
 — a plain **string** becomes a literal slot; `c.expr('<jsonata>')` a live
-expression bound to the entity; absent, a static dump entity bakes its
-friendly_name as a literal while the `$self` sentinel gets the live
-`friendly_name ? … : $entity_id` default. The `string | c.expr(...)`
-convention spans every display field (`label`, `value`, `secondary`, the
-slider position); `c.expr` is just a partial `SlotSource`, not field-specific.
-Because a per-case literal label carries no entity, materialising a member
-never rebinds it: `Renderer.memberOf` sets only `entity_id`, so the author's
-override survives dispatch (the motivating bug).
+expression bound to the entity; absent, the entity's friendly_name is baked as a
+literal. That last case used to have a second branch: a `$self` sentinel got a
+live `friendly_name ? … : $entity_id` default, because a query group's member
+had no name at build time. Every candidate has one now, so the default is always
+the literal. The `string | c.expr(...)` convention spans every display field
+(`label`, `value`, `secondary`, the slider position); `c.expr` is just a partial
+`SlotSource`, not field-specific.
 
-## Queries stay a Predicate AST — JSONata rejected there
+## Predicates stay an AST — JSONata rejected there
 
-Dynamic-group membership/dispatch predicates (`And/Or/Not/Cmp`,
-`Renderer.matches`) are **not** JSONata, although slot values are. The cost
-model is the seam:
+Presence guards, count comparisons and surface conditions (`And/Or/Not/Cmp/
+Count`, `Renderer.matchesIn`) are **not** JSONata, although slot values are:
 
-- A dynamic group has no reverse index — an affecting change re-scans **every**
-  entity (`renderDynamic` filters all states). This is the loop that scales
-  worst (`entities × events/sec`).
-- `Renderer.matches` reads `state`/`attributes.get(name)` straight off the
-  Scala map — a pattern match, zero conversion.
-- A JSONata predicate would, per entity per scan, build a Java attribute
-  document and walk an expression tree — strictly more work in exactly the
-  wrong loop.
+- `matchesIn` reads `state`/`attributes.get(name)` straight off the Scala map —
+  a pattern match, zero conversion.
+- A JSONata predicate would build a Java attribute document and walk an
+  expression tree per evaluation — strictly more work.
+
+The ORIGINAL argument was stronger and no longer applies: a query group had no
+reverse index, so an affecting change re-scanned every entity in the house, and
+that was the loop scaling worst (`entities × events/sec`). Candidate sets
+removed the scan (ADR 0003) — presence is evaluated for the candidates a change
+can actually move. So the AST is now kept on the narrower ground above, plus the
+one that matters more: a predicate is DATA the build can fold, dedupe and reason
+about, which is what lets a registry term disappear at build time. A JSONata
+string is opaque to all of that.
 
 JSONata stays for slot values, where the set is bounded (only rendered cards).
-Nothing was lost by keeping the AST — dynamic groups can't be reverse-indexed
-regardless.
 
 ## Attribute conversion is memoized per state version
 
@@ -88,11 +93,10 @@ applies to every transform.
 
 - One authoring vocabulary: every card input is a slot (literal / inherited /
   own-entity), the subject is the `entity_id` slot, and the only non-slot
-  template vars are backend-injected (`id`, the matched `entity_id` in dynamic
-  cases).
+  template var is the backend-injected `id`.
 - `bypassUnavailable` defaults **true** (value displays stay readable on
   `unavailable` without opting in); identity actions, labels, and the slider
   position opt out in the builders (ADR 0001).
-- The cost model is explicit: cheap AST for the per-event membership scan,
+- The cost model is explicit: a cheap foldable AST for presence and conditions,
   JSONata for displayed values, identity slots memoized, attribute conversion
   amortized per state version.

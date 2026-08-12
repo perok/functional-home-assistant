@@ -45,8 +45,7 @@ class Cell {
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
-/// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
-/// [[DynamicGroup]].
+/// discriminator: `"component"` for a [[Node]], `"set"` for a [[SetNode]].
 ///
 /// Every node is a CELL: the renderer wraps it in an id'd `.fh-cell` (the
 /// real flex/grid item), and the layout builders below put `fh-` contract
@@ -398,9 +397,6 @@ const local UNIT =
 const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
   else if (label != null) label
-  // Dynamic default: a LIVE friendly_name (falling back to entity_id),
-  // inheriting the matched entity — mirrors components.libsonnet:78-80.
-  else if (entity != null && entity.isDynamic) new Slot { transform = "$attr.friendly_name ? $attr.friendly_name : $entity_id"; bypassUnavailable = false }
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
@@ -522,9 +518,8 @@ class SectionTitle extends Node {
 /// Default entity icon per domain — Material Symbols names (the font ships
 /// with the BeerCSS theme; a theme without an icon font should hide
 /// `.entity header i`). Resolved at RUNTIME via `$lookup($domain)` (the slider
-/// config's identity-slot mechanism), so dynamic-group ($self) cards get the
-/// matched entity's icon too; an unlisted domain yields "" and the template
-/// section renders nothing.
+/// config's identity-slot mechanism); an unlisted domain yields "" and the
+/// template section renders nothing.
 const local domainIcons: Mapping<String, String> = new {
   ["light"] = "lightbulb"
   ["switch"] = "toggle_on"
@@ -616,8 +611,8 @@ class EntityCard extends Node {
 
 /// Static entity card as a call (amend options in parens).
 function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
-/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
-/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
+/// The SAME constructor as a VALUE, for a query's render positions:
+/// `q.from(xs).render(c.entityCard)`. Methods and function-value
 /// properties are separate namespaces, so this delegate co-exists with the method
 /// above — the parens in `entityCard(e)` pick the method (no recursion). The
 /// factory param is `e`, NOT `entity`: a param named after the property it sets
@@ -867,11 +862,9 @@ hidden tabs: Tabs = new Tabs {}
 // The slider's controllable config per domain: the service to call, the
 // service_data key the value rides on, the range bounds, and which attribute
 // is the live position. Add a domain (cover/fan/climate…) by adding a row —
-// TYPED: a missing/misspelled field is a build error. A STATIC slider resolves
-// its config AT BUILD TIME from the entity's domain (baked literals); a slider
-// bound to [[hass.SELF]] (a dynamic-group case) can't know the domain until a
-// match, so it falls back to jsonnet's runtime `$lookup($domain)` over this
-// same table (see [[sliderLookup]]).
+// TYPED: a missing/misspelled field is a build error. A slider resolves its
+// config AT BUILD TIME from the entity's domain, as baked literals — always,
+// now that a set's candidates are known entities.
 class SliderSpec {
   action: String
   key: String
@@ -886,28 +879,6 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
   ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
-// A JSONata object literal `{"<domain>": <spec.field>}` over the sliderSpec
-// table — `{"light":"light/turn_on","cover":...}` (JSONata object syntax IS
-// JSON). Pkl has no reflect-by-string, so the field is a lambda accessor;
-// String values are quoted, Int (min/max) values emitted bare. Mirrors jsonnet
-// sliderDomainMap (components.libsonnet:225-229) but over all three domains.
-const local function sliderDomainMap(get: (SliderSpec) -> Any): String =
-  "{" + (new Listing {
-    for (d, s in sliderSpec) {
-      let (v = get.apply(s))
-        "\"\(d)\":" + (if (v is String) "\"\(v)\"" else "\(v)")
-    }
-  }).toList().join(",") + "}"
-
-// `$lookup(<map>, $domain)` — resolve a config field from the entity's domain
-// at runtime (components.libsonnet:231).
-const local function sliderLookup(get: (SliderSpec) -> Any): String =
-  "$lookup(" + sliderDomainMap(get) + ", $domain)"
-
-// The live position: read the domain's position attribute off $attr
-// (components.libsonnet:233).
-const local sliderValueLookup: String = "$lookup($attr, " + sliderLookup((s) -> s.value) + ")"
-
 // The slider fill colour from the entity's own light attributes: an explicit
 // `rgb_color` wins, else `color_temp_kelvin` interpolated over the mired-free
 // 2000K..6500K span between a warm amber and a cool white — the same ramp HA's
@@ -921,16 +892,17 @@ const local sliderFillColor: String =
   + #""rgb(" & $string($round(255 - 54 * $t)) & "," & $string($round(166 + 60 * $t)) "#
   + #"& "," & $string($round(87 + 168 * $t)) & ")") : null)"#
 
-// A slider config slot (action/key/min/max): author override → build-time spec
-// literal (stringified — the backend slot decoder rejects numbers) → the
-// runtime `$lookup($domain)` fallback for a spec-less ($self) slider. The
-// lookup form is identity-derived (reactive = false, never a live dependency)
-// and resolves even when the entity is unavailable (components.libsonnet:237).
+// A slider config slot (action/key/min/max): author override, else the spec
+// literal (stringified — the backend slot decoder rejects numbers).
+//
+// There used to be a third tier, a `$lookup($domain)` JSONata transform, for a
+// slider whose entity was a `$self` placeholder. It was the plan's motivating
+// example: four `reactive: false` transforms per member computing a BUILD-TIME
+// fact at runtime, because the entity was unknown at build time. A candidate
+// set knows it, so all four are literals and the tier is gone.
 // `override` is a Pkl reserved word — the param is `ovr`.
-const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderSpec) -> Any): Slot|String =
-  if (ovr != null) ovr
-  else if (spec != null) "\(get.apply(spec!!))"
-  else new Slot { transform = sliderLookup(get); reactive = false; bypassUnavailable = false }
+const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
+  if (ovr != null) ovr else "\(get.apply(spec))"
 
 /// What a [[Slider]] drives: an ENTITY (its domain's default axis — a light's
 /// brightness, a cover's position) or one of that entity's capability GROUPS
@@ -944,10 +916,10 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
 /// would both hide the choice from it — see ADR 0013, "Shapes considered".
 typealias SlideAxis = hass.Entity|hass.ColourTemp
 
-/// Value slider. Accepts either a static entity whose domain has a sliderSpec
-/// row (config baked at build time) or [[hass.SELF]] inside a dynamic case
-/// (config resolved per matched entity via runtime `$lookup($domain)`). A
-/// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
+/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
+/// that config in at build time. A slider on e.g. a sensor is a BUILD error
+/// naming the dashboard line — including inside a query, where the fold drops a
+/// branch whose guard cannot hold before its render lambda is applied.
 class Slider extends Node {
   card = "slider"
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
@@ -989,7 +961,7 @@ class Slider extends Node {
   /// still works and means the domain's default axis; the two default to each
   /// other, so exactly one of them is ever needed.
   hidden on: SlideAxis = entity
-  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain)) =
+  hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
     if (on is hass.ColourTemp) on.owner else on
   hidden label: (String|Expr)? = null
   // Per-instance overrides of the domain default. Each DEFAULTS to what the
@@ -1004,24 +976,18 @@ class Slider extends Node {
   // entity tracks the value it actually writes.
   hidden valueAttr: String? =
     if (on is hass.ColourTemp) "color_temp_kelvin" else null
-  // Null for a dynamic ($self) slider — the domain is unknown until a match, so
-  // config falls through sliderConfig to the runtime lookup tier.
-  hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
-  // The JSONata pieces of the `fill` computation, honouring the same three
-  // config tiers as the input's own slots: author override → build-time spec
-  // literal → runtime $lookup($domain).
+  // Never null: the `entity` constraint above admits only a domain with a row,
+  // and a slider's subject is always a known entity now that a set's candidates
+  // are. That is what retired the runtime `$lookup($domain)` config tier — it
+  // existed for a member whose domain was unknown until it matched.
+  hidden spec: SliderSpec = sliderSpec[entity.domain]!!
+  // The JSONata pieces of the `fill` computation, honouring the same two config
+  // tiers as the input's own slots: author override → build-time spec literal.
   hidden valueExpr: String =
     if (valueAttr != null) "$attr." + valueAttr!!
-    else if (spec != null) "$attr." + spec!!.value
-    else sliderValueLookup
-  hidden minExpr: String =
-    if (min != null) "\(min!!)"
-    else if (spec != null) "\(spec!!.min)"
-    else sliderLookup((s) -> s.min)
-  hidden maxExpr: String =
-    if (max != null) "\(max!!)"
-    else if (spec != null) "\(spec!!.max)"
-    else sliderLookup((s) -> s.max)
+    else "$attr." + spec.value
+  hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
+  hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
@@ -1080,7 +1046,7 @@ class Slider extends Node {
 /// entity for its domain's default axis, or a capability group for that axis:
 /// `c.slider(l)` is brightness, `c.slider(l.colourTemp)` is colour temperature.
 function slider(a: SlideAxis): Slider = new Slider { on = a }
-/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
+/// The slider constructor as a VALUE, for a query's render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
 // ---- call-style card factories (methods construct; `|>` adds) ----
@@ -1170,22 +1136,16 @@ function lightControls(l: hass.LightEntity): Column = new Column {
 }
 
 // ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
-// A dynamic group renders one card PER live entity matching a `query`,
-// optionally dispatching the card per entity. The matched entity's
-// id/entity_id/label are auto-injected and every inheriting slot is rebound to
-// it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
-// static card, just passing `hass.SELF` as the entity. `hass.SELF` is an
-// INTERNAL sentinel: authors write render lambdas `(e) -> ...` and never see it
-// (`caseOf` applies the lambda to it below). Port of components.libsonnet:579-661.
-
 /// A property-query comparison operator. TYPED — a misspelled op is now a build
 /// error (the backend `Op` decoder is case-insensitive over exactly these).
 typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
 
 /// The runtime property-query AST. `kind` is the circe discriminator.
-/// Combinators are METHODS (methods never render, so no `hidden` needed):
-/// `domainIs("light").and(stateIs("on"))`, `.or(...)`, `.not()`. `and`/`or`/`not`
-/// are legal method names — the Pkl operators are `&&`/`||`/`!`, so no collision.
+/// Built by `query.pkl`, never by hand — there are no free constructors, so a
+/// term always carries a binding (a set's candidate, or the entity a
+/// `query.entity(e)` names). Combinators are METHODS (methods never render, so
+/// no `hidden` needed): `.and(...)`, `.or(...)`, `.not()` — legal method names,
+/// since the Pkl operators are `&&`/`||`/`!`.
 abstract class Predicate {
   kind: String
   /// Matches when BOTH this and `other` match.
@@ -1246,94 +1206,6 @@ class POr extends Predicate {
 class PNot extends Predicate {
   kind: "not" = "not"
   item: Predicate
-}
-
-// `const` so [[always]] (referenced from the [[DynamicGroup]] class body) may
-// call it. Parameters are NOT named after the properties they set: inside a
-// `new { property = property }` amend the RHS binds to the object's own member
-// (infinite recursion), so each argument gets a distinct name.
-const function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
-  new { property = prop; op = cmpOp; value = cmpVal }
-
-/// Matches every entity (a domain is never literally this sentinel). `const`
-/// because [[DynamicGroup.cases]] references it from the class body.
-const always: Cmp = cmp("domain", "ne", "__never__")
-
-/// `domain == d`, e.g. `domainIs("light")`.
-function domainIs(d: String): Cmp = cmp("domain", "eq", d)
-/// `state == s`, e.g. `stateIs("on")`.
-function stateIs(s: String): Cmp = cmp("state", "eq", s)
-/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — how a [[DynamicGroup]]
-/// query enumerates an explicit entity set. NOT how a [[StateActivation]] names
-/// its entity: that takes `query.entity(e)`, which sets `Cmp.entity` so the
-/// runtime looks the entity up instead of testing whichever one it is holding.
-function entityIs(id: String): Cmp = cmp("entity_id", "eq", id)
-/// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
-function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
-/// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
-function attrBelow(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
-/// `state < threshold`.
-function stateBelow(threshold: Any): Cmp = cmp("state", "lt", threshold)
-// Battery sensors expose the % as their STATE with device_class "battery"
-// (non-numeric states like "unavailable" simply don't match `state < x`).
-/// Battery sensors under `threshold` percent.
-function lowBattery(threshold: Any): PAnd = deviceClassIs("battery").and(stateBelow(threshold))
-
-/// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
-/// render when it matches. Keeps the card + its slots but drops the build-time
-/// `entity_id` slot (the renderer sets the matched entity as the subject per
-/// match) and the unused children.
-class Case {
-  `when`: Predicate
-  card: String
-  slots: Mapping<String, Slot|String> = new {}
-  /// Layout-cell classes for each per-entity member wrapper this case renders
-  /// (copied from the render fn's node by [[caseOf]]).
-  cell: Cell? = null
-}
-
-// Build a [[Case]] from a predicate and a render fn: apply the fn to the
-// INTERNAL `hass.SELF` placeholder to obtain the card, then keep its card name +
-// slots but filter the `entity_id` key out (the renderer injects the matched
-// entity per match). `const local` because [[DynamicGroup.cases]] calls it from
-// the class body. Cases stay leaf-only today (children dropped), but the
-// `(e) -> ...` shape already distributes the entity explicitly, so it needs no
-// redesign if the wire format ever grows composite cases.
-const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
-  let (node = r.apply(hass.SELF))
-    new Case {
-      `when` = p
-      card = node.card
-      slots = new Mapping {
-        for (k, v in node.slots) {
-          when (k != "entity_id") {
-            [k] = v
-          }
-        }
-      }
-      // The render fn's layout-cell classes apply to every member wrapper.
-      cell = node.cell
-    }
-
-/// A runtime-resolved group: render one card PER live entity matching `query`.
-/// Branches are a `Mapping<Predicate, render fn>` — one line per branch, author
-/// order preserved (= first-match dispatch order), a duplicate predicate a build
-/// error, and each branch replaceable BY KEY when amending a base group (a
-/// Listing amend would be append-only). Each render fn is `(hass.Entity) -> Node`:
-/// the author writes exactly where the matched entity flows and never sees the
-/// `$self` sentinel. `render` is the fallback for entities no branch matched (and
-/// the ONLY card when `branches` is empty).
-class DynamicGroup extends LayoutNode {
-  kind: "dynamic" = "dynamic"
-  query: Predicate
-  hidden branches: Mapping<Predicate, (hass.Entity) -> Node> = new {}
-  /// The card for entities no branch matched; null when a branch covers them all.
-  // TODO rename as else, or no, also just add else and we translate either or to fallback
-  hidden render: ((hass.Entity) -> Node)? = null
-  cases: Listing<Case>(!isEmpty) = new Listing {
-    for (p, r in branches) { caseOf(p, r) }
-    when (render != null) { caseOf(always, render!!) }
-  }
 }
 
 // ---- candidate sets ----

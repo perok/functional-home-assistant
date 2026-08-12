@@ -6,15 +6,13 @@ import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
 
-  /** Collect every [[LayoutNode.Dynamic]] reachable from a node (mirrors
-    * BuildPhaseSuite's `dynamics` collector).
+  /** Collect every candidate set reachable from a node, nested ones included.
     */
-  private def dynamics(node: LayoutNode): List[LayoutNode.Dynamic] =
+  private def dynamics(node: LayoutNode): List[LayoutNode.SetNode] =
     node match {
       case c: LayoutNode.Component => c.children.flatMap(dynamics)
-      case d: LayoutNode.Dynamic   => List(d)
       case s: LayoutNode.SetNode   =>
-        s.members.values.toList
+        s :: s.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => dynamics(cl.node))
     }
@@ -721,6 +719,7 @@ class PklBuildSuite extends munit.FunSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |import "@fh-dashboard/theme.pkl" as th
        |
@@ -742,10 +741,10 @@ class PklBuildSuite extends munit.FunSuite {
        |    c.entityCard(dump.entities.sensor_outside_temp)
        |    c.entityCard(dump.entities.light_kitchen).tap(c.toggleTap)
        |    c.slider(dump.entities.light_kitchen)
-       |    new c.DynamicGroup {
-       |      query = c.stateIs("on")
-       |      render = (e) -> c.entityCard(e)
-       |    }
+       |    q.from(dump.lights)
+       |      .where(q.eq(q.stateProp, "on"))
+       |      .render((e) -> c.entityCard(e))
+       |      .build()
        |    c.button("Detail…", c.openPopup("detail"))
        |    c.button("Inline…", c.openPopupInline(new c.Column {
        |      children {
@@ -810,7 +809,6 @@ class PklBuildSuite extends munit.FunSuite {
       def walk(n: LayoutNode): List[LayoutNode.SetNode] = n match {
         case s: LayoutNode.SetNode   => List(s)
         case c: LayoutNode.Component => c.children.flatMap(walk)
-        case _                       => Nil
       }
       walk(d.card)
     }
@@ -916,55 +914,23 @@ class PklBuildSuite extends munit.FunSuite {
       .asInstanceOf[LayoutNode.Component]
   }
 
-  /** Evaluate a probe module that imports the real lib and decode its `node`
-    * property as a Dynamic group.
-    */
-  private def probeDynamic(body: String): LayoutNode.Dynamic = {
-    val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
-    os.write(
-      tmp / "probe.pkl",
-      s"""module probe
-         |
-         |import "@fh-dashboard/hass.pkl"
-         |import "@fh-dashboard/components.pkl" as c
-         |
-         |$body
-         |
-         |""".stripMargin
+  test("a clause node NAMES its candidate, and bakes its label") {
+    // The inverse of what a dynamic case did. A case had to STRIP `entity_id`
+    // (the renderer injected the matched entity per match) and leave the label
+    // as a live `$attr.friendly_name` transform, because the entity was unknown
+    // at build time. A clause knows its candidate: the id is a literal slot and
+    // the name is baked, so neither costs a runtime read.
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights).render((e) -> c.entityCard(e)).build()"""
     )
-    val result = evalProj(tmp, "probe.pkl")
-    assert(result.isRight, clue = result)
-    result.toOption.get.value.hcursor
-      .downField("node")
-      .as[LayoutNode]
-      .toOption
-      .get
-      .asInstanceOf[LayoutNode.Dynamic]
-  }
-
-  test("caseOf drops the entity_id slot via the Mapping for-generator") {
-    // Exercised EARLY (plan risk item 2): the `when (k != "entity_id")`
-    // for-generator in `caseOf` that filters a card's slots into a dynamic case.
-    // A `render` fallback lambda is applied to the internal SELF sentinel.
-    val dyn = probeDynamic(
-      """node = new c.DynamicGroup {
-        |  query = c.stateIs("on")
-        |  render = (e) -> c.entityCard(e)
-        |}""".stripMargin
-    )
-    assertEquals(dyn.cases.size, 1)
-    val slots = dyn.cases.head.slots
-    assert(!slots.contains("entity_id"), clue = slots.keySet)
-    // The other slots ride along: label (the $self live default) and value.
-    assert(slots.contains("label"), clue = slots.keySet)
-    assert(slots.contains("value"), clue = slots.keySet)
-    // The $self label is the LIVE friendly_name default, not a baked literal.
-    assertEquals(slots("label").literal, None)
-    assertEquals(
-      slots("label").transform,
-      "$attr.friendly_name ? $attr.friendly_name : $entity_id"
-    )
+    val node = set
+      .members("light.taklys")
+      .clauses
+      .head
+      .node
+      .asInstanceOf[LayoutNode.Component]
+    assertEquals(node.slots("entity_id").literal, Some("light.taklys"))
+    assertEquals(node.slots("label").literal, Some("Taklys"))
   }
 
   /** Evaluate a probe that imports the query surface over the REAL dump, and
@@ -1263,27 +1229,39 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(clazz("packed"), Some("fh-start"))
   }
 
-  test("caseOf copies the render fn's cell onto the emitted Case") {
-    val dyn = probeDynamic(
-      """node = new c.DynamicGroup {
-        |  query = c.stateIs("on")
-        |  render = (e) -> c.entityCard(e).fullWidth()
-        |}""".stripMargin
+  test(
+    "a render lambda's cell lands on the clause node, the set's on the set"
+  ) {
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights)
+        |  .render((e) -> c.entityCard(e).fullWidth())
+        |  .build()""".stripMargin
     )
-    assertEquals(dyn.cases.size, 1)
-    assertEquals(
-      dyn.cases.head.cell.map(_.classes),
-      Some(List("fh-cols-full"))
-    )
-    // The group's own cell (set as a property) rides on the Dynamic node.
-    val sized = probeDynamic(
-      """node = new c.DynamicGroup {
-        |  query = c.stateIs("on")
-        |  render = (e) -> c.entityCard(e)
-        |  cell = new c.Cell { classes { "fh-cols-full" } }
-        |}""".stripMargin
+    val node = set
+      .members("light.taklys")
+      .clauses
+      .head
+      .node
+      .asInstanceOf[LayoutNode.Component]
+    assertEquals(node.cell.map(_.classes), Some(List("fh-cols-full")))
+    // The SET's own cell is a layout builder on the built node, so the two
+    // cannot be confused for each other.
+    val sized = probeSet(
+      """node = (q.from(dump.areas.stue.lights)
+        |  .render((e) -> c.entityCard(e))
+        |  .build()).fullWidth()""".stripMargin
     )
     assertEquals(sized.cell.map(_.classes), Some(List("fh-cols-full")))
+    assertEquals(
+      sized
+        .members("light.taklys")
+        .clauses
+        .head
+        .node
+        .asInstanceOf[LayoutNode.Component]
+        .cell,
+      None
+    )
   }
 
   test("If builder and amend forms produce identical wire output") {
@@ -1292,19 +1270,23 @@ class PklBuildSuite extends munit.FunSuite {
     // across chained calls (late binding) — so the two authoring forms must
     // emit byte-identical node JSON.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
     os.write(
       tmp / "probe.pkl",
       """module probe
         |
         |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/query.pkl" as q
+        |import "@fh-dashboard/hass.pkl"
         |
-        |builder = c.iff(c.stateIs("on"))
+        |local lamp: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |
+        |builder = c.iff(q.entity(lamp).stateIs("on"))
         |  .then(c.title("a"))
         |  .then(c.title("b"))
         |  .`else`(c.title("q"))
         |
-        |amend = (c.iff(c.stateIs("on"))) {
+        |amend = (c.iff(q.entity(lamp).stateIs("on"))) {
         |  `then` {
         |    c.title("a")
         |    c.title("b")
@@ -1324,23 +1306,34 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(builder, amend, clue = (builder, amend))
   }
 
-  test("entityIs emits an entity_id property comparison") {
+  test("q.entity names the entity on the term, not as a property test") {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
     os.write(
       tmp / "probe.pkl",
       """module probe
         |import "@fh-dashboard/components.pkl" as c
-        |p = c.entityIs("light.kitchen")
+        |import "@fh-dashboard/query.pkl" as q
+        |import "@fh-dashboard/hass.pkl"
+        |local lamp: hass.LightEntity = new { entity_id = "light.kitchen" }
+        |p = q.entity(lamp).stateIs("on")
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
     val p = result.toOption.get.value.hcursor.downField("p").as[Predicate]
+    // `entity_id == x AND state == y` is how this was spelled when a predicate
+    // had to find its subject by testing every entity. Naming the entity makes
+    // it one lookup, and makes the reverse index exact.
     assertEquals(
       p,
       Right(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.kitchen"))
+        Predicate.Cmp(
+          "state",
+          Op.Eq,
+          Json.fromString("on"),
+          entity = Some("light.kitchen")
+        )
       )
     )
   }
@@ -1415,55 +1408,38 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slider.slots("value").transform, "$attr.current_position")
   }
 
-  test("dynamic Slider ($self) resolves config via runtime $lookup($domain)") {
-    // A $self slider can't know its domain until a match, so action/key/min/max
-    // and the live position fall back to the runtime $lookup over the
-    // sliderSpec table (all three domains present, in insertion order).
-    val dyn = probeDynamic(
-      """node = new c.DynamicGroup {
-        |  query = c.stateIs("on")
-        |  render = (e) -> c.slider(e)
-        |}""".stripMargin
+  test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
+    // THE motivating measurement of the dynamics plan. A `$self` slider could
+    // not know its domain until a match, so `action`/`key`/`min`/`max` and the
+    // live position each rode as a `reactive: false` JSONata `$lookup` over the
+    // whole sliderSpec table — five transforms per member computing a BUILD-TIME
+    // fact at runtime. A candidate is a known entity, so all five are literals
+    // and the lookup tier is gone.
+    val set = probeSet(
+      """node = q.from(dump.areas.stue.lights).render((e) -> c.slider(e)).build()"""
     )
-    assertEquals(dyn.cases.size, 1)
-    val slots = dyn.cases.head.slots
-    // entity_id is dropped (the renderer injects the matched entity per match).
-    assert(!slots.contains("entity_id"), clue = slots.keySet)
-
-    // action: the exact JSONata object literal over the whole sliderSpec table.
-    val action = slots("action")
-    assertEquals(action.literal, None)
-    assertEquals(action.reactive, false)
-    assertEquals(action.bypassUnavailable, false)
-    assertEquals(
-      action.transform,
-      "$lookup({\"light\":\"light/turn_on\"," +
-        "\"cover\":\"cover/set_cover_position\"," +
-        "\"fan\":\"fan/set_percentage\"}, $domain)"
-    )
-    // key/min/max likewise resolve via $lookup($domain); min/max maps carry the
-    // bare Int values (unquoted).
-    assertEquals(
-      slots("key").transform,
-      "$lookup({\"light\":\"brightness\",\"cover\":\"position\"," +
-        "\"fan\":\"percentage\"}, $domain)"
-    )
-    assertEquals(
-      slots("min").transform,
-      "$lookup({\"light\":1,\"cover\":0,\"fan\":0}, $domain)"
-    )
-    assertEquals(
-      slots("max").transform,
-      "$lookup({\"light\":255,\"cover\":100,\"fan\":100}, $domain)"
-    )
-    // The live position: read the domain's position attr off $attr.
-    assertEquals(
-      slots("value").transform,
-      "$lookup($attr, $lookup({\"light\":\"brightness\"," +
-        "\"cover\":\"current_position\",\"fan\":\"percentage\"}, $domain))"
-    )
+    val slots = set
+      .members("light.taklys")
+      .clauses
+      .head
+      .node
+      .asInstanceOf[LayoutNode.Component]
+      .slots
+    assertEquals(slots("entity_id").literal, Some("light.taklys"))
+    assertEquals(slots("action").literal, Some("light/turn_on"))
+    assertEquals(slots("key").literal, Some("brightness"))
+    assertEquals(slots("min").literal, Some("1"))
+    assertEquals(slots("max").literal, Some("255"))
+    // The live position is the one that stays live — it reads state, not
+    // identity — but it names the attribute directly instead of looking it up.
+    assertEquals(slots("value").transform, "$attr.brightness")
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
+    // Not one $lookup anywhere in the member.
+    assert(
+      !slots.values.exists(_.transform.contains("$lookup")),
+      clue = slots.view.mapValues(_.transform).toMap
+    )
   }
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {

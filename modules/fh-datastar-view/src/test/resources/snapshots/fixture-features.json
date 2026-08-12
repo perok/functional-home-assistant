@@ -95,41 +95,79 @@
         }
       },
       {
-        "cases" : [
-          {
-            "card" : "entityCard",
-            "slots" : {
-              "icon" : {
-                "bypassUnavailable" : false,
-                "reactive" : false,
-                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-              },
-              "label" : {
-                "bypassUnavailable" : false,
-                "reactive" : true,
-                "transform" : "$attr.friendly_name ? $attr.friendly_name : $entity_id"
-              },
-              "value" : {
-                "bypassUnavailable" : true,
-                "reactive" : true,
-                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-              }
-            },
-            "when" : {
-              "kind" : "cmp",
-              "op" : "ne",
-              "property" : "domain",
-              "value" : "__never__"
-            }
-          }
+        "candidates" : [
+          "light.kitchen",
+          "light.living_room"
         ],
-        "kind" : "dynamic",
-        "query" : {
-          "kind" : "cmp",
-          "op" : "eq",
-          "property" : "state",
-          "value" : "on"
-        }
+        "kind" : "set",
+        "members" : {
+          "light.kitchen" : {
+            "clauses" : [
+              {
+                "node" : {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.kitchen",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Kitchen",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                },
+                "when" : {
+                  "kind" : "cmp",
+                  "op" : "eq",
+                  "property" : "state",
+                  "value" : "on"
+                }
+              }
+            ]
+          },
+          "light.living_room" : {
+            "clauses" : [
+              {
+                "node" : {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.living_room",
+                    "icon" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
+                    },
+                    "label" : "Living Room",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                },
+                "when" : {
+                  "kind" : "cmp",
+                  "op" : "eq",
+                  "property" : "state",
+                  "value" : "on"
+                }
+              }
+            ]
+          }
+        },
+        "orderBy" : [
+        ]
       },
       {
         "card" : "button",

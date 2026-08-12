@@ -4,7 +4,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   Op,
   Predicate,
@@ -53,26 +52,39 @@ object FixtureDashboard {
     )
   )
 
-  /** A dynamic group over `query`, rendering each matching entity through the
-    * `member` card. The single always-matching case names no entity — its slots
-    * inherit the matched entity — so a group's members are seeded through the
-    * [[Scene]]'s `.entity(..)` extras (a group selects by query, so it never
-    * names a member in a slot for the reference scan to find).
+  /** A candidate set over `candidates`, rendering each through the `member`
+    * card. `guard` is the presence condition every member carries — `None` for
+    * "always shown". A member's slots name its own entity, because the build
+    * knows the candidate.
     */
-  def group(query: Predicate): LayoutNode.Dynamic =
-    LayoutNode.Dynamic(
-      query = Some(query),
-      cases = List(
-        DynamicCase(
-          when = Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          card = "member",
-          slots = Map(
-            "name" -> SlotSource(transform = "$attr.friendly_name"),
-            "state" -> SlotSource()
+  def set(
+      candidates: List[String],
+      guard: Option[Predicate] = None
+  ): LayoutNode.SetNode =
+    LayoutNode.SetNode(
+      candidates = candidates,
+      members = candidates.map { id =>
+        id -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              when = guard,
+              node = LayoutNode.Component(
+                "member",
+                slots = Map(
+                  "entity_id" -> SlotSource(literal = Some(id)),
+                  "name" -> SlotSource(transform = "$attr.friendly_name"),
+                  "state" -> SlotSource()
+                )
+              )
+            )
           )
         )
-      )
+      }.toMap
     )
+
+  /** The `state == s` guard a set's members are usually presence-tested on. */
+  def stateIs(s: String): Predicate =
+    Predicate.Cmp("state", Op.Eq, Json.fromString(s))
 
   /** A `reading` bound to `e`: its `$state` plus its `unit_of_measurement`
     * attribute.

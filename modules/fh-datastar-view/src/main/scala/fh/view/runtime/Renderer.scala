@@ -86,8 +86,8 @@ private[runtime] case class Member(
     node: LayoutNode.Component,
     // Which of the candidate's clauses produced this node. Part of the id of
     // any set nested inside it, so that two clauses holding sets cannot share
-    // one — a query group has no clauses and leaves it 0.
-    clause: Int = 0
+    // one.
+    clause: Int
 )
 
 /** What one frame did to one dynamic group's membership: the member lists the
@@ -199,10 +199,9 @@ class Renderer(
             self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
               walk(ch, path :+ i)
             }
-          // Both member containers are LEAVES of the static index: their
-          // children are members, addressed by `memberId` rather than by a
-          // path (see [[Member]]).
-          case _: LayoutNode.Dynamic => List(self)
+          // A member container is a LEAF of the static index: its children are
+          // members, addressed by `memberId` rather than by a path (see
+          // [[Member]]).
           case _: LayoutNode.SetNode => List(self)
         }
       }
@@ -288,133 +287,20 @@ class Renderer(
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
 
-  /** A container whose children are MEMBERS rather than authored nodes.
-    * Everything downstream — the member graph, the per-member patches, the
-    * wholesale fill — treats the two kinds alike; they differ only in where a
-    * candidate comes from and how a member is placed.
+  /** A container whose children are MEMBERS rather than authored nodes: a
+    * [[LayoutNode.SetNode]]'s candidates are decided at BUILD time, so the
+    * runtime decides only presence and order
+    * (`docs/plan-dynamics-one-entity-lifecycle.md`).
     *
-    *   - [[LayoutNode.Dynamic]]: membership is a query over every entity in the
-    *     house, so a candidate is any entity and placement is by entity id.
-    *   - [[LayoutNode.SetNode]]: the candidates are decided at BUILD time, so
-    *     the runtime decides only presence, and placement is the authored
-    *     candidate order (`docs/plan-dynamics-one-entity-lifecycle.md`).
+    * One shape, deliberately. This was a trait over two implementations while
+    * query-driven groups existed, and every difference between them was a
+    * consequence of one thing: a query group's members were invented at
+    * runtime, so it could not say who its candidates were, could not place them
+    * by anything but entity id, and had to rescan to find them. None of that
+    * survives a static candidate list.
     */
-  private sealed trait MemberSource {
-    def cell: Option[Cell]
+  private case class MemberSource(s: LayoutNode.SetNode) {
 
-    /** Every candidate, in DOM order — what a full materialisation walks. */
-    def candidates(states: Map[String, EntityState]): Vector[String]
-
-    /** The member `entityId` would be right now, or `None` when it is not one.
-      * The ONE place a member is built, so what a member IS and whether it is
-      * one cannot disagree.
-      */
-    def memberOf(
-        gid: NodeId,
-        entityId: String,
-        states: Map[String, EntityState]
-    ): Option[Member]
-
-    /** The candidates this change could have moved — usually the changed entity
-      * itself, but a set's guard may name ANOTHER entity ("show this light
-      * while the hall sensor is on"), and then the sensor's change moves a
-      * member that is not the sensor. Empty means the change leaves this
-      * container alone.
-      *
-      * Deliberately NOT the finer question (joined / left / case moved): a
-      * single change can decide that, but a FRAME cannot — two entities can
-      * move in opposite directions in one tick. [[syncMembers]] answers it for
-      * the frame as a whole.
-      */
-    def affected(change: StateChange): Iterable[String]
-
-    /** Where a member sorts among its siblings, when [[stable]]. */
-    def ordinal(entityId: String): (Int, String)
-
-    /** Every member this container can EVER hold, when that is knowable — a
-      * candidate set's list is static, a query group's is "any entity in the
-      * house". Empty means unknowable, not empty.
-      */
-    def knownMembers: List[String]
-
-    /** Whether a changed entity can only move its OWN member. False when the
-      * container orders by a live value or carries a limit: then one entity
-      * moving can reorder its neighbours or push a different member out, so the
-      * frame has to rebuild the list instead of patching one place in it.
-      */
-    def stable: Boolean
-
-    /** Turn the present members into the list the DOM should hold — ordering
-      * and truncation, which only apply once presence is known.
-      */
-    def arrange(
-        members: Vector[Member],
-        states: Map[String, EntityState]
-    ): Vector[Member]
-  }
-
-  private case class QuerySource(d: LayoutNode.Dynamic) extends MemberSource {
-    def cell: Option[Cell] = d.cell
-
-    def candidates(states: Map[String, EntityState]): Vector[String] =
-      states.keys.toVector.sorted
-
-    def memberOf(
-        gid: NodeId,
-        entityId: String,
-        states: Map[String, EntityState]
-    ): Option[Member] =
-      states
-        .get(entityId)
-        .filter(st => d.query.forall(Renderer.matches(_, st)))
-        .flatMap(st => d.cases.find(c => Renderer.matches(c.when, st)))
-        .map(c =>
-          member(
-            gid,
-            entityId,
-            LayoutNode.Component(
-              c.card,
-              // The matched entity as a literal slot — the binding every
-              // inheriting slot reads. It is what makes a member an ordinary
-              // node: the case dispatch happens once, here, instead of on
-              // every render. A set's clause node already carries it, because
-              // the build knew the candidate.
-              c.slots
-                .updated("entity_id", SlotSource(literal = Some(entityId))),
-              Nil,
-              c.cell
-            )
-          )
-        )
-
-    /** The changed entity, when the group's *query* matched it before or after.
-      * Matching neither side leaves the group alone.
-      */
-    def affected(change: StateChange): Iterable[String] = {
-      def matchesQuery(st: EntityState): Boolean =
-        d.query.forall(Renderer.matches(_, st))
-      Option
-        .when(
-          change.previous.exists(matchesQuery) || matchesQuery(change.current)
-        )(change.entityId)
-    }
-
-    def ordinal(entityId: String): (Int, String) = (0, entityId)
-
-    // Unknowable: membership is a query, so any entity could become one.
-    def knownMembers: List[String] = Nil
-
-    // A query group has no ordering of its own: its members are already in
-    // entity-id order, which is the order a rescan produces.
-    def stable: Boolean = true
-    def arrange(
-        members: Vector[Member],
-        states: Map[String, EntityState]
-    ): Vector[Member] = members
-  }
-
-  private case class CandidateSource(s: LayoutNode.SetNode)
-      extends MemberSource {
     private val position: Map[String, Int] = s.candidates.zipWithIndex.toMap
 
     /** entity -> the candidates whose presence it can decide: itself, plus
@@ -436,8 +322,8 @@ class Renderer(
 
     def cell: Option[Cell] = s.cell
 
-    def candidates(states: Map[String, EntityState]): Vector[String] =
-      s.candidates.toVector
+    /** Every candidate, in DOM order — what a full materialisation walks. */
+    val candidates: Vector[String] = s.candidates.toVector
 
     /** The first clause whose guard holds. Falling off the end means the
       * candidate is NOT RENDERED — which is why a set has no presence field.
@@ -478,8 +364,6 @@ class Renderer(
     def ordinal(entityId: String): (Int, String) =
       (position.getOrElse(entityId, Int.MaxValue), entityId)
 
-    def knownMembers: List[String] = s.candidates
-
     def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
 
     /** Order the present members by the live keys, then cut to `limit`.
@@ -514,7 +398,7 @@ class Renderer(
       gid: NodeId,
       entityId: String,
       node: LayoutNode.Component,
-      clause: Int = 0
+      clause: Int
   ): Member = {
     val key = MemberKey.Entity(entityId)
     Member(
@@ -569,18 +453,13 @@ class Renderer(
         }
       case inner: LayoutNode.SetNode =>
         val id = NodeId.derived(s"${base}_${path.mkString("_")}")
-        (id -> CandidateSource(inner)) :: nested(id, inner)
-      case _ => Nil
+        (id -> MemberSource(inner)) :: nested(id, inner)
     }
 
-    val roots = allIndexed.collect {
-      case (id, (d: LayoutNode.Dynamic, _, _)) => id -> QuerySource(d)
-      case (id, (s: LayoutNode.SetNode, _, _)) => id -> CandidateSource(s)
+    val roots = allIndexed.collect { case (id, (s: LayoutNode.SetNode, _, _)) =>
+      id -> MemberSource(s)
     }
-    roots ++ roots.toList.flatMap {
-      case (gid, CandidateSource(s)) => nested(gid, s)
-      case _                         => Nil
-    }
+    roots ++ roots.toList.flatMap { case (gid, src) => nested(gid, src.s) }
   }
 
   /** Which layout tree each member container is in — `""` for the main page,
@@ -612,16 +491,15 @@ class Renderer(
     * named ahead of time. A candidate set's members are static, so this is an
     * exact answer and the id never has to be PARSED to find its parent.
     *
-    * The id-prefix search below it is the fallback for the one case that cannot
-    * be enumerated — a query group, whose member could be any entity in the
-    * house. Worth keeping the two apart: a prefix test cannot tell
-    * `c_1_light_a_b` (set `c_1`, entity `light.a_b`) from a member of a set
-    * called `c_1_light_a`, and once sets nest inside members it cannot tell an
-    * inner member from an outer one either. Neither ambiguity can reach a set.
+    * There used to be an id-prefix search beside it, for the query group whose
+    * member could be any entity in the house. It went with them, and good
+    * riddance: a prefix test cannot tell `c_1_light_a_b` (set `c_1`, entity
+    * `light.a_b`) from a member of a set called `c_1_light_a`, and once sets
+    * nest inside members it cannot tell an inner member from an outer one.
     */
   private val memberOwner: Map[NodeId, NodeId] =
     memberSources.toList.flatMap { case (gid, src) =>
-      src.knownMembers.map(e => memberId(gid, MemberKey.Entity(e)) -> gid)
+      src.candidates.map(e => memberId(gid, MemberKey.Entity(e)) -> gid)
     }.toMap
 
   /** The dynamic half of the graph, beside the static [[allIndexed]]: mutable
@@ -680,7 +558,7 @@ class Renderer(
   ): GroupMembers =
     GroupMembers.of(
       src.arrange(
-        src.candidates(states).flatMap(src.memberOf(gid, _, states)),
+        src.candidates.flatMap(src.memberOf(gid, _, states)),
         states
       )
     )
@@ -822,14 +700,6 @@ class Renderer(
       .orElse(
         memberOwner
           .get(id)
-          .orElse(
-            // Only the containers whose members cannot be named ahead of time.
-            memberSources.iterator
-              .collect {
-                case (gid, src) if src.knownMembers.isEmpty => gid
-              }
-              .find(gid => id.startsWith(gid + "_"))
-          )
           .flatMap(gid => membersOf(gid, states).find(_.id == id))
       )
 
@@ -1677,21 +1547,18 @@ class Renderer(
         else !carriesMount(c)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
-      case (_: LayoutNode.Dynamic, _, _) => false
       case (_: LayoutNode.SetNode, _, _) => false
     }
 
   /** Whether rendering this node in FULL — as a parent's markup embeds it —
     * brings a mount along, its own or a descendant's.
     *
-    * A dynamic group does not count: its members render with no children and no
-    * bake group, so a member card's mount comes out empty and carries nobody's
-    * selection.
+    * A member container does not count: a member renders with no bake group, so
+    * a member card's mount comes out empty and carries nobody's selection.
     */
   private def carriesMount(node: LayoutNode): Boolean = node match {
     case c: LayoutNode.Component =>
       templates.mounts.contains(c.card) || c.children.exists(carriesMount)
-    case _: LayoutNode.Dynamic => false
     case _: LayoutNode.SetNode => false
   }
 
@@ -1998,15 +1865,8 @@ class Renderer(
           wrapped,
           kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)
         )
-      // Both member containers: a container root composes its members and so
-      // has no own rendering; the members do, and they are what a fill must
-      // fingerprint.
-      case d: LayoutNode.Dynamic =>
-        val id = LayoutNode.nodeId(idPrefix, path)
-        Traced(
-          renderDynamic(id, d.cell, states),
-          renderDynamicMembers(id, states).toMap
-        )
+      // A container root composes its members and so has no own rendering; the
+      // members do, and they are what a fill must fingerprint.
       case s: LayoutNode.SetNode =>
         val id = LayoutNode.nodeId(idPrefix, path)
         Traced(
@@ -2143,7 +2003,6 @@ class Renderer(
       s"""<div class="fh-cell${Renderer.cellClasses(c.cell)}">$html</div>"""
     case inner: LayoutNode.SetNode =>
       renderDynamic(innerSetId(m.id, clauseIdx, path), inner.cell, states)
-    case _ => ""
   }
 
   /** Where a set nested inside a member hangs, as an id. Must agree with the

@@ -460,6 +460,25 @@ facts {
     memberOf.apply(s, "light.lampe")[0].node.children.toList()[1].slots["entity_id"] == "light.lampe"
   }
 
+  ["a TYPED render lambda never meets a candidate its branch cannot match"] {
+    // What makes per-domain dispatch over a mixed set work at all. `c.slider`
+    // takes a light, and the fold applies each render lambda PER CANDIDATE — so
+    // if a branch whose guard folded to false were still applied, dispatching
+    // on domain over `dump.all` would be a type error rather than a dashboard.
+    // Silent when broken: the error surfaces inside the card factory, nowhere
+    // near the `caseOf` that caused it.
+    local s = q.from(List(taklys, motion))
+      .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+      .`else`((e) -> c.entityCard(e))
+      .build()
+    s.members["light.taklys"].clauses.toList()[0].node.card == "slider"
+    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "entityCard"
+    // One clause each: the domain is registry data, so the loser is not merely
+    // unrendered, it never reaches the wire.
+    s.members["light.taklys"].clauses.toList().length == 1
+    s.members["binary_sensor.stue_motion"].clauses.toList().length == 1
+  }
+
   // ---- `If` takes a subject-free condition -----------------------------------
   // A surface has no member to be the subject, so the condition must name what
   // it reads. These pin the three ways it can.
