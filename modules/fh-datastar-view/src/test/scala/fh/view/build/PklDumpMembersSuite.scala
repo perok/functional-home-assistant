@@ -104,4 +104,40 @@ class PklDumpMembersSuite extends munit.FunSuite {
       clue = src
     )
   }
+
+  test("house-wide domain lists reference the entity consts, in id order") {
+    val src = PklDump.render(
+      dump(
+        entity("switch.z", "switch"),
+        entity("light.b", "light"),
+        entity("light.a", "light"),
+        entity("sensor.s", "sensor"),
+        entity("media_player.tv", "media_player")
+      )
+    )
+    assert(
+      src.contains(
+        "hidden lights: List<hass.LightEntity> = List(e_light_a, e_light_b)"
+      ),
+      clue = src
+    )
+    assert(
+      src.contains(
+        "hidden switches: List<hass.SwitchEntity> = List(e_switch_z)"
+      ),
+      clue = src
+    )
+    // `all` spans every domain, modelled or not — a media_player has no typed
+    // class yet and still belongs in it.
+    assert(
+      src.contains(
+        "hidden all: List<hass.Entity> = List(e_light_a, e_light_b, " +
+          "e_media_player_tv, e_sensor_s, e_switch_z)"
+      ),
+      clue = src
+    )
+    // Hidden, because these are the same entities `entities` already holds —
+    // rendering them would emit the whole house twice.
+    assert(!src.contains("\nlights:"), clue = src)
+  }
 }

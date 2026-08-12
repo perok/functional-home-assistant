@@ -74,6 +74,30 @@ object PklDump {
          |
          |entities: Entities = new {}""".stripMargin
 
+    // House-wide lists, named exactly as `hass.Area`'s per-room ones — so
+    // "every light" and "this room's lights" read the same and a query's `from`
+    // takes either. `hidden`: these are the SAME entities `entities` already
+    // holds, so rendering them would emit the whole house a second time.
+    //
+    // They are what makes a dashboard entity-agnostic (the starter entry has no
+    // concrete entity in it) now that candidates are decided at build time. In
+    // entity-id order, like everything else here — a dashboard that wants
+    // another order sorts or filters with plain Pkl before `from`.
+    val domainLists = {
+      def list(name: String, tpe: String, pred: String => Boolean) = {
+        val keys = entities.collect {
+          case (key, eo) if str(eo, "domain").exists(pred) => tick(s"e_$key")
+        }
+        s"hidden $name: List<hass.$tpe> = List(${keys.mkString(", ")})"
+      }
+      List(
+        list("lights", "LightEntity", _ == "light"),
+        list("sensors", "SensorEntity", _ == "sensor"),
+        list("switches", "SwitchEntity", _ == "switch"),
+        list("all", "Entity", _ => true)
+      ).mkString("\n")
+    }
+
     // One class per area (from the flat map — floor nesting references these).
     // Members = entities whose raw `area_id` matches the area's.
     val areaClasses = areas.map { case (slug, ao) =>
@@ -208,6 +232,8 @@ object PklDump {
        |${entityDecls.mkString("\n\n")}
        |
        |$entitiesClass
+       |
+       |$domainLists
        |
        |${areaClasses.mkString("\n\n")}
        |

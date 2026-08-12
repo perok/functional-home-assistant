@@ -785,6 +785,51 @@ class PklBuildSuite extends munit.FunSuite {
        |}
        |""".stripMargin
 
+  /** The SHIPPED starter entry, not a fixture — it is what every fresh install
+    * evaluates on its first boot, and nothing else here would notice it
+    * breaking. Deliberately checked against a dump it was not written for
+    * (`HouseFixture` has no switches at all): "renders on any installation" is
+    * its whole design property, so an empty domain list must build, not throw.
+    */
+  test("the bundled starter dashboard builds against an arbitrary house") {
+    val d = PklFixture.buildDashboard(
+      "dashboard",
+      fh.view.build.AddonBootstrap.defaultDashboard
+    )
+    assertEquals(d.validate(), Nil)
+    // The LAYOUT names no concrete entity — the sections are queries over the
+    // dump's house-wide lists, so the candidates come from whatever HA has.
+    // (The header comment mentions `dump.entities.` as the way to name one, so
+    // only the code after `card =` is checked.)
+    val layout = AddonBootstrap.defaultDashboard.dropWhile(_ != '\n')
+    assert(
+      !layout.substring(layout.indexOf("card =")).contains("dump.entities")
+    )
+
+    val sets = {
+      def walk(n: LayoutNode): List[LayoutNode.SetNode] = n match {
+        case s: LayoutNode.SetNode   => List(s)
+        case c: LayoutNode.Component => c.children.flatMap(walk)
+        case _                       => Nil
+      }
+      walk(d.card)
+    }
+    assertEquals(sets.length, 3, clue = sets)
+    // Lights: both fixture lights are candidates, and the ON one keeps BOTH
+    // renderings (slider while on, toggle otherwise) because the guard is live.
+    val lights = sets.head
+    assertEquals(
+      lights.candidates.sorted,
+      List("light.kitchen", "light.living_room")
+    )
+    assertEquals(lights.members("light.kitchen").clauses.length, 2)
+    // Switches: no candidates, and that is a build, not an error.
+    assertEquals(sets(1).candidates, Nil)
+    // Low battery: `device_class` is registry data, so the only sensor in the
+    // house (a temperature one) is selected out at BUILD time.
+    assertEquals(sets(2).candidates, Nil)
+  }
+
   test(
     "fixture-features builds through the full pipeline into a valid Dashboard"
   ) {
