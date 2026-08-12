@@ -253,14 +253,6 @@ private[runtime] object Patches {
       )
     )
 
-  /** Per-entity pays off only when the churn is a MINORITY of the group: at the
-    * boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
-    * is cheaper than juggling insert/remove patches. Strict `<` so exactly half
-    * repaints. `MaxChurnFraction` is tunable.
-    *
-    * Named because [[recordDynamic]] and [[resume]] must agree on it: one
-    * decides what to record, the other reaches the same patch from the log.
-    */
   /** Which of these survivors have to be MOVED to turn `before` into `after` —
     * the fewest possible, in `after` order.
     *
@@ -302,9 +294,6 @@ private[runtime] object Patches {
       after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
     }
   }
-
-  private def perEntityChurn(churn: Int, shown: Int): Boolean =
-    churn > 0 && churn < Server.MaxChurnFraction * shown
 
   def record(
       renderer: Renderer,
@@ -372,11 +361,25 @@ private[runtime] object Patches {
     * frame did not make. `was`/`now` arrive from the graph
     * ([[Renderer.syncMembers]]), which applied that frame.
     *
-    * Two conditions still choose between a per-member delta and a whole-mount
-    * fill, and they come from different places: `perEntityChurn` is pure state,
-    * where `hasChildOf` asks whether the log holds children to patch AGAINST —
-    * false after a renderer swap or a fill, and a delta then patches against a
-    * baseline nobody can vouch for.
+    * '''Deltas by default; a fill only where it costs nothing or is the only
+    * option.''' A fill re-renders the WHOLE mount, so it re-sends the members
+    * that did not change — and it raises the mount's horizon, which drops every
+    * client below that cursor onto the same wholesale path. It is worth it in
+    * exactly two places:
+    *
+    *   - the unchanged set is EMPTY (`was` or `now` is), so there is nothing to
+    *     re-send: everything arrived, or everything left. One patch instead of
+    *     N, identical bytes.
+    *   - `hasChildOf` is false — the log holds no children to patch AGAINST,
+    *     after a renderer swap or an earlier fill — and a delta would be
+    *     patching a baseline nobody can vouch for. Correctness, not cost.
+    *
+    * This replaced a churn FRACTION (fill past half the group), which turned
+    * out to be backwards for ordinary frames: at its own motivating boundary —
+    * removing 1 of 2 members — the delta is a single `remove` carrying no HTML
+    * at all, where the fill re-renders the survivor for nothing. The case it
+    * genuinely won, near-total churn of many tiny members, is narrow enough to
+    * pay for out of simplicity.
     */
   private def recordDynamic(
       renderer: Renderer,
@@ -406,7 +409,7 @@ private[runtime] object Patches {
       val churn = added.size + removed.size + moved.size
       // The query boundary moved but the RENDERED membership did not.
       if (churn == 0) base
-      else if (!perEntityChurn(churn, was.size) || !base.hasChildOf(gid))
+      else if (was.isEmpty || now.isEmpty || !base.hasChildOf(gid))
         // Touched as well as filled: the fill re-supplies the mount, and the
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill

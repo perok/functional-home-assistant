@@ -1056,6 +1056,20 @@ time IS a number, so `q.from(emptyRoom).any()` is `false` before anything runs a
 guards never reaches the wire. `min`/`max` are not here — they were the spike's addition, not a
 requirement, and can arrive with a use case.
 
+*The churn heuristic is gone.* `MaxChurnFraction` filled a mount wholesale past half the group's
+members. That was written for a query group over the whole house, where membership could swing
+without bound; over a static candidate list it is backwards for ordinary frames, because **a fill
+re-renders the members that did not change** and raises the mount's horizon, dropping every client
+below that cursor onto the same wholesale path. At its own motivating boundary — removing 1 of 2
+members — the delta is a single `remove` carrying no HTML, and the fill it chose instead re-sent
+the survivor for nothing.
+
+The rule now: **fill when the UNCHANGED set is empty** — everything arrived, or everything left, so
+the fill re-sends nothing and one patch replaces N — or when `hasChildOf` is false and there is no
+baseline to patch against. No new primitives; `Gone`/`Placed` were already complete, and these are
+just the two cases where collapsing them costs nothing. The case the fraction genuinely won,
+near-total churn of many tiny members, is narrow enough to pay for out of simplicity.
+
 *Composite (a) is shipped, (b) is not, and they turned out to be different sizes.* A member
 rendering a SUBTREE is small: the children ride inside the member's bytes with no ids of their own,
 so the member stays the single patch target, and the only real work was the reverse index —

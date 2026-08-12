@@ -354,10 +354,14 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test(
-    "heuristic: removing 1 of 2 members FILLS the group's mount + refingerprints"
-  ) {
-    // shown 2, churn 1 -> 1 < 0.5*2 is false -> the wholesale fallback.
+  test("removing 1 of 2 members is a DELTA, not a fill") {
+    // This used to fill: churn was compared against a fraction of the group
+    // (half), and 1 of 2 is not a minority. It was the wrong call at its own
+    // motivating boundary — a `remove` carries NO HTML, where the fill it chose
+    // instead re-rendered the surviving member for nothing, and raised the
+    // mount's horizon so every client below that cursor lost its delta path
+    // too. A fill now happens only where it costs nothing (everything arrived,
+    // or everything left) or where there is no baseline to patch against.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     runShared(
@@ -368,41 +372,31 @@ class DynamicGroupSuite extends ServerHarness {
     ).map { case (patches, cache) =>
       assertEquals(patches.size, 1, clue = patches)
       val p = patches.head
-      // An `Inner` fill AT THE MOUNT — the group's own element, which IS its
-      // mount — carrying only the surviving member. Not an outer morph of the
-      // group, which would have been a patch containing other nodes.
-      assert(p.contains("mode inner"), clue = p)
-      assert(p.contains("selector #c"), clue = p)
-      assert(p.contains("""id="c_light_a""""), clue = p)
-      assert(!p.contains("""id="c_light_b""""), clue = p)
-      // The payload is the members' MARKUP and nothing else. Asserting an id is
-      // CONTAINED cannot see a wrapper around it: when `renders.fill` started
-      // yielding `NodeBytes`, this line concatenated those instead of their
-      // `.html` and put `NodeBytes(<div id="c_light_a">…,<digest>)` on the wire
-      // — with every containment assertion above still green.
-      assertEquals(
-        p.linesIterator
-          .collect {
-            case l if l.startsWith("data: elements ") =>
-              l.drop("data: elements ".length)
-          }
-          .mkString("\n"),
-        Renderer
-          .create(dynDash)
-          .renderDynamicMembers("c", after)
-          .map(_._2)
-          .mkString,
-        clue = p
-      )
-      // The departed member's entry is gone and the surviving one is
-      // RE-FINGERPRINTED: the fill re-supplied the mount wholesale, so without
-      // that the next live diff would compare against a baseline the client never
-      // had. And no group-level entry is written — that would be a fragment
-      // containing another node.
+      assert(p.contains("mode remove"), clue = p)
+      assert(p.contains("selector #c_light_b"), clue = p)
+      // The whole point: no HTML at all, where a fill would have re-sent the
+      // survivor's markup.
+      assert(!p.contains("data: elements"), clue = p)
       assert(!cache.contains("c_light_b"), clue = cache)
-      assert(cache.contains("c_light_a"), clue = cache)
       assert(!cache.contains("c"), clue = cache)
     }
+  }
+
+  test("the LAST member leaving fills, because the fill carries nothing") {
+    // The other side of the same rule. Everything left, so there is no
+    // unchanged member for a fill to re-send: one empty `inner` beats one
+    // `remove`, and it leaves the mount unambiguously empty.
+    val after = Map("light.a" -> off("light.a"))
+    val change = StateChange("light.a", Some(on("light.a")), off("light.a"))
+    runShared(dynDash, after, change, seedCache = Map("c_light_a" -> "<a>"))
+      .map { case (patches, cache) =>
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode inner"), clue = p)
+        assert(p.contains("selector #c"), clue = p)
+        assert(!p.contains("""id="c_light_a""""), clue = p)
+        assert(!cache.contains("c_light_a"), clue = cache)
+      }
   }
 
   test("membership change on a not-yet-logged group falls back to a fill") {

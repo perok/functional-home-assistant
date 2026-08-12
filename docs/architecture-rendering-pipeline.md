@@ -235,8 +235,8 @@ every slug's recorder wakes
       dynamics       -> the members whose CASE was replaced (no entity edge can
                         name a card binding nothing live), then Gone/Placed per
                         membership move, or a filled mount
-                        (the churn heuristic survives as `filled`, which raises
-                         the container's horizon — "any cursor below this gets
+                        (a fill is recorded as `filled`, which raises the
+                         container's horizon — "any cursor below this gets
                          this mount")
   ring the doorbell with the version          // AFTER the log is written, or a
                                               // session could set its position
@@ -320,9 +320,9 @@ flowchart TB
   SAME -->|no| OUT
   SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
   SET -->|nobody| OUT
-  SET -->|somebody| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
-  CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
-  CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
+  SET -->|somebody| CHURN{"is the UNCHANGED set empty?<br/>(everything arrived, or everything left)"}
+  CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
+  CHURN -->|no| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
   EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
   EST -->|no, fresh log after swap or fill| FILL
 
@@ -343,12 +343,15 @@ moves like any other node's, and the render that reads a viewer's selection happ
 is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, and
 `nodeVariesByViewer` went with them once `plan` stopped partitioning what `record` merged back.
 
-**The churn heuristic had to survive the loss of the render**, or the wire would move: heavy churn
-still fills the mount rather than patching members. It is recorded as `FragmentLog.filled`, which
-raises the container's `horizon` — already the mechanism for "no delta describes this, send the
-mount" — so `resume` reaches the same patch from the other side. A fill also `touched`es the members
-it leaves, because those entries are what keep the group *established* for the next membership
-change.
+**Filling had to survive the loss of the render**, or the wire would move. It is recorded as
+`FragmentLog.filled`, which raises the container's `horizon` — already the mechanism for "no delta
+describes this, send the mount" — so `resume` reaches the same patch from the other side. A fill
+also `touched`es the members it leaves, because those entries are what keep the group *established*
+for the next membership change.
+
+*What* fills has narrowed since: a churn FRACTION used to send the whole mount past half the
+group, which re-sent the members that did not change. Now only the two cases where a fill re-sends
+nothing — everything arrived, or everything left — plus the no-baseline fallback.
 
 ---
 

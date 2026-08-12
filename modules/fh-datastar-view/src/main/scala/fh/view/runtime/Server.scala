@@ -1711,16 +1711,6 @@ object Server {
     }
   }
 
-  /** The largest fraction of a dynamic group's rendered members that may churn
-    * (be added and/or removed by one state change) and still be patched
-    * per-entity (`remove` / `insert`); beyond it the whole group repaints. The
-    * comparison is strict (`churn < MaxChurnFraction * shown`), so exactly-half
-    * churn — e.g. removing 1 of 2 members, or the last member — repaints, while
-    * removing 1 of 4 patches per-entity. Tunable: raise it to favour per-entity
-    * patches (smaller payloads, more patches), lower it to favour repaints.
-    */
-  val MaxChurnFraction: Double = 0.5
-
   /** The view state a freshly-loaded document has to hand back to the server on
     * connect: its bake-group selections and its open popup, both read off the
     * page URL (ADR 0005).
