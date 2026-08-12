@@ -215,12 +215,42 @@ object Predicate:
       entity: Option[String] = None
   ) extends Predicate
 
+  /** How many of a STATIC candidate list are present, compared against a
+    * number: "more than two lights in here are on".
+    *
+    * There is no quantifier and no query. Presence is per-candidate — `when`
+    * holds the guard for the candidates that have one, and a candidate absent
+    * from it is unconditionally present — which is the same shape a
+    * [[LayoutNode.SetMember]]'s clauses carry, and for the same reason: a
+    * statically-true term short-circuits a disjunction, so residuals diverge
+    * across the candidates of one set.
+    *
+    * That is also what retires the quantifiers: over a known list, `any` is
+    * `count > 0`, `none` is `count == 0`, and `all` is `count == length`. A
+    * comparison on a count is an ORDINARY predicate, so it composes with
+    * everything — a member's guard, a surface condition, an `and`/`or`.
+    *
+    * Subject-independent by construction: it reads the named candidates, never
+    * the entity it is attached to.
+    */
+  case class Count(
+      candidates: List[String] = Nil,
+      when: Map[String, Predicate] = Map.empty,
+      op: Op,
+      value: Json
+  ) extends Predicate
+
   /** Every entity a predicate names besides its subject. */
   def referencedEntities(p: Predicate): List[String] = p match
     case Cmp(_, _, _, e) => e.toList
     case And(items)      => items.flatMap(referencedEntities)
     case Or(items)       => items.flatMap(referencedEntities)
     case Not(item)       => referencedEntities(item)
+    // A count reads entities the node it guards may not render at all, so all
+    // of them are references — without this the node is never woken by the
+    // thing it counts.
+    case Count(candidates, when, _, _) =>
+      candidates ++ when.values.flatMap(referencedEntities)
 
 /** How a [[Activation.State]] condition is quantified over the WHOLE live state
   * map. A [[Predicate]] tests ONE entity; a surface's activation must decide

@@ -229,6 +229,42 @@ facts {
     ids.apply(s).length == 2
   }
 
+  ["`count` compares the PRESENT members, with no quantifier"] {
+    // The original ask: "if more than X elements then we show this."
+    local cond = q.from(stue).where(q.eq(q.stateProp, "on")).count().gt(1)
+    cond.kind == "count"
+    cond.op == "gt"
+    cond.value == 1
+    cond.candidates.toList() == List("light.taklys", "light.lampe")
+    // A per-candidate guard, for the same reason a member's clauses are.
+    cond.`when`["light.taklys"].property == "state"
+  }
+
+  ["`any` and `none` are comparisons on the count, not quantifiers"] {
+    q.from(stue).where(q.eq(q.stateProp, "on")).any().op == "gt"
+    q.from(stue).where(q.eq(q.stateProp, "on")).any().value == 0
+    q.from(stue).where(q.eq(q.stateProp, "on")).none().op == "eq"
+    q.from(stue).where(q.eq(q.stateProp, "on")).none().value == 0
+  }
+
+  ["a count the BUILD can settle folds to a constant"] {
+    // No live filter, so the answer is known now — and the card this guards is
+    // dropped at build time rather than carrying a condition that cannot move.
+    q.from(stue).count().gt(1) == true
+    q.from(stue).count().gt(5) == false
+    // An empty room counts zero, so `any()` is statically false.
+    q.from(List()).any() == false
+    // A registry filter still folds: only one light is in kjokken.
+    q.from(allEnts).where(q.eq(q.prop("area_id"), "kjokken")).count().eq(1) == true
+  }
+
+  ["a counted set needs no card — counting is not rendering"] {
+    // `count` reads `where` only, so a set can be counted without ever being
+    // given a branch. The spike needed a marker branch here; this does not.
+    local cond = q.from(stue).where(q.eq(q.stateProp, "on")).count().gt(0)
+    cond.candidates.toList().length == 2
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"

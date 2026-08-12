@@ -1039,6 +1039,23 @@ Two things this turned up that the design had not:
   `Patches.reordered` keeps a longest increasing subsequence of the old positions and moves only
   the rest, so one light overtaking three others costs one move, not four.
 
+*`count` is shipped* — the original ask, "if more than X elements then we show this". It came out
+smaller than designed, in two ways worth keeping:
+
+- **No `SetNode` inside the term.** The spike embedded the whole set, which forced a marker branch
+  onto any set being counted (an aggregate needs presence, and presence lived on a clause, and a
+  candidate with no clause was dropped). `Predicate.Count` carries what a count actually reads —
+  the candidate ids and their presence guards — so counting is not rendering and a counted set
+  needs no card at all. The marker branch is gone.
+- **It is an ordinary `Predicate`**, so it composes everywhere one does, and it retires the
+  quantifiers exactly as designed: `any` is `count > 0`, `none` is `count == 0`, `all` is
+  `count == length`. `q.` exposes those three names, and they build the same term.
+
+The static fold works one level up as predicted: a count whose candidates all resolve at build
+time IS a number, so `q.from(emptyRoom).any()` is `false` before anything runs and the card it
+guards never reaches the wire. `min`/`max` are not here — they were the spike's addition, not a
+requirement, and can arrive with a use case.
+
 Mixed orderings are constrained: registry keys may only be the LEAST significant positions. A
 registry key that outranked a live one would have to reach the runtime as a `reg:` reference, and
 the runtime holds no registry table — so that combination throws at build time, naming the fix,

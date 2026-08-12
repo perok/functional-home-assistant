@@ -2280,28 +2280,40 @@ object Renderer {
       case Predicate.And(items) => items.forall(matchesIn(_, subject, states))
       case Predicate.Or(items)  => items.exists(matchesIn(_, subject, states))
       case Predicate.Not(item)  => !matchesIn(item, subject, states)
+      case Predicate.Count(candidates, when, op, value) =>
+        // A candidate with no guard is unconditionally present — the same rule
+        // a set member with an unguarded clause follows.
+        val n = candidates.count(id =>
+          when
+            .get(id)
+            .forall(g => states.get(id).exists(matchesIn(g, _, states)))
+        )
+        compare(n.toString, StateStore.jsonToString(value), op)
       case Predicate.Cmp(_, _, _, Some(other)) if !states.contains(other) =>
         // Named an entity the snapshot does not have: it can never hold, and
         // saying so beats reading the subject's value by accident.
         false
       case Predicate.Cmp(property, op, value, entity) =>
         val st = entity.flatMap(states.get).getOrElse(subject)
-        val lhs = propertyOf(property, st)
-        val rhs = StateStore.jsonToString(value)
-        // Ordering ops compare numerically, and are false unless both sides
-        // parse as numbers; equality ops compare the raw strings.
-        def numeric(cmp: (Double, Double) => Boolean): Boolean =
-          (lhs.toDoubleOption, rhs.toDoubleOption) match {
-            case (Some(l), Some(r)) => cmp(l, r)
-            case _                  => false
-          }
-        op match {
-          case Op.Eq  => lhs == rhs
-          case Op.Ne  => lhs != rhs
-          case Op.Lt  => numeric(_ < _)
-          case Op.Lte => numeric(_ <= _)
-          case Op.Gt  => numeric(_ > _)
-          case Op.Gte => numeric(_ >= _)
-        }
+        compare(propertyOf(property, st), StateStore.jsonToString(value), op)
     }
+
+  /** Ordering ops compare NUMERICALLY, and are false unless both sides parse as
+    * numbers; equality ops compare the raw strings.
+    */
+  private def compare(lhs: String, rhs: String, op: Op): Boolean = {
+    def numeric(cmp: (Double, Double) => Boolean): Boolean =
+      (lhs.toDoubleOption, rhs.toDoubleOption) match {
+        case (Some(l), Some(r)) => cmp(l, r)
+        case _                  => false
+      }
+    op match {
+      case Op.Eq  => lhs == rhs
+      case Op.Ne  => lhs != rhs
+      case Op.Lt  => numeric(_ < _)
+      case Op.Lte => numeric(_ <= _)
+      case Op.Gt  => numeric(_ > _)
+      case Op.Gte => numeric(_ >= _)
+    }
+  }
 }

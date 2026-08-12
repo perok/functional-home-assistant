@@ -25,9 +25,9 @@
 ///       .where(q.eq(q.stateProp, "on"))
 ///       .render((e) -> c.slider(e))
 ///
-/// NOT YET HERE: aggregates (`count`/`any`/`none`) and a set nested inside a
-/// member. They are absent rather than present-and-erroring, so pkl-lsp says
-/// "unknown method" at the point of use.
+/// NOT YET HERE: a set nested inside a member ("a tile per room"), and `min`/
+/// `max` over a property. Absent rather than present-and-erroring, so pkl-lsp
+/// says "unknown method" at the point of use.
 module query
 
 import "components.pkl"
@@ -489,6 +489,26 @@ class EntitySet {
   /// The only rendering, when there is nothing to dispatch on.
   function render(r: (hass.Entity) -> components.Node): EntitySet = caseOf((_e) -> true, r)
 
+  /// How many of this set's candidates are PRESENT, as a comparable value.
+  /// `.count().gt(2)` is "more than two of these are on".
+  ///
+  /// Reads only `where` — the branches are about RENDERING, and a count does
+  /// not render. So a set can be counted without ever being given a card.
+  function count(): CountRef =
+    let (l = this)
+      new {
+        residuals = l.items
+          .map((e) -> Pair(e.entity_id, foldAll(l.filters.map((f) -> normalise(l.items, e, f)))))
+          .filter((p) -> !(p.second is Boolean && p.second == false))
+      }
+
+  /// At least one is present. Not a quantifier — a comparison on the count.
+  function any(): Cond = count().gt(0)
+  /// None are.
+  function none(): Cond = count().eq(0)
+  /// Every candidate is.
+  function all(): Cond = let (l = this) count().eq(l.count().residuals.length)
+
   /// The emitted node. A chain ends here — Pkl has no implicit conversion, so
   /// the set is a layout node only once you ask for it.
   function build(): components.SetNode =
@@ -504,6 +524,54 @@ class EntitySet {
 
 /// Start a query over any list of typed dump entities.
 function from(xs: List<hass.Entity>): EntitySet = new EntitySet { items = xs }
+
+/// A count, waiting to be compared. Comparing it yields an ordinary condition —
+/// or a CONSTANT, when the build already knows the answer.
+///
+/// It knows the answer whenever no candidate's presence depends on live state:
+/// an empty room counts 0, and a set with only registry filters counts its
+/// survivors. Then `.any()` on a room with no lights is `false` at build time,
+/// and the card it guards is dropped rather than carrying a condition that can
+/// never hold. The same fold as everywhere else, one level up.
+class CountRef {
+  /// Candidate id -> its presence residual: `true` for one the build settled,
+  /// a predicate for one the runtime must decide. Statically-absent candidates
+  /// are already gone.
+  hidden residuals: List<Pair<String, Boolean|components.Predicate>>
+
+  hidden knownCount: Int? =
+    if (residuals.every((p) -> p.second == true)) residuals.length else null
+
+  // `let (l = this)`: inside `new { … }` a bare `this` — and even `this.x` —
+  // rebinds to the object being built, so a field would initialise from itself.
+  function gt(v: Int): Cond = let (l = this) l.compareTo("gt", v)
+  function lt(v: Int): Cond = let (l = this) l.compareTo("lt", v)
+  function eq(v: Int): Cond = let (l = this) l.compareTo("eq", v)
+  function ne(v: Int): Cond = let (l = this) l.compareTo("ne", v)
+
+  function compareTo(cmpOp: components.PredicateOp, v: Int): Cond =
+    let (l = this)
+      if (l.knownCount != null) staticCompare(cmpOp, l.knownCount!!, v)
+      else
+        new components.Count {
+          candidates = new Listing { for (p in l.residuals) { p.first } }
+          `when` = new Mapping {
+            for (p in l.residuals) {
+              when (p.second is components.Predicate) {
+                [p.first] = p.second as components.Predicate
+              }
+            }
+          }
+          op = cmpOp
+          value = v
+        }
+}
+
+const local function staticCompare(cmpOp: String, n: Int, v: Int): Boolean =
+  if (cmpOp == "gt") n > v
+  else if (cmpOp == "lt") n < v
+  else if (cmpOp == "eq") n == v
+  else n != v
 
 // ---- the fold ---------------------------------------------------------------
 

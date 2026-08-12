@@ -320,6 +320,40 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
+  test("a COUNT over other entities decides presence, and wakes the member") {
+    // "Show this while more than one light in the room is on." The counted
+    // lights are not candidates of this set — only the count names them — so
+    // the reverse index has to learn about them through
+    // `Predicate.referencedEntities`, exactly as it does for a cross-entity
+    // guard.
+    val counted = List("light.x", "light.y", "light.z")
+    val moreThanOneOn = Predicate.Count(
+      candidates = counted,
+      when = counted.map(_ -> whileOn).toMap,
+      op = Op.Gt,
+      value = Json.fromInt(1)
+    )
+    val dash = setOf(List("light.banner"), _ => Some(moreThanOneOn))
+    val states = Map("light.banner" -> off("light.banner")) ++
+      Map("light.x" -> on("light.x")) ++
+      counted.tail.map(id => id -> off(id)).toMap
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        // One on: the banner is absent even though it is a candidate, and its
+        // OWN state ("off") is irrelevant — a count reads only what it names.
+        html <- h.opening(None)
+        patches <- h.step(on("light.y"))
+      } yield {
+        assert(!html.contains("c_light_banner"), clue = html)
+        assert(patches.nonEmpty, clue = patches)
+        assert(
+          patches.exists(_.contains("""id="c_light_banner"""")),
+          clue = patches
+        )
+      }
+    }
+  }
+
   test("a guard naming ANOTHER entity is woken by that entity") {
     // The per-member cross-entity case: a light shows while its own room's
     // sensor is on. The sensor is not a candidate, so nothing about the set's
