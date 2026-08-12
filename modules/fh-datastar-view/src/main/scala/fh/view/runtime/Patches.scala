@@ -401,10 +401,10 @@ private[runtime] object Patches {
       val wasSet = was.toSet
       val added = now.filterNot(wasSet)
       val removed = was.filterNot(nowSet)
-      // Members that survived the frame but changed PLACE. Only a candidate set
-      // ordered by a live value can produce these — a query group is in
-      // entity-id order, which cannot move — and they are a real DOM change, so
-      // "the set did not change" is not the same question as "nothing moved".
+      // Members that survived the frame but changed PLACE. Only a set ordered by
+      // a LIVE value can produce these — authored candidate order cannot move —
+      // and they are a real DOM change, so "the set did not change" is not the
+      // same question as "nothing moved".
       val moved = Patches.reordered(was.filter(nowSet), now.filter(wasSet))
       val churn = added.size + removed.size + moved.size
       // The query boundary moved but the RENDERED membership did not.
