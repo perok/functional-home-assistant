@@ -328,6 +328,12 @@ class Renderer(
     /** Where a member sorts among its siblings, when [[stable]]. */
     def ordinal(entityId: String): (Int, String)
 
+    /** Every member this container can EVER hold, when that is knowable — a
+      * candidate set's list is static, a query group's is "any entity in the
+      * house". Empty means unknowable, not empty.
+      */
+    def knownMembers: List[String]
+
     /** Whether a changed entity can only move its OWN member. False when the
       * container orders by a live value or carries a limit: then one entity
       * moving can reorder its neighbours or push a different member out, so the
@@ -391,6 +397,9 @@ class Renderer(
     }
 
     def ordinal(entityId: String): (Int, String) = (0, entityId)
+
+    // Unknowable: membership is a query, so any entity could become one.
+    def knownMembers: List[String] = Nil
 
     // A query group has no ordering of its own: its members are already in
     // entity-id order, which is the order a rescan produces.
@@ -465,6 +474,8 @@ class Renderer(
     def ordinal(entityId: String): (Int, String) =
       (position.getOrElse(entityId, Int.MaxValue), entityId)
 
+    def knownMembers: List[String] = s.candidates
+
     def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
 
     /** Order the present members by the live keys, then cut to `limit`.
@@ -509,6 +520,22 @@ class Renderer(
       case (id, (d: LayoutNode.Dynamic, _, _)) => id -> QuerySource(d)
       case (id, (s: LayoutNode.SetNode, _, _)) => id -> CandidateSource(s)
     }
+
+  /** member id -> the container that owns it, for every member that can be
+    * named ahead of time. A candidate set's members are static, so this is an
+    * exact answer and the id never has to be PARSED to find its parent.
+    *
+    * The id-prefix search below it is the fallback for the one case that cannot
+    * be enumerated — a query group, whose member could be any entity in the
+    * house. Worth keeping the two apart: a prefix test cannot tell
+    * `c_1_light_a_b` (set `c_1`, entity `light.a_b`) from a member of a set
+    * called `c_1_light_a`, and once sets nest inside members it cannot tell an
+    * inner member from an outer one either. Neither ambiguity can reach a set.
+    */
+  private val memberOwner: Map[NodeId, NodeId] =
+    memberSources.toList.flatMap { case (gid, src) =>
+      src.knownMembers.map(e => memberId(gid, MemberKey.Entity(e)) -> gid)
+    }.toMap
 
   /** The dynamic half of the graph, beside the static [[allIndexed]]: mutable
     * because membership is maintained by the state stream rather than computed
@@ -706,8 +733,16 @@ class Renderer(
     graph.get.byId
       .get(id)
       .orElse(
-        memberSources.keys
-          .find(gid => id.startsWith(gid + "_"))
+        memberOwner
+          .get(id)
+          .orElse(
+            // Only the containers whose members cannot be named ahead of time.
+            memberSources.iterator
+              .collect {
+                case (gid, src) if src.knownMembers.isEmpty => gid
+              }
+              .find(gid => id.startsWith(gid + "_"))
+          )
           .flatMap(gid => membersOf(gid, states).find(_.id == id))
       )
 

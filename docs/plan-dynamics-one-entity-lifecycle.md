@@ -1072,12 +1072,22 @@ bake host: its card is the `self` (one patch target, for the title), the nested 
 - **Ids nest positionally through the set, by key through the member**: `c_1` → `c_1_area_stue` →
   `c_1_area_stue_2` (the child index — a hole cannot move) → `c_1_area_stue_2_light_taklys`.
   Everything is static, so the whole tree of sets is enumerable at renderer construction.
-- **`memberAt` needs a LONGEST-prefix match.** It finds a member's container with
-  `keys.find(gid => id.startsWith(gid + "_"))`, and with nesting `c_1` is also a prefix of an inner
-  member's id, so the first match is the wrong one.
+- **Ownership is a MAP, not a parsed id** — already done, ahead of (b), because it is the better
+  answer to the same problem. `memberAt` used to find a container with
+  `keys.find(gid => id.startsWith(gid + "_"))`; a candidate set's members are all knowable at
+  construction, so `memberOwner` answers exactly and the id is never parsed. That is what a
+  longest-prefix match would only have approximated: a prefix test cannot tell `c_1_light_a_b`
+  (set `c_1`, entity `light.a_b`) from a member of a set called `c_1_light_a`, and once sets nest
+  it cannot tell an inner member from an outer one. The prefix search survives for query groups
+  ALONE, whose members are any entity in the house and so cannot be enumerated — and it retires
+  with them in phase 5.
 
 Inner members are ordinary graph nodes once registered, so a bulb inside a tile patches its own
 element — which is the whole point of nesting rather than re-rendering the tile.
+
+One more id-parsing site is left to deal with when (b) lands: `FragmentLog.hasChildOf(gid)` also
+tests `startsWith(gid + "_")`, and an INNER member's entry would answer for its outer set — so the
+outer set would look established when only the inner one is. Same fix, same reason.
 
 Mixed orderings are constrained: registry keys may only be the LEAST significant positions. A
 registry key that outranked a live one would have to reach the runtime as a `reg:` reference, and

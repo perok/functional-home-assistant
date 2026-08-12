@@ -320,6 +320,23 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
+  test("a member is found by OWNERSHIP, not by parsing its id") {
+    // `light.a_b` sanitises to `c_light_a_b`, which reads as a member of a
+    // container called `c_light_a` just as well as it reads as `light.a_b` in
+    // `c`. A candidate set's members are all knowable at construction, so the
+    // container is a lookup and the ambiguity cannot arise; the id-prefix
+    // search is kept only for query groups, whose members cannot be enumerated.
+    val dash = setOf(List("light.a_b", "light.a"), _ => Some(whileOn))
+    val states =
+      Map("light.a_b" -> on("light.a_b"), "light.a" -> on("light.a"))
+    SharedHarness.create(dash, states).flatMap { h =>
+      h.opening(None).map { html =>
+        assert(html.contains("""id="c_light_a_b""""), clue = html)
+        assert(html.contains("""id="c_light_a""""), clue = html)
+      }
+    }
+  }
+
   test("a member renders a SUBTREE, woken by the entities its children bind") {
     // Composite (a): the candidate is still an entity, the rendering is not a
     // leaf. The children have no ids — the member is the one patch target for
