@@ -1353,7 +1353,40 @@ class SetNode extends LayoutNode {
   /// already sorted: the runtime filters to the present members and preserves
   /// it, with no comparisons.
   candidates: Listing<String>
+  /// Lexicographic, most significant first. EMPTY when the whole ordering
+  /// folded to registry facts — then `candidates` is already in render order
+  /// and the runtime compares nothing.
+  orderBy: Listing<SortTerm> = new {}
+  /// Show at most this many PRESENT members, applied after ordering. Every
+  /// candidate still ships: which of them is cut depends on live values, so
+  /// only the runtime can decide it. A cut member is ABSENT from the DOM, not
+  /// hidden in it.
+  limit: Int? = null
   members: Mapping<String, SetMember>
+}
+
+/// One ordering position. `by` reads a property's VALUE ([[SortProp]]) or
+/// whether a predicate HOLDS ([[SortHolds]], true first under `asc`) — both are
+/// orderings and neither expresses the other.
+class SortTerm {
+  by: SortKey
+  dir: "asc"|"desc" = "asc"
+}
+
+abstract class SortKey {
+  kind: String
+}
+
+class SortProp extends SortKey {
+  kind: "prop" = "prop"
+  /// `state` or `attr:<name>` — the same vocabulary a [[Cmp]] names. Never
+  /// `reg:`: a registry key folds at build time into the candidate order.
+  property: String
+}
+
+class SortHolds extends SortKey {
+  kind: "holds" = "holds"
+  predicate: Predicate
 }
 
 // ---- conditional sections (If/else via state-activated surfaces) ----

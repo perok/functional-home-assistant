@@ -403,14 +403,34 @@ object LayoutNode:
       node: LayoutNode
   ) derives ConfiguredDecoder
 
-  /** One lexicographic ordering position, most significant first. `by` is a
-    * property reference (sort by its value) or a predicate (sort by whether it
-    * holds).
+  /** One lexicographic ordering position, most significant first.
+    *
+    * Present ONLY when some position needs live state. An ordering that folded
+    * entirely to registry facts left [[SetNode.candidates]] pre-sorted and this
+    * list empty, so the runtime filters without comparing anything.
     */
   case class SortTerm(
-      by: Predicate,
+      by: SortKey,
       dir: String = "asc"
-  ) derives ConfiguredDecoder
+  ) derives ConfiguredDecoder:
+    def descending: Boolean = dir == "desc"
+
+  /** What an ordering position reads. Two kinds because "brightest first" and
+    * "the ones that are on first" are both orderings and neither expresses the
+    * other: a value has an order, a predicate has only true/false.
+    */
+  sealed trait SortKey derives ConfiguredDecoder
+  object SortKey:
+    /** Sort by a property's VALUE — `state`, `attr:<name>`, `reg:<name>`, the
+      * same vocabulary a [[Predicate.Cmp]] names.
+      */
+    case class Prop(property: String) extends SortKey
+
+    /** Sort by whether a predicate HOLDS, true first under `asc`. Lets one
+      * vocabulary serve filtering and ordering, instead of a second notion of
+      * "key" that only ordering understands.
+      */
+    case class Holds(predicate: Predicate) extends SortKey
 
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so

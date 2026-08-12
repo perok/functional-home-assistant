@@ -318,12 +318,12 @@ flowchart TB
   DYN --> REPL["touched, per member whose CASE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
   REPL --> SAME{"membership<br/>moved?"}
   SAME -->|no| OUT
-  SAME -->|yes| SET{"did the member SET move,<br/>or only its order?"}
-  SET -->|only the order| OUT
-  SET -->|the set| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
+  SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
+  SET -->|nobody| OUT
+  SET -->|somebody| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
   CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
   CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
-  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival"]
+  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
   EST -->|no, fresh log after swap or fill| FILL
 
   FLIPW --> OUT["the CHANGELOG.<br/>Each session turns it into patches for itself,<br/>in Patches.resume"]
@@ -385,16 +385,22 @@ a member is placed:
 | | `LayoutNode.Dynamic` (`QuerySource`) | `LayoutNode.SetNode` (`CandidateSource`) |
 |---|---|---|
 | candidates | every entity in the house | a STATIC list, decided at build time |
-| what the runtime decides | membership | presence only — it never invents a member |
+| what the runtime decides | membership | presence and ORDER — it never invents a member |
 | a member's node | the matched case, with `entity_id` injected | the clause's COMPLETE node, `entity_id` already on it |
 | woken by | a change the group's query matched either side of | a change to a candidate, **or to an entity a guard names** |
 | placement | entity id | the authored candidate order |
 
 The set is the newer of the two and the one being built toward
-(`docs/plan-dynamics-one-entity-lifecycle.md`); its `orderBy` and `limit` are modelled but not yet
-read, and a clause whose node is a nested set is dropped rather than half-rendered. Both are
-phase 3 there. Nothing authors a set yet — the Pkl surface is phase 2 — so today it is reachable
-only by building the model directly (`SetNodeSuite`).
+(`docs/plan-dynamics-one-entity-lifecycle.md`), authored through `@fh-dashboard/query.pkl`. A
+clause whose node is a nested set is still dropped rather than half-rendered — that, and
+aggregates, are what remain of phase 3 there.
+
+**A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
+neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's
+member list instead of patching one place in it (`MemberSource.stable`). The cost is O(candidates)
+for a container the frame actually touched — bounded and static, where the query group it replaces
+rescanned the whole house. Everything downstream is unchanged: a rebuild still reports arrivals,
+departures and now MOVES, and a member that merely ticked still comes through the reverse index.
 
 A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
 `entity_id` slot, its cell — stored under the id its `MemberKey` derives. That literal slot is the

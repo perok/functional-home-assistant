@@ -180,6 +180,55 @@ facts {
     ids.apply(s) == List("light.taklys", "light.kjokken")
   }
 
+  ["a LIVE ordering key is emitted for the runtime to compare"] {
+    // The build cannot know a brightness, so this one has to ride the wire —
+    // and then `candidates` is NOT the render order, it is just the tiebreak.
+    local s = q.from(stue)
+      .orderBy(q.desc(q.prop("brightness")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    s.orderBy.toList().length == 1
+    s.orderBy[0].by.property == "attr:brightness"
+    s.orderBy[0].dir == "desc"
+  }
+
+  ["ordering by a PREDICATE sorts on whether it holds"] {
+    // "The ones that are on first, then the rest" — the same comparison
+    // vocabulary `where` uses, so there is no second notion of a sort key.
+    local s = q.from(stue)
+      .orderBy(q.desc(q.eq(q.stateProp, "on")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    s.orderBy[0].by.kind == "holds"
+    s.orderBy[0].by.predicate.property == "state"
+    s.orderBy[0].by.predicate.value == "on"
+  }
+
+  ["registry keys AFTER a live one are folded into the candidate order"] {
+    // Mixed, in the order that works: the live key rides, and the registry key
+    // is supplied as the tiebreak by pre-sorting — the runtime's sort is stable
+    // over candidate order, so it survives.
+    local s = q.from(allEnts)
+      .orderBy(List(q.desc(q.prop("brightness")), q.asc(q.prop("friendly_name"))))
+      .render((e) -> c.entityCard(e))
+      .build()
+    s.orderBy.toList().length == 1
+    s.orderBy[0].by.property == "attr:brightness"
+    ids.apply(s) == List(
+      "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
+  }
+
+  ["`limit` rides to the runtime, because only it knows who wins"] {
+    local s = q.from(stue)
+      .orderBy(q.desc(q.prop("brightness")))
+      .limit(1)
+      .render((e) -> c.entityCard(e))
+      .build()
+    s.limit == 1
+    // Every candidate still SHIPS — which one is cut is a live question.
+    ids.apply(s).length == 2
+  }
+
   ["the emitted node is a `set`, and every candidate has a member"] {
     local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
     s.kind == "set"

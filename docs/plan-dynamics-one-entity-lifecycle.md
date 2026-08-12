@@ -1006,11 +1006,10 @@ authoring namespace, imported as `@fh-dashboard/query.pkl`; the wire classes
 `Cmp` gained the optional `entity`. `query.test.pkl` covers the surface against typed entities;
 `PklBuildSuite` carries a query over a real dump through `SourceEval` into a decoded `SetNode`.
 
-**The fold runs in Pkl, not in `DashboardBuild`** — which contradicts what this plan said, so here
-is why. A render lambda (`(e) -> c.slider(e)`) can only be applied in Pkl, so Pkl must iterate the
-candidates whatever else happens. Once it is doing that, folding the guards costs nothing extra;
-emitting them unfolded for Scala to fold would mean *two* passes over the candidates and a second
-place that decides what presence means. The Scala side keeps the model and the renderer.
+**The fold runs in Pkl.** A render lambda (`(e) -> c.slider(e)`) can only be applied in Pkl, so Pkl
+iterates the candidates whatever else happens; folding the guards there costs nothing extra, where
+emitting them unfolded for Scala would mean two passes and a second place deciding what presence
+means. The Scala side keeps the model and the renderer.
 
 Deliberately NOT shipped in the surface, rather than shipped-and-erroring, so pkl-lsp says "unknown
 method" at the point of use: `limit`, aggregates (`count`/`any`/`none`), and nested sets. Ordering
@@ -1020,7 +1019,31 @@ gap, because emitting an `orderBy` the renderer ignores would be silent.
 *Stop here and you have the new thing alongside the old.*
 
 **Phase 3 — ordering, aggregates, limit, composite.** Each is additive over Phase 1's path and
-independently testable. Composite (b) needs aggregates; nothing else has an internal order.
+independently testable. Composite (b) needs aggregates; nothing else has an internal order. Ends by
+checking the shipped syntax against every scenario the spike pins, and then deleting the spike.
+
+*Ordering and `limit` are shipped.* Both are live-only concerns, so both landed together:
+`SortKey` is a sum of `Prop` (a value) and `Holds` (a predicate's truth), the fold emits only the
+positions it could not resolve, and a set carrying either is no longer patched incrementally —
+`syncMembers` rebuilds its member list, because one entity moving can reorder its neighbours or
+push a different member past the cut.
+
+Two things this turned up that the design had not:
+
+- **A pure reorder emitted nothing.** `recordDynamic` computed churn as arrivals plus departures,
+  and stopped at zero — correct while the only container was a query group, whose entity-id order
+  cannot move. A move is now a third kind of churn, patched as the same `Gone`/`Placed` pair an
+  arrival is, so it needs no new patch kind.
+- **Which members move has to be MINIMISED**, or the trap this plan already names ("a stream of
+  `Gone`/`Placed` pairs, which is exactly what P7 exists to prevent") arrives by construction.
+  `Patches.reordered` keeps a longest increasing subsequence of the old positions and moves only
+  the rest, so one light overtaking three others costs one move, not four.
+
+Mixed orderings are constrained: registry keys may only be the LEAST significant positions. A
+registry key that outranked a live one would have to reach the runtime as a `reg:` reference, and
+the runtime holds no registry table — so that combination throws at build time, naming the fix,
+rather than ordering by the wrong thing. Registry keys after every live one are free: pre-sorting
+the candidates supplies them, because the runtime's sort is stable over candidate order.
 
 **Phase 4 — `If` takes a candidate set.** Fixes `holds` by construction, retires `Quantifier`,
 collapses the two predicate languages into one. Must precede Phase 5.
@@ -1090,10 +1113,15 @@ So the machinery moves onto the real code progressively:
 - **`query.pkl` moves to `lib/query.pkl`** and becomes the shipped authoring namespace, imported
   as `@fh-dashboard/query.pkl`. It already knows nothing about cards, so nothing else has to move
   with it.
-- **`wire.pkl` dissolves.** Its classes become the Scala wire model in `model/Dashboard.scala`,
-  and its fold becomes the build-time pass in `DashboardBuild` (which is where the shape
-  compression belongs anyway — see the D1/D2 note). Pkl keeps only what an author touches: the
-  property/term constructors and the chain.
+- **`wire.pkl` dissolves.** Its node classes become two things: the Scala wire model in
+  `model/Dashboard.scala`, and the `SetNode`/`SetMember`/`SetClause` classes in `components.pkl`
+  (which owns the `LayoutNode` hierarchy — `DynamicGroup` sits beside them). Its predicate
+  hierarchy dissolves entirely into the EXISTING `components.Predicate`, so there is one predicate
+  language rather than two that agree. Its fold moves into `lib/query.pkl`, unchanged in shape.
+- **Delete the spike at the END OF PHASE 3**, not before, and only after checking the shipped
+  syntax against it — the scenarios it pins are the acceptance criteria for phases 2 and 3, and
+  they are worth more as a checklist than as an early cleanup. Until then it is a proposal with a
+  shelf life, not a second implementation to maintain: nothing imports it.
 - **`fixtures.pkl` shrinks to the test home only.** Every scenario that can run against the real
   generated `@fh-home` dump should, so the tests exercise the actual typed entities and the actual
   capability data. Fixtures survive only for cases the test home cannot produce — a deliberately

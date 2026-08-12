@@ -261,6 +261,48 @@ private[runtime] object Patches {
     * Named because [[recordDynamic]] and [[resume]] must agree on it: one
     * decides what to record, the other reaches the same patch from the log.
     */
+  /** Which of these survivors have to be MOVED to turn `before` into `after` —
+    * the fewest possible, in `after` order.
+    *
+    * Both lists hold the same members, so the answer is everything outside a
+    * longest increasing subsequence of their old positions: that subsequence is
+    * the largest set that is already in the right relative order, and each
+    * element outside it costs a remove/insert pair. Minimising it is not
+    * fussiness — a set ordered on a live value reorders whenever any two
+    * members cross, and moving every element on each crossing is the patch
+    * storm P7 exists to prevent.
+    *
+    * O(n²) over one container's members, deliberately: n is a room's worth of
+    * lights, and the quadratic version is the one a reader can check.
+    */
+  private[runtime] def reordered(
+      before: List[String],
+      after: List[String]
+  ): List[String] = {
+    val was = before.zipWithIndex.toMap
+    val idx = after.map(was.getOrElse(_, -1)).toArray
+    val n = idx.length
+    if (n < 2) Nil
+    else {
+      // len(i): longest increasing run ending at i. prev(i): its predecessor.
+      val len = Array.fill(n)(1)
+      val prev = Array.fill(n)(-1)
+      for {
+        i <- 1 until n
+        j <- 0 until i
+        if idx(j) < idx(i) && len(j) + 1 > len(i)
+      } {
+        len(i) = len(j) + 1
+        prev(i) = j
+      }
+      val keep = Iterator
+        .iterate((0 until n).maxBy(len))(prev)
+        .takeWhile(_ >= 0)
+        .toSet
+      after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
+    }
+  }
+
   private def perEntityChurn(churn: Int, shown: Int): Boolean =
     churn > 0 && churn < Server.MaxChurnFraction * shown
 
@@ -353,9 +395,15 @@ private[runtime] object Patches {
     if (was == now) base
     else {
       val nowSet = now.toSet
-      val added = now.filterNot(was.toSet)
+      val wasSet = was.toSet
+      val added = now.filterNot(wasSet)
       val removed = was.filterNot(nowSet)
-      val churn = added.size + removed.size
+      // Members that survived the frame but changed PLACE. Only a candidate set
+      // ordered by a live value can produce these — a query group is in
+      // entity-id order, which cannot move — and they are a real DOM change, so
+      // "the set did not change" is not the same question as "nothing moved".
+      val moved = Patches.reordered(was.filter(nowSet), now.filter(wasSet))
+      val churn = added.size + removed.size + moved.size
       // The query boundary moved but the RENDERED membership did not.
       if (churn == 0) base
       else if (!perEntityChurn(churn, was.size) || !base.hasChildOf(gid))
@@ -367,10 +415,19 @@ private[runtime] object Patches {
           l.touched(renderer.dynamicChildId(gid, e), at)
         )
       else {
-        val afterRemoves = removed.foldLeft(base)((l, e) =>
+        // A move is a departure and an arrival at the new place — the same
+        // idempotent pair an arrival always is, which is why a reorder needs no
+        // patch kind of its own.
+        val afterRemoves = (removed ++ moved).foldLeft(base)((l, e) =>
           l.removed(gid, renderer.dynamicChildId(gid, e), at)
         )
-        added.sorted.foldLeft(afterRemoves) { (l, e) =>
+        // Placed from the BACK of the new order forwards, so each one's anchor
+        // — its successor — is already in the DOM: either it never moved, or
+        // this loop put it there. Forwards, two adjacent arrivals would have
+        // the first anchor on an element that does not exist yet, and an
+        // insert-before a missing selector is silently dropped.
+        val place = (added ++ moved).sortBy(now.indexOf).reverse
+        place.foldLeft(afterRemoves) { (l, e) =>
           val cid = renderer.dynamicChildId(gid, e)
           // Touched as well as placed: the mutation is what a resume replays,
           // but the fragment entry is what keeps the group ESTABLISHED for the

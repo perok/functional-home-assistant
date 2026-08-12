@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
+import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
 /** The candidate-set node (`docs/plan-dynamics-one-entity-lifecycle.md`), one
@@ -40,7 +41,9 @@ class SetNodeSuite extends ServerHarness {
 
   private def setOf(
       candidates: List[String],
-      guard: String => Option[Predicate]
+      guard: String => Option[Predicate],
+      orderBy: List[LayoutNode.SortTerm] = Nil,
+      limit: Option[Int] = None
   ): Dashboard =
     Dashboard(
       cards = tile,
@@ -50,7 +53,9 @@ class SetNodeSuite extends ServerHarness {
           id -> LayoutNode.SetMember(
             List(LayoutNode.SetClause(guard(id), tileNode(id)))
           )
-        }.toMap
+        }.toMap,
+        orderBy = orderBy,
+        limit = limit
       )
     )
 
@@ -145,6 +150,149 @@ class SetNodeSuite extends ServerHarness {
           assert(html.contains("""id="c_light_ghost""""), clue = html)
         }
       }
+  }
+
+  test("a reorder moves the FEWEST members that can produce it") {
+    // Sets are the only thing that can reorder, so the minimisation lives here.
+    // It matters because a set ordered on a live value reorders whenever two
+    // members cross: moving everything on each crossing is the patch storm P7
+    // exists to prevent.
+    def moves(before: String, after: String) =
+      Patches.reordered(before.split(" ").toList, after.split(" ").toList)
+
+    assertEquals(moves("a b c", "a b c"), Nil)
+    // One element to the front costs one move, not three.
+    assertEquals(moves("a b c", "c a b"), List("c"))
+    assertEquals(moves("a b c d", "a d b c"), List("d"))
+    // A full reversal genuinely costs n-1 — only one element can stay put, and
+    // WHICH one is arbitrary among equally minimal answers.
+    assertEquals(moves("a b c", "c b a").size, 2)
+  }
+
+  private def bri(id: String, v: Int) =
+    st(id, "on", "brightness" -> Json.fromInt(v))
+
+  private def sorted(
+      candidates: List[String],
+      by: LayoutNode.SortTerm,
+      limit: Option[Int] = None
+  ) = setOf(candidates, _ => Some(whileOn), List(by), limit)
+
+  test("a live ordering key sorts the PRESENT members, numerically") {
+    // 2 must sort below 10 — the trap a string compare falls into, and the one
+    // an author ordering by brightness hits immediately.
+    val dash = sorted(
+      List("light.a", "light.b", "light.c"),
+      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+    )
+    val states =
+      Map("light.a" -> bri("light.a", 2), "light.b" -> bri("light.b", 10))
+        + ("light.c" -> bri("light.c", 200))
+    SharedHarness.create(dash, states).flatMap { h =>
+      h.opening(None).map { html =>
+        assertEquals(order(html), List("c_light_c", "c_light_b", "c_light_a"))
+      }
+    }
+  }
+
+  test("ordering by whether a predicate HOLDS puts the true ones first") {
+    val dash = sorted(
+      List("light.a", "light.b", "light.c"),
+      LayoutNode.SortTerm(
+        LayoutNode.SortKey.Holds(
+          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("night"))
+        ),
+        "asc"
+      )
+    )
+    def mode(id: String, m: String) =
+      st(id, "on", "mode" -> Json.fromString(m))
+    val states = Map(
+      "light.a" -> mode("light.a", "day"),
+      "light.b" -> mode("light.b", "night"),
+      "light.c" -> mode("light.c", "day")
+    )
+    SharedHarness.create(dash, states).flatMap { h =>
+      h.opening(None).map { html =>
+        // b first; a and c keep their authored order behind it.
+        assertEquals(order(html), List("c_light_b", "c_light_a", "c_light_c"))
+      }
+    }
+  }
+
+  test("ties keep the AUTHORED order, so a tick does not reshuffle them") {
+    // The mandatory stable tiebreak: without it a set ordered on a live value
+    // churns Gone/Placed pairs every time anything changes.
+    val dash = sorted(
+      List("light.c", "light.a", "light.b"),
+      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+    )
+    val states =
+      List("light.a", "light.b", "light.c").map(id => id -> bri(id, 50)).toMap
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        html <- h.opening(None)
+        patches <- h.step(bri("light.a", 50))
+      } yield {
+        assertEquals(order(html), List("c_light_c", "c_light_a", "c_light_b"))
+        assertEquals(patches, Nil, clue = patches)
+      }
+    }
+  }
+
+  test("a reorder is Gone/Placed, and only for the member that moved") {
+    val dash = sorted(
+      List("light.a", "light.b", "light.c", "light.d"),
+      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
+    )
+    val states = Map(
+      "light.a" -> bri("light.a", 40),
+      "light.b" -> bri("light.b", 30),
+      "light.c" -> bri("light.c", 20),
+      "light.d" -> bri("light.d", 10)
+    )
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        _ <- h.opening(None)
+        _ <- h.step(bri("light.d", 5))
+        // d overtakes c and b, landing behind a.
+        patches <- h.step(bri("light.d", 35))
+      } yield {
+        assertEquals(patches.size, 2, clue = patches)
+        assert(patches.head.contains("mode remove"), clue = patches.head)
+        val p = patches.last
+        assert(p.contains("mode before"), clue = p)
+        assert(p.contains("selector #c_light_b"), clue = p)
+      }
+    }
+  }
+
+  test("`limit` cuts the losers out of the DOM, not into a hidden state") {
+    val dash = sorted(
+      List("light.a", "light.b", "light.c"),
+      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc"),
+      limit = Some(2)
+    )
+    val states = Map(
+      "light.a" -> bri("light.a", 30),
+      "light.b" -> bri("light.b", 20),
+      "light.c" -> bri("light.c", 10)
+    )
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        html <- h.opening(None)
+        // c overtakes b, so the CUT moves to a member that did not change.
+        patches <- h.step(bri("light.c", 25))
+      } yield {
+        assertEquals(order(html), List("c_light_a", "c_light_b"))
+        assert(!html.contains("c_light_c"), clue = html)
+        assert(patches.nonEmpty, clue = patches)
+        assert(
+          patches.exists(_.contains("c_light_c")),
+          clue = patches
+        )
+      }
+    }
   }
 
   test("a guard naming ANOTHER entity is woken by that entity") {

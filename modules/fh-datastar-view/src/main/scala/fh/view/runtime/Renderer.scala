@@ -309,8 +309,23 @@ class Renderer(
       */
     def affected(change: StateChange): Iterable[String]
 
-    /** Where a member sorts among its siblings. */
+    /** Where a member sorts among its siblings, when [[stable]]. */
     def ordinal(entityId: String): (Int, String)
+
+    /** Whether a changed entity can only move its OWN member. False when the
+      * container orders by a live value or carries a limit: then one entity
+      * moving can reorder its neighbours or push a different member out, so the
+      * frame has to rebuild the list instead of patching one place in it.
+      */
+    def stable: Boolean
+
+    /** Turn the present members into the list the DOM should hold — ordering
+      * and truncation, which only apply once presence is known.
+      */
+    def arrange(
+        members: Vector[Member],
+        states: Map[String, EntityState]
+    ): Vector[Member]
   }
 
   private case class QuerySource(d: LayoutNode.Dynamic) extends MemberSource {
@@ -360,6 +375,14 @@ class Renderer(
     }
 
     def ordinal(entityId: String): (Int, String) = (0, entityId)
+
+    // A query group has no ordering of its own: its members are already in
+    // entity-id order, which is the order a rescan produces.
+    def stable: Boolean = true
+    def arrange(
+        members: Vector[Member],
+        states: Map[String, EntityState]
+    ): Vector[Member] = members
   }
 
   private case class CandidateSource(s: LayoutNode.SetNode)
@@ -420,11 +443,40 @@ class Renderer(
     def affected(change: StateChange): Iterable[String] =
       movedBy.getOrElse(change.entityId, Nil)
 
-    /** Authored candidate order, which is already the ordering when it folded
-      * to registry facts at build time. `s.orderBy` and `s.limit` are phase 3.
+    /** Authored candidate order — which IS the ordering when every key folded
+      * to a registry fact at build time.
       */
     def ordinal(entityId: String): (Int, String) =
       (position.getOrElse(entityId, Int.MaxValue), entityId)
+
+    def stable: Boolean = s.orderBy.isEmpty && s.limit.isEmpty
+
+    /** Order the present members by the live keys, then cut to `limit`.
+      *
+      * Both only make sense over the PRESENT members: a hidden member's sort
+      * key moving must emit nothing, and it acquires its place in the `Placed`
+      * that shows it. A cut member is absent from the DOM rather than hidden in
+      * it (P7), so it looks exactly like one whose clauses did not match — the
+      * difference is only in why.
+      */
+    def arrange(
+        members: Vector[Member],
+        states: Map[String, EntityState]
+    ): Vector[Member] = {
+      val ordered =
+        if (s.orderBy.isEmpty) members
+        else
+          // `sortWith` is stable, and the input is in candidate order, so
+          // equal keys keep the order the author wrote. That is the mandatory
+          // tiebreak: without it a set ordered on a live value would reshuffle
+          // its ties on every tick.
+          members.sortWith((a, b) =>
+            Renderer.precedes(s.orderBy, entityOf(a), entityOf(b), states)
+          )
+      s.limit.fold(ordered)(ordered.take)
+    }
+
+    private def entityOf(m: Member): String = sortKey(m.key)
   }
 
   private def member(
@@ -497,7 +549,10 @@ class Renderer(
       states: Map[String, EntityState]
   ): GroupMembers =
     GroupMembers.of(
-      src.candidates(states).flatMap(src.memberOf(gid, _, states))
+      src.arrange(
+        src.candidates(states).flatMap(src.memberOf(gid, _, states)),
+        states
+      )
     )
 
   /** Apply one frame to EVERY dynamic group's membership, reporting what it did
@@ -529,13 +584,33 @@ class Renderer(
   ): Map[NodeId, MemberDelta] =
     memberSources.map { case (gid, src) =>
       val was = groupOf(gid, before)
-      val (now, replaced) = changes.iterator
-        .flatMap(src.affected)
-        .distinct
-        .foldLeft((was, Set.empty[NodeId])) {
-          case ((group, swapped), entityId) =>
-            applyOne(gid, src, group, swapped, entityId, states)
-        }
+      val touched = changes.iterator.flatMap(src.affected).distinct.toList
+      val (now, replaced) =
+        // An UNSTABLE container cannot be patched one member at a time: with a
+        // live ordering one entity moving reorders its neighbours, and with a
+        // limit it can push a different member out entirely. So rebuild the
+        // list — O(candidates) for a container this frame actually touched,
+        // which is bounded and static, where the query group it replaced
+        // rescanned the whole house.
+        if (touched.isEmpty) (was, Set.empty[NodeId])
+        else if (!src.stable) {
+          val rebuilt = materialise(gid, src, states)
+          // A rebuild has to report the same thing `applyOne` does: a member
+          // still present whose NODE moved (its clause switched). Nothing else
+          // names it — a clause binding no live entity has no index edge — and
+          // the id is sound whatever the card does.
+          val swapped = rebuilt.members.iterator
+            .filter(m =>
+              was.members.exists(w => w.key == m.key && w.node != m.node)
+            )
+            .map(_.id)
+            .toSet
+          (rebuilt, swapped)
+        } else
+          touched.foldLeft((was, Set.empty[NodeId])) {
+            case ((group, swapped), entityId) =>
+              applyOne(gid, src, group, swapped, entityId, states)
+          }
       val _ = graph.updateAndGet(_.install(gid, was, now))
       gid -> MemberDelta(was.entities, now.entities, replaced)
     }
@@ -2126,6 +2201,69 @@ object Renderer {
   /** [[matches]] with the snapshot in hand, so a guard may name a DIFFERENT
     * entity than its subject. `Cmp.entity` absent still means "the subject".
     */
+  /** Does `a` sort before `b` under this lexicographic ordering? The first
+    * position that separates them decides; if none does they are equal, and
+    * `false` keeps the caller's stable sort from moving them.
+    */
+  def precedes(
+      terms: List[LayoutNode.SortTerm],
+      a: String,
+      b: String,
+      states: Map[String, EntityState]
+  ): Boolean =
+    terms.iterator
+      .map(t => compareOn(t, a, b, states))
+      .find(_ != 0)
+      .exists(_ < 0)
+
+  private def compareOn(
+      term: LayoutNode.SortTerm,
+      a: String,
+      b: String,
+      states: Map[String, EntityState]
+  ): Int = {
+    val raw = term.by match {
+      case LayoutNode.SortKey.Holds(p) =>
+        // True first under `asc` — "the ones that are on, then the rest".
+        def holds(id: String) =
+          states.get(id).exists(st => matchesIn(p, st, states))
+        java.lang.Boolean.compare(holds(b), holds(a))
+      case LayoutNode.SortKey.Prop(property) =>
+        def read(id: String) =
+          states.get(id).fold("")(propertyOf(property, _))
+        val (l, r) = (read(a), read(b))
+        // Numeric when BOTH sides are numbers, so brightness sorts 2 < 10;
+        // otherwise lexicographic, which is what a name or a state wants.
+        (l.toDoubleOption, r.toDoubleOption) match {
+          case (Some(x), Some(y)) => java.lang.Double.compare(x, y)
+          case _                  => l.compareTo(r)
+        }
+    }
+    if (term.descending) -raw else raw
+  }
+
+  /** One entity property, as the string a comparison or an ordering reads.
+    * `reg:` is deliberately absent: a registry fact is build-time data, so a
+    * comparison on one folds away before it reaches here and an ordering on one
+    * leaves the candidates pre-sorted. Seeing a `reg:` here means the build
+    * emitted something it should have resolved.
+    */
+  def propertyOf(property: String, st: EntityState): String =
+    property match {
+      case "domain" => st.domain
+      case "state"  => st.state
+      // The entity's identity itself — what lets a state-activation condition
+      // pin one entity ("entity X is in state Y") and a dynamic group
+      // enumerate an explicit entity set.
+      case "entity_id"                        => st.entityId
+      case other if other.startsWith("attr:") =>
+        st.attributes
+          .get(other.stripPrefix("attr:"))
+          .map(StateStore.jsonToString)
+          .getOrElse("")
+      case _ => ""
+    }
+
   def matchesIn(
       p: Predicate,
       subject: EntityState,
@@ -2141,20 +2279,7 @@ object Renderer {
         false
       case Predicate.Cmp(property, op, value, entity) =>
         val st = entity.flatMap(states.get).getOrElse(subject)
-        val lhs = property match {
-          case "domain" => st.domain
-          case "state"  => st.state
-          // The entity's identity itself — what lets a state-activation
-          // condition pin one entity ("entity X is in state Y") and a dynamic
-          // group enumerate an explicit entity set.
-          case "entity_id"                        => st.entityId
-          case other if other.startsWith("attr:") =>
-            st.attributes
-              .get(other.stripPrefix("attr:"))
-              .map(StateStore.jsonToString)
-              .getOrElse("")
-          case _ => ""
-        }
+        val lhs = propertyOf(property, st)
         val rhs = StateStore.jsonToString(value)
         // Ordering ops compare numerically, and are false unless both sides
         // parse as numbers; equality ops compare the raw strings.

@@ -25,10 +25,9 @@
 ///       .where(q.eq(q.stateProp, "on"))
 ///       .render((e) -> c.slider(e))
 ///
-/// NOT YET HERE (phase 3, with the runtime support they need): `limit`,
-/// ordering by a live value, aggregates (`count`/`any`/`none`), and a set
-/// nested inside a member. They are absent rather than present-and-erroring, so
-/// pkl-lsp says "unknown method" at the point of use.
+/// NOT YET HERE: aggregates (`count`/`any`/`none`) and a set nested inside a
+/// member. They are absent rather than present-and-erroring, so pkl-lsp says
+/// "unknown method" at the point of use.
 module query
 
 import "components.pkl"
@@ -310,47 +309,109 @@ const local function cmpOn(
 // is the same reference for every member. For a COMPUTED ordering, sort the
 // input list with ordinary Pkl before `from`.
 
-/// One authored ordering position, most significant first.
+/// One authored ordering position, most significant first. `by` is a property
+/// (sort by its value) or a comparison (sort by whether it holds) — the same
+/// vocabulary `where` uses, so a filter and a sort key are written alike.
 class OrderSpec {
-  by: PropName
+  by: PropName|Pending
   dir: "asc"|"desc" = "asc"
 }
 
-function asc(k: PropName): OrderSpec = new { by = k; dir = "asc" }
-function desc(k: PropName): OrderSpec = new { by = k; dir = "desc" }
+function asc(k: PropName|Pending): OrderSpec = new { by = k; dir = "asc" }
+function desc(k: PropName|Pending): OrderSpec = new { by = k; dir = "desc" }
 
 // `const` because [[EntitySet.orderBy]] calls it from a class body.
-const local function spec(k: OrderSpec|PropName): OrderSpec =
-  if (k is OrderSpec) k else new OrderSpec { by = k as PropName }
+const local function spec(k: OrderSpec|PropName|Pending): OrderSpec =
+  if (k is OrderSpec) k else new OrderSpec { by = k as (PropName|Pending) }
 
-/// Sort the candidates NOW, from the least significant key outwards so the
-/// result is lexicographic. Every position must be build-readable: ordering by a
-/// LIVE value needs the runtime to compare present members, which is phase 3, and
-/// erroring here beats emitting an `orderBy` the renderer would ignore.
+const local function specKey(s: OrderSpec): PropName =
+  if (s.by is Pending) (s.by as Pending).key else s.by as PropName
+
+/// The ordering, split: what the build sorted away, and what the runtime must
+/// still compare.
+class Ordering {
+  entities: List<hass.Entity>
+  terms: List<components.SortTerm>
+}
+
+/// Fold the ordering.
+///
+/// A build-readable position is sorted NOW and emits nothing — alphabetical by
+/// name costs the runtime nothing at all. A live one has to be emitted, because
+/// only the runtime knows the value.
+///
+/// The two can be MIXED, but only with the registry keys LAST. A registry key
+/// that outranks a live one would have to reach the runtime as a `reg:`
+/// reference, and the runtime has no registry table to resolve it against —
+/// so that combination throws instead of silently ordering by the wrong thing.
+/// Registry keys after every live one are fine: they are the tiebreak, and
+/// pre-sorting the candidates by them supplies it, because the runtime's sort
+/// is stable over candidate order.
 const local function foldOrder(
   items: List<hass.Entity>, specs: List<OrderSpec>
-): List<hass.Entity> =
-  if (specs.isEmpty || items.isEmpty) items
+): Ordering =
+  if (specs.isEmpty || items.isEmpty) new Ordering { entities = items; terms = List() }
   else
-    let (live = specs.filter((s) -> !isBuildReadable(items, s.by)))
-      if (!live.isEmpty)
-        throw("""
-          Cannot order by '\(live.first.by.name)': it is a live value, and
-          ordering by live values is not implemented yet (it needs the runtime
-          to re-compare present members as they change). Order by a registry
-          fact — `friendly_name`, `area_id` — or sort the input list with
-          ordinary Pkl before `from`.
-          """)
+    let (liveAt = specs.findIndexOrNull((s) -> !isBuildReadable(items, specKey(s))))
+      if (liveAt == null)
+        new Ordering { entities = sortNow(items, specs); terms = List() }
       else
-        // Least significant key outwards, each sort STABLE, so the result is
-        // lexicographic. `desc` compares the other way rather than reversing
-        // the sorted list: reversing would also reverse the ties, undoing the
-        // order the less significant keys just established.
-        specs.reverse().fold(items, (acc, s) ->
-          acc.sortWith((x, y) ->
-            let (a = x.getProperty(s.by.name) as (String|Int|Float|Boolean))
-              let (b = y.getProperty(s.by.name) as (String|Int|Float|Boolean))
-                if (s.dir == "desc") a > b else a < b))
+        let (leading = specs.take(liveAt + 1))
+        let (trailing = specs.drop(liveAt + 1))
+          if (leading.any((s) -> isBuildReadable(items, specKey(s))))
+            throw("""
+              Cannot order by '\(leading.findOrNull((s) -> isBuildReadable(items, specKey(s))).ifNonNull((s) -> specKey(s).name))'
+              before the live key '\(specKey(specs[liveAt]).name)'. A registry
+              fact that outranks a live value would have to be resolved by the
+              runtime, which holds no registry. Put the registry keys LAST (they
+              are then the tiebreak, and the build supplies it), or sort the
+              input list with ordinary Pkl before `from`.
+              """)
+          else
+            new Ordering {
+              entities = sortNow(items, trailing)
+              terms = specs.take(liveAt + 1).map((s) -> liveTerm(items, s))
+            }
+
+/// Sort the candidates from the least significant key outwards, each sort
+/// STABLE, so the result is lexicographic. `desc` compares the other way rather
+/// than reversing the sorted list: reversing would also reverse the ties,
+/// undoing the order the less significant keys just established.
+const local function sortNow(
+  items: List<hass.Entity>, specs: List<OrderSpec>
+): List<hass.Entity> =
+  specs.reverse().fold(items, (acc, s) ->
+    acc.sortWith((x, y) ->
+      let (a = orderValue(items, s, x))
+        let (b = orderValue(items, s, y))
+          if (s.dir == "desc") a > b else a < b))
+
+// A comparison as a sort key reads as its truth; `desc` puts true first, which
+// matches the runtime's `holds` ordering.
+const local function orderValue(
+  items: List<hass.Entity>, s: OrderSpec, e: hass.Entity
+): String|Int|Float|Boolean =
+  if (s.by is Pending)
+    resolvePending(items, e, s.by as Pending) as Boolean
+  else e.getProperty((s.by as PropName).name) as (String|Int|Float|Boolean)
+
+const local function liveTerm(
+  items: List<hass.Entity>, s: OrderSpec
+): components.SortTerm =
+  new {
+    by =
+      if (s.by is Pending)
+        let (pd = s.by as Pending)
+          new components.SortHolds {
+            predicate = new components.Cmp {
+              property = resolveProp(items, pd.key)
+              op = pd.op
+              value = pd.value
+            }
+          }
+      else new components.SortProp { property = resolveProp(items, s.by as PropName) }
+    dir = s.dir
+  }
 
 // ---- the set ----------------------------------------------------------------
 
@@ -374,6 +435,7 @@ class EntitySet {
   hidden filters: List<Filter> = List()
   hidden branches: List<Branch> = List()
   hidden specs: List<OrderSpec> = List()
+  hidden cap: Int? = null
 
   /// Keep candidates matching the condition. Accepts a LAMBDA (when the term
   /// reads the candidate directly) or the DATA form built from the same
@@ -386,10 +448,17 @@ class EntitySet {
     let (l = this) (l) { filters = l.filters.add(f) }
 
   /// Lexicographic, most significant first. One position or a list of them.
-  function orderBy(ks: List<OrderSpec|PropName>|OrderSpec|PropName): EntitySet =
+  function orderBy(
+    ks: List<OrderSpec|PropName|Pending>|OrderSpec|PropName|Pending
+  ): EntitySet =
     let (l = this)
-      let (asList = if (ks is List) ks as List<OrderSpec|PropName> else List(ks))
+      let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending> else List(ks))
         (l) { specs = l.specs + asList.map((k) -> spec(k)) }
+
+  /// Show at most `n` PRESENT members, after ordering — "the three brightest".
+  /// Every candidate still ships; which of them is cut depends on live values,
+  /// so only the runtime can decide it.
+  function limit(n: Int(this > 0)): EntitySet = let (l = this) (l) { cap = n }
 
   /// One guarded rendering. The guard takes exactly what [[where]] takes and
   /// folds the same way: a `Boolean` decides at build time, anything else
@@ -424,11 +493,13 @@ class EntitySet {
   /// the set is a layout node only once you ask for it.
   function build(): components.SetNode =
     let (l = this)
-      buildSet(
-        foldOrder(l.items, l.specs),
-        l.items,
-        l.branches,
-        (e) -> foldAll(l.filters.map((f) -> normalise(l.items, e, f))))
+      let (ordering = foldOrder(l.items, l.specs))
+        buildSet(
+          ordering,
+          l.items,
+          l.branches,
+          l.cap,
+          (e) -> foldAll(l.filters.map((f) -> normalise(l.items, e, f))))
 }
 
 /// Start a query over any list of typed dump entities.
@@ -486,18 +557,19 @@ const local function conjoin(
 
 /// Build the wire node from a static candidate list and authored branches.
 ///
-/// `ordered` is the candidates in render order; `items` is the UNSORTED original,
-/// which property resolution reads — sorting must not change whether a name is a
-/// registry fact.
+/// `ordering` carries the candidates in render order plus whatever the runtime
+/// must still compare; `items` is the UNSORTED original, which property
+/// resolution reads — sorting must not change whether a name is a registry fact.
 const local function buildSet(
-  ordered: List<hass.Entity>,
+  ordering: Ordering,
   items: List<hass.Entity>,
   branches: List<Branch>,
+  cap: Int?,
   presence: (hass.Entity) -> Boolean|components.Predicate
 ): components.SetNode =
   // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
   //    never reaches the wire.
-  let (kept = ordered
+  let (kept = ordering.entities
         .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
   // 2. dispatch: which branches can still win for each surviving candidate.
@@ -514,6 +586,8 @@ const local function buildSet(
                conjoin(presenceOf[p.first.entity_id], b.second))))))
     new components.SetNode {
       candidates = new Listing { for (p in dispatched) { p.first.entity_id } }
+      orderBy = new Listing { for (t in ordering.terms) { t } }
+      limit = cap
       members = new Mapping {
         for (p in rendered) {
           [p.first.entity_id] = new components.SetMember {
