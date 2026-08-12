@@ -1326,14 +1326,13 @@ two-kinds table collapsed to one.
 deleting the new path. **Phase 5 was the irreversible one** and it has happened: the old dynamic
 groups are gone, and `kind: "dynamic"` no longer decodes.
 
-**After the plan: fold `toggleTap`'s `$domain` lookup to a literal.** The last
-build-time-fact-at-runtime transform, and the one the icon and slider folds did not reach. It picks
-the SERVICE from the domain (`scene/turn_on` vs the `homeassistant/toggle` default) and cannot
-simply fold, because `toggleTap` is a `const` with no entity — it is passed as `.tap(c.toggleTap)`,
-so at construction it does not know what it will be attached to. The card does. So this is a small
-change to the tap vocabulary — a `Tap` carrying `(hass.Entity) -> String` that the card applies when
-it builds its slots — not a table edit. Worth doing after phase 6, with the same test shape as the
-icons: assert no `$lookup` survives in a member.
+**After the plan: `toggleTap` — tracked as issue #106, not a fold.** It looked like the last
+`$lookup($domain)` to bake into a literal, alongside the icon and slider ones. Investigating it
+found the transform is the smallest part: `homeassistant/toggle` is the FALLBACK, so the default tap
+is a no-op or an HA error for 846 of 1069 entities on the reference instance, and those cards still
+render `tappable` with a pointer cursor. Folding it as-is would bake a wrong answer faster. The
+design — per-entity defaults from a vendored table, more-info for what has no action, and the
+lock-style state-dependent case — is in #106.
 
 **After the plan: seed the changelog with the membership a swap already knows.** Found while
 writing `SetNodeSuite`; deferred deliberately, on the grounds that a restart or a dashboard edit
