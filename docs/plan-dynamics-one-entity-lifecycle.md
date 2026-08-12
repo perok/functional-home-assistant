@@ -1056,6 +1056,29 @@ time IS a number, so `q.from(emptyRoom).any()` is `false` before anything runs a
 guards never reaches the wire. `min`/`max` are not here — they were the spike's addition, not a
 requirement, and can arrive with a use case.
 
+*Composite (a) is shipped, (b) is not, and they turned out to be different sizes.* A member
+rendering a SUBTREE is small: the children ride inside the member's bytes with no ids of their own,
+so the member stays the single patch target, and the only real work was the reverse index —
+`Component.liveEntities` stops at the node, which is right for an addressable node and wrong for a
+member, whose children are not addressable. Without `Member.entitiesOf` walking them, a tile whose
+child binds a second entity silently stops updating.
+
+**(b), a nested set, needs the `self`/`mount` split first.** The tile's own rendering would contain
+the inner members' bytes, and both would be logged — breaking "no node logs a fragment containing
+another", the invariant `DynamicGroupSuite` already pins. So a tile holding a set is shaped like a
+bake host: its card is the `self` (one patch target, for the title), the nested set is the sibling
+`mount`. Two more things fall out, both cheap once that is decided:
+
+- **Ids nest positionally through the set, by key through the member**: `c_1` → `c_1_area_stue` →
+  `c_1_area_stue_2` (the child index — a hole cannot move) → `c_1_area_stue_2_light_taklys`.
+  Everything is static, so the whole tree of sets is enumerable at renderer construction.
+- **`memberAt` needs a LONGEST-prefix match.** It finds a member's container with
+  `keys.find(gid => id.startsWith(gid + "_"))`, and with nesting `c_1` is also a prefix of an inner
+  member's id, so the first match is the wrong one.
+
+Inner members are ordinary graph nodes once registered, so a bulb inside a tile patches its own
+element — which is the whole point of nesting rather than re-rendering the tile.
+
 Mixed orderings are constrained: registry keys may only be the LEAST significant positions. A
 registry key that outranked a live one would have to reach the runtime as a `reg:` reference, and
 the runtime holds no registry table — so that combination throws at build time, naming the fix,

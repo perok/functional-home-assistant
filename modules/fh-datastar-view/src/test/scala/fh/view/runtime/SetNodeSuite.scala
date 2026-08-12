@@ -320,6 +320,59 @@ class SetNodeSuite extends ServerHarness {
     }
   }
 
+  test("a member renders a SUBTREE, woken by the entities its children bind") {
+    // Composite (a): the candidate is still an entity, the rendering is not a
+    // leaf. The children have no ids — the member is the one patch target for
+    // everything it holds — so a child's entity has to reach the reverse index
+    // through the MEMBER, or the tile silently stops updating.
+    val cards = tile ++ Map(
+      "col" -> CardDef(
+        """<div>{{#children}}{{{html}}}{{/children}}</div>"""
+      )
+    )
+    val subtree = LayoutNode.Component(
+      "col",
+      children = List(
+        tileNode("light.a"),
+        // A child binding a DIFFERENT entity than the candidate.
+        LayoutNode.Component(
+          "tile",
+          Map(
+            "entity_id" -> SlotSource(literal = Some("sensor.temp")),
+            "state" -> SlotSource()
+          )
+        )
+      )
+    )
+    val dash = Dashboard(
+      cards = cards,
+      card = LayoutNode.SetNode(
+        candidates = List("light.a"),
+        members = Map(
+          "light.a" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(None, subtree))
+          )
+        )
+      )
+    )
+    val states =
+      Map("light.a" -> on("light.a"), "sensor.temp" -> st("sensor.temp", "21"))
+    SharedHarness.create(dash, states).flatMap { h =>
+      for {
+        html <- h.opening(None)
+        patches <- h.step(st("sensor.temp", "22"))
+      } yield {
+        // Both children are inside the member's bytes.
+        assert(html.contains("<b>on</b>"), clue = html)
+        assert(html.contains("<b>21</b>"), clue = html)
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("""id="c_light_a""""), clue = p)
+        assert(p.contains("<b>22</b>"), clue = p)
+      }
+    }
+  }
+
   test("a COUNT over other entities decides presence, and wakes the member") {
     // "Show this while more than one light in the room is on." The counted
     // lights are not candidates of this set — only the count names them — so

@@ -57,6 +57,20 @@ case class RenderInputs(
   * rendered by [[Renderer.renderNodeById]], keyed by [[Renderer.renderInputs]],
   * patched at [[Renderer.elementId]].
   */
+private[runtime] object Member {
+
+  /** Every entity a member's bytes read — its own slots AND its children's,
+    * because a member renders its whole subtree under one id. `liveEntities` on
+    * the node alone stops at the node, which is right for an addressable node
+    * (its children are addressable too) and wrong here (they are not).
+    */
+  def entitiesOf(node: LayoutNode): List[String] = node match {
+    case c: LayoutNode.Component =>
+      (c.liveEntities ++ c.children.flatMap(entitiesOf)).distinct
+    case _ => Nil
+  }
+}
+
 private[runtime] case class Member(
     gid: NodeId,
     // Which layout tree the member is in — `""` for the main page, else the
@@ -127,9 +141,11 @@ private final case class MemberGraph(
         byGroup.updated(gid, now),
         byId -- leaving.map(_.id) ++ now.members.map(m => m.id -> m),
         now.members.foldLeft(leaving.foldLeft(byEntity)(drop)) { (idx, m) =>
-          m.node.liveEntities.foldLeft(idx)((acc, e) =>
-            acc.updated(e, acc.getOrElse(e, Vector.empty) :+ m)
-          )
+          Member
+            .entitiesOf(m.node)
+            .foldLeft(idx)((acc, e) =>
+              acc.updated(e, acc.getOrElse(e, Vector.empty) :+ m)
+            )
         }
       )
     }
@@ -138,7 +154,7 @@ private final case class MemberGraph(
       idx: Map[String, Vector[Member]],
       m: Member
   ): Map[String, Vector[Member]] =
-    m.node.liveEntities.foldLeft(idx) { (acc, e) =>
+    Member.entitiesOf(m.node).foldLeft(idx) { (acc, e) =>
       acc.get(e).map(_.filterNot(_.id == m.id)) match {
         case Some(rest) if rest.nonEmpty => acc.updated(e, rest)
         case _                           => acc - e
@@ -1948,11 +1964,47 @@ class Renderer(
       m: Member,
       states: Map[String, EntityState]
   ): String = {
-    val html =
-      renderWhole(m.node.card, structuralVars(m.id), m.node.slots, Nil, states)
+    val html = renderWhole(
+      m.node.card,
+      structuralVars(m.id),
+      m.node.slots,
+      // A member may render a SUBTREE — a card with children, not only a leaf.
+      // The children come out INSIDE the member's bytes and have no ids of
+      // their own, so the member stays the single patch target for everything
+      // it holds; a child's entity changing re-renders the member. That is why
+      // [[Renderer.memberEntities]] has to walk them.
+      m.node.children.map(memberChild(m, _, states)),
+      states
+    )
     s"""<div class="fh-cell${Renderer.cellClasses(
         m.node.cell
       )}" id="${m.id}">$html</div>"""
+  }
+
+  /** One node inside a member, rendered whole and unaddressed.
+    *
+    * A nested SET is not renderable here: it would put its own members' bytes
+    * inside the member's, and then two log entries would claim the same region
+    * — the "no node logs a fragment containing another" invariant. Giving a
+    * tile a nested set needs the `self`/`mount` split a bake host uses, so it
+    * is its own piece of work; `CandidateSource.memberOf` drops such a clause
+    * rather than letting it arrive here.
+    */
+  private def memberChild(
+      m: Member,
+      node: LayoutNode,
+      states: Map[String, EntityState]
+  ): String = node match {
+    case c: LayoutNode.Component =>
+      val html = renderWhole(
+        c.card,
+        structuralVars(m.id),
+        c.slots,
+        c.children.map(memberChild(m, _, states)),
+        states
+      )
+      s"""<div class="fh-cell${Renderer.cellClasses(c.cell)}">$html</div>"""
+    case _ => ""
   }
 
   private def renderTemplate(
