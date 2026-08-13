@@ -1279,7 +1279,10 @@ class Slider extends Node {
   function max(m: Int): Slider = let (self = this) (self) { max = m }
   function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|Expr): Slider = let (self = this) (self) { readout = r }
-  function icon(i: String): Slider = let (self = this) (self) { icon = i }
+  // Nullable so `.icon(null)` is how a chain says "no badge" — the property
+  // already means that, and a second `noIcon()` builder would be a parallel way
+  // to say the same thing.
+  function icon(i: String?): Slider = let (self = this) (self) { icon = i }
   function tap(t: Tap): Slider = let (self = this) (self) { tap = t }
   function secondary(s: String|Expr): Slider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +

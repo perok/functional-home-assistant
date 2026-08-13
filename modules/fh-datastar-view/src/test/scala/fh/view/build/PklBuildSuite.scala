@@ -1506,6 +1506,13 @@ class PklBuildSuite extends munit.FunSuite {
     // The badge is the entity's OWN icon, baked as a literal — here the light
     // domain's default, since this probe entity declares none.
     assertEquals(plain.slots("icon").literal, Some("mdi-lightbulb"))
+    // …and opting out drops the slot, so the template renders no badge at all.
+    val bare = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = c.slider(light).icon(null)
+        |""".stripMargin
+    )
+    assert(!bare.slots.contains("icon"), clue = bare.slots.keySet)
   }
 
   test("a slider's readout takes an expression, not just the two names") {
