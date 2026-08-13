@@ -156,7 +156,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
   a slider with `children` — the SAME card, holding member rows that are ORDINARY nodes: the head is
-  its `self` and the members its mount, so a master state change never repaints a row, and
+  its `self` and the members its mount, so a master state change never repaints a row; every slider
+  carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`tap` are optional pieces a plain row simply doesn't carry
   (`c.sliderGroup(master, members)` is the shorthand; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two

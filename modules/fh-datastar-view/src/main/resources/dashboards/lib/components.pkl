@@ -1156,9 +1156,11 @@ class Slider extends Node {
     else "$attr." + spec.value
   hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
   hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
-  /// MDI name (`mdi:lightbulb-group`) for the badge left of the label. Null
-  /// renders no badge — a plain row is a line, not a card.
-  hidden icon: String? = null
+  /// The badge left of the label, defaulting to the entity's OWN icon in Home
+  /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
+  /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
+  /// overrides it; an explicit `icon = null` renders no badge at all.
+  hidden icon: String? = iconFor(entity)
   /// A button at the right of the line — the group's on/off. Null renders none.
   hidden tap: Tap? = null
   /// Second line under the label — an attribute name, or an [[expr]] naming a
@@ -1346,12 +1348,10 @@ hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
 /// The common group as one call: a master and the entities it stands for, each
 /// a member [[Slider]] on its own domain's default axis, reading out its LEVEL
-/// (a hand-composed member says `.readout("percent")` for the same). The badge
-/// is the master's own [[iconFor]] icon; `.icon(…)` overrides it.
+/// (a hand-composed member says `.readout("percent")` for the same).
 function sliderGroup(a: SlideAxis, members: List<hass.Entity>): Slider =
   new Slider {
     on = a
-    icon = iconFor(entity)
     children { for (m in members) { (slider(m)) { readout = "percent" } } }
   }
 

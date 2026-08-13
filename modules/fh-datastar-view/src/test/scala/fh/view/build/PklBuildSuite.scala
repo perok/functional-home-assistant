@@ -1499,10 +1499,13 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(
       plain.slots.keySet -- Set("entity_id", "label", "state"),
-      Set("value", "fill", "fillColor", "action", "key", "min", "max"),
+      Set("value", "fill", "fillColor", "action", "key", "min", "max", "icon"),
       clue = plain.slots.keySet
     )
     assertEquals(plain.slots("state").transform, "$state")
+    // The badge is the entity's OWN icon, baked as a literal — here the light
+    // domain's default, since this probe entity declares none.
+    assertEquals(plain.slots("icon").literal, Some("mdi-lightbulb"))
   }
 
   test("a slider's readout takes an expression, not just the two names") {

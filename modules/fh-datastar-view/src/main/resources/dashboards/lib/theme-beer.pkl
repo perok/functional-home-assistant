@@ -259,7 +259,12 @@ class BeerTheme extends themeMod.Theme {
        absolutely-positioned overlay filling the card), so it must not take the
        pointer — without this the label and the live value are two dead strips
        the user has to aim around. */
-    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3;pointer-events:none}
+    /* The readout is pushed right rather than the line being `space-between`,
+       because the line has THREE items once a slider carries its entity's icon
+       badge — and "spread evenly" would centre the label between the badge and
+       the readout instead of keeping it next to what it names. */
+    .slider-head{display:flex;gap:.75rem;align-items:center;z-index:3;pointer-events:none}
+    .slider-head>.state{margin-inline-start:auto}
     /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
        "pick this up and move it anywhere". */
     .slider.max,.slider.max>input{cursor:ew-resize}
