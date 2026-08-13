@@ -70,6 +70,18 @@ abstract class LayoutNode {
   /// from the default every other card wants — see [[Pill]], which is this plus
   /// chip styling.
   function hug(): LayoutNode = addCellClass("fh-hug")
+  /// Make this node's own `.fh-cell` a pure CSS passthrough (`display:
+  /// contents`): the div stays in the DOM — still there for a [[SetNode]]'s
+  /// runtime per-member patching (ADR 0003), still there for `columns`/`hug`/…
+  /// on THIS node to size elsewhere — but generates no box of its own, so its
+  /// CHILDREN become real flex items of whichever container actually holds
+  /// it. This is what lets a query set's `.build()` result compose into
+  /// [[Row]]/[[Column]]/[[Grid]] alike instead of always rendering its own
+  /// fixed wrapped-grid flow: `(c.column) { children { q...build().passthrough() } }`
+  /// gets the set's members flowing one-per-line, `Column`'s own layout, with
+  /// no set-specific flow variant needed — see `theme.pkl`'s [[layoutCss]] for
+  /// why this composes at any nesting depth.
+  function passthrough(): LayoutNode = addCellClass("fh-passthrough")
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
