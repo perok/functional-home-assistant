@@ -4,6 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import cats.effect.std.Supervisor
+import cats.effect.testkit.TestControl
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
@@ -38,6 +39,29 @@ import scala.concurrent.duration.*
   * `assertEquals` and return `IO`.
   */
 trait ServerHarness extends munit.CatsEffectSuite {
+
+  // Every IO-returning test in a ServerHarness suite runs under TestControl's
+  // mocked runtime instead of munit-cats-effect's default (real, wall-clock)
+  // one — so the harness's poll loops (`quiet`, `served`) cost nothing: their
+  // `IO.sleep`s resolve the moment every fiber is blocked, not after a real
+  // 25ms/5ms wait. Every background fiber this harness starts MUST be
+  // supervised (a bare `.start` outlives the test under simulated time — see
+  // [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll` then never
+  // reaches quiescence, which OOMs rather than hangs). Checked against
+  // Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no IO.blocking,
+  // IO.realTime/monotonic, Dispatcher or evalOn on the live path, so nothing
+  // there can misreport a real external wait as the NonTerminationException
+  // deadlock TestControl raises for those (issue #109 item 3).
+  override def munitValueTransforms: List[ValueTransform] =
+    super.munitValueTransforms.filterNot(
+      _.name == "IO"
+    ) :+ testControlIOTransform
+
+  private val testControlIOTransform: ValueTransform =
+    new ValueTransform(
+      "IO",
+      { case io: IO[?] => TestControl.executeEmbed(io).unsafeToFuture() }
+    )
 
   def resumeNow(
       renderer: Renderer,
@@ -594,7 +618,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       routes: org.http4s.HttpApp[IO],
       store: StateStore,
       sessions: Sessions,
-      clients: Ref[IO, List[LiveClient]]
+      clients: Ref[IO, List[LiveClient]],
+      supervisor: Supervisor[IO]
   ) {
 
     /** Connect as a browser does. `query` carries what a document would hand
@@ -609,12 +634,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
             Uri.unsafeFromString(s"/sse/dashboard/dashboard/patch$query")
           )
         )
-        _ <- resp.body
-          .through(ServerSentEvent.decoder[IO])
-          .evalMap(e => seen.update(_ :+ e))
-          .compile
-          .drain
-          .start
+        // Supervised, not bare `.start`: the response body carries the
+        // connection's merged `keepAlive` stream (`awakeEvery`, live forever
+        // for the life of a real socket) — with no socket here to close it, an
+        // unsupervised fiber outlives the test that opened it. The supervisor
+        // cancels it with `liveWorldOf`'s resource instead.
+        _ <- supervisor.supervise(
+          resp.body
+            .through(ServerSentEvent.decoder[IO])
+            .evalMap(e => seen.update(_ :+ e))
+            .compile
+            .drain
+        )
         client = new LiveClient(seen)
         // The opening block ends at the cursor handshake; wait for it so the
         // first `drain` is exactly what CONNECTING produced.
@@ -725,7 +756,20 @@ trait ServerHarness extends munit.CatsEffectSuite {
           sessions
         )
         .use(server =>
-          use(new LiveWorld(server.routes.orNotFound, store, sessions, clients))
+          // Scoped to `use`, not to the whole resource: the connect fibers it
+          // supervises must be gone before `Server.resource` releases, same as
+          // any other client of this server would be.
+          Supervisor[IO].use(supervisor =>
+            use(
+              new LiveWorld(
+                server.routes.orNotFound,
+                store,
+                sessions,
+                clients,
+                supervisor
+              )
+            )
+          )
         )
     } yield ()).timeout(30.seconds)
 
