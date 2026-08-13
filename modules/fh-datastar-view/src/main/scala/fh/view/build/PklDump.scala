@@ -291,7 +291,7 @@ object PklDump {
     "device_id",
     "entity_category",
     "members",
-    "isDynamic"
+    "volatileAttrs"
   )
 
   /** Attributes a DOMAIN's schema models itself (as a capability group or a

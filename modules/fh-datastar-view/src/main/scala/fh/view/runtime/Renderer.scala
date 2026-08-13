@@ -995,8 +995,8 @@ class Renderer(
       }.toSet
     }.toMap
 
-  /** The O(1) pre-test of the flip check, same cost model as
-    * [[touchesDynamic]].
+  /** The O(1) pre-test of the flip check: the changed entities decide, not the
+    * surfaces, same as [[affectedDynamics]] for membership.
     */
   private def conditionTouched(
       gid: NodeId,
