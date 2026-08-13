@@ -74,6 +74,15 @@ const local mdiVersion: String = "7.4.47"
 const local mdiCdn: String =
   "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
 
+/// The TEXT font BeerCSS's own `--font` stack asks for first and never loads.
+/// Without it every browser falls back to a different system sans, and the
+/// metrics differ enough to move glyphs inside an identically-sized line box —
+/// a label reads centred in one engine and high in another, on the same page,
+/// on the same machine. Localised by `AssetCache` exactly like the icon font,
+/// so the woff2s are served from us.
+const local interCdn: String =
+  "https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin.css"
+
 /// A mapping rendered as CSS custom-property declarations
 /// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
 /// class bodies may only reference `const` module members.
@@ -178,6 +187,7 @@ class BeerTheme extends themeMod.Theme {
   stylesheets {
     "\(beerCdn)/beer.min.css"
     mdiCdn
+    interCdn
   }
 
   // Required by this theme's CSS, not for behavior (which stays Datastar's):
@@ -270,7 +280,12 @@ class BeerTheme extends themeMod.Theme {
        Held at .25rem rather than 0 so a member row's pill still clears the
        card's own corner radius. */
     .slider-card{padding:.25rem}
-    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.75rem;z-index:3;pointer-events:none}
+    /* An explicit line-height, because `normal` is the FONT's own figure: the
+       line box then changes size with whatever font resolved, which is half of
+       how the same markup ends up looking different per engine. 1.5 is what the
+       current stack already computed, so this pins today's rhythm rather than
+       changing it. */
+    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.75rem;line-height:1.5;z-index:3;pointer-events:none}
     .slider-head>.state{margin-inline-start:auto}
     /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
        "pick this up and move it anywhere". */
