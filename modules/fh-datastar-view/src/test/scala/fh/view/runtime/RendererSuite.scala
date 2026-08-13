@@ -1379,6 +1379,47 @@ class RendererSuite extends munit.FunSuite {
     assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
   }
 
+  /** The other half of the rule above, and the one that cost a live update: a
+    * `self` that leaves its children ENTIRELY to the mount cannot carry what
+    * they hold, so what they hold is none of its business.
+    *
+    * Real shape: a slider holding member sliders. The head is the `self`, the
+    * rows are the mount — and the moment the member card gained a mount of its
+    * own (one card for both, ADR 0006), asking `children.exists(carriesMount)`
+    * unconditionally made the HEAD unaddressable, so dragging a row stopped
+    * updating the master until a reload.
+    */
+  test("a self that does not splice its children stays addressable") {
+    val cards = Map(
+      "host" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        self = Some("""<div id="{{selfId}}"><span>{{state}}</span></div>"""),
+        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>"""),
+        slots = List("state")
+      ),
+      // A member that is itself a container — the change that broke this.
+      "member" -> CardDef(
+        template = "{{{self}}}{{{mount}}}",
+        self = Some("""<div id="{{selfId}}">m</div>"""),
+        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+      )
+    )
+    val r = Renderer.create(
+      Dashboard(
+        cards,
+        LayoutNode.Component(
+          "host",
+          slots = Map("state" -> SlotSource(Some("sensor.a"))),
+          children = List(LayoutNode.Component("member"))
+        )
+      )
+    )
+    val html = r.renderNodeById("c", Map("sensor.a" -> st("sensor.a", "A0")))
+    assert(html.exists(_.contains("A0")), clue = html)
+    // Its patch still targets the self alone, so the rows are not in it.
+    assert(!html.exists(_.contains("m")), clue = html)
+  }
+
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
     // Two chains hanging off the main page, each two surfaces deep:
     //   main -> t0 (user)  -> if host -> b0 (state)

@@ -1561,9 +1561,18 @@ class Renderer(
     allIndexed.get(id).exists {
       case (c: LayoutNode.Component, _, _) =>
         // What `renderNodeById` would produce: a card with a `self` renders
-        // that element plus its children's FULL renderings; anything else
-        // renders its whole card, its own mount included.
-        if (hasSelf(c.card)) !c.children.exists(carriesMount)
+        // that element plus — only if the self SPLICES them — its children's
+        // full renderings; anything else renders its whole card, its own mount
+        // included.
+        //
+        // A self that leaves its children entirely to the mount (a slider
+        // holding member sliders) is unaffected by what those children carry:
+        // its bytes never contain them. Asking `children.exists(carriesMount)`
+        // unconditionally cost exactly that node its live updates the moment a
+        // member card gained a mount of its own.
+        if (hasSelf(c.card))
+          !(templates.selvesCarryChildren(c.card) &&
+            c.children.exists(carriesMount))
         else !carriesMount(c)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
