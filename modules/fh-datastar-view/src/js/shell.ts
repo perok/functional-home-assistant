@@ -145,7 +145,9 @@ window.fhScroll = (slug) => {
  * - It is a no-op in insecure contexts (`register` needs a secure origin, and
  *   `window.isSecureContext` is the cheap synchronous guard), so an HTTP-only
  *   LAN address still gets the install prompt — the manifest link, not the SW,
- *   is what drives installability.
+ *   is what drives installability. That skip is logged as a warning: it is the
+ *   one branch a developer can act on (serve over HTTPS or localhost), unlike
+ *   a register failure, which stays silent.
  * - The worker takes over the current page (`skipWaiting` in its install + a
  *   call that activates it), so this load can begin cache-firsting `web/` and
  *   `assets/` immediately.
@@ -156,7 +158,12 @@ window.fhScroll = (slug) => {
  *   register failure must be silent.
  */
 window.fhRegisterSw = (url) => {
-  if (!window.isSecureContext) return
+  if (!window.isSecureContext) {
+    console.warn(
+      `[fh] skipping service worker registration: ${location.hostname} is not a secure context (serve over HTTPS or localhost)`
+    )
+    return
+  }
   const sw = navigator.serviceWorker
   if (!sw) return
   sw.register(url).catch(() => {})
