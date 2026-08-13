@@ -646,20 +646,10 @@ class PklBuildSuite extends munit.FunSuite {
       // only `label` is declared — same shape as `button`/`pill`.
       "toggle" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
+      // No `state`: a slider that holds member rows omits the readout slot
+      // entirely, and a declared slot is one EVERY node of the card must carry
+      // (`icon`/`secondary`/`onclick`/`group` are optional for the same reason).
       "slider" -> List(
-        "label",
-        "state",
-        "value",
-        "action",
-        "min",
-        "max",
-        "key",
-        "entity_id"
-      ),
-      // `slider`'s required slots minus `state` — the head shows a label and an
-      // optional second line, not a readout (`icon`/`secondary`/`onclick` are
-      // all optional, so none is declared).
-      "sliderGroup" -> List(
         "label",
         "value",
         "action",
@@ -1457,18 +1447,22 @@ class PklBuildSuite extends munit.FunSuite {
     )
   }
 
-  test("sliderGroup is a slider whose members are ordinary nodes") {
-    // The master resolves its own domain config exactly like a leaf Slider
-    // (both derive it on SliderBase), and the members arrive as children —
-    // their own cards, with their own entities and their own config.
+  test("a slider with children is the same card, holding ordinary nodes") {
+    // The master resolves its own domain config exactly like a childless
+    // slider — it IS one — and the members arrive as children: their own
+    // cards, with their own entities and their own config.
     val group = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroupOf(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.toggleTap }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.toggleTap }
         |""".stripMargin
     )
-    assertEquals(group.card, "sliderGroup")
+    assertEquals(group.card, "slider")
+    // The one thing the markup takes from having children.
+    assertEquals(group.slots("group").literal, Some("slider-group"))
+    // A head does not repeat a readout its rows already carry.
+    assert(!group.slots.contains("state"), clue = group.slots.keySet)
     assertEquals(group.slots("entity_id").literal, Some("light.lys"))
     assertEquals(group.slots("action").literal, Some("light/turn_on"))
     assertEquals(group.slots("icon").literal, Some("mdi-lightbulb-group"))
@@ -1496,16 +1490,19 @@ class PklBuildSuite extends munit.FunSuite {
       clue = members(1).slots("state").transform
     )
 
-    // No tap, no icon override: the button disappears entirely and the icon
-    // falls back to the domain default, baked as a literal (as on an
-    // entityCard).
+    // A childless slider is the plain row it always was: no group modifier, no
+    // badge, no button, and its state back as the readout.
     val plain = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = c.sliderGroup(light)
+        |node = c.slider(light)
         |""".stripMargin
     )
-    assert(!plain.slots.contains("onclick"), clue = plain.slots.keySet)
-    assertEquals(plain.slots("icon").literal, Some("mdi-lightbulb"))
+    assertEquals(
+      plain.slots.keySet -- Set("entity_id", "label", "state"),
+      Set("value", "fill", "fillColor", "action", "key", "min", "max"),
+      clue = plain.slots.keySet
+    )
+    assertEquals(plain.slots("state").transform, "$state")
   }
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {

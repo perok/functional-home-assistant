@@ -1090,16 +1090,39 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
 /// would both hide the choice from it — see ADR 0013, "Shapes considered".
 typealias SlideAxis = hass.Entity|hass.ColourTemp
 
-/// What a slider's line reads out — see [[SliderBase.readout]].
-typealias Readout = "state"|"percent"
+/// What a slider's line reads out beside its label — see [[Slider.readout]].
+typealias Readout = "state"|"percent"|"none"
 
-/// Everything a slider-shaped card derives from its [[SlideAxis]]: which
-/// entity it drives, the config resolution (author override → build-time spec
-/// literal), and the slots the range input and the painted fill are built from.
-/// Abstract, so it never reaches the card registry — the concrete cards are
-/// [[Slider]] (a leaf row) and [[SliderGroup]] (the same control as the head of
-/// a card that HOLDS member sliders), which differ only in their markup.
-abstract class SliderBase extends Node {
+/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
+/// that config in at build time. A slider on e.g. a sensor is a BUILD error
+/// naming the dashboard line — including inside a query, where the fold drops a
+/// branch whose guard cannot hold before its render lambda is applied.
+///
+/// Give it CHILDREN and the same card is a GROUP: the slider becomes the head
+/// (the group light, the cover group) and the children are the members it
+/// stands for, stacked inside it with the master's fill painted across the
+/// whole card behind them — one control with its parts shown, not a titled
+/// list.
+///
+///   (c.slider(dump.entities.light_lys)) {
+///     icon = "mdi:lightbulb-group"
+///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"$state & " °C""#)
+///     tap = c.toggleTap
+///     children { c.slider(a).readout("percent") c.slider(b).readout("percent") }
+///   }
+///
+/// One card rather than a separate group card, because the members are
+/// ORDINARY nodes: a member can be another grouped slider (nesting works by
+/// construction), an [[EntityCard]], or a [[DynamicGroup]] of everything in an
+/// area, and each keeps its own entity, its own domain config and its own live
+/// patch. [[sliderGroup]] is the shorthand for the common "a master and its
+/// member entities" case.
+///
+/// The head is the card's `self` and the members its `mount`, so a state change
+/// on the master repaints the head alone and never the rows (ADR 0012) — the
+/// reason this is a container card even when it holds nothing.
+class Slider extends Node {
+  card = "slider"
   /// WHAT this slider drives — see [[SlideAxis]]. Setting `entity` directly
   /// still works and means the domain's default axis; the two default to each
   /// other, so exactly one of them is ever needed.
@@ -1131,23 +1154,68 @@ abstract class SliderBase extends Node {
     else "$attr." + spec.value
   hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
   hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
+  /// MDI name (`mdi:lightbulb-group`) for the badge left of the label. Null
+  /// renders no badge — a plain row is a line, not a card.
+  hidden icon: String? = null
+  /// A button at the right of the line — the group's on/off. Null renders none.
+  hidden tap: Tap? = null
+  /// Second line under the label — an attribute name, or an [[expr]] naming a
+  /// DIFFERENT entity (the room's temperature beside its lights). Null renders
+  /// no second line.
+  hidden secondary: (String|Expr)? = null
   /// What the line reads out beside the label — the entity's state
-  /// (`on`/`off`) or the LEVEL as a percentage of min..max.
-  hidden readout: Readout = "state"
+  /// (`on`/`off`), the LEVEL as a percentage of min..max, or nothing.
+  ///
+  /// Defaults by SHAPE: a head that has member rows under it does not repeat a
+  /// readout (the rows carry their own), a plain row shows its state.
+  hidden readout: Readout = if (children.isEmpty) "state" else "none"
   // The `fill` percentage the other way round (value, not distance from the
   // right edge), rounded and suffixed — a readout, not a geometry, so unlike
   // `fill` it wants whole numbers. No position attribute (a light that is off)
   // reads 0 %, which is what the row shows: an empty track.
   hidden percentExpr: String =
     "($v := \(valueExpr); $v != null ? $string($round(($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) & \" %\" : \"0 %\")"
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them
+  // (see [[EntityCard.inlineSurfaces]]).
+  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
+  // Resolved here rather than inline in `slots`, because a body that AMENDS an
+  // inherited property does not see the inherited `icon` by name — only this
+  // class's own members and the module.
+  hidden resolvedIcon: String? = if (icon != null) mdiClass(icon!!) else null
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
+    // The one difference the card's markup takes from having children: the
+    // group modifier class. Everything else the two shapes need is an optional
+    // piece that is absent on a plain row anyway.
+    when (!children.isEmpty) {
+      ["group"] = "slider-group"
+    }
+    when (resolvedIcon != null) {
+      ["icon"] = resolvedIcon!!
+    }
+    when (tap != null) {
+      ["onclick"] = tap!!.onclick
+      // Lights the button while the entity is on — the one thing the fill
+      // cannot say, since a light at 0 % and a light that is off look alike.
+      ["lit"] = new Slot {
+        transform = #"$state = "on" ? "lit" : """#
+        default = ""
+        bypassUnavailable = false
+      }
+    }
+    when (secondary != null) {
+      ["secondary"] = secondarySlot(secondary!!)
+    }
     // The display header (inherits entity_id, bypassUnavailable default).
-    ["state"] =
-      if (readout == "percent")
-        new Slot { transform = percentExpr; default = "0 %"; bypassUnavailable = false }
-      else new Slot {}
+    // Omitted entirely when the readout is "none": an absent slot renders ""
+    // and the template's `{{#state}}` section then drops the whole span.
+    when (readout != "none") {
+      ["state"] =
+        if (readout == "percent")
+          new Slot { transform = percentExpr; default = "0 %"; bypassUnavailable = false }
+        else new Slot {}
+    }
     // The range input's numeric position: opt OUT of bypass so an unavailable
     // entity falls back to `default` ("0") rather than "unavailable". Static:
     // read the domain's position attr; dynamic: $lookup it per match.
@@ -1187,26 +1255,18 @@ abstract class SliderBase extends Node {
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }
   // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
-  // overrides mirror the `hidden` props above; amending re-runs the three-tier
-  // `sliderConfig` resolution with the new value. They live HERE, on the shared
-  // base, so both slider cards get them from one definition — the return type
-  // is the base (Pkl has no self type), which costs nothing: every builder a
-  // chain can continue with is on it, and a node is placed as a [[LayoutNode]].
-  function label(l: String|Expr): SliderBase = let (self = this) (self) { label = l }
-  function action(a: String): SliderBase = let (self = this) (self) { action = a }
-  function key(k: String): SliderBase = let (self = this) (self) { key = k }
-  function min(m: Int): SliderBase = let (self = this) (self) { min = m }
-  function max(m: Int): SliderBase = let (self = this) (self) { max = m }
-  function valueAttr(a: String): SliderBase = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout): SliderBase = let (self = this) (self) { readout = r }
-}
-
-/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
-/// that config in at build time. A slider on e.g. a sensor is a BUILD error
-/// naming the dashboard line — including inside a query, where the fold drops a
-/// branch whose guard cannot hold before its render lambda is applied.
-class Slider extends SliderBase {
-  card = "slider"
+  // overrides mirror the `hidden` props above; amending re-runs the two-tier
+  // `sliderConfig` resolution with the new value.
+  function label(l: String|Expr): Slider = let (self = this) (self) { label = l }
+  function action(a: String): Slider = let (self = this) (self) { action = a }
+  function key(k: String): Slider = let (self = this) (self) { key = k }
+  function min(m: Int): Slider = let (self = this) (self) { min = m }
+  function max(m: Int): Slider = let (self = this) (self) { max = m }
+  function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
+  function readout(r: Readout): Slider = let (self = this) (self) { readout = r }
+  function icon(i: String): Slider = let (self = this) (self) { icon = i }
+  function tap(t: Tap): Slider = let (self = this) (self) { tap = t }
+  function secondary(s: String|Expr): Slider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
   // `.tooltip` — its value text bled through behind the track, and the live
@@ -1227,10 +1287,25 @@ class Slider extends SliderBase {
   // dozen sliders paid several hundred bytes per request for state only this
   // browser uses. It is read client-side into the action URL (`$_val_…`) and
   // never from a request body, so nothing server-side loses anything.
-  cardDef = new LeafCard {
+  //
+  // The head is the `self` and the members the `mount`, so the group's rows are
+  // never carried by the master's patch (ADR 0012). A childless slider still
+  // renders the mount — an empty `<div>` the theme hides — because a card is
+  // one shape, and its optional pieces (icon, second line, button, members) are
+  // absent rather than different.
+  cardDef = new ContainerCard {
     template = """
-      <article class="card">
-        <div class="slider-head"><strong>{{label}}</strong><span class="state">{{state}}</span></div>
+      <article class="card{{#group}} {{group}}{{/group}}">{{{self}}}{{{mount}}}</article>
+      """
+    self = """
+      <div id="{{selfId}}" class="slider-body">
+        <div class="slider-head">
+          {{#icon}}<div class="slider-icon"><i class="mdi {{icon}}"></i></div>{{/icon}}
+          <strong>{{label}}</strong>
+          {{#secondary}}<span class="slider-sub">{{secondary}}</span>{{/secondary}}
+          {{#state}}<span class="state">{{state}}</span>{{/state}}
+          {{#onclick}}<button class="circle small slider-action {{lit}}" data-on:click="{{{onclick}}}"><i class="mdi mdi-power"></i></button>{{/onclick}}
+        </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}%">
           <input type="range" min="{{min}}" max="{{max}}"
             data-signals="{ _val_{{id}}: {{value}} }"
@@ -1238,9 +1313,14 @@ class Slider extends SliderBase {
             data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, \(noSignals))" />
           <span style="background:{{fillColor}}"></span>
         </div>
-      </article>
+      </div>
       """
-    slots { "label"; "state"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+    mount = """
+      <div class="slider-members">{{#children}}{{{html}}}{{/children}}</div>
+      """
+    // `state` is NOT declared: a grouped head omits the slot entirely (see
+    // [[readout]]), and a declared slot is one every node of the card must have.
+    slots { "label"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
   }
 }
 
@@ -1251,117 +1331,14 @@ function slider(a: SlideAxis): Slider = new Slider { on = a }
 /// The slider constructor as a VALUE, for a query's render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
-/// A slider that HOLDS sliders: one master control (a light group, a cover
-/// group) as the card's head, and the members it stands for as ordinary
-/// [[Slider]] cards stacked inside it. The master's fill is the CARD's
-/// background — it spans the whole card, behind the member rows — so the group
-/// reads as one control with its parts shown, not as a list with a header.
-///
-///   (c.sliderGroup(dump.entities.light_lys)) {
-///     icon = "light_group"
-///     tap = c.toggleTap
-///     children { c.slider(a) c.slider(b) }
-///   }
-///
-/// The members are ORDINARY nodes, which is the whole point of composing
-/// rather than adding a "sub-slider config" list: a member can be another
-/// `sliderGroup` (nesting works by construction), an [[EntityCard]], or a
-/// [[DynamicGroup]] of everything in an area — and each keeps its own entity,
-/// its own domain config and its own live patch. [[sliderGroupOf]] is the
-/// shorthand for the common "a master and its member entities" case.
-///
-/// The head and the members are the two halves of the self/mount split, so a
-/// state change on the master repaints the head alone and never the rows (ADR
-/// 0012) — the reason this is a container card rather than one big template.
-class SliderGroup extends SliderBase {
-  card = "sliderGroup"
-  // The head is the SAME control as a [[Slider]] (see its cardDef for why the
-  // fill is baked and why the drag signal is `_`-prefixed), restyled: the range
-  // input covers the whole head strip, and the icon badge / title / power
-  // button are STACKED on top of it (a one-cell grid — see the `.slider-group`
-  // rules in theme-beer.pkl), so dragging anywhere on the strip drives the
-  // master and only the button takes its own clicks back.
-  //
-  // The fill spanning the whole card is CSS too: the head keeps the
-  // `.slider.max` wrapper, and the theme takes that wrapper out of the flow so
-  // its painted `<span>` resolves against the card instead. Painting it from
-  // the mount side would put a live value on the part a patch must never
-  // render.
-  cardDef = new ContainerCard {
-    template = """
-      <article class="card slider-group">{{{self}}}{{{mount}}}</article>
-      """
-    self = """
-      <div id="{{selfId}}" class="slider-group-head">
-        <div class="slider max slider-group-track" style="--_start: 0%;--_end: {{fill}}%">
-          <input type="range" min="{{min}}" max="{{max}}"
-            data-signals="{ _val_{{id}}: {{value}} }"
-            data-bind="_val_{{id}}"
-            data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, \(noSignals))" />
-          <span style="background:{{fillColor}}"></span>
-        </div>
-        <div class="slider-group-bar">
-          {{#icon}}<div class="slider-group-icon"><i class="mdi {{icon}}"></i></div>{{/icon}}
-          <div class="slider-group-title"><strong>{{label}}</strong>{{#secondary}}<span class="slider-group-sub">{{secondary}}</span>{{/secondary}}</div>
-          {{#onclick}}<button class="circle small slider-group-action {{lit}}" data-on:click="{{{onclick}}}"><i class="mdi mdi-power"></i></button>{{/onclick}}
-        </div>
-      </div>
-      """
-    mount = """
-      <div class="slider-group-members">{{#children}}{{{html}}}{{/children}}</div>
-      """
-    slots { "label"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
-  }
-  /// MDI name (`mdi:lightbulb-group`) overriding what [[iconFor]] resolved.
-  hidden icon: String? = null
-  /// The head button — the group's on/off. Null renders no button at all.
-  hidden tap: Tap? = null
-  /// Second line under the label — an attribute name, or an [[expr]] naming a
-  /// DIFFERENT entity (the room's temperature beside its lights). Null renders
-  /// no second line.
-  hidden secondary: (String|Expr)? = null
-  // Copy the tap's inline surfaces onto the node so the hoist lifts them
-  // (see [[EntityCard.inlineSurfaces]]).
-  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
-  // Resolved here rather than inline in `slots`, because a body that AMENDS an
-  // inherited property does not see the inherited `entity` by name — only this
-  // class's own members and the module.
-  hidden resolvedIcon: String? = if (icon != null) mdiClass(icon!!) else iconFor(entity)
-  slots {
-    when (resolvedIcon != null) {
-      ["icon"] = resolvedIcon!!
-    }
-    when (tap != null) {
-      ["onclick"] = tap!!.onclick
-      // Lights the power button while the group is on — the one thing the fill
-      // cannot say, since a group at 0 % and a group that is off look alike.
-      ["lit"] = new Slot {
-        transform = #"$state = "on" ? "lit" : """#
-        default = ""
-        bypassUnavailable = false
-      }
-    }
-    when (secondary != null) {
-      ["secondary"] = secondarySlot(secondary!!)
-    }
-  }
-  // Fluent config (see [[EntityCard]]'s builder methods); the axis builders are
-  // on [[SliderBase]], so chain these FIRST.
-  function icon(i: String): SliderGroup = let (self = this) (self) { icon = i }
-  function tap(t: Tap): SliderGroup = let (self = this) (self) { tap = t }
-  function secondary(s: String|Expr): SliderGroup = let (self = this) (self) { secondary = s }
-}
-
-/// Master slider as a call; the members go in a parenthesized amend's
-/// `children` (see [[SliderGroup]]).
-function sliderGroup(a: SlideAxis): SliderGroup = new SliderGroup { on = a }
-
-/// The common case as one call: a master and the entities it stands for, each
+/// The common group as one call: a master and the entities it stands for, each
 /// a member [[Slider]] on its own domain's default axis, reading out its LEVEL
-/// (a hand-composed member says `.readout("percent")` for the same).
-function sliderGroupOf(a: SlideAxis, members: List<hass.Entity>): SliderGroup =
-  new SliderGroup {
+/// (a hand-composed member says `.readout("percent")` for the same). The badge
+/// is the master's own [[iconFor]] icon; `.icon(…)` overrides it.
+function sliderGroup(a: SlideAxis, members: List<hass.Entity>): Slider =
+  new Slider {
     on = a
+    icon = iconFor(entity)
     children { for (m in members) { (slider(m)) { readout = "percent" } } }
   }
 

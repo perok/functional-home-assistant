@@ -283,58 +283,69 @@ class BeerTheme extends themeMod.Theme {
       .slider.max>input{pointer-events:none}
       .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--primary)}
     }
-    /* A slider card that HOLDS sliders (`c.sliderGroup`). The master's fill is
-       the whole card's background, painted BEHIND the member rows, which is
-       what makes the group read as one control rather than a titled list.
+    /* The card's two structural wrappers. `display:contents` on the self
+       wrapper is deliberate: it is the patch target (`{{selfId}}`), and a
+       boxless one leaves the head and the track laid out by the CARD exactly as
+       they were before the card split into self + mount. The mount is an empty
+       div on every childless slider, which is the whole reason `:empty` is
+       here. */
+    .slider-body{display:contents}
+    .slider-members:empty{display:none}
+    /* A slider that HOLDS sliders. The master's fill is the whole card's
+       background, painted BEHIND the member rows, which is what makes the group
+       read as one control rather than a titled list — `.slider.max` already
+       fills the card, so the group only has to keep the rows on top of it and
+       the drag surface off them.
 
-       BeerCSS positions a slider's painted `<span>` absolutely, and everything
-       in BeerCSS is `position:relative` — so the span is normally trapped in
-       its own wrapper. Taking the head and the wrapper OUT of positioning
-       (`position:static`) hands the span the card as its containing block, and
-       `inset:0 var(--_end) 0 0` then spans it edge to edge, full height. The
-       `:before` inactive track would escape the same way, so it goes.
-
-       The range input covers the head strip alone: a drag lower down the card
-       belongs to the member row under the finger. */
+       The head is the same markup a plain row has: the badge, the second line
+       and the button are pieces a plain row simply does not carry, so only the
+       arrangement changes — a two-row grid with the badge and the button
+       spanning both rows. */
     .slider-group{padding:0;overflow:hidden}
-    .slider-group-head,.slider-group-track{position:static}
-    /* Track and bar occupy the SAME grid cell, so the whole head strip is the
-       master's drag surface with the icon/title/button painted over it. */
-    .slider-group-head{display:grid;min-block-size:4.5rem}
-    .slider-group-head>*{grid-area:1/1}
-    .slider-group-track{margin:0;block-size:100%}
-    .slider-group-track:before{display:none}
-    .slider-group-track>input{block-size:100%}
-    .slider-group-track>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
-    /* Inert, like `.slider-head` — the one thing in the bar that IS a control
-       has to take the pointer back. */
-    .slider-group-bar{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;z-index:3;pointer-events:none}
-    .slider-group-icon{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    /* Scoped through `.slider-body` on purpose: `display:contents` removes its
+       BOX, not its place in the DOM, so it still has to appear in a selector —
+       and every one of these rules must miss the members' own heads and
+       tracks, which are `.slider-head`/`.slider.max` too. */
+    .slider-group>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+      align-items:center;align-content:center;gap:0 .75rem;padding:.75rem 1rem;
+      min-block-size:4.5rem;box-sizing:border-box}
+    .slider-group>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
+    .slider-group>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
+    .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/-1}
+    .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/-1}
+    .slider-icon{grid-row:1/-1;display:flex;align-items:center;justify-content:center;
       inline-size:2.75rem;block-size:2.75rem;border-radius:50%;
       background:var(--surface-container-highest);color:var(--primary)}
-    .slider-group-icon>i{font-size:1.5rem}
-    .slider-group-title{display:flex;flex-direction:column;min-inline-size:0}
-    .slider-group-title>.slider-group-sub{font-size:.8rem;color:var(--on-surface-variant)}
-    .slider-group-action{pointer-events:auto;margin-inline-start:auto;
-      background:var(--surface-container-highest);color:var(--on-surface)}
-    .slider-group-action.lit{background:var(--primary);color:var(--on-primary)}
+    .slider-icon>i{font-size:1.5rem}
+    .slider-sub{font-size:.8rem;color:var(--on-surface-variant)}
+    /* The one thing in the head that IS a control has to take the pointer back
+       from `.slider-head`'s `pointer-events:none`. */
+    .slider-action{pointer-events:auto;background:var(--surface-container-highest);color:var(--on-surface)}
+    .slider-action.lit{background:var(--primary);color:var(--on-primary)}
+    /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the
+       card, so the master's track — and its painted span — span the WHOLE card,
+       members included. Nothing constrains the master's range input to the head
+       strip either, and it should not: the member rows are painted over it
+       (opaque, stacked below), so a drag lands on the master exactly where its
+       own fill is what the finger is on. */
+    .slider-group>.slider-body>.slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
     /* Above the master's painted `<span>`, which is positioned and would
        otherwise cover the member rows' own backgrounds — the fill belongs
        AROUND the rows, not through them. */
-    .slider-group-members{display:flex;flex-direction:column;gap:.5rem;padding:0 .5rem .5rem;z-index:2}
+    .slider-members{display:flex;flex-direction:column;gap:.5rem;padding:0 .5rem .5rem;z-index:2}
     /* A member is an ordinary slider card collapsed onto its own track: card
        and track share one grid cell, so the label and the live value ride ON
        the fill instead of sitting in a line above it. Members carry their own
        surface and no elevation — a shadow over the master's coloured fill reads
        as grime. */
-    .slider-group-members .card{display:grid;min-block-size:3rem;margin:0;padding:0;
+    .slider-members .card{display:grid;min-block-size:3rem;margin:0;padding:0;
       background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
-    .slider-group-members .card>*{grid-area:1/1}
-    .slider-group-members .slider-head{align-items:center;padding-inline:1rem}
-    .slider-group-members .slider.max{margin:0;block-size:100%}
-    .slider-group-members .slider.max>input{block-size:100%}
-    .slider-group-members .slider.max:before{display:none}
-    .slider-group-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
+    .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
+    .slider-members .slider-head{align-items:center;padding-inline:1rem}
+    .slider-members .slider.max{margin:0;block-size:100%}
+    .slider-members .slider.max>input{block-size:100%}
+    .slider-members .slider.max:before{display:none}
+    .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels

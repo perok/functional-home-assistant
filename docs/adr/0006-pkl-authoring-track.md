@@ -179,9 +179,10 @@ extended. Once the hand-port completes they are deleted.
 
 Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 
-- Containers (grid/row/column)/sectionTitle/entityCard/button/slider/sliderGroup
-  (`c.sliderGroup(master)` with `children`, or `c.sliderGroupOf(master, members)` — the
-  members are ordinary nodes, so nesting and mixing card kinds cost nothing); `expr`,
+- Containers (grid/row/column)/sectionTitle/entityCard/button/slider (one card:
+  give it `children` and it is a group — the slider is the head and the children
+  are member rows, which are ordinary nodes, so nesting and mixing card kinds cost
+  nothing; `c.sliderGroup(master, members)` is the shorthand); `expr`,
   and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
   grid/row/col; the layout-cell builders on the `LayoutNode` base —
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
