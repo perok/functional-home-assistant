@@ -377,7 +377,13 @@ function openPopup(surfaceId: String): Tap =
 // `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
 // per the Pkl amend-scoping gotcha.
-function openPopupInline(body: Node): Tap = new {
+//
+// Typed `LayoutNode`, not `Node`: `Popup.children` (inherited from [[Node]])
+// is itself `Listing<LayoutNode>` so a container can hold either a component
+// or a candidate set (`q...build()`'s `SetNode`) — this parameter must accept
+// the same widened type or it rejects exactly the case `children` was widened
+// for.
+function openPopupInline(body: LayoutNode): Tap = new {
   onclick = "@post('sse/surface/open/\(NODE_ID)_self'); $ui_popups = '\(NODE_ID)_self'"
   inlineSurfaces = new Mapping {
     ["self"] = new SurfaceDef { content = new Popup { children { body } } }
