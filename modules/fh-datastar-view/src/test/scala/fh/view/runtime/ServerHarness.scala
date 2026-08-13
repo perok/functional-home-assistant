@@ -28,6 +28,7 @@ import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import java.util.concurrent.atomic.AtomicInteger
+import scala.annotation.targetName
 import scala.concurrent.duration.*
 
 /** Everything the `Server` suites share: the fixtures, the two harnesses, and
@@ -40,28 +41,35 @@ import scala.concurrent.duration.*
   */
 trait ServerHarness extends munit.CatsEffectSuite {
 
-  // Every IO-returning test in a ServerHarness suite runs under TestControl's
-  // mocked runtime instead of munit-cats-effect's default (real, wall-clock)
-  // one — so the harness's poll loops (`quiet`, `served`) cost nothing: their
-  // `IO.sleep`s resolve the moment every fiber is blocked, not after a real
-  // 25ms/5ms wait. Every background fiber this harness starts MUST be
-  // supervised (a bare `.start` outlives the test under simulated time — see
-  // [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll` then never
-  // reaches quiescence, which OOMs rather than hangs). Checked against
-  // Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no IO.blocking,
-  // IO.realTime/monotonic, Dispatcher or evalOn on the live path, so nothing
-  // there can misreport a real external wait as the NonTerminationException
-  // deadlock TestControl raises for those (issue #109 item 3).
-  override def munitValueTransforms: List[ValueTransform] =
-    super.munitValueTransforms.filterNot(
-      _.name == "IO"
-    ) :+ testControlIOTransform
+  // Shadows FunSuite's `test` for the common `IO[Unit]`-body case, so every
+  // ServerHarness test runs under TestControl's mocked runtime instead of a
+  // real, wall-clock one — the harness's IO.sleep-based poll loops (`quiet`,
+  // `served`) cost nothing: they resolve the moment every fiber is blocked,
+  // not after a real 25ms/5ms wait. An ordinary overload, not a hook into
+  // munit's transform machinery, so a reader sees the wrapping at the same
+  // place every test is declared. Every background fiber this harness starts
+  // MUST be supervised (a bare `.start` outlives the test under simulated
+  // time — see [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll`
+  // then never reaches quiescence, which OOMs rather than hangs). Checked
+  // against Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no
+  // IO.blocking, IO.realTime/monotonic, Dispatcher or evalOn on the live
+  // path, so nothing there can misreport a real external wait as the
+  // NonTerminationException deadlock TestControl raises for those (issue
+  // #109 item 3).
+  @targetName("testIO")
+  protected def test(
+      name: String
+  )(body: => IO[Unit])(using loc: munit.Location): Unit =
+    super.test(name)(TestControl.executeEmbed(body))
 
-  private val testControlIOTransform: ValueTransform =
-    new ValueTransform(
-      "IO",
-      { case io: IO[?] => TestControl.executeEmbed(io).unsafeToFuture() }
-    )
+  // A handful of tests in these suites are plain synchronous assertions with
+  // no IO in them at all — nothing for TestControl to simulate time over, so
+  // they pass straight through unwrapped.
+  @targetName("testSync")
+  protected def test(
+      name: String
+  )(body: => Unit)(using loc: munit.Location): Unit =
+    super.test(name)(body)
 
   def resumeNow(
       renderer: Renderer,

@@ -233,6 +233,77 @@ Supervisor[IO](await = false).use { supervisor =>
 }
 ```
 
+## Testing time-dependent code: TestControl
+
+`cats-effect-testkit`'s `TestControl` runs an `IO` program against a **mocked runtime**: a
+single-threaded scheduler where time only advances when every fiber is blocked (asleep or
+awaiting an async callback) — computation, side effects and memory access are treated as
+instantaneous. It fully implements `IO`'s fiber/async/time semantics, so `IO.sleep(30.seconds)`
+resolves without spending 30 real seconds, and a suite full of poll-and-sleep loops runs in
+milliseconds instead of minutes.
+
+```scala
+// build.sbt
+libraryDependencies += "org.typelevel" %% "cats-effect-testkit" % "3.7.0" % Test
+```
+
+### `executeEmbed` — the common case
+
+```scala
+import cats.effect.testkit.TestControl
+
+test("retries until success") {
+  TestControl.executeEmbed(program).assertEquals("success!")
+}
+```
+
+Runs the program to completion under the mocked runtime, raising if it errors, is canceled, or
+fails to terminate. This is what almost every test wants.
+
+### `execute` — manual stepping, for asserting ON the timing itself
+
+```scala
+TestControl.execute(program) flatMap { control =>
+  for {
+    _        <- control.results.assertEquals(None)     // still running
+    _        <- control.tick                            // run to the next sleep/completion, no time passes
+    interval <- control.nextInterval                     // how long until the next fiber can proceed
+    _        <- control.advanceAndTick(interval)         // move the clock forward, then tick again
+  } yield ()
+}
+```
+
+`tick` runs until every fiber sleeps or completes, without advancing the clock by even a
+nanosecond. `advance`/`advanceAndTick` move the mocked clock forward. Getting the order backwards
+— advancing before the sleep is reached — adds the advance on top of whatever the sleep itself
+contributes, double-counting the duration; `tick` first, THEN `advance`, THEN `tick` again.
+
+### Gotchas
+
+- **Deadlock detection is real but partial.** `IO.never` and similar are caught and raised as
+  `NonTerminationException`. A fiber that's simply always runnable and never sleeps —
+  `IO.unit.foreverM`, or `IO.cede.foreverM.start` racing a `sleep` — is NOT detected: in
+  production it would yield control and let the sibling fiber's timeout win, but under
+  `TestControl` there is always a non-sleeping fiber ready to run, so the clock never advances and
+  the mocked scheduler spins forever (real, not simulated, CPU/wall time).
+- **Every background fiber MUST be supervised, not bare `.start`ed — this is the one that bites in
+  practice.** A `.start`ed fiber with its handle discarded has no lifetime tied to anything. Over a
+  real `IORuntime` this is often harmless (the process exits, or a real socket closing cancels the
+  read that was keeping it alive) — invisible in a passing test. Under `TestControl.executeEmbed`,
+  `tickAll` (which `executeEmbed` uses internally) runs until the mocked clock's *entire scheduled
+  task queue* is empty, not just until the test's own result is available. An unsupervised fiber
+  containing a periodic action (`fs2.Stream.awakeEvery`, a retry loop) keeps re-scheduling itself
+  into that queue forever — the queue never empties, so `tickAll` never returns, and the process
+  exhausts heap (`ConcurrentSkipListSet` growth) rather than hanging cleanly. Fix: own every forked
+  fiber with a `Supervisor[IO]` scoped to the same `Resource` your test tears down, and
+  `supervisor.supervise(...)` instead of `.start`. See "Supervisor" above.
+- **Prefer the production runtime by default.** `TestControl`'s single-threaded scheduler can mask
+  real concurrency bugs and races that only show up under true parallelism. Reach for it
+  specifically when a test is otherwise paying real wall-clock cost for `IO.sleep`/timeout-driven
+  polling, not as a default test harness.
+- Non-temporal `IO` code (no sleeps/timeouts to simulate) doesn't need `TestControl` at all —
+  munit-cats-effect's ordinary `IO[Unit]`-returning `test` bodies are already fine.
+
 ## Runtime & thread model
 
 Cats Effect 3 uses a **work-stealing scheduler** on the JVM:
