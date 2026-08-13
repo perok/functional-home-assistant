@@ -4,13 +4,17 @@
 #     fh-datastar-view: home/home-codegen need live-HA codegen and cannot
 #     compile in CI; tests run on fake dumps, no HA needed).
 # cd: main only, after ci is green. Publishes ONLY when home-addon/config.yaml
-#     names a version that is not on GHCR yet: builds the add-on container
+#     names a version that is not fully on GHCR yet: builds the add-on container
 #     (amd64 + aarch64) from the ci-built jar, pushes
-#     ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}, and creates the vX.Y.Z tag +
+#     ghcr.io/perok/fh-dashboard:{X.Y.Z, latest}, and creates the vX.Y.Z
 #     GitHub release. So releasing = merging a version bump; an unchanged
 #     version makes cd a no-op. (The supervisor reads config.yaml from main to
 #     offer updates, so main's version and the published image can never
-#     drift.) workflow_dispatch re-runs are idempotent via the same check.
+#     drift.)
+#     The image push and the release are gated independently, so a
+#     workflow_dispatch re-run after a sporadic partial failure finishes the
+#     missing half: the push is skipped only when {version,latest} are both on
+#     GHCR, and the release is created only when vX.Y.Z is not released yet.
 name: CICD
 
 on:
@@ -169,8 +173,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Read version, skip if already on GHCR
+      - name: Read version, check GHCR + release state
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' home-addon/config.yaml)"
           if [ -z "$VERSION" ]; then
@@ -178,11 +184,23 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
-            echo "$IMAGE:$VERSION already published — nothing to do"
+
+          # Skip the push only when BOTH the versioned image and `latest` are
+          # already on GHCR; if either is missing (sporadic partial publish)
+          # re-running re-pushes and finishes the job.
+          if docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1 && \
+             docker manifest inspect "$IMAGE:latest" >/dev/null 2>&1; then
+            echo "$IMAGE:$VERSION and :latest already on GHCR — skipping push"
             echo "published=true" >> "$GITHUB_OUTPUT"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already released — skipping release"
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Fetch ci-built jar
@@ -221,7 +239,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/perok/functional-home-assistant
 
       - name: Tag + GitHub release
-        if: steps.ver.outputs.published == 'false'
+        if: steps.ver.outputs.released == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
