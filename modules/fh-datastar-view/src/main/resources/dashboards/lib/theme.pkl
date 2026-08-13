@@ -102,6 +102,7 @@ const layoutCss: String = """
   .fh-cell.fh-hug{flex:0 0 auto}
   .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
   .fh-col>.fh-cell{width:100%}
+  .fh-cell:has(>.fh-ifhost:empty){display:none}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """
 

@@ -105,8 +105,13 @@ object Scene {
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
         fromSlots(c.slots, c.subjectEntity) ++ c.children.flatMap(walk)
-      case dyn: LayoutNode.Dynamic =>
-        dyn.cases.flatMap(_.slots.values.toList.flatMap(_.entityId))
+      case set: LayoutNode.SetNode =>
+        // A clause node is an ordinary component, so its own slots and children
+        // are reached by the same walk — and its candidate is named in a
+        // literal `entity_id` slot rather than injected per match.
+        set.candidates ++ set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
     }
 
     (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>

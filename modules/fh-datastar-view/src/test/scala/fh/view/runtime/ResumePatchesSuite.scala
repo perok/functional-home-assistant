@@ -1,14 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{
-  CardDef,
-  Dashboard,
-  DynamicCase,
-  LayoutNode,
-  Op,
-  Predicate,
-  SlotSource
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import fh.view.model.NodeId
 import fh.view.testkit.TestIds.given
 import cats.effect.unsafe.implicits.global
@@ -31,22 +23,31 @@ class ResumePatchesSuite extends munit.FunSuite {
     Dashboard(
       cards =
         Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
-      card = LayoutNode.Dynamic(
-        query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-        cases = List(
-          DynamicCase(
-            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-            "dot",
-            slots = Map("state" -> SlotSource())
+      card = LayoutNode.SetNode(
+        candidates = List("light.a", "light.b", "light.c", "light.d"),
+        members = List("light.a", "light.b", "light.c", "light.d").map { id =>
+          id -> LayoutNode.SetMember(
+            List(
+              LayoutNode.SetClause(
+                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                LayoutNode.Component(
+                  "dot",
+                  Map(
+                    "entity_id" -> SlotSource(literal = Some(id)),
+                    "state" -> SlotSource()
+                  )
+                )
+              )
+            )
           )
-        )
+        }.toMap
       )
     )
   )
 
   private def on(id: String) = EntityState(id, "on", Map.empty)
 
-  /** Members sort ascending by entity id, so these are a, b, c, d in order. */
+  /** Candidates are authored in entity-id order, so these are a, b, c, d. */
   private val states =
     List("light.a", "light.b", "light.c", "light.d")
       .map(id => id -> on(id))

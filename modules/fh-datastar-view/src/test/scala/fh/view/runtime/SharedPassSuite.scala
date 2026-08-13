@@ -8,7 +8,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,

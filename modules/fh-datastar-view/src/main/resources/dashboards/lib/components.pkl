@@ -45,8 +45,7 @@ class Cell {
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
-/// discriminator: `"component"` for a [[Node]], `"dynamic"` for a
-/// [[DynamicGroup]].
+/// discriminator: `"component"` for a [[Node]], `"set"` for a [[SetNode]].
 ///
 /// Every node is a CELL: the renderer wraps it in an id'd `.fh-cell` (the
 /// real flex/grid item), and the layout builders below put `fh-` contract
@@ -223,17 +222,19 @@ class UserActivation {
 }
 
 /// STATE activation (mirrors fh.view.model.Activation.State): the surface is
-/// shown while its quantified `condition` holds over live entity state — server
-/// truth, identical for every viewer (an [[If]] branch). A [[Predicate]] tests
-/// ONE entity, so the condition needs a `quantifier` over the whole state map:
-/// "any" = some entity matches (∃ — with an [[entityIs]] pin, the "entity X is
-/// in state Y" case), "none" = no entity matches (∄ — deliberately its own
-/// quantifier, NOT a `.not()` inside the condition, which would still quantify
-/// existentially), "all" = every entity matches (∀).
+/// shown while `condition` holds over live entity state — server truth,
+/// identical for every viewer (an [[If]] branch).
+///
+/// The condition is SUBJECT-FREE: there is no member here to be its subject, so
+/// every comparison must name its own entity (`query.entity(e).stateIs("on")`)
+/// and a [[Count]] carries its own candidates. There is no quantifier — over a
+/// named set `any` is `count > 0`, `none` is `count == 0` and `all` is
+/// `count == length`, which `query.pkl` builds — and a comparison that names no
+/// entity is a `Dashboard.validate` error rather than the old "some entity in
+/// the house".
 class StateActivation {
   kind: "state" = "state"
   condition: Predicate
-  quantifier: "any"|"none"|"all" = "any"
 }
 
 /// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
@@ -396,9 +397,6 @@ const local UNIT =
 const local function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
   else if (label != null) label
-  // Dynamic default: a LIVE friendly_name (falling back to entity_id),
-  // inheriting the matched entity — mirrors components.libsonnet:78-80.
-  else if (entity != null && entity.isDynamic) new Slot { transform = "$attr.friendly_name ? $attr.friendly_name : $entity_id"; bypassUnavailable = false }
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
@@ -517,49 +515,163 @@ class SectionTitle extends Node {
   }
 }
 
-/// Default entity icon per domain — Material Symbols names (the font ships
-/// with the BeerCSS theme; a theme without an icon font should hide
-/// `.entity header i`). Resolved at RUNTIME via `$lookup($domain)` (the slider
-/// config's identity-slot mechanism), so dynamic-group ($self) cards get the
-/// matched entity's icon too; an unlisted domain yields "" and the template
-/// section renders nothing.
-const local domainIcons: Mapping<String, String> = new {
-  ["light"] = "lightbulb"
-  ["switch"] = "toggle_on"
-  ["input_boolean"] = "toggle_on"
-  ["sensor"] = "sensors"
-  ["binary_sensor"] = "sensors"
-  ["lock"] = "lock"
-  ["cover"] = "blinds"
-  ["climate"] = "thermostat"
-  ["fan"] = "mode_fan"
-  ["media_player"] = "speaker"
-  ["camera"] = "videocam"
-  ["person"] = "person"
-  ["scene"] = "palette"
-  ["script"] = "description"
-  ["automation"] = "smart_toy"
-  ["vacuum"] = "vacuum"
-  ["weather"] = "partly_cloudy_day"
-  ["button"] = "radio_button_checked"
-}
-const local iconLookup: String =
-  "$lookup({" + (new Listing {
-    for (d, i in domainIcons) {
-      "\"\(d)\":\"\(i)\""
-    }
-  }).toList().join(",") + "}, $domain)"
+// ---- entity icons ----
+//
+// Names are MDI (`mdi:thermometer`) throughout, because that is what HOME
+// ASSISTANT's own icons are: an entity's `icon` attribute is whatever its user
+// or integration set, and translating those into another icon set is a lossy
+// table with no end. The theme loads the MDI stylesheet; see `theme-beer.pkl`
+// for its weight and the build-time SVG inlining that should replace it.
+//
+// Measured on a real instance (1069 entities): only 24% carry an `icon` at all.
+// HA's frontend derives the rest from domain + device_class + state, and that
+// derivation never crosses the wire — so these tables are not a nicety, they
+// are what three quarters of the cards render.
 
-/// HA-like entity card: domain icon + label + value (state or attribute, unit
+/// Per device_class, where the domain alone is too coarse — a `temperature`
+/// sensor should not look like a `humidity` one. Tried BEFORE [[domainIcons]].
+///
+/// One table, not one per domain: HA keys these by (domain, device_class) and a
+/// few names genuinely differ, but the overlap is small and a single table is
+/// the version worth maintaining by hand. State-dependent icons (HA shows a
+/// door open vs closed) are deliberately out — an icon resolved at build time
+/// cannot vary with state, and making it live would put a JSONata transform
+/// back on every card to save one glyph.
+const local deviceClassIcons: Mapping<String, String> = new {
+  ["temperature"] = "mdi:thermometer"
+  ["humidity"] = "mdi:water-percent"
+  ["pressure"] = "mdi:gauge"
+  ["atmospheric_pressure"] = "mdi:thermometer-lines"
+  ["battery"] = "mdi:battery"
+  ["power"] = "mdi:flash"
+  ["energy"] = "mdi:lightning-bolt"
+  ["voltage"] = "mdi:sine-wave"
+  ["current"] = "mdi:current-ac"
+  ["illuminance"] = "mdi:brightness-5"
+  ["signal_strength"] = "mdi:wifi"
+  ["timestamp"] = "mdi:clock"
+  ["duration"] = "mdi:progress-clock"
+  ["data_size"] = "mdi:database"
+  ["data_rate"] = "mdi:transmission-tower"
+  ["carbon_dioxide"] = "mdi:molecule-co2"
+  ["pm25"] = "mdi:blur"
+  ["pm10"] = "mdi:blur"
+  ["water"] = "mdi:water"
+  ["gas"] = "mdi:meter-gas"
+  ["door"] = "mdi:door-open"
+  ["garage_door"] = "mdi:garage-open"
+  ["window"] = "mdi:window-open"
+  ["opening"] = "mdi:square-outline"
+  ["motion"] = "mdi:motion-sensor"
+  ["occupancy"] = "mdi:home-account"
+  ["presence"] = "mdi:home"
+  ["moisture"] = "mdi:water-alert"
+  ["smoke"] = "mdi:smoke-detector"
+  ["problem"] = "mdi:alert-circle"
+  ["connectivity"] = "mdi:lan-connect"
+  ["update"] = "mdi:package-up"
+  ["running"] = "mdi:play"
+  ["lock"] = "mdi:lock"
+  ["safety"] = "mdi:shield-check"
+  ["tamper"] = "mdi:hand-back-right"
+  ["sound"] = "mdi:music-note"
+  ["vibration"] = "mdi:vibrate"
+  ["plug"] = "mdi:power-plug"
+  ["shutter"] = "mdi:window-shutter"
+  ["blind"] = "mdi:blinds"
+  ["curtain"] = "mdi:curtains"
+  ["awning"] = "mdi:awning-outline"
+  ["enum"] = "mdi:format-list-bulleted"
+}
+
+/// Per domain — the last resort before no icon at all. Covers every domain the
+/// reference instance reports; an unlisted one yields null and the template
+/// section renders nothing, which is the right failure (a wrong glyph is worse
+/// than none).
+const local domainIcons: Mapping<String, String> = new {
+  ["light"] = "mdi:lightbulb"
+  ["switch"] = "mdi:toggle-switch-variant"
+  ["input_boolean"] = "mdi:toggle-switch-variant"
+  ["sensor"] = "mdi:eye"
+  ["binary_sensor"] = "mdi:radiobox-blank"
+  ["lock"] = "mdi:lock"
+  ["cover"] = "mdi:window-shutter"
+  ["climate"] = "mdi:thermostat"
+  ["fan"] = "mdi:fan"
+  ["media_player"] = "mdi:speaker"
+  ["camera"] = "mdi:video"
+  ["person"] = "mdi:account"
+  ["device_tracker"] = "mdi:account-arrow-right"
+  ["scene"] = "mdi:palette"
+  ["script"] = "mdi:script-text"
+  ["automation"] = "mdi:robot"
+  ["vacuum"] = "mdi:robot-vacuum"
+  ["lawn_mower"] = "mdi:robot-mower"
+  ["weather"] = "mdi:weather-partly-cloudy"
+  ["button"] = "mdi:gesture-tap-button"
+  ["number"] = "mdi:ray-vertex"
+  ["input_number"] = "mdi:ray-vertex"
+  ["select"] = "mdi:form-select"
+  ["input_select"] = "mdi:form-select"
+  ["text"] = "mdi:form-textbox"
+  ["input_text"] = "mdi:form-textbox"
+  ["date"] = "mdi:calendar"
+  ["datetime"] = "mdi:calendar-clock"
+  ["time"] = "mdi:clock"
+  ["calendar"] = "mdi:calendar"
+  ["event"] = "mdi:calendar-clock"
+  ["image"] = "mdi:image"
+  ["update"] = "mdi:package-up"
+  ["sun"] = "mdi:white-balance-sunny"
+  ["zone"] = "mdi:map-marker-radius"
+  ["notify"] = "mdi:message"
+  ["conversation"] = "mdi:forum"
+  ["siren"] = "mdi:bullhorn"
+  ["valve"] = "mdi:pipe-valve"
+  ["water_heater"] = "mdi:water-boiler"
+  ["humidifier"] = "mdi:air-humidifier"
+  ["alarm_control_panel"] = "mdi:shield-home"
+}
+
+/// `mdi:thermometer` -> `mdi-thermometer`, the class the MDI stylesheet styles.
+/// Accepts either spelling so an author's `.icon("mdi-foo")` also works.
+const local function mdiClass(name: String): String =
+  name.replaceFirst("mdi:", "mdi-")
+
+/// The icon for an entity, resolved AT BUILD TIME, in Home Assistant's own
+/// order: the entity's own `icon` attribute (a user or integration override)
+/// beats its device_class, which beats its domain.
+///
+/// `getPropertyOrNull` rather than a declared field, because ADR 0013 puts
+/// capability attributes on the class generated PER ENTITY — an entity that
+/// reports no `icon` has no such property, and reading it directly is an eval
+/// error rather than a null.
+///
+/// A non-MDI override falls THROUGH to the tables: a custom icon set (this
+/// instance has six `hue:` entities from a HACS integration) ships no glyph
+/// here, and a class the stylesheet does not define renders as blank space —
+/// visibly worse than the domain default.
+const local function iconFor(e: hass.Entity?): String? =
+  if (e == null) null
+  else
+    let (own = e.getPropertyOrNull("icon"))
+    let (dc = e.getPropertyOrNull("device_class"))
+      if (own is String && own.startsWith("mdi:")) mdiClass(own)
+      else if (dc is String && deviceClassIcons.containsKey(dc))
+        mdiClass(deviceClassIcons[dc])
+      else if (domainIcons.containsKey(e.domain)) mdiClass(domainIcons[e.domain])
+      else null
+
+/// HA-like entity card: icon + label + value (state or attribute, unit
 /// auto-appended) + optional secondary line + optional tap. `icon` overrides
-/// the domain default with a literal Material Symbols name.
+/// what [[iconFor]] resolved, as an MDI name (`mdi:thermometer`).
 class EntityCard extends Node {
   card = "entityCard"
   cardDef = new LeafCard {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{{onclick}}}"{{/tappable}}>
-        <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>
+        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}{{label}}</header>
         <span class="state">{{value}}</span>{{#secondary}}
         <span class="secondary">{{secondary}}</span>{{/secondary}}
       </article>
@@ -581,12 +693,13 @@ class EntityCard extends Node {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
     ["value"] = valueSlot(value)
-    // Author literal, else the runtime domain lookup. Identity-derived
-    // (reactive = false); bypass OFF so an unavailable entity still resolves
-    // its icon from $domain rather than leaking raw state into the slot.
-    ["icon"] =
-      if (icon != null) icon!!
-      else new Slot { transform = iconLookup; reactive = false; bypassUnavailable = false }
+    // A LITERAL, always: the entity's own icon, its device_class or its domain
+    // are all registry facts, so there is nothing here for the runtime to
+    // decide. This used to be a `$lookup($domain)` transform on every card,
+    // because a query group's member had no identity at build time.
+    when (iconFor(entity) != null || icon != null) {
+      ["icon"] = if (icon != null) mdiClass(icon!!) else iconFor(entity)!!
+    }
     when (secondary != null) {
       ["secondary"] = secondarySlot(secondary!!)
     }
@@ -608,14 +721,16 @@ class EntityCard extends Node {
   function label(l: String|Expr): EntityCard = let (self = this) (self) { label = l }
   function value(v: String|Expr): EntityCard = let (self = this) (self) { value = v }
   function secondary(s: String|Expr): EntityCard = let (self = this) (self) { secondary = s }
+  /// Override the resolved icon with an MDI name — `mdi:thermometer`, or the
+  /// `mdi-thermometer` class spelling; both work.
   function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
   function tap(t: Tap): EntityCard = let (self = this) (self) { tap = t }
 }
 
 /// Static entity card as a call (amend options in parens).
 function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
-/// The SAME constructor as a VALUE, for [[DynamicGroup]] render positions:
-/// `branches { [domainIs("light")] = c.entityCard }`. Methods and function-value
+/// The SAME constructor as a VALUE, for a query's render positions:
+/// `q.from(xs).render(c.entityCard)`. Methods and function-value
 /// properties are separate namespaces, so this delegate co-exists with the method
 /// above — the parens in `entityCard(e)` pick the method (no recursion). The
 /// factory param is `e`, NOT `entity`: a param named after the property it sets
@@ -865,11 +980,9 @@ hidden tabs: Tabs = new Tabs {}
 // The slider's controllable config per domain: the service to call, the
 // service_data key the value rides on, the range bounds, and which attribute
 // is the live position. Add a domain (cover/fan/climate…) by adding a row —
-// TYPED: a missing/misspelled field is a build error. A STATIC slider resolves
-// its config AT BUILD TIME from the entity's domain (baked literals); a slider
-// bound to [[hass.SELF]] (a dynamic-group case) can't know the domain until a
-// match, so it falls back to jsonnet's runtime `$lookup($domain)` over this
-// same table (see [[sliderLookup]]).
+// TYPED: a missing/misspelled field is a build error. A slider resolves its
+// config AT BUILD TIME from the entity's domain, as baked literals — always,
+// now that a set's candidates are known entities.
 class SliderSpec {
   action: String
   key: String
@@ -884,28 +997,6 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
   ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
-// A JSONata object literal `{"<domain>": <spec.field>}` over the sliderSpec
-// table — `{"light":"light/turn_on","cover":...}` (JSONata object syntax IS
-// JSON). Pkl has no reflect-by-string, so the field is a lambda accessor;
-// String values are quoted, Int (min/max) values emitted bare. Mirrors jsonnet
-// sliderDomainMap (components.libsonnet:225-229) but over all three domains.
-const local function sliderDomainMap(get: (SliderSpec) -> Any): String =
-  "{" + (new Listing {
-    for (d, s in sliderSpec) {
-      let (v = get.apply(s))
-        "\"\(d)\":" + (if (v is String) "\"\(v)\"" else "\(v)")
-    }
-  }).toList().join(",") + "}"
-
-// `$lookup(<map>, $domain)` — resolve a config field from the entity's domain
-// at runtime (components.libsonnet:231).
-const local function sliderLookup(get: (SliderSpec) -> Any): String =
-  "$lookup(" + sliderDomainMap(get) + ", $domain)"
-
-// The live position: read the domain's position attribute off $attr
-// (components.libsonnet:233).
-const local sliderValueLookup: String = "$lookup($attr, " + sliderLookup((s) -> s.value) + ")"
-
 // The slider fill colour from the entity's own light attributes: an explicit
 // `rgb_color` wins, else `color_temp_kelvin` interpolated over the mired-free
 // 2000K..6500K span between a warm amber and a cool white — the same ramp HA's
@@ -919,16 +1010,17 @@ const local sliderFillColor: String =
   + #""rgb(" & $string($round(255 - 54 * $t)) & "," & $string($round(166 + 60 * $t)) "#
   + #"& "," & $string($round(87 + 168 * $t)) & ")") : null)"#
 
-// A slider config slot (action/key/min/max): author override → build-time spec
-// literal (stringified — the backend slot decoder rejects numbers) → the
-// runtime `$lookup($domain)` fallback for a spec-less ($self) slider. The
-// lookup form is identity-derived (reactive = false, never a live dependency)
-// and resolves even when the entity is unavailable (components.libsonnet:237).
+// A slider config slot (action/key/min/max): author override, else the spec
+// literal (stringified — the backend slot decoder rejects numbers).
+//
+// There used to be a third tier, a `$lookup($domain)` JSONata transform, for a
+// slider whose entity was a `$self` placeholder. It was the plan's motivating
+// example: four `reactive: false` transforms per member computing a BUILD-TIME
+// fact at runtime, because the entity was unknown at build time. A candidate
+// set knows it, so all four are literals and the tier is gone.
 // `override` is a Pkl reserved word — the param is `ovr`.
-const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderSpec) -> Any): Slot|String =
-  if (ovr != null) ovr
-  else if (spec != null) "\(get.apply(spec!!))"
-  else new Slot { transform = sliderLookup(get); reactive = false; bypassUnavailable = false }
+const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
+  if (ovr != null) ovr else "\(get.apply(spec))"
 
 /// What a [[Slider]] drives: an ENTITY (its domain's default axis — a light's
 /// brightness, a cover's position) or one of that entity's capability GROUPS
@@ -942,10 +1034,10 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec?, get: (SliderS
 /// would both hide the choice from it — see ADR 0013, "Shapes considered".
 typealias SlideAxis = hass.Entity|hass.ColourTemp
 
-/// Value slider. Accepts either a static entity whose domain has a sliderSpec
-/// row (config baked at build time) or [[hass.SELF]] inside a dynamic case
-/// (config resolved per matched entity via runtime `$lookup($domain)`). A
-/// slider on e.g. a static sensor is a BUILD error naming the dashboard line.
+/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
+/// that config in at build time. A slider on e.g. a sensor is a BUILD error
+/// naming the dashboard line — including inside a query, where the fold drops a
+/// branch whose guard cannot hold before its render lambda is applied.
 class Slider extends Node {
   card = "slider"
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
@@ -987,7 +1079,7 @@ class Slider extends Node {
   /// still works and means the domain's default axis; the two default to each
   /// other, so exactly one of them is ever needed.
   hidden on: SlideAxis = entity
-  hidden entity: hass.Entity(isDynamic || sliderSpec.containsKey(domain)) =
+  hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
     if (on is hass.ColourTemp) on.owner else on
   hidden label: (String|Expr)? = null
   // Per-instance overrides of the domain default. Each DEFAULTS to what the
@@ -1002,24 +1094,18 @@ class Slider extends Node {
   // entity tracks the value it actually writes.
   hidden valueAttr: String? =
     if (on is hass.ColourTemp) "color_temp_kelvin" else null
-  // Null for a dynamic ($self) slider — the domain is unknown until a match, so
-  // config falls through sliderConfig to the runtime lookup tier.
-  hidden spec: SliderSpec? = if (entity.isDynamic) null else sliderSpec[entity.domain]
-  // The JSONata pieces of the `fill` computation, honouring the same three
-  // config tiers as the input's own slots: author override → build-time spec
-  // literal → runtime $lookup($domain).
+  // Never null: the `entity` constraint above admits only a domain with a row,
+  // and a slider's subject is always a known entity now that a set's candidates
+  // are. That is what retired the runtime `$lookup($domain)` config tier — it
+  // existed for a member whose domain was unknown until it matched.
+  hidden spec: SliderSpec = sliderSpec[entity.domain]!!
+  // The JSONata pieces of the `fill` computation, honouring the same two config
+  // tiers as the input's own slots: author override → build-time spec literal.
   hidden valueExpr: String =
     if (valueAttr != null) "$attr." + valueAttr!!
-    else if (spec != null) "$attr." + spec!!.value
-    else sliderValueLookup
-  hidden minExpr: String =
-    if (min != null) "\(min!!)"
-    else if (spec != null) "\(spec!!.min)"
-    else sliderLookup((s) -> s.min)
-  hidden maxExpr: String =
-    if (max != null) "\(max!!)"
-    else if (spec != null) "\(spec!!.max)"
-    else sliderLookup((s) -> s.max)
+    else "$attr." + spec.value
+  hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
+  hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = labelSlot(entity, label)
@@ -1078,7 +1164,7 @@ class Slider extends Node {
 /// entity for its domain's default axis, or a capability group for that axis:
 /// `c.slider(l)` is brightness, `c.slider(l.colourTemp)` is colour temperature.
 function slider(a: SlideAxis): Slider = new Slider { on = a }
-/// The slider constructor as a VALUE, for [[DynamicGroup]] render positions.
+/// The slider constructor as a VALUE, for a query's render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
 // ---- call-style card factories (methods construct; `|>` adds) ----
@@ -1168,22 +1254,16 @@ function lightControls(l: hass.LightEntity): Column = new Column {
 }
 
 // ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
-// A dynamic group renders one card PER live entity matching a `query`,
-// optionally dispatching the card per entity. The matched entity's
-// id/entity_id/label are auto-injected and every inheriting slot is rebound to
-// it (Renderer.renderCase) — so a case is built with the SAME leaf classes as a
-// static card, just passing `hass.SELF` as the entity. `hass.SELF` is an
-// INTERNAL sentinel: authors write render lambdas `(e) -> ...` and never see it
-// (`caseOf` applies the lambda to it below). Port of components.libsonnet:579-661.
-
 /// A property-query comparison operator. TYPED — a misspelled op is now a build
 /// error (the backend `Op` decoder is case-insensitive over exactly these).
 typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
 
 /// The runtime property-query AST. `kind` is the circe discriminator.
-/// Combinators are METHODS (methods never render, so no `hidden` needed):
-/// `domainIs("light").and(stateIs("on"))`, `.or(...)`, `.not()`. `and`/`or`/`not`
-/// are legal method names — the Pkl operators are `&&`/`||`/`!`, so no collision.
+/// Built by `query.pkl`, never by hand — there are no free constructors, so a
+/// term always carries a binding (a set's candidate, or the entity a
+/// `query.entity(e)` names). Combinators are METHODS (methods never render, so
+/// no `hidden` needed): `.and(...)`, `.or(...)`, `.not()` — legal method names,
+/// since the Pkl operators are `&&`/`||`/`!`.
 abstract class Predicate {
   kind: String
   /// Matches when BOTH this and `other` match.
@@ -1204,6 +1284,31 @@ class Cmp extends Predicate {
   property: String
   op: PredicateOp
   value: Any
+  /// Absent means "the subject" — the entity this predicate is attached to,
+  /// which is every predicate written before candidate sets existed. Present
+  /// names a DIFFERENT entity ("show this light while its room's motion sensor
+  /// is on"), resolved at build time by [[query.entity]]; those ids reach the
+  /// reverse index through `SetNode.liveEntities`, or the node is never woken
+  /// by them.
+  entity: String? = null
+}
+
+/// How many of a STATIC candidate list are PRESENT, compared against a number.
+///
+/// No quantifier and no query: over a known list, `any` is `count > 0`, `none`
+/// is `count == 0`, `all` is `count == length`. Built by `query.pkl`'s
+/// `.count()`/`.any()`/`.none()`/`.all()`, never by hand.
+///
+/// `when` holds the guard for the candidates that have one; a candidate absent
+/// from it is unconditionally present. Per-candidate rather than one shared
+/// condition for the same reason a set member's clauses are: a statically-true
+/// term short-circuits a disjunction, so residuals diverge across one set.
+class Count extends Predicate {
+  kind: "count" = "count"
+  candidates: Listing<String>
+  `when`: Mapping<String, Predicate> = new {}
+  op: PredicateOp
+  value: Any
 }
 
 class PAnd extends Predicate {
@@ -1221,115 +1326,113 @@ class PNot extends Predicate {
   item: Predicate
 }
 
-// `const` so [[always]] (referenced from the [[DynamicGroup]] class body) may
-// call it. Parameters are NOT named after the properties they set: inside a
-// `new { property = property }` amend the RHS binds to the object's own member
-// (infinite recursion), so each argument gets a distinct name.
-const function cmp(prop: String, cmpOp: PredicateOp, cmpVal: Any): Cmp =
-  new { property = prop; op = cmpOp; value = cmpVal }
+// ---- candidate sets ----
+//
+// The wire vocabulary only. Authors do not write these — `lib/query.pkl` builds
+// them from a chain (`q.from(...).where(...).render(...)`), and it is the only
+// thing that should. They live here because a set is a LAYOUT NODE, and this
+// module owns the layout vocabulary; putting them in `query.pkl` would split
+// ownership of the wire between two modules.
+//
+// See `docs/adr/0003-dynamic-groups.md` for why membership is static
+// and the runtime decides only presence.
 
-/// Matches every entity (a domain is never literally this sentinel). `const`
-/// because [[DynamicGroup.cases]] references it from the class body.
-const always: Cmp = cmp("domain", "ne", "__never__")
-
-/// `domain == d`, e.g. `domainIs("light")`.
-function domainIs(d: String): Cmp = cmp("domain", "eq", d)
-/// `state == s`, e.g. `stateIs("on")`.
-function stateIs(s: String): Cmp = cmp("state", "eq", s)
-/// `entity_id == id`, e.g. `entityIs("light.kitchen")` — pins a condition to
-/// ONE entity, so an existentially quantified [[StateActivation]] ("any")
-/// reads "entity X is in state Y": `entityIs(...).and(stateIs("on"))`.
-function entityIs(id: String): Cmp = cmp("entity_id", "eq", id)
-/// `attr:device_class == dc`, e.g. `deviceClassIs("battery")`.
-function deviceClassIs(dc: String): Cmp = cmp("attr:device_class", "eq", dc)
-/// `attr:<name> < threshold`, e.g. `attrBelow("battery_level", 20)`.
-function attrBelow(name: String, threshold: Any): Cmp = cmp("attr:" + name, "lt", threshold)
-/// `state < threshold`.
-function stateBelow(threshold: Any): Cmp = cmp("state", "lt", threshold)
-// Battery sensors expose the % as their STATE with device_class "battery"
-// (non-numeric states like "unavailable" simply don't match `state < x`).
-/// Battery sensors under `threshold` percent.
-function lowBattery(threshold: Any): PAnd = deviceClassIs("battery").and(stateBelow(threshold))
-
-/// One dispatch branch: a predicate + the card (built against `hass.SELF`) to
-/// render when it matches. Keeps the card + its slots but drops the build-time
-/// `entity_id` slot (the renderer sets the matched entity as the subject per
-/// match) and the unused children.
-class Case {
-  `when`: Predicate
-  card: String
-  slots: Mapping<String, Slot|String> = new {}
-  /// Layout-cell classes for each per-entity member wrapper this case renders
-  /// (copied from the render fn's node by [[caseOf]]).
-  cell: Cell? = null
+/// One guarded rendering for a member: "if `when` holds, render `node`".
+///
+/// The node is COMPLETE — card, cell, slots, children, all inline — so a clause
+/// cannot be wrong about which member it belongs to, and nothing has to be
+/// looked up or merged to render one. `when = null` is unconditional.
+class SetClause {
+  `when`: Predicate? = null
+  node: LayoutNode
 }
 
-// Build a [[Case]] from a predicate and a render fn: apply the fn to the
-// INTERNAL `hass.SELF` placeholder to obtain the card, then keep its card name +
-// slots but filter the `entity_id` key out (the renderer injects the matched
-// entity per match). `const local` because [[DynamicGroup.cases]] calls it from
-// the class body. Cases stay leaf-only today (children dropped), but the
-// `(e) -> ...` shape already distributes the entity explicitly, so it needs no
-// redesign if the wire format ever grows composite cases.
-const local function caseOf(p: Predicate, r: (hass.Entity) -> Node): Case =
-  let (node = r.apply(hass.SELF))
-    new Case {
-      `when` = p
-      card = node.card
-      slots = new Mapping {
-        for (k, v in node.slots) {
-          when (k != "entity_id") {
-            [k] = v
-          }
-        }
-      }
-      // The render fn's layout-cell classes apply to every member wrapper.
-      cell = node.cell
-    }
+/// A member is a `cond` expression: clauses are tried in order and the first
+/// whose guard holds decides. FALLING OFF THE END means the member is not
+/// rendered — which is why there is no separate presence field, and why
+/// omitting the `else` is how "only while on" is written.
+class SetMember {
+  clauses: Listing<SetClause>
+}
 
-/// A runtime-resolved group: render one card PER live entity matching `query`.
-/// Branches are a `Mapping<Predicate, render fn>` — one line per branch, author
-/// order preserved (= first-match dispatch order), a duplicate predicate a build
-/// error, and each branch replaceable BY KEY when amending a base group (a
-/// Listing amend would be append-only). Each render fn is `(hass.Entity) -> Node`:
-/// the author writes exactly where the matched entity flows and never sees the
-/// `$self` sentinel. `render` is the fallback for entities no branch matched (and
-/// the ONLY card when `branches` is empty).
-class DynamicGroup extends LayoutNode {
-  kind: "dynamic" = "dynamic"
-  query: Predicate
-  hidden branches: Mapping<Predicate, (hass.Entity) -> Node> = new {}
-  /// The card for entities no branch matched; null when a branch covers them all.
-  // TODO rename as else, or no, also just add else and we translate either or to fallback
-  hidden render: ((hass.Entity) -> Node)? = null
-  cases: Listing<Case>(!isEmpty) = new Listing {
-    for (p, r in branches) { caseOf(p, r) }
-    when (render != null) { caseOf(always, render!!) }
-  }
+/// A set over a STATICALLY KNOWN candidate list. The candidates are decided at
+/// build time from the typed dump, so the runtime never invents a member: it
+/// decides presence, and (phase 3) order.
+class SetNode extends LayoutNode {
+  kind: "set" = "set"
+  /// In render order. When the ordering folded to registry facts this list is
+  /// already sorted: the runtime filters to the present members and preserves
+  /// it, with no comparisons.
+  candidates: Listing<String>
+  /// Lexicographic, most significant first. EMPTY when the whole ordering
+  /// folded to registry facts — then `candidates` is already in render order
+  /// and the runtime compares nothing.
+  orderBy: Listing<SortTerm> = new {}
+  /// Show at most this many PRESENT members, applied after ordering. Every
+  /// candidate still ships: which of them is cut depends on live values, so
+  /// only the runtime can decide it. A cut member is ABSENT from the DOM, not
+  /// hidden in it.
+  limit: Int? = null
+  members: Mapping<String, SetMember>
+}
+
+/// One ordering position. `by` reads a property's VALUE ([[SortProp]]) or
+/// whether a predicate HOLDS ([[SortHolds]], true first under `asc`) — both are
+/// orderings and neither expresses the other.
+class SortTerm {
+  by: SortKey
+  dir: "asc"|"desc" = "asc"
+}
+
+abstract class SortKey {
+  kind: String
+}
+
+class SortProp extends SortKey {
+  kind: "prop" = "prop"
+  /// `state` or `attr:<name>` — the same vocabulary a [[Cmp]] names. Never
+  /// `reg:`: a registry key folds at build time into the candidate order.
+  property: String
+}
+
+class SortHolds extends SortKey {
+  kind: "holds" = "holds"
+  predicate: Predicate
 }
 
 // ---- conditional sections (If/else via state-activated surfaces) ----
 // An If is NOT a new wire kind: it reuses the tabs machinery literally — a
 // host card with one bake hole + one inline surface per branch
 // (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
-// quantified condition over live entity state ([[StateActivation]]) instead of
-// the client's selection, so the choice is server truth, shared by every viewer.
+// condition over live entity state ([[StateActivation]]) instead of the
+// client's selection, so the choice is server truth, shared by every viewer.
 // Hidden-branch silence is structural: branch nodes live in surface indexes,
 // never the main reverse index, so the inactive branch is not rendered and
 // receives no updates.
 
-// Build a [[StateActivation]]. `p`/`q` are NOT named after the properties they
-// set (the amend-scoping gotcha — `condition = condition` inside the `new`
-// would self-recurse); `const local` because [[If.inlineSurfaces]] calls it
-// from the class body.
-const local function stateActivation(p: Predicate, q: "any"|"none"|"all"): StateActivation =
-  new { condition = p; quantifier = q }
+// Build a [[StateActivation]]. `p` is NOT named after the property it sets
+// (the amend-scoping gotcha — `condition = condition` inside the `new` would
+// self-recurse); `const local` because [[If.inlineSurfaces]] calls it from the
+// class body.
+const local function stateActivation(p: Predicate): StateActivation =
+  new { condition = p }
 
-/// A conditional section: the `then` cards are shown while the quantified
-/// `condition` holds over live entity state, the (optional) `else` cards while
-/// it does not. Built by [[iff]]/[[iffNone]]/[[iffAll]] — builder calls for
-/// single-card branches, the amend form for multi-card ones:
-///   c.iff(c.entityIs("light.x").and(c.stateIs("on")))
+/// The `else` branch's condition, and what [[iff]] makes of a condition the
+/// build already settled as true. An empty conjunction is vacuously true and
+/// reads nothing — unlike [[always]], which compares a subject an [[If]] does
+/// not have. `const` because [[If.inlineSurfaces]] reads it from the class body.
+const alwaysHolds: PAnd = new PAnd { items = new Listing {} }
+
+/// The mirror: an empty disjunction never holds. What [[iff]] makes of a
+/// condition the build settled as false — `q.from(emptyRoom).any()` folds to
+/// `false`, and the branch it guards then simply never shows.
+const neverHolds: POr = new POr { items = new Listing {} }
+
+/// A conditional section: the `then` cards are shown while `condition` holds
+/// over live entity state, the (optional) `else` cards while it does not. Built
+/// by [[iff]] — builder calls for single-card branches, the amend form for
+/// multi-card ones:
+///   c.iff(q.entity(dump.e_x).stateIs("on"))
 ///     .then(c.title("on")).`else`(c.title("off"))
 ///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
 /// With no matching member (a condition that fails and no `else`) the host
@@ -1340,8 +1443,12 @@ class If extends Node {
   // content, injected by the backend like the tabs `{{{panel}}}` — not a
   // declared slot). No `self` at all — an If has no presentation of its own, so
   // there is nothing about it that could change without its content changing.
+  // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
+  // no matching branch the bake hole is the empty string, and without the class
+  // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
+  // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
   cardDef = new ContainerCard {
-    mount = #"<div id="{{mountId}}">{{{branch}}}</div>"#
+    mount = #"<div class="fh-ifhost" id="{{mountId}}">{{{branch}}}</div>"#
   }
   // A conditional SECTION, sized like one; its content's own layout stays the
   // branch `Row`'s business. (Layout transparency was considered and dropped:
@@ -1349,7 +1456,6 @@ class If extends Node {
   // flow into a grandparent grid.)
   cell = new Cell { classes { "fh-cols-full" } }
   hidden condition: Predicate
-  hidden quant: "any"|"none"|"all" = "any"
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
   // backticked for visual pairing (backticks are pure quoting, not identity).
   hidden `then`: Listing<LayoutNode> = new {}
@@ -1365,7 +1471,7 @@ class If extends Node {
       bakeInto = NODE_ID
       bakeAs = "branch"
       bakeIndex = 0
-      activation = stateActivation(condition, quant)
+      activation = stateActivation(condition)
     }
     when (!`else`.isEmpty) {
       ["else"] = new SurfaceDef {
@@ -1373,7 +1479,7 @@ class If extends Node {
         bakeInto = NODE_ID
         bakeAs = "branch"
         bakeIndex = 1
-        activation = stateActivation(always, "any")
+        activation = stateActivation(alwaysHolds)
       }
     }
   }
@@ -1390,13 +1496,19 @@ class If extends Node {
 }
 
 /// A conditional section as a call: `c.iff(p).then(...).`else`(...)` — shown
-/// while SOME entity matches `p` (quantifier "any"; pin one entity with
-/// [[entityIs]]). See [[If]] for the amend form.
-function iff(p: Predicate): If = new If { condition = p }
-/// [[iff]] with quantifier "none": shown while NO entity matches `p`.
-function iffNone(p: Predicate): If = new If { condition = p; quant = "none" }
-/// [[iff]] with quantifier "all": shown while EVERY entity matches `p`.
-function iffAll(p: Predicate): If = new If { condition = p; quant = "all" }
+/// while `p` holds. `p` must name the entities it reads; build it with
+/// `query.entity(e)` for one entity, or `query.from(list).any()`/`.none()`/
+/// `.all()`/`.count(...)` over a set. See [[If]] for the amend form.
+/// A `Boolean` is accepted because the build FOLDS: a count over a set whose
+/// candidates all resolve statically is a number, so `q.from(emptyRoom).any()`
+/// is `false` before anything runs. Taking it here keeps that an ordinary
+/// condition instead of a type error the author has to route around.
+function iff(p: Predicate|Boolean): If =
+  new If {
+    condition =
+      if (p is Boolean) (if (p) alwaysHolds else neverHolds)
+      else p
+  }
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,

@@ -14,7 +14,7 @@ what its viewer has selected).
 >   its rationale*, this file owns *the shape of the thing*. They are not alternatives to each other.
 >   ADRs [0011](adr/0011-the-live-connection.md) and
 >   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
->   [0003](adr/0003-dynamic-groups.md) (dynamic groups) and
+>   [0003](adr/0003-dynamic-groups.md) (candidate sets) and
 >   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
@@ -39,7 +39,7 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    SYNC["Renderer.syncMembers<br/>apply the frame to every dynamic group's MEMBER GRAPH<br/>before the gate, and for every group:<br/>the graph tracks the stream, not who is watching"]
+    SYNC["Renderer.syncMembers<br/>apply the frame to every set's MEMBER GRAPH<br/>before the gate, and for every set:<br/>the graph tracks the stream, not who is watching"]
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · dynamics · flips"]
     REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
@@ -211,7 +211,7 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
 
 every slug's recorder wakes
   read snapshot+version together, and sessions.openSets(slug) + floor(slug)
-  syncMembers -> apply the frame to EVERY dynamic group's member graph, and
+  syncMembers -> apply the frame to EVERY set's member graph, and
       report what it did to each: the member lists before and after, plus the
       members whose CASE was replaced in place. BEFORE the gate and for
       every group, not the visible ones: the graph tracks the state stream, so
@@ -227,16 +227,16 @@ every slug's recorder wakes
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
   plan    -> staticIds (members included — they are in the reverse index),
-             dynamics (which groups to ask about MEMBERSHIP), flips
+             dynamics (which sets to ask about PRESENCE/ORDER), flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version    // members are in here: they are in
                                            // the reverse index like any node
-      dynamics       -> the members whose CASE was replaced (no entity edge can
+      dynamics       -> the members whose CLAUSE was replaced (no entity edge can
                         name a card binding nothing live), then Gone/Placed per
                         membership move, or a filled mount
-                        (the churn heuristic survives as `filled`, which raises
-                         the container's horizon — "any cursor below this gets
+                        (a fill is recorded as `filled`, which raises the
+                         container's horizon — "any cursor below this gets
                          this mount")
   ring the doorbell with the version          // AFTER the log is written, or a
                                               // session could set its position
@@ -300,8 +300,8 @@ server itself last sent.
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
 and membership arrives already applied — `Renderer.syncMembers` moves the member graph for every
-dynamic group before the gate, and hands `record` each group's list before and after plus the
-members whose case it replaced.
+member container before the gate, and hands `record` each container's list before and after plus
+the members whose case it replaced.
 
 ```mermaid
 flowchart TB
@@ -309,21 +309,21 @@ flowchart TB
 
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["DYNAMICS<br/>a query-driven group whose MEMBERSHIP may have moved"]
+  REQ --> DYN["DYNAMICS<br/>a candidate set whose PRESENCE or ORDER may have moved"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
   STAT --> STATW["touched: node -&gt; version<br/>a materialised MEMBER arrives here too"]
 
-  DYN --> REPL["touched, per member whose CASE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
+  DYN --> REPL["touched, per member whose CLAUSE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
   REPL --> SAME{"membership<br/>moved?"}
   SAME -->|no| OUT
-  SAME -->|yes| SET{"did the member SET move,<br/>or only its order?"}
-  SET -->|only the order| OUT
-  SET -->|the set| CHURN{"churn a MINORITY?<br/>perEntityChurn"}
-  CHURN -->|no, heavy churn| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
-  CHURN -->|yes| EST{"log.hasChildOf gid<br/>is there a base to patch against?"}
-  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival"]
+  SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
+  SET -->|nobody| OUT
+  SET -->|somebody| CHURN{"is the UNCHANGED set empty?<br/>(everything arrived, or everything left)"}
+  CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
+  CHURN -->|no| EST{"log.holdsAnyOf the members<br/>is there a base to patch against?"}
+  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
   EST -->|no, fresh log after swap or fill| FILL
 
   FLIPW --> OUT["the CHANGELOG.<br/>Each session turns it into patches for itself,<br/>in Patches.resume"]
@@ -343,12 +343,15 @@ moves like any other node's, and the render that reads a viewer's selection happ
 is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, and
 `nodeVariesByViewer` went with them once `plan` stopped partitioning what `record` merged back.
 
-**The churn heuristic had to survive the loss of the render**, or the wire would move: heavy churn
-still fills the mount rather than patching members. It is recorded as `FragmentLog.filled`, which
-raises the container's `horizon` — already the mechanism for "no delta describes this, send the
-mount" — so `resume` reaches the same patch from the other side. A fill also `touched`es the members
-it leaves, because those entries are what keep the group *established* for the next membership
-change.
+**Filling had to survive the loss of the render**, or the wire would move. It is recorded as
+`FragmentLog.filled`, which raises the container's `horizon` — already the mechanism for "no delta
+describes this, send the mount" — so `resume` reaches the same patch from the other side. A fill
+also `touched`es the members it leaves, because those entries are what keep the group *established*
+for the next membership change.
+
+*What* fills has narrowed since: a churn FRACTION used to send the whole mount past half the
+group, which re-sent the members that did not change. Now only the two cases where a fill re-sends
+nothing — everything arrived, or everything left — plus the no-baseline fallback.
 
 ---
 
@@ -366,21 +369,63 @@ because the *pass* was shared. Once the render moved to the viewer, both disappe
 
 **A branch fill forgets by MOUNT, not by prefix.** A branch's content ids are `s_<surface>__…`,
 which no prefix of the container's id reaches, so the patch names the surfaces at that mount
-(`Patches.hostEvicts`) as what it made unknown. A dynamic mount's children *are* `gid_…`, so there
+(`Patches.hostEvicts`) as what it made unknown. A set mount's children *are* `gid_…`, so there
 the container's id is the right root.
 
 ---
 
-## 4b. The member graph — a dynamic group's members ARE nodes
+## 4b. The member graph — a member container's members ARE nodes
 
 The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
 from the `Dashboard`: every authored node, keyed by its location-derived id. The **dynamic** half
-(`MemberGraph`) is a group's members, and it is maintained by the state stream rather than computed.
+(`MemberGraph`) is a container's members, and it is maintained by the state stream rather than
+computed.
 
-A member is a real `LayoutNode.Component` — the matched case's card, its slots plus the matched
-entity as a literal `entity_id` slot, its cell — stored under the id its `MemberKey` derives. That
-literal slot is the whole trick: `renderCase` already set it on every render, so setting it ONCE, at
-membership time, is all it takes for a member to stop being special. `renderNodeById` renders it,
+**One kind of container feeds it**: `LayoutNode.SetNode`, via `Renderer.MemberSource`.
+
+| | |
+|---|---|
+| candidates | a STATIC list, decided at build time |
+| what the runtime decides | presence and ORDER — it never invents a member |
+| a member's node | the clause's COMPLETE node, `entity_id` already on it |
+| woken by | a change to a candidate, **or to an entity a guard names** |
+| placement | the authored candidate order |
+
+`MemberSource` was a trait over two implementations until query-driven groups
+(`LayoutNode.Dynamic`) were deleted, and every difference between them followed from one thing: a
+query group's members were invented at runtime, so it could not say who its candidates were, could
+not place them by anything but entity id, and had to rescan the whole state map to find them. ADR
+0003 has the rest; sets are authored through `@fh-dashboard/query.pkl`.
+
+**Sets NEST.** A set inside a member — "a tile per room" — is an ordinary container with an ordinary
+id, because a set's candidates are static and so the whole tree of them is enumerated at renderer
+construction (`Renderer.memberSources`), before any state arrives. Its id says where it hangs:
+`<member>_<clause>_<child path>`, every segment static. The inner members are graph nodes like any
+other, so a bulb patches its own element and its tile is never re-rendered — which is the point of
+nesting rather than composing bytes.
+
+Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
+would wake the tile on every bulb inside it), and container selection reads `memberSources` rather
+than the static index (a nested set is not in the index — it hangs off a member, which is the
+dynamic half). The second was a real bug: correct ids, correct HTML, zero patches.
+
+The id scheme itself is ONE function, `Renderer.innerSetId`, read from both ends — `memberSources`
+registers a container under it, `memberChild` paints an element under it. It used to be written out
+once per end with a comment asking the two to agree, which is the same silent failure again: the
+recorder maintains a container the browser does not have. `SetNodeSuite` pins the property that
+outlives the refactor — every group the markup shows is one the graph registered, two levels deep.
+
+**A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
+neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's
+member list instead of patching one place in it (`MemberSource.stable`). The cost is O(candidates)
+for a container the frame actually touched — bounded and static, where the query group it replaces
+rescanned the whole house. Everything downstream is unchanged: a rebuild still reports arrivals,
+departures and now MOVES, and a member that merely ticked still comes through the reverse index.
+
+A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
+`entity_id` slot, its cell — stored under the id its `MemberKey` derives. That literal slot is the
+whole trick: `renderCase` already set it on every render, so setting it ONCE, at membership time,
+is all it takes for a member to stop being special. `renderNodeById` renders it,
 `renderInputs` keys it, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
@@ -398,7 +443,9 @@ Three properties hold it up, and each fails silently if broken:
   which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
   member list, which is also what an insert anchor reads); the key is the IDENTITY. `MemberKey` is
   already a sum (`Entity` today, `Surface` for a state group's branch), so "one member is one
-  entity" stays a property of the predicate engine rather than of the id scheme.
+  entity" stays a property of the predicate engine rather than of the id scheme. A CANDIDATE SET
+  has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
+  ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
 - **The recorder is the only writer.** A reader derives a group the stream has not reached yet but
   never installs what it derived. Installing would let a page rendering at version 5 — while the
   recorder is still applying the frame that produced 5 — become that frame's "before"; the frame
@@ -560,12 +607,11 @@ Live list — delete an entry when it is answered, and say where the answer land
   version skew in it at all. Tackle it if a real deployment shows a persistent skew, and measure
   before widening the bound.
 
-- **An entity that VANISHES leaves a ghost member.** A removal produces no `StateChange`, so a
-  delta-maintained graph never hears about it and keeps a member whose element is in no DOM — and
-  offers its id to `insertInto` as an anchor. The answer is to drop the `LiveSlug` outright rather
-  than to teach the delta path about it (a removal already forces a registry watch → renderer swap
-  → fresh log); the gap is that an `r` frame does not always have a registry event behind it. See
-  ADR 0003's open section.
+- ~~**An entity that VANISHES leaves a ghost member.**~~ *Closed by candidate sets.* Membership was
+  maintained from deltas and a removal produces no `StateChange`, so the graph kept a member whose
+  element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
+  and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
+  go stale (ADR 0003).
 - **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth
@@ -584,8 +630,10 @@ exist.
 
 Two findings from the cache work, which sit between the ADRs and so are easy to lose:
 
-- An `if`/`else` host's branch is a quantified predicate over the WHOLE entity map, so it is keyed
-  on the RESOLVED selection rather than on what the selection reads.
+- An `if`/`else` host's branch is keyed on the RESOLVED selection rather than on what the selection
+  reads. That was forced when the condition was quantified over the whole entity map; it stays
+  because it is still the smaller key — a subject-free condition names its entities, but a count
+  names all of its candidates, where the selection it resolves to is one number.
 - The cache holds ONE generation per node PER SELECTION, and the asymmetry is the point: `plan`
   selects the nodes whose entity just moved, so a full `(nodeId, inputs)` key would grow forever at a
   near-zero hit rate — but the selection half of that key does not churn, and bucketing on it is what

@@ -61,6 +61,13 @@ case class EntityState(
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
 
+  /** The subject supplied where there is none to supply — a surface's state
+    * condition, which names every entity it reads. Nothing reads this; it
+    * exists because `Renderer.matchesIn` takes a subject, and
+    * `Dashboard.validate` rejects the comparison that would fall back to it.
+    */
+  val none: EntityState = EntityState("", "", Map.empty)
+
   /** HA's compressed feed timestamps are epoch SECONDS as a float; millisecond
     * resolution is more than recency needs.
     */

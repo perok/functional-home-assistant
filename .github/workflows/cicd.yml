@@ -90,9 +90,28 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
+      # The `pkl test` CLI, for the authoring-library suite below. Pinned to the
+      # SAME version as the `org.pkl-lang:pkl-core` dep in build.sbt — the tests
+      # exercise the library the server evaluates in-process, so a CLI on a
+      # different version would be testing different semantics than we ship.
+      - uses: pkl-community/setup-pkl@v0
+        with:
+          pkl-version: "0.32.1"
+
       - parallel:
           - name: Fmt check
             run: scalafmt --test
+
+          # Unit tests for the `@fh-dashboard` authoring library (facts +
+          # examples). Pure Pkl — no HA, no JVM, no dump. The report dir is
+          # chosen to match the `Publish Test Report` glob below
+          # (`**/target/**/test-reports/*.xml`), so pkl failures surface in the
+          # same PR annotation as the Scala ones.
+          - name: Test pkl library
+            run: |
+              pkl test \
+                --junit-reports target/pkl/test-reports \
+                modules/fh-datastar-view/src/test/pkl/*.test.pkl
 
           - name: Test
             env:

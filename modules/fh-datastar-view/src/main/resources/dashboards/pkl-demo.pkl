@@ -12,6 +12,7 @@
 amends "@fh-dashboard/entry.pkl"
 
 import "@fh-dashboard/components.pkl" as c
+import "@fh-dashboard/query.pkl" as q
 import "@fh-home/dump.pkl" as dump
 
 // Registered popup surfaces: opened by an `openPopup("detail")` tap and
@@ -63,34 +64,43 @@ card = (c.grid) {
     }
 
 
-    // DYNAMIC group with per-domain DISPATCH: one card per live "on" entity, the
-    // card chosen by the first matching branch (author order = dispatch order).
-    // Each branch is a render lambda of the matched entity; the light branch is a
-    // bare `c.slider` value (its action/key/min/max/position resolve per matched
-    // light via the runtime $lookup($domain) config tier). `render` is the
-    // fallback: every other "on" entity, toggled on tap. The group root is
-    // itself a grid cell (fullWidth here); its members flow in the group's own
-    // 12-column grid, two-up by default.
+    // A QUERY with per-domain DISPATCH: a card per entity that is on, the card
+    // chosen by the first matching case (author order = match order). The light
+    // case is a bare `c.slider` value (its action/key/min/max/position resolve
+    // per light at BUILD time, now that the candidate is a known entity);
+    // `else` is the fallback for every other one, toggled on tap.
+    //
+    // The candidates are static — every entity in the house, decided when the
+    // dump was built — and what the runtime decides is which of them are on and
+    // in what order. Omitting `else` would be how you write "only while on";
+    // here the guard is on the `where`, so an entity that is off simply has no
+    // matching clause and is not rendered. The set's root is itself a grid cell
+    // (fullWidth here); its members flow in its own 12-column grid, two-up.
     c.title("Active now").fullWidth()
-    (new c.DynamicGroup {
-      query = c.stateIs("on")
-      branches {
-        [c.domainIs("light")] = c.slider
-      }
-      render = (e) -> c.entityCard(e)
+    q.from(dump.all)
+      .where(q.eq(q.stateProp, "on"))
+      .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+      .`else`((e) -> c.entityCard(e)
         .tap(c.toggleTap)
-        .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#))
-    }).fullWidth()
+        .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#)))
+      .build()
+      .fullWidth()
 
-    // DYNAMIC group with a SINGLE card and a NUMERIC membership query: every
-    // device_class:battery sensor under 20%, tracked live as batteries drain.
+    // A SINGLE card and a numeric LIVE filter: every device_class:battery
+    // sensor under 20%, tracked live as batteries drain. `device_class` is
+    // registry data, so it selects the candidates at build time and never
+    // reaches the runtime — `optional` because most sensors report none, and a
+    // name only SOME candidates carry is an error rather than a silent live
+    // attribute. The charge level is the sensor's state, so that half is live.
     c.title("Low battery").fullWidth()
-    (new c.DynamicGroup {
-      query = c.lowBattery(20)
-      render = (e) -> c.entityCard(e)
+    q.from(dump.sensors)
+      .where(q.eq(q.optional(q.prop("device_class")), "battery"))
+      .where(q.lt(q.stateProp, 20))
+      .render((e) -> c.entityCard(e)
         .label(c.expr(#"$attr.friendly_name & " — " & $state & "%""#))
-        .secondary("device_class")
-    }).fullWidth()
+        .secondary("device_class"))
+      .build()
+      .fullWidth()
 
     // POPUPS. A COLUMN inside a grid cell: the three buttons stack vertically
     // in one half-grid cell (a column is just another cell — containers nest

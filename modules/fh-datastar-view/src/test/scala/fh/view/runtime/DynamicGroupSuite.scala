@@ -2,27 +2,23 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.kernel.{Deferred, Ref}
+import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
   Predicate,
   SlotSource,
-  Surface,
-  Theme
+  Surface
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 
 import scala.concurrent.duration.*
 
@@ -46,19 +42,15 @@ class DynamicGroupSuite extends ServerHarness {
       "bright" -> CardDef("<b>{{state}}</b>", slots = List("state")),
       "dim" -> CardDef("<i>{{state}}</i>", slots = List("state"))
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "bright",
-          slots = Map("state" -> SlotSource())
+          Map("state" -> SlotSource())
         ),
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "dim",
-          slots = Map("state" -> SlotSource())
-        )
+        (None, "dim", Map("state" -> SlotSource()))
       )
     )
   )
@@ -74,13 +66,13 @@ class DynamicGroupSuite extends ServerHarness {
         slots = List("state", "extra")
       )
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          None,
           "dot",
-          slots = Map(
+          Map(
             "state" -> SlotSource(),
             "extra" -> SlotSource(Some("sensor.outside"))
           )
@@ -98,19 +90,15 @@ class DynamicGroupSuite extends ServerHarness {
       "live" -> CardDef("<b>{{state}}</b>", slots = List("state")),
       "plain" -> CardDef("<i>{{label}}</i>", slots = List("label"))
     ),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright")),
+    card = onSet(
+      List("light.a", "light.b"),
+      List(
+        (
+          Some(Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("bright"))),
           "live",
-          slots = Map("state" -> SlotSource())
+          Map("state" -> SlotSource())
         ),
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "plain",
-          slots = Map("label" -> SlotSource(literal = Some("off-duty")))
-        )
+        (None, "plain", Map("label" -> SlotSource(literal = Some("off-duty"))))
       )
     )
   )
@@ -357,10 +345,14 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test(
-    "heuristic: removing 1 of 2 members FILLS the group's mount + refingerprints"
-  ) {
-    // shown 2, churn 1 -> 1 < 0.5*2 is false -> the wholesale fallback.
+  test("removing 1 of 2 members is a DELTA, not a fill") {
+    // This used to fill: churn was compared against a fraction of the group
+    // (half), and 1 of 2 is not a minority. It was the wrong call at its own
+    // motivating boundary — a `remove` carries NO HTML, where the fill it chose
+    // instead re-rendered the surviving member for nothing, and raised the
+    // mount's horizon so every client below that cursor lost its delta path
+    // too. A fill now happens only where it costs nothing (everything arrived,
+    // or everything left) or where there is no baseline to patch against.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     runShared(
@@ -371,41 +363,31 @@ class DynamicGroupSuite extends ServerHarness {
     ).map { case (patches, cache) =>
       assertEquals(patches.size, 1, clue = patches)
       val p = patches.head
-      // An `Inner` fill AT THE MOUNT — the group's own element, which IS its
-      // mount — carrying only the surviving member. Not an outer morph of the
-      // group, which would have been a patch containing other nodes.
-      assert(p.contains("mode inner"), clue = p)
-      assert(p.contains("selector #c"), clue = p)
-      assert(p.contains("""id="c_light_a""""), clue = p)
-      assert(!p.contains("""id="c_light_b""""), clue = p)
-      // The payload is the members' MARKUP and nothing else. Asserting an id is
-      // CONTAINED cannot see a wrapper around it: when `renders.fill` started
-      // yielding `NodeBytes`, this line concatenated those instead of their
-      // `.html` and put `NodeBytes(<div id="c_light_a">…,<digest>)` on the wire
-      // — with every containment assertion above still green.
-      assertEquals(
-        p.linesIterator
-          .collect {
-            case l if l.startsWith("data: elements ") =>
-              l.drop("data: elements ".length)
-          }
-          .mkString("\n"),
-        Renderer
-          .create(dynDash)
-          .renderDynamicMembers("c", after)
-          .map(_._2)
-          .mkString,
-        clue = p
-      )
-      // The departed member's entry is gone and the surviving one is
-      // RE-FINGERPRINTED: the fill re-supplied the mount wholesale, so without
-      // that the next live diff would compare against a baseline the client never
-      // had. And no group-level entry is written — that would be a fragment
-      // containing another node.
+      assert(p.contains("mode remove"), clue = p)
+      assert(p.contains("selector #c_light_b"), clue = p)
+      // The whole point: no HTML at all, where a fill would have re-sent the
+      // survivor's markup.
+      assert(!p.contains("data: elements"), clue = p)
       assert(!cache.contains("c_light_b"), clue = cache)
-      assert(cache.contains("c_light_a"), clue = cache)
       assert(!cache.contains("c"), clue = cache)
     }
+  }
+
+  test("the LAST member leaving fills, because the fill carries nothing") {
+    // The other side of the same rule. Everything left, so there is no
+    // unchanged member for a fill to re-send: one empty `inner` beats one
+    // `remove`, and it leaves the mount unambiguously empty.
+    val after = Map("light.a" -> off("light.a"))
+    val change = StateChange("light.a", Some(on("light.a")), off("light.a"))
+    runShared(dynDash, after, change, seedCache = Map("c_light_a" -> "<a>"))
+      .map { case (patches, cache) =>
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode inner"), clue = p)
+        assert(p.contains("selector #c"), clue = p)
+        assert(!p.contains("""id="c_light_a""""), clue = p)
+        assert(!cache.contains("c_light_a"), clue = cache)
+      }
   }
 
   test("membership change on a not-yet-logged group falls back to a fill") {
@@ -439,15 +421,9 @@ class DynamicGroupSuite extends ServerHarness {
     card = LayoutNode.Component("col"),
     surfaces = Map(
       "det" -> Surface(
-        LayoutNode.Dynamic(
-          query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-          cases = List(
-            DynamicCase(
-              Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-              "dot",
-              slots = Map("state" -> SlotSource())
-            )
-          )
+        onSet(
+          List("light.a", "light.b"),
+          List((None, "dot", Map("state" -> SlotSource())))
         )
       )
     )
@@ -540,7 +516,7 @@ class DynamicGroupSuite extends ServerHarness {
       }
   }
 
-  test("open surface's dynamic group gets the same per-entity treatment") {
+  test("a set inside an open surface gets the same per-member treatment") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
     (for {

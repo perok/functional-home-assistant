@@ -8,7 +8,6 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
@@ -208,12 +207,10 @@ class StateSurfaceSuite extends ServerHarness {
     }
   }
 
-  test("a dynamic group inside an INACTIVE branch stays silent") {
-    val dyn = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(always, "dot", slots = Map("state" -> SlotSource()))
-      )
+  test("a candidate set inside an INACTIVE branch stays silent") {
+    val dyn = onSet(
+      List("light.x", "light.y", "light.z"),
+      List((None, "dot", Map("state" -> SlotSource())))
     )
     for {
       h <- SharedHarness.create(

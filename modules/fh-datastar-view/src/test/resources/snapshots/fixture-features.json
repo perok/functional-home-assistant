@@ -18,11 +18,7 @@
         "kind" : "component",
         "slots" : {
           "entity_id" : "sensor.outside_temp",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
+          "icon" : "mdi-thermometer",
           "label" : "Outside Temperature",
           "value" : {
             "bypassUnavailable" : true,
@@ -38,11 +34,7 @@
         "kind" : "component",
         "slots" : {
           "entity_id" : "light.kitchen",
-          "icon" : {
-            "bypassUnavailable" : false,
-            "reactive" : false,
-            "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-          },
+          "icon" : "mdi-lightbulb",
           "label" : "Kitchen",
           "onclick" : {
             "bypassUnavailable" : false,
@@ -95,41 +87,71 @@
         }
       },
       {
-        "cases" : [
-          {
-            "card" : "entityCard",
-            "slots" : {
-              "icon" : {
-                "bypassUnavailable" : false,
-                "reactive" : false,
-                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-              },
-              "label" : {
-                "bypassUnavailable" : false,
-                "reactive" : true,
-                "transform" : "$attr.friendly_name ? $attr.friendly_name : $entity_id"
-              },
-              "value" : {
-                "bypassUnavailable" : true,
-                "reactive" : true,
-                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-              }
-            },
-            "when" : {
-              "kind" : "cmp",
-              "op" : "ne",
-              "property" : "domain",
-              "value" : "__never__"
-            }
-          }
+        "candidates" : [
+          "light.kitchen",
+          "light.living_room"
         ],
-        "kind" : "dynamic",
-        "query" : {
-          "kind" : "cmp",
-          "op" : "eq",
-          "property" : "state",
-          "value" : "on"
-        }
+        "kind" : "set",
+        "members" : {
+          "light.kitchen" : {
+            "clauses" : [
+              {
+                "node" : {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.kitchen",
+                    "icon" : "mdi-lightbulb",
+                    "label" : "Kitchen",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                },
+                "when" : {
+                  "kind" : "cmp",
+                  "op" : "eq",
+                  "property" : "state",
+                  "value" : "on"
+                }
+              }
+            ]
+          },
+          "light.living_room" : {
+            "clauses" : [
+              {
+                "node" : {
+                  "card" : "entityCard",
+                  "children" : [
+                  ],
+                  "kind" : "component",
+                  "slots" : {
+                    "entity_id" : "light.living_room",
+                    "icon" : "mdi-lightbulb",
+                    "label" : "Living Room",
+                    "value" : {
+                      "bypassUnavailable" : true,
+                      "reactive" : true,
+                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                    }
+                  }
+                },
+                "when" : {
+                  "kind" : "cmp",
+                  "op" : "eq",
+                  "property" : "state",
+                  "value" : "on"
+                }
+              }
+            ]
+          }
+        },
+        "orderBy" : [
+        ]
       },
       {
         "card" : "button",
@@ -211,7 +233,7 @@
         "value",
         "entity_id"
       ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "fhcol" : {
       "mount" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
@@ -232,7 +254,7 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "ifhost" : {
-      "mount" : "<div id=\"{{mountId}}\">{{{branch}}}</div>",
+      "mount" : "<div class=\"fh-ifhost\" id=\"{{mountId}}\">{{{branch}}}</div>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"
@@ -306,11 +328,7 @@
             "kind" : "component",
             "slots" : {
               "entity_id" : "sensor.outside_temp",
-              "icon" : {
-                "bypassUnavailable" : false,
-                "reactive" : false,
-                "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-              },
+              "icon" : "mdi-thermometer",
               "label" : "Outside Temperature",
               "value" : {
                 "bypassUnavailable" : true,

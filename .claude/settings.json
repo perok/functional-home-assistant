@@ -38,7 +38,7 @@
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/block-shell-file-edits.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-shell-file-edits.sh\"",
             "timeout": 10,
             "statusMessage": "Checking for shell-based file edits..."
           }
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/guard-protected-paths.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected-paths.sh\"",
             "timeout": 10,
             "statusMessage": "Checking protected paths..."
           }

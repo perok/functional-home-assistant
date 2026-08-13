@@ -40,10 +40,6 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * changes with state — so it does not register a needless live dependency. A
   * literal slot carries no entity and is excluded regardless.
   *
-  * In a [[LayoutNode.Dynamic]] case the matched entity is injected as the
-  * `entity_id` param per match, so an inheriting (`entityId = None`) slot binds
-  * to each match automatically — no per-slot placeholder.
-  *
   * `literal` is the cheapest slot: a hardcoded value used verbatim — no entity,
   * no JSONata, no compilation. A label like `"Kitchen"` or a constant action
   * URL is this, not a `"Kitchen"` JSONata string-literal `transform`. It is
@@ -54,7 +50,12 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
 given Configuration =
   Configuration.default.withDefaults
     .withDiscriminator("kind")
-    .withTransformConstructorNames(_.toLowerCase)
+    .withTransformConstructorNames {
+      // `set` on the wire. The Scala name carries the `Node` suffix only
+      // because `LayoutNode.Set` would shadow `scala.Set` inside this file.
+      case "SetNode" => "set"
+      case other     => other.toLowerCase
+    }
 
 case class SlotSource(
     // This slot's OWN entity, or `None` to inherit the component's `entity_id`
@@ -107,13 +108,11 @@ object SlotSource:
   *     — a live entity transform OR a constant literal. This is the *one*
   *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
   *     like a `label`/`min` is a literal slot, a live value is a transform
-  *     slot. The only non-slot template vars are backend-*injected* ones the
-  *     author never supplies (`id`, and the matched `entity_id` inside a
-  *     dynamic case — see
-  *     [[Dashboard.injectedStatic]]/[[Dashboard.injectedDynamic]]), so they
-  *     need no entry. Optional pieces (a tap `action`, a `secondary` line) need
-  *     no entry either — [[Dashboard.validate]] only flags missing *required*
-  *     slots and ignores extra ones.
+  *     slot. The only non-slot template var is the backend-*injected* `id`
+  *     ([[Dashboard.injectedStatic]]), which the author never supplies and so
+  *     needs no entry. Optional pieces (a tap `action`, a `secondary` line)
+  *     need no entry either — [[Dashboard.validate]] only flags missing
+  *     *required* slots and ignores extra ones.
   *   - `wrapAsCell`: whether the renderer wraps this card's HTML in the id'd
   *     `.fh-cell` layout/morph wrapper (see `Renderer.render`). ON by default —
   *     every node is a cell, so containers lay their children out uniformly and
@@ -195,33 +194,72 @@ object Predicate:
   case class And(items: List[Predicate]) extends Predicate
   case class Or(items: List[Predicate]) extends Predicate
   case class Not(item: Predicate) extends Predicate
-  case class Cmp(property: String, op: Op, value: Json) extends Predicate
 
-/** How a [[Activation.State]] condition is quantified over the WHOLE live state
-  * map. A [[Predicate]] tests ONE entity; a surface's activation must decide
-  * over all of them, so the condition needs a quantifier:
-  *
-  *   - [[Any]]: some entity matches the condition (∃) — with an `entity_id` pin
-  *     inside the condition, the "entity X is in state Y" case.
-  *   - [[None]]: no entity matches (∄) — deliberately its own quantifier, NOT
-  *     expressible as a `Not` inside the condition (which still quantifies
-  *     existentially: "some entity fails the test").
-  *   - [[All]]: every entity matches (∀).
-  *
-  * Encoded as the lowercase strings `"any"`/`"none"`/`"all"`; decoding is
-  * case-insensitive (mirroring [[Op]]). The case names shadow `scala.Any` /
-  * `scala.None` only at unqualified use sites — always reference them as
-  * `Quantifier.Any` etc.
-  */
-enum Quantifier:
-  case Any, None, All
+  /** `entity` absent means "the subject" — the set member this guard is
+    * attached to, which is the common case and leaves every existing predicate
+    * unchanged. Present names a DIFFERENT entity, resolved at BUILD time ("show
+    * each light while its own room's motion sensor is on"), and those ids must
+    * reach the reverse index or the node is never woken by them — see
+    * [[referencedEntities]].
+    */
+  case class Cmp(
+      property: String,
+      op: Op,
+      value: Json,
+      entity: Option[String] = None
+  ) extends Predicate
 
-object Quantifier:
-  given Decoder[Quantifier] = Decoder[String].emap(s =>
-    values
-      .find(_.toString.equalsIgnoreCase(s))
-      .toRight(s"unknown quantifier: $s")
-  )
+  /** How many of a STATIC candidate list are present, compared against a
+    * number: "more than two lights in here are on".
+    *
+    * There is no quantifier and no query. Presence is per-candidate — `when`
+    * holds the guard for the candidates that have one, and a candidate absent
+    * from it is unconditionally present — which is the same shape a
+    * [[LayoutNode.SetMember]]'s clauses carry, and for the same reason: a
+    * statically-true term short-circuits a disjunction, so residuals diverge
+    * across the candidates of one set.
+    *
+    * That is also what retires the quantifiers: over a known list, `any` is
+    * `count > 0`, `none` is `count == 0`, and `all` is `count == length`. A
+    * comparison on a count is an ORDINARY predicate, so it composes with
+    * everything — a member's guard, a surface condition, an `and`/`or`.
+    *
+    * Subject-independent by construction: it reads the named candidates, never
+    * the entity it is attached to.
+    */
+  case class Count(
+      candidates: List[String] = Nil,
+      when: Map[String, Predicate] = Map.empty,
+      op: Op,
+      value: Json
+  ) extends Predicate
+
+  /** Every entity a predicate names besides its subject. */
+  def referencedEntities(p: Predicate): List[String] = p match
+    case Cmp(_, _, _, e) => e.toList
+    case And(items)      => items.flatMap(referencedEntities)
+    case Or(items)       => items.flatMap(referencedEntities)
+    case Not(item)       => referencedEntities(item)
+    // A count reads entities the node it guards may not render at all, so all
+    // of them are references — without this the node is never woken by the
+    // thing it counts.
+    case Count(candidates, when, _, _) =>
+      candidates ++ when.values.flatMap(referencedEntities)
+
+  /** Does this read an entity it does not name? True for a `Cmp` with no
+    * `entity`, which only means something where a SUBJECT is supplied — a set
+    * member's guard, a dynamic case. A [[Activation.State]] supplies none, so
+    * one there used to mean "some entity in the house" and is now rejected.
+    *
+    * A count's guards are excluded deliberately: each is evaluated against its
+    * own candidate, so an unnamed subject inside one is bound.
+    */
+  def hasFreeSubject(p: Predicate): Boolean = p match
+    case Cmp(_, _, _, entity) => entity.isEmpty
+    case And(items)           => items.exists(hasFreeSubject)
+    case Or(items)            => items.exists(hasFreeSubject)
+    case Not(item)            => hasFreeSubject(item)
+    case _: Count             => false
 
 /** How a [[Surface]] becomes visible — its activation MODE, a sum so the
   * invalid combination (a default-open flag AND a state condition on one
@@ -231,13 +269,17 @@ object Quantifier:
   *     open, a tab click), optionally from the first paint (`defaultOpen`).
   *     Which member the client sees is per-connection state (uiState — ADR
   *     0005), so these surfaces render per session.
-  *   - [[State]] (`{kind:"state", condition, quantifier}`): shown while its
-  *     quantified `condition` holds over live entity state (an If/else branch).
-  *     The choice is server truth — a pure function of entity state, identical
-  *     for every viewer — so these surfaces ride the SHARED per-slug render
-  *     pass and never enter a session's open set. An "else" member is simply
-  *     `State(condition = <an always-true predicate>)` at a later `bakeIndex`
-  *     (selection is first-match in `bakeIndex` order — see
+  *   - [[State]] (`{kind:"state", condition}`): shown while its `condition`
+  *     holds over live entity state (an If/else branch). The condition is
+  *     SUBJECT-FREE — every comparison in it names its own entity and a
+  *     [[Predicate.Count]] carries its own candidates — so evaluating it is a
+  *     handful of lookups, not a scan. [[Dashboard.validate]] rejects one that
+  *     reads an unnamed subject. The choice is server truth — a pure function
+  *     of entity state, identical for every viewer — so these surfaces ride the
+  *     SHARED per-slug render pass and never enter a session's open set. An
+  *     "else" member is simply `State(condition = Predicate.And(Nil))` — an
+  *     empty conjunction is vacuously true and reads nothing — at a later
+  *     `bakeIndex` (selection is first-match in `bakeIndex` order — see
   *     `Renderer.resolveActiveByState`); no member matching bakes empty
   *     content.
   *
@@ -248,20 +290,7 @@ object Quantifier:
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case State(condition: Predicate, quantifier: Quantifier = Quantifier.Any)
-
-/** One branch of a [[LayoutNode.Dynamic]] group: entities matching the group's
-  * query are rendered with the first case whose `when` predicate matches.
-  */
-case class DynamicCase(
-    when: Predicate,
-    card: String,
-    slots: Map[String, SlotSource] = Map.empty,
-    // Layout-cell classes for each per-entity member wrapper this case renders
-    // (every member of the branch shares them — the wrapper class set is
-    // static wire data, so in-place morphs re-emit it unchanged).
-    cell: Option[Cell] = None
-) derives ConfiguredDecoder
+  case State(condition: Predicate)
 
 /** A node in the recursive dashboard layout tree. */
 sealed trait LayoutNode derives ConfiguredDecoder
@@ -314,24 +343,78 @@ object LayoutNode:
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
-  /** A runtime-resolved group with per-entity template dispatch.
+  /** A set over a STATICALLY KNOWN candidate list.
     *
-    *   - `query`: overall membership filter (absent = match all entities).
-    *   - `cases`: each matched entity renders with the first case whose `when`
-    *     matches (skipped if none). The renderer injects `id` and sets the
-    *     matched entity as the `entity_id` slot per match, so every inheriting
-    *     slot (the `label`'s `$attr.friendly_name`, value/action slots)
-    *     resolves against the match; a slot that names its own entity, or a
-    *     constant literal, is left untouched. The group's own id is
-    *     location-derived.
+    * The candidates are decided at build time from the typed dump, so the
+    * runtime never invents a member: it decides only PRESENCE (which candidates
+    * render) and ORDER. See `docs/adr/0003-dynamic-groups.md`.
+    *
+    *   - `candidates`: entity ids, in render order. When the ordering folded to
+    *     registry facts this list is already sorted and [[orderBy]] is empty —
+    *     the runtime filters and preserves it, with no comparisons.
+    *   - `members`: per candidate, its guarded renderings.
+    *   - `limit`: at most this many PRESENT members, applied after ordering.
     */
-  case class Dynamic(
-      query: Option[Predicate] = None,
-      cases: List[DynamicCase] = Nil,
-      // Layout-cell classes for the group's own root wrapper (`.fh-cell
-      // .fh-group`) — e.g. `fh-cols-full` to span a parent grid.
+  case class SetNode(
+      candidates: List[String] = Nil,
+      members: Map[String, SetMember] = Map.empty,
+      orderBy: List[SortTerm] = Nil,
+      limit: Option[Int] = None,
       cell: Option[Cell] = None
-  ) extends LayoutNode
+  ) extends LayoutNode:
+    /** Every entity that can wake this set: its candidates, plus any entity a
+      * guard NAMES besides the member ("show while the hall sensor is on").
+      */
+    def liveEntities: List[String] =
+      (candidates ++ members.values
+        .flatMap(_.clauses)
+        .flatMap(c =>
+          c.when.toList.flatMap(Predicate.referencedEntities)
+        )).distinct
+
+  /** One candidate's renderings, tried in order. The first whose `when` holds
+    * decides; falling off the end means the member is NOT RENDERED — which is
+    * why there is no separate presence field.
+    */
+  case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
+
+  /** A guard plus the COMPLETE node it renders. Nothing is shared between
+    * clauses or members, so a clause cannot be wrong about which member it
+    * belongs to — see the "Rejected: the compressed format" note in the plan.
+    */
+  case class SetClause(
+      when: Option[Predicate] = None,
+      node: LayoutNode
+  ) derives ConfiguredDecoder
+
+  /** One lexicographic ordering position, most significant first.
+    *
+    * Present ONLY when some position needs live state. An ordering that folded
+    * entirely to registry facts left [[SetNode.candidates]] pre-sorted and this
+    * list empty, so the runtime filters without comparing anything.
+    */
+  case class SortTerm(
+      by: SortKey,
+      dir: String = "asc"
+  ) derives ConfiguredDecoder:
+    def descending: Boolean = dir == "desc"
+
+  /** What an ordering position reads. Two kinds because "brightest first" and
+    * "the ones that are on first" are both orderings and neither expresses the
+    * other: a value has an order, a predicate has only true/false.
+    */
+  sealed trait SortKey derives ConfiguredDecoder
+  object SortKey:
+    /** Sort by a property's VALUE — `state`, `attr:<name>`, `reg:<name>`, the
+      * same vocabulary a [[Predicate.Cmp]] names.
+      */
+    case class Prop(property: String) extends SortKey
+
+    /** Sort by whether a predicate HOLDS, true first under `asc`. Lets one
+      * vocabulary serve filtering and ordering, instead of a second notion of
+      * "key" that only ordering understands.
+      */
+    case class Holds(predicate: Predicate) extends SortKey
 
   /** Stable, location-based id for an addressable node, derived from its index
     * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
@@ -583,23 +666,29 @@ case class Dashboard(
             slots.keySet
           ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
             wrapErrors ++ children(kids, path)
-        case LayoutNode.Dynamic(_, cases, cell) =>
-          cellErrors(LayoutNode.pathId(path), cell) ++
-            cases.flatMap { c =>
-              val nodeId = s"${LayoutNode.pathId(path)}/${c.card}"
-              checkRef(
-                nodeId,
-                c.card,
-                Dashboard.injectedDynamic,
-                c.slots.keySet
-              ) ++ slotErrors(nodeId, c.slots) ++ cellErrors(nodeId, c.cell) ++
-                Option
-                  .when(noWrap(c.card))(
-                    s"$nodeId: card '${c.card}' has wrapAsCell=false and " +
-                      "cannot be a dynamic-group case — every member is " +
-                      "wrapped as its own per-entity patch target"
-                  )
-                  .toList
+        // A set's clauses carry COMPLETE nodes — their own card, slots (the
+        // candidate's `entity_id` among them) and cell — so each one validates
+        // as the ordinary node it is. `noWrap` is rejected because every member
+        // is its own per-candidate patch target.
+        case s: LayoutNode.SetNode =>
+          val setId = LayoutNode.pathId(path)
+          cellErrors(setId, s.cell) ++
+            s.candidates.filterNot(s.members.contains).map { c =>
+              s"$setId: candidate '$c' has no member entry — it could never " +
+                "render, so the build dropped it inconsistently"
+            } ++
+            s.members.toList.sortBy(_._1).flatMap { case (candidate, m) =>
+              m.clauses.zipWithIndex.flatMap { case (clause, i) =>
+                walk(clause.node, path :+ i) ++ (clause.node match {
+                  case c: LayoutNode.Component if noWrap(c.card) =>
+                    List(
+                      s"$setId/$candidate: card '${c.card}' has " +
+                        "wrapAsCell=false and cannot be a set clause — every " +
+                        "member is wrapped as its own patch target"
+                    )
+                  case _ => Nil
+                })
+              }
             }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
@@ -632,7 +721,9 @@ case class Dashboard(
             c.children.zipWithIndex.flatMap { case (ch, i) =>
               idsOf(ch, prefix, path :+ i)
             }
-          case _: LayoutNode.Dynamic => Nil
+          // Neither member container hosts a bake: a member renders with no
+          // children and no bake group.
+          case _: LayoutNode.SetNode => Nil
         })
       val known: Set[NodeId] =
         (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
@@ -671,12 +762,29 @@ case class Dashboard(
             .toList
         }
 
+    // A state activation has no subject to supply, so every comparison in its
+    // condition must name its own entity. Before candidate sets an unnamed one
+    // was quantified over the whole state map, which cost a scan and never said
+    // what the author meant ("some entity is both light.x and on").
+    val unboundConditions: List[String] =
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+        s.activation match
+          case Activation.State(c) if Predicate.hasFreeSubject(c) =>
+            List(
+              s"surface '$sid' is shown by a condition that compares an " +
+                "unnamed entity; a state condition must name the entity each " +
+                "comparison reads"
+            )
+          case _ => Nil
+      }
+
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     chromeErrors ++
       danglingBakes ++
       activationErrors ++
+      unboundConditions ++
       walk(card, Nil) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
         walk(surface.content, Nil).map(err => s"surface '$sid': $err")
@@ -725,7 +833,10 @@ case class Dashboard(
     def slotsOf(n: LayoutNode): List[SlotSource] = n match
       case c: LayoutNode.Component =>
         c.slots.values.toList ++ c.children.flatMap(slotsOf)
-      case d: LayoutNode.Dynamic => d.cases.flatMap(_.slots.values)
+      case s: LayoutNode.SetNode =>
+        s.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(c => slotsOf(c.node))
     (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
       .filter(_.literal.isEmpty)
       .map(_.transform)
@@ -789,9 +900,3 @@ object Dashboard:
     * injected `panel`.)
     */
   val injectedStatic: Set[String] = Set("id")
-
-  /** Backend-injected vars inside a *dynamic* case: the static set plus the
-    * matched entity's `entity_id` (the case strips the build-time `entity_id`
-    * slot; the renderer sets the matched one per render).
-    */
-  val injectedDynamic: Set[String] = injectedStatic ++ Set("entity_id")

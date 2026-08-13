@@ -129,23 +129,28 @@ extended. Once the hand-port completes they are deleted.
    Entries do not repeat the
    registry line — they `amends "lib/entry.pkl"`, the base scaffold
    that sets it (decision 9).
-8. **Dynamic groups: Mapping branches + render lambdas.** A dynamic group is an
-   amendable `DynamicGroup` (extends `LayoutNode`, `kind = "dynamic"`) whose
-   branches are a **`Mapping<Predicate, (hass.Entity) -> Node>`** — one line per
-   branch, `[predicate] = renderFn`. Author order is preserved (= first-match
-   dispatch order), a structurally-equal duplicate predicate key is a build error
-   naming the line, and a branch is replaceable by key when amending a base group
-   (a Listing amend is append-only). An optional `render` fallback covers
-   entities no branch matched (and is the only card when `branches` is empty).
-   Each render fn is a **function of the matched entity** —
-   `(e) -> (c.entityCard(e)) { … }`, or a bare factory value `c.slider` — so the
-   author writes exactly where the entity flows. `hass.SELF`/`DynamicEntity` are
-   now **internal only**: the derived `cases` listing feeds each branch through
-   `const local caseOf`, which applies the lambda to `hass.SELF` and strips the
-   build-time `entity_id` slot (the renderer injects the matched entity per
-   match); the emitted `Case` (`when`/`card`/`slots`) JSON is byte-identical to
-   before. This **replaced an earlier `group`/`groupCases`/`dynWhen`/`dynCase`
-   function-nesting API** (removed pre-v1). Predicate combinators became **fluent methods** on
+8. **Candidate sets: `q.from(...)` chains, not a node an author builds.**
+   *Superseded — recorded because the reasoning outlived the mechanism.* A
+   dynamic group was an amendable `DynamicGroup` (`kind = "dynamic"`) whose
+   branches were a **`Mapping<Predicate, (hass.Entity) -> Node>`** — one line per
+   branch, author order preserved (= dispatch order), a duplicate predicate key a
+   build error naming the line, and a branch replaceable by key when amending.
+   Each render fn was a **function of the matched entity**, so the author wrote
+   where the entity flowed and never saw the `hass.SELF` sentinel the derived
+   `cases` fed it through. (That itself **replaced an earlier
+   `group`/`groupCases`/`dynWhen`/`dynCase` function-nesting API**, removed
+   pre-v1.)
+
+   All of it is deleted. Membership is decided at BUILD time now, so the
+   authoring surface is a query chain in its own module —
+   `q.from(xs).where(...).caseOf(...).render(...).build()`
+   (`lib/query.pkl`, ADR 0003) — and `components.pkl` owns only the wire classes
+   it emits. Two things carried over: a render lambda is still
+   `(hass.Entity) -> Node`, and branches are still ordered with first match
+   winning. What went is the sentinel entity, and with it the reason an author
+   ever had to think about one.
+
+   Predicate combinators became **fluent methods** on
    `Predicate` (`domainIs("light").and(stateIs("on"))`, `.or(…)`, `.not()`), and
    the leaf helpers read in position — `domainIs`/`stateIs`/`deviceClassIs`/
    `stateBelow`/`attrBelow` (+ `always`, `lowBattery(n)`); the old
@@ -197,15 +202,14 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
   around any amend parent that isn't a `new` expression).
-- Dynamic groups: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`; the
-  `PredicateOp` union type makes a misspelled op a build error), fluent
-  predicate methods + leaf helpers, and the
-  `DynamicGroup` Mapping-branch + render-lambda authoring model (decision 8);
-  live `friendly_name ? : entity_id` label default (0003).
-- Slider three-tier config: author override → build-time spec (static entity)
-  → runtime `$lookup($domain)` over the manifested domain map (dynamic `$self`
-  entity); one typed `sliderSpec` table (incl. cover/fan rows) is the single
-  source for both tiers.
+- Candidate sets: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`/`Count`; the
+  `PredicateOp` union type makes a misspelled op a build error), built by
+  `lib/query.pkl` rather than by hand — there are no free constructors, so every
+  term carries a binding (decision 8, ADR 0003).
+- Slider two-tier config: author override → build-time spec literal. One typed
+  `sliderSpec` table (incl. cover/fan rows) is the single source. There was a
+  third tier — a runtime `$lookup($domain)` — for a member whose domain was
+  unknown until it matched; a candidate is a known entity, so it is gone.
 
 **Deliberate API shape** (Pkl has no untyped union-dispatch):
 `openPopup(id: String)` and `openPopupInline(body: Node)` are two named

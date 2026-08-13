@@ -8,7 +8,6 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
-  Quantifier,
   SlotSource,
   Surface
 }
@@ -252,9 +251,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(flat.toOption.get.activation, Activation.User(false))
   }
 
-  test(
-    "Surface.activation decodes both kinds; quantifier is case-insensitive"
-  ) {
+  test("Surface.activation decodes both kinds") {
     def surface(activation: String): io.circe.Decoder.Result[Surface] =
       parser
         .parse(
@@ -271,33 +268,19 @@ class BuildPhaseSuite extends munit.FunSuite {
       ).toOption.get.activation,
       Activation.User(defaultOpen = true)
     )
+    // A state condition is the condition alone — no quantifier beside it, since
+    // it names the entities it reads.
     val cond =
-      """{ "kind": "cmp", "property": "state", "op": "eq", "value": "on" }"""
-    // Quantifier decodes case-insensitively (wire strings any/none/all)...
-    assertEquals(
-      surface(
-        s"""{ "kind": "state", "condition": $cond, "quantifier": "NONE" }"""
-      ).toOption.get.activation,
-      Activation.State(
-        Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
-        Quantifier.None
-      )
-    )
-    // ...defaults to `any` when absent...
+      """{ "kind": "cmp", "property": "state", "op": "eq", "value": "on",
+         |  "entity": "light.a" }""".stripMargin
     assertEquals(
       surface(
         s"""{ "kind": "state", "condition": $cond }"""
       ).toOption.get.activation,
       Activation.State(
-        Predicate.Cmp("state", Op.Eq, Json.fromString("on")),
-        Quantifier.Any
+        Predicate
+          .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
       )
-    )
-    // ...and an unknown quantifier fails the decode (no silent fallback).
-    assert(
-      surface(
-        s"""{ "kind": "state", "condition": $cond, "quantifier": "some" }"""
-      ).isLeft
     )
   }
 
@@ -312,8 +295,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         bakeIndex = Some(index),
         activation = activation
       )
-    val state =
-      Activation.State(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
+    val state = Activation.State(
+      Predicate
+        .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
+    )
     val mixed = Dashboard(
       cards = Map("ok" -> CardDef("<i></i>")),
       card = LayoutNode.Component("ok"),
@@ -340,6 +325,44 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(allUser.validate(), Nil)
   }
 
+  test("validate rejects a state condition that names no entity") {
+    def dash(condition: Predicate) = Dashboard(
+      cards = Map("ok" -> CardDef("<i></i>")),
+      card = LayoutNode.Component("ok"),
+      surfaces = Map(
+        "a" -> Surface(
+          LayoutNode.Component("ok"),
+          bakeInto = Some("c"),
+          bakeAs = Some("branch"),
+          bakeIndex = Some(0),
+          activation = Activation.State(condition)
+        )
+      )
+    )
+    val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+    // A surface supplies no subject, so this used to mean "some entity in the
+    // house is on" — never what an author meant. Rejected wherever it sits in
+    // the tree, not only at the top.
+    for (c <- List(on, Predicate.Not(on), Predicate.And(List(on))))
+      assert(
+        dash(c).validate().exists(_.contains("unnamed entity")),
+        clue = dash(c).validate()
+      )
+
+    // What passes: a comparison that names its entity, a count over named
+    // candidates (whose per-candidate guards are bound by their candidate), and
+    // the vacuously-true empty conjunction an `else` member carries.
+    val named = on.copy(entity = Some("light.a"))
+    val count = Predicate.Count(
+      candidates = List("light.a"),
+      when = Map("light.a" -> on),
+      op = Op.Gt,
+      value = Json.fromInt(0)
+    )
+    for (c <- List(named, count, Predicate.And(Nil), Predicate.Or(List(count))))
+      assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
   test("hoistInlineSurfaces lifts the activation object onto the surface") {
     // The lifted-field list carries `activation` (the flat `defaultOpen` is
     // retired — DashboardBuild.surfaceOf drops it).
@@ -353,7 +376,7 @@ class BuildPhaseSuite extends munit.FunSuite {
               "content": { "kind": "component", "card": "card" },
               "bakeInto": "@@NODE_ID@@", "bakeAs": "branch", "bakeIndex": 0,
               "defaultOpen": true,
-              "activation": { "kind": "state", "quantifier": "any",
+              "activation": { "kind": "state",
                 "condition": { "kind": "cmp", "property": "state", "op": "eq", "value": "on" } }
             } }
           }

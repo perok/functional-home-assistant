@@ -1,158 +1,235 @@
-# ADR 0003 — Dynamic groups: live membership + per-entity card dispatch
+# ADR 0003 — Candidate sets: static membership, live presence and order
 
 - **Status:** Accepted
-- **Date:** 2026-06-24 (consolidated 2026-07-04)
+- **Date:** 2026-06-24 (consolidated 2026-07-04; rewritten 2026-08-12 when
+  query-driven groups were retired)
 - **Scope:** `modules/fh-datastar-view` (the Datastar dashboard)
 
 ## Context
 
-Most of a dashboard is **static**: each card is composed at build time against
-a concrete entity from the dump, so the set of cards is fixed. But some
-sections are inherently **live sets** — membership and the card chosen per
-member depend on runtime state:
+Most of a dashboard is **static**: each card is composed at build time against a
+concrete entity from the dump, so the set of cards is fixed. But some sections
+are inherently **live sets** — which members show, and the card chosen per
+member, depend on runtime state:
 
 - "every light that is currently **on**";
 - "every `device_class: battery` sensor under **20%**";
 - a mixed set where the **card differs per entity** (a light gets a slider,
   anything else a read-only card).
 
-Phase discipline (ADR 0001) means a dynamic group cannot be a build-time
-comprehension over live state — it is authored as **data** the renderer
-evaluates against live `EntityState`.
+Phase discipline (ADR 0001) means this cannot be a build-time comprehension over
+live state. It is authored as **data** the renderer evaluates against live
+`EntityState`.
 
-## The design
+The question this ADR answers is *which* data. It first answered it with a
+runtime query, and that turned out to be the wrong half to make dynamic.
 
-### The model: `LayoutNode.Dynamic(query, cases)`
+## The design: `LayoutNode.SetNode`
 
-- `query` is a small **Predicate AST** — `And`/`Or`/`Not`/`Cmp`, where `Cmp`
-  compares a property (`domain`, `state`, or `attr:<name>`) with an op
-  (`eq/ne/lt/lte/gt/gte`) — evaluated per entity against live state
-  (`Renderer.matches`). The AST (not JSONata) is a deliberate performance
-  choice — see ADR 0004 for the cost model.
-- The renderer filters all entities by `query`; each match renders with the
-  **first `case` whose `when` predicate matches** (an entity matching no case
-  renders nothing).
-- Per match the renderer injects the node `id` and sets the matched entity as a
-  literal `entity_id` slot, so every inheriting slot — including the default
-  live label (`$attr.friendly_name`, falling back to the id) — binds to the
-  match; a slot naming its own entity, or a constant literal, is untouched.
+**The candidates are decided at BUILD time; the runtime decides only presence
+and order.** A set carries:
 
-The model has been stable across all authoring-layer iterations — churn lands
-in the component library, not in Scala.
+- `candidates` — entity ids, in render order;
+- `members` — per candidate, a list of guarded renderings (`SetClause`);
+- `orderBy` / `limit` — present only when they need live state.
 
-### One builder set for static and dynamic
+A member is a `cond` expression: clauses are tried in order and the first whose
+`when` holds decides. **Falling off the end means the member is not rendered** —
+which is why there is no separate presence field, and why omitting the fallback
+is how "only while on" is written.
 
-A case is built with the **same leaf builders** as a static card, passing the
-sentinel `{ entity_id: '$self' }` (`hass.SELF`, now internal to the authoring
-library — see the Mapping-branch model in ADR 0006); `'$self'` is rebound to
-each match at render time. The case-building step keeps the node's `card` +
-`slots` and strips only the build-time `entity_id`.
-There is no parallel `dyn*` builder set to keep in sync, and no per-case decoy
-fields to mock (the label rides in `slots` — ADR 0004).
+A clause carries a COMPLETE node — card, cell, slots, children, inline. Nothing
+is shared between clauses or members, so a clause cannot be wrong about which
+member it belongs to, and rendering one needs no lookup or merge. A set nested
+inside a member's node is an ordinary child with an ordinary id, so "a tile per
+room, each holding that room's lights" needs no new concept.
 
-### Membership and dispatch are separate
+The derivation that produced this shape — including the compressed wire format
+that was built, measured at ~2.5×, and reverted — lived in
+`docs/plan-dynamics-one-entity-lifecycle.md` until its decisions landed here and
+in ADRs 0004/0007/0013. It is in git history; the part still worth acting on is
+issue #108.
 
-- **membership** is a `query` over live state — one card per matching entity;
-- **dispatch** picks which card to render per entity: a single leaf, or a set of
-  per-entity branches (a predicate → render-fn map) with an optional fallback
-  when the card must vary per entity.
+### Why the candidates stopped being a query
 
-Both lower to the same `Dynamic(query, cases)` — a plain leaf becomes a single
-`always` case. On the Pkl authoring surface this is a `DynamicGroup` whose
-branches are a `Mapping<Predicate, (Entity) -> Node>` plus an optional `render`
-fallback (the full model + the fluent predicate helpers — `domainIs`/`stateIs`/
-`deviceClassIs`/`stateBelow`/`attrBelow`/`lowBattery`/… — are ADR 0006). The
-leaf builders stay shared because both static and dynamic use call them.
+The original design was `LayoutNode.Dynamic(query, cases)`: a predicate
+evaluated against every entity in the house, each match rendered through the
+first matching case, with the matched entity injected as a literal `entity_id`
+slot per match. It worked, and it had one structural problem that nothing local
+could fix.
 
-### The query decides MEMBERSHIP; the reverse index decides re-render
+**A materialised member had no registry facts.** The generated dump gives an
+author a typed entity carrying `friendly_name`, `area_id`, `floor_id`,
+`device_id`, `entity_category` and its capability attributes. A query match gave
+the runtime an `EntityState` — id, state, attributes — and nothing else. So the
+same dashboard had two entity lifecycles, and the dynamic one was silently the
+weaker: it could not filter on area, could not bake a label, could not know a
+light's colour modes.
 
-A group's `query` is consulted only for the question it is about: could this
-frame have moved who belongs? The state stream carries
-`StateChange(entityId, previous, current)`, and a group is considered when the
-changed entity matched its query **before or after** the change
-(`Renderer.affectedDynamics`) — covering add (¬prev ∧ cur) and remove
-(prev ∧ ¬cur) — while an unrelated entity's change skips it.
+The cost was visible on the wire. A `slider` in a dynamic case carried four
+`reactive: false` JSONata transforms whose only job was to switch on `$domain`:
 
-Re-rendering an existing member is a different question, and it is no longer
-asked here. A member is a node in the graph with real bindings, so it is
-reverse-indexed by entity exactly like a static component.
+```json
+"min": { "transform": "$lookup({\"light\":1,\"cover\":0,\"fan\":0}, $domain)",
+         "reactive": false }
+```
 
-The membership question is still asked once per frame, at the frame boundary, because two
-entities can cross the query boundary in opposite directions in one tick and each
-single-entity view of that reports a change the frame did not make. What changed is what
-holds the answer: members are **materialised into the node graph**
-(`Renderer.syncMembers`, and `architecture-rendering-pipeline.md` §4b). A member is a real
-`Component` under a key-derived id, carrying its matched entity as a literal `entity_id`
-slot — the binding `renderCase` used to set on every render.
+A build-time fact, computed at runtime, per member, because the entity was
+unknown at build time. Over static candidates all four are literals, and the
+whole `$lookup($domain)` config tier is gone.
 
-**That retires the invariant this used to rest on.** "A dynamic card binds to its matched
-entity (no cross-entity slots inside a case)" was needed because a member had no entry in
-the reverse index and so could only be reached through its group's query. A materialised
-member IS in the reverse index (`componentsFor`/`surfaceComponentsFor` include members
-binding the entity), so the query is now asked one question only — did MEMBERSHIP move —
-and a member that merely re-renders is found the way a static component is found.
+Three more things fell out of the same change:
 
-A case slot naming a second entity was authorable all along and silently never ticked; it
-does now, which is the one place this moved the wire. The ordinary case — a member bound
-only to its matched entity — emits exactly what it did before, because that entity is the
-member's `subjectEntity` and every inheriting slot resolves to it.
+- **A frame costs the changed entities, not the house.** Membership was a
+  full-map scan per affected group; a set has a reverse index from entity to the
+  candidates whose presence it can decide (itself, plus every candidate whose
+  guards NAME it).
+- **Registry filtering needs no runtime support.** "Lights in the living room"
+  is a build-time selection of candidates, so the runtime predicate never had to
+  learn about `area_id` — the requirement disappeared rather than being met.
+- **Ghost members are impossible.** An entity vanishing is a registry change,
+  which already rebuilds every entry. The old open item below is closed by
+  construction.
 
-One thing the reverse index cannot cover, and it is worth naming because it is silent: a
-case switch whose ARRIVING card binds nothing live contributes no entity edge, so nothing
-would name it while its bytes moved. The member's ID is the sound handle — it exists
-whatever the card does, since `Dashboard.validate` rejects a `wrapAsCell = false` card as a
-dynamic case precisely so every member has its own element — so `syncMembers` reports the
-members it REPLACED and the recorder touches those by id.
+### The runtime's remaining job
 
-**What a membership change costs.** The recorder writes a delta where it can: an
-arrival or departure records one `Mutation` per member, and only heavy churn (≥50% of rendered members) or a group the
-log holds no children for records a whole-mount fill. Nothing is rendered while
-recording; each session renders what it is owed when it pulls (ADR 0012), through the
-per-slug render cache, so N viewers of one group cost one render of each changed member.
-A group inside a surface no session has open is not recorded at all, and one inside an
-inactive state branch (ADR 0007) is structurally silent.
+- **Presence** — per candidate, the first clause whose guard holds; none means
+  absent. Absent means **absent from the DOM**, not present-and-hidden: a hidden
+  wrapper ships the bytes anyway and still costs layout and morph work.
+- **Order** — `orderBy` is a lexicographic list of `SortKey.Prop` (a value) or
+  `SortKey.Holds` (a predicate's truth), compared only among the PRESENT
+  members. An ordering that folded entirely to registry facts leaves
+  `candidates` pre-sorted and `orderBy` empty, so the runtime compares nothing.
+- **`limit`** — at most this many present members, after ordering. Every
+  candidate still ships, because which are cut depends on live values.
 
-**Membership is maintained, not rescanned.** Only a CHANGED entity can have crossed a
-query or case boundary, so a frame costs O(changes) per group where the old
-`dynamicMembers` filtered every entity in the house — twice per frame for the recorder,
-and once more for each pulling session, which was paying to re-derive a member's owner
-that the recorder had already worked out. The graph also holds the member ORDER, so
-"successor of this arrival" — what an `insert before` needs — is a lookup rather than a
-sort.
+A member appearing, disappearing or moving is the same `Gone`/`Placed` patch
+pair. There is no separate visibility path, and no fourth node kind.
 
-One cost remains: **a re-rendered card re-evaluates its slots**, though the action/config
-slots are memoized identity slots (ADR 0004), so it costs ~2 live JSONata evals per card.
+**Ordering by a continuously live key is the trap to design against.** It
+reorders the DOM whenever any present member crosses a neighbour. The stable
+tiebreak is candidate order (the sort is stable over it), `Patches.reordered`
+keeps a longest increasing subsequence so one light overtaking three costs one
+move, and a set carrying a live ordering or a limit is rebuilt rather than
+patched in place — one entity moving can reorder its neighbours or push a
+different member past the cut.
 
-Burst coalescing is no longer future work: a session's doorbell is a `SignallingRef` and
-`.discrete` collapses versions that land while it renders into one pull. The query
-filter bounds *what* is examined; the doorbell bounds *how often* a viewer pays for it.
+### Membership is maintained, not rescanned
 
-## Open
+Only a CHANGED entity can have moved a candidate's presence, so a frame costs
+O(changes) per set. The graph holds the member ORDER, so "the successor of this
+arrival" — what an `insert before` needs — is a lookup rather than a sort.
 
-**An entity vanishing has no path of its own.** `StateStore` publishes no `StateChange`
-for a removal — a batch of pure removals does not even reach the recorder — because an
-entity appearing or vanishing changes what the dashboards were BUILT from, and that is
-handled by the registry watcher re-evaluating every entry rather than by patching a node.
-Deliberately coarse, and right: it happens a few times a year.
+The frame boundary is still where the question is asked, because two entities
+can move in opposite directions in one tick and each single-entity view of that
+reports a change the frame did not make (`Renderer.syncMembers`, and
+`architecture-rendering-pipeline.md` §4b).
 
-What is not guaranteed is the re-evaluation. An `r` frame does not always have a registry
-event behind it, so a removal can pass with the version moving and nothing rebuilt. That
-used to be harmless — membership was rescanned from the current snapshot, so a departed
-entity simply stopped being a member. **With membership maintained from deltas it is not**:
-nothing reports the removal, so the graph keeps a ghost member whose id would be offered as
-an insert anchor for an element in no DOM.
+**What a membership change costs.** The recorder writes a delta where it can:
+one `Mutation` per member that moved. A whole-mount fill happens only in the two
+cases where it costs nothing — the UNCHANGED set is empty (everything arrived,
+or everything left, so the fill re-sends nothing and one patch replaces N), or
+the log holds no member entry to patch against. Nothing is rendered while
+recording; each session renders what it is owed when it pulls (ADR 0012),
+through the per-slug render cache, so N viewers of one set cost one render of
+each changed member. A set inside a surface no session has open is not recorded
+at all, and one inside an inactive state branch (ADR 0007) is structurally
+silent.
 
-The intended answer is to treat a removal as a `LiveSlug` reload (fresh renderer, log and
-member graph), which is what the registry path already does and what the rest of the system
-already tolerates. Rare, coarse, correct by construction. Not built — this is the one thing
-the member graph is owed.
+Two silent failure modes are worth naming, because both were real bugs:
+
+- **A clause switch whose arriving card binds nothing live** contributes no
+  reverse-index edge, so nothing would name it while its bytes moved. The
+  member's ID is the sound handle — it exists whatever the card renders, since
+  `validate` rejects a `wrapAsCell = false` card as a clause precisely so every
+  member has its own element — so `syncMembers` reports the members it REPLACED
+  and the recorder touches those by id.
+- **Container selection reads `memberSources`, not the static index.** A nested
+  set is not in the static index — it hangs off a member — so selecting from the
+  index meant the inner set synced, its members moved, and nothing recorded it:
+  correct ids, correct HTML, zero patches.
+
+One cost remains: **a re-rendered card re-evaluates its slots**, though the
+identity slots are memoized (ADR 0004).
+
+## Authoring
+
+`lib/query.pkl` is the only thing that builds a set:
+
+```pkl
+q.from(dump.areas.stue.lights)
+  .where(q.eq(q.stateProp, "on"))
+  .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+  .`else`((e) -> c.entityCard(e))
+  .build()
+```
+
+**One `where`; the build splits it mechanically.** A term is static exactly when
+it touches only registry facts, and the fold happens in the Pkl combinators, so
+the author never names the seam: a registry term selects candidates and
+disappears, a live term becomes a per-member guard. `q.prop(name)` resolves
+against the candidates — a registry fact if all of them carry it, a live
+attribute if none do, a build error if only some (unless wrapped in
+`q.optional`, which reads missing as null).
+
+A load-bearing consequence, silent when broken: **the fold drops a branch whose
+guard cannot hold BEFORE applying its render lambda.** That is what makes
+per-domain dispatch over a mixed set work at all — `c.slider` takes a light, and
+a media_player must never reach it.
+
+**Plain Pkl stays the first answer.** A `for` over a typed dump list is still
+the right way to render a fixed set of lights; the query language earns its
+place only for what static composition cannot do — filtering on live state,
+ordering by a live value, counting, limiting, presence. Which rooms exist is
+registry data, so "a tile per room" is a plain `for` with a set inside; a set
+nested in another set's `render` is for when the OUTER membership is live too
+(HA light groups that are on).
+
+## What this replaced
+
+`LayoutNode.Dynamic`, `DynamicCase`, the full-map membership scan, `hass.SELF` /
+`DynamicEntity` / `isDynamic`, the free predicate constructors
+(`domainIs`/`stateIs`/`entityIs`/`lowBattery`/…), the `caseOf` that applied a
+render lambda to a `$self` placeholder, and the slider's runtime
+`$lookup($domain)` config tier. All deleted; nothing decodes `kind: "dynamic"`.
+
+**Closed by the rewrite:** the open item this ADR carried — a removed entity
+leaving a ghost member, because membership was maintained from deltas and
+`StateStore` publishes no `StateChange` for a removal. Candidates come from the
+dump, an entity vanishing is a registry change, and a registry change rebuilds
+the renderer. There is nothing left to go stale.
+
+## Settled, so they are not re-opened
+
+**Cross-set interleaving is not a limitation.** Two sets are two DOM regions, but
+`from` takes any `List<hass.Entity>` — concatenate the sources into one set and
+dispatch with `.cases(...)`. The only thing genuinely impossible is interleaving
+two SEPARATELY AUTHORED sets in different parts of the layout, which is obvious
+rather than a flaw.
+
+**Unsatisfiable conjunctions are out of scope.** `state == on AND state == off`
+folds to nothing and is not detected. An obvious authoring bug when it happens,
+and the rabbit hole gets deep fast — partial orders, attribute ranges,
+cross-entity terms. Not worth the machinery.
+
+**The wire is linear in candidates, and that is the trade.** ~982 B per candidate
+measured on a real entity card, so an unscoped `q.from(dump.all)` over a
+1069-entity house is ~1.8 MB of `dashboard.json` and ~900 ms of eval, where the
+old query group expressed the same thing in ~1 KB. It costs eval time, server
+memory and editor latency — never client bytes, since `dashboard.json` does not
+reach the browser. Scoped sets are cheap and strictly better. Issue #108 tracks
+the unbounded case, including the compressed wire format that was built,
+measured at ~2.5×, and reverted.
 
 ## Consequences
 
-- One card library serves static and dynamic rendering; a new card type needs
-  no dynamic counterpart.
-- Keep groups scoped by a selective `query` — the membership scan is
-  O(entities) per affecting change.
-- Verified by `BuildPhaseSuite`/`PklBuildSuite` (evaluate → hoist → validate)
-  and `RendererSuite` (query filtering, per-case dispatch, slot rebinding,
-  constant-label override survival).
+- One card library serves every rendering; a new card type needs no counterpart.
+- A set's wire size is linear in its candidates (~459 bytes each), which costs
+  eval time and server memory — `dashboard.json` never reaches the browser.
+  Nothing the client or the frame loop does is linear in candidates.
+- Every entity a dashboard can show has ONE typed, build-time identity. That is
+  the property this rewrite existed to get.
+- Verified by `PklBuildSuite` (Pkl → wire, including the shipped starter entry),
+  `query.test.pkl` (the fold, the authoring surface), `SetNodeSuite` (presence,
+  order, limit, nesting, cross-entity guards end-to-end through the real
+  `Server`) and `DynamicGroupSuite` (the per-member patch machinery).
