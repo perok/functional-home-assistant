@@ -205,7 +205,7 @@ lazy val `fh-datastar-view` = project
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
-      "com.microsoft.playwright" % "playwright" % "1.61.0" % Test
+      "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
     )
   )
 
