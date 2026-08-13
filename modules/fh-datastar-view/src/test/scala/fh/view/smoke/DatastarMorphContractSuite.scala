@@ -39,7 +39,7 @@ import scala.jdk.CollectionConverters.*
   * Deliberately standalone: a bare page and an SSE stream this test fully
   * controls, so it measures Datastar and nothing of ours.
   */
-class DatastarMorphContractSuite extends munit.CatsEffectSuite {
+class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
 
   private var playwright: Playwright = uninitialized
   private var browser: Browser = uninitialized
