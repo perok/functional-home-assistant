@@ -178,6 +178,11 @@ lazy val `fh-datastar-view` = project
       case PathList("META-INF", "smithy", _*) => MergeStrategy.first
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
+    // The `smoke` package is Playwright-driven and is the slowest part of the
+    // suite (issue #109 item 3). Default `test`/`testQuick` skip it; `testFull`
+    // (and CI) still runs everything via the unfiltered Test/testOptions.
+    Test / testQuick / testOptions +=
+      Tests.Filter(name => !name.startsWith("fh.view.smoke")),
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
