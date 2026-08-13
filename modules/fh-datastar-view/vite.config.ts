@@ -2,11 +2,11 @@ import { resolve } from "node:path"
 import { defineConfig, type Plugin } from "vite"
 
 // Entries that are loaded as CLASSIC scripts — `shell` inlined into every
-// dashboard page, `overlay` as a plain <script src>. Neither may contain an
-// import or an export or the browser refuses the whole file, and for the shell
-// that is silent and total: every page loses the tab selection, the session
-// handoff and the scroll position.
-const classic = new Set(["shell", "overlay"])
+// dashboard page, `overlay` as a plain <script src>, `sw` as the service
+// worker. None may contain an import or an export or the browser refuses the
+// whole file, and for the shell that is silent and total: every page loses the
+// tab selection, the session handoff and the scroll position.
+const classic = new Set(["shell", "sw", "overlay"])
 
 /**
  * Fail the BUILD if a classic entry is not self-contained.
@@ -46,7 +46,7 @@ function assertSelfContained(): Plugin {
   }
 }
 
-// One build, three entries. The output tree mirrors the CLASSPATH, because
+// One build, four entries. The output tree mirrors the CLASSPATH, because
 // sbt's NpmPlugin copies it straight into managed resources: `fh/shell.js` is
 // read and inlined by `Server`, `editor/*.js` are served by `EditorRoutes` next
 // to the hand-written index.html/app.css/overlay.css that stay in
@@ -60,6 +60,8 @@ function assertSelfContained(): Plugin {
 //            lsp-client are bundled in, which is the point: one file, one
 //            @codemirror/state instance, no CDN, no import map.
 //   overlay  a classic <script src> injected into a dashboard under ?edit=1.
+//   sw       the service worker, served at the fixed root URL `sw.js` — see the
+//            `entryFileNames` override below. CLASSIC script, import-free.
 //
 // NOT `build.lib`, and that is the whole trick. Lib mode looks like the right
 // tool for "bundle these entries" and costs two things here:
@@ -97,9 +99,19 @@ export default defineConfig({
         shell: resolve(import.meta.dirname, "src/js/shell.ts"),
         app: resolve(import.meta.dirname, "src/js/editor/app.js"),
         overlay: resolve(import.meta.dirname, "src/js/editor/overlay.js"),
+        sw: resolve(import.meta.dirname, "src/js/sw.ts"),
       },
       output: {
-        entryFileNames: "web/[name]-[hash].js",
+        // The service worker is the ONE entry with a FIXED, un-hashed name at
+        // the output ROOT: the browser fetches SW updates at the URL it
+        // registered, so a content-hashed `sw.js` would strand every install
+        // on its first version. It must not live under `web/` either — that
+        // tree is served `immutable`, which would fight the `no-cache` an SW
+        // needs — and the root position gives it scope `/` by default.
+        // Everything else keeps the content-hashed `web/` name, which is what
+        // makes serving those `immutable` honest.
+        entryFileNames: (chunk) =>
+          chunk.name === "sw" ? "sw.js" : "web/[name]-[hash].js",
         // A chunk appearing here at all means the invariant above broke.
         chunkFileNames: "web/[name]-[hash].js",
         assetFileNames: "web/[name]-[hash][extname]",

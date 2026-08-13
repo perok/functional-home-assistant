@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "metals": {
+      "type": "remote",
+      "url": "http://localhost:45649/mcp",
+      "enabled": true
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # Plan: installable PWA for the Datastar dashboard (fh-datastar-view)
 
-**Status: deferred design plan, not implemented.** Phase 1 (PWA installability) is
-designed down to the route level and ready to build; Phase 2 (HTML caching) is an
+**Status: Phase 1 implemented; Phase 2 is an investigation.** Phase 1 (PWA installability)
+is designed down to the route level and built; Phase 2 (HTML caching) is an
 investigation — direction and open questions are captured here, but it is deliberately
 not specced to the same depth until the spike answers them.
 
@@ -58,16 +58,41 @@ Relevant properties of this app:
 
 ## Phase 1 — changes by file
 
+### `src/js/sw.ts` + `vite.config.ts` (the service worker, built, not committed)
+
+The SW is a **build output like the rest of the frontend** — one more vite entry —
+because Phase 2 will need build knowledge in it (the precache list, which is what
+open question 1 below hangs on), and the emission machinery already exists:
+
+- `sw.ts` is a new `src/js/` entry, built with the `shell`/`app`/`overlay` trio
+  (rollupOptions `input`), and **added to the `classic` set** in vite.config.ts — the
+  `fh-assert-self-contained` plugin then fails the build if it ever picks up an
+  import/export, exactly like the shell. Its own doc comment pins the whole shape.
+- **`output.entryFileNames` is overridden per chunk**: the `sw` entry emits to the
+  output ROOT as the fixed `sw.js`, everything else keeps `web/[name]-[hash].js`.
+  Two reasons, both hard:
+  - the browser fetches SW updates **at the registered URL**, so a content-hashed
+    `sw-<hash>.js` would strand every install on its first version (a stale SW is
+    served `immutable` by the HTTP cache and never re-fetched, so the hash that
+    would "update" it never even loads);
+  - it must NOT live under `web/`, which is served `immutable` (Server.scala:104) —
+    the SW needs `no-cache` (below), and the root position gives it scope `/` for
+    free, which Phase 2's navigation caching needs.
+- The SW contents (import-free, ~35 lines): `install → skipWaiting`,
+  `activate → clients.claim()`, and a fetch handler that cache-firsts same-origin
+  GETs whose path contains a `web/` or `assets/` segment (the immutable trees) and
+  returns without `respondWith` for everything else — notably `/sse/*`
+  (intercepting the SSE GET would break the resume cursor + keepalive) and all
+  POSTs. Immutable URLs make cache-first safe: a rebuilt bundle is a different
+  URL, so a cache hit can never be stale. There is no pruning yet — the `activate`
+  handler clears the old cache name when the SW version bumps (Phase 2 decides
+  whether the runtime cache needs an LRU cap).
+- The one non-vite detail: `sw.ts` needs a `/// <reference lib="webworker" />`
+  (tsconfig's `lib` is `ES2022`/`DOM`/`DOM.Iterable` — the `ServiceWorkerGlobalScope`
+  ambient types are not in the DOM lib).
+
 ### `src/main/resources/pwa/` (new, committed static resources)
 
-- `sw.js` — the service worker, hand-written and import-free (~30 lines; it is
-  loaded as a classic script and must stay self-contained, like `shell.ts`). Contents:
-  `install → skipWaiting`, `activate → clients.claim()`, and a fetch handler that
-  cache-firsts same-origin GETs whose path contains a `web/` or `assets/` segment
-  (the immutable trees) and returns without `respondWith` for everything else —
-  notably `/sse/*` (intercepting the SSE GET would break the resume cursor + keepalive)
-  and all POSTs. Immutable URLs make cache-first safe: a rebuilt bundle is a different
-  URL, so a cache hit can never be stale.
 - `manifest.webmanifest` — static JSON, location-independent because every URL inside
   it is relative and resolves against its own URL at install time:
   `name`/`short_name`/`description`, `start_url: "."`, `scope: "."`, `id: "."`,
@@ -75,59 +100,67 @@ Relevant properties of this app:
   open questions), and `icons` with `src: "icon-192.png"`/`"icon-512.png"` (relative →
   same directory as the manifest). A static file works for both direct serving and the
   ingress prefix because the manifest itself is served at the app root.
+  Deliberately NOT emitted by vite: `build.manifest` only lists entry chunks, and the
+  relative `start_url`/icon paths must resolve against the app origin — a hashed
+  `web/` URL would be wrong for both.
 - `icon-192.png`, `icon-512.png` — generated once from an MDI glyph (the `@mdi/font`
-  the theme already vendors) with the safe-zone padding a maskable icon needs, and
-  committed. These are hand-authored static resources, not build output — same status
-  as `editor/overlay.css`.
+  the theme already vendors, glyph `view-dashboard-outline` U+F0A1D) with the
+  0.56 safe-zone padding a maskable icon needs, on the theme's `#006493` primary.
+  These are hand-authored static resources, not build output — same status as
+  `editor/overlay.css`.
 
 ### `runtime/Server.scala`
 
-- New allowlisted route in the routes block (~:92), serving four named files from the
-  `pwa/` classpath dir at **root-level URLs** (so the manifest's relative `start_url`
-  and icon `src` resolve to the app root, and the SW's scope defaults to the whole
-  prefix):
-  - `GET -> Root / file if PwaAssets.serves(file)`, where `PwaAssets` (a small object
-    in the runtime package) maps name → resource path + content type + cache header:
-    - `manifest.webmanifest` → `application/manifest+json` (via `MediaType.unsafeParse`
-      if the pinned http4s lacks the `application.manifest+json` constant), `no-cache`
-      (the browser revalidates so manifest edits are seen promptly).
-    - `sw.js` → `application/javascript`, **`Cache-Control: no-cache`** — the one
-      header this plan insists on. A service worker update is byte-compared by the
-      browser on every visit, and `no-cache` guarantees it revalidates instead of
-      serving a stale SW. This is the "served without caching" requirement.
-    - `icon-*.png` → `image/png`, `immutable` like the other static assets (fixed
-      names; a changed icon is a deliberate, rare deploy).
-  - Any other name → 404 (the allowlist is the whitelist; same un-forgeable pattern
-    as `FrontendAssets.serves` / `AssetCache.SafeName`). No path sanitising needed.
-- `page()` (`~:1543`): add `<link rel="manifest" href="manifest.webmanifest">` to the
-  `<head>` after `<base href>`. Relative, so it resolves against the base — direct and
-  ingress in one. Dashboard pages only (the editor's own `index.html` is not the
-  install target).
+- **Four explicit allowlisted routes** in the routes block (~:92): `GET /sw.js`,
+  `/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, all served by the small
+  `PwaAssets` object (name → classpath resource + media type), at **root-level URLs**
+  so the manifest's relative `start_url`/icon `src` resolve to the app root and the
+  SW's scope is the whole prefix. Any other name → 404 — the allowlist is the
+  whitelist (same un-forgeable pattern as `FrontendAssets.serves` / `AssetCache`).
+  Content types: `application/manifest+json`, `application/javascript`, `image/png`.
+- **Every PWA file is served `Cache-Control: no-cache`** — the one header this plan
+  insists on, and the reason these files can't ride `/web/`. The browser revalidates
+  the SW on every visit and byte-compares it for updates, and re-fetches the manifest
+  on every load, so `no-cache` is what makes updates reach clients. **Not `immutable`**:
+  the filenames are fixed (no content hash), so an `immutable` icon or manifest would
+  strand every client on the first deployed version.
+- `page()` (`~:1543`): two additions to the `<head>`, after `<base href>` and the
+  inlined shell:
+  - `<link rel="manifest" href="manifest.webmanifest">` — relative, so it resolves
+    against the base — direct and ingress in one. Dashboard pages only (the editor's
+    own `index.html` is not the install target).
+  - `<script>fhRegisterSw('sw.js')</script>` — the registration call, via a new
+    `Server.swRegisterCall` val (so nothing in the page spells the URL; the shell
+    resolves it from the frontend manifest). Inlined alongside `UrlSyncScript` so it
+    runs before Datastar's deferred module and this document can start cache-firsting
+    `web/`/`assets/` immediately.
 
 ### `src/js/shell.ts`
 
-- Append registration, guarded so the plain-HTTP direct port (not a secure context)
-  produces no noisy rejection:
-  `if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {})`.
-  `register`'s relative URL resolves against the document base (`<base href>`), so the
-  SW lands at `{prefix}/sw.js` with scope `{prefix}/` behind ingress. The shell is
-  already inlined into every dashboard page, so this runs on first load.
-- No vite/`package.json` change in Phase 1 — the SW is a static resource, deliberately
-  decoupled from the build until Phase 2 needs build knowledge (see open questions).
+- A new fourth helper, `fhRegisterSw(url)`:
+  `if (!window.isSecureContext) return; navigator.serviceWorker.register(url).catch(() => {})`.
+  The secure-context guard is a cheap synchronous way to avoid a noisy rejection on
+  the plain-HTTP direct port (installability still works there via the manifest —
+  `register` is what needs the secure origin, not the install prompt). A `register`
+  failure is **silent by design**: re-registering on every load is the update check,
+  and nothing a page does can un-install a live worker, so the only loss is this
+  load's worker. `register`'s relative URL resolves against the document base, so the
+  SW lands at `{prefix}/sw.js` with scope `{prefix}/` behind ingress.
 
 ### Tests (`ServerRoutesSuite`, `EditorSuite`)
 
 - `GET /sw.js` → 200, `application/javascript`, `Cache-Control: no-cache`.
-- `GET /manifest.webmanifest` → 200, `application/manifest+json` (or the chosen
-  fallback media type), body parses and names the two icons + `display: standalone`.
-- `GET /icon-192.png` / `icon-512.png` → 200, `image/png`, immutable; an arbitrary
-  name (`sw.js`, `..%2F..`) → 404.
-- The rendered page contains `<link rel="manifest" href="manifest.webmanifest">`
-  (assert via the existing `page` output test).
-- `FrontendAssets.content("shell")` contains the `serviceWorker.register` call (the
-  shell is inlined, so this is the "registration ships on every page" check).
-- The `sw.js` resource exists, is non-empty, and contains no `import`/`export`
-  statement (it must load as a classic script).
+- `GET /manifest.webmanifest` → 200, `application/manifest+json`, `no-cache`; body
+  names the two icons + `display: standalone` (content is checked on the classpath,
+  see below).
+- `GET /icon-512.png` → 200, `image/png`, `no-cache`; an arbitrary name
+  (`sw-ish.js`, `/pwa/manifest.webmanifest`) → 404.
+- The rendered page contains `<link rel="manifest" href="${PwaAssets.manifestUrl}">`
+  and the `fhRegisterSw('${PwaAssets.swUrl}')` call (via the `pageHtml` helper), and
+  the inlined shell defines `window.fhRegisterSw=` (mirrors the existing
+  `EditorSuite` helpers check, extended to the four names).
+- The `sw.js` bundle is covered by the same `fh-assert-self-contained` build guard as
+  the shell (its `classic` set now names `sw`).
 
 ## Phase 2 — HTML caching (investigation)
 
@@ -178,14 +211,14 @@ and a superset of the intent.
 
 1. **Precache vs runtime cache-first for `/web/*` + `/assets/*`.** Phase 1 caches them
    at runtime. Precache-at-install needs the hashed asset list baked into `sw.js` at
-   build time, which means moving the SW into the vite build: a per-chunk
-   `output.entryFileNames` override emitting `sw.js` un-hashed (vs the global
-   `web/[name]-[hash].js`), adding `sw` to the `classic` set in `vite.config.ts`'s
-   `assertSelfContained`, and reading `build.manifest` (the same source
-   `FrontendAssets` uses) to generate the list — or `vite-plugin-pwa` `injectManifest`
-   if Workbox is wanted (it is in maintenance mode; a tiny hand-rolled precache is the
-   other option). Runtime cache-first may be enough given the HTTP cache already
-   serves repeat loads of immutable assets — measure before adding machinery.
+   build time — and Phase 1 already moved the SW INTO the vite build (emitted at the
+   output root as the fixed `sw.js`, in the `classic` set), so the remaining question
+   is whether to also emit the precache list. That would mean reading vite's
+   `build.manifest` (the same source `FrontendAssets` uses) and either generating a
+   static precache list in `sw.js` or doing `vite-plugin-pwa` `injectManifest` (Workbox
+   — in maintenance mode; a tiny hand-rolled precache is the other option). Runtime
+   cache-first may be enough given the HTTP cache already serves repeat loads of
+   immutable assets — measure before adding machinery.
 2. **Is instant-paint worth it online?** On a LAN the server render is typically
    <100 ms; the win is slow/offline links and phone-to-ingress round trips. Decide
    whether offline display of the last snapshot is an actual requirement, and whether
@@ -218,8 +251,9 @@ and a superset of the intent.
 
 ## Phasing
 
-1. **Phase 1 (implementable now):** `pwa/` resources + `PwaAssets` routes + manifest
-   link + shell registration + tests + icon generation. Green commit after
+1. **Phase 1 (implemented):** `src/js/sw.ts` + vite `classic`/`entryFileNames` changes,
+   `pwa/` manifest + icons, `PwaAssets` routes, manifest link + `swRegisterCall` in the
+   page head, `fhRegisterSw` in the shell, and tests. Green after
    `sbt fh-datastar-view/testFull`.
 2. **Phase 2 (investigate, then spec):** spike the open questions above (primarily
    precache-vs-runtime and the offline requirement), then write the Phase-2 section of

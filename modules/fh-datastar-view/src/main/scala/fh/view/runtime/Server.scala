@@ -97,6 +97,15 @@ class Server(
     // isn't cached is a 404 — the page then references the original URL.
     case GET -> Root / "assets" / name => assets.serve(name)
 
+    // The PWA files — the manifest + service worker (the install mechanism,
+    // see [[PwaAssets]]) and the icons. Fixed names, so `PwaAssets` serves them
+    // no-cache, never immutable — the browser must revalidate them to learn
+    // about updates (see the object doc).
+    case GET -> Root / "manifest.webmanifest" => PwaAssets.serve("manifest.webmanifest")
+    case GET -> Root / "sw.js"                => PwaAssets.serve("sw.js")
+    case GET -> Root / "icon-192.png"         => PwaAssets.serve("icon-192.png")
+    case GET -> Root / "icon-512.png"         => PwaAssets.serve("icon-512.png")
+
     // The bundled frontend (src/js -> vite). The name carries a content hash
     // and `FrontendAssets` only answers for names the manifest lists, so this
     // needs no path sanitising and the response can be `immutable`: a rebuilt
@@ -1546,8 +1555,10 @@ class Server(
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
        |  <base href="$baseHref">
+       |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
        |  $pageTitle
        |  <script>${Server.UrlSyncScript}</script>
+       |  <script>${Server.swRegisterCall}</script>
        |$links
        |  <script type="module" src="${assets.rewrite(
         Server.DatastarCdn
@@ -1917,6 +1928,20 @@ object Server {
     * support.
     */
   val UrlSyncScript: String = FrontendAssets.content("shell")
+
+  /** Install the service worker on every load — see the `fhRegisterSw` helper
+    * in the shell. Inlined alongside [[UrlSyncScript]] for the same reason:
+    * it must run before Datastar's deferred module (so this document can
+    * start cache-firsting its `web/` and `assets/` immediately), and a classic
+    * script makes that true.
+    *
+    * The URL rides the frontend manifest via [[PwaAssets.swUrl]] — nothing
+    * here spells `sw.js` out. The call itself is a no-op unless the context is
+    * secure and SWs are supported; the manifest `<link>`, not the SW, is what
+    * drives installability.
+    */
+  val swRegisterCall: String =
+    s"fhRegisterSw('${escapeJsString(PwaAssets.swUrl)}')"
 
   /** The last line of the document: restore this slug's scroll offset — and, if
     * the shell never ran, SAY SO.

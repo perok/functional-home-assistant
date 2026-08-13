@@ -1,11 +1,11 @@
-// The page shell's own JavaScript: three helpers the server-rendered document
+// The page shell's own JavaScript: four helpers the server-rendered document
 // needs before Datastar (a deferred module) has run. INLINED into the page head
 // by `Server.page` — not linked — because
 // `fhConn` is called from the middle of the body and `fhUrl` from the first
 // Datastar effect, so neither can afford a deferred module or a second round
 // trip.
 //
-// These three names, the `prev` query parameter, and the two sessionStorage
+// These four names, the `prev` query parameter, and the two sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
 // `ServerRoutesSuite` pin the ones that matter from the other side.
 //
@@ -19,6 +19,7 @@ declare global {
     fhUrl: (key: string, value: string | null) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
+    fhRegisterSw: (url: string) => void
   }
 }
 
@@ -132,6 +133,33 @@ window.fhScroll = (slug) => {
   } catch {
     /* storage unavailable — landing at the top is where we were */
   }
+}
+
+/**
+ * Install the service worker, and keep checking for updates.
+ *
+ * Deliberately NOT a third-party helper (the PWA patterns library's `sw-shell` /
+ * `pwa-install` components, which import this file and are v0.x) — a plain
+ * `navigator.serviceWorker.register` is the whole mechanism:
+ *
+ * - It is a no-op in insecure contexts (`register` needs a secure origin, and
+ *   `window.isSecureContext` is the cheap synchronous guard), so an HTTP-only
+ *   LAN address still gets the install prompt — the manifest link, not the SW,
+ *   is what drives installability.
+ * - The worker takes over the current page (`skipWaiting` in its install + a
+ *   call that activates it), so this load can begin cache-firsting `web/` and
+ *   `assets/` immediately.
+ * - Re-registering with the same URL on every page load is the update check:
+ *   the browser re-fetches the script (the route serves it no-cache), and on
+ *   change installs the new worker, which then takes over on the NEXT load —
+ *   nothing a page does here can un-install or downgrade a live worker, so a
+ *   register failure must be silent.
+ */
+window.fhRegisterSw = (url) => {
+  if (!window.isSecureContext) return
+  const sw = navigator.serviceWorker
+  if (!sw) return
+  sw.register(url).catch(() => {})
 }
 
 export {}
