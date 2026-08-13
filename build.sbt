@@ -3,6 +3,7 @@ import smithy4s.codegen.Smithy4sCodegenPlugin
 import org.typelevel.scalacoptions.ScalacOptions
 
 val http4sVersion = "0.23.34"
+val MUnitFramework = new TestFramework("munit.Framework")
 
 val commonSettings = Seq(
   scalaVersion := "3.8.4",
@@ -179,10 +180,12 @@ lazy val `fh-datastar-view` = project
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
     // The `smoke` package is Playwright-driven and is the slowest part of the
-    // suite (issue #109 item 3). Default `test`/`testQuick` skip it; `testFull`
-    // (and CI) still runs everything via the unfiltered Test/testOptions.
+    // suite (issue #109 item 3); every test declared through SmokeSuite
+    // carries the "Slow" munit tag (see SmokeSuite.test). Default
+    // `test`/`testQuick` exclude it; `testFull` (and CI) still run everything
+    // via the unfiltered Test/testFull/testOptions.
     Test / testQuick / testOptions +=
-      Tests.Filter(name => !name.startsWith("fh.view.smoke")),
+      Tests.Argument(MUnitFramework, "--exclude-tags=Slow"),
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
