@@ -9,8 +9,8 @@ import io.circe.Json
   * `Dashboard.scala` (what the runtime decodes). Nothing makes them agree.
   *
   * They have been kept in step by the `PklBuildSuite` snapshots, which only
-  * notice when an evaluated fixture happens to exercise the field that drifted —
-  * and then report it as a confusing JSON diff rather than as "these two
+  * notice when an evaluated fixture happens to exercise the field that drifted
+  * — and then report it as a confusing JSON diff rather than as "these two
   * definitions disagree". A field added on one side and forgotten on the other
   * decodes to its default and is silently ignored.
   *
@@ -23,7 +23,8 @@ import io.circe.Json
   *
   * Deliberately compares NAMES, not types. Pkl's `Listing<String>` and Scala's
   * `List[String]` are the same wire array, and encoding a type correspondence
-  * here would be a second model to maintain — which is the problem, not the fix.
+  * here would be a second model to maintain — which is the problem, not the
+  * fix.
   */
 class WireShapeSuite extends munit.FunSuite {
 
@@ -35,9 +36,15 @@ class WireShapeSuite extends munit.FunSuite {
     */
   private lazy val pklProperties: Map[String, Set[String]] = {
     val tmp = os.temp.dir()
-    PklWorkspace.bootstrap(tmp)
+    val _ = PklWorkspace.bootstrap(tmp)
     os.makeDir.all(tmp / "lib")
-    List("hass.pkl", "hass-light.pkl", "components.pkl", "tokens.pkl", "theme.pkl")
+    List(
+      "hass.pkl",
+      "hass-light.pkl",
+      "components.pkl",
+      "tokens.pkl",
+      "theme.pkl"
+    )
       .foreach(n => os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib"))
     os.write(
       tmp / "probe.pkl",
@@ -99,8 +106,10 @@ class WireShapeSuite extends munit.FunSuite {
       pklWire,
       scalaWire,
       clue = s"""'$pklClass' disagrees between the two definitions.
-                |  only in components.pkl: ${(pklWire -- scalaWire).toList.sorted.mkString(", ")}
-                |  only in Dashboard.scala: ${(scalaWire -- pklWire).toList.sorted.mkString(", ")}
+                |  only in components.pkl: ${(pklWire -- scalaWire).toList.sorted
+                 .mkString(", ")}
+                |  only in Dashboard.scala: ${(scalaWire -- pklWire).toList.sorted
+                 .mkString(", ")}
                 |A field on one side and not the other decodes to its default and
                 |is silently ignored — add it to both, or exclude it here with a
                 |reason.""".stripMargin
