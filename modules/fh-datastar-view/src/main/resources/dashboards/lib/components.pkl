@@ -377,7 +377,13 @@ function openPopup(surfaceId: String): Tap =
 // `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
 // per the Pkl amend-scoping gotcha.
-function openPopupInline(body: Node): Tap = new {
+//
+// Typed `LayoutNode`, not `Node`: `Popup.children` (inherited from [[Node]])
+// is itself `Listing<LayoutNode>` so a container can hold either a component
+// or a candidate set (`q...build()`'s `SetNode`) — this parameter must accept
+// the same widened type or it rejects exactly the case `children` was widened
+// for.
+function openPopupInline(body: LayoutNode): Tap = new {
   onclick = "@post('sse/surface/open/\(NODE_ID)_self'); $ui_popups = '\(NODE_ID)_self'"
   inlineSurfaces = new Mapping {
     ["self"] = new SurfaceDef { content = new Popup { children { body } } }
@@ -782,6 +788,56 @@ class Button extends Node {
   function label(l: String|Expr): Button = let (self = this) (self) { label = l }
   function action(a: Tap): Button = let (self = this) (self) { action = a }
 }
+
+/// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
+/// `<label class="switch"><input type="checkbox"><span></span></label>`).
+/// Unlike [[Button]]/[[Pill]], the checkbox itself must show which state it is
+/// IN, not just act on it, so `checked` is a live slot baked from the entity's
+/// own state — the same baked-attribute move as [[Slider]]'s fill, and for the
+/// same reason: an SSE morph only replaces markup, so the state must already be
+/// in the HTML it sends rather than something a client script re-derives.
+/// Always calls a service (there is no href arm — a checkbox cannot be an
+/// `<a>`), defaulting to the same domain-resolved toggle every [[Button]] does.
+class Toggle extends Node {
+  card = "toggle"
+  cardDef = new LeafCard {
+    template = """
+      <article class="card row">
+        <span class="max">{{label}}</span>
+        <label class="switch">
+          <input type="checkbox" {{{checked}}} data-on:click="{{{onclick}}}" />
+          <span></span>
+        </label>
+      </article>
+      """
+    slots { "label" }
+  }
+  hidden entity: hass.Entity
+  hidden label: (String|Expr)? = null
+  hidden action: Tap? = null
+  hidden tap: Tap = action ?? toggleTap
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = labelSlot(entity, label)
+    // Opt OUT of the unavailable bypass (unlike a display value, "unavailable"
+    // is not a checkbox state) so an unavailable entity just renders unchecked.
+    ["checked"] = new Slot {
+      transform = #"$state = "on" ? "checked" : """#
+      default = ""
+      bypassUnavailable = false
+    }
+    ["onclick"] = tap.onclick
+  }
+  function label(l: String|Expr): Toggle = let (self = this) (self) { label = l }
+  function action(a: Tap): Toggle = let (self = this) (self) { action = a }
+}
+
+/// Static toggle as a call — see [[Toggle]].
+function toggle(e: hass.Entity): Toggle = new Toggle { entity = e }
+/// The SAME constructor as a VALUE, for a query's render positions (mirrors
+/// [[entityCard]]).
+hidden toggle: (hass.Entity) -> Toggle = (e) -> toggle(e)
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
 /// anchors), so the MD3 tab look (underline active indicator, hover/press

@@ -289,6 +289,12 @@
       "slots" : [
       ],
       "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
+    },
+    "toggle" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<article class=\"card row\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" {{{checked}}} data-on:click=\"{{{onclick}}}\" />\n    <span></span>\n  </label>\n</article>"
     }
   },
   "surfaces" : {
