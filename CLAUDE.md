@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before starting work, read and follow AGENTS.md in this repository root.
+
 ## What this is
 
 A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assistant.io/). The core idea: **connect to a live Home Assistant instance, introspect its devices/entities/services, and code-generate strongly-typed Scala references to them**, so that automations written against this project reference real devices/entities by name with compile-time guarantees (rather than stringly-typed `entity_id`s). Conceptually similar to NetDaemon/AppDaemon, but with generated types.
