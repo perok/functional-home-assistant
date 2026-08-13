@@ -103,13 +103,18 @@ private[runtime] case class FragmentLog(
     completeFrom: Long = 0
 ) {
 
-  /** Whether the log knows what is in `gid`'s mount, so a membership change can
-    * be patched per-entity instead of filled wholesale. Its MEMBERS are the
-    * whole record: a container logs no fragment of its own, because that
-    * fragment would contain other nodes.
+  /** Whether the log knows any of these members, so a membership change can be
+    * patched per-entity instead of filled wholesale. A container's MEMBERS are
+    * its whole record: it logs no fragment of its own, because that fragment
+    * would contain other nodes.
+    *
+    * Named ids rather than an id PREFIX, which is what this used to be. A
+    * prefix cannot tell a member of `c` from a member of a set nested inside
+    * one of `c`'s members — the inner ids start with the outer gid too — so a
+    * container would look established on the strength of its grandchildren.
     */
-  def hasChildOf(gid: NodeId): Boolean =
-    fragments.keysIterator.exists(_.startsWith(gid + "_"))
+  def holdsAnyOf(ids: Iterable[NodeId]): Boolean =
+    ids.exists(fragments.contains)
 
   /** This version went by unrecorded, because nobody was watching this slug.
     *

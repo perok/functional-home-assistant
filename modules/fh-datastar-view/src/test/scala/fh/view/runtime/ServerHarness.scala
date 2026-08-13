@@ -4,12 +4,12 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import cats.effect.std.Supervisor
+import cats.effect.testkit.TestControl
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
   Op,
@@ -28,6 +28,7 @@ import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import java.util.concurrent.atomic.AtomicInteger
+import scala.annotation.targetName
 import scala.concurrent.duration.*
 
 /** Everything the `Server` suites share: the fixtures, the two harnesses, and
@@ -39,6 +40,36 @@ import scala.concurrent.duration.*
   * `assertEquals` and return `IO`.
   */
 trait ServerHarness extends munit.CatsEffectSuite {
+
+  // Shadows FunSuite's `test` for the common `IO[Unit]`-body case, so every
+  // ServerHarness test runs under TestControl's mocked runtime instead of a
+  // real, wall-clock one — the harness's IO.sleep-based poll loops (`quiet`,
+  // `served`) cost nothing: they resolve the moment every fiber is blocked,
+  // not after a real 25ms/5ms wait. An ordinary overload, not a hook into
+  // munit's transform machinery, so a reader sees the wrapping at the same
+  // place every test is declared. Every background fiber this harness starts
+  // MUST be supervised (a bare `.start` outlives the test under simulated
+  // time — see [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll`
+  // then never reaches quiescence, which OOMs rather than hangs). Checked
+  // against Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no
+  // IO.blocking, IO.realTime/monotonic, Dispatcher or evalOn on the live
+  // path, so nothing there can misreport a real external wait as the
+  // NonTerminationException deadlock TestControl raises for those (issue
+  // #109 item 3).
+  @targetName("testIO")
+  protected def test(
+      name: String
+  )(body: => IO[Unit])(using loc: munit.Location): Unit =
+    super.test(name)(TestControl.executeEmbed(body))
+
+  // A handful of tests in these suites are plain synchronous assertions with
+  // no IO in them at all — nothing for TestControl to simulate time over, so
+  // they pass straight through unwrapped.
+  @targetName("testSync")
+  protected def test(
+      name: String
+  )(body: => Unit)(using loc: munit.Location): Unit =
+    super.test(name)(body)
 
   def resumeNow(
       renderer: Renderer,
@@ -176,20 +207,48 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def off(id: String): EntityState = st(id, "off")
 
-  // A dynamic group of on-state entities as the layout root (group id "c"); each
+  /** A candidate set where every candidate carries the same clause list.
+    *
+    * `clauses` is `(extra guard, card, slots)` per clause, tried in order, and
+    * every clause is additionally guarded on `state == on` — so a candidate is
+    * present exactly while it is on, which is what these suites drive. Each
+    * member's node names its OWN entity, because the build knows the candidate.
+    */
+  def onSet(
+      candidates: List[String],
+      clauses: List[(Option[Predicate], String, Map[String, SlotSource])]
+  ): LayoutNode.SetNode =
+    LayoutNode.SetNode(
+      candidates = candidates,
+      members = candidates.map { id =>
+        id -> LayoutNode.SetMember(clauses.map { case (extra, card, slots) =>
+          LayoutNode.SetClause(
+            when = Some(
+              extra.fold[Predicate](isOn)(e => Predicate.And(List(isOn, e)))
+            ),
+            node = LayoutNode.Component(
+              card,
+              slots.updated("entity_id", SlotSource(literal = Some(id)))
+            )
+          )
+        })
+      }.toMap
+    )
+
+  val isOn: Predicate = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
+
+  // A set of on-state entities as the layout root (group id "c"); each present
   // member renders `<span>on</span>` in an `fh-cell` wrapper `c_<slug>`.
   def dynDash = Dashboard(
     cards =
       Map("dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
-    card = LayoutNode.Dynamic(
-      query = Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
-      cases = List(
-        DynamicCase(
-          Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          "dot",
-          slots = Map("state" -> SlotSource())
-        )
-      )
+    // Candidates in entity-id order, which is what the placement assertions
+    // were written against when membership was a sorted query result. A set
+    // places by AUTHORED order, so writing them sorted keeps every answer the
+    // same while making the order a build-time decision.
+    card = onSet(
+      List("light.a", "light.b", "light.c", "light.d", "light.z"),
+      List((None, "dot", Map("state" -> SlotSource())))
     )
   )
 
@@ -218,17 +277,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def elementPatches(batch: List[ServerSentEvent]): List[String] =
     batch.map(_.renderString).filterNot(_.contains("datastar-patch-signals"))
 
-  val always: Predicate =
-    Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
+  // An empty conjunction is vacuously true, and reads no entity — so an `else`
+  // member is an ordinary condition with no subject to supply.
+  val always: Predicate = Predicate.And(Nil)
 
-  // "Entity X is in state Y": the entity_id pin + the default Any quantifier.
+  // "Entity X is in state Y": the condition names its entity, so evaluating it
+  // is one lookup rather than a scan.
   def entityIs(id: String, state: String): Predicate =
-    Predicate.And(
-      List(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
-        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
-      )
-    )
+    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   val armedCond = entityIs("alarm.h", "armed")
 
@@ -570,7 +626,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       routes: org.http4s.HttpApp[IO],
       store: StateStore,
       sessions: Sessions,
-      clients: Ref[IO, List[LiveClient]]
+      clients: Ref[IO, List[LiveClient]],
+      supervisor: Supervisor[IO]
   ) {
 
     /** Connect as a browser does. `query` carries what a document would hand
@@ -585,12 +642,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
             Uri.unsafeFromString(s"/sse/dashboard/dashboard/patch$query")
           )
         )
-        _ <- resp.body
-          .through(ServerSentEvent.decoder[IO])
-          .evalMap(e => seen.update(_ :+ e))
-          .compile
-          .drain
-          .start
+        // Supervised, not bare `.start`: the response body carries the
+        // connection's merged `keepAlive` stream (`awakeEvery`, live forever
+        // for the life of a real socket) — with no socket here to close it, an
+        // unsupervised fiber outlives the test that opened it. The supervisor
+        // cancels it with `liveWorldOf`'s resource instead.
+        _ <- supervisor.supervise(
+          resp.body
+            .through(ServerSentEvent.decoder[IO])
+            .evalMap(e => seen.update(_ :+ e))
+            .compile
+            .drain
+        )
         client = new LiveClient(seen)
         // The opening block ends at the cursor handshake; wait for it so the
         // first `drain` is exactly what CONNECTING produced.
@@ -701,7 +764,20 @@ trait ServerHarness extends munit.CatsEffectSuite {
           sessions
         )
         .use(server =>
-          use(new LiveWorld(server.routes.orNotFound, store, sessions, clients))
+          // Scoped to `use`, not to the whole resource: the connect fibers it
+          // supervises must be gone before `Server.resource` releases, same as
+          // any other client of this server would be.
+          Supervisor[IO].use(supervisor =>
+            use(
+              new LiveWorld(
+                server.routes.orNotFound,
+                store,
+                sessions,
+                clients,
+                supervisor
+              )
+            )
+          )
         )
     } yield ()).timeout(30.seconds)
 

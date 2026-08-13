@@ -136,13 +136,21 @@ BeerCSS's element styling applies underneath the contract classes.
      distribution) is framework CSS now; the beer theme keeps only
      `.tab-panel`. (The since-deleted theme-pico styled `.tabs > a` as the
      old bordered pills.)
-   - Entity-domain icons: the `entityCard` header renders
-     `{{#icon}}<i>{{icon}}</i>{{/icon}}`; the `icon` slot is an author
-     literal or (default) a runtime `$lookup($domain)` identity slot over a
-     `domainIcons` table in components.pkl — so dynamic-group ($self) cards
-     get the matched entity's icon too, and unlisted domains render nothing.
-     Material Symbols names; the font ships in the BeerCSS dist; a theme
-     without an icon font should hide `.entity header i`.
+   - Entity icons: the `entityCard` header renders
+     `{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}`, and the slot is a
+     LITERAL resolved at build time by `components.iconFor` — the entity's own
+     `icon` attribute, else its device_class, else its domain. **MDI, not the
+     Material Symbols the BeerCSS dist bundles**: HA's own `icon` attribute is
+     an MDI name, so that is the only set that can render what an author
+     actually chose. The theme loads `@mdi/font` from the CDN and restates the
+     `font-family` on `.entity header i.mdi` (BeerCSS styles a bare `<i>` as
+     Material Symbols and would otherwise win the cascade). An unlisted domain
+     emits no slot at all, so the header renders no icon.
+
+     *Superseded detail, kept because the reasoning recurs:* the slot used to
+     be a runtime `$lookup($domain)` identity transform, because a dynamic
+     group's `$self` card had no entity at build time. Candidate sets gave it
+     one (ADR 0003), which is what let the whole table fold to a literal.
    - Slider label line: the `<header>` was swallowed by BeerCSS (it styles
      `header` as a 4rem app-bar grid), and BeerCSS's `.row`/`.max` helpers
      wrapped the state text per-character (`.max` = inline-size:100%) —

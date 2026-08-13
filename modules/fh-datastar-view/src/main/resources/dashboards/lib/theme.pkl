@@ -18,11 +18,13 @@
 /// Contract with the components/renderer (the class names they emit):
 ///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
 ///   wrapper (the id'd flex/grid item the renderer puts around EVERY card) ->
-///   `.fh-cell`, a dynamic group's member-flow container -> `.fh-group`,
+///   `.fh-cell`, a query set's member container -> `.fh-group` — ALWAYS a
+///   pure CSS passthrough (see [[layoutCss]]), not an author-facing choice,
 ///   per-cell layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full` (authored
 ///   via the HA-style builders `columns(n)`/`fullWidth()` on
-///   components.pkl [[LayoutNode]]), a grid's group-centering opt-out ->
-///   the `.fh-start` marker on the grid element (`Grid.centered(false)`),
+///   components.pkl [[LayoutNode]] — inert on a query set, which has no box
+///   of its own to size), a grid's group-centering opt-out -> the
+///   `.fh-start` marker on the grid element (`Grid.centered(false)`),
 ///   cards -> `.card`, section titles -> `.section`, state text -> `.state`,
 ///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`.
 ///
@@ -65,15 +67,15 @@ module theme
 /// every theme can reuse. Three container behaviors, mirroring HA's
 /// "sections" dashboard (see ADR 0008):
 ///
-///   - GRID (`.fh-grid`, the default top-level container + dynamic-group
-///     `.fh-group`): a 12-column sizing system where a cell's width is its
-///     `columns(n)` span (default 4 — a third, HA's default card size) of 12.
-///     Built on flexbox rather than CSS grid so a PARTIAL row (cells not
-///     summing to 12) group-centers while a FULL row fills edge-to-edge — the
-///     HA-sections feel. Centering is ON by default; `Grid.centered(false)`
-///     emits `.fh-start` to left-pack instead. The span basis
-///     `(100% + gap) * n/12 - gap` makes any set of spans summing to 12 fit
-///     one row exactly (the `+gap`/`-gap` cancels the inter-cell gaps).
+///   - GRID (`.fh-grid`, the default top-level container): a 12-column
+///     sizing system where a cell's width is its `columns(n)` span (default
+///     4 — a third, HA's default card size) of 12. Built on flexbox rather
+///     than CSS grid so a PARTIAL row (cells not summing to 12) group-centers
+///     while a FULL row fills edge-to-edge — the HA-sections feel. Centering
+///     is ON by default; `Grid.centered(false)` emits `.fh-start` to
+///     left-pack instead. The span basis `(100% + gap) * n/12 - gap` makes
+///     any set of spans summing to 12 fit one row exactly (the `+gap`/`-gap`
+///     cancels the inter-cell gaps).
 ///   - ROW (`.fh-row`): a horizontal flex line whose children SHARE the width
 ///     equally (`flex:1 1 0`). No 12-col spans here — sizing is share-based.
 ///   - COLUMN (`.fh-col`): a vertical flex stack whose children FILL the width.
@@ -85,23 +87,49 @@ module theme
 /// row of pills read as a row of pills; a filling card in a grid still needs a
 /// SPAN, so `fh-hug` and `fh-cols-*` are different questions and compose.
 ///
+/// **A container states its children's layout as an INHERITED CUSTOM PROPERTY
+/// (`--fh-cell-flex`/`--fh-cell-align-self`/`--fh-cell-width`), not a
+/// child-combinator selector** — every `.fh-cell` just reads
+/// `flex:var(--fh-cell-flex,…)` from whichever ancestor last declared it. A
+/// container only ever says "this is my children's layout"; it never reaches
+/// for a child directly, which is what makes a query set's `.fh-group`
+/// member container composable rather than a fixed flow of its own: it is
+/// ALWAYS `display:contents` (a pure CSS passthrough — it must stay in the
+/// DOM, the runtime's per-member patch target, ADR 0003, but need not
+/// generate a box), so its members always resolve their flex/width from
+/// whichever REAL container — `Row`, `Column`, `Grid` — actually holds them,
+/// at ANY nesting depth, because custom-property inheritance crosses a
+/// `display:contents` element exactly like any other. This is internal to
+/// how a set renders, not an authoring choice: there is nothing to opt into,
+/// and no flow a set could sensibly keep of its own once it always defers to
+/// its real container. A `.fh-row>.fh-cell` CHILD-COMBINATOR selector could
+/// not do this — selectors match the actual DOM tree, and `.fh-group` stays
+/// in it (nothing else could then target it by id), so the combinator would
+/// stop at the wrapper instead of reaching its grandchildren.
+///
 /// So `columns(n)`/`fullWidth()` are GRID-ONLY affordances; inside a row/column
-/// you don't size children, they share/fill. Rows and columns nest freely into
-/// each other and into grid cells. On narrow screens (<=640px) every grid cell
-/// collapses to full width. The default-span selectors use `:where()` so any
-/// authored `.fh-cols-<n>` beats them; `--fh-gap` retunes spacing per theme.
+/// you don't size children, they share/fill (and on a query set, calling them
+/// is simply inert — a set has no box of its own to size). Rows and columns
+/// nest freely into each other and into grid cells. On narrow screens
+/// (<=640px) every grid cell collapses to full width, a set's members
+/// included (`.fh-group>.fh-cell` is a DOM selector, unaffected by
+/// `display:contents`, so it still reaches them). The default-span selectors
+/// use `:where()` so any authored `.fh-cols-<n>` beats them (as does
+/// `--fh-cell-flex` itself: real class selectors, `.fh-cols-<n>` included,
+/// always outrank `:where()`'s zero specificity); `--fh-gap` retunes spacing
+/// per theme.
 const layoutCss: String = """
-  .fh-grid,.fh-group{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem)}
-  .fh-grid.fh-start,.fh-group.fh-start{justify-content:flex-start}
-  .fh-grid>:where(.fh-cell),.fh-group>:where(.fh-cell){flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem));min-width:0}
+  .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}
+  .fh-grid.fh-start{justify-content:flex-start}
+  .fh-group{display:contents}
+  :where(.fh-cell){flex:var(--fh-cell-flex,0 1 auto);min-width:0;align-self:var(--fh-cell-align-self,stretch);width:var(--fh-cell-width,auto)}
   """ + colSpans + """
 
   .fh-cols-full{flex-basis:100%}
-  .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap}
-  .fh-row>.fh-cell{flex:1 1 0;min-width:0;align-self:flex-start}
+  .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap;--fh-cell-flex:1 1 0;--fh-cell-align-self:flex-start}
   .fh-cell.fh-hug{flex:0 0 auto}
-  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
-  .fh-col>.fh-cell{width:100%}
+  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%}
+  .fh-cell:has(>.fh-ifhost:empty){display:none}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """
 

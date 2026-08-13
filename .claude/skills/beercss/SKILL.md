@@ -9,20 +9,22 @@ Pinned version: **4.x** (4.0.23 as of 2026-06-29; re-verify before bumping).
 CDN: `https://cdn.jsdelivr.net/npm/beercss@<version>/dist/cdn/beer.min.css`.
 MIT. ~14 KB brotli. Implements **MD3 / M3 Expressive**.
 
-## Docs — fetch per component, don't guess
+## Docs — use context7, don't guess
 
-The docs are per-component markdown in the repo (readable via raw URLs):
+For per-component markup and classes (cards, dialogs, tabs, sliders, buttons,
+helpers, settings), use the **context7 MCP tool** (`resolve-library-id` →
+`/beercss/beercss`, then `query-docs`) instead of web search or fetching raw
+GitHub markdown. It tracks the same upstream docs directly and needs no local
+mirror. The beercss.com site is JS-rendered — WebFetch gets nothing useful
+from it.
 
-- Index: `https://raw.githubusercontent.com/beercss/beercss/main/docs/INDEX.md`
-- Per element: `.../docs/<ELEMENT>.md` — e.g. `CARD.md`, `DIALOG.md`, `TABS.md`,
-  `SLIDER.md`, `BUTTON.md`, `HELPERS.md`, `SETTINGS.md`, `JAVASCRIPT.md`.
-- The beercss.com site is JS-rendered — WebFetch gets nothing useful from it;
-  use the raw GitHub markdown.
-
-As with Pkl: **verify empirically before relying on a behavior** — a scratch
+What context7 can't tell you: the JS/runtime gotchas below are spike-verified
+against this project's actual DOM behavior (slider fill repaint, Datastar
+morph survival, `.button` box-sizing) — no doc source has them. **Verify
+empirically before relying on a NEW behavior** the same way — a scratch
 `.html` file with the pinned CDN link and the exact markup our Mustache
-templates emit, checked in a browser (or `curl` the `beer.min.css` and grep the
-selector). Blog posts are mostly v3; class names changed across majors.
+templates emit, checked in a browser (or `curl` the `beer.min.css` and grep
+the selector). Blog posts are mostly v3; class names changed across majors.
 
 ## Consumption model (three ingredients)
 
@@ -99,8 +101,8 @@ swap + `data-class` active toggling, theming is our token system. Nothing uses
   `.fh-cols-*`, `theme.pkl`'s `layoutCss` — ADR 0007), which theme-beer
   interpolates into its `styles`. BeerCSS helpers are still fine ON cards
   (via `cellClass`/card templates), but cell sizing rides on `fh-cols-*`.
-- The color variable names are BeerCSS's MD3 roles — **SETTINGS.md (link
-  above) is the authoritative list**. The palettes live ON `BeerTheme`
+- The color variable names are BeerCSS's MD3 roles — **SETTINGS.md via
+  context7 is the authoritative list**. The palettes live ON `BeerTheme`
   (`theme-beer.pkl`) as amendable `hidden md3Light`/`md3Dark` props (styles
   recompute late-bound: `(beer.theme) { md3Light { ["primary"] = … } }`);
   HA-named tokens stay in the shared `tokens.pkl` and win last via the

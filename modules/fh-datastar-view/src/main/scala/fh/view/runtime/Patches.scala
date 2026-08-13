@@ -253,16 +253,47 @@ private[runtime] object Patches {
       )
     )
 
-  /** Per-entity pays off only when the churn is a MINORITY of the group: at the
-    * boundary (e.g. 1 of 2 members, or the last member) a whole-group repaint
-    * is cheaper than juggling insert/remove patches. Strict `<` so exactly half
-    * repaints. `MaxChurnFraction` is tunable.
+  /** Which of these survivors have to be MOVED to turn `before` into `after` —
+    * the fewest possible, in `after` order.
     *
-    * Named because [[recordDynamic]] and [[resume]] must agree on it: one
-    * decides what to record, the other reaches the same patch from the log.
+    * Both lists hold the same members, so the answer is everything outside a
+    * longest increasing subsequence of their old positions: that subsequence is
+    * the largest set that is already in the right relative order, and each
+    * element outside it costs a remove/insert pair. Minimising it is not
+    * fussiness — a set ordered on a live value reorders whenever any two
+    * members cross, and moving every element on each crossing is the patch
+    * storm P7 exists to prevent.
+    *
+    * O(n²) over one container's members, deliberately: n is a room's worth of
+    * lights, and the quadratic version is the one a reader can check.
     */
-  private def perEntityChurn(churn: Int, shown: Int): Boolean =
-    churn > 0 && churn < Server.MaxChurnFraction * shown
+  private[runtime] def reordered(
+      before: List[String],
+      after: List[String]
+  ): List[String] = {
+    val was = before.zipWithIndex.toMap
+    val idx = after.map(was.getOrElse(_, -1)).toArray
+    val n = idx.length
+    if (n < 2) Nil
+    else {
+      // len(i): longest increasing run ending at i. prev(i): its predecessor.
+      val len = Array.fill(n)(1)
+      val prev = Array.fill(n)(-1)
+      for {
+        i <- 1 until n
+        j <- 0 until i
+        if idx(j) < idx(i) && len(j) + 1 > len(i)
+      } {
+        len(i) = len(j) + 1
+        prev(i) = j
+      }
+      val keep = Iterator
+        .iterate((0 until n).maxBy(len))(prev)
+        .takeWhile(_ >= 0)
+        .toSet
+      after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
+    }
+  }
 
   def record(
       renderer: Renderer,
@@ -330,11 +361,25 @@ private[runtime] object Patches {
     * frame did not make. `was`/`now` arrive from the graph
     * ([[Renderer.syncMembers]]), which applied that frame.
     *
-    * Two conditions still choose between a per-member delta and a whole-mount
-    * fill, and they come from different places: `perEntityChurn` is pure state,
-    * where `hasChildOf` asks whether the log holds children to patch AGAINST —
-    * false after a renderer swap or a fill, and a delta then patches against a
-    * baseline nobody can vouch for.
+    * '''Deltas by default; a fill only where it costs nothing or is the only
+    * option.''' A fill re-renders the WHOLE mount, so it re-sends the members
+    * that did not change — and it raises the mount's horizon, which drops every
+    * client below that cursor onto the same wholesale path. It is worth it in
+    * exactly two places:
+    *
+    *   - the unchanged set is EMPTY (`was` or `now` is), so there is nothing to
+    *     re-send: everything arrived, or everything left. One patch instead of
+    *     N, identical bytes.
+    *   - `holdsAnyOf` is false — the log knows none of the members to patch
+    *     after a renderer swap or an earlier fill — and a delta would be
+    *     patching a baseline nobody can vouch for. Correctness, not cost.
+    *
+    * This replaced a churn FRACTION (fill past half the group), which turned
+    * out to be backwards for ordinary frames: at its own motivating boundary —
+    * removing 1 of 2 members — the delta is a single `remove` carrying no HTML
+    * at all, where the fill re-renders the survivor for nothing. The case it
+    * genuinely won, near-total churn of many tiny members, is narrow enough to
+    * pay for out of simplicity.
     */
   private def recordDynamic(
       renderer: Renderer,
@@ -353,12 +398,22 @@ private[runtime] object Patches {
     if (was == now) base
     else {
       val nowSet = now.toSet
-      val added = now.filterNot(was.toSet)
+      val wasSet = was.toSet
+      val added = now.filterNot(wasSet)
       val removed = was.filterNot(nowSet)
-      val churn = added.size + removed.size
+      // Members that survived the frame but changed PLACE. Only a set ordered by
+      // a LIVE value can produce these — authored candidate order cannot move —
+      // and they are a real DOM change, so "the set did not change" is not the
+      // same question as "nothing moved".
+      val moved = Patches.reordered(was.filter(nowSet), now.filter(wasSet))
+      val churn = added.size + removed.size + moved.size
       // The query boundary moved but the RENDERED membership did not.
       if (churn == 0) base
-      else if (!perEntityChurn(churn, was.size) || !base.hasChildOf(gid))
+      else if (
+        was.isEmpty || now.isEmpty || !base.holdsAnyOf(
+          was.map(renderer.dynamicChildId(gid, _))
+        )
+      )
         // Touched as well as filled: the fill re-supplies the mount, and the
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
@@ -367,10 +422,19 @@ private[runtime] object Patches {
           l.touched(renderer.dynamicChildId(gid, e), at)
         )
       else {
-        val afterRemoves = removed.foldLeft(base)((l, e) =>
+        // A move is a departure and an arrival at the new place — the same
+        // idempotent pair an arrival always is, which is why a reorder needs no
+        // patch kind of its own.
+        val afterRemoves = (removed ++ moved).foldLeft(base)((l, e) =>
           l.removed(gid, renderer.dynamicChildId(gid, e), at)
         )
-        added.sorted.foldLeft(afterRemoves) { (l, e) =>
+        // Placed from the BACK of the new order forwards, so each one's anchor
+        // — its successor — is already in the DOM: either it never moved, or
+        // this loop put it there. Forwards, two adjacent arrivals would have
+        // the first anchor on an element that does not exist yet, and an
+        // insert-before a missing selector is silently dropped.
+        val place = (added ++ moved).sortBy(now.indexOf).reverse
+        place.foldLeft(afterRemoves) { (l, e) =>
           val cid = renderer.dynamicChildId(gid, e)
           // Touched as well as placed: the mutation is what a resume replays,
           // but the fragment entry is what keeps the group ESTABLISHED for the

@@ -10,6 +10,25 @@ import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
+/** Every browser-driven smoke suite is Playwright-driven — the slowest part of
+  * the test suite (issue #109 item 3). Mixed into [[SmokeSuite]] AND standalone
+  * suites like `DatastarMorphContractSuite` that don't extend it, so tagging is
+  * a property of what a suite IS rather than a suite-name string `build.sbt`
+  * has to be kept in sync with. `test` routes both the `String` and
+  * `TestOptions` forms through this single munit overload (the `String`
+  * overload converts to `TestOptions` and calls this one), so every test
+  * declared in a mixing-in suite picks up the tag without the suite doing
+  * anything.
+  */
+trait SlowSuite extends munit.FunSuite {
+  val Slow: munit.Tag = new munit.Tag("Slow")
+
+  override def test(options: munit.TestOptions)(
+      body: => Any
+  )(using loc: munit.Location): Unit =
+    super.test(options.tag(Slow))(body)
+}
+
 /** Base for the browser smoke suites (ADR 0009): one Playwright + headless
   * Chromium per suite (cheap page creation off the shared browser), a fresh
   * bound [[TestServer]] + `BrowserContext`/[[Page]] per test — so recorded
@@ -20,7 +39,7 @@ import scala.jdk.CollectionConverters.*
   * class of bug a wire-level test can't see — that's the whole reason this
   * suite exists.
   */
-abstract class SmokeSuite extends munit.CatsEffectSuite {
+abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
 
   private var playwright: Playwright = uninitialized
   private var browser: Browser = uninitialized

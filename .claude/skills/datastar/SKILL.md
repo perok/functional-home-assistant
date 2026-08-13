@@ -1,33 +1,30 @@
 ---
 name: datastar
-description: Local Datastar reference for the fh-datastar-view dashboard — attribute syntax, SSE event types, patterns, and the "Datastar way" philosophy. Use when writing or reviewing Datastar attributes/templates, SSE patch logic, or signal usage.
+description: Datastar reference for the fh-datastar-view dashboard — points to context7 for general docs, plus pinned-bundle corrections and project conventions context7 doesn't have. Use when writing or reviewing Datastar attributes/templates, SSE patch logic, or signal usage.
 ---
 
-# Datastar (local reference)
+# Datastar
 
-This project vendors the Datastar docs — consult them **instead of web search**.
-All paths are relative to the repo root:
+For general Datastar docs — attribute syntax, SSE event types, philosophy ("Tao"),
+patterns/howtos, anti-patterns — use the **context7 MCP tool**
+(`resolve-library-id` → `/websites/data-star_dev`, then `query-docs`) instead of
+web search or vendored copies. It tracks upstream data-star.dev directly, so it
+stays current without us maintaining a local mirror. We pin Datastar v1.x and
+track latest v1 intentionally; v1 updates are not expected to break this
+project, so current-upstream docs are the right reference, not a pinned
+snapshot.
 
-- `docs/reference/datastar/skills/datastar.md` — the full overview: philosophy
-  ("Tao"), SSE event types, request/response flow, anti-patterns.
-- `docs/reference/datastar/reference/attributes.md` — every `data-*` attribute.
-- `docs/reference/datastar/reference/sse.md` — `datastar-patch-elements` /
-  `datastar-patch-signals` wire format.
-- `docs/reference/datastar/patterns/howtos.md` — concrete recipes.
-- `docs/reference/datastar/patterns/tao.md` — the anti-pattern list (optimistic
-  updates, custom history management, signal overuse).
+What context7 can't tell you — covered below instead:
 
-Read the file matching the question; start with `skills/datastar.md` when unsure.
+## Verified against the pinned bundle — docs are prose, not the shipped code
 
-## Verified against the pinned bundle — the vendored docs are WRONG here
+Any docs (context7 included) describe upstream behavior, not necessarily
+`modules/fh-datastar-view/assets-cache/*-datastar.js` (pinned v1.0.2). Where they disagree,
+the bundle wins. Check the bundle for anything load-bearing; `grep -o` on the minified
+source is enough to settle most questions in a minute.
 
-The vendored pages are upstream prose, not the shipped code. Where they disagree with
-`modules/fh-datastar-view/assets-cache/*-datastar.js` (pinned v1.0.2), the bundle wins —
-and it has disagreed. Check the bundle for anything load-bearing; `grep -o` on the
-minified source is enough to settle most questions in a minute.
-
-**Signal filtering on an action.** `attributes.md` showed `@post('/api', {include: ...})`.
-The real option is nested:
+**Signal filtering on an action.** Docs have shown a flat `@post('/api', {include: ...})`
+form in the past. The real option is nested:
 
 ```
 filterSignals: { include: /.*/, exclude: /(^|\.)_/ }

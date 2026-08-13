@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before starting work, read and follow AGENTS.md in this repository root.
+
 ## What this is
 
 A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assistant.io/). The core idea: **connect to a live Home Assistant instance, introspect its devices/entities/services, and code-generate strongly-typed Scala references to them**, so that automations written against this project reference real devices/entities by name with compile-time guarantees (rather than stringly-typed `entity_id`s). Conceptually similar to NetDaemon/AppDaemon, but with generated types.
@@ -42,9 +44,9 @@ sbt test                            # INCREMENTAL in sbt 2.0 (only changed suite
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
-sbt 'scalafmt; Test/scalafmt'       # format (scalafmt 3.9.3, scala3 dialect)
-                                    # BOTH: `scalafmt` alone skips test sources,
-                                    # which CI's `scalafmt --test` still checks
+scalafmt                            # format (standalone CLI, version pinned by .scalafmt.conf,
+                                    # scala3 dialect); a PreToolUse hook already runs this
+                                    # before every `git add` — see .claude/settings.json
 sbt doCodegen                       # regenerate typed device/entity code, then format it
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
@@ -52,6 +54,30 @@ sbt dashboardServe                  # runtime: serve the Datastar dashboard (htt
 sbt fh-datastar-view/frontendInstall  # npm ci for the dashboard frontend
 sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on compile)
 ```
+
+## Hooks (`.claude/settings.json`, `.claude/hooks/`)
+
+Three `PreToolUse` guardrails run automatically — don't route around them without reading why
+they exist first:
+
+- **scalafmt before `git add`** — runs `scalafmt` (standalone CLI) so nothing unformatted ever
+  reaches CI's `scalafmt --test`.
+- **`guard-protected-paths.sh`** (on `Edit`/`Write`) — blocks edits inside any folder literally
+  named `generated` (build output, wiped by `doCodegen`) and blocks any edit touching the
+  `version:` line in `home-addon/config.yaml` (the release trigger — see "Releasing is the
+  maintainer's call" above).
+- **`block-shell-file-edits.sh`** (on `Bash`) — blocks `sed -i`, `perl -i`, `python`/`python3`
+  file writes, `cat >`/`>>`, and `tee` against tracked files. Use the `Edit`/`Write` tools
+  instead: they require reading the file first and enforce a unique match, which catches
+  stale-file and ambiguous-replacement errors that shell edits don't. `/tmp` and the scratchpad
+  dir are exempt.
+
+  **Escape hatch**: for a genuine bulk/multi-file mechanical edit (a repo-wide rename,
+  find+sed across many files) where a Read+Edit round trip per file would be far more
+  expensive than one shell command, prefix the command with `ALLOW_SHELL_EDIT=1` to bypass
+  the check for that one call, e.g. `ALLOW_SHELL_EDIT=1 sed -i 's/old/new/' $(git grep -l old)`.
+  Use it deliberately for actual bulk edits — not as a way around the check for a single edit
+  that `Edit`/`Write` would handle fine.
 
 **`fh-datastar-view` needs node + npm to build.** Its frontend (`src/js`, TypeScript
 and JavaScript) is bundled by vite 8 into managed resources via `project/NpmPlugin.scala`,
@@ -118,7 +144,9 @@ matter, say so and stop; do not act on it.
 ## Conventions & gotchas
 
 - Generated file names sanitize device/entity names (spaces → `-`, emoji → unicode names) because the Scala compiler rejects emoji in filenames — see `ThingReference.toPath`.
-- The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
+- The HA URL and bearer token live in a gitignored **`.env`** at the repo root (`SERVER`/`SECRET`),
+  read at run time by `FHApi.fromEnv`. `build.sbt`'s `haUrl`/`haSecret` are `"TODO"` placeholders.
+  Treat the `.env` value as a real credential.
 - `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
 

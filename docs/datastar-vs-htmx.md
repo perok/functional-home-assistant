@@ -132,7 +132,7 @@ navigation, so it is outside the anti-pattern the tao warns about.
 - **Re-validate morph-preservation** (open dialog, focus, mid-drag slider) under
   idiomorph instead of Datastar's default morph; re-run/adjust the ~50 tests.
 - **Rewrite ADR 0001–0005 anchors** that name Datastar primitives, plus the
-  vendored reference under `docs/reference/datastar/`.
+  `datastar` skill's pinned-bundle and project-convention notes.
 
 ## What we'd gain / lose
 

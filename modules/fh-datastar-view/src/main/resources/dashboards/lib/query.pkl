@@ -1,0 +1,699 @@
+/// The query surface over a STATIC candidate set — the second way an entity
+/// reaches a node, for the things plain composition cannot express: filtering on
+/// live state, and presence.
+///
+/// Plain Pkl stays the first answer. A fixed list of lights is still
+///
+///     for (light in dump.stue.lights) { c.slider(light) }
+///
+/// and reaching for `q.from(...)` to write that is a regression in authoring
+/// cost with nothing bought. This module earns its place only when the set has
+/// to react to live state.
+///
+/// Its own namespace, not part of `components.pkl`: this is a query language,
+/// and a card knows nothing about it. A `render` lambda hands back an ordinary
+/// component node, which is the only seam between the two.
+///
+/// The shape of the thing (`docs/adr/0003-dynamic-groups.md`): the
+/// CANDIDATES are decided here, at build time, from the typed dump. Registry
+/// facts fold away — `area_id == "stue"` selects candidates and never reaches
+/// the wire — and only conditions on live state survive, as per-member guards.
+/// So the runtime decides presence and nothing else; it never materialises an
+/// entity the build did not know about.
+///
+///     q.from(dump.stue.lights)
+///       .where(q.eq(q.stateProp, "on"))
+///       .render((e) -> c.slider(e))
+///
+/// NOT YET HERE: a set nested inside a member ("a tile per room"), and `min`/
+/// `max` over a property. Absent rather than present-and-erroring, so pkl-lsp
+/// says "unknown method" at the point of use.
+module query
+
+import "components.pkl"
+import "hass.pkl"
+
+/// A comparison value. Not `Any` — only scalars are comparable.
+typealias Scalar = String|Int|Float|Boolean
+
+// ---- boolean structure -----------------------------------------------------
+//
+// A LIST is conjunction — the common case, so `where` takes one directly and no
+// wrapper is needed. Disjunction and negation are explicit, and nest freely:
+//
+//   .where(q.any(List(q.candidate((e) -> e.dimmable), q.eq(q.stateProp, "on"))))
+//
+// `&&`/`||` cannot be used across the seam: Pkl rejects `Boolean && Cmp`, which
+// is what keeps a live condition from being smuggled into a static position.
+
+/// Everything that can appear where a condition is expected, resolved or not.
+/// Usable in every NON-recursive position; the two positions that would close
+/// the alias cycle take `Any` and say why.
+typealias Cond = Boolean|components.Predicate|Pending|CandidateTerm|Group
+
+/// An UNRESOLVED comparison — its key is still a [[PropName]], so where the
+/// value comes from is not decided yet. Resolving it against the candidates
+/// either FOLDS it to a `Boolean` (a registry fact the build can read) or
+/// produces a live `components.Cmp`.
+class Pending {
+  key: PropName
+  op: components.PredicateOp
+  value: Scalar
+}
+
+/// A term computed FROM the candidate by an author lambda, resolved at build
+/// time. A first-class term rather than a bare lambda so that it COMPOSES: a
+/// lambda has no candidate in scope inside `any`/`all`/`not`, and a
+/// `candidate` term does.
+///
+/// `fn`'s return is `Any` and not `Cond` ONLY because a typealias may not be
+/// cyclic in Pkl and `Cond` mentions this class. Everything the resolver
+/// accepts is still a `Cond`; the looseness stops at this one field.
+class CandidateTerm {
+  fn: (hass.Entity) -> Any
+}
+
+/// An UNRESOLVED boolean group. [[all]]/[[any]]/[[not]] fold immediately when
+/// every operand is already resolved, and produce this when one is not — so the
+/// same three functions cover both and an author never picks between an eager
+/// and a lazy variant. `items` is `List<Any>` for the same alias-cycle reason.
+class Group {
+  gop: "all"|"any"|"not"
+  items: List<Any>
+}
+
+// Parameters are deliberately NOT named after the properties they set: inside a
+// `new { items = items }` the RHS binds to the object's own member and recurses
+// ~10 000 deep, with a trace pointing at the field rather than the cause.
+const local function isResolved(xs: List<Cond>): Boolean =
+  xs.every((i) -> i is Boolean || i is components.Predicate)
+
+/// Conjunction. A statically-false term decides the candidate immediately.
+function all(xs: List<Cond>): Cond =
+  if (isResolved(xs)) foldAll(xs as List<Boolean|components.Predicate>)
+  else new Group { gop = "all"; items = xs }
+
+/// Disjunction. A statically-true term short-circuits the whole thing — which
+/// is why presence residuals can DIFFER between members of one set, and so why
+/// presence has to live on the clause rather than beside it.
+function any(xs: List<Cond>): Cond =
+  if (isResolved(xs)) foldAny(xs as List<Boolean|components.Predicate>)
+  else new Group { gop = "any"; items = xs }
+
+/// Negation. Static stays static; a live term becomes a runtime `not`.
+function not(x: Cond): Cond =
+  if (x is Boolean) !x
+  else if (x is components.Predicate) new components.PNot { item = x }
+  else new Group { gop = "not"; items = List(x) }
+
+/// Fold a mixed list of build-time Booleans and runtime predicates.
+/// `false` => this candidate is decided statically and drops out entirely.
+/// `true`  => nothing defers; no predicate reaches the wire.
+///
+/// Both folds CANONICALISE — same-kind nesting is flattened, structurally equal
+/// terms deduped, a single survivor unwrapped. Not cosmetic: a presence residual
+/// identical to a branch guard would otherwise emit `and[state==on, state==on]`,
+/// and the runtime would evaluate the same predicate twice. One level of
+/// flattening suffices, because every group is built through these.
+const local function flatten(
+  gop: String, ts: List<components.Predicate>
+): List<components.Predicate> =
+  ts.flatMap((t) ->
+    if (gop == "and" && t is components.PAnd) t.items.toList()
+    else if (gop == "or" && t is components.POr) t.items.toList()
+    else List(t)).distinct
+
+const local function listing(ts: List<components.Predicate>): Listing<components.Predicate> =
+  new Listing { for (t in ts) { t } }
+
+const local function foldAll(xs: List<Boolean|components.Predicate>): Boolean|components.Predicate =
+  if (xs.any((i) -> i is Boolean && i == false)) false
+  else
+    let (rest = flatten("and", xs.filter((i) -> i is components.Predicate) as List<components.Predicate>))
+      if (rest.isEmpty) true
+      else if (rest.length == 1) rest.first
+      else new components.PAnd { items = listing(rest) }
+
+const local function foldAny(xs: List<Boolean|components.Predicate>): Boolean|components.Predicate =
+  if (xs.any((i) -> i is Boolean && i == true)) true
+  else
+    let (rest = flatten("or", xs.filter((i) -> i is components.Predicate) as List<components.Predicate>))
+      if (rest.isEmpty) false
+      else if (rest.length == 1) rest.first
+      else new components.POr { items = listing(rest) }
+
+// ---- property references, shared by predicates AND ordering ----------------
+//
+// ONE vocabulary. A property is NAMED, not namespaced by the author: say
+// `q.prop("friendly_name")` and the BUILD decides where it comes from — a
+// registry fact when every candidate carries it as a property, a live attribute
+// otherwise. `friendly_name` is genuinely both, and an author should not have to
+// know which we picked.
+
+/// A named property, namespace-resolved at build time (see [[resolveProp]]).
+open class PropName {
+  name: String
+  /// Allow the property to be missing on SOME candidates; missing reads as
+  /// null. Without it, mixed availability is a build error — it would mean the
+  /// name is a registry fact for some members and a live attribute for others,
+  /// which are not the same thing.
+  optional: Boolean = false
+}
+
+/// Force the LIVE reading of a name that is also a registry fact.
+class LiveAttr extends PropName {}
+
+function prop(n: String): PropName = new { name = n }
+
+function attr(n: String): LiveAttr = new { name = n }
+
+/// Accept a property only SOME candidates carry; missing reads as null.
+function optional(p: PropName): PropName = (p) { optional = true }
+
+/// The live state value.
+const stateProp: PropName = new PropName { name = "state" }
+
+/// A term computed FROM the candidate. Prefer this over a bare lambda when the
+/// term has to COMPOSE — inside `any`/`all`/`not` a lambda has no candidate in
+/// scope, and this does.
+function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
+  new { fn = f }
+
+/// A live attribute name, checked against what the candidates can actually
+/// report ([[hass.Entity.volatileAttrs]]).
+///
+/// The point is the typo: `q.prop("brightnes")` used to resolve to a live
+/// attribute that never matched, and nothing caught it — a card that silently
+/// never updates. Now it names itself at build time.
+///
+/// Checked only against candidates whose schema is NON-EMPTY, because empty
+/// means "this domain is not modelled yet" rather than "this entity reports
+/// nothing" (ADR 0013's progressive coverage). So adding a domain to the schema
+/// turns validation ON for it, and never turns it on for one nobody has
+/// modelled. A name ANY modelled candidate can report is accepted — a mixed set
+/// is not the place to argue about it.
+const local function checkLive(items: List<hass.Entity>, name: String): String =
+  let (modelled = items.filter((e) -> !e.volatileAttrs.isEmpty))
+    if (modelled.isEmpty || modelled.any((e) -> e.volatileAttrs.containsKey(name)))
+      "attr:" + name
+    else
+      throw("""
+        No candidate can report a live attribute called '\(name)'.
+
+        The ones that could say what they report list: \(
+          modelled
+            .flatMap((e) -> e.volatileAttrs.keys.toList())
+            .distinct
+            .sort()
+            .join(", ")
+        ).
+
+        If this is a real attribute the schema does not model yet — an
+        integration-specific one such as `off_brightness` — write
+        `q.attr("\(name)")`, which means "a live attribute, unchecked".
+        """)
+
+/// Where a named property actually comes from, for these candidates.
+///
+/// ALL candidates have it  => a registry fact, readable by the build.
+/// NONE have it            => a live attribute, checked by [[checkLive]].
+/// SOME have it            => AMBIGUOUS, and a build error unless `optional`.
+const local function resolveProp(items: List<hass.Entity>, p: PropName): String =
+  if (p.name == "state") "state"
+  else if (p is LiveAttr) "attr:" + p.name
+  else
+    let (have = items.filter((e) -> e.hasProperty(p.name)).length)
+      if (items.isEmpty || have == 0) checkLive(items, p.name)
+      else if (have == items.length) "reg:" + p.name
+      else if (p.optional) "reg:" + p.name
+      else throw("""
+        Property '\(p.name)' is present on \(have) of \(items.length) candidates.
+        That is ambiguous: it would be a registry fact for some members and a
+        live attribute for others. Either narrow the candidates so every one
+        carries it, or wrap it in `q.optional(...)` to accept a null where it is
+        missing.
+        """)
+
+/// True when the build can read this property itself, and so fold a comparison
+/// on it away entirely.
+const local function isBuildReadable(items: List<hass.Entity>, p: PropName): Boolean =
+  resolveProp(items, p).startsWith("reg:")
+
+const local function applyOp(cmpOp: String, l: Any, r: Any): Boolean =
+  if (cmpOp == "eq") l == r
+  else if (cmpOp == "ne") l != r
+  else if (cmpOp == "gt") l > r
+  else if (cmpOp == "gte") l >= r
+  else if (cmpOp == "lt") l < r
+  else if (cmpOp == "lte") l <= r
+  else throw("unknown comparison operator '\(cmpOp)'")
+
+/// Resolve one pending comparison for ONE candidate: folded to a Boolean when
+/// the build can read the property, otherwise a live term.
+const local function resolvePending(
+  items: List<hass.Entity>, e: hass.Entity, pd: Pending
+): Boolean|components.Predicate =
+  if (isBuildReadable(items, pd.key))
+    applyOp(pd.op, e.getPropertyOrNull(pd.key.name), pd.value)
+  else
+    new components.Cmp {
+      property = resolveProp(items, pd.key)
+      op = pd.op
+      value = pd.value
+    }
+
+// ---- comparisons: the same terms work in `where` and in `orderBy` ----------
+
+const local function cmp(k: PropName, cmpOp: components.PredicateOp, v: Scalar): Pending =
+  new { key = k; op = cmpOp; value = v }
+
+function eq(k: PropName, v: Scalar): Pending = cmp(k, "eq", v)
+function ne(k: PropName, v: Scalar): Pending = cmp(k, "ne", v)
+function gt(k: PropName, v: Scalar): Pending = cmp(k, "gt", v)
+function lt(k: PropName, v: Scalar): Pending = cmp(k, "lt", v)
+
+// ---- naming another entity --------------------------------------------------
+
+/// A term about a DIFFERENT entity than the member. The reference is resolved at
+/// build time — usually derived from the candidate, as in "this light's room's
+/// motion sensor" — while the test itself stays live:
+///
+///     q.candidate((e) -> q.entity(motionSensorFor(e.area_id)).stateIs("on"))
+///
+/// Keeps the ENTITY, not just its id, so a comparison is checked against that
+/// exact entity. Pkl has no generics, so the static type cannot be carried — but
+/// per-entity is the sharper question anyway, and it matches ADR 0013, which
+/// puts capabilities on a class generated PER ENTITY: "does this entity have
+/// `brightness`" beats "is this a light".
+class EntityRef {
+  id: String
+  /// The dump entity, when one was given. Null for a computed id, which cannot
+  /// be checked.
+  hidden source: hass.Entity?
+
+  /// The shorthand: naming an entity is nearly always to test its state, so
+  /// that should not cost a `q.eq(q.stateProp, …)` every time.
+  function stateIs(s: String): components.Cmp = cmpOn(id, source, stateProp, "eq", s)
+  function stateIsNot(s: String): components.Cmp = cmpOn(id, source, stateProp, "ne", s)
+  function eq(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "eq", v)
+  function ne(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "ne", v)
+  function gt(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "gt", v)
+  function lt(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "lt", v)
+}
+
+/// Name one entity. Prefer passing the typed dump entity —
+/// `q.entity(dump.e_taklys)` — so a typo is a Pkl error AND the property is
+/// checked against that entity. A bare String is accepted for computed ids, at
+/// the cost of both.
+function entity(e: hass.Entity|String): EntityRef =
+  if (e is String) new { id = e; source = null }
+  else new { id = (e as hass.Entity).entity_id; source = e }
+
+// A cross-entity term cannot fold: the build knows WHICH entity, never its
+// state. So it is always live, and always names a `state`/`attr:` property.
+//
+// When the entity itself was given, the named property is checked against it — a
+// registry fact it does not carry is a typo, and saying so here beats a
+// condition that silently never matches. A volatile name is not checkable YET
+// (the capability-derived schema is not built); once it is, this becomes an
+// error rather than a warning.
+const local function cmpOn(
+  who: String, src: hass.Entity?, k: PropName, cmpOp: components.PredicateOp, v: Scalar
+): components.Cmp =
+  let (_checked =
+        if (src != null && k.name != "state" && !src.hasProperty(k.name))
+          trace("fh: '\(k.name)' is not a property of \(who) — assuming a live attribute") != null
+        else true)
+    new {
+      entity = who
+      property = if (k.name == "state") "state" else "attr:" + k.name
+      op = cmpOp
+      value = v
+    }
+
+// ---- ordering ---------------------------------------------------------------
+//
+// A declarative LIST of positions rather than a lambda: a `where` predicate
+// genuinely depends on the candidate, an ordering key never does — `brightness`
+// is the same reference for every member. For a COMPUTED ordering, sort the
+// input list with ordinary Pkl before `from`.
+
+/// One authored ordering position, most significant first. `by` is a property
+/// (sort by its value) or a comparison (sort by whether it holds) — the same
+/// vocabulary `where` uses, so a filter and a sort key are written alike.
+class OrderSpec {
+  by: PropName|Pending
+  dir: "asc"|"desc" = "asc"
+}
+
+function asc(k: PropName|Pending): OrderSpec = new { by = k; dir = "asc" }
+function desc(k: PropName|Pending): OrderSpec = new { by = k; dir = "desc" }
+
+// `const` because [[EntitySet.orderBy]] calls it from a class body.
+const local function spec(k: OrderSpec|PropName|Pending): OrderSpec =
+  if (k is OrderSpec) k else new OrderSpec { by = k as (PropName|Pending) }
+
+const local function specKey(s: OrderSpec): PropName =
+  if (s.by is Pending) (s.by as Pending).key else s.by as PropName
+
+/// The ordering, split: what the build sorted away, and what the runtime must
+/// still compare.
+class Ordering {
+  entities: List<hass.Entity>
+  terms: List<components.SortTerm>
+}
+
+/// Fold the ordering.
+///
+/// A build-readable position is sorted NOW and emits nothing — alphabetical by
+/// name costs the runtime nothing at all. A live one has to be emitted, because
+/// only the runtime knows the value.
+///
+/// The two can be MIXED, but only with the registry keys LAST. A registry key
+/// that outranks a live one would have to reach the runtime as a `reg:`
+/// reference, and the runtime has no registry table to resolve it against —
+/// so that combination throws instead of silently ordering by the wrong thing.
+/// Registry keys after every live one are fine: they are the tiebreak, and
+/// pre-sorting the candidates by them supplies it, because the runtime's sort
+/// is stable over candidate order.
+const local function foldOrder(
+  items: List<hass.Entity>, specs: List<OrderSpec>
+): Ordering =
+  if (specs.isEmpty || items.isEmpty) new Ordering { entities = items; terms = List() }
+  else
+    let (liveAt = specs.findIndexOrNull((s) -> !isBuildReadable(items, specKey(s))))
+      if (liveAt == null)
+        new Ordering { entities = sortNow(items, specs); terms = List() }
+      else
+        let (leading = specs.take(liveAt + 1))
+        let (trailing = specs.drop(liveAt + 1))
+          if (leading.any((s) -> isBuildReadable(items, specKey(s))))
+            throw("""
+              Cannot order by '\(leading.findOrNull((s) -> isBuildReadable(items, specKey(s))).ifNonNull((s) -> specKey(s).name))'
+              before the live key '\(specKey(specs[liveAt]).name)'. A registry
+              fact that outranks a live value would have to be resolved by the
+              runtime, which holds no registry. Put the registry keys LAST (they
+              are then the tiebreak, and the build supplies it), or sort the
+              input list with ordinary Pkl before `from`.
+              """)
+          else
+            new Ordering {
+              entities = sortNow(items, trailing)
+              terms = specs.take(liveAt + 1).map((s) -> liveTerm(items, s))
+            }
+
+/// Sort the candidates from the least significant key outwards, each sort
+/// STABLE, so the result is lexicographic. `desc` compares the other way rather
+/// than reversing the sorted list: reversing would also reverse the ties,
+/// undoing the order the less significant keys just established.
+const local function sortNow(
+  items: List<hass.Entity>, specs: List<OrderSpec>
+): List<hass.Entity> =
+  specs.reverse().fold(items, (acc, s) ->
+    acc.sortWith((x, y) ->
+      let (a = orderValue(items, s, x))
+        let (b = orderValue(items, s, y))
+          if (s.dir == "desc") a > b else a < b))
+
+// A comparison as a sort key reads as its truth; `desc` puts true first, which
+// matches the runtime's `holds` ordering.
+const local function orderValue(
+  items: List<hass.Entity>, s: OrderSpec, e: hass.Entity
+): String|Int|Float|Boolean =
+  if (s.by is Pending)
+    resolvePending(items, e, s.by as Pending) as Boolean
+  else e.getProperty((s.by as PropName).name) as (String|Int|Float|Boolean)
+
+const local function liveTerm(
+  items: List<hass.Entity>, s: OrderSpec
+): components.SortTerm =
+  new {
+    by =
+      if (s.by is Pending)
+        let (pd = s.by as Pending)
+          new components.SortHolds {
+            predicate = new components.Cmp {
+              property = resolveProp(items, pd.key)
+              op = pd.op
+              value = pd.value
+            }
+          }
+      else new components.SortProp { property = resolveProp(items, s.by as PropName) }
+    dir = s.dir
+  }
+
+// ---- the set ----------------------------------------------------------------
+
+/// One authored dispatch branch: a key applied per candidate, and the node to
+/// render when it wins. The key returns `Boolean` (folds at build time) or a
+/// predicate (defers to the wire).
+class Branch {
+  key: (hass.Entity) -> Boolean|components.Predicate
+  render: (hass.Entity) -> components.Node
+}
+
+/// What [[EntitySet.where]] and [[EntitySet.caseOf]] accept: the data form, a
+/// [[candidate]] term, a list of either (conjunction), or a bare lambda over the
+/// candidate.
+typealias Filter = ((hass.Entity) -> Cond|List<Cond>)|Cond|List<Cond>
+
+/// A chainable candidate set. Every method returns an amended copy, so a chain
+/// is pure accumulation and nothing is evaluated until [[build]].
+class EntitySet {
+  hidden items: List<hass.Entity>
+  hidden filters: List<Filter> = List()
+  hidden branches: List<Branch> = List()
+  hidden specs: List<OrderSpec> = List()
+  hidden cap: Int? = null
+
+  /// Keep candidates matching the condition. Accepts a LAMBDA (when the term
+  /// reads the candidate directly) or the DATA form built from the same
+  /// property references ordering uses, which needs no lambda at all. A `List`
+  /// result is conjunction.
+  ///
+  /// Static terms drop candidates at build time; live terms become the member's
+  /// guard. One method, one fold — the author never names the seam.
+  function where(f: Filter): EntitySet =
+    let (l = this) (l) { filters = l.filters.add(f) }
+
+  /// Lexicographic, most significant first. One position or a list of them.
+  function orderBy(
+    ks: List<OrderSpec|PropName|Pending>|OrderSpec|PropName|Pending
+  ): EntitySet =
+    let (l = this)
+      let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending> else List(ks))
+        (l) { specs = l.specs + asList.map((k) -> spec(k)) }
+
+  /// Show at most `n` PRESENT members, after ordering — "the three brightest".
+  /// Every candidate still ships; which of them is cut depends on live values,
+  /// so only the runtime can decide it.
+  function limit(n: Int(this > 0)): EntitySet = let (l = this) (l) { cap = n }
+
+  /// One guarded rendering. The guard takes exactly what [[where]] takes and
+  /// folds the same way: a `Boolean` decides at build time, anything else
+  /// defers to the wire.
+  function caseOf(g: Filter, r: (hass.Entity) -> components.Node): EntitySet =
+    let (l = this)
+      (l) {
+        branches = l.branches.add(new Branch {
+          key = (e) -> normalise(l.items, e, g)
+          render = r
+        })
+      }
+
+  /// Several guarded renderings at once. A `Mapping` keeps author order — which
+  /// is match order — and rejects duplicate keys.
+  function cases(m: Mapping<Filter, (hass.Entity) -> components.Node>): EntitySet =
+    let (l = this)
+      (l) {
+        branches = l.branches + m.toMap().entries.map((p) ->
+          new Branch { key = (e) -> normalise(l.items, e, p.key); render = p.value })
+      }
+
+  /// The unconditional last clause. OPTIONAL, and its absence is meaningful: a
+  /// candidate matching no clause is simply not rendered, which is how "show it
+  /// only while on" is written.
+  function `else`(r: (hass.Entity) -> components.Node): EntitySet = caseOf((_e) -> true, r)
+
+  /// The only rendering, when there is nothing to dispatch on.
+  function render(r: (hass.Entity) -> components.Node): EntitySet = caseOf((_e) -> true, r)
+
+  /// How many of this set's candidates are PRESENT, as a comparable value.
+  /// `.count().gt(2)` is "more than two of these are on".
+  ///
+  /// Reads only `where` — the branches are about RENDERING, and a count does
+  /// not render. So a set can be counted without ever being given a card.
+  function count(): CountRef =
+    let (l = this)
+      new {
+        residuals = l.items
+          .map((e) -> Pair(e.entity_id, foldAll(l.filters.map((f) -> normalise(l.items, e, f)))))
+          .filter((p) -> !(p.second is Boolean && p.second == false))
+      }
+
+  /// At least one is present. Not a quantifier — a comparison on the count.
+  function any(): Cond = count().gt(0)
+  /// None are.
+  function none(): Cond = count().eq(0)
+  /// Every candidate is.
+  function all(): Cond = let (l = this) count().eq(l.count().residuals.length)
+
+  /// The emitted node. A chain ends here — Pkl has no implicit conversion, so
+  /// the set is a layout node only once you ask for it.
+  function build(): components.SetNode =
+    let (l = this)
+      let (ordering = foldOrder(l.items, l.specs))
+        buildSet(
+          ordering,
+          l.items,
+          l.branches,
+          l.cap,
+          (e) -> foldAll(l.filters.map((f) -> normalise(l.items, e, f))))
+}
+
+/// Start a query over any list of typed dump entities.
+function from(xs: List<hass.Entity>): EntitySet = new EntitySet { items = xs }
+
+/// A count, waiting to be compared. Comparing it yields an ordinary condition —
+/// or a CONSTANT, when the build already knows the answer.
+///
+/// It knows the answer whenever no candidate's presence depends on live state:
+/// an empty room counts 0, and a set with only registry filters counts its
+/// survivors. Then `.any()` on a room with no lights is `false` at build time,
+/// and the card it guards is dropped rather than carrying a condition that can
+/// never hold. The same fold as everywhere else, one level up.
+class CountRef {
+  /// Candidate id -> its presence residual: `true` for one the build settled,
+  /// a predicate for one the runtime must decide. Statically-absent candidates
+  /// are already gone.
+  hidden residuals: List<Pair<String, Boolean|components.Predicate>>
+
+  hidden knownCount: Int? =
+    if (residuals.every((p) -> p.second == true)) residuals.length else null
+
+  // `let (l = this)`: inside `new { … }` a bare `this` — and even `this.x` —
+  // rebinds to the object being built, so a field would initialise from itself.
+  function gt(v: Int): Cond = let (l = this) l.compareTo("gt", v)
+  function lt(v: Int): Cond = let (l = this) l.compareTo("lt", v)
+  function eq(v: Int): Cond = let (l = this) l.compareTo("eq", v)
+  function ne(v: Int): Cond = let (l = this) l.compareTo("ne", v)
+
+  function compareTo(cmpOp: components.PredicateOp, v: Int): Cond =
+    let (l = this)
+      if (l.knownCount != null) staticCompare(cmpOp, l.knownCount!!, v)
+      else
+        new components.Count {
+          candidates = new Listing { for (p in l.residuals) { p.first } }
+          `when` = new Mapping {
+            for (p in l.residuals) {
+              when (p.second is components.Predicate) {
+                [p.first] = p.second as components.Predicate
+              }
+            }
+          }
+          op = cmpOp
+          value = v
+        }
+}
+
+const local function staticCompare(cmpOp: String, n: Int, v: Int): Boolean =
+  if (cmpOp == "gt") n > v
+  else if (cmpOp == "lt") n < v
+  else if (cmpOp == "eq") n == v
+  else n != v
+
+// ---- the fold ---------------------------------------------------------------
+
+/// Reduce one filter, in any of its accepted forms, to a single folded term for
+/// candidate `e`.
+const local function normalise(
+  items: List<hass.Entity>, e: hass.Entity, f: Any
+): Boolean|components.Predicate =
+  let (r = if (f is Function) (f as ((Any) -> Any)).apply(e) else f)
+    if (r is List) foldAll((r as List<Any>).map((x) -> normalise(items, e, x)))
+    else if (r is Pending) resolvePending(items, e, r as Pending)
+    else if (r is CandidateTerm) normalise(items, e, (r as CandidateTerm).fn)
+    else if (r is Group)
+      let (g = r as Group)
+        let (kids = g.items.map((x) -> normalise(items, e, x)))
+          if (g.gop == "all") foldAll(kids)
+          else if (g.gop == "any") foldAny(kids)
+          else if (kids.first is Boolean) !(kids.first as Boolean)
+          else new components.PNot { item = kids.first as components.Predicate }
+    else r as (Boolean|components.Predicate)
+
+/// Which branches survive for one candidate, in author order, with their
+/// residual runtime condition. A branch whose key folded to `false` is gone; one
+/// that folded to `true` is unconditional and ENDS the list, because nothing
+/// after it can ever win.
+const local function liveBranches(
+  e: hass.Entity, branches: List<Branch>
+): List<Pair<Branch, components.Predicate?>> =
+  let (evaluated = branches
+        .map((b) -> Pair(b, b.key.apply(e)))
+        .filter((p) -> !(p.second is Boolean && p.second == false)))
+    let (firstUnconditional = evaluated.findIndexOrNull((p) -> p.second == true))
+      (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
+        .map((p) ->
+          Pair(p.first, if (p.second is components.Predicate) p.second as components.Predicate else null))
+
+/// Conjoin a candidate's presence residual with one branch's residual. Either
+/// may be statically decided; the result is the guard the wire must carry, or
+/// null when nothing defers.
+///
+/// Routed through the fold rather than building a `PAnd` directly, so a presence
+/// residual identical to the branch guard collapses to one term instead of being
+/// conjoined with itself.
+const local function conjoin(
+  presence: Boolean|components.Predicate, branch: components.Predicate?
+): components.Predicate? =
+  let (parts =
+        (if (presence is components.Predicate) List(presence as components.Predicate) else List()) +
+        (if (branch != null) List(branch) else List()))
+    if (parts.isEmpty) null else foldAll(parts) as components.Predicate
+
+/// Build the wire node from a static candidate list and authored branches.
+///
+/// `ordering` carries the candidates in render order plus whatever the runtime
+/// must still compare; `items` is the UNSORTED original, which property
+/// resolution reads — sorting must not change whether a name is a registry fact.
+const local function buildSet(
+  ordering: Ordering,
+  items: List<hass.Entity>,
+  branches: List<Branch>,
+  cap: Int?,
+  presence: (hass.Entity) -> Boolean|components.Predicate
+): components.SetNode =
+  // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
+  //    never reaches the wire.
+  let (kept = ordering.entities
+        .map((e) -> Pair(e, presence.apply(e)))
+        .filter((p) -> !(p.second is Boolean && p.second == false)))
+  // 2. dispatch: which branches can still win for each surviving candidate.
+  let (dispatched = kept
+        .map((p) -> Pair(p.first, liveBranches(p.first, branches)))
+        .filter((p) -> !p.second.isEmpty))
+  let (presenceOf = kept.toMap((p) -> p.first.entity_id, (p) -> p.second))
+  // 3. render every (candidate, branch) pair, folding this candidate's presence
+  //    residual into each branch's guard — which is what lets presence and
+  //    dispatch share one field instead of needing a presence field beside it.
+  let (rendered = dispatched.map((p) ->
+        Pair(p.first, p.second.map((b) ->
+          Pair(b.first.render.apply(p.first),
+               conjoin(presenceOf[p.first.entity_id], b.second))))))
+    new components.SetNode {
+      candidates = new Listing { for (p in dispatched) { p.first.entity_id } }
+      orderBy = new Listing { for (t in ordering.terms) { t } }
+      limit = cap
+      members = new Mapping {
+        for (p in rendered) {
+          [p.first.entity_id] = new components.SetMember {
+            clauses = new Listing {
+              for (q in p.second) {
+                new components.SetClause { `when` = q.second; node = q.first }
+              }
+            }
+          }
+        }
+      }
+    }

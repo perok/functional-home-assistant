@@ -74,6 +74,33 @@ object PklDump {
          |
          |entities: Entities = new {}""".stripMargin
 
+    // The house-wide lists. DECLARED in `@fh-dashboard/dump-base.pkl` (which
+    // this module extends) and merely filled here — so a home with no switches
+    // answers `List()` rather than "Cannot find property", and the starter
+    // dashboard can query them without having seen this dump. `all` is derived
+    // there from the four, so it is not emitted.
+    //
+    // Assignments are omitted where the list is empty: the declared default
+    // already says `List()`, and emitting it again is noise in a generated file
+    // a person does read.
+    val domainLists = {
+      def list(name: String, pred: String => Boolean) = {
+        val keys = entities.collect {
+          case (key, eo) if str(eo, "domain").exists(pred) => tick(s"e_$key")
+        }
+        Option.when(keys.nonEmpty)(
+          s"$name = List(${keys.mkString(", ")})"
+        )
+      }
+      val modelled = Set("light", "sensor", "switch")
+      List(
+        list("lights", _ == "light"),
+        list("sensors", _ == "sensor"),
+        list("switches", _ == "switch"),
+        list("generic", d => !modelled.contains(d))
+      ).flatten.mkString("\n")
+    }
+
     // One class per area (from the flat map — floor nesting references these).
     // Members = entities whose raw `area_id` matches the area's.
     val areaClasses = areas.map { case (slug, ao) =>
@@ -201,13 +228,21 @@ object PklDump {
     // parameter. See ADR 0010, "Module identity".
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
        |/// The entity/area/floor dump, typed against `hass.pkl`.
-       |module dump
+       |///
+       |/// EXTENDS the shared base so the house-wide lists (`lights`, `sensors`,
+       |/// `switches`, `generic`, `all`) are a declared contract with `List()`
+       |/// defaults, not properties this generator has to remember to emit.
+       |/// `extends` rather than `amends` because an amending module may not
+       |/// declare classes, and a dump is mostly classes.
+       |extends "@fh-dashboard/dump-base.pkl"
        |
        |import "@fh-dashboard/hass.pkl"
        |
        |${entityDecls.mkString("\n\n")}
        |
        |$entitiesClass
+       |
+       |$domainLists
        |
        |${areaClasses.mkString("\n\n")}
        |
@@ -256,7 +291,7 @@ object PklDump {
     "device_id",
     "entity_category",
     "members",
-    "isDynamic"
+    "volatileAttrs"
   )
 
   /** Attributes a DOMAIN's schema models itself (as a capability group or a

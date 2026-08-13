@@ -2,6 +2,11 @@
 
 **Status: implemented** — the Pkl track shipped full parity (see ADR 0006 for the as-built design and deliberate deviations).
 
+> **Superseded in part (2026-08-12).** Everything about dynamic groups here — `DynamicGroup`,
+> `group`/`groupCases`/`dynCase`, `LayoutNode.Dynamic`, `hass.SELF` — describes a mechanism that has
+> since been DELETED. Membership is decided at build time now; see ADR 0003 and
+> `adr/0003-dynamic-groups.md`. The rest of the parity work stands.
+
 Implements the ADR 0006 skip-list. Each step is sized for Opus 4.8 (medium
 thinking): small scope, exact files, its own verification. Steps 1–5 are
 **Pkl-only** (new authoring in `dashboards/lib/*.pkl` + demos + tests — the

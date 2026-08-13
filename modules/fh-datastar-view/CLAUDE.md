@@ -21,6 +21,20 @@ same commit; ADRs that change the pipeline update it too.
    dirs and run the real library modules through the full pipeline, so **no live HA is
    needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
    entity dump.)
+
+   For changes to the Pkl authoring library itself there is also a pure-Pkl suite (`facts` +
+   `examples`, no JVM and no dump), run with the `pkl` CLI at the **same version as the
+   `pkl-core` pin** — a different CLI tests different semantics than we ship:
+
+   ```bash
+   pkl test modules/fh-datastar-view/src/test/pkl/*.pkl
+   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.pkl  # accept new example output
+   ```
+
+   The tests live outside `lib/` deliberately: `LibPackage` packages that directory into the
+   content-versioned `@fh-dashboard` package, so a test module inside it would move the package
+   hash and re-evaluate every dashboard. They import the library by relative path for the same
+   reason. CI runs them in the `parallel:` block of `cicd.yml`.
 3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
@@ -35,15 +49,14 @@ same commit; ADRs that change the pipeline update it too.
    — were the sanctioned structural exception; see ADR 0008).
 4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
    browser (`sbt dashboardServe`), per ADR 0006.
-5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
-   `docs/reference/datastar/` before searching the web. Attributes use colon syntax
-   (`data-on:click`, not `data-on-click`).
-6. Format with `sbt 'scalafmt; Test/scalafmt'` (Scala only; there is no formatter for the Pkl
-   sources). **Both tasks, always** — `scalafmt` covers `Compile` only, so a test-only
-   formatting change passes locally and then fails CI, which runs the `scalafmt --test` CLI
-   over every file. Verified by misformatting a test source: `sbt scalafmt` leaves it
-   untouched, `Test/scalafmt` fixes it. Note the quotes: unquoted
-   `sbt scalafmt Test/scalafmt` is a parse error in sbt 2.0.
+5. Datastar questions (attribute syntax, SSE semantics): use the `datastar` skill — it points
+   to context7 (`/websites/data-star_dev`) for general docs, plus pinned-bundle corrections and
+   project conventions context7 won't have. Attributes use colon syntax (`data-on:click`, not
+   `data-on-click`).
+6. Formatting (Scala only; there is no formatter for the Pkl sources) is handled by the
+   `PreToolUse` hook in `.claude/settings.json`, which runs the standalone `scalafmt` CLI
+   before every `git add`. `project.git = true` in `.scalafmt.conf` covers every tracked
+   source in one pass, so nothing reaches CI's `scalafmt --test` unformatted.
 
 #### Key files
 
@@ -58,15 +71,18 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: unchanged ⟺ same content-version; else temp-copy the workspace, seed the new dump package there, re-eval all entries, swap the `.fh/pins.json` pin only if nothing that builds today breaks. No loose file, no dated backup — the previous immutable cache version IS the trail. Driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button) |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `src/js/` + `package.json` + `vite.config.ts` | The frontend, bundled by **vite 8** into MANAGED resources (`project/NpmPlugin.scala`, `frontendInstall`/`frontendBundle` — a `resourceGenerators` entry, so a plain compile builds it and **node + npm are a build requirement**). ONE build, three entries: `shell.ts` (inlined into every page by `Server.page`), `editor/app.js` (CodeMirror + lsp-client bundled IN — no vendor file, no CDN, no import map), `editor/overlay.js`. Outputs are **content-hashed under `web/` with a `build.manifest`**; nothing spells a filename out — `FrontendAssets` reads the manifest and everything asks by ENTRY NAME (`Server.UrlSyncScript`, the `editAssets` overlay tag, the `__APP_JS__` placeholder in the editor `index.html`), and `Server` serves `/web/:file` `immutable` guarded by that same manifest. Deliberately **not `build.lib`**: lib mode refuses multi-entry for `iife`/`umd`, and `isEsLibBuild` hard-forces `minifyWhitespace: false` (to keep pure annotations for a downstream bundler we do not have), which shipped `app.js` at 654 kB where `rollupOptions.input` emits 421 kB. `shell.js` and `overlay.js` are classic scripts and work as `es` output ONLY because they import nothing; rollup never duplicates code, so one shared module splits a chunk and gives both a real `import`, breaking every page silently. The `fh-assert-self-contained` vite plugin FAILS THE BUILD on that, off rollup's own `chunk.imports`/`exports`, and the document's last line calls `fhScroll` only `if(window.fhScroll)` so anything the build cannot see still names itself in the console. Nothing built is committed; new code is TypeScript (`tsc --noEmit` runs as part of the build), the ported editor sources stay JS |
-| `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens |
+| `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens. `hass.pkl` gives every SCOPE the same five names — `lights`/`sensors`/`switches`/`generic`/`all` — on `Area` (generator-filled), `Floor` (derived from its areas) and `Device` (type tests over its entities), matching the dump's house-wide lists, so `q.from(...)` takes any scope |
+| `resources/dashboards/lib/dump-base.pkl` | The house-wide lists as a CONTRACT (`open module`, `List()` defaults); the generated `@fh-home/dump.pkl` **extends** it (not `amends` — an amending module may not declare classes). This is what lets the starter dashboard query `dump.lights` on a home that has none: an empty list, not `Cannot find property` on a first boot |
+| `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`. Folds registry conditions away at BUILD time (they select candidates) and emits only live ones as per-member guards; a live attribute NAME is checked against `hass.Entity.volatileAttrs` (capability-derived, so a typo is a build error — `q.attr(n)` is the unchecked escape for an integration-specific name), into the `SetNode`/`SetMember`/`SetClause` wire classes that live in `components.pkl`. **Plain Pkl stays the first answer** — a `for` over a typed dump list is still the right way to render a fixed set of lights; this earns its place only when membership must react to live state. Covers `where`/`orderBy`/`limit`/`caseOf`/`render`, aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), nested sets, and `q.entity(e)` for naming a DIFFERENT entity than the member. See `docs/adr/0003-dynamic-groups.md` |
 | `resources/dashboards/lib/hass-light.pkl` | HA's `light` domain model VENDORED — the `ColorMode` union + `LightEntityFeature` bits (EFFECT 4, FLASH 8, TRANSITION 32). Safe to copy: HA's `*EntityFeature` IntFlags are APPEND-ONLY, never renumbered (vacant 1/2 are removed flags). `HaLight.scala` is the generator's copy and `HaLightSuite` asserts the two agree. Imported by `hass.pkl` **with an `as` alias** — Pkl binds an import to its FILE name and `hass-light` is not a legal identifier; a `///` doc comment on an import is also a parse error. Other domains follow this pattern, not yet copied |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` + the reusable `layoutCss` for the `fh-` layout classes) and the theme-author guide; implementations are the `theme-*.pkl` siblings |
-| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes |
+| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it |
 | `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
 | `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
+| `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in `components.pkl`, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
 
 A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
 renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
@@ -92,7 +108,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   affected components (`Renderer`, reverse index `entityId -> generated id`) plus the
   query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
   `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
-  heavy churn (≥50% of rendered members, `Server.MaxChurnFraction`) or a post-reload group
+  a mount whose whole content arrived or left at once, or a post-reload group,
   repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
   keeps a per-node last-rendered cache; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
@@ -110,7 +126,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
 - Cards (`lib/components.pkl`): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
-  `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
+  `button`, `pill`, `slider`, `sliderGroup` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
   by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
@@ -122,11 +138,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to half — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
   `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`centered()`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Dynamic groups flow
+  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Candidate sets flow
   their members the same way (`.fh-group`).
-- Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
-  And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
-  entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
+- Candidate sets: a `LayoutNode.SetNode` carries a STATIC candidate list (decided at build time
+  from the dump) plus per-candidate guarded renderings; the runtime decides only PRESENCE (the
+  first clause whose `when` holds; none = not rendered) and ORDER. Authored through
+  `@fh-dashboard/query.pkl`. The query-driven `LayoutNode.Dynamic` it replaced is deleted — see
+  ADR 0003 for why, and `docs/adr/0003-dynamic-groups.md` for the derivation.
 - **Pkl authoring (ADR 0006)** — the authoring language: dashboards are [Pkl](https://pkl-lang.org),
   typed cards + editor completion. `fh.view.build.SourceEval` is the (Pkl-only) seam;
   everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
@@ -137,6 +155,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   scans top-level `*.pkl` only. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
   fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
+  sliderGroup (a master slider whose members are ORDINARY nodes — the head is the card's `self`, the
+  members its mount, so a master state change never repaints a row; `c.sliderGroupOf(master, members)`
+  is the shorthand),
   expr/exprOf,
   serviceTap/serviceValueTap/navigate, capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
@@ -145,9 +166,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
-  tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
-  typed Predicate AST), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
-  surfaces on the tabs machinery, ADR 0007), three-tier slider config — see ADR 0006 for the deliberate API shape
+  tabs, popups/surfaces, candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
+  surfaces on the tabs machinery, ADR 0007; `cond` NAMES its entities, via `q.entity(e)` or a
+  `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
   precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
@@ -191,6 +212,42 @@ semantics, and the suite still pins the ones it covers (full list with evidence:
   function-valued property `slider` can coexist; call syntax picks the method.
 - Inside a `new {}` body, `this` rebinds to the new object — capture the outer receiver
   with `let (l = this)` when writing fluent methods on classes.
+- **Never name a parameter or local after the property it initialises.** In
+  `new Thing { items = items }` the RHS binds to the object's OWN member, not the parameter,
+  and recurses ~10 000 deep. The trace points at the field, not the cause, so it reads like a
+  cycle in your data. This is the single most frequent trap here — it hit EIGHT times in one
+  session (`items`, `op`, `orderBy`, `shapes`, `entities`, `value`, `id`, `agg`). Suffix the
+  parameter (`cmpOp`, `xs`, `shapeDefs`).
+
+  **Qualifying with `this` does NOT escape it.** `new { agg = this.agg }` recurses just the same,
+  because `this` inside a `new {}` body is the object being built. Capture the receiver first:
+  `let (l = this) new { agg = l.agg }`. That is the same `let (l = this)` the fluent-method entry
+  above calls for, and it is needed for plain field copies too, not only for method chaining.
+- A module-level function called from inside a **class body** must be `const` (the error says
+  so, and offers self-import as the alternative).
+- Classes are **closed for extension** by default — `open class` (or `abstract class`) to
+  subclass. Only stdlib members may have **type parameters**: user-defined generics
+  (`class Box<T>`) are rejected outright. That does NOT force `Any` everywhere: a marker
+  supertype (`abstract class Candidate { entity_id: String }`) states what a container requires,
+  and callers recover the concrete type by annotating the lambda parameter — `(e: LightEntity) -> …`
+  works, and a WRONG annotation is caught at application.
+- **A typealias may not be cyclic** — "Type alias definitions must not be cyclic". An alias whose
+  union mentions a class that contains the alias is rejected, and INLINING the union does not
+  help, because the union still closes the loop. Keep the alias for the non-recursive positions
+  and let the one or two that would close it take `Any`, with a comment saying why.
+- Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
+  (the type-test operator), `import`, `else`, `when`. Backtick them or pick another name —
+  `shape` rather than `case`, `stateIs` rather than `is`. Backticking reads badly at the CALL
+  site, so for a method prefer renaming.
+- `getProperty(name)` / `getPropertyOrNull(name)` / `hasProperty(name)` let the build read a
+  property BY NAME — the basis for resolving a named property against candidates.
+- Structural equality holds for independently-built objects, and `Map`/`distinct`/`groupBy`
+  dedupe by it — so canonicalising a term tree in Pkl is practical.
+- `pkl test` gotchas: an `examples` block writes typed instances to `.pcf` as untyped
+  `new { … }`, which then **fails to re-read** ("Please specify a parent explicitly"), so the
+  expected file can never assert on a second run — capture `new JsonRenderer {}.renderValue(x)`
+  instead, which round-trips as a String. And `///` doc comments are a parse error on entries
+  inside a `facts` block; use `//`.
 - Required (no-default) class properties are **lazy**: a missing value errors only when
   forced, and the trace points at the class definition, not the author's dashboard line.
 - `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).

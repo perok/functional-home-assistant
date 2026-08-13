@@ -3,6 +3,7 @@ import smithy4s.codegen.Smithy4sCodegenPlugin
 import org.typelevel.scalacoptions.ScalacOptions
 
 val http4sVersion = "0.23.34"
+val MUnitFramework = new TestFramework("munit.Framework")
 
 val commonSettings = Seq(
   scalaVersion := "3.8.4",
@@ -112,10 +113,10 @@ lazy val `home-codegen` =
     .settings(
       commonSettings,
       fhCodegenPluginProject := `fh-codegen-plugin`,
-      haSecret := "TODO", // envVars.value.apply("SECRET"), // TODO SWAP TO SERVER AND SECRET
-      haUrl := "TODO" // envVars.value.apply("SERVER"), // TODO SWAP TO SERVER AND SECRET
-      // haSecret := secretToken, // TODO SWAP TO SERVER AND SECRET
-      // haUrl := haServer // from .env SERVER (default http://192.168.1.174:8123)
+      // Credentials come from `.env` (SERVER/SECRET), read at run time — see
+      // `FHApi.fromEnv`. These placeholders only satisfy the task's signature.
+      haSecret := "TODO",
+      haUrl := "TODO"
     )
 
 lazy val home = project // using the others as if they are libs
@@ -178,6 +179,13 @@ lazy val `fh-datastar-view` = project
       case PathList("META-INF", "smithy", _*) => MergeStrategy.first
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
+    // The `smoke` package is Playwright-driven and is the slowest part of the
+    // suite (issue #109 item 3); every test declared through SmokeSuite
+    // carries the "Slow" munit tag (see SmokeSuite.test). Default
+    // `test`/`testQuick` exclude it; `testFull` (and CI) still run everything
+    // via the unfiltered Test/testFull/testOptions.
+    Test / testQuick / testOptions +=
+      Tests.Argument(MUnitFramework, "--exclude-tags=Slow"),
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
@@ -203,9 +211,13 @@ lazy val `fh-datastar-view` = project
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      // TestControl.executeEmbed: simulated time for ServerHarness suites
+      // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
+      // nothing in wall clock instead of needing to be sped up.
+      "org.typelevel" %% "cats-effect-testkit" % "3.7.0" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
-      "com.microsoft.playwright" % "playwright" % "1.61.0" % Test
+      "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
     )
   )
 

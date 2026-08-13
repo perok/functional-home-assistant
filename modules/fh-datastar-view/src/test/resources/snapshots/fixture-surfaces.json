@@ -52,11 +52,7 @@
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "sensor.outside_temp",
-                    "icon" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-                    },
+                    "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -86,11 +82,7 @@
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "light.kitchen",
-                    "icon" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-                    },
+                    "icon" : "mdi-lightbulb",
                     "label" : "Kitchen",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -125,13 +117,11 @@
           "else" : {
             "activation" : {
               "condition" : {
-                "kind" : "cmp",
-                "op" : "ne",
-                "property" : "domain",
-                "value" : "__never__"
+                "items" : [
+                ],
+                "kind" : "and"
               },
-              "kind" : "state",
-              "quantifier" : "any"
+              "kind" : "state"
             },
             "bakeAs" : "branch",
             "bakeIndex" : 1,
@@ -146,11 +136,7 @@
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "sensor.outside_temp",
-                    "icon" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-                    },
+                    "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -169,24 +155,13 @@
           "then" : {
             "activation" : {
               "condition" : {
-                "items" : [
-                  {
-                    "kind" : "cmp",
-                    "op" : "eq",
-                    "property" : "entity_id",
-                    "value" : "light.kitchen"
-                  },
-                  {
-                    "kind" : "cmp",
-                    "op" : "eq",
-                    "property" : "state",
-                    "value" : "on"
-                  }
-                ],
-                "kind" : "and"
+                "entity" : "light.kitchen",
+                "kind" : "cmp",
+                "op" : "eq",
+                "property" : "state",
+                "value" : "on"
               },
-              "kind" : "state",
-              "quantifier" : "any"
+              "kind" : "state"
             },
             "bakeAs" : "branch",
             "bakeIndex" : 0,
@@ -201,11 +176,7 @@
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "light.kitchen",
-                    "icon" : {
-                      "bypassUnavailable" : false,
-                      "reactive" : false,
-                      "transform" : "$lookup({\"light\":\"lightbulb\",\"switch\":\"toggle_on\",\"input_boolean\":\"toggle_on\",\"sensor\":\"sensors\",\"binary_sensor\":\"sensors\",\"lock\":\"lock\",\"cover\":\"blinds\",\"climate\":\"thermostat\",\"fan\":\"mode_fan\",\"media_player\":\"speaker\",\"camera\":\"videocam\",\"person\":\"person\",\"scene\":\"palette\",\"script\":\"description\",\"automation\":\"smart_toy\",\"vacuum\":\"vacuum\",\"weather\":\"partly_cloudy_day\",\"button\":\"radio_button_checked\"}, $domain)"
-                    },
+                    "icon" : "mdi-lightbulb",
                     "label" : "Kitchen",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -246,7 +217,7 @@
         "value",
         "entity_id"
       ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i>{{icon}}</i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"secondary\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "fhcol" : {
       "mount" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
@@ -267,7 +238,7 @@
       "template" : "{{{self}}}{{{mount}}}"
     },
     "ifhost" : {
-      "mount" : "<div id=\"{{mountId}}\">{{{branch}}}</div>",
+      "mount" : "<div class=\"fh-ifhost\" id=\"{{mountId}}\">{{{branch}}}</div>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"
@@ -303,6 +274,21 @@
       ],
       "template" : "<article class=\"card\">\n  <div class=\"slider-head\"><strong>{{label}}</strong><span class=\"state\">{{state}}</span></div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ _val_{{id}}: {{value}} }\"\n      data-bind=\"_val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\"></span>\n  </div>\n</article>"
     },
+    "sliderGroup" : {
+      "mount" : "<div class=\"slider-group-members\">{{#children}}{{{html}}}{{/children}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"slider-group-head\">\n  <div class=\"slider-head\"><strong>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</strong><span class=\"state\">{{state}}</span>{{#onclick}}<button class=\"circle small slider-group-action\" data-on:click=\"{{{onclick}}}\"><i class=\"mdi mdi-power\"></i></button>{{/onclick}}</div>\n  <div class=\"slider max slider-group-track\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ _val_{{id}}: {{value}} }\"\n      data-bind=\"_val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\"></span>\n  </div>\n</div>",
+      "slots" : [
+        "label",
+        "state",
+        "value",
+        "action",
+        "min",
+        "max",
+        "key",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card slider-group\">{{{self}}}{{{mount}}}</article>"
+    },
     "tab" : {
       "slots" : [
         "label",
@@ -318,6 +304,12 @@
       "slots" : [
       ],
       "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
+    },
+    "toggle" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<article class=\"card row\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" {{{checked}}} data-on:click=\"{{{onclick}}}\" />\n    <span></span>\n  </label>\n</article>"
     }
   },
   "surfaces" : {

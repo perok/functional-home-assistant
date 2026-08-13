@@ -1,0 +1,125 @@
+/// Unit tests for the `@fh-dashboard` authoring library, run by `pkl test`.
+///
+/// These live OUTSIDE `lib/` on purpose: `LibPackage` packages that directory
+/// into the content-versioned `@fh-dashboard` cache package, so a test module
+/// in there would change the package hash and re-evaluate every dashboard.
+/// Imports are therefore relative file paths, not `@fh-dashboard/...`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+
+local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
+
+// Icon fixtures, shaped as PklDump generates them: a capability attribute lives
+// on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
+// test that just sets `icon = ...` on a `hass.LightEntity` is testing a shape
+// the dump never produces.
+local class E_with_icon extends hass.LightEntity {
+  icon: String = "mdi:ceiling-light"
+  device_class: String = "running"
+}
+local class E_temp extends hass.SensorEntity { device_class: String = "temperature" }
+local class E_custom_icon extends hass.LightEntity { icon: String = "hue:bulb-sultan" }
+
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
+
+facts {
+  // The predicate vocabulary lives in `query.pkl` now: there are no free
+  // constructors, so every term carries a binding by construction (a set's
+  // candidate, or the entity `q.entity` names). These pin the PROPERTY NAMES
+  // the runtime reads — `state`, `attr:<name>`, `domain` — which is the part
+  // the two sides have to agree on.
+  ["a term carries the property name the runtime reads"] {
+    local st = q.entity(kitchen).stateIs("on")
+    st.property == "state"
+    st.op == "eq"
+    st.entity == "light.kitchen"
+
+    q.entity(kitchen).lt(q.prop("brightness"), 20).property == "attr:brightness"
+    q.entity(kitchen).lt(q.prop("brightness"), 20).op == "lt"
+  }
+
+  ["a numeric threshold stays a number, not a string"] {
+    q.entity(kitchen).lt(q.prop("brightness"), 20).value is Int
+  }
+
+  ["combinators nest without rebinding `this` to the new object"] {
+    // The Pkl trap this pins: a bare `this` inside a `new {}` body rebinds to
+    // the object being built, so `and`/`or`/`not` must capture the receiver
+    // first. Silent when broken — the term comes out referring to itself.
+    local a = q.entity(kitchen).stateIs("on")
+    local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
+    a.and(b).items.toList().length == 2
+    a.and(b).items.toList()[0].property == "state"
+    a.or(b).kind == "or"
+    a.not().item.property == "state"
+    a.not().kind == "not"
+  }
+
+  // ---- entity icons -----------------------------------------------------------
+  // Resolved at BUILD time, in Home Assistant's own precedence: the entity's own
+  // `icon` beats its device_class, which beats its domain. All three are
+  // registry facts, so the slot is a LITERAL — it used to be a
+  // `$lookup($domain)` JSONata transform on every card.
+
+  ["an entity's OWN icon wins, as the MDI class"] {
+    // Its own icon wins over the `running` device_class it also carries.
+    c.entityCard(new E_with_icon { entity_id = "light.k" }).slots["icon"]
+      == "mdi-ceiling-light"
+  }
+
+  ["device_class beats the domain, so a temperature sensor is not a generic one"] {
+    local plain: hass.SensorEntity = new { entity_id = "sensor.p" }
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi-thermometer"
+    // No device_class at all -> the domain default, and no eval error for
+    // reading a property this entity does not have.
+    c.entityCard(plain).slots["icon"] == "mdi-eye"
+  }
+
+  ["a NON-mdi icon set falls through, rather than emitting a dead class"] {
+    // Six entities on the reference instance carry `hue:` icons from a HACS
+    // integration whose glyphs we do not ship. A class the stylesheet does not
+    // define renders as blank space, which is visibly worse than the default.
+    c.entityCard(new E_custom_icon { entity_id = "light.h" }).slots["icon"]
+      == "mdi-lightbulb"
+  }
+
+  ["an unknown domain emits NO icon slot, so the header renders none"] {
+    local odd: hass.GenericEntity = new {
+      entity_id = "wibble.x"
+      domain = "wibble"
+    }
+    !c.entityCard(odd).slots.containsKey("icon")
+  }
+
+  ["an author override takes either spelling"] {
+    local e: hass.LightEntity = new { entity_id = "light.k" }
+    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi-fridge"
+    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi-fridge"
+  }
+
+  ["a node has no cell until a layout builder adds one"] {
+    c.title("Lights").cell == null
+  }
+
+  ["layout builders put fh- contract classes on the wrapper"] {
+    c.title("x").columns(3).cell.classes.toList() == List("fh-cols-3")
+    c.title("x").fullWidth().cell.classes.toList() == List("fh-cols-full")
+    c.title("x").hug().cell.classes.toList() == List("fh-hug")
+    c.title("x").cellClass("my-thing").cell.classes.toList() == List("my-thing")
+  }
+
+  ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
+    c.title("x").columns(3).columns(7).cell.classes.toList() == List("fh-cols-7")
+    c.title("x").columns(3).fullWidth().cell.classes.toList() == List("fh-cols-full")
+    // a non-span class is additive, not a replacement
+    c.title("x").columns(3).hug().cell.classes.toList() == List("fh-cols-3", "fh-hug")
+  }
+}

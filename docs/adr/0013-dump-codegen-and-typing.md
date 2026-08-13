@@ -110,6 +110,97 @@ the only way to know, and a wrong entry is silent: the dashboards keep working,
 they just rebuild forever. (`color_mode` is the clearest exclusion — the
 template path baked it onto every light; it is a live value.)
 
+### Stage 1c — house-wide lists, declared rather than emitted
+
+The dump carries `lights` / `sensors` / `switches` / `generic` / `all` — the
+same five names `hass.Area` uses per room, so "every light" and "this room's
+lights" read the same and a query's `from` takes either. `hidden`, because they
+reference the entities `entities` already holds and rendering them would emit
+the house twice.
+
+They exist because a candidate set needs candidates at BUILD time (ADR 0003),
+and the starter dashboard names no concrete entity by design — every section is
+a query over one of these, so it renders on any installation.
+
+**They are DECLARED in `@fh-dashboard/dump-base.pkl`, which the generated module
+`extends`, not properties this generator remembers to emit.** The difference
+matters for exactly the entry that depends on them: `dashboard.pkl` queries the
+lists having never seen this home's dump, so a generator that stopped emitting
+one would fail as `Cannot find property` at eval — on somebody's first boot. A
+declaration with a `List()` default cannot fail that way; a home with no
+switches answers `List()`. Empty assignments are therefore omitted from the
+generated file, and `all` is derived in the base rather than emitted, because
+two sources for one list is how they come to disagree.
+
+`extends` rather than `amends`: an amending module may not declare classes
+("Class needs a `local` modifier"), and a dump is mostly classes. Pkl's own
+error names `extends` as the way out.
+
+The same five names are on `hass.Floor` (derived from its areas) and
+`hass.Device` (type tests over its entities), so all four scopes are one
+vocabulary. Neither needs generator support — a floor's entities ARE its areas'
+entities, and deriving them keeps that impossible to disagree about.
+
+### Stage 1d — the live-attribute schema, derived and never observed
+
+`hass.Entity.volatileAttrs` is `name -> type name` for the live attributes an
+entity can report. It closes a silent failure in the query surface: a typo'd
+attribute (`q.prop("brightnes")`) used to resolve to a live read that never
+matched, so the card simply never updated.
+
+**Names and types only — never a value, not even null.** A value slot is
+precisely the thing that later gets helpfully filled with the live reading,
+which is the churn Stage 1b exists to prevent. There is nowhere here for one to
+go.
+
+**Derived from capability attributes, never observed.** Observing what an entity
+currently reports is unsafe for the same reason: measured on a live instance, an
+unavailable light reports 2 attribute kinds where an available one reports 12,
+so one bulb leaving the mesh would delete an attribute, re-hash the package and
+re-evaluate every dashboard. Capability attributes survive unavailability
+(an unavailable light still reports `supported_color_modes`,
+`supported_features`, `effect_list`, `min`/`max_color_temp_kelvin`), so a schema
+computed from them inherits that stability. A state change does not move the set
+either — a light that is off still carries `brightness` as a key.
+
+**It costs no bytes and no generator change.** An earlier design put a deduped
+signature table in the dump (~59 KB) plus a per-entity reference. That was a
+step too literal: every input is already on the entity, so the derivation lives
+in `hass.pkl` beside `supportsColour`/`supportsBrightness`, which is the same
+rule this ADR already applies to the capability predicates — the generator emits
+DATA, `hass.pkl` derives conclusions, and the rule lives in one place.
+
+Verified before it was written, because the design rests on it: over 45
+available lights, `supported_color_modes` predicts the reported set exactly.
+
+| modes | reported, always |
+|---|---|
+| `onoff` | `color_mode` |
+| `brightness` | + `brightness` |
+| `color_temp` | + `color_temp_kelvin`, `hs_color`, `rgb_color`, `xy_color` |
+| any colour mode | + `hs_color`, `rgb_color`, `xy_color` |
+| `effect_list` present | + `effect` |
+
+Two things that measurement corrected, both of which would have shipped wrong:
+
+- a colour-TEMP light reports the colour representations too — HA converts the
+  temperature into them — so the condition is `supportsColour || color_temp ∈
+  modes`, not `supportsColour`;
+- key on the MODE, not on `supportsColourTemp`. That predicate asks whether we
+  know the kelvin BOUNDS (the `colourTemp` group the slider needs), and a light
+  can report a temperature without us having them.
+
+The residue is integration-specific attributes, which are real but underivable
+(`off_brightness` from Hue, `group_entities` from light-group helpers).
+`query.attr(name)` is the escape hatch — it already meant "the live reading of
+this name" and now also means "unchecked".
+
+**Coverage is progressive, exactly as for the typing above:** the check runs only
+against candidates whose schema is NON-EMPTY, because empty means "this domain
+is not modelled yet" rather than "this entity reports nothing". So an unmodelled
+domain is untouched rather than newly rejected, and modelling a domain is what
+switches its validation on.
+
 ### Stage 2 — how it is typed
 
 #### Shared classes carry identity; per-entity classes carry capability
