@@ -21,7 +21,12 @@ import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
+import org.http4s.headers.{
+  `Cache-Control`,
+  `Content-Type`,
+  `If-None-Match`,
+  ETag
+}
 import org.http4s.implicits.*
 import org.typelevel.ci.CIString
 
@@ -201,6 +206,67 @@ class ServerRoutesSuite extends ServerHarness {
       // Not an allowlist applied to a path — a name the manifest does not list
       // is not a route at all, so there is no traversal to sanitise.
       assertEquals(miss.status, Status.NotFound)
+    }
+  }
+
+  test("the PWA files are served, revalidated, and only the four of them") {
+    // The manifest and the service worker are the UPDATE mechanism — fixed
+    // filenames the browser re-fetches on every load/register — so they must be
+    // revalidated, never `immutable`. Unlike the hashed bundles, a same-named
+    // redeploy would otherwise strand clients on the first version forever.
+    for {
+      manifest <- response("/manifest.webmanifest")
+      sw <- response("/sw.js")
+      icon <- response("/icon-512.png")
+      cache = (r: Response[IO]) =>
+        r.headers.get(CIString("Cache-Control")).map(_.head.value)
+      miss <- response("/sw-ish.js")
+      other <- response("/pwa/manifest.webmanifest")
+    } yield {
+      assertEquals(manifest.status, Status.Ok)
+      assertEquals(
+        manifest.headers.get[`Content-Type`].map(_.value),
+        Some("application/manifest+json")
+      )
+      assertEquals(cache(manifest), Some("no-cache"))
+      assertEquals(sw.status, Status.Ok)
+      assertEquals(
+        sw.headers.get[`Content-Type`].map(_.value),
+        Some("application/javascript")
+      )
+      assertEquals(cache(sw), Some("no-cache"))
+      assertEquals(icon.status, Status.Ok)
+      assertEquals(
+        icon.headers.get[`Content-Type`].map(_.value),
+        Some("image/png")
+      )
+      assertEquals(cache(icon), Some("no-cache"))
+      assertEquals(miss.status, Status.NotFound)
+      // The four live at the app root (relative to `<base href>`), not under
+      // `web/` (immutable) or `pwa/`.
+      assertEquals(other.status, Status.NotFound)
+    }
+  }
+
+  test("the page head links the manifest and registers the service worker") {
+    pageHtml(titleDash("home", None)).map { html =>
+      // The manifest link rides the <base href> like every other app URL.
+      assert(
+        html.contains(
+          s"""<link rel="manifest" href="${PwaAssets.manifestUrl}">"""
+        ),
+        clue = html
+      )
+      // Registration is the shell helper called with the manifest-resolved URL —
+      // nothing in the page spells `sw.js` out (except the shell's own route).
+      assert(html.contains(s"fhRegisterSw('${PwaAssets.swUrl}')"), clue = html)
+      // ...and the shell really defines it (the `if(window.fhScroll)`-style
+      // guard has no SW analogue: an unregistered SW is silent by design, so
+      // the presence of the call is all the page can assert).
+      assert(
+        FrontendAssets.content("shell").contains("window.fhRegisterSw="),
+        clue = "shell must define fhRegisterSw"
+      )
     }
   }
 

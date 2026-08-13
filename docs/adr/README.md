@@ -30,3 +30,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0011 — The live connection: resume an SSE reconnect, health, and what may never be dropped](0011-the-live-connection.md)
 - [0012 — Each session renders what it is owed](0012-each-session-renders-what-it-is-owed.md)
 - [0013 — How the entity dump is generated and typed](0013-dump-codegen-and-typing.md)
+- [0014 — The dashboard as an installable local app](0014-installable-local-app.md)
