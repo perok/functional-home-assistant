@@ -656,11 +656,11 @@ class PklBuildSuite extends munit.FunSuite {
         "key",
         "entity_id"
       ),
-      // The same required slots as `slider` — it IS a slider, plus a mount for
-      // the members (`icon`/`onclick` are optional, so neither is declared).
+      // `slider`'s required slots minus `state` — the head shows a label and an
+      // optional second line, not a readout (`icon`/`secondary`/`onclick` are
+      // all optional, so none is declared).
       "sliderGroup" -> List(
         "label",
-        "state",
         "value",
         "action",
         "min",
@@ -1485,6 +1485,15 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(
       members.map(_.slots("key").literal),
       List(Some("brightness"), Some("position"))
+    )
+    // …and reads out its LEVEL rather than its state, off its own range.
+    assert(
+      members.head.slots("state").transform.contains("""& " %""""),
+      clue = members.head.slots("state").transform
+    )
+    assert(
+      members(1).slots("state").transform.contains("$attr.current_position"),
+      clue = members(1).slots("state").transform
     )
 
     // No tap, no icon override: the button disappears entirely and the icon

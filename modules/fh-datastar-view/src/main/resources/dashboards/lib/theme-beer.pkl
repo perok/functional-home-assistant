@@ -294,24 +294,47 @@ class BeerTheme extends themeMod.Theme {
        `inset:0 var(--_end) 0 0` then spans it edge to edge, full height. The
        `:before` inactive track would escape the same way, so it goes.
 
-       The range input stays in the flow, i.e. in the head strip alone: a drag
-       lower down the card belongs to the member row under the finger. */
+       The range input covers the head strip alone: a drag lower down the card
+       belongs to the member row under the finger. */
+    .slider-group{padding:0;overflow:hidden}
     .slider-group-head,.slider-group-track{position:static}
-    .slider-group-track{margin:0}
+    /* Track and bar occupy the SAME grid cell, so the whole head strip is the
+       master's drag surface with the icon/title/button painted over it. */
+    .slider-group-head{display:grid;min-block-size:4.5rem}
+    .slider-group-head>*{grid-area:1/1}
+    .slider-group-track{margin:0;block-size:100%}
     .slider-group-track:before{display:none}
-    .slider-group-track>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:inherit;opacity:.45;pointer-events:none}
-    /* The head is label-left, everything else right — not the leaf slider's
-       two-item `space-between`, which would strand the state text mid-card. */
-    .slider-group .slider-head{justify-content:flex-start}
-    .slider-group .slider-head>.state{margin-inline-start:auto}
-    .slider-group .slider-head>strong>i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
-    /* `.slider-head` is inert so the label never eats a drag — the one thing
-       in it that IS a control has to say so. */
-    .slider-group .slider-group-action{pointer-events:auto;margin-inline-start:.5rem}
-    .slider-group-members{display:flex;flex-direction:column;gap:.5rem;margin-block-start:.75rem}
-    /* Members sit ON the master's fill, so they carry their own surface and no
-       elevation — a shadow over a coloured background reads as grime. */
-    .slider-group-members .card{background-color:var(--surface-container-high);box-shadow:none}
+    .slider-group-track>input{block-size:100%}
+    .slider-group-track>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+    /* Inert, like `.slider-head` — the one thing in the bar that IS a control
+       has to take the pointer back. */
+    .slider-group-bar{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;z-index:3;pointer-events:none}
+    .slider-group-icon{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+      inline-size:2.75rem;block-size:2.75rem;border-radius:50%;
+      background:var(--surface-container-highest);color:var(--primary)}
+    .slider-group-icon>i{font-size:1.5rem}
+    .slider-group-title{display:flex;flex-direction:column;min-inline-size:0}
+    .slider-group-title>.slider-group-sub{font-size:.8rem;color:var(--on-surface-variant)}
+    .slider-group-action{pointer-events:auto;margin-inline-start:auto;
+      background:var(--surface-container-highest);color:var(--on-surface)}
+    .slider-group-action.lit{background:var(--primary);color:var(--on-primary)}
+    /* Above the master's painted `<span>`, which is positioned and would
+       otherwise cover the member rows' own backgrounds — the fill belongs
+       AROUND the rows, not through them. */
+    .slider-group-members{display:flex;flex-direction:column;gap:.5rem;padding:0 .5rem .5rem;z-index:2}
+    /* A member is an ordinary slider card collapsed onto its own track: card
+       and track share one grid cell, so the label and the live value ride ON
+       the fill instead of sitting in a line above it. Members carry their own
+       surface and no elevation — a shadow over the master's coloured fill reads
+       as grime. */
+    .slider-group-members .card{display:grid;min-block-size:3rem;margin:0;padding:0;
+      background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
+    .slider-group-members .card>*{grid-area:1/1}
+    .slider-group-members .slider-head{align-items:center;padding-inline:1rem}
+    .slider-group-members .slider.max{margin:0;block-size:100%}
+    .slider-group-members .slider.max>input{block-size:100%}
+    .slider-group-members .slider.max:before{display:none}
+    .slider-group-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels

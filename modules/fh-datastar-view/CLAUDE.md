@@ -157,7 +157,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
   sliderGroup (a master slider whose members are ORDINARY nodes — the head is the card's `self`, the
   members its mount, so a master state change never repaints a row; `c.sliderGroupOf(master, members)`
-  is the shorthand),
+  is the shorthand, and `.readout("percent")` is what makes a member row read its level rather than
+  its state),
   expr/exprOf,
   serviceTap/serviceValueTap/navigate, capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
