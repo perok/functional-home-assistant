@@ -1090,7 +1090,9 @@ const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSp
 /// would both hide the choice from it — see ADR 0013, "Shapes considered".
 typealias SlideAxis = hass.Entity|hass.ColourTemp
 
-/// What a slider's line reads out beside its label — see [[Slider.readout]].
+/// The named readings a slider's line offers beside its label — the two that
+/// need the card's own axis config, plus "nothing". Anything else is an
+/// [[Expr]]; see [[Slider.readout]].
 typealias Readout = "state"|"percent"|"none"
 
 /// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
@@ -1163,12 +1165,21 @@ class Slider extends Node {
   /// DIFFERENT entity (the room's temperature beside its lights). Null renders
   /// no second line.
   hidden secondary: (String|Expr)? = null
-  /// What the line reads out beside the label — the entity's state
-  /// (`on`/`off`), the LEVEL as a percentage of min..max, or nothing.
+  /// What the line reads out beside the label: the entity's state (`on`/`off`),
+  /// the LEVEL as a percentage of min..max, nothing, or an [[Expr]] of your own.
+  ///
+  /// The two names are shorthands, not a closed set — they exist because they
+  /// need the axis config this card resolved (which attribute holds the value,
+  /// and over which range), not because a readout has to be one of them. That
+  /// config is `hidden` properties, so an expression can splice the pieces
+  /// instead of re-deriving the range:
+  ///
+  ///   (c.slider(l)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
+  ///   (c.slider(l)) { readout = c.exprOf(power, #"$state & " W""#) }
   ///
   /// Defaults by SHAPE: a head that has member rows under it does not repeat a
   /// readout (the rows carry their own), a plain row shows its state.
-  hidden readout: Readout = if (children.isEmpty) "state" else "none"
+  hidden readout: (Readout|Expr) = if (children.isEmpty) "state" else "none"
   // The `fill` percentage the other way round (value, not distance from the
   // right edge), rounded and suffixed — a readout, not a geometry, so unlike
   // `fill` it wants whole numbers. No position attribute (a light that is off)
@@ -1212,7 +1223,9 @@ class Slider extends Node {
     // and the template's `{{#state}}` section then drops the whole span.
     when (readout != "none") {
       ["state"] =
-        if (readout == "percent")
+        if (readout is Expr)
+          new Slot { entityId = readout.entityId; transform = readout.transform }
+        else if (readout == "percent")
           new Slot { transform = percentExpr; default = "0 %"; bypassUnavailable = false }
         else new Slot {}
     }
@@ -1263,7 +1276,7 @@ class Slider extends Node {
   function min(m: Int): Slider = let (self = this) (self) { min = m }
   function max(m: Int): Slider = let (self = this) (self) { max = m }
   function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout): Slider = let (self = this) (self) { readout = r }
+  function readout(r: Readout|Expr): Slider = let (self = this) (self) { readout = r }
   function icon(i: String): Slider = let (self = this) (self) { icon = i }
   function tap(t: Tap): Slider = let (self = this) (self) { tap = t }
   function secondary(s: String|Expr): Slider = let (self = this) (self) { secondary = s }

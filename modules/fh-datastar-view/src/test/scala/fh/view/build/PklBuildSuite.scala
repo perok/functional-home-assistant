@@ -1505,6 +1505,34 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(plain.slots("state").transform, "$state")
   }
 
+  test("a slider's readout takes an expression, not just the two names") {
+    // The named readings are shorthands for expressions needing the axis config
+    // the card resolved — which the author can splice instead of re-deriving:
+    // `percentExpr` and friends are the card's own hidden properties.
+    val own = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = (c.slider(light)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
+        |""".stripMargin
+    )
+    val state = own.slots("state")
+    assert(state.transform.contains("$attr.brightness"), clue = state.transform)
+    assert(
+      state.transform.endsWith(""" & " · " & $state"""),
+      clue = state.transform
+    )
+    // …and it can read a DIFFERENT entity, like every other Expr slot.
+    val other = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |power: hass.GenericEntity = new { entity_id = "sensor.w"; domain = "sensor" }
+        |node = (c.slider(light)).readout(c.exprOf(power, #"$state & " W""#))
+        |""".stripMargin
+    )
+    assertEquals(other.slots("state").entityId, Some("sensor.w"))
+    assertEquals(other.slots("state").transform, """$state & " W"""")
+    // The subject is unchanged — only the readout looks elsewhere.
+    assertEquals(other.slots("entity_id").literal, Some("light.lys"))
+  }
+
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {
     val tmp = os.temp.dir()
     copyLib(tmp, "hass.pkl", "components.pkl")

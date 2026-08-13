@@ -158,8 +158,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   a slider with `children` — the SAME card, holding member rows that are ORDINARY nodes: the head is
   its `self` and the members its mount, so a master state change never repaints a row, and
   `icon`/`secondary`/`tap` are optional pieces a plain row simply doesn't carry
-  (`c.sliderGroup(master, members)` is the shorthand; `.readout("percent"|"state"|"none")` picks what
-  a line reads out, and defaults by shape — a head with rows under it reads out nothing),
+  (`c.sliderGroup(master, members)` is the shorthand; `.readout(…)` picks what a line reads out —
+  `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
+  readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
+  `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing),
   expr/exprOf,
   serviceTap/serviceValueTap/navigate, capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
