@@ -2,6 +2,12 @@
 
 **Status: implemented** — landed on this branch; ADR 0006 records the decisions.
 
+> **Superseded in part (2026-08-12).** The render-lambda dynamic-group half of this plan is gone
+> with the mechanism it improved: there is no `DynamicGroup` and no `hass.SELF`, and a set is
+> authored as a `q.from(...)` chain (ADR 0003, `adr/0003-dynamic-groups.md`). The
+> call-style card factories, and the Pkl spike results this file records, still stand — those
+> results are cited from the module `CLAUDE.md` and are the reason to keep this file.
+
 ## Context
 
 Two readability complaints about the Pkl authoring track (`modules/fh-datastar-view/src/main/resources/dashboards/`):

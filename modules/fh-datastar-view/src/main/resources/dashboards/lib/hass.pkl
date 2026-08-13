@@ -18,7 +18,7 @@ module hass
 // import to its FILE name, and `hass-light` is not a legal identifier.
 import "hass-light.pkl" as hassLight
 
-typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)) || this == "$self")
+typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
 
 abstract class Entity {
   entity_id: EntityId
@@ -37,6 +37,26 @@ abstract class Entity {
   /// dynamic group down to the things a person actually looks at.
   entity_category: String? = null
 
+  /// The LIVE attributes this entity can report, as `name -> type name`.
+  ///
+  /// Names and types ONLY — there is nowhere here for a value to go, and that
+  /// is deliberate: a value slot is the thing that later gets helpfully filled
+  /// in with the live reading, which would churn the dump's content hash on
+  /// every state change. This carries no values, so it cannot.
+  ///
+  /// DERIVED from capability attributes, never observed. Observing what an
+  /// entity currently reports is unsafe — an unavailable entity drops its
+  /// volatile attributes (measured: an unavailable light reports 2 kinds where
+  /// an available one reports 12), so one bulb leaving the mesh would delete an
+  /// attribute and re-evaluate every dashboard. Capability attributes survive
+  /// unavailability, so a schema computed from them inherits that stability.
+  ///
+  /// EMPTY means "this domain is not modelled", not "this entity has no live
+  /// attributes" — coverage is progressive, exactly like the capability typing
+  /// above, and `query.pkl` checks a name only against a NON-empty schema. So
+  /// an unmodelled domain is untouched rather than newly rejected.
+  hidden volatileAttrs: Mapping<String, String> = new {}
+
   // NOTE: capability attributes (device_class, supported_color_modes,
   // effect_list, min/max/step, options, ...) are deliberately NOT declared here.
   // They live on the per-entity class the dump generates, and ONLY on the
@@ -51,10 +71,6 @@ abstract class Entity {
   /// `e.members[0].members` walks a group nested inside a group. Empty for a
   /// plain entity. Authoring convenience, never rendered into dashboard JSON.
   hidden members: List<Entity> = List()
-  // The dynamic-group match sentinel: `entity_id == "$self"` marks the
-  // build-time placeholder entity (see [[SELF]]) that a dynamic case renders
-  // against. Authoring convenience only — never rendered into dashboard JSON.
-  hidden isDynamic: Boolean = entity_id == "$self"
 }
 
 /// A light's supported colour modes, typed against HA's own `ColorMode` enum —
@@ -138,6 +154,45 @@ open class LightEntity extends Entity {
     hassLight.supports(supported_features, hassLight.FLASH)
   hidden supportsTransition: Boolean =
     hassLight.supports(supported_features, hassLight.TRANSITION)
+
+  /// What a light reports live, derived from the modes it supports.
+  ///
+  /// Verified against 45 available lights: `supported_color_modes` predicts
+  /// this set EXACTLY. The only attributes it does not predict are
+  /// integration-specific (`off_brightness` and `off_with_transition` from Hue,
+  /// `group_entities` from light-group helpers) — those are reachable through
+  /// `query.attr(name)`, which is the "I mean a live attribute, do not check
+  /// it" spelling.
+  volatileAttrs = new {
+    // Every light reports which mode it is CURRENTLY in, `onoff` included.
+    ["color_mode"] = "String"
+    when (supportsBrightness) {
+      ["brightness"] = "Int"
+    }
+    // Keyed on the MODE, not on `supportsColourTemp` — that one asks whether we
+    // know the kelvin BOUNDS (the `colourTemp` group, which the slider needs),
+    // and a light can report a colour temperature without us having them.
+    when (colourModes.toList().contains("color_temp")) {
+      ["color_temp_kelvin"] = "Int"
+    }
+    // A colour-TEMP light reports the colour representations too — HA converts
+    // the temperature into them, so all four arrive together. That is why this
+    // is not simply `supportsColour`.
+    when (supportsColour || colourModes.toList().contains("color_temp")) {
+      ["hs_color"] = "List<Float>"
+      ["rgb_color"] = "List<Int>"
+      ["xy_color"] = "List<Float>"
+    }
+    when (colourModes.toList().contains("rgbw")) {
+      ["rgbw_color"] = "List<Int>"
+    }
+    when (colourModes.toList().contains("rgbww")) {
+      ["rgbww_color"] = "List<Int>"
+    }
+    when (supportsEffects) {
+      ["effect"] = "String"
+    }
+  }
 }
 
 open class SensorEntity extends Entity {
@@ -159,23 +214,6 @@ open class SelectEntity extends Entity {
 /// Fallback for every domain without a dedicated class yet — add a typed
 /// class (and a PklDump dispatch row) to specialize a domain.
 open class GenericEntity extends Entity {}
-
-/// The build-time placeholder "current entity" for a dynamic-group case — the
-/// typed counterpart of jsonnet's `d.matched`. INTERNAL to `components.pkl`'s
-/// `caseOf`, which applies each render lambda to [[SELF]]; authors write render
-/// lambdas `(e) -> ...` and never reference this directly. Any leaf card accepts
-/// it like a real dump entity; its slots leave `entityId` unset and so inherit
-/// the matched entity, which the renderer injects as the `entity_id` param per
-/// match. The `$self` sentinel is build-time only: it tells `labelSlot` to emit
-/// a LIVE friendly_name default rather than a baked literal.
-class DynamicEntity extends Entity {
-  entity_id = "$self"
-  domain = "dynamic"
-}
-
-/// The single shared [[DynamicEntity]] instance — INTERNAL to `components.pkl`'s
-/// `caseOf` (authors write render lambdas, not `SELF`).
-SELF: DynamicEntity = new {}
 
 // ---- registry structure (generated dump.pkl subclasses these) ----
 
@@ -199,6 +237,16 @@ abstract class Floor {
   /// Vertical ordering from the floor registry — a basement is negative. Lets a
   /// dashboard sort floors the way the house is stacked instead of by name.
   level: Int? = null
+
+  // The same five names as [[Area]] and the dump's house-wide lists, so the
+  // three scopes are one vocabulary. DERIVED from `areas` rather than filled by
+  // the generator: a floor's entities are its areas' entities by definition, and
+  // deriving them keeps that impossible to disagree about.
+  hidden lights: List<LightEntity> = areas.flatMap((a) -> a.lights)
+  hidden sensors: List<SensorEntity> = areas.flatMap((a) -> a.sensors)
+  hidden switches: List<SwitchEntity> = areas.flatMap((a) -> a.switches)
+  hidden generic: List<Entity> = areas.flatMap((a) -> a.generic)
+  hidden all: List<Entity> = areas.flatMap((a) -> a.all)
 }
 
 /// One physical device. The OTHER grouping an entity belongs to, orthogonal to
@@ -212,4 +260,19 @@ abstract class Device {
   manufacturer: String? = null
   model: String? = null
   hidden entities: List<Entity> = List()
+
+  // The shared five again. `entities` is the raw list the generator fills, and
+  // `all` is its alias — one name for "everything in this scope" wherever you
+  // are. The per-domain ones are type tests over it, which is why a device's
+  // lists need no generator support: a device is a handful of entities, not a
+  // registry join.
+  hidden all: List<Entity> = entities
+  hidden lights: List<LightEntity> =
+    entities.filter((e) -> e is LightEntity) as List<LightEntity>
+  hidden sensors: List<SensorEntity> =
+    entities.filter((e) -> e is SensorEntity) as List<SensorEntity>
+  hidden switches: List<SwitchEntity> =
+    entities.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
+  hidden generic: List<Entity> = entities.filter((e) ->
+    !(e is LightEntity) && !(e is SensorEntity) && !(e is SwitchEntity))
 }

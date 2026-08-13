@@ -4,14 +4,10 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   NodeId,
-  Op,
-  Predicate,
   SlotSource,
   Surface,
   Theme
@@ -131,12 +127,13 @@ class ResumeSuite extends ServerHarness {
     for {
       h <- SharedHarness.create(
         dynDash,
-        lights.map(id => id -> on(id)).toMap + ("light.e" -> off("light.e"))
+        lights.map(id => id -> on(id)).toMap + ("light.z" -> off("light.z"))
       )
       // Establish the group in the shared log first (the very first membership
       // change always repaints wholesale — there is no per-entity base yet).
-      _ <- h.step(on("light.e"))
-      // ...then b leaves: 1 of 5 shown, under the churn fraction, so per-entity.
+      _ <- h.step(on("light.z"))
+      // ...then b leaves. The survivors are unchanged, so it is a delta: one
+      // `remove` carrying no HTML.
       left <- h.step(off("light.b"))
       logId <- h.logId
       opening <- h.opening(

@@ -50,8 +50,8 @@ know.
    grid rules below). This kills the col-vs-bare-card asymmetry: all row
    children share space uniformly, all grid children are grid cells.
 4. **Node-level `cell` wire field.** `Cell(classes: List[String])` is optional
-   on `LayoutNode.Component`, `LayoutNode.Dynamic` (the group root), and
-   `DynamicCase` (each per-entity member wrapper); the renderer appends the
+   on `LayoutNode.Component`, `LayoutNode.SetNode` (the container root), and
+   each clause node (the per-member wrapper); the renderer appends the
    classes to the wrapper's class attribute. `Dashboard.validate` rejects any
    class that is not a plain token (`[A-Za-z0-9_-]+`) — the values are
    string-interpolated into markup. An object (not a bare list) so it can grow

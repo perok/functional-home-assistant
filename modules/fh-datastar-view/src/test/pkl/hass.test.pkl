@@ -1,0 +1,88 @@
+/// The domain schema's SCOPE VOCABULARY: an area, a floor and a device answer
+/// the same five names as the dump's house-wide lists, so `q.from(...)` takes
+/// any of them and an author moving between scopes rewrites nothing.
+///
+/// Worth pinning because three of the four are DERIVED (a floor's from its
+/// areas, a device's by type test over its entities) and one is generated. A
+/// derivation that drifts from what the generator emits is silent — the list is
+/// simply wrong, never absent.
+///
+/// Outside `lib/` for the usual reason — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/dump-base.pkl" as dumpBase
+
+const local bulb: hass.LightEntity = new { entity_id = "light.a"; area_id = "stue" }
+const local temp: hass.SensorEntity = new { entity_id = "sensor.t"; area_id = "stue" }
+const local plug: hass.SwitchEntity = new { entity_id = "switch.p"; area_id = "stue" }
+const local tv: hass.GenericEntity = new {
+  entity_id = "media_player.tv"
+  domain = "media_player"
+  area_id = "stue"
+}
+
+local class Stue extends hass.Area {
+  area_id = "stue"
+  area_name = "Stue"
+  lights = List(bulb)
+  sensors = List(temp)
+  switches = List(plug)
+  generic = List(tv)
+}
+
+local class Loft extends hass.Floor {
+  floor_id = "loft"
+  floor_name = "Loft"
+  areas = List(new Stue {})
+}
+
+local class Appliance extends hass.Device {
+  device_id = "d1"
+  device_name = "Appliance"
+  entities = List(bulb, temp, plug, tv)
+}
+
+local stue: Stue = new {}
+local loft: Loft = new {}
+local dev: Appliance = new {}
+
+local ids = (xs: List<hass.Entity>) -> xs.map((e) -> e.entity_id)
+
+facts {
+  ["an area's `all` is the union of its four domain lists"] {
+    ids.apply(stue.all) == List("light.a", "sensor.t", "switch.p", "media_player.tv")
+  }
+
+  ["a floor answers the same five, derived from its areas"] {
+    ids.apply(loft.lights) == List("light.a")
+    ids.apply(loft.sensors) == List("sensor.t")
+    ids.apply(loft.switches) == List("switch.p")
+    ids.apply(loft.generic) == List("media_player.tv")
+    ids.apply(loft.all) == ids.apply(stue.all)
+  }
+
+  ["a device answers the same five, by type test over its entities"] {
+    ids.apply(dev.lights) == List("light.a")
+    ids.apply(dev.sensors) == List("sensor.t")
+    ids.apply(dev.switches) == List("switch.p")
+    // The complement, so nothing in `entities` is dropped or double-counted.
+    ids.apply(dev.generic) == List("media_player.tv")
+    ids.apply(dev.all) == ids.apply(dev.entities)
+  }
+
+  ["an EMPTY scope answers an empty list, never an error"] {
+    // The property the starter dashboard rests on: it queries these lists
+    // having never seen this home's dump. A missing generated property would be
+    // `Cannot find property` at eval, on a first boot; a declared default
+    // cannot fail that way.
+    local bare: dumpBase = new {}
+    bare.lights.isEmpty
+    bare.sensors.isEmpty
+    bare.switches.isEmpty
+    bare.generic.isEmpty
+    bare.all.isEmpty
+    (new Loft { areas = List() }).all.isEmpty
+    (new Appliance { entities = List() }).lights.isEmpty
+  }
+}

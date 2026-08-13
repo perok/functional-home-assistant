@@ -1,0 +1,40 @@
+/// The house-wide lists every generated dump has — declared here as a CONTRACT
+/// rather than left to what `PklDump` happens to emit.
+///
+/// Why this module exists at all: `dashboard.pkl`, the starter seeded into every
+/// fresh workspace, names no concrete entity — each section is a query over one
+/// of these lists, so it renders on any installation. That makes them the one
+/// part of the dump an entry can rely on WITHOUT having looked at the dump, and
+/// a generated property is the wrong shape for that: if the generator ever
+/// stopped emitting one, the failure would be `Cannot find property` at eval, on
+/// somebody's first boot. A declaration with a `List()` default cannot fail that
+/// way — an empty house answers `List()`, not an error.
+///
+/// The names are exactly [[hass.Area]]'s, so "every light" and "this room's
+/// lights" read the same and a query's `from` takes either:
+///
+///     q.from(dump.lights)              // the house
+///     q.from(dump.areas.stue.lights)   // one room
+///     q.from(dump.floors.loft.lights)  // one floor
+///
+/// `entities`/`areas`/`floors`/`devices` are NOT declared here: their types are
+/// generated per home (`class Entities { light_taklys: E_light_taklys … }`), so
+/// there is nothing generic to declare. This module covers exactly the part that
+/// can be typed once for every home.
+///
+/// `open` because the generated `dump.pkl` EXTENDS it — `amends` would forbid
+/// the class declarations that are most of what a dump is ("Class needs a
+/// `local` modifier"; the error names `extends` as the way out).
+open module dumpBase
+
+import "hass.pkl"
+
+/// Every light in the home, in entity-id order. A dashboard wanting another
+/// order sorts the list with plain Pkl before `from`.
+hidden lights: List<hass.LightEntity> = List()
+hidden sensors: List<hass.SensorEntity> = List()
+hidden switches: List<hass.SwitchEntity> = List()
+/// Every entity whose domain has no typed class yet — the complement of the
+/// three above, so `all` is exactly their union.
+hidden generic: List<hass.Entity> = List()
+hidden all: List<hass.Entity> = lights + sensors + switches + generic

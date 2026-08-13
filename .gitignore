@@ -81,3 +81,7 @@ modules/fh-datastar-view/target/frontend/
 
 # runtime asset cache when the server is run from the repo root
 /assets-cache/
+
+# Local state for the repowise tool (knowledge graph, caches, lancedb).
+# Never tracked: 25 MB of machine-local artifacts.
+.repowise/

@@ -1,6 +1,5 @@
 package fh.view.functional
 
-import fh.view.model.{Op, Predicate}
 import fh.view.testkit.{
   FixtureDashboard,
   FixtureEntity,
@@ -35,13 +34,16 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   private def offLight(id: String, name: String): FixtureEntity =
     onLight(id, name).copy(state = "off")
 
-  // A group of the lights currently on, and one of ALL lights (state-agnostic).
-  private def onGroup = FixtureDashboard.group(
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-  )
-  private def lightGroup = FixtureDashboard.group(
-    Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
-  )
+  // A set shown while each light is on, and one showing them unconditionally.
+  // The candidates are named up front — that is the point of a candidate set —
+  // so each helper takes the lights the test drives.
+  private def onSet(lights: FixtureEntity*) =
+    FixtureDashboard.set(
+      lights.map(_.entityId).toList,
+      Some(FixtureDashboard.stateIs("on"))
+    )
+  private def lightSet(lights: FixtureEntity*) =
+    FixtureDashboard.set(lights.map(_.entityId).toList)
 
   test("initial page render reflects the seeded snapshot") {
     withServer(
@@ -152,7 +154,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // friendly_name.)
     val alpha = onLight("alpha", "Alpha")
     val beta = offLight("beta", "Beta")
-    withServer(scene.card(onGroup).entities(alpha, beta)) { ts =>
+    withServer(scene.card(onSet(alpha, beta)).entities(alpha, beta)) { ts =>
       ts.observePatch(
         marker = "Beta: <span>on</span>",
         trigger = ts.fake.emit(beta.entityId, "on", beta.attributes)
@@ -169,7 +171,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     val alpha = onLight("alpha", "Alpha")
     val beta = onLight("beta", "Beta")
     val gamma = offLight("gamma", "Gamma")
-    withServer(scene.card(onGroup).entities(alpha, beta, gamma)) { ts =>
+    withServer(
+      scene.card(onSet(alpha, beta, gamma)).entities(alpha, beta, gamma)
+    ) { ts =>
       for {
         // Establish: gamma joins (2 -> 3 members, a boundary repaint). Observing
         // its card confirms the group is now cached before we drive the removal.
@@ -194,7 +198,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // state, never a membership delta.
     withServer(
       scene
-        .card(lightGroup)
+        .card(lightSet(kitchen, HouseFixture.livingRoomLight))
         .entities(kitchen, HouseFixture.livingRoomLight)
     ) { ts =>
       ts.observePatch(
