@@ -178,6 +178,11 @@ lazy val `fh-datastar-view` = project
       case PathList("META-INF", "smithy", _*) => MergeStrategy.first
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
+    // The `smoke` package is Playwright-driven and is the slowest part of the
+    // suite (issue #109 item 3). Default `test`/`testQuick` skip it; `testFull`
+    // (and CI) still runs everything via the unfiltered Test/testOptions.
+    Test / testQuick / testOptions +=
+      Tests.Filter(name => !name.startsWith("fh.view.smoke")),
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
@@ -203,6 +208,10 @@ lazy val `fh-datastar-view` = project
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      // TestControl.executeEmbed: simulated time for ServerHarness suites
+      // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
+      // nothing in wall clock instead of needing to be sped up.
+      "org.typelevel" %% "cats-effect-testkit" % "3.7.0" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
       "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
