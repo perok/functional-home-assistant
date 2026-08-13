@@ -1313,7 +1313,7 @@ class Slider extends Node {
   // absent rather than different.
   cardDef = new ContainerCard {
     template = """
-      <article class="card{{#group}} {{group}}{{/group}}">{{{self}}}{{{mount}}}</article>
+      <article class="card slider-card{{#group}} {{group}}{{/group}}">{{{self}}}{{{mount}}}</article>
       """
     self = """
       <div id="{{selfId}}" class="slider-body">

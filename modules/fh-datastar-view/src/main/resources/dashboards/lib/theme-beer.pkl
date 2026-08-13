@@ -263,7 +263,14 @@ class BeerTheme extends themeMod.Theme {
        because the line has THREE items once a slider carries its entity's icon
        badge — and "spread evenly" would centre the label between the badge and
        the readout instead of keeping it next to what it names. */
-    .slider-head{display:flex;gap:.75rem;align-items:center;z-index:3;pointer-events:none}
+    /* The card's own padding is nearly nothing, and the LINE carries the inset
+       instead. A slider's card is a track edge to edge with text over it, so
+       card padding only ever moved the text — while costing the fill's rounded
+       ends and, on a group, forcing `padding:0` plus a re-add on every part.
+       Held at .25rem rather than 0 so a member row's pill still clears the
+       card's own corner radius. */
+    .slider-card{padding:.25rem}
+    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.75rem;z-index:3;pointer-events:none}
     .slider-head>.state{margin-inline-start:auto}
     /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
        "pick this up and move it anywhere". */
@@ -306,22 +313,26 @@ class BeerTheme extends themeMod.Theme {
        and the button are pieces a plain row simply does not carry, so only the
        arrangement changes — a two-row grid with the badge and the button
        spanning both rows. */
-    .slider-group{padding:0;overflow:hidden}
+    .slider-group{overflow:hidden}
     /* Scoped through `.slider-body` on purpose: `display:contents` removes its
        BOX, not its place in the DOM, so it still has to appear in a selector —
        and every one of these rules must miss the members' own heads and
        tracks, which are `.slider-head`/`.slider.max` too. */
     .slider-group>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
-      align-items:center;align-content:center;gap:0 .75rem;padding:.75rem 1rem;
+      align-items:center;align-content:center;gap:0 .75rem;
       min-block-size:4.5rem;box-sizing:border-box}
     .slider-group>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
     .slider-group>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
     .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/-1}
     .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/-1}
     .slider-icon{grid-row:1/-1;display:flex;align-items:center;justify-content:center;
-      inline-size:2.75rem;block-size:2.75rem;border-radius:50%;
+      inline-size:2rem;block-size:2rem;border-radius:50%;
       background:var(--surface-container-highest);color:var(--primary)}
-    .slider-icon>i{font-size:1.5rem}
+    .slider-icon>i{font-size:1.25rem}
+    /* Bigger on a group's head alone, where the badge reads as a card header
+       rather than a row's icon. */
+    .slider-group>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
+    .slider-group>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
     .slider-sub{font-size:.8rem;color:var(--on-surface-variant)}
     /* The one thing in the head that IS a control has to take the pointer back
        from `.slider-head`'s `pointer-events:none`. */
@@ -337,7 +348,12 @@ class BeerTheme extends themeMod.Theme {
     /* Above the master's painted `<span>`, which is positioned and would
        otherwise cover the member rows' own backgrounds — the fill belongs
        AROUND the rows, not through them. */
-    .slider-members{display:flex;flex-direction:column;gap:.5rem;padding:0 .5rem .5rem;z-index:2}
+    /* Indented to start where the head's BADGE does, not where its card does —
+       so the rows read as belonging to the head rather than as a second list.
+       It also lands each row's own label at the head's label, since the row is
+       inset by exactly the difference between the two badge sizes. */
+    .slider-members{display:flex;flex-direction:column;gap:.25rem;
+      padding:0 .75rem .75rem;z-index:2}
     /* A member is an ordinary slider card collapsed onto its own track: card
        and track share one grid cell, so the label and the live value ride ON
        the fill instead of sitting in a line above it. Members carry their own
@@ -346,7 +362,9 @@ class BeerTheme extends themeMod.Theme {
     .slider-members .card{display:grid;min-block-size:3rem;margin:0;padding:0;
       background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
     .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
-    .slider-members .slider-head{align-items:center;padding-inline:1rem}
+    /* Block padding off: a row is sized by `min-block-size`, so its own padding
+       would only make it taller than the pill it is. */
+    .slider-members .slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
     .slider-members .slider.max{margin:0;block-size:100%}
     .slider-members .slider.max>input{block-size:100%}
     .slider-members .slider.max:before{display:none}

@@ -290,7 +290,7 @@
         "key",
         "entity_id"
       ],
-      "template" : "<article class=\"card{{#group}} {{group}}{{/group}}\">{{{self}}}{{{mount}}}</article>"
+      "template" : "<article class=\"card slider-card{{#group}} {{group}}{{/group}}\">{{{self}}}{{{mount}}}</article>"
     },
     "tab" : {
       "slots" : [
