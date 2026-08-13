@@ -21,7 +21,12 @@ import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
-import org.http4s.headers.{`Cache-Control`, `Content-Type`, `If-None-Match`, ETag}
+import org.http4s.headers.{
+  `Cache-Control`,
+  `Content-Type`,
+  `If-None-Match`,
+  ETag
+}
 import org.http4s.implicits.*
 import org.typelevel.ci.CIString
 
@@ -246,7 +251,12 @@ class ServerRoutesSuite extends ServerHarness {
   test("the page head links the manifest and registers the service worker") {
     pageHtml(titleDash("home", None)).map { html =>
       // The manifest link rides the <base href> like every other app URL.
-      assert(html.contains(s"""<link rel="manifest" href="${PwaAssets.manifestUrl}">"""), clue = html)
+      assert(
+        html.contains(
+          s"""<link rel="manifest" href="${PwaAssets.manifestUrl}">"""
+        ),
+        clue = html
+      )
       // Registration is the shell helper called with the manifest-resolved URL —
       // nothing in the page spells `sw.js` out (except the shell's own route).
       assert(html.contains(s"fhRegisterSw('${PwaAssets.swUrl}')"), clue = html)

@@ -36,12 +36,17 @@ object PwaAssets {
 
   /** name -> (classpath resource, media type) */
   private val files: Map[String, (String, MediaType)] = Map(
-    "manifest.webmanifest" -> ("/pwa/manifest.webmanifest", MediaType.parse(
-      "application/manifest+json"
-    ).getOrElse(MediaType.application.json)),
-    "sw.js"                -> ("/sw.js", MediaType.application.javascript),
-    "icon-192.png"         -> ("/pwa/icon-192.png", MediaType.image.png),
-    "icon-512.png"         -> ("/pwa/icon-512.png", MediaType.image.png)
+    "manifest.webmanifest" -> (
+      "/pwa/manifest.webmanifest",
+      MediaType
+        .parse(
+          "application/manifest+json"
+        )
+        .getOrElse(MediaType.application.json)
+    ),
+    "sw.js" -> ("/sw.js", MediaType.application.javascript),
+    "icon-192.png" -> ("/pwa/icon-192.png", MediaType.image.png),
+    "icon-512.png" -> ("/pwa/icon-512.png", MediaType.image.png)
   )
 
   private val contents: Map[String, (Array[Byte], MediaType)] =
@@ -67,17 +72,17 @@ object PwaAssets {
   val swUrl: String = FrontendAssets.url("sw")
 
   /** The manifest's URL, for the page head's `<link rel="manifest">`. A fixed
-    * committed filename — unlike the SW it does not ride the vite manifest
-    * (see the object doc).
+    * committed filename — unlike the SW it does not ride the vite manifest (see
+    * the object doc).
     */
   val manifestUrl: String = "manifest.webmanifest"
 
-  /** Serve a PWA file by name, or 404. Same origin, revalidated (`no-cache`)
-    * — see the object doc for why nothing here is `immutable`.
+  /** Serve a PWA file by name, or 404. Same origin, revalidated (`no-cache`) —
+    * see the object doc for why nothing here is `immutable`.
     */
   def serve(name: String): IO[Response[IO]] =
     contents.get(name) match {
-      case None => NotFound()
+      case None              => NotFound()
       case Some((bytes, mt)) =>
         Ok(bytes).map(
           _.withContentType(`Content-Type`(mt))
