@@ -642,6 +642,9 @@ class PklBuildSuite extends munit.FunSuite {
       "button" -> List("label"),
       // Same two arms as `button`, chip-styled and hugging its label.
       "pill" -> List("label"),
+      // `checked`/`onclick` are baked/live but not build-time literals, so
+      // only `label` is declared — same shape as `button`/`pill`.
+      "toggle" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> List(
         "label",
