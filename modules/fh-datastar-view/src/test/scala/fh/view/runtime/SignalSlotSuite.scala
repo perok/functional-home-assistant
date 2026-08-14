@@ -352,30 +352,30 @@ class SignalSlotSuite extends ServerHarness {
   // One frame per batch, and what a departure carries
   // ---------------------------------------------------------------------------
 
+  /** Two signal-backed leaves under a BARE container — no rendering of its own,
+    * so the leaves are the patch units and anything merging has to reach both.
+    */
+  private val twoNodes = Dashboard(
+    cards + ("col" -> CardDef(
+      "<div>{{#children}}{{{html}}}{{/children}}</div>"
+    )),
+    LayoutNode.Component(
+      "col",
+      children = List(gauge("sensor.a"), gauge("sensor.b"))
+    )
+  )
+
+  private def both(a: String, b: String) =
+    Map(
+      "sensor.a" -> st("sensor.a", a, "friendly_name" -> "A".asJson),
+      "sensor.b" -> st("sensor.b", b, "friendly_name" -> "B".asJson)
+    )
+
   test("a frame MERGES every node the batch touched") {
     // One frame per batch, not one per node: `signalFrame` collects across all
     // candidates before emitting. Two entities moving in one HA frame is the
     // normal case, not an edge one.
-    val two = Dashboard(
-      cards,
-      LayoutNode.Component(
-        "col",
-        children = List(gauge("sensor.a"), gauge("sensor.b"))
-      ),
-      // A bare container: no rendering of its own, so the two leaves are the
-      // patch units and the frame has to reach both.
-      theme = fh.view.model.Theme()
-    ).copy(cards =
-      cards + ("col" -> CardDef(
-        "<div>{{#children}}{{{html}}}{{/children}}</div>"
-      ))
-    )
-    val r = Renderer.create(two)
-    def both(a: String, b: String) =
-      Map(
-        "sensor.a" -> st("sensor.a", a, "friendly_name" -> "A".asJson),
-        "sensor.b" -> st("sensor.b", b, "friendly_name" -> "B".asJson)
-      )
+    val r = Renderer.create(twoNodes)
     val log = FragmentLog("test")
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
@@ -426,23 +426,29 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
-  test("two frames recorded, then ONE pull: one event at the newest value") {
+  test("three frames over two nodes, then ONE pull: one event, both nodes") {
     // The coalescing case driven through the REAL `Server.pull` rather than
-    // `Patches.resume`: two versions reach the changelog before this session
-    // pulls at all, and the pull is what has to cover both.
+    // `Patches.resume`: three versions reach the changelog before this session
+    // pulls at all — TWO of them the same node, the third a different one — and
+    // the one pull has to cover all of it in a single frame.
     //
-    // Deterministic on purpose. The fully end-to-end version — two
+    // The two axes together, which is the point: merging ACROSS versions (a
+    // node that moved twice contributes its newest value, once) and merging
+    // ACROSS nodes (both leaves in one frame, not one frame each).
+    //
+    // Deterministic on purpose. The fully end-to-end version — three
     // `store.update`s racing one session's pull fiber — cannot assert "it
-    // pulled once", because whether the fiber is scheduled in between is
-    // exactly the nondeterminism `LiveWorld.settle` exists to remove. What is
-    // worth pinning is what `pull` does GIVEN a log two versions ahead of the
-    // session, and that is decidable.
+    // pulled once", because whether that fiber is scheduled in between is
+    // exactly the nondeterminism `LiveWorld.settle` exists to remove; the
+    // assertion would be testing the scheduler. What is decidable is what
+    // `pull` does GIVEN a log several versions ahead of the session.
     (for {
-      // The store holds where the entity ENDED UP; the log says it moved twice.
-      // That is the real shape of a coalesced wake — the intermediate value was
-      // never written down anywhere (§6), which is why none can be served.
-      store <- StateStore.inMemory(at("21.6"))
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      // The store holds where the entities ENDED UP; the log says how often
+      // they moved. That is the real shape of a coalesced wake — no
+      // intermediate value was written down anywhere (§6), which is why none
+      // can be served by mistake.
+      store <- StateStore.inMemory(both("21.6", "48"))
+      ref <- SignallingRef[IO].of(Renderer.create(twoNodes))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -458,30 +464,39 @@ class SignalSlotSuite extends ServerHarness {
             renderer <- ref.get
             live <- server.liveSlug("dashboard")
             session <- Session.create("dashboard")
-            _ <- session.holds.set(documentHolds(renderer, at("21.4")))
+            _ <- session.holds.set(
+              documentHolds(renderer, both("21.4", "44"))
+            )
             _ <- sessions.register("c1", session)
-            _ <- live.log.update(_.touched(leaf, 1L).touched(leaf, 2L))
-            // ONE pull, woken for the LATER version — the doorbell having
-            // coalesced 1 into 2.
-            first <- server.pull(live, session, 2L)
+            // sensor.a moved at 1 and again at 2; sensor.b at 3.
+            _ <- live.log.update(
+              _.touched(NodeId.derived("c_0"), 1L)
+                .touched(NodeId.derived("c_0"), 2L)
+                .touched(NodeId.derived("c_1"), 3L)
+            )
+            // ONE pull, woken for the NEWEST version — the doorbell having
+            // coalesced 1 and 2 into 3.
+            first <- server.pull(live, session, 3L)
             position <- session.position.get
             // ...and the gate: nothing is owed for a version already served.
-            again <- server.pull(live, session, 2L)
+            again <- server.pull(live, session, 3L)
           } yield (first, position, again)
         }
     } yield out).map { case (first, position, again) =>
-      // ONE event: the frame and the cursor merged, because a value tick puts
-      // no element patch between them.
+      // ONE event, and the whole of it: both nodes' newest values and the
+      // cursor, merged, because a value tick puts no element patch between the
+      // frame and the cursor. `c_0` appears ONCE despite having moved twice.
       assertEquals(
         first.map(_.data),
         List(
           Some(
-            """signals {"_c__value":"21.6","_cursor":{"storeVersion":2}}"""
+            """signals {"_c_0__value":"21.6","_c_1__value":"48",""" +
+              """"_cursor":{"storeVersion":3}}"""
           )
         ),
         clue = first.map(_.renderString)
       )
-      assertEquals(position, 2L)
+      assertEquals(position, 3L)
       assertEquals(again, Nil)
     }
   }
