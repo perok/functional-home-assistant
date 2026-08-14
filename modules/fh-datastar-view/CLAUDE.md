@@ -44,6 +44,14 @@ same commit; ADRs that change the pipeline update it too.
    start-time env forever, leaving the gate silently stuck in regenerate mode. Use the
    scoped form instead:
    `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1"); fh-datastar-view/testFull; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`.
+
+   **That chain does not clean up if the test task FAILS** — sbt aborts the rest of the
+   command line, so `remove` never runs and the long-lived server stays in regenerate mode
+   for every later invocation, silently. The tell is a run that "passes" while rewriting
+   files you did not mean to touch (the `visual-snapshots/*.png` baselines are the ones that
+   hurt — never regenerate those locally, see the slider-flake note). Always confirm with
+   `sbt 'eval sys.props.get("FH_UPDATE_SNAPSHOTS")'` (want `None`) before trusting a green
+   run, and `git status` after.
    The backend model (`Dashboard.scala`) should not need to change for
    authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
    — were the sanctioned structural exception; see ADR 0008).
