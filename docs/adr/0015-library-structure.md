@@ -3,6 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-08-14
 - **Scope:** `modules/fh-datastar-view/src/main/resources/dashboards/lib`
+- **Refines:** ADR 0006, which chose Pkl as the authoring language and put the
+  library under `lib/`. That one owns the language; this one owns the shape of
+  what is written in it.
 
 ## Context
 

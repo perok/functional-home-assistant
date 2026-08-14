@@ -51,6 +51,12 @@ extended. Once the hand-port completes they are deleted.
    entries. A directory convention separates the two (Pkl has one file
    extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
    non-recursive; the slug is the filename sans `.pkl`.
+
+   How that library is laid out INSIDE `lib/` — the `core/` kit a component
+   author extends, the `components/` families behind the `components.pkl`
+   facade, and the two editor constraints every re-export obeys — is
+   **ADR 0015**. This ADR owns the choice of Pkl as the language; 0015 owns the
+   shape of what is written in it.
 4. **Typed dump**: `PklDump` renders the transformed `DataDump` JSON as a typed
    `lib/dump.pkl` — every floor/area/entity a named property typed against the
    hand-written `lib/hass.pkl` schema (entity class picked by domain;
@@ -144,8 +150,10 @@ extended. Once the hand-port completes they are deleted.
    All of it is deleted. Membership is decided at BUILD time now, so the
    authoring surface is a query chain in its own module —
    `q.from(xs).where(...).caseOf(...).render(...).build()`
-   (`lib/query.pkl`, ADR 0003) — and `components.pkl` owns only the wire classes
-   it emits. Two things carried over: a render lambda is still
+   (`lib/query.pkl`, ADR 0003) — over wire classes it owns jointly with nothing
+   else: they live in `lib/core/predicate.pkl`, which is why the query language
+   no longer imports the card library at all (ADR 0015). Two things carried
+   over: a render lambda is still
    `(hass.Entity) -> Node`, and branches are still ordered with first match
    winning. What went is the sentinel entity, and with it the reason an author
    ever had to think about one.
