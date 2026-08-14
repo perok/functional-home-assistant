@@ -6,9 +6,16 @@ import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 
-/// Generic click button (service call or navigate). `action = null` defaults
-/// to the domain-resolved service call, which needs an entity. (Tab-bar
-/// entries are NOT buttons — see [[TabButton]].)
+// What a pressable card says when it has nothing to press. `const` because it
+// is called from class bodies.
+const local function noAction(ctor: String): String =
+  "\(ctor): nothing happens on click — pass an `action`, or an `entity` whose "
+    + "domain implies one (the table is `hass/actions.pkl`)"
+
+/// Generic click button (service call or navigate). `action = null` falls back
+/// to the domain-derived action of the button's `entity`, and a button with
+/// neither is a BUILD error — see [[Button.tap]]. (Tab-bar entries are NOT
+/// buttons — see [[TabButton]].)
 class Button extends nodes.Node {
   card = "button"
   cardDef = new nodes.LeafCard {
@@ -27,9 +34,18 @@ class Button extends nodes.Node {
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
   hidden action: tapMod.Tap? = null
-  // The tap actually rendered — late binding re-derives it (and the slots
-  // below) when a builder amends `action`.
-  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  /// The tap actually rendered — late binding re-derives it (and the slots
+  /// below) when a builder amends `action`.
+  ///
+  /// A button is a thing you press, so it must know what pressing it DOES: with
+  /// no `action` and no `entity` there is nothing to derive one from, and this
+  /// fails the build. It used to default to `homeassistant/toggle` with an empty
+  /// entity id, so `(c.button) { label = "x" }` posted a call that could only
+  /// ever error at HA (issue #106).
+  hidden tap: tapMod.Tap =
+    action
+      ?? (if (entity != null) tapMod.domainTap(entity!!) else null)
+      ?? throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
@@ -78,7 +94,11 @@ class Toggle extends nodes.Node {
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null
   hidden action: tapMod.Tap? = null
-  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  /// Defaults to the entity's domain action. A switch that cannot be switched
+  /// is not a thing, so a domain with no action ([[hass_actions]]) fails the
+  /// build here rather than rendering a checkbox that does nothing — use
+  /// [[EntityCard]] (which falls back to more-info) for those.
+  hidden tap: tapMod.Tap = action ?? tapMod.domainTap(entity) ?? throw(noAction("c.toggle"))
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
     ["entity_id"] = entity.entity_id
@@ -128,7 +148,11 @@ class Pill extends nodes.Node {
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
   hidden action: tapMod.Tap? = null
-  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  /// See [[Button.tap]] — same rule, same build error.
+  hidden tap: tapMod.Tap =
+    action
+      ?? (if (entity != null) tapMod.domainTap(entity!!) else null)
+      ?? throw(noAction("c.pill"))
   inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
   slots {
     when (entity != null) {

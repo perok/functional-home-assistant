@@ -36,20 +36,18 @@ title = "Home"
 card = (c.grid) {
   children {
     c.title("Lights").fullWidth()
-    // Lights that are on get a brightness slider; the rest a toggle card. Both
+    // Lights that are on get a brightness slider; the rest a plain card. Both
     // renderings ride the wire and the runtime picks per light, so a light
-    // changing swaps its own card and touches nothing else.
+    // changing swaps its own card and touches nothing else. The card needs no
+    // `tap`: `light/toggle` is what its domain implies (issue #106).
     q.from(dump.lights)
       .caseOf(q.eq(q.stateProp, "on"), c.slider)
-      .`else`((e) -> (c.entityCard(e)) { tap = c.tap.toggleTap })
+      .`else`(c.entityCard)
       .build()
       .fullWidth()
 
     c.title("Switches").fullWidth()
-    q.from(dump.switches)
-      .render((e) -> (c.entityCard(e)) { tap = c.tap.toggleTap })
-      .build()
-      .fullWidth()
+    q.from(dump.switches).render(c.entityCard).build().fullWidth()
 
     c.title("Low battery").fullWidth()
     // `device_class` is registry data, so it SELECTS the candidates at build

@@ -196,7 +196,9 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
   node-level `cell.classes` (the `fh-` layout contract; model + rationale in
   ADR 0008).
-- `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
+- `serviceTap`/`toggleTap`/`stateServiceTap`/`domainTap`/`navigate` (what a card
+  clicks by default, and the vendored domain table behind it, is ADR 0016);
+  popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
   `openPopupInline(body)`, popup CSS in the theme modules (0002). A registered

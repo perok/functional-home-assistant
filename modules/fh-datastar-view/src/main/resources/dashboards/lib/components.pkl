@@ -132,6 +132,10 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
+/// What a click does by default on any entity card: its domain's service call,
+/// or more-info where the domain has none. Named so an author can put the same
+/// default on a card they built some other way.
+function defaultTap(e: hass.Entity): tapMod.Tap = moreinfo.defaultTap(e)
 /// Open `e`'s more-info popup — `c.entityCard(e).tap(c.moreInfo(e))`, or
 /// `c.entityCard(e) |> c.informative` where the card already names it.
 function moreInfo(e: hass.Entity): tapMod.Tap = moreinfo.moreInfo(e)

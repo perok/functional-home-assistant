@@ -9,9 +9,12 @@ module core.tap
 import "node.pkl" as nodes
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
+import "../hass.pkl"
+import "../hass/actions.pkl" as hassActions
 
-/// A tap descriptor: the whole Datastar click expression, either live (a Slot
-/// reading $entity_id/$domain) or a constant string. A tap that opens
+/// A tap descriptor: the whole Datastar click expression, either a Slot
+/// (reading `$entity_id`, and `$state` for the one state-dependent form) or a
+/// constant string. A tap that opens
 /// an INLINE popup also carries `inlineSurfaces` (the dialog content); the card
 /// copies it onto the node so the hoist can lift it.
 ///
@@ -25,12 +28,6 @@ class Tap {
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
 }
-// The default service route (domain/service) for a tap, resolved per entity
-// at runtime ($domain). Scenes/scripts turn_on, buttons press, everything
-// else homeassistant/toggle — same JSONata as components.libsonnet.
-const local defaultRoute =
-  #"($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", "button": "button/press", "input_button": "input_button/press"}, $domain); $a ? $a : "homeassistant/toggle")"#
-
 // Wrap a JSONata route expression into the full Datastar click expression
 //   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
 // All app URLs are RELATIVE: they resolve against the page's <base href>
@@ -49,21 +46,59 @@ const local function serviceOnclick(route: String): String =
   #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
     noSignals + #")""#
 
-// A click expression is identity-derived: it inherits the card's entity to
-// resolve $entity_id/$domain, but never varies with state (reactive = false)
-// and must resolve even when the entity is unavailable.
-const local function clickSlot(transformExpr: String): slotMod.Slot = new {
+// A click expression inherits the card's entity to resolve $entity_id, and must
+// resolve even when that entity is unavailable (an unavailable light is exactly
+// the one you want to click). `live` is the rare case: a route the CURRENT state
+// picks ([[stateServiceTap]]), which has to re-render like any other state
+// reading. Everything else is identity-derived — `reactive = false` keeps it in
+// the renderer's identity cache.
+const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Slot = new {
   transform = transformExpr
-  reactive = false
+  reactive = live
   bypassUnavailable = false
 }
 
-/// Service call resolved from the entity's domain (the default tap).
-const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
-
 /// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
-function serviceTap(action: String): Tap =
-  new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
+const function serviceTap(action: String): Tap =
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false) }
+
+/// Toggle whatever the card's entity is, via HA's own domain-dispatching
+/// `homeassistant.toggle`. The blunt instrument, and an explicit choice now
+/// rather than the default: [[domainTap]] names each domain's own service, and
+/// knows which domains have none. Still the right answer for an entity whose
+/// domain this library does not know but you do.
+const toggleTap: Tap = serviceTap("homeassistant/toggle")
+
+/// A service call whose service depends on the entity's CURRENT state: `then`
+/// while the state equals `whenState`, `otherwise` in every other state. The
+/// lock case — `stateServiceTap("locked", "lock/unlock", "lock/lock")`.
+///
+/// The one tap that carries a LIVE expression, so its click slot re-renders on
+/// state change like a value slot does. Prefer a plain [[serviceTap]] wherever a
+/// real `toggle` service exists.
+const function stateServiceTap(whenState: String, then: String, otherwise: String): Tap =
+  new {
+    onclick = clickSlot(
+      serviceOnclick(#"$state = "\#(whenState)" ? "\#(then)" : "\#(otherwise)""#),
+      true
+    )
+  }
+
+/// What a tap on `e` should call, decided from its domain at BUILD time — or
+/// **null when its domain has no sensible service call**, which is the answer
+/// for most of a real instance (sensors, diagnostics, `update`, anything whose
+/// value must be chosen rather than toggled).
+///
+/// That null is the point: a card turns it into a more-info tap rather than
+/// rendering a pointer cursor over a service that does not exist. The table is
+/// `hass/actions.pkl`; override any single card with `.tap(...)`.
+const function domainTap(e: hass.Entity): Tap? =
+  let (action = hassActions.forDomain(e.domain))
+    if (action == null) null
+    else if (action is hassActions.Call) serviceTap(action.action)
+    else
+      let (byState = action as hassActions.CallByState)
+        stateServiceTap(byState.whenState, byState.then, byState.otherwise)
 
 // The value-carrying action route: the service call gets `service_data`, with
 // the value riding in the URL PATH (the same route the slider's template posts
@@ -78,7 +113,7 @@ const local function serviceValueOnclick(action: String, key: String, value: Str
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
 function serviceValueTap(action: String, key: String, value: String): Tap =
-  new { onclick = clickSlot(serviceValueOnclick(action, key, value)) }
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false) }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against

@@ -869,20 +869,25 @@ class PklBuildSuite extends munit.FunSuite {
       clue = d.cards.keySet
     )
     // The registered popup plus the hoisted inline surfaces (keyed
-    // `<node-id>_self`): the explicit one, and the more-info tap's, which is an
-    // inline popup per entity.
+    // `<node-id>_self`). Four, and each is a distinct path worth having:
+    // the explicit `openPopupInline` button; the `|> c.informative` light; and
+    // TWO sensor cards that asked for nothing — one in the layout and one
+    // nested inside the registered `detail` surface — which get a more-info
+    // popup by default, because `sensor` has no service call (issue #106).
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
     assertEquals(
       d.surfaces.keys.count(_.endsWith("_self")),
-      2,
+      4,
       clue = d.surfaces.keySet
     )
     // More-info: the entity's card, the controls its domain supports, its raw
     // facts, a close button. The inner column is `lightControls`, and the second
     // entityCard is its own — the fixture light reports no colour modes, so it
     // is a switch, and the controls are a tappable card rather than a slider.
+    // Pick the LIGHT's popup by name: the sensors' have no controls column, and
+    // `find` over "has an entityInfo" would now match any of the three.
     val moreInfo = d.surfaces.values
-      .find(s => cardNames(s.content).contains("entityInfo"))
+      .find(s => cardNames(s.content).count(_ == "entityCard") == 2)
       .getOrElse(fail("no more-info surface was hoisted"))
     assertEquals(
       cardNames(moreInfo.content),

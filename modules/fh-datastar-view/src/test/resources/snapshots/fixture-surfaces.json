@@ -49,11 +49,76 @@
                   "card" : "entityCard",
                   "children" : [
                   ],
+                  "inlineSurfaces" : {
+                    "self" : {
+                      "content" : {
+                        "card" : "popup",
+                        "children" : [
+                          {
+                            "card" : "fhcol",
+                            "children" : [
+                              {
+                                "card" : "entityCard",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "entity_id" : "sensor.outside_temp",
+                                  "icon" : "mdi-thermometer",
+                                  "label" : "Outside Temperature",
+                                  "value" : {
+                                    "bypassUnavailable" : true,
+                                    "reactive" : true,
+                                    "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                  }
+                                }
+                              },
+                              {
+                                "card" : "entityInfo",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "attributes" : {
+                                    "bypassUnavailable" : true,
+                                    "default" : "",
+                                    "reactive" : true,
+                                    "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                  },
+                                  "entity_id" : "sensor.outside_temp"
+                                }
+                              },
+                              {
+                                "card" : "button",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "label" : "Close",
+                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                }
+                              }
+                            ],
+                            "kind" : "component",
+                            "slots" : {
+                              
+                            }
+                          }
+                        ],
+                        "kind" : "component",
+                        "slots" : {
+                          
+                        }
+                      }
+                    }
+                  },
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
+                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
@@ -84,6 +149,12 @@
                     "entity_id" : "light.kitchen",
                     "icon" : "mdi-lightbulb",
                     "label" : "Kitchen",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                    },
+                    "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
@@ -133,11 +204,76 @@
                   "card" : "entityCard",
                   "children" : [
                   ],
+                  "inlineSurfaces" : {
+                    "self" : {
+                      "content" : {
+                        "card" : "popup",
+                        "children" : [
+                          {
+                            "card" : "fhcol",
+                            "children" : [
+                              {
+                                "card" : "entityCard",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "entity_id" : "sensor.outside_temp",
+                                  "icon" : "mdi-thermometer",
+                                  "label" : "Outside Temperature",
+                                  "value" : {
+                                    "bypassUnavailable" : true,
+                                    "reactive" : true,
+                                    "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                  }
+                                }
+                              },
+                              {
+                                "card" : "entityInfo",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "attributes" : {
+                                    "bypassUnavailable" : true,
+                                    "default" : "",
+                                    "reactive" : true,
+                                    "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                  },
+                                  "entity_id" : "sensor.outside_temp"
+                                }
+                              },
+                              {
+                                "card" : "button",
+                                "children" : [
+                                ],
+                                "kind" : "component",
+                                "slots" : {
+                                  "label" : "Close",
+                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                }
+                              }
+                            ],
+                            "kind" : "component",
+                            "slots" : {
+                              
+                            }
+                          }
+                        ],
+                        "kind" : "component",
+                        "slots" : {
+                          
+                        }
+                      }
+                    }
+                  },
                   "kind" : "component",
                   "slots" : {
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
+                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
@@ -178,6 +314,12 @@
                     "entity_id" : "light.kitchen",
                     "icon" : "mdi-lightbulb",
                     "label" : "Kitchen",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                    },
+                    "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,

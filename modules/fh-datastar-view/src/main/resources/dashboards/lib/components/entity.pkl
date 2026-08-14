@@ -7,6 +7,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
+import "moreinfo.pkl"
 
 /// HA-like entity card: icon + label + value (state or attribute, unit
 /// auto-appended) + optional secondary line + optional tap. `icon` overrides
@@ -29,7 +30,11 @@ class EntityCard extends nodes.Node {
   hidden value: (String|slotMod.Expr)? = null
   hidden secondary: (String|slotMod.Expr)? = null
   hidden icon: String? = null
-  hidden tap: tapMod.Tap? = null
+  /// What a click does. Defaults to [[moreinfo.defaultTap]] — this entity's
+  /// domain service if it has one, more-info if it does not — so a card is
+  /// always clickable and never claims an action it cannot perform. `tap = null`
+  /// opts a card out entirely (no pointer, no handler).
+  hidden tap: tapMod.Tap? = moreinfo.defaultTap(entity)
   // Copy the tap's inline surfaces onto the node so the hoist lifts them
   // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
   // is null or carries no inline popup → dropped by omitNullProperties.
@@ -83,5 +88,8 @@ function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
 /// self-references inside the amend (the amend-scoping gotcha).
 hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 
-/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
+/// Force the blunt `homeassistant/toggle` on a card: `c.entityCard(x) |>
+/// c.tappable`. Rarely what you want now that [[EntityCard.tap]] defaults to the
+/// domain-derived action — reach for this only when this library's table
+/// ([[hass_actions]]) does not know a domain you do.
 tappable: Mixin<EntityCard> = new { tap = tapMod.toggleTap }

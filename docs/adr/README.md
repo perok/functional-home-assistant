@@ -32,3 +32,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0013 — How the entity dump is generated and typed](0013-dump-codegen-and-typing.md)
 - [0014 — The dashboard as an installable local app](0014-installable-local-app.md)
 - [0015 — Library structure: a core kit, the shipped components, and a facade](0015-library-structure.md)
+- [0016 — What a tap does: per-entity defaults, and more-info as the floor](0016-what-a-tap-does.md)
