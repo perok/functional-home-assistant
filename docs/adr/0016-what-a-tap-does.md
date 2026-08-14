@@ -29,8 +29,8 @@ table is allowed to say *nothing*.
 
 ```
 hass/actions.pkl   domain -> Call | CallByState | (absent)
-core/tap.pkl       domainTap(e): TapAction?     — the table, as a TapAction
-components/…       defaultTap(e) = domainTap(e) ?? moreInfo(e)
+core/tap.pkl       byDomain(e): TapAction?     — the table, as a TapAction
+components/…       defaultTap(e) = byDomain(e) ?? moreInfo(e)
 ```
 
 Every card names it `tapAction`, after HA's own `tap_action`, and it is the only
@@ -38,6 +38,12 @@ property that holds one. `action` is left to mean what it means on the wire and
 in ADR 0001 — a `"<domain>/<service>"` string (`SliderSpec.action`, `Call.action`,
 the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 `Slider.action` held a service string: one name, two types, on sibling cards.
+
+The constructors carry no `Tap` suffix, because the namespace already says it:
+`c.tap.service("lock/lock")`, `c.tap.toggle`, `c.tap.stateService(…)`,
+`c.tap.byDomain(e)`, `c.tap.navigate("under")`. `c.defaultTap(e)` stays on the
+facade rather than joining them — the *policy* of falling back to more-info
+belongs to the component tier, not to the core tap kit (ADR 0015).
 
 ### 1. The table says whether, not just which
 
@@ -108,12 +114,12 @@ knows. `tapAction = null` is the explicit opt-out.
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,
 whose body contains that card. Pkl's laziness does not save it, because a card's
-`slots` force its tap. The body therefore pins its card's tap to `domainTap(e)`,
+`slots` force its tap. The body therefore pins its card's tap to `byDomain(e)`,
 and a Pkl fact holds that line.
 
 ### 4. A pressable card with nothing to press is a build error
 
-`Button`/`Pill`/`Toggle` defaulted to `action ?? toggleTap` — the author set
+`Button`/`Pill`/`Toggle` defaulted to a blanket toggle — the author set
 `action`, a separate derived `tap` did the work, and the split was half of why
 the naming read badly. There is now one `tapAction` property. Since the factories
 require an action this only bit in the amend form, where `(c.button) { label =
@@ -123,7 +129,7 @@ defined by what pressing it does; not knowing that is not a state it should be
 able to reach. This is the same "make the illegal state unrepresentable" move as
 `Dashboard.Validated`, at the authoring layer.
 
-`toggleTap` survives as an explicit escape hatch, now a plain literal
+`c.tap.toggle` survives as an explicit escape hatch, now a plain literal
 (`homeassistant/toggle`) rather than a lookup — the right answer for a domain
 this library does not know but the author does.
 
@@ -151,7 +157,7 @@ this library does not know but the author does.
 - **This is a breaking behaviour change** (alpha, deliberate): a card that
   previously posted `homeassistant/toggle` for an unrecognised domain now opens
   more-info instead. Any dashboard relying on the old blanket toggle names
-  `c.tappable` or `c.tap.toggleTap` to get it back.
+  `c.tappable` or `c.tap.toggle` to get it back.
 - **Deriving the table from the instance is the obvious follow-up** and stays out
   of scope: `/api/services` is per-instance ground truth, so custom integrations
   would work. It needs the same churn analysis `CapabilityAttributes` got before

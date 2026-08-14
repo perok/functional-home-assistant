@@ -752,7 +752,7 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggleTap)
+       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggle)
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
@@ -1136,8 +1136,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tapAction = c.tap.toggleTap }
-        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggleTap }
+        |call = (c.entityCard(x)) { tapAction = c.tap.toggle }
+        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggle }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1166,9 +1166,9 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggleTap).label("Office")
-        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggleTap; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggleTap; label = "Office" }
+        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggle).label("Office")
+        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggle; label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggle; label = "Office" }
         |
         |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
         |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
@@ -1420,7 +1420,7 @@ class PklBuildSuite extends munit.FunSuite {
     // template's `{{^href}}` arm is what renders it.
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.tap.toggleTap).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     assert(toggle.slots("onclick").transform.contains("@post"))
@@ -1500,7 +1500,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggleTap }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")

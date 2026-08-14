@@ -49,7 +49,7 @@ const local function serviceOnclick(route: String): String =
 // A click expression inherits the card's entity to resolve $entity_id, and must
 // resolve even when that entity is unavailable (an unavailable light is exactly
 // the one you want to click). `live` is the rare case: a route the CURRENT state
-// picks ([[stateServiceTap]]), which has to re-render like any other state
+// picks ([[stateService]]), which has to re-render like any other state
 // reading. Everything else is identity-derived — `reactive = false` keeps it in
 // the renderer's identity cache.
 const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Slot = new {
@@ -58,25 +58,25 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
   bypassUnavailable = false
 }
 
-/// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
-const function serviceTap(action: String): TapAction =
+/// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
+const function service(action: String): TapAction =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false) }
 
 /// Toggle whatever the card's entity is, via HA's own domain-dispatching
 /// `homeassistant.toggle`. The blunt instrument, and an explicit choice now
-/// rather than the default: [[domainTap]] names each domain's own service, and
+/// rather than the default: [[byDomain]] names each domain's own service, and
 /// knows which domains have none. Still the right answer for an entity whose
 /// domain this library does not know but you do.
-const toggleTap: TapAction = serviceTap("homeassistant/toggle")
+const toggle: TapAction = service("homeassistant/toggle")
 
 /// A service call whose service depends on the entity's CURRENT state: `then`
 /// while the state equals `whenState`, `otherwise` in every other state. The
-/// lock case — `stateServiceTap("locked", "lock/unlock", "lock/lock")`.
+/// lock case — `stateService("locked", "lock/unlock", "lock/lock")`.
 ///
 /// The one tap that carries a LIVE expression, so its click slot re-renders on
-/// state change like a value slot does. Prefer a plain [[serviceTap]] wherever a
+/// state change like a value slot does. Prefer a plain [[service]] wherever a
 /// real `toggle` service exists.
-const function stateServiceTap(whenState: String, then: String, otherwise: String): TapAction =
+const function stateService(whenState: String, then: String, otherwise: String): TapAction =
   new {
     onclick = clickSlot(
       serviceOnclick(#"$state = "\#(whenState)" ? "\#(then)" : "\#(otherwise)""#),
@@ -92,13 +92,13 @@ const function stateServiceTap(whenState: String, then: String, otherwise: Strin
 /// That null is the point: a card turns it into a more-info tap rather than
 /// rendering a pointer cursor over a service that does not exist. The table is
 /// `hass/actions.pkl`; override any single card with `.tap(...)`.
-const function domainTap(e: hass.Entity): TapAction? =
+const function byDomain(e: hass.Entity): TapAction? =
   let (action = hassActions.forDomain(e.domain))
     if (action == null) null
-    else if (action is hassActions.Call) serviceTap(action.action)
+    else if (action is hassActions.Call) service(action.action)
     else
       let (byState = action as hassActions.CallByState)
-        stateServiceTap(byState.whenState, byState.then, byState.otherwise)
+        stateService(byState.whenState, byState.then, byState.otherwise)
 
 // The value-carrying action route: the service call gets `service_data`, with
 // the value riding in the URL PATH (the same route the slider's template posts
@@ -109,10 +109,10 @@ const local function serviceValueOnclick(action: String, key: String, value: Str
   #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
     + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
 
-/// A service call carrying ONE static value: `serviceValueTap("light/turn_on",
+/// A service call carrying ONE static value: `serviceValue("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
-function serviceValueTap(action: String, key: String, value: String): TapAction =
+function serviceValue(action: String, key: String, value: String): TapAction =
   new { onclick = clickSlot(serviceValueOnclick(action, key, value), false) }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the

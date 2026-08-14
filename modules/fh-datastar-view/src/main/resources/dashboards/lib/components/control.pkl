@@ -40,7 +40,7 @@ class Button extends nodes.Node {
   /// entity id, so `(c.button) { label = "x" }` posted a call that could only
   /// ever error at HA (issue #106).
   hidden tapAction: tapMod.TapAction =
-    (if (entity != null) tapMod.domainTap(entity!!) else null)
+    (if (entity != null) tapMod.byDomain(entity!!) else null)
       ?? throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = tapAction.inlineSurfaces
@@ -93,7 +93,7 @@ class Toggle extends nodes.Node {
   /// is not a thing, so a domain with no action ([[hass_actions]]) fails the
   /// build here rather than rendering a checkbox that does nothing — use
   /// [[EntityCard]] (which falls back to more-info) for those.
-  hidden tapAction: tapMod.TapAction = tapMod.domainTap(entity) ?? throw(noAction("c.toggle"))
+  hidden tapAction: tapMod.TapAction = tapMod.byDomain(entity) ?? throw(noAction("c.toggle"))
   inlineSurfaces = tapAction.inlineSurfaces
   slots {
     ["entity_id"] = entity.entity_id
@@ -144,7 +144,7 @@ class Pill extends nodes.Node {
   hidden label: (String|slotMod.Expr)? = null
   /// See [[Button.tapAction]] — same rule, same build error.
   hidden tapAction: tapMod.TapAction =
-    (if (entity != null) tapMod.domainTap(entity!!) else null)
+    (if (entity != null) tapMod.byDomain(entity!!) else null)
       ?? throw(noAction("c.pill"))
   inlineSurfaces = tapAction.inlineSurfaces
   slots {

@@ -89,7 +89,7 @@ over. A transform that fails to *compile* is a hard build error
 
 **Service actions are data, not a Scala domain table.** Templates take a single
 `{{{action}}}` value (`"<domain>/<service>"`), authored in the card builder and
-overridable via `serviceTap(...)`. The renderer never knows HA domains — that is
+overridable via `c.tap.service(...)`. The renderer never knows HA domains — that is
 the part of this decision that has not moved.
 
 What has moved is where the value comes from. It used to be an identity slot

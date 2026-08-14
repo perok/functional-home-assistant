@@ -26,7 +26,7 @@ import "slider.pkl" as sliderMod
 function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
   children {
     for (name in fx.list) {
-      control.pill(name, tapMod.serviceValueTap("light/turn_on", "effect", name))
+      control.pill(name, tapMod.serviceValue("light/turn_on", "effect", name))
         .entity(fx.owner)
     }
   }

@@ -61,7 +61,7 @@ class EntityCard extends nodes.Node {
   }
   // ---- fluent config (builder style) ----
   // Each option is ALSO a method: it amends `this` and returns the same class,
-  // so options chain paren-free — `c.entityCard(x).tapAction(c.tap.toggleTap).label("Office")`
+  // so options chain paren-free — `c.entityCard(x).tapAction(c.tap.toggle).label("Office")`
   // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Methods
   // and properties are separate namespaces, so `function tapAction` coexists with
   // the `hidden tapAction` prop; late binding re-derives `slots` from the amended value, so
@@ -92,4 +92,4 @@ hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 /// c.tappable`. Rarely what you want now that [[EntityCard.tapAction]] defaults to the
 /// domain-derived action — reach for this only when this library's table
 /// ([[hass_actions]]) does not know a domain you do.
-tappable: Mixin<EntityCard> = new { tapAction = tapMod.toggleTap }
+tappable: Mixin<EntityCard> = new { tapAction = tapMod.toggle }

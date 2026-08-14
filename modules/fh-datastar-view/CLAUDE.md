@@ -175,10 +175,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
   `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing),
   expr/exprOf,
-  serviceTap/serviceValueTap/navigate, **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
-  four `CallByState` domains. `c.tap.toggleTap` is now the explicit escape hatch, not the default,
+  four `CallByState` domains. `c.tap.toggle` is now the explicit escape hatch, not the default,
   and a `c.button`/`c.pill`/`c.toggle` with no action and no entity is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which

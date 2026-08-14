@@ -86,7 +86,7 @@ typealias Readout = "state"|"percent"|"none"
 ///   (c.slider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"$state & " °C""#)
-///     tap = c.toggleTap
+///     tap = c.toggle
 ///     children { c.slider(a).readout("percent") c.slider(b).readout("percent") }
 ///   }
 ///

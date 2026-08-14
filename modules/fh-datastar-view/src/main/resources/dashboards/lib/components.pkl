@@ -41,7 +41,7 @@ import "recipes.pkl" as recipesMod
 // A family that reads better grouped than flat. Typed, so an editor can see
 // through them.
 
-/// What a click DOES: `c.tap.toggleTap`, `c.tap.serviceTap("lock/lock")`,
+/// What a click DOES: `c.tap.toggle`, `c.tap.service("lock/lock")`,
 /// `c.tap.navigate("under")`, `c.tap.openPopup("detail")`.
 hidden tap: tapMod = tapMod
 

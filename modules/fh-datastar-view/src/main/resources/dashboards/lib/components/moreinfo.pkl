@@ -70,7 +70,7 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
     // and Pkl's laziness does not save it (the card's `slots` force the tap,
     // which forces the popup body). Null here means a card with no click, which
     // is right: you are already looking at the more-info.
-    (entityMod.entityCard(e)) { tapAction = tapMod.domainTap(e) }
+    (entityMod.entityCard(e)) { tapAction = tapMod.byDomain(e) }
     when (e is hass.LightEntity) {
       light.controls(e as hass.LightEntity)
     }
@@ -88,12 +88,12 @@ function moreInfo(e: hass.Entity): tapMod.TapAction = tapMod.openPopupInline(mor
 /// **The default click for any entity card**: the service call its domain
 /// implies, and more-info when its domain implies none.
 ///
-/// This is the resolution issue #106 is about. `domainTap` is a build-time
+/// This is the resolution issue #106 is about. `byDomain` is a build-time
 /// literal read out of the vendored table (`hass/actions.pkl`); the fallback is
 /// what makes the whole scheme honest, because a card that cannot act can still
 /// show you everything it knows. Nothing is left rendering a pointer cursor over
 /// a service that does not exist.
-function defaultTap(e: hass.Entity): tapMod.TapAction = tapMod.domainTap(e) ?? moreInfo(e)
+function defaultTap(e: hass.Entity): tapMod.TapAction = tapMod.byDomain(e) ?? moreInfo(e)
 
 
 /// The more-info-on-tap addition: `c.entityCard(x) |> c.informative`. Reads the

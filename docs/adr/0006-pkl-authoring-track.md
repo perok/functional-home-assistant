@@ -196,7 +196,8 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
   node-level `cell.classes` (the `fh-` layout contract; model + rationale in
   ADR 0008).
-- `serviceTap`/`toggleTap`/`stateServiceTap`/`domainTap`/`navigate` (what a card
+- the `c.tap` namespace — `service`/`toggle`/`stateService`/`byDomain`/`navigate`,
+  named without a `Tap` suffix because the namespace carries the noun (what a card
   clicks by default, and the vendored domain table behind it, is ADR 0016);
   popups/surfaces — `SurfaceDef`,
   `inlineSurfaces` on `Node`+`TapAction`, the `@@NODE_ID@@` hoist token, `popup`
