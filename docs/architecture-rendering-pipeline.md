@@ -550,6 +550,13 @@ The log stores **versions and structure, never HTML** — a pull renders from th
 which is by construction at least as fresh as anything the log could have held. That is why a
 missing entry is always safe: it reads as "unknown, send it", costing bytes and never staleness.
 
+**It is also what makes the doorbell's coalescing free.** Versions landing while a session renders
+collapse into one pull (`SignallingRef.discrete`), and nothing has to choose "the latest" of the
+skipped ones: the pull selects candidates from `position + 1` rather than from the version it woke
+for, so no candidate is dropped, and it renders them from the current snapshot, so no intermediate
+value exists to be served by mistake. A slow client gets one frame with the newest value, not a
+backlog — and that falls out of the two rules above rather than being a rule of its own.
+
 "Rendered now" goes through the slug's `RenderCache` (`Patches.bytes`), which is what keeps N
 sessions woken by one ring of the doorbell from rendering the same node N times. It changes no
 answer — the key is what the render reads, so a hit is the render — only who pays for it.

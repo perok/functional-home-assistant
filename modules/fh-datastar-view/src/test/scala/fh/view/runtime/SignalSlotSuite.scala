@@ -392,6 +392,36 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
+  test("coalesced versions collapse to one frame carrying the LATEST value") {
+    // The doorbell is a SignallingRef, so versions landing while a session
+    // renders collapse into one pull — a slow client gets one wake, not a
+    // backlog. Two things make that safe, and neither is a "keep the latest"
+    // rule anyone had to write:
+    //
+    //   - the pull selects from `position + 1`, NOT from the version it woke
+    //     for, so a skipped doorbell value drops no CANDIDATES;
+    //   - the log holds versions, never values, so a frame is rendered from the
+    //     CURRENT snapshot. There is no intermediate value stored anywhere that
+    //     could be served by mistake.
+    val r = renderer
+    // The entity moved at 1 and again at 2; this session saw neither.
+    val log = FragmentLog("test").touched(leaf, 1L).touched(leaf, 2L)
+    val out = resumeNow(
+      r,
+      log,
+      documentHolds(r, at("21.4")),
+      at("21.6"), // where it ended up, two moves later
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(frame(Renderer.signalName(leaf, "value") -> "21.6")),
+      clue = events(out).map(_.renderString)
+    )
+  }
+
   test("the cursor merges into a signals-only batch, and not past a morph") {
     // A value tick is ONE event on the wire, not a frame followed by a cursor
     // frame. `encode` merges adjacent signal patches the way it merges adjacent
