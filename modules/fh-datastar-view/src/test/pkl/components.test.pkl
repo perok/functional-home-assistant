@@ -17,6 +17,10 @@ local dimmer: hass.LightEntity = new {
   colourModes { "brightness" }
 }
 local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+// Default-tap fixtures (#106): a domain HA can toggle, one whose service the
+// state picks, one that only presses, and one with no action at all.
+local frontLock: hass.GenericEntity = new { entity_id = "lock.front"; domain = "lock" }
+local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
 // on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
@@ -160,6 +164,67 @@ facts {
     // No attributes evaluates to null, which this default renders as an absent
     // block rather than the word "null".
     info.slots["attributes"].default == ""
+  }
+
+  // ---- the default tap (#106) ----
+  // Every card is clickable by a default derived from its OWN entity. The
+  // build-time half is the point: what used to be one `$lookup($domain)`
+  // transform per card is now a literal, and — the part a lookup could not
+  // express — sometimes no action at all.
+
+  ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
+    local onclick = c.entityCard(kitchen).slots["onclick"]
+    onclick.transform.contains("light/toggle")
+    !onclick.transform.contains("$lookup")
+    !onclick.transform.contains("$domain")
+    // Identity-derived, so it stays in the renderer's identity cache.
+    onclick.reactive == false
+  }
+
+  ["a one-shot domain presses instead of toggling"] {
+    c.entityCard(doorbell).slots["onclick"].transform.contains("button/press")
+  }
+
+  ["a lock's service is the one thing the STATE has to decide"] {
+    local onclick = c.entityCard(frontLock).slots["onclick"]
+    onclick.transform.contains(#"$state = "locked" ? "lock/unlock" : "lock/lock""#)
+    // The whole reason this slot is live — and the only tap shape that is.
+    onclick.reactive == true
+  }
+
+  ["a domain with NO action falls back to more-info, so nothing is dead"] {
+    local card = c.entityCard(outside)
+    // Still tappable — but it opens the popup rather than posting a service
+    // call HA would reject. This is the flip the more-info work gated.
+    card.slots["tappable"] == "1"
+    card.inlineSurfaces.containsKey("self")
+    !card.slots["onclick"].contains("sse/action")
+  }
+
+  ["the more-info body's own card does NOT default to more-info"] {
+    // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
+    // is `moreInfo(e)`, whose body builds this very card — an infinite regress
+    // that laziness does not stop, because `slots` forces the tap.
+    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    body.children.toList().first.inlineSurfaces == null
+  }
+
+  ["`tapAction = null` is how a card opts out of being clickable at all"] {
+    local card = (c.entityCard(outside)) { tapAction = null }
+    !card.slots.containsKey("tappable")
+    !card.slots.containsKey("onclick")
+  }
+
+  ["a pressable card with nothing to press is a BUILD error"] {
+    // The amend form is the one that could reach it: the factories take an
+    // action, so only `new c.Button { label = ... }` leaves both unset. It used
+    // to post `homeassistant/toggle` with an empty entity id.
+    // `slots["onclick"]` and not `slots`: reading the object does not force its
+    // entries, so a `catch` over the bare `slots` sees no error at all.
+    module.catch(() -> (new c.Button { label = "x" }).slots["onclick"])
+      .contains("nothing happens on click")
+    // A toggle whose domain cannot be toggled is the same mistake.
+    module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
   }
 
   ["`informative` reads the card's OWN entity"] {

@@ -1,0 +1,98 @@
+/// What a TAP on an entity means, per domain — HA's service model, vendored the
+/// way `hass/light.pkl` vendors the light constants. Why it is a build-time
+/// table rather than a runtime `$lookup($domain)` is ADR 0016.
+///
+/// **A domain that is absent has no sensible tap, and that absence is the point**
+/// — it is what lets a card fall back to more-info instead of putting a pointer
+/// cursor over a service that does not exist.
+///
+/// Checked against a live instance's `/api/services` (2026-08-14, 83 service
+/// domains); re-run that when syncing to a newer HA. Services are added far more
+/// often than renamed, so the way this goes stale is a missing row — which
+/// degrades to more-info — rather than a wrong one.
+module hass_actions
+
+/// A tap whose service is the same whatever the entity's state — the common
+/// case, and a build-time literal.
+class Call {
+  /// `"<domain>/<service>"`, e.g. `"light/toggle"`.
+  action: String
+}
+
+/// A tap whose service depends on the entity's CURRENT state: [[then]] while the
+/// state equals [[whenState]], [[otherwise]] in every other state.
+///
+/// A lock has `lock`/`unlock` and no `toggle`, so which to call is not knowable
+/// until the click. A slot built from this is `reactive` and leaves the
+/// renderer's identity cache — which is why the shape is deliberately limited to
+/// a two-way test, and why growing past one is the trigger to revisit ADR 0016.
+class CallByState {
+  /// HA's own state string — `"locked"`, `"cleaning"`.
+  whenState: String
+  then: String
+  otherwise: String
+}
+
+typealias DomainAction = Call|CallByState
+
+/// Domain → what a tap on one of its entities calls. Absent = no sensible
+/// action; see the module doc.
+///
+/// Absent ON PURPOSE, though they do have services: `update` (`install` would
+/// flash firmware on a stray tap), `alarm_control_panel` (arm/disarm), and
+/// `number`/`select`/`text`/`date`/`time`, where a value has to be *chosen*
+/// rather than toggled. Those open more-info, which is the right answer and not
+/// a gap.
+const ACTIONS: Mapping<String, DomainAction> = new {
+  ["light"] = new Call { action = "light/toggle" }
+  ["switch"] = new Call { action = "switch/toggle" }
+  ["fan"] = new Call { action = "fan/toggle" }
+  ["cover"] = new Call { action = "cover/toggle" }
+  ["valve"] = new Call { action = "valve/toggle" }
+  ["climate"] = new Call { action = "climate/toggle" }
+  ["humidifier"] = new Call { action = "humidifier/toggle" }
+  ["siren"] = new Call { action = "siren/toggle" }
+  ["remote"] = new Call { action = "remote/toggle" }
+  ["media_player"] = new Call { action = "media_player/toggle" }
+  ["input_boolean"] = new Call { action = "input_boolean/toggle" }
+  // Toggling an automation ENABLES/DISABLES it; `automation/trigger` runs it.
+  ["automation"] = new Call { action = "automation/toggle" }
+
+  // These have turn_on/turn_off but no `toggle` of their own, so HA's own
+  // dispatcher does the work.
+  ["camera"] = new Call { action = "homeassistant/toggle" }
+  ["water_heater"] = new Call { action = "homeassistant/toggle" }
+  ["group"] = new Call { action = "homeassistant/toggle" }
+
+  ["button"] = new Call { action = "button/press" }
+  ["input_button"] = new Call { action = "input_button/press" }
+  ["scene"] = new Call { action = "scene/turn_on" }
+  // RUN it. `script/toggle` (stop a running script) is the other defensible
+  // reading; running is what a tap means on HA's own script rows.
+  ["script"] = new Call { action = "script/turn_on" }
+
+  ["lock"] = new CallByState {
+    whenState = "locked"
+    then = "lock/unlock"
+    otherwise = "lock/lock"
+  }
+  ["vacuum"] = new CallByState {
+    whenState = "cleaning"
+    then = "vacuum/return_to_base"
+    otherwise = "vacuum/start"
+  }
+  ["lawn_mower"] = new CallByState {
+    whenState = "mowing"
+    then = "lawn_mower/dock"
+    otherwise = "lawn_mower/start_mowing"
+  }
+  ["timer"] = new CallByState {
+    whenState = "active"
+    then = "timer/pause"
+    otherwise = "timer/start"
+  }
+}
+
+/// What a tap on `domain` calls, or null when nothing sensible does — the null
+/// is what a card turns into a more-info tap.
+const function forDomain(domain: String): DomainAction? = ACTIONS.getOrNull(domain)

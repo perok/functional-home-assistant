@@ -752,7 +752,7 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tap(c.tap.toggleTap)
+       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggle)
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
@@ -869,20 +869,25 @@ class PklBuildSuite extends munit.FunSuite {
       clue = d.cards.keySet
     )
     // The registered popup plus the hoisted inline surfaces (keyed
-    // `<node-id>_self`): the explicit one, and the more-info tap's, which is an
-    // inline popup per entity.
+    // `<node-id>_self`). Four, and each is a distinct path worth having:
+    // the explicit `openPopupInline` button; the `|> c.informative` light; and
+    // TWO sensor cards that asked for nothing — one in the layout and one
+    // nested inside the registered `detail` surface — which get a more-info
+    // popup by default, because `sensor` has no service call (issue #106).
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
     assertEquals(
       d.surfaces.keys.count(_.endsWith("_self")),
-      2,
+      4,
       clue = d.surfaces.keySet
     )
     // More-info: the entity's card, the controls its domain supports, its raw
     // facts, a close button. The inner column is `lightControls`, and the second
     // entityCard is its own — the fixture light reports no colour modes, so it
     // is a switch, and the controls are a tappable card rather than a slider.
+    // Pick the LIGHT's popup by name: the sensors' have no controls column, and
+    // `find` over "has an entityInfo" would now match any of the three.
     val moreInfo = d.surfaces.values
-      .find(s => cardNames(s.content).contains("entityInfo"))
+      .find(s => cardNames(s.content).count(_ == "entityCard") == 2)
       .getOrElse(fail("no more-info surface was hoisted"))
     assertEquals(
       cardNames(moreInfo.content),
@@ -1131,8 +1136,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tap = c.tap.toggleTap }
-        |ctor = new c.EntityCard { entity = x; tap = c.tap.toggleTap }
+        |call = (c.entityCard(x)) { tapAction = c.tap.toggle }
+        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggle }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1145,8 +1150,8 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("builder methods emit the same node JSON as the amend form") {
-    // The fluent config methods (`.tap(...).label(...)`) are pure sugar for the
-    // paren-amend `(c.entityCard(x)) { tap = ...; label = ... }`: each amends
+    // The fluent config methods (`.tapAction(...).label(...)`) are pure sugar for the
+    // paren-amend `(c.entityCard(x)) { tapAction = ...; label = ... }`: each amends
     // `this` and returns the same class, so late binding re-derives `slots` and
     // the emitted node JSON must be byte-identical across all three styles
     // (builder, amend, `new`). Covers EntityCard, Button, and Slider.
@@ -1161,12 +1166,12 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tap(c.tap.toggleTap).label("Office")
-        |cardAmend = (c.entityCard(x)) { tap = c.tap.toggleTap; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tap = c.tap.toggleTap; label = "Office" }
+        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggle).label("Office")
+        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggle; label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggle; label = "Office" }
         |
         |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
-        |btnAmend = new c.Button { label = "Dismiss"; action = c.tap.closePopup() }
+        |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
         |
         |sliderBuilder = c.slider(x).label("Lamp").min(10).max(200)
         |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
@@ -1415,7 +1420,7 @@ class PklBuildSuite extends munit.FunSuite {
     // template's `{{^href}}` arm is what renders it.
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.tap.toggleTap).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     assert(toggle.slots("onclick").transform.contains("@post"))
@@ -1495,7 +1500,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.tap.toggleTap }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
@@ -1777,17 +1782,16 @@ class PklBuildSuite extends munit.FunSuite {
   // nondeterministic. No live HA — HouseFixture.transformedDump supplies the
   // entities.
   //
-  // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
-  // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
+  // To regenerate after an intentional change: `sbt dashboardSnapshotsUpdate`,
+  // then read the JSON diff and commit it. It touches only these; the visual
+  // PNG baselines have their own gate (`VisualSnapshot`).
   //
-  // GOTCHA: the env var is read from the JVM the tests run IN — the persistent
-  // sbt server. A server started (even once, long ago) from a shell exporting
-  // FH_UPDATE_SNAPSHOTS=1 keeps it forever and silently REGENERATES on every
-  // run instead of checking (the gate is off). Regenerate without poisoning
-  // the server via the sys.props fallback instead:
-  //   sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1")' \
-  //       'fh-datastar-view/testFull' \
-  //       'eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'
+  // GOTCHA the command exists to contain: the gate is read from the JVM the
+  // tests run IN — the persistent sbt server. Anything that leaves
+  // FH_UPDATE_SNAPSHOTS set there (a shell export; a hand-rolled
+  // `; put ; test ; remove` chain, whose `remove` is SKIPPED when the test task
+  // fails) sticks it in regenerate mode, and every later run then reports green
+  // while rewriting files.
   // ---------------------------------------------------------------------------
 
   /** Checked-in expected snapshots (repo-relative, mirroring `resourcesLib`).
@@ -1825,7 +1829,7 @@ class PklBuildSuite extends munit.FunSuite {
         else
           fail(
             s"missing snapshot $file — regenerate with " +
-              "FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull'"
+              "sbt dashboardSnapshotsUpdate"
           )
       if (expected != actual) {
         val actualFile = os.temp.dir() / s"$name.actual.json"
@@ -1835,7 +1839,7 @@ class PklBuildSuite extends munit.FunSuite {
         actual,
         expected,
         clue = s"wire-format snapshot for $name.json changed. If intended, " +
-          "regenerate with FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull' " +
+          "regenerate with 'sbt dashboardSnapshotsUpdate' " +
           "(actual output also written to a temp *.actual.json next to the diff)."
       )
     }

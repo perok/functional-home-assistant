@@ -41,7 +41,7 @@ import "recipes.pkl" as recipesMod
 // A family that reads better grouped than flat. Typed, so an editor can see
 // through them.
 
-/// What a click DOES: `c.tap.toggleTap`, `c.tap.serviceTap("lock/lock")`,
+/// What a click DOES: `c.tap.toggle`, `c.tap.service("lock/lock")`,
 /// `c.tap.navigate("under")`, `c.tap.openPopup("detail")`.
 hidden tap: tapMod = tapMod
 
@@ -66,7 +66,7 @@ typealias Grid = layoutMod.Grid
 typealias SurfaceDef = surfaceMod.SurfaceDef
 typealias PopupSurface = surfaceMod.PopupSurface
 typealias Popup = surfaceMod.Popup
-typealias Tap = tapMod.Tap
+typealias TapAction = tapMod.TapAction
 typealias Expr = slotMod.Expr
 typealias SectionTitle = textMod.SectionTitle
 typealias EntityCard = entityMod.EntityCard
@@ -117,9 +117,9 @@ function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e
 /// On/off control, styled as a switch.
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
 /// A service/navigate button: `c.button("Close", c.tap.closePopup())`.
-function button(l: String, a: tapMod.Tap): control.Button = control.button(l, a)
+function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
-function pill(l: String, a: tapMod.Tap): control.Pill = control.pill(l, a)
+function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
 function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
@@ -132,9 +132,13 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
-/// Open `e`'s more-info popup — `c.entityCard(e).tap(c.moreInfo(e))`, or
+/// What a click does by default on any entity card: its domain's service call,
+/// or more-info where the domain has none. Named so an author can put the same
+/// default on a card they built some other way.
+function defaultTap(e: hass.Entity): tapMod.TapAction = moreinfo.defaultTap(e)
+/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.moreInfo(e))`, or
 /// `c.entityCard(e) |> c.informative` where the card already names it.
-function moreInfo(e: hass.Entity): tapMod.Tap = moreinfo.moreInfo(e)
+function moreInfo(e: hass.Entity): tapMod.TapAction = moreinfo.moreInfo(e)
 /// What that popup holds, for composing it somewhere else.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 

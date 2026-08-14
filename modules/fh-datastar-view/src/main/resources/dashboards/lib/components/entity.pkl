@@ -7,6 +7,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
+import "moreinfo.pkl"
 
 /// HA-like entity card: icon + label + value (state or attribute, unit
 /// auto-appended) + optional secondary line + optional tap. `icon` overrides
@@ -29,11 +30,15 @@ class EntityCard extends nodes.Node {
   hidden value: (String|slotMod.Expr)? = null
   hidden secondary: (String|slotMod.Expr)? = null
   hidden icon: String? = null
-  hidden tap: tapMod.Tap? = null
+  /// What a click does. Defaults to [[moreinfo.defaultTap]] — this entity's
+  /// domain service if it has one, more-info if it does not — so a card is
+  /// always clickable and never claims an action it cannot perform. `tapAction = null`
+  /// opts a card out entirely (no pointer, no handler).
+  hidden tapAction: tapMod.TapAction? = moreinfo.defaultTap(entity)
   // Copy the tap's inline surfaces onto the node so the hoist lifts them
   // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
   // is null or carries no inline popup → dropped by omitNullProperties.
-  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
+  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
   slots {
     // entity_id is the card's subject — the magical slot the others inherit.
     ["entity_id"] = entity.entity_id
@@ -49,17 +54,17 @@ class EntityCard extends nodes.Node {
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
-    when (tap != null) {
+    when (tapAction != null) {
       ["tappable"] = "1"
-      ["onclick"] = tap!!.onclick
+      ["onclick"] = tapAction!!.onclick
     }
   }
   // ---- fluent config (builder style) ----
   // Each option is ALSO a method: it amends `this` and returns the same class,
-  // so options chain paren-free — `c.entityCard(x).tap(c.toggleTap).label("Office")`
+  // so options chain paren-free — `c.entityCard(x).tapAction(c.tap.toggle).label("Office")`
   // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Methods
-  // and properties are separate namespaces, so `function tap` coexists with the
-  // `hidden tap` prop; late binding re-derives `slots` from the amended value, so
+  // and properties are separate namespaces, so `function tapAction` coexists with
+  // the `hidden tapAction` prop; late binding re-derives `slots` from the amended value, so
   // the emitted node JSON is byte-identical to the amend form (see the
   // builder-vs-amend identity test). `let (self = this)` captures the receiver
   // before the amend body (where a bare `this` would rebind). The param is never
@@ -70,7 +75,7 @@ class EntityCard extends nodes.Node {
   /// Override the resolved icon with an MDI name — `mdi:thermometer`, or the
   /// `mdi-thermometer` class spelling; both work.
   function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
-  function tap(t: tapMod.Tap): EntityCard = let (self = this) (self) { tap = t }
+  function tapAction(t: tapMod.TapAction): EntityCard = let (self = this) (self) { tapAction = t }
 }
 
 /// Static entity card as a call (amend options in parens).
@@ -83,5 +88,8 @@ function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
 /// self-references inside the amend (the amend-scoping gotcha).
 hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
 
-/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
-tappable: Mixin<EntityCard> = new { tap = tapMod.toggleTap }
+/// Force the blunt `homeassistant/toggle` on a card: `c.entityCard(x) |>
+/// c.tappable`. Rarely what you want now that [[EntityCard.tapAction]] defaults to the
+/// domain-derived action — reach for this only when this library's table
+/// ([[hass_actions]]) does not know a domain you do.
+tappable: Mixin<EntityCard> = new { tapAction = tapMod.toggle }

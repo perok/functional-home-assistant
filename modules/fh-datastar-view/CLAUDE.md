@@ -39,11 +39,21 @@ same commit; ADRs that change the pipeline update it too.
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
    the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
-   Regenerate them deliberately when the wire format is *meant* to change — but NOT by
-   exporting `FH_UPDATE_SNAPSHOTS=1` into the shell: the long-lived sbt server keeps its
-   start-time env forever, leaving the gate silently stuck in regenerate mode. Use the
-   scoped form instead:
-   `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1"); fh-datastar-view/testFull; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`.
+   Regenerate them deliberately when the wire format is *meant* to change, with
+   **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
+
+   **Use the command; do not hand-roll the flag.** Two footguns it exists to close, both of
+   which have fired: a shell `FH_UPDATE_SNAPSHOTS=1` export sticks to the long-lived sbt
+   server forever, and a hand-written `; put ; testFull ; remove` chain skips its `remove`
+   when the test task fails — sbt aborts the rest of the chain — leaving the server in
+   regenerate mode where every later run reports green *while rewriting files*. The command
+   is a `Command` with `try/finally` (`build.sbt`), so it clears either way. If you suspect
+   a leak: `sbt 'eval sys.props.get("FH_UPDATE_SNAPSHOTS")'` should say `None`.
+
+   The **visual PNG baselines have a separate gate** (`dashboardVisualSnapshotsUpdate` /
+   `FH_UPDATE_VISUAL_SNAPSHOTS`) precisely so the routine wire regeneration cannot touch
+   them — a local rebaseline records this machine's font rasterization, which CI does not
+   share. Normally you do not run it at all: let CI fail and read its before/after artifact.
    The backend model (`Dashboard.scala`) should not need to change for
    authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
    — were the sanctioned structural exception; see ADR 0008).
@@ -71,10 +81,11 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: unchanged ⟺ same content-version; else temp-copy the workspace, seed the new dump package there, re-eval all entries, swap the `.fh/pins.json` pin only if nothing that builds today breaks. No loose file, no dated backup — the previous immutable cache version IS the trail. Driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button) |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `src/js/` + `package.json` + `vite.config.ts` | The frontend, bundled by **vite 8** into MANAGED resources (`project/NpmPlugin.scala`, `frontendInstall`/`frontendBundle` — a `resourceGenerators` entry, so a plain compile builds it and **node + npm are a build requirement**). ONE build, three entries: `shell.ts` (inlined into every page by `Server.page`), `editor/app.js` (CodeMirror + lsp-client bundled IN — no vendor file, no CDN, no import map), `editor/overlay.js`. Outputs are **content-hashed under `web/` with a `build.manifest`**; nothing spells a filename out — `FrontendAssets` reads the manifest and everything asks by ENTRY NAME (`Server.UrlSyncScript`, the `editAssets` overlay tag, the `__APP_JS__` placeholder in the editor `index.html`), and `Server` serves `/web/:file` `immutable` guarded by that same manifest. Deliberately **not `build.lib`**: lib mode refuses multi-entry for `iife`/`umd`, and `isEsLibBuild` hard-forces `minifyWhitespace: false` (to keep pure annotations for a downstream bundler we do not have), which shipped `app.js` at 654 kB where `rollupOptions.input` emits 421 kB. `shell.js` and `overlay.js` are classic scripts and work as `es` output ONLY because they import nothing; rollup never duplicates code, so one shared module splits a chunk and gives both a real `import`, breaking every page silently. The `fh-assert-self-contained` vite plugin FAILS THE BUILD on that, off rollup's own `chunk.imports`/`exports`, and the document's last line calls `fhScroll` only `if(window.fhScroll)` so anything the build cannot see still names itself in the console. Nothing built is committed; new code is TypeScript (`tsc --noEmit` runs as part of the build), the ported editor sources stay JS |
-| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience (ADR 0015): **`core/`** — `node` (LayoutNode/Node/CardDef + `cardsOf`), `slot` (Slot/Expr + the shared `labelSlot`/`valueSlot`/`secondarySlot`), `icon` (the MDI tables + `iconFor`), `tap` (Tap + the constructors), `surface` (SurfaceDef/activations/**Popup**), `predicate` (the query wire AST) — what a COMPONENT author imports; **`layout.pkl`** — Row/Column/Grid; **`components.pkl` + `components/`** (`text`, `entity`, `control`, `slider`, `surface`, `light`, `moreinfo`) — what a DASHBOARD author imports, where `components.pkl` is a FACADE declaring no cards; **`recipes.pkl`** — whole opinionated sections. `internal/dump-base.pkl` is generator-facing, `entry.pkl` stays at the root (it is what every entry amends). Two rules the facade cannot break: every re-export carries an explicit TYPE, and it must never use `extends` — untyped re-exports and `extends` each kill editor completion THROUGH the module (`docs/issue-report-2-pkl-lsp-extends-completion.md`) |
+| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience (ADR 0015): **`core/`** — `node` (LayoutNode/Node/CardDef + `cardsOf`), `slot` (Slot/Expr + the shared `labelSlot`/`valueSlot`/`secondarySlot`), `icon` (the MDI tables + `iconFor`), `tap` (TapAction + the constructors), `surface` (SurfaceDef/activations/**Popup**), `predicate` (the query wire AST) — what a COMPONENT author imports; **`layout.pkl`** — Row/Column/Grid; **`components.pkl` + `components/`** (`text`, `entity`, `control`, `slider`, `surface`, `light`, `moreinfo`) — what a DASHBOARD author imports, where `components.pkl` is a FACADE declaring no cards; **`recipes.pkl`** — whole opinionated sections. `internal/dump-base.pkl` is generator-facing, `entry.pkl` stays at the root (it is what every entry amends). Two rules the facade cannot break: every re-export carries an explicit TYPE, and it must never use `extends` — untyped re-exports and `extends` each kill editor completion THROUGH the module (`docs/issue-report-2-pkl-lsp-extends-completion.md`) |
 | `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. `hass.pkl` gives every SCOPE the same five names — `lights`/`sensors`/`switches`/`generic`/`all` — on `Area` (generator-filled), `Floor` (derived from its areas) and `Device` (type tests over its entities), matching the dump's house-wide lists, so `q.from(...)` takes any scope |
 | `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide lists as a CONTRACT (`open module`, `List()` defaults); the generated `@fh-home/dump.pkl` **extends** it (not `amends` — an amending module may not declare classes). This is what lets the starter dashboard query `dump.lights` on a home that has none: an empty list, not `Cannot find property` on a first boot |
 | `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`. Folds registry conditions away at BUILD time (they select candidates) and emits only live ones as per-member guards; a live attribute NAME is checked against `hass.Entity.volatileAttrs` (capability-derived, so a typo is a build error — `q.attr(n)` is the unchecked escape for an integration-specific name), into the `SetNode`/`SetMember`/`SetClause` wire classes that live in `core/predicate.pkl` (query.pkl depends on the CORE, never on the shipped cards). **Plain Pkl stays the first answer** — a `for` over a typed dump list is still the right way to render a fixed set of lights; this earns its place only when membership must react to live state. Covers `where`/`orderBy`/`limit`/`caseOf`/`render`, aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), nested sets, and `q.entity(e)` for naming a DIFFERENT entity than the member. See `docs/adr/0003-dynamic-groups.md` |
+| `resources/dashboards/lib/hass/actions.pkl` | **What a TAP means, per domain**, vendored the same way (ADR 0016): a `Call` (a build-time literal like `light/toggle`), a `CallByState` for the four domains whose service the live state picks (`lock`, `vacuum`, `lawn_mower`, `timer`), or **absent** — and absence is the load-bearing half, because it is what makes a card fall back to more-info instead of rendering a pointer over a service HA would reject. Checked against a live `/api/services`; some absences are deliberate and the module doc says which (`update`'s `install`, arm/disarm, anything needing a value *chosen*). Adding a domain is one row; nothing in Scala knows an HA domain |
 | `resources/dashboards/lib/hass/light.pkl` | HA's `light` domain model VENDORED — the `ColorMode` union + `LightEntityFeature` bits (EFFECT 4, FLASH 8, TRANSITION 32). Safe to copy: HA's `*EntityFeature` IntFlags are APPEND-ONLY, never renumbered (vacant 1/2 are removed flags). `HaLight.scala` is the generator's copy and `HaLightSuite` asserts the two agree. Imported by `hass.pkl` **with an `as` alias** — Pkl binds an import to its FILE name, so the alias keeps `light` from reading as a light ENTITY; a `///` doc comment on an import is also a parse error. Other domains follow this pattern, not yet copied |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` + the reusable `layoutCss` for the `fh-` layout classes) and the theme-author guide; implementations are the `theme-*.pkl` siblings |
 | `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it |
@@ -99,8 +110,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).
 - **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
-  `dashboard.json` artifact for inspection/CI. The runtime does not need it. `BuildApp` honors
-  `DASHBOARD_ENTRY` (default `dashboard.pkl` — which errors until that entry is ported).
+  `dashboard.json` artifact for inspection/CI. The runtime does not need it. **The entry is a
+  required argument** — `sbt 'dashboardBuild overetasje.pkl'`; with none it lists the workspace's
+  entries rather than defaulting to a file that may not exist.
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
   Pkl entries in memory on startup** (so pkl-core *is* on the startup path — but never on the live
   hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
@@ -166,7 +178,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
   `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing),
   expr/exprOf,
-  serviceTap/serviceValueTap/navigate, capability-conditional composition off the dump's groups
+  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
+  by a default derived from its OWN entity: its domain's service where it has one, more-info where
+  it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
+  four `CallByState` domains. `c.tap.toggle` is now the explicit escape hatch, not the default,
+  and a `c.button`/`c.pill`/`c.toggle` with no action and no entity is a BUILD error rather than a
+  post HA rejects), capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
   carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
   capabilities are discovered by completion on `l.`, and passing a group the entity lacks is a
@@ -176,7 +193,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
-  Issue #106's precondition: it is what a tap on a non-actionable entity can do instead of nothing),
+  It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
+  only needed to FORCE more-info on a card whose domain does have an action),
   candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
   surfaces on the tabs machinery, ADR 0007; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape

@@ -35,7 +35,7 @@ card = (c.column) {
         // Entity cards toggled on tap (options amended onto the call).
         ["Lights"] {
           (c.entityCard(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)) {
-            tap = c.tap.toggleTap
+            tapAction = c.tap.toggle
           }
         }
         // Live value expressions (own unit).
