@@ -90,10 +90,53 @@ ids at all, because the member is their patch target, so their slots live in its
 Descending in the static case would seed a child's signal on its parent's wrapper and leave the
 child's binding pointed at a signal nothing ever writes — silent, and permanent.
 
-**First cut is text bindings only.** An attribute-position slot (a slider's `width:{{percent}}%`)
-wants `data-style`/`data-attr`. That is a renderer-side enumeration — `signal` becoming a small sum
-rather than a `Boolean` — not a template-side escape hatch, because an escape hatch is exactly what
-would let a binding survive into the plain form.
+### Four binding kinds, because a value does not always land in text
+
+`signal`'s value says **where** the value lands — the one thing the renderer cannot infer. It is a
+renderer-side enumeration (`SignalBind`, one string on the wire) rather than an attribute the card
+writes, which is what keeps the plain form reachable: a card that wrote `data-text` itself could not
+have it un-written.
+
+| kind | attribute | for |
+|---|---|---|
+| `text` | `data-text="$sig"` | a reading, a label, a state |
+| `style:<prop>` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
+| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute |
+| `bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
+
+Every kind reads the signal **bare**, with no expression around it, because the value carries
+whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
+attribute would be a second place a value's shape is decided, and the transform already decides it.
+
+`bind` is the odd one out twice over: it takes the signal's *name* rather than a `$`-read, and its
+card is **not plain-form-capable** — an interactive control needs a client signal whatever this
+setting says. That is not a new limitation; the slider hard-coded `data-signals` + `data-bind` +
+`data-on:change` long before any of this.
+
+For the one thing a canned attribute cannot cover — a card composing the signal into an expression
+of its own, as the slider's action URL does — the renderer also injects `<slot>__signal`, the bare
+name. Not a binding, so it does not compromise the plain form; a card that uses it is simply
+relying on a signal existing.
+
+### The slider is the shape that justifies all four
+
+`entityCard` has one moving value. The slider has **four**, and they are the reason the kinds are
+not optional: getting any one of them wrong re-renders the card and the other three buy nothing.
+
+| slot | kind | why |
+|---|---|---|
+| `state` | `text` | the readout |
+| `value` | `bind` | the range input's position — replaces a hand-rolled `data-signals="{ _val_<id>: … }"`, so there is one signal where there were two |
+| `fill` | `style:--_end` | the track fill; the transform now emits its own `%` |
+| `fillColor` | `style:background` | moves with a light's colour |
+
+**One known risk, and it needs a browser to settle.** Datastar's style plugin keeps a
+`MutationObserver` on the `style` attribute and re-applies its property when anything else writes
+there. `beer.min.js` repaints the slider fill on `input` events during a drag. So during a drag the
+two may fight, with the server's `--_end` snapping back over BeerCSS's live paint. If it does, the
+fix is to make the fill a client-side function of the *bound* signal rather than a server value of
+its own — either a `data-style` expression over `$…__value`, or a CSS `calc()` off a bound custom
+property. Neither is verifiable from a terminal, so it is called out rather than guessed at.
 
 ### One record, not two
 
@@ -142,8 +185,9 @@ and does no extra work. In the shipped library the second clause almost never fi
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
-- Applied to `entityCard`'s `value` — the one thing on that card that moves on an ordinary tick.
-  Icon, label and tap are registry facts or literals and never move at all.
+- Applied to `entityCard`'s `value` — the one thing on that card that moves on an ordinary tick;
+  icon, label and tap are registry facts or literals and never move at all — and to all four of the
+  slider's moving slots.
 
 ## What was deliberately left out
 

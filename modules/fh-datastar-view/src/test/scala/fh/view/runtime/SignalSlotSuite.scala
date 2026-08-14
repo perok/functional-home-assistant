@@ -1,6 +1,13 @@
 package fh.view.runtime
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, NodeId, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  NodeId,
+  SignalBind,
+  SlotSource
+}
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 
@@ -29,7 +36,7 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> SlotSource(literal = Some(entity)),
         "label" -> SlotSource(transform = "$attr.friendly_name"),
-        "value" -> SlotSource(signal = true)
+        "value" -> SlotSource(signal = Some(SignalBind.Text))
       )
     )
 
@@ -174,10 +181,10 @@ class SignalSlotSuite extends ServerHarness {
         "pair",
         Map(
           "entity_id" -> SlotSource(literal = Some("sensor.a")),
-          "value" -> SlotSource(signal = true),
+          "value" -> SlotSource(signal = Some(SignalBind.Text)),
           "other" -> SlotSource(
             transform = "$attr.friendly_name",
-            signal = true
+            signal = Some(SignalBind.Text)
           )
         )
       )
@@ -209,7 +216,7 @@ class SignalSlotSuite extends ServerHarness {
                 Map(
                   "entity_id" -> SlotSource(literal = Some("light.a")),
                   "label" -> SlotSource(transform = "$attr.friendly_name"),
-                  "value" -> SlotSource(signal = true)
+                  "value" -> SlotSource(signal = Some(SignalBind.Text))
                 )
               )
             )
@@ -228,6 +235,109 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   // ---------------------------------------------------------------------------
+  // The slider: four moving slots, three binding kinds, one frame
+  // ---------------------------------------------------------------------------
+
+  /** The shipped slider's shape, reduced to what matters here: everything that
+    * moves when brightness does. A reading (text), the input's position
+    * (two-way bind), the track fill (a custom property) and its colour (an
+    * ordinary one). Getting any ONE of them wrong re-renders the card and the
+    * other three buy nothing — which is why this asserts on the whole set.
+    */
+  private val sliderish = Dashboard(
+    Map(
+      "slider" -> CardDef(
+        """<div class="slider" style="--_end: {{fill}}" {{{fill__bind}}}>""" +
+          """<span class="state" {{{state__bind}}}>{{state}}</span>""" +
+          """<input type="range" value="{{value}}" {{{value__bind}}}""" +
+          """ data-on:change="@post('x/' + ${{value__signal}})" />""" +
+          """<span style="background:{{tint}}" {{{tint__bind}}}></span></div>""",
+        slots = List("state", "value", "fill", "tint")
+      )
+    ),
+    LayoutNode.Component(
+      "slider",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("light.a")),
+        "state" -> SlotSource(
+          transform = "$attr.brightness",
+          signal = Some(SignalBind.Text)
+        ),
+        "value" -> SlotSource(
+          transform = "$attr.brightness",
+          signal = Some(SignalBind.Bind)
+        ),
+        "fill" -> SlotSource(
+          transform = "$string($attr.brightness) & \"%\"",
+          signal = Some(SignalBind.Style("--_end"))
+        ),
+        "tint" -> SlotSource(
+          transform = "$attr.rgb_color",
+          signal = Some(SignalBind.Attr("title"))
+        )
+      )
+    )
+  )
+
+  private def lit(brightness: Int) =
+    Map(
+      "light.a" -> st(
+        "light.a",
+        "on",
+        "brightness" -> io.circe.Json.fromInt(brightness),
+        "rgb_color" -> "warm".asJson
+      )
+    )
+
+  test("each binding kind renders its own Datastar attribute") {
+    val html = Renderer.create(sliderish).renderPage(lit(40))
+    // Text, two-way, one custom property, one attribute — and the two-way one
+    // takes the signal's NAME rather than a `$`-read, because it writes back.
+    assert(html.contains("""data-text="$_c__state""""), clue = html)
+    assert(html.contains("""data-bind="_c__value""""), clue = html)
+    assert(html.contains("""data-style:--_end="$_c__fill""""), clue = html)
+    assert(html.contains("""data-attr:title="$_c__tint""""), clue = html)
+    // The value still lands inline in every position, for the reader that will
+    // never run any of the above.
+    assert(html.contains("--_end: 40%"), clue = html)
+    assert(html.contains("""value="40""""), clue = html)
+    // ...and the action URL composes the signal by name, which is the one thing
+    // a canned binding cannot do for it.
+    assert(html.contains("""@post('x/' + $_c__value)"""), clue = html)
+  }
+
+  test("a brightness tick moves four values and sends no element patch") {
+    val r = Renderer.create(sliderish)
+    val log = FragmentLog("test").touched(leaf, 1L)
+    val out = resumeNow(
+      r,
+      log,
+      r.renderPageTraced(lit(40)).own.map { case (id, p) =>
+        id -> Held(Some(Digest.of(p.html)), p.signals)
+      },
+      lit(41),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(
+        Patch.Signals(
+          Map(
+            Renderer.signalName(leaf, "state") -> "41",
+            Renderer.signalName(leaf, "value") -> "41",
+            Renderer.signalName(leaf, "fill") -> "41%"
+          )
+        )
+      ),
+      clue = events(out).map(_.renderString)
+    )
+    // `tint` did not move, so it is not in the frame even though its node was.
+    assertEquals(elementPatches(events(out)), Nil)
+  }
+
+  // ---------------------------------------------------------------------------
   // Validation — both failures are otherwise silent
   // ---------------------------------------------------------------------------
 
@@ -238,7 +348,7 @@ class SignalSlotSuite extends ServerHarness {
         "gauge",
         Map(
           "entity_id" -> SlotSource(literal = Some("sensor.a")),
-          "value" -> SlotSource(signal = true)
+          "value" -> SlotSource(signal = Some(SignalBind.Text))
         )
       )
     )
@@ -259,7 +369,10 @@ class SignalSlotSuite extends ServerHarness {
         "gauge",
         Map(
           "label" -> SlotSource(literal = Some("Hall")),
-          "value" -> SlotSource(literal = Some("21.4"), signal = true)
+          "value" -> SlotSource(
+            literal = Some("21.4"),
+            signal = Some(SignalBind.Text)
+          )
         )
       )
     )

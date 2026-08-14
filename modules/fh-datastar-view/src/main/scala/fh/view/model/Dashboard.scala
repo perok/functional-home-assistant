@@ -47,12 +47,17 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * field is unused. Only a value that varies with live state needs the
   * object/`transform` form.
   *
-  * `signal` (OFF by default) carries this slot's value to the browser as a
+  * `signal` (absent by default) carries this slot's value to the browser as a
   * Datastar SIGNAL — `_<nodeId>__<slotName>` — instead of as bytes inside the
   * node's element, so a change to it costs a `datastar-patch-signals` frame
-  * rather than the whole re-rendered card (ADR 0017). The renderer hands the
-  * card one extra template var, `<slot>__bind`, which is the binding attribute
-  * itself; the card places it beside the ordinary `{{<slot>}}` hole:
+  * rather than the whole re-rendered card (ADR 0017). Its value says WHERE the
+  * value lands in the DOM ([[SignalBind]]) — the one thing the renderer cannot
+  * infer, since a reading is text, a track fill is a style property and a range
+  * input's position is a two-way binding.
+  *
+  * The renderer hands the card one extra template var, `<slot>__bind`, the
+  * whole binding attribute; the card places it beside the ordinary `{{<slot>}}`
+  * hole:
   *
   * {{{<span class="state" {{{value__bind}}}>{{value}}</span> }}}
   *
@@ -105,9 +110,9 @@ case class SlotSource(
     reactive: Boolean = true,
     // Carry this slot's value as a Datastar SIGNAL rather than as bytes in the
     // element, so a change to it costs a signals frame instead of a card
-    // re-render (ADR 0017). The card's template must place `{{{<slot>__bind}}}`
-    // — see the class doc.
-    signal: Boolean = false
+    // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
+    // — and the card's template must place `{{{<slot>__bind}}}`.
+    signal: Option[SignalBind] = None
 )
 
 object SlotSource:
@@ -119,6 +124,55 @@ object SlotSource:
     */
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
+
+/** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
+  * renderer emits for it (ADR 0017).
+  *
+  * A renderer-side enumeration rather than an attribute the card writes, and
+  * that is the load-bearing choice: the renderer decides whether a binding
+  * exists at all, which is what keeps the PLAIN form (no binding, no seed — the
+  * bytes this renderer emitted before signal slots) reachable behind one
+  * predicate for a future morph-only client. A card that wrote `data-text`
+  * itself could not be un-written.
+  *
+  * Encoded on the wire as one string, so the authoring layer names a binding
+  * rather than building a class: `"text"`, `"bind"`, `"style:--_end"`,
+  * `"attr:title"`.
+  *
+  *   - [[Text]] — `data-text`, the element's whole text content. The common
+  *     case: a reading, a label, a state.
+  *   - [[Style]] — `data-style:<property>`, one CSS property (custom properties
+  *     included). The VALUE carries its own unit, so the expression is a bare
+  *     signal read and the authoring layer decides whether a fill is a
+  *     percentage or a colour.
+  *   - [[Attr]] — `data-attr:<name>`, one attribute.
+  *   - [[Bind]] — `data-bind`, TWO-WAY on a form control: the server writes the
+  *     signal and the user's input writes it back. What a range input's
+  *     position wants, and the one kind whose card is therefore not
+  *     plain-form-capable — an interactive control needs a client signal
+  *     whatever this setting says.
+  */
+enum SignalBind derives CanEqual:
+  case Text
+  case Bind
+  case Style(property: String)
+  case Attr(name: String)
+
+object SignalBind:
+
+  /** `"style:--_end"` -> `Style("--_end")`. Unknown spellings decode to `None`
+    * rather than a default: a typo that silently became `data-text` would put a
+    * colour in an element's text content and look like a rendering bug.
+    */
+  def parse(s: String): Option[SignalBind] = s.split(":", 2).toList match
+    case "text" :: Nil          => Some(Text)
+    case "bind" :: Nil          => Some(Bind)
+    case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
+    case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
+    case _                      => None
+
+  given Decoder[SignalBind] =
+    Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
 
 /** A reusable card in the shared library (a node references one by name).
   *
@@ -646,7 +700,7 @@ case class Dashboard(
         name: String,
         src: SlotSource
     ): List[String] =
-      if (!src.signal) Nil
+      if (src.signal.isEmpty) Nil
       else if (src.literal.isDefined)
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +

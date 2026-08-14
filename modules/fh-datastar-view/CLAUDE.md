@@ -154,7 +154,15 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (value inline + a node-level `data-signals` seed on the `.fh-cell` wrapper; what a page load,
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
-  `entityCard`'s `value` is the first customer. The contract is a NEGATIVE one — a broken
+  The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
+  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`, or
+  `bind` (`data-bind`, two-way on a form control). Every kind reads the signal bare — the VALUE
+  carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
+  Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
+  (text), `value` (bind, replacing its hand-rolled `_val_<id>`), `fill` (`style:--_end`) and
+  `fillColor` (`style:background`). **Known risk on the slider**, called out in ADR 0017 because it
+  needs a browser: Datastar's style plugin re-applies its property when anything else writes the
+  `style` attribute, and `beer.min.js` repaints the fill during a drag. The contract is a NEGATIVE one — a broken
   implementation still updates the card, because the morph the frame was meant to replace is still
   being sent — so `SignalSlotSuite` asserts what is *not* on the wire.
 - **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`

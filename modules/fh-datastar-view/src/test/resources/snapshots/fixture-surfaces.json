@@ -69,7 +69,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
-                                    "signal" : true,
+                                    "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -84,7 +84,6 @@
                                     "bypassUnavailable" : true,
                                     "default" : "",
                                     "reactive" : true,
-                                    "signal" : false,
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -124,7 +123,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "signal" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -155,14 +154,13 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "signal" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -229,7 +227,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
-                                    "signal" : true,
+                                    "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -244,7 +242,6 @@
                                     "bypassUnavailable" : true,
                                     "default" : "",
                                     "reactive" : true,
-                                    "signal" : false,
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -284,7 +281,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "signal" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -325,14 +322,13 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
-                      "signal" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -422,7 +418,7 @@
     },
     "slider" : {
       "mount" : "<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\">{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" data-on:click=\"{{{onclick}}}\"><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ _val_{{id}}: {{value}} }\"\n      data-bind=\"_val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\"></span>\n  </div>\n</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" data-on:click=\"{{{onclick}}}\"><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + ${{value__signal}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
       "slots" : [
         "label",
         "value",

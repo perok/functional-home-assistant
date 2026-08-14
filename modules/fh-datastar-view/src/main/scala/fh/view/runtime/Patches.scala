@@ -714,6 +714,11 @@ private[runtime] object Patches {
       renderer
         .signalsFor(id, states)
         .filterNot { case (name, value) => held.get(name).contains(value) }
+        // `.toList` FIRST, and it is load-bearing: mapping a Map to pairs
+        // rebuilds a Map, and every pair here shares the node id — so all but
+        // one of a node's signals was silently dropped. Invisible on a card
+        // with one signal slot, fatal on the slider's four.
+        .toList
         .map(id -> _)
     }
     Option

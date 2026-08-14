@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.SignalId
+import fh.view.model.{SignalBind, SignalId}
 import io.circe.Json
 import org.http4s.ServerSentEvent
 
@@ -128,11 +128,25 @@ object Datastar {
         .map { case (k, v) => s"$k: '${escapeJs(v)}'" }
         .mkString("""data-signals="{""", ", ", """}"""")
 
-  /** A `data-text` binding on the signal a slot's value lives in. What
-    * `<slot>__bind` renders to; `""` where a value is not signal-backed, which
-    * is what keeps the plain form genuinely plain.
+  /** The binding attribute for a signal slot — what `<slot>__bind` renders to
+    * (ADR 0017). `""` where a value is not signal-backed, which is what keeps
+    * the plain form genuinely plain.
+    *
+    * Every kind reads the signal BARE, with no expression around it, because
+    * the value carries whatever it needs — a fill percentage arrives as
+    * `39.37%`, a colour as `#ffb46b`. That is deliberate: an expression in the
+    * attribute would be a second place a value's shape is decided, and the
+    * authoring layer already decides it in the transform.
+    *
+    * `data-bind` is the odd one out and takes the signal's NAME rather than a
+    * `$`-read, because it is two-way — it writes the signal back on input.
     */
-  def textBinding(signal: SignalId): String = s"""data-text="$$$signal""""
+  def binding(signal: SignalId, kind: SignalBind): String = kind match
+    case SignalBind.Text            => s"""data-text="$$$signal""""
+    case SignalBind.Bind            => s"""data-bind="$signal""""
+    case SignalBind.Style(property) =>
+      s"""data-style:$property="$$$signal""""
+    case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
 
   /** Backslash and single quote — everything a single-quoted JS string literal
     * can be broken by. The attribute is double-quoted, so `"` needs no JS

@@ -11,6 +11,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  SignalBind,
   SignalId,
   SlotSource,
   Surface
@@ -2269,16 +2270,26 @@ class Renderer(
     // places — and, in the patch form, withholds its value. The binding is
     // present in BOTH forms: it is what the seeded signal feeds, and a morph
     // that dropped it would leave the element inert.
-    val signalled = slots.collect {
-      case (slot, src) if Renderer.isSignalSlot(src) => slot
-    }.toList
+    val signalled = slots.toList.flatMap { case (slot, src) =>
+      Renderer.signalBind(src).map(slot -> _)
+    }
     val id = NodeId.derived(injected.getOrElse("id", ""))
-    val bindings = signalled.map(slot =>
-      s"${slot}__bind" -> Datastar.textBinding(Renderer.signalName(id, slot))
-    )
+    val bindings = signalled.flatMap { case (slot, kind) =>
+      val signal = Renderer.signalName(id, slot)
+      List(
+        s"${slot}__bind" -> Datastar.binding(signal, kind),
+        // The bare NAME, for the one thing a canned attribute cannot cover: a
+        // card composing the signal into an expression of its own (the
+        // slider's action URL reads its bound position). Not a binding, so it
+        // does not compromise the plain form — but a card that uses it is
+        // relying on a signal existing, which a plain-form client has not got.
+        s"${slot}__signal" -> signal
+      )
+    }
     val shown =
       if (!form.isPatch) resolved
-      else signalled.foldLeft(resolved)((acc, slot) => acc.updated(slot, ""))
+      else
+        signalled.foldLeft(resolved)((acc, slot) => acc.updated(slot._1, ""))
     tpl.execute(
       Renderer.javaContext(injected ++ shown ++ bindings, childrenHtml)
     )
@@ -2513,13 +2524,14 @@ object Renderer {
     * for the life of the entity, so the inline seed is the whole story and a
     * frame would never carry anything new.
     *
-    * This predicate is also the seam a morph-only client profile would flip:
-    * answering `false` everywhere yields the PLAIN form — no binding, no seed,
-    * the bytes this renderer emitted before signal slots existed. See
-    * docs/plan-signal-slots.md.
+    * This is also the seam a morph-only client profile would flip: answering
+    * `None` everywhere yields the PLAIN form — no binding, no seed, the bytes
+    * this renderer emitted before signal slots existed. See ADR 0017.
     */
-  def isSignalSlot(src: SlotSource): Boolean =
-    src.signal && src.literal.isEmpty && src.reactive
+  def signalBind(src: SlotSource): Option[SignalBind] =
+    src.signal.filter(_ => src.literal.isEmpty && src.reactive)
+
+  def isSignalSlot(src: SlotSource): Boolean = signalBind(src).isDefined
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.
