@@ -219,6 +219,13 @@
       ],
       "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
+    "entityInfo" : {
+      "slots" : [
+        "entity_id",
+        "attributes"
+      ],
+      "template" : "<div class=\"card entity-info\">\n  <code class=\"entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"entity-info-attrs\">{{attributes}}</pre>{{/attributes}}\n</div>"
+    },
     "fhcol" : {
       "mount" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [

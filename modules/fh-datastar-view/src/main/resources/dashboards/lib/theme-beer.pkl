@@ -408,6 +408,18 @@ class BeerTheme extends themeMod.Theme {
     .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
       color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
 
+    /* More-info facts (c.entityInfo): the entity id, then its live attributes as
+       ONE preformatted block — a template cannot loop over attributes, so the
+       lines arrive as text. It scrolls INSIDE its own box, capped, so a chatty
+       entity (a media player reports dozens) cannot push the dialog's controls
+       and ✕ off the screen. */
+    .entity-info{display:flex;flex-direction:column;gap:.5rem}
+    .entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
+      color:var(--on-surface-variant)}
+    .entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
+      line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
+      color:var(--on-surface-variant)}
+
     /* Connection banners. Structure/behavior are emitted by the server shell
        (Server.page); this owns the look. Shared layout, then a colour per failure
        kind — SSE transport (MD3 error role, flips in dark mode) vs upstream HA

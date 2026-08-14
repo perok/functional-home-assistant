@@ -11,6 +11,11 @@ import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
+local dimmer: hass.LightEntity = new {
+  entity_id = "light.dimmer"
+  colourModes { "brightness" }
+}
+local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
 // on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
@@ -121,5 +126,46 @@ facts {
     c.title("x").columns(3).fullWidth().cell.classes.toList() == List("fh-cols-full")
     // a non-span class is additive, not a replacement
     c.title("x").columns(3).hug().cell.classes.toList() == List("fh-cols-3", "fh-hug")
+  }
+
+  // ---- more-info (#106) ----
+  // The popup a tap opens for an entity nothing can be DONE to: what we know
+  // about it, live. Its body is per-entity, hence inline rather than registered.
+
+  ["more-info is an inline popup, so every entity's body is its own surface"] {
+    local t = c.moreInfo(kitchen)
+    t.inlineSurfaces.containsKey("self")
+    t.onclick.contains("sse/surface/open/\(c.NODE_ID)_self")
+  }
+
+  ["the body is the entity, then the controls its domain has, then its facts"] {
+    local body = c.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    body.children.toList().map((n) -> n.card)
+      == List("entityCard", "fhcol", "entityInfo", "button")
+  }
+
+  ["a domain with no controls still shows the card and the facts"] {
+    // The property the default flip will rest on: there is no entity for which
+    // this popup is empty.
+    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    body.children.toList().map((n) -> n.card)
+      == List("entityCard", "entityInfo", "button")
+  }
+
+  ["the facts card names its subject and reads every attribute live"] {
+    local info = c.entityInfo(kitchen)
+    info.slots["entity_id"] == "light.kitchen"
+    info.slots["attributes"].transform.contains("$each($attr")
+    // No attributes evaluates to null, which this default renders as an absent
+    // block rather than the word "null".
+    info.slots["attributes"].default == ""
+  }
+
+  ["`informative` reads the card's OWN entity"] {
+    // The amend-scoping trap, and silent when broken: a mixin resolving the
+    // entity anywhere but on the card it is applied to opens the wrong popup.
+    local card = (c.entityCard(kitchen)) |> c.informative
+    card.inlineSurfaces["self"].content.children[0].children[0]
+      .slots["entity_id"] == "light.kitchen"
   }
 }

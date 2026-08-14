@@ -48,6 +48,12 @@ card = (c.grid) {
 
         c.entityCard(dump.entities.sensor_ams_1a4e_q)
 
+        // MORE-INFO on tap: everything we know about the entity — its live
+        // state, whatever controls its domain has, and every attribute it
+        // reports — in a popup the hoist builds from this card's own entity.
+        // A sensor cannot be toggled, so this is the tap that makes sense for
+        // one (issue #106).
+        c.entityCard(dump.entities.sensor_ams_1a4e_q) |> c.informative
 
         // Live value expression + explicit tap service, BUILDER style: each option
         // is a method that returns the card, so they chain paren-free (vs the

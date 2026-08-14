@@ -17,6 +17,16 @@ class PklBuildSuite extends munit.FunSuite {
           .flatMap(cl => dynamics(cl.node))
     }
 
+  /** Every card name reachable from a node, in document order. */
+  private def cardNames(node: LayoutNode): List[String] =
+    node match {
+      case c: LayoutNode.Component => c.card :: c.children.flatMap(cardNames)
+      case s: LayoutNode.SetNode   =>
+        s.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => cardNames(cl.node))
+    }
+
   test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
     val tmp = os.temp.dir()
     os.write(
@@ -637,6 +647,9 @@ class PklBuildSuite extends munit.FunSuite {
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "entityCard" -> List("label", "value", "entity_id"),
+      // The more-info facts card: its subject, and one live slot holding every
+      // attribute the entity reports as text.
+      "entityInfo" -> List("entity_id", "attributes"),
       // `href`/`onclick` are the two arms of one choice (anchor vs scripted
       // click), so neither is a declared slot — only `label` always appears.
       "button" -> List("label"),
@@ -716,9 +729,9 @@ class PklBuildSuite extends munit.FunSuite {
   // ---------------------------------------------------------------------------
 
   /** A feature-rich fixture entry: containers, sectionTitle, entityCard
-    * (default + tap), a domain-checked slider, a dynamic group, and both a
-    * registered and an inline popup — enough composition to exercise the hoist
-    * + decode path.
+    * (default + tap), a domain-checked slider, a dynamic group, a more-info
+    * tap, and both a registered and an inline popup — enough composition to
+    * exercise the hoist + decode path.
     */
   private val fixtureFeatures =
     s"""amends "@fh-dashboard/entry.pkl"
@@ -745,6 +758,7 @@ class PklBuildSuite extends munit.FunSuite {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
        |    c.entityCard(dump.entities.light_kitchen).tap(c.toggleTap)
+       |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
        |      .where(q.eq(q.stateProp, "on"))
@@ -847,15 +861,45 @@ class PklBuildSuite extends munit.FunSuite {
 
     // The composed card set is present.
     assert(
-      Set("fhcol", "sectionTitle", "entityCard", "slider", "button", "popup")
+      Set(
+        "fhcol",
+        "sectionTitle",
+        "entityCard",
+        "entityInfo",
+        "slider",
+        "button",
+        "popup"
+      )
         .subsetOf(d.cards.keySet),
       clue = d.cards.keySet
     )
-    // The registered popup plus a hoisted inline surface (keyed `<node-id>_self`).
+    // The registered popup plus the hoisted inline surfaces (keyed
+    // `<node-id>_self`): the explicit one, and the more-info tap's, which is an
+    // inline popup per entity.
     assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
-    assert(
-      d.surfaces.keys.exists(_.endsWith("_self")),
+    assertEquals(
+      d.surfaces.keys.count(_.endsWith("_self")),
+      2,
       clue = d.surfaces.keySet
+    )
+    // More-info: the entity's card, the controls its domain supports, its raw
+    // facts, a close button. The inner column is `lightControls`, and the second
+    // entityCard is its own — the fixture light reports no colour modes, so it
+    // is a switch, and the controls are a tappable card rather than a slider.
+    val moreInfo = d.surfaces.values
+      .find(s => cardNames(s.content).contains("entityInfo"))
+      .getOrElse(fail("no more-info surface was hoisted"))
+    assertEquals(
+      cardNames(moreInfo.content),
+      List(
+        "popup",
+        "fhcol",
+        "entityCard",
+        "fhcol",
+        "entityCard",
+        "entityInfo",
+        "button"
+      )
     )
     // One dynamic group in the layout.
     assertEquals(dynamics(d.card).size, 1, clue = d.card)

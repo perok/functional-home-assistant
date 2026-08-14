@@ -171,7 +171,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
-  tabs, popups/surfaces, candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
+  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
+  an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
+  every attribute it reports, as one live text block, since a template cannot loop over attributes.
+  Issue #106's precondition: it is what a tap on a non-actionable entity can do instead of nothing),
+  candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
   surfaces on the tabs machinery, ADR 0007; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`

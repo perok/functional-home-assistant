@@ -26,7 +26,10 @@
 ///   of its own to size), a grid's group-centering opt-out -> the
 ///   `.fh-start` marker on the grid element (`Grid.centered(false)`),
 ///   cards -> `.card`, section titles -> `.section`, state text -> `.state`,
-///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`.
+///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`,
+///   more-info facts -> `.entity-info`/`.entity-info-id`/`.entity-info-attrs`
+///   (the attribute block is preformatted text — a theme that does not wrap and
+///   cap it gets a dialog as tall as the entity is chatty).
 ///
 /// The `fh-` LAYOUT classes have ready-made framework-agnostic CSS below
 /// ([[layoutCss]]): a theme normally interpolates it at the top of its
