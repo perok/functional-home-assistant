@@ -278,12 +278,9 @@ class BeerTheme extends themeMod.Theme {
        is the LINE's, and the card's job is only to keep a member row's pill
        clear of the corner radius. The pair reads tighter than the default
        without the group needing `padding:0` plus a re-add on every part.
-       Set through `--_padding` rather than `padding`, because BeerCSS declares
-       `article{--_padding:1rem;padding:var(--_padding)}` and then reads the
-       VARIABLE again elsewhere — `header.fixed`/`footer.fixed` bleed to the card
-       edge with `calc(var(--_padding)*-1)`, and the `.padding`/`.left-padding`
-       utilities resolve against it. Overriding `padding` alone leaves those
-       reading 1rem against a .5rem card. */
+       `--_padding` is BeerCSS's own knob for a card's scale, and other BeerCSS
+       rules read it (fixed header/footer bleed, the `.padding` utilities), so
+       overriding `padding` instead would leave those on the 1rem default. */
     .slider-card{--_padding:.5rem}
     /* An explicit line-height, because `normal` is the FONT's own figure: the
        line box then changes size with whatever font resolved, which is half of
