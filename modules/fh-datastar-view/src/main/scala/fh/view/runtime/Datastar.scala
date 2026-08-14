@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.model.{SignalBind, SignalId}
+import io.circe.Json
 import org.http4s.ServerSentEvent
 
 /** `datastar-patch-elements` patch modes (the `data: mode …` value). */
@@ -94,4 +96,75 @@ object Datastar {
       data = Some(s"signals $signalsJson"),
       eventType = Some("datastar-patch-signals")
     )
+
+  /** Signal-slot values as the [[patchSignals]] payload. Sorted, so one frame's
+    * bytes are a function of its contents and a test can name them.
+    */
+  def signalsJson(values: Map[SignalId, Json]): String =
+    Json
+      .obj(values.toList.sortBy(_._1).map { case (k, v) =>
+        (k: String) -> v
+      }*)
+      .noSpaces
+
+  /** The same values as a `data-signals` ATTRIBUTE — the inline seed that lets
+    * an element carry its own signals, so a first paint, a mount fill or a
+    * member insert needs no frame to be correct (ADR 0017). `""` for no values,
+    * which renders as no attribute at all.
+    *
+    * `data-signals` is compiled as a JS EXPRESSION by the pinned bundle
+    * (`returnsValue: true`), not parsed as JSON, so this emits a JS object
+    * literal with single-quoted values. Two nested contexts, two escapes, in
+    * this order: the value sits in a JS string literal which sits in an HTML
+    * attribute. HTML-escaping alone is not enough — `&#39;` decodes back to a
+    * bare `'` and closes the literal early. The same pair `Server`'s popup seed
+    * uses, and the reason this lives here rather than in every card template.
+    */
+  def signalsAttr(values: Map[SignalId, String]): String =
+    if (values.isEmpty) ""
+    else
+      values.toList
+        .sortBy(_._1)
+        // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
+        // after a quoted attribute value, and `id="c"data-signals=…` is a parse
+        // error browsers only recover from by accident.
+        .map { case (k, v) => s"$k: '${escapeJs(v)}'" }
+        .mkString(""" data-signals="{""", ", ", """}"""")
+
+  /** The binding attribute for a signal slot — what `<slot>__bind` renders to
+    * (ADR 0017). `""` where a value is not signal-backed, which is what keeps
+    * the plain form genuinely plain.
+    *
+    * Every kind reads the signal BARE, with no expression around it, because
+    * the value carries whatever it needs — a fill percentage arrives as
+    * `39.37%`, a colour as `#ffb46b`. That is deliberate: an expression in the
+    * attribute would be a second place a value's shape is decided, and the
+    * authoring layer already decides it in the transform.
+    *
+    * `data-bind` is the odd one out and takes the signal's NAME rather than a
+    * `$`-read, because it is two-way — it writes the signal back on input.
+    */
+  def binding(signal: SignalId, kind: SignalBind): String = kind match
+    case SignalBind.Text            => s"""data-text="$$$signal""""
+    case SignalBind.Bind            => s"""data-bind="$signal""""
+    case SignalBind.Style(property) =>
+      s"""data-style:$property="$$$signal""""
+    case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
+    // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
+    // class name is written as it appears in CSS and nowhere else.
+    case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
+
+  /** Backslash and single quote — everything a single-quoted JS string literal
+    * can be broken by. The attribute is double-quoted, so `"` needs no JS
+    * escape; [[escapeHtmlAttr]] handles it.
+    */
+  private def escapeJs(s: String): String =
+    escapeHtmlAttr(s.replace("\\", "\\\\").replace("'", "\\'"))
+
+  /** `'` is deliberately NOT escaped: the delimiters of the JS string literals
+    * above have to survive into the browser, and a value's own quote was
+    * already backslashed by [[escapeJs]] before this runs.
+    */
+  private def escapeHtmlAttr(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;")
 }

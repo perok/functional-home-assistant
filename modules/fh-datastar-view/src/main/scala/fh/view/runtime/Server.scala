@@ -13,7 +13,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.{Dashboard, DomId, NodeId}
+import fh.view.model.{Dashboard, DomId, NodeId, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -711,7 +711,17 @@ class Server(
                   .as(
                     if (patches.isEmpty) Nil
                     else
-                      Patches.encode(patches) :+ Server.versionSignal(version)
+                      // The cursor goes through `encode` as a patch rather than
+                      // being appended as an event, so it MERGES with this
+                      // batch's own signal frame when nothing separates them —
+                      // which is every batch whose nodes only moved a signal
+                      // slot. It stays a separate, trailing event whenever an
+                      // element patch sits in between, which is what its ack
+                      // meaning requires.
+                      Patches.encode(
+                        patches :+
+                          Addressed(Server.versionPatch(version))
+                      )
                   )
             }
         }
@@ -879,8 +889,8 @@ class Server(
           resumedIO.flatMap { resumed =>
             val claim = resumed.fold(store.version)(_ => covered)
             val record = resumed.fold(
-              session.holds.set(painted.own.map { case (id, html) =>
-                id -> Digest.of(html)
+              session.holds.set(painted.own.map { case (id, p) =>
+                id -> Held(Some(Digest.of(p.html)), p.signals)
               })
             )(patches =>
               session.holds.update(patches.foldLeft(_)(Patches.applied))
@@ -935,13 +945,22 @@ class Server(
                   // [[openingPatches]] makes for its own repaint. Leaving
                   // `told` behind here would let the keepalive announce a LOWER
                   // version than the swap just did.
-                  session.position.set(store.version) *>
+                  // TRACED, so the repaint says what it painted — the same
+                  // claim `openingPatches` makes for its own. Load-bearing for
+                  // signal slots: this body carries fresh inline seeds, so a
+                  // record left describing the PREVIOUS dashboard's values
+                  // would suppress the frame a value's return needs.
+                  val painted = r.renderBodyTraced(store.entities, uiState)
+                  session.holds.set(painted.own.map { case (id, p) =>
+                    id -> Held(Some(Digest.of(p.html)), p.signals)
+                  }) *>
+                    session.position.set(store.version) *>
                     session.told
                       .set(store.version)
                       .as(
                         head ++ List(
                           Datastar.patch(
-                            r.renderBody(store.entities, uiState),
+                            painted.html,
                             PatchMode.Inner,
                             Some("#dashboard")
                           ),
@@ -1355,8 +1374,8 @@ class Server(
               uiState,
               renderer.openPopup(uiState)
             )
-            _ <- session.holds.set(painted.own.map { case (id, html) =>
-              id -> Digest.of(html)
+            _ <- session.holds.set(painted.own.map { case (id, p) =>
+              id -> Held(Some(Digest.of(p.html)), p.signals)
             })
             _ <- session.position.set(store.version)
             // The page renders the cursor into its own signals, so the document
@@ -2156,10 +2175,22 @@ object Server {
     * batch moves.
     */
   private[runtime] def versionSignal(version: Long): ServerSentEvent =
-    // Nested, and merged rather than replaced by the client, so naming only
-    // the version leaves the other three cursor fields standing.
-    Datastar.patchSignals(
-      s"""{"$CursorSignal":{"$StoreVersionSignal":$version}}"""
+    versionPatch(version).toSse
+
+  /** [[versionSignal]] as a PATCH rather than a wire event, so a batch that
+    * ends with it can merge it into its own signal frame — see
+    * [[Patches.encode]]. A value tick with no element patches is then one
+    * `datastar-patch-signals` on the wire instead of two.
+    *
+    * Nested, and merged rather than replaced by the client, so naming only the
+    * version leaves the other three cursor fields standing.
+    */
+  private[runtime] def versionPatch(version: Long): Patch =
+    Patch.Signals(
+      Map(
+        SignalId.derived(CursorSignal) ->
+          Json.obj(StoreVersionSignal -> Json.fromLong(version))
+      )
     )
 
   /** The session this tab used BEFORE the document that opened this stream —

@@ -74,7 +74,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def resumeNow(
       renderer: Renderer,
       log: FragmentLog,
-      holds: Map[NodeId, Digest],
+      holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       v: Long,
       open: Set[String],
@@ -95,7 +95,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       changes: List[StateChange],
       open: Set[String] = Set.empty,
       ui: Map[String, String] = Map.empty,
-      holds: Map[NodeId, Digest] = Map.empty,
+      holds: Map[NodeId, Held] = Map.empty,
       from: Long = 0L
   ): IO[List[Addressed]] =
     // A slug nobody is watching records nothing, so the viewer this is about
@@ -178,10 +178,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
     override def renderNodeById(
         id: NodeId,
         states: Map[String, EntityState],
-        uiState: Map[String, String]
+        uiState: Map[String, String],
+        form: SlotForm
     ): Option[String] = {
       count.incrementAndGet()
-      super.renderNodeById(id, states, uiState)
+      super.renderNodeById(id, states, uiState, form)
     }
   }
 
@@ -256,15 +257,15 @@ trait ServerHarness extends munit.CatsEffectSuite {
       renderer: Renderer,
       states: Map[String, EntityState],
       ids: Iterable[String]
-  ): (FragmentLog, Map[NodeId, Digest]) =
-    ids.foldLeft((FragmentLog("test"), Map.empty[NodeId, Digest])) {
+  ): (FragmentLog, Map[NodeId, Held]) =
+    ids.foldLeft((FragmentLog("test"), Map.empty[NodeId, Held])) {
       case ((log, holds), raw) =>
         val id = NodeId.derived(raw)
         (
           log.touched(id, 0L),
           renderer
             .renderLogged(id, states)
-            .fold(holds)(html => holds + (id -> Digest.of(html)))
+            .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }
 
@@ -350,7 +351,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       sessions
         .get("harness")
         .flatMap(_.traverse_(sessions.deregisterIf("harness", _)))
-    private val holds = Ref.unsafe[IO, Map[NodeId, Digest]](Map.empty)
+    private val holds = Ref.unsafe[IO, Map[NodeId, Held]](Map.empty)
     private val position = Ref.unsafe[IO, Long](0L)
 
     private def record(next: EntityState): IO[Unit] =

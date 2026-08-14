@@ -19,7 +19,7 @@ class EntityCard extends nodes.Node {
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{{onclick}}}"{{/tappable}}>
         <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}{{label}}</header>
-        <span class="state">{{value}}</span>{{#secondary}}
+        <span class="state" \(slotMod.signalBind("value"))>{{value}}</span>{{#secondary}}
         <span class="slider-group-sub">{{secondary}}</span>{{/secondary}}
       </article>
       """
@@ -43,7 +43,12 @@ class EntityCard extends nodes.Node {
     // entity_id is the card's subject — the magical slot the others inherit.
     ["entity_id"] = entity.entity_id
     ["label"] = slotMod.labelSlot(entity, label)
-    ["value"] = slotMod.valueSlot(value)
+    // A SIGNAL slot (ADR 0017): the reading is the one thing on this card that
+    // moves on an ordinary tick, so carrying it as a signal is what turns a
+    // temperature ticking from 21.4 to 21.5 into a few bytes instead of the
+    // whole tile. Everything else here — icon, label, tap — is a registry fact
+    // or a literal and never moves at all.
+    ["value"] = slotMod.signalValueSlot(value)
     // A LITERAL, always: the entity's own icon, its device_class or its domain
     // are all registry facts, so there is nothing here for the runtime to
     // decide. This used to be a `$lookup($domain)` transform on every card,

@@ -116,7 +116,7 @@ case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
     control: Queue[IO, ServerSentEvent],
-    holds: Ref[IO, Map[NodeId, Digest]],
+    holds: Ref[IO, Map[NodeId, Held]],
     haDown: Ref[IO, Option[Boolean]],
     position: Ref[IO, Long],
     told: Ref[IO, Long],
@@ -183,7 +183,7 @@ object Session {
     for {
       o <- Ref[IO].of(Set.empty[String])
       q <- Queue.unbounded[IO, ServerSentEvent]
-      h <- Ref[IO].of(Map.empty[NodeId, Digest])
+      h <- Ref[IO].of(Map.empty[NodeId, Held])
       // `None`, not `Some(false)`: a session minted by a stream (a bookmarked
       // SSE URL, a restart) has told this client nothing, and must not assume
       // the banner it never rendered.

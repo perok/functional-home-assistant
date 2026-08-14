@@ -19,7 +19,78 @@ class Slot {
   default: String? = null
   bypassUnavailable: Boolean = true
   reactive: Boolean = true
+  /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
+  /// so a change to it costs a signals frame instead of re-rendering the whole
+  /// card (ADR 0017). The value says WHERE it lands — see [[SignalBind]] —
+  /// because that is the one thing the backend cannot infer.
+  ///
+  /// The card's template MUST place [[signalBind]] for this slot, or the value
+  /// stops updating; the backend rejects the dashboard if it does not.
+  signal: SignalBind? = null
 }
+
+/// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
+/// String rather than a class hierarchy for two reasons: the wire form IS one
+/// string (so a class would need flattening on the way out), and the
+/// parameterised kinds take a property/attribute/class NAME, which a plain
+/// union of literals cannot express.
+///
+/// The constraint is what a union would have bought — a typo is an eval error
+/// naming the value, not a slot that silently binds nothing. Build one with
+/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asClass]] rather than
+/// writing the string, so the spelling lives in one place.
+typealias SignalBind =
+  String(matches(Regex(#"text|bind|(style|attr|class):\S+"#)))
+
+/// `data-text` — the element's whole text content. The common case: a reading,
+/// a label, a state.
+const asText: SignalBind = "text"
+
+/// `data-bind` — TWO-WAY on a form control. The backend writes the signal and
+/// the user's input writes it back. What a range input's position wants, and
+/// what a checkbox's `checked` wants: setting the ATTRIBUTE does not move the
+/// property the browser reads once the element exists.
+const asBind: SignalBind = "bind"
+
+/// `data-style:<property>` — one CSS property, custom properties included. The
+/// VALUE carries its own unit (`39.37%`, `#ffb46b`), so nothing composes an
+/// expression around it: the transform decides the shape, in one place.
+const function asStyle(property: String): SignalBind = "style:" + property
+
+/// `data-attr:<name>` — one attribute. NOT for a form control's state; see
+/// [[asBind]].
+const function asAttr(name: String): SignalBind = "attr:" + name
+
+/// `data-class:<name>` — one class, present while the value is truthy. A
+/// BOOLEAN state: the transform must yield `""` for off, because an empty
+/// string is the only falsy thing a slot can produce — `"false"` reads as ON.
+const function asClass(name: String): SignalBind = "class:" + name
+
+/// The binding a signal slot's card places, beside the ordinary `{{name}}`
+/// hole:
+///
+/// ```
+/// <span class="state" \(signalBind("value"))>{{value}}</span>
+/// ```
+///
+/// The backend fills `name__bind` with the whole attribute — whichever of
+/// `data-text`/`data-bind`/`data-style:…`/`data-attr:…` the slot's [[Slot.signal]]
+/// named, and NOTHING when the value is not signal-backed. That is why the
+/// backend owns it: a card that wrote `data-text` itself could not have it
+/// un-written, and the plain (no-signals) rendering would stop being reachable.
+/// Raw (`{{{…}}}`) because it IS markup.
+const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
+
+/// The signal's NAME, for the one thing a canned binding cannot cover: a card
+/// composing it into an expression of its own (a slider's action URL reads its
+/// own bound position). Not a binding — but a card that uses it is relying on
+/// the signal existing, so it is not usable by a client that takes no signals.
+const function signalRef(name: String): String = "{{" + name + "__signal}}"
+
+/// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
+/// The card must place `signalBind("value")`.
+const function signalValueSlot(value: (String|Expr)?): Slot =
+  (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
 /// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the

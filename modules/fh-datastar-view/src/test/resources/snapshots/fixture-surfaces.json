@@ -69,6 +69,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
+                                    "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -122,6 +123,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -158,6 +160,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -224,6 +227,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
+                                    "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -277,6 +281,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -323,6 +328,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -359,7 +365,7 @@
         "value",
         "entity_id"
       ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\" {{{value__bind}}}>{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "entityInfo" : {
       "slots" : [
@@ -412,7 +418,7 @@
     },
     "slider" : {
       "mount" : "<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\">{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" data-on:click=\"{{{onclick}}}\"><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}%\">\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\"\n      data-signals=\"{ _val_{{id}}: {{value}} }\"\n      data-bind=\"_val_{{id}}\"\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_val_{{id}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\"></span>\n  </div>\n</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{{onclick}}}\"><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-on:change=\"@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + ${{value__signal}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
       "slots" : [
         "label",
         "value",
@@ -444,7 +450,7 @@
       "slots" : [
         "label"
       ],
-      "template" : "<article class=\"card row\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" {{{checked}}} data-on:click=\"{{{onclick}}}\" />\n    <span></span>\n  </label>\n</article>"
+      "template" : "<article class=\"card row\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked__bind}}} data-on:click=\"{{{onclick}}}\" />\n    <span></span>\n  </label>\n</article>"
     }
   },
   "surfaces" : {
