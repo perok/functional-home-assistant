@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.model.{DomId, NodeId}
+import fh.view.model.{DomId, NodeId, SignalId}
 import fh.view.model.DomId.selector
 import org.http4s.ServerSentEvent
 
@@ -16,6 +16,9 @@ import org.http4s.ServerSentEvent
   *   - [[Insert]]: add a new element relative to an explicit `target` (`before`
   *     its DOM successor, or `append` into the group root).
   *   - [[Remove]]: delete the target element (no HTML).
+  *   - [[Signals]]: set signal-slot values, touching no element at all — the
+  *     whole point of ADR 0017. It is the one variant with no target, because
+  *     the elements bound to those signals update themselves.
   *
   * [[Insert]] and [[Remove]] name their target as a [[DomId]], not a bare
   * selector string: the whole point of the split is that a patch aims at ONE
@@ -27,12 +30,15 @@ private[runtime] enum Patch:
   case Morph(html: String)
   case Insert(html: String, mode: PatchMode, target: DomId)
   case Remove(target: DomId)
+  case Signals(values: Map[SignalId, String])
 
   def toSse: ServerSentEvent = this match
     case Patch.Morph(html)                => Datastar.patchElements(html)
     case Patch.Insert(html, mode, target) =>
       Datastar.patch(html, mode, Some(target.selector))
-    case Patch.Remove(target) => Datastar.remove(target.selector)
+    case Patch.Remove(target)  => Datastar.remove(target.selector)
+    case Patch.Signals(values) =>
+      Datastar.patchSignals(Datastar.signalsJson(values))
 
 /** One patch, and what it does to the record of the client it is going to.
   *
@@ -67,7 +73,7 @@ private[runtime] enum Patch:
   */
 private[runtime] case class Addressed(
     patch: Patch,
-    establishes: Map[NodeId, Digest] = Map.empty,
+    establishes: Map[NodeId, Held] = Map.empty,
     // Roots, applied by prefix — a mount and everything under it.
     invalidates: Set[NodeId] = Set.empty
 )
@@ -511,7 +517,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       log: FragmentLog,
-      holds: Map[NodeId, Digest],
+      holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       v: Long,
       open: Set[String] = Set.empty,
@@ -601,7 +607,7 @@ private[runtime] object Patches {
                       _ => true,
                       html
                     ),
-                    Map(nodeId -> digest)
+                    Map(nodeId -> Held.bytes(digest))
                   )
                 )
               }
@@ -628,7 +634,7 @@ private[runtime] object Patches {
         // could never be resolved, so it claims nothing and pays a redundant
         // patch instead.
         if (renderer.isDynamicContainer(gid))
-          members.map { case (id, html) => id -> Digest.of(html) }.toMap
+          members.map { case (id, html) => id -> Held.of(html) }.toMap
         else Map.empty,
         if (renderer.isDynamicContainer(gid)) Set(gid)
         else hostEvicts(renderer, renderer.mountId(gid))
@@ -659,6 +665,14 @@ private[runtime] object Patches {
       // The log is a Map, so its order is nobody's; ids are location-derived,
       // so sorting them is document order among siblings.
       .sorted
+    // Every node whose patch-form bytes this batch decides about — sent OR
+    // suppressed. Collected from the CANDIDATES rather than from the patches,
+    // because a node whose only movement was a signal slot emits no patch at
+    // all: that silence is the feature, not an omission.
+    val touchedIds =
+      (changed ++ fromOpenIds ++ dynamic.collect {
+        case (nodeId, _: Mutation.Placed) => nodeId
+      }).distinct
     for {
       morphs <- changed.traverseFilter(
         morph(renderer, cache, holds, states, uiState, _)
@@ -667,11 +681,51 @@ private[runtime] object Patches {
         morph(renderer, cache, holds, states, uiState, _)
       )
       placed <- places
-    } yield morphs ++ open ++
+    } yield signalFrame(renderer, holds, states, touchedIds) ++
+      morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
       branchFills ++ placed ++ refills
+  }
+
+  /** The one `datastar-patch-signals` frame a batch carries, or nothing (ADR
+    * 0017).
+    *
+    * It goes FIRST, which costs nothing and reads right: a signal set before
+    * the element binding it is simply the value that element paints with when
+    * it arrives, and Datastar re-evaluates a binding on morph either way. That
+    * ordering is what makes a member INSERT correct — its bytes are patch-form
+    * and carry no seed, so the frame is the only thing that gives it a value.
+    *
+    * Diffed against what this viewer holds, for the same reason the bytes are:
+    * a node is a candidate because an entity it binds moved, which is not the
+    * same as its signal slots having moved. A frame for a node whose signals
+    * stood still is pure waste on the wire.
+    */
+  private def signalFrame(
+      renderer: Renderer,
+      holds: Map[NodeId, Held],
+      states: Map[String, EntityState],
+      ids: List[NodeId]
+  ): List[Addressed] = {
+    val moved = ids.flatMap { id =>
+      val held = holds.get(id).fold(Map.empty[SignalId, String])(_.signals)
+      renderer
+        .signalsFor(id, states)
+        .filterNot { case (name, value) => held.get(name).contains(value) }
+        .map(id -> _)
+    }
+    Option
+      .when(moved.nonEmpty)(
+        Addressed(
+          Patch.Signals(moved.map(_._2).toMap),
+          moved.groupMap(_._1)(_._2).map { case (id, kvs) =>
+            id -> Held(signals = kvs.toMap)
+          }
+        )
+      )
+      .toList
   }
 
   /** Render one node and send it only if it is not what this viewer already
@@ -686,15 +740,15 @@ private[runtime] object Patches {
   private def morph(
       renderer: Renderer,
       cache: RenderCache,
-      holds: Map[NodeId, Digest],
+      holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       uiState: Map[String, String],
       id: NodeId
   ): IO[Option[Addressed]] =
     bytes(renderer, cache, id, states, uiState).map(_.flatMap {
       case NodeBytes(html, digest) =>
-        Option.when(!holds.get(id).contains(digest))(
-          Addressed(Patch.Morph(html), Map(id -> digest))
+        Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
+          Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
         )
     })
 
@@ -783,7 +837,9 @@ private[runtime] object Patches {
         (
           Addressed(
             Patch.Insert(t.html, PatchMode.Inner, host),
-            t.own.map { case (id, html) => id -> Digest.of(html) },
+            t.own.map { case (id, p) =>
+              id -> Held(Some(Digest.of(p.html)), p.signals)
+            },
             (renderer.surfacesAt(host) ++ arriving)
               .flatMap(renderer.surfaceNodeIds)
           ),
@@ -814,14 +870,22 @@ private[runtime] object Patches {
     * A root itself goes too — it is inside the DOM the fill replaced.
     */
   def applied(
-      holds: Map[NodeId, Digest],
+      holds: Map[NodeId, Held],
       patch: Addressed
-  ): Map[NodeId, Digest] =
-    (if (patch.invalidates.isEmpty) holds
-     else
-       holds.filterNot { case (id, _) =>
-         patch.invalidates.exists(r => id == r || id.startsWith(r + "_"))
-       }) ++ patch.establishes
+  ): Map[NodeId, Held] =
+    // MERGED per node, not replaced: a patch-form morph establishes bytes and
+    // says nothing about the signals bound inside them, and a signals frame is
+    // the mirror image. Overwriting either way would forget the half this patch
+    // was silent about (see [[Held.merge]]).
+    patch.establishes.foldLeft(
+      if (patch.invalidates.isEmpty) holds
+      else
+        holds.filterNot { case (id, _) =>
+          patch.invalidates.exists(r => id == r || id.startsWith(r + "_"))
+        }
+    ) { case (acc, (id, later)) =>
+      acc.updated(id, acc.get(id).fold(later)(_.merge(later)))
+    }
 
   /** Combine adjacent morphs, then put them on the wire.
     *

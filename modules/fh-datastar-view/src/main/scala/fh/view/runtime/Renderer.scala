@@ -11,8 +11,46 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  SignalId,
   SlotSource,
   Surface
+}
+
+/** One node as a WHOLESALE render left it: the bytes a later per-node patch
+  * would produce for it (the patch form — so a digest of these is comparable
+  * with what the pull path renders), and the signals its inline seed just put
+  * in that client's store.
+  *
+  * A product, not a sum: a node has bytes AND signals, established together by
+  * the same render. Carrying them as one value is what lets a session's record
+  * fall straight out of a page render rather than being re-derived by a second
+  * pass over the painted ids.
+  */
+private[runtime] case class Painted(
+    html: String,
+    signals: Map[SignalId, String]
+)
+
+/** Which of a signal slot's two renderings a walk is producing (ADR 0017).
+  *
+  * The distinction exists only for slots with `signal = true`; every other slot
+  * renders identically either way, and a node with no signal slot produces the
+  * same bytes for both — [[Renderer.Traced]] relies on that, handing the same
+  * `String` reference back rather than executing a template twice.
+  *
+  *   - [[Document]] — the value inline (which is what a JS-less browser gets,
+  *     and all it ever gets) plus the `data-signals` seed, so the element
+  *     carries its own signal and a first paint, a mount fill or a member
+  *     insert needs no frame to be correct.
+  *   - [[Patch]] — neither. The value is not in these bytes, so the node's
+  *     digest does not move when only a signal slot does, `Patches.morph`
+  *     suppresses the element patch, and one frame carries the values instead.
+  *     That suppression IS the feature.
+  */
+private[runtime] enum SlotForm derives CanEqual {
+  case Document, Patch
+
+  def isPatch: Boolean = this == SlotForm.Patch
 }
 
 /** What a node's own rendering reads, reduced to a comparable value — see
@@ -1329,20 +1367,25 @@ class Renderer(
   ): Traced = {
     val body = renderBodyTraced(states, uiState)
     val dialog = popup.flatMap(renderSurfaceTraced(_, states, uiState))
+    val page = themeStyleTag + chromeTemplate.execute(
+      Renderer.javaContext(
+        Map(
+          "body" -> body.html,
+          // The dialog a refresh is restoring, baked into the host exactly as
+          // the connect would patch it — same render, so the two are
+          // byte-identical and the later patch is a no-op morph.
+          "popups" -> dialog.fold("")(_.html)
+        ),
+        Nil
+      )
+    )
+    // The whole page is never a patch target — a repaint replaces `#dashboard`
+    // wholesale — so it has no second form of its own. Its NODES do, and those
+    // are in `own`.
     Traced(
-      themeStyleTag + chromeTemplate.execute(
-        Renderer.javaContext(
-          Map(
-            "body" -> body.html,
-            // The dialog a refresh is restoring, baked into the host exactly as
-            // the connect would patch it — same render, so the two are
-            // byte-identical and the later patch is a no-op morph.
-            "popups" -> dialog.fold("")(_.html)
-          ),
-          Nil
-        )
-      ),
-      body.own ++ dialog.fold(Map.empty[NodeId, String])(_.own)
+      page,
+      page,
+      body.own ++ dialog.fold(Map.empty[NodeId, Painted])(_.own)
     )
   }
 
@@ -1376,16 +1419,21 @@ class Renderer(
   def renderNodeById(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      uiState: Map[String, String] = Map.empty,
+      // THE patch path, so the patch form is the default here and the document
+      // walk is what asks for the other one. A caller wanting bytes to put in a
+      // client's DOM wholesale wants `Document`.
+      form: SlotForm = SlotForm.Patch
   ): Option[String] =
     memberAt(id, states)
-      .map(renderMember(_, states))
-      .orElse(renderIndexed(id, states, uiState))
+      .map(renderMember(_, states, form))
+      .orElse(renderIndexed(id, states, uiState, form))
 
   private def renderIndexed(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      form: SlotForm
   ): Option[String] =
     allIndexed.get(id).filter(_ => hasOwnRendering(id)).map {
       // A card that declares a `self` patches through THAT element alone — no
@@ -1399,12 +1447,13 @@ class Renderer(
           structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
           c.slots,
           c.children.zipWithIndex.map { case (child, i) =>
-            render(child, path :+ i, prefix, states, uiState)
+            render(child, path :+ i, prefix, states, uiState, form)
           },
-          states
+          states,
+          form
         )
       case (node, path, prefix) =>
-        render(node, path, prefix, states, uiState)
+        render(node, path, prefix, states, uiState, form)
     }
 
   /** `s_<sid>__c` — what a state group's mount holds, and so what a flip
@@ -1439,7 +1488,9 @@ class Renderer(
       groupId: NodeId,
       states: Map[String, EntityState]
   ): List[(NodeId, String)] =
-    membersOf(groupId, states).toList.map(m => m.id -> renderMember(m, states))
+    membersOf(groupId, states).toList.map(m =>
+      m.id -> renderMember(m, states, SlotForm.Document)
+    )
 
   /** Decides how a mount is patched. A state group's mount holds at most ONE
     * member (a bake group has one hole), so there are no siblings to preserve
@@ -1659,11 +1710,11 @@ class Renderer(
       id: NodeId,
       uiState: Map[String, String],
       states: Map[String, EntityState]
-  ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
+  ): (Map[String, String], Map[String, String], Map[NodeId, Painted]) = {
     val group = bakeGroup(id)
     def bakeMember(
         idx: Int
-    ): (Map[String, String], Map[String, String], Map[NodeId, String]) = {
+    ): (Map[String, String], Map[String, String], Map[NodeId, Painted]) = {
       val sid = group(idx)
       val s = dashboard.surfaces(sid)
       // A baked member's nodes are part of what this render puts on screen, so
@@ -1673,7 +1724,7 @@ class Renderer(
       (
         Map(s.bakeAs.getOrElse("") -> member.fold("")(_.html)),
         Map("bakeIndex" -> idx.toString),
-        member.fold(Map.empty[NodeId, String])(_.own)
+        member.fold(Map.empty[NodeId, Painted])(_.own)
       )
     }
     if (group.isEmpty) (Map.empty, Map.empty, Map.empty)
@@ -1802,8 +1853,12 @@ class Renderer(
       path: List[Int],
       idPrefix: String,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
-  ): String = traced(node, path, idPrefix, states, uiState).html
+      uiState: Map[String, String],
+      form: SlotForm
+  ): String = {
+    val t = traced(node, path, idPrefix, states, uiState)
+    if (form.isPatch) t.patch else t.html
+  }
 
   /** The composed rendering, and every node's OWN html inside it.
     *
@@ -1818,7 +1873,15 @@ class Renderer(
     * are what [[renderNodeById]] would return for that id, which is what makes
     * the digests comparable at all.
     */
-  private[runtime] case class Traced(html: String, own: Map[NodeId, String])
+  private[runtime] case class Traced(
+      html: String,
+      // The same rendering with signal-slot values withheld — what a later
+      // per-node patch will produce, and so what `own` is fingerprinted from.
+      // The SAME reference as `html` for a subtree with no signal slot in it,
+      // which is the normal case and costs nothing.
+      patch: String,
+      own: Map[NodeId, Painted]
+  )
 
   private def traced(
       node: LayoutNode,
@@ -1846,23 +1909,44 @@ class Renderer(
         // mount's contents, and statement (1) is that a node's own rendering
         // never carries them.
         val selfVars = structuralVars(id) ++ bakeIndex
-        val selfHtml = templates.selves
-          .get(c.card)
-          .map(renderTemplateOf(_, selfVars, c.slots, childrenHtml, states))
         val vars = selfVars ++ baked
-        val mountHtml = templates.mounts
-          .get(c.card)
-          .map(renderTemplateOf(_, vars, c.slots, childrenHtml, states))
-        val html = renderTemplate(
-          c.card,
-          vars ++ Map(
-            "self" -> selfHtml.getOrElse(""),
-            "mount" -> mountHtml.getOrElse("")
-          ),
-          c.slots,
-          childrenHtml,
-          states
-        )
+        // ONE walk, both forms — see [[Traced]]. Only the form differs between
+        // the two calls, so a node with no signal slot anywhere under it does
+        // the second not at all.
+        def compose(form: SlotForm, kidsHtml: List[String]): String = {
+          val selfPart = templates.selves
+            .get(c.card)
+            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
+          val mountPart = templates.mounts
+            .get(c.card)
+            .map(renderTemplateOf(_, vars, c.slots, kidsHtml, states, form))
+          renderTemplate(
+            c.card,
+            vars ++ Map(
+              "self" -> selfPart.getOrElse(""),
+              "mount" -> mountPart.getOrElse("")
+            ),
+            c.slots,
+            kidsHtml,
+            states,
+            form
+          )
+        }
+        def selfOnly(form: SlotForm, kidsHtml: List[String]): Option[String] =
+          templates.selves
+            .get(c.card)
+            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
+        val html = compose(SlotForm.Document, childrenHtml)
+        // The patch form is needed when THIS node's slots carry a signal, or
+        // when a child's bytes (which ride inside these) differ between the
+        // forms. Neither: the same String, by reference — no second execute and
+        // no second wrapper.
+        val twoForms =
+          declaresSignals(c) || kids.exists(k => k.patch ne k.html)
+        val patchChildren =
+          if (twoForms) kids.map(_.patch) else childrenHtml
+        val patchHtml =
+          if (twoForms) compose(SlotForm.Patch, patchChildren) else html
         // EVERY node is a cell — containers included. The backend owns the id'd
         // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
         // and authored `cell` classes (fh-cols-*, …) ride on it.
@@ -1877,39 +1961,64 @@ class Renderer(
         // self/mount split separates the two roles: the cell is the layout
         // item, the `self` element is the patch target. Conflating them denies
         // `Tabs`/`If` a cell and silently drops `.columns(n)` on them.
-        val wrapped =
-          if (noWrapCards(c.card)) html
+        //
+        // The wrapper is also where a signal slot's `data-signals` SEED rides,
+        // in the document form only — see [[seedAttr]]. One attribute for the
+        // whole node, which is what makes two signal slots on one card work.
+        def wrap(inner: String, form: SlotForm): String =
+          if (noWrapCards(c.card)) inner
           else
             s"""<div class="fh-cell${Renderer.cellClasses(
                 c.cell
-              )}" id="$id">$html</div>"""
+              )}" id="$id"${seedAttr(id, c, states, form)}>$inner</div>"""
+        val wrapped = wrap(html, SlotForm.Document)
         // What this node contributes to the trace: its `self` when it has one,
         // otherwise its whole (wrapped) rendering when it holds no mount, and
         // nothing at all when it is a bare container. Mirrors `renderNodeById`
         // exactly — including the wrapper, which that method's leaf branch also
-        // returns.
-        val ownHtml =
-          if (hasOwnRendering(id)) selfHtml.orElse(Some(wrapped)) else None
+        // returns, and the PATCH form, which is what that method produces.
+        val patch =
+          if (!twoForms) wrapped else wrap(patchHtml, SlotForm.Patch)
+        val own = Option.when(hasOwnRendering(id))(
+          Painted(
+            selfOnly(SlotForm.Patch, patchChildren).getOrElse(patch),
+            signalsOfSlots(id, c, states)
+          )
+        )
         Traced(
           wrapped,
-          kids.foldLeft(bakedTrace)(_ ++ _.own) ++ ownHtml.map(id -> _)
+          patch,
+          kids.foldLeft(bakedTrace)(_ ++ _.own) ++ own.map(id -> _)
         )
       // A container root composes its members and so has no own rendering; the
       // members do, and they are what a fill must fingerprint.
       case s: LayoutNode.SetNode =>
         val id = LayoutNode.nodeId(idPrefix, path)
+        val document = renderDynamic(id, s.cell, states, SlotForm.Document)
         Traced(
-          renderDynamic(id, s.cell, states),
-          renderDynamicMembers(id, states).toMap
+          document,
+          // A set root has no rendering of its own and is never a patch target,
+          // so its two forms are only ever embedded in an ancestor's. Rendering
+          // the patch one is worth it exactly when a member has a signal slot.
+          if (membersOf(id, states).exists(m => declaresSignals(m.node)))
+            renderDynamic(id, s.cell, states, SlotForm.Patch)
+          else document,
+          membersOf(id, states).map { m =>
+            m.id -> Painted(
+              renderMember(m, states, SlotForm.Patch),
+              memberSignals(m.id, m.node, states)
+            )
+          }.toMap
         )
     }
 
   private def renderDynamic(
       id: NodeId,
       cell: Option[Cell],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String = {
-    val children = membersOf(id, states).map(renderMember(_, states))
+    val children = membersOf(id, states).map(renderMember(_, states, form))
     // The group root is itself a cell (a first-class layout item in its
     // container) plus `.fh-group`, the themed flow container its per-entity
     // member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to
@@ -1964,7 +2073,7 @@ class Renderer(
   ): Option[String] =
     membersOf(groupId, states)
       .find(_.key == MemberKey.Entity(entityId))
-      .map(renderMember(_, states))
+      .map(renderMember(_, states, SlotForm.Document))
 
   /** A materialised member's own bytes.
     *
@@ -1979,7 +2088,8 @@ class Renderer(
     */
   private def renderMember(
       m: Member,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String = {
     val html = renderWhole(
       m.node.card,
@@ -1992,13 +2102,18 @@ class Renderer(
       // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
       // is addressable, and [[Member.entitiesOf]] stops there.
       m.node.children.zipWithIndex.map { case (child, i) =>
-        memberChild(m, child, List(i), m.clause, states)
+        memberChild(m, child, List(i), m.clause, states, form)
       },
-      states
+      states,
+      form
     )
-    s"""<div class="fh-cell${Renderer.cellClasses(
-        m.node.cell
-      )}" id="${m.id}">$html</div>"""
+    // A member's children have no ids, so the seed here covers THEM too — see
+    // [[memberSignals]]. That is why a member's wrapper carries the whole patch
+    // unit's signals rather than only its own card's.
+    s"""<div class="fh-cell${Renderer.cellClasses(m.node.cell)}" id="${m.id}"${
+        if (form.isPatch) ""
+        else Datastar.signalsAttr(memberSignals(m.id, m.node, states))
+      }>$html</div>"""
   }
 
   /** One node inside a member. Ordinary children render whole and unaddressed —
@@ -2017,7 +2132,8 @@ class Renderer(
       node: LayoutNode,
       path: List[Int],
       clauseIdx: Int,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String = node match {
     case c: LayoutNode.Component =>
       val html = renderWhole(
@@ -2025,13 +2141,22 @@ class Renderer(
         structuralVars(m.id),
         c.slots,
         c.children.zipWithIndex.map { case (child, i) =>
-          memberChild(m, child, path :+ i, clauseIdx, states)
+          memberChild(m, child, path :+ i, clauseIdx, states, form)
         },
-        states
+        states,
+        form
       )
       s"""<div class="fh-cell${Renderer.cellClasses(c.cell)}">$html</div>"""
     case inner: LayoutNode.SetNode =>
-      renderDynamic(innerSetId(m.id, clauseIdx, path), inner.cell, states)
+      // A nested set is its own patch unit, so its members carry their own
+      // values and their own seeds whatever form this tile is in — blanking
+      // them here would withhold values no patch of THIS node restores.
+      renderDynamic(
+        innerSetId(m.id, clauseIdx, path),
+        inner.cell,
+        states,
+        SlotForm.Document
+      )
   }
 
   private def renderTemplate(
@@ -2039,7 +2164,8 @@ class Renderer(
       injected: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: List[String],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String =
     templates.components.get(cardName) match {
       case None =>
@@ -2049,7 +2175,7 @@ class Renderer(
           s"unknown card '$cardName' — validate should have rejected this dashboard"
         )
       case Some(tpl) =>
-        renderTemplateOf(tpl, injected, slots, childrenHtml, states)
+        renderTemplateOf(tpl, injected, slots, childrenHtml, states, form)
     }
 
   /** The DOCUMENT path's card render: both parts, then `template` with them
@@ -2065,11 +2191,12 @@ class Renderer(
       vars: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: List[String],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String = {
     def part(of: Map[String, Template]): String =
       of.get(cardName)
-        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states))
+        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states, form))
     renderTemplate(
       cardName,
       vars ++ Map(
@@ -2078,20 +2205,26 @@ class Renderer(
       ),
       slots,
       childrenHtml,
-      states
+      states,
+      form
     )
   }
 
   /** Render an already-resolved template — `template`, `self` or `mount` — with
     * the same slot resolution for all three, so a card's parts can never
     * disagree about what a slot means.
+    *
+    * `form` picks which rendering a SIGNAL slot gets, and changes nothing else
+    * (see [[SlotForm]]). A card with no signal slot renders identically either
+    * way, which is what lets the callers skip the second execute entirely.
     */
   private def renderTemplateOf(
       tpl: Template,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: List[String],
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      form: SlotForm
   ): String = {
     // The card's subject entity: the `entity_id` slot resolved against its
     // OWN entity (it DEFINES the subject, so it never inherits it). Normally
@@ -2132,7 +2265,120 @@ class Renderer(
       }
       slot -> value
     }
-    tpl.execute(Renderer.javaContext(injected ++ resolved, childrenHtml))
+    // A signal slot contributes one extra var — the binding attribute the card
+    // places — and, in the patch form, withholds its value. The binding is
+    // present in BOTH forms: it is what the seeded signal feeds, and a morph
+    // that dropped it would leave the element inert.
+    val signalled = slots.collect {
+      case (slot, src) if Renderer.isSignalSlot(src) => slot
+    }.toList
+    val id = NodeId.derived(injected.getOrElse("id", ""))
+    val bindings = signalled.map(slot =>
+      s"${slot}__bind" -> Datastar.textBinding(Renderer.signalName(id, slot))
+    )
+    val shown =
+      if (!form.isPatch) resolved
+      else signalled.foldLeft(resolved)((acc, slot) => acc.updated(slot, ""))
+    tpl.execute(
+      Renderer.javaContext(injected ++ shown ++ bindings, childrenHtml)
+    )
+  }
+
+  /** The `data-signals` seed for one patch unit: EVERY signal slot it carries,
+    * as one attribute (ADR 0017).
+    *
+    * Node-level rather than per-slot, and that is not a detail — a per-slot
+    * seed puts two `data-signals` attributes on one element the moment a card
+    * has two signal slots, and the browser silently keeps one. It also spares
+    * card authors the double escape, which has exactly one correct answer
+    * ([[Datastar.signalsAttr]]).
+    *
+    * It rides on the `.fh-cell` wrapper, which is renderer-owned and appears in
+    * precisely the renders that should carry it: a `self` card's patch renders
+    * `<id>-self` alone and is correctly seedless, while its document render
+    * includes the wrapper. `""` — no attribute — for the patch form and for
+    * every node that opted into nothing.
+    */
+  private def seedAttr(
+      id: NodeId,
+      node: LayoutNode,
+      states: Map[String, EntityState],
+      form: SlotForm
+  ): String =
+    if (form.isPatch) ""
+    else Datastar.signalsAttr(signalsOfSlots(id, node, states))
+
+  /** The signal values one PATCH UNIT carries, named under its id (ADR 0017).
+    *
+    * '''Whether this descends into children is not a detail — it is the
+    * difference between the two halves of the graph.''' In the static tree a
+    * child is a node of its own: its own id, its own `.fh-cell` wrapper, its
+    * own seed, patched on its own. A MEMBER's children are not — they render
+    * with `structuralVars(m.id)` and no ids at all, because the member is their
+    * patch target — so their slots belong to the member's namespace.
+    *
+    * Descending in the static case would name a child's signal under its parent
+    * and seed it on the parent's wrapper, leaving the child's own binding
+    * pointed at a signal nothing ever writes. Silent, and permanent.
+    *
+    * Empty for a node that opted into nothing, which is the normal case and the
+    * one every caller short-circuits on.
+    */
+  def signalsFor(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): Map[SignalId, String] =
+    memberAt(id, states)
+      .map(m => memberSignals(m.id, m.node, states))
+      .orElse(
+        allIndexed
+          .get(id)
+          .map(_._1)
+          .filter(_ => hasOwnRendering(id))
+          .map(signalsOfSlots(id, _, states))
+      )
+      .getOrElse(Map.empty)
+
+  /** One node's OWN slots, children excluded — the static-tree answer. */
+  private def signalsOfSlots(
+      id: NodeId,
+      node: LayoutNode,
+      states: Map[String, EntityState]
+  ): Map[SignalId, String] = node match {
+    case c: LayoutNode.Component =>
+      val subject = c.slots
+        .get("entity_id")
+        .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
+      c.slots.collect {
+        case (slot, src) if Renderer.isSignalSlot(src) =>
+          Renderer.signalName(id, slot) ->
+            resolveSlot(src.entityId.orElse(subject), src, states)
+      }
+    case _: LayoutNode.SetNode => Map.empty
+  }
+
+  /** A member's, children INCLUDED — they share its id and its patch. Stops at
+    * a nested set for the reason [[Member.entitiesOf]] does: that set is
+    * addressable in its own right, so its members own their own signals.
+    */
+  private def memberSignals(
+      id: NodeId,
+      node: LayoutNode,
+      states: Map[String, EntityState]
+  ): Map[SignalId, String] = node match {
+    case c: LayoutNode.Component =>
+      c.children.foldLeft(signalsOfSlots(id, c, states))(
+        _ ++ memberSignals(id, _, states)
+      )
+    case _: LayoutNode.SetNode => Map.empty
+  }
+
+  /** Whether a node's own slots carry a signal — STRUCTURAL, resolving nothing.
+    * What a walk asks before paying for a second template execute.
+    */
+  private def declaresSignals(node: LayoutNode): Boolean = node match {
+    case c: LayoutNode.Component => c.slots.values.exists(Renderer.isSignalSlot)
+    case _: LayoutNode.SetNode   => false
   }
 
   /** Resolve a non-literal slot's value against its producing entity's state.
@@ -2239,6 +2485,41 @@ object Renderer {
     * reading `c_2-self` as a child of `c_2`.
     */
   def selfElementId(id: NodeId): DomId = DomId.derived(id + "-self")
+
+  /** The signal a signal slot's value lives in: `_<nodeId>__<slot>` (ADR 0017).
+    *
+    * `_`-prefixed deliberately. Datastar's default request filter excludes any
+    * signal whose name starts with an underscore, so these never join the body
+    * of an action POST or an SSE reconnect — a dashboard's worth of live values
+    * on every request is exactly the cost this feature exists to remove.
+    *
+    * ONE derivation, read from both ends: the renderer builds the binding the
+    * card places (`<slot>__bind`), and the pull path names the same signal in
+    * its frame. Written out twice, a drift would be silent in the worst way —
+    * the card binds a signal nothing ever patches, so the value is simply
+    * frozen at whatever the last wholesale render seeded.
+    *
+    * The id is the PATCH UNIT's, not necessarily the slot's own node: a
+    * member's children have no id of their own, and the member is their patch
+    * target. Two children of one member therefore share a namespace, so a slot
+    * NAME means one value within a patch unit.
+    */
+  def signalName(id: NodeId, slot: String): SignalId =
+    SignalId.derived(s"_${id}__$slot")
+
+  /** A slot whose value travels as a signal. A constant `literal` never can —
+    * [[fh.view.model.Dashboard.validate]] rejects that combination — and a
+    * non-reactive (identity-derived) slot has no reason to: its value is fixed
+    * for the life of the entity, so the inline seed is the whole story and a
+    * frame would never carry anything new.
+    *
+    * This predicate is also the seam a morph-only client profile would flip:
+    * answering `false` everywhere yields the PLAIN form — no binding, no seed,
+    * the bytes this renderer emitted before signal slots existed. See
+    * docs/plan-signal-slots.md.
+    */
+  def isSignalSlot(src: SlotSource): Boolean =
+    src.signal && src.literal.isEmpty && src.reactive
 
   // The id scheme lives in the model ([[LayoutNode]]) so the build-phase hoist
   // and the renderer share one story; these delegate.

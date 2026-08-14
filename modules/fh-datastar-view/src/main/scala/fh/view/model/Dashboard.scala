@@ -46,6 +46,21 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * authored as a bare JSON string rather than an object; when set, every other
   * field is unused. Only a value that varies with live state needs the
   * object/`transform` form.
+  *
+  * `signal` (OFF by default) carries this slot's value to the browser as a
+  * Datastar SIGNAL — `_<nodeId>__<slotName>` — instead of as bytes inside the
+  * node's element, so a change to it costs a `datastar-patch-signals` frame
+  * rather than the whole re-rendered card (ADR 0017). The renderer hands the
+  * card one extra template var, `<slot>__bind`, which is the binding attribute
+  * itself; the card places it beside the ordinary `{{<slot>}}` hole:
+  *
+  * {{{<span class="state" {{{value__bind}}}>{{value}}</span> }}}
+  *
+  * The value still renders inline on a wholesale render, which is what a
+  * JS-less browser gets and all it ever gets. Incompatible with [[literal]] (a
+  * constant never moves) and pointless on a non-reactive slot (an
+  * identity-derived value never moves either) — [[Dashboard.validate]] rejects
+  * the first, and the renderer simply ignores the second.
   */
 given Configuration =
   Configuration.default.withDefaults
@@ -87,7 +102,12 @@ case class SlotSource(
     // function of the entity's identity, so it is resolved ONCE per
     // (entity, transform) and memoized (never re-evaluated per render) — keep
     // it off only for slots that truly read no live state.
-    reactive: Boolean = true
+    reactive: Boolean = true,
+    // Carry this slot's value as a Datastar SIGNAL rather than as bytes in the
+    // element, so a change to it costs a signals frame instead of a card
+    // re-render (ADR 0017). The card's template must place `{{{<slot>__bind}}}`
+    // — see the class doc.
+    signal: Boolean = false
 )
 
 object SlotSource:
@@ -601,17 +621,53 @@ case class Dashboard(
     // JSONata. A constant `literal` slot has no transform, so nothing to check.
     def slotErrors(
         nodeId: String,
+        cardName: String,
         slots: Map[String, SlotSource]
     ): List[String] =
-      slots.toList.flatMap { case (name, src) =>
-        if (src.literal.isDefined) None
-        else
-          Transform.parse(src.transform).left.toOption.map { err =>
-            val at =
-              locateTransform(src.transform).fold("")(loc => s" (at $loc)")
-            s"$nodeId: slot '$name' has an invalid transform$at: $err"
-          }
+      slots.toList.sortBy(_._1).flatMap { case (name, src) =>
+        val transformError =
+          if (src.literal.isDefined) None
+          else
+            Transform.parse(src.transform).left.toOption.map { err =>
+              val at =
+                locateTransform(src.transform).fold("")(loc => s" (at $loc)")
+              s"$nodeId: slot '$name' has an invalid transform$at: $err"
+            }
+        transformError.toList ++ signalErrors(nodeId, cardName, name, src)
       }
+
+    // A signal slot's value leaves the element's HTML on the patch path — a
+    // `datastar-patch-signals` frame carries it instead (ADR 0017). Both checks
+    // are for failures that are otherwise SILENT: the card renders, the patches
+    // get smaller, and the value simply stops updating.
+    def signalErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: SlotSource
+    ): List[String] =
+      if (!src.signal) Nil
+      else if (src.literal.isDefined)
+        List(
+          s"$nodeId: slot '$name' is a constant literal and cannot be a " +
+            "signal slot — a value that never moves has nothing to patch"
+        )
+      else
+        // The card must PLACE the binding, via the `<slot>__bind` var the
+        // renderer injects. Without it the patch form withholds the value and
+        // nothing in the DOM puts it back.
+        cards
+          .get(cardName)
+          .toList
+          .filterNot(cd =>
+            (cd.template :: cd.self.toList ++ cd.mount.toList)
+              .exists(_.contains(s"{{{${name}__bind}}}"))
+          )
+          .map(_ =>
+            s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
+              s"slot, but no part of its template places {{{${name}__bind}}} " +
+              "— the value would stop updating"
+          )
 
     def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
       nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
@@ -664,7 +720,7 @@ case class Dashboard(
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, slots) ++ cellErrors(nodeId, cell) ++
+          ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
             wrapErrors ++ children(kids, path)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates

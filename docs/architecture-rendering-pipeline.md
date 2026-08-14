@@ -49,18 +49,19 @@ flowchart TB
     direction TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
     BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
-    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE<br/>against THIS session's holds + open set"]
-    APPL["Patches.applied<br/>forget the mounts it re-supplied,<br/>claim what its bytes placed"]
+    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
+    SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record"]
+    APPL["Patches.applied<br/>forget the mounts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
     MERGE["merge: pulls ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
-    SSE["SSE bytes to the browser<br/>Datastar morphs the DOM"]
+    SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has) + position"]
+  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
-  BELL --> PULL --> APPL --> MERGE --> SSE
+  BELL --> PULL --> SIGS --> APPL --> MERGE --> SSE
   OPEN --> MERGE
   BEAT --> MERGE
   REC -.->|writes| LOG
@@ -79,7 +80,7 @@ flowchart TB
   classDef ext fill:#ede9fe,stroke:#6d28d9,color:#0f172a
   class PUMP,STORE,CH global
   class SYNC,PLAN,REC,BELL shared
-  class OPEN,PULL,APPL,MERGE,SSE,BEAT client
+  class OPEN,PULL,SIGS,APPL,MERGE,SSE,BEAT client
   class LOG,SESS store
   class HA,ACT ext
 ```
@@ -244,8 +245,17 @@ every slug's recorder wakes
 
 each connection wakes and PULLS
   resume(log, holds, snapshot, position + 1, open, its own ui-state)
-      -> render the candidates; send the ones whose digest is not what it holds
+      -> render the candidates IN THE PATCH FORM; send the ones whose digest is
+         not what it holds
+      -> and ONE datastar-patch-signals frame for the signal slots whose value
+         is not what this client's record holds. A node whose only movement was
+         a signal slot therefore emits no element patch at all — that silence is
+         the feature (ADR 0017), which is why the frame is collected from the
+         CANDIDATES rather than from the patches
   applied  -> forget the mounts those patches re-supplied, claim what they placed
+              and what the frame set (merged per node, never replaced: a morph
+              says nothing about the signals bound inside it, and a frame says
+              nothing about the bytes)
   position = the version it woke for                // ALWAYS, even when it was
                                                     // owed nothing
   write bytes — but ONLY if there were any: a frame this client was owed
@@ -470,10 +480,17 @@ three keyed on the dashboard, for free.
 | Runs on | one recorder fiber per slug | that connection's own SSE fiber |
 | Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
-| Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` and `position` |
+| Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` (digest **and** signals) and `position` |
 | Cost of N viewers | ×1 | ×1 per distinct SELECTION, via the per-slug render cache |
 
-The last row is not structural any more, and that is worth being precise about. Each session renders
+The last row is about the PULL path, and only the pull path. **A document render and a body repaint
+go through no cache at all** — `Patches.bytes` is the `RenderCache`'s only entry point, and the page
+walk renders directly — so two viewers loading the same dashboard simultaneously each render the
+whole page, and the first live tick after either meets a cold cache. That is
+[issue #130](https://github.com/perok/functional-home-assistant/issues/130), not a property anything
+here relies on.
+
+Each session renders
 for itself; what makes it ×1 is that both pulls go through one `RenderCache` keyed by what the render
 READS (`Renderer.renderInputs`), so whoever arrives first renders and the rest wait on the same slot.
 Two viewers of one dashboard have the same key for a node unless their selections differ — the hit is
@@ -515,14 +532,17 @@ flowchart LR
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
   SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
   Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
-  N --> HOLD{"is this what<br/>the client holds?"}
+  N --> HOLD{"is this what<br/>the client holds?<br/>(the PATCH form — a signal<br/>slot's value is not in it)"}
   OPENN --> HOLD
-  HOLD -->|yes| DROP["send nothing"]
+  HOLD -->|yes| SIG{"did a SIGNAL SLOT move?"}
   HOLD -->|no| SEND["Morph, establishing the digest"]
+  SEND --> SIG
+  SIG -->|no| DROP["send nothing"]
+  SIG -->|yes| FRAME["one datastar-patch-signals frame<br/>for the whole batch — no element patch"]
 
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef bad fill:#fee2e2,stroke:#b91c1c,color:#0f172a
-  class N,M,OPENN,SEND,DROP ok
+  class N,M,OPENN,SEND,DROP,FRAME ok
   class REPAINT,R bad
 ```
 
@@ -533,6 +553,14 @@ missing entry is always safe: it reads as "unknown, send it", costing bytes and 
 "Rendered now" goes through the slug's `RenderCache` (`Patches.bytes`), which is what keeps N
 sessions woken by one ring of the doorbell from rendering the same node N times. It changes no
 answer — the key is what the render reads, so a hit is the render — only who pays for it.
+
+**The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
+it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
+`data-text` binding — so the node's digest stands still while the value moves, the morph is
+suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
+wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
+instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
+arriving that way is correct before any frame reaches it.
 
 The second question — *does this client already have these bytes?* — is answered by the **session's
 own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
@@ -580,7 +608,10 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
-| what a client holds | `runtime/Sessions.scala` · `Session.holds` / `position` |
+| what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: digest + signals) / `position` |
+| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `renderTemplateOf`, `seedAttr`, `Traced.patch` |
+| a signal's name, and a node's values | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
+| the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
@@ -618,6 +649,22 @@ Live list — delete an entry when it is answered, and say where the answer land
   writing down and testing rather than relying on.
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
+
+- **The document walk and the repaint bypass the `RenderCache` entirely** —
+  [issue #130](https://github.com/perok/functional-home-assistant/issues/130). Two simultaneous page
+  loads each render the whole page, and the first live tick after a load or a repaint meets a cold
+  cache, even though the walk just rendered every node it is about to be asked for. Two obstacles,
+  and only the second is incidental: what a parent EMBEDS is not what a patch carries (for a `self`
+  card the cache holds the `self` element alone), and the walk is pure where the cache is `IO`.
+  Signal slots make it easier rather than harder — the walk now produces a patch-form rendering per
+  node, and the patch form is the only thing the cache ever holds.
+
+- **A morph-only client profile.** ADR 0017 keeps the PLAIN form (no binding, no seed — today's
+  pre-signal bytes) reachable behind one predicate, for a device that can implement
+  `datastar-patch-elements` but not an expression evaluator. Nothing exposes it yet, deliberately:
+  such a client is equally defeated by `data-on:click` on every tappable card and `data-effect` on
+  the URL mirror, so it wants ONE capability profile designed against a real client, not this axis
+  alone.
 
 ---
 

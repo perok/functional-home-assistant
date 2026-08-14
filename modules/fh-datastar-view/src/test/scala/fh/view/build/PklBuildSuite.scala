@@ -1104,7 +1104,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val cards = Map(
       "entityCard" -> CardDef(
-        "<b>{{label}}</b>",
+        // The `value__bind` hole is not decoration: the library's `entityCard`
+        // marks `value` as a signal slot, and `validate` rejects a card that
+        // declares one without placing its binding (ADR 0017). A stub standing
+        // in for a real card has to carry what that card's contract requires.
+        "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>",
         slots = List("label", "value")
       )
     )

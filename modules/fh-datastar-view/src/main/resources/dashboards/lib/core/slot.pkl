@@ -19,7 +19,31 @@ class Slot {
   default: String? = null
   bypassUnavailable: Boolean = true
   reactive: Boolean = true
+  /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
+  /// so a change to it costs a signals frame instead of re-rendering the whole
+  /// card (ADR 0017). The card's template MUST place [[signalBind]] for this
+  /// slot, or the value stops updating — the backend rejects the dashboard if
+  /// it does not.
+  signal: Boolean = false
 }
+
+/// The binding a signal slot's card places, beside the ordinary `{{name}}`
+/// hole:
+///
+/// ```
+/// <span class="state" \(signalBind("value"))>{{value}}</span>
+/// ```
+///
+/// The backend fills `name__bind` with the whole attribute — `data-text="$…"`
+/// when the value is signal-backed, nothing when it is not — so a card never
+/// spells a signal name and the plain (no-signals) rendering stays reachable
+/// without touching any template. Raw (`{{{…}}}`) because it IS markup.
+const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
+
+/// [[valueSlot]] as a signal slot — the same value, carried as a signal. The
+/// card must place `signalBind("value")`.
+const function signalValueSlot(value: (String|Expr)?): Slot =
+  (valueSlot(value)) { signal = true }
 
 /// A live value expression for a display field that also accepts a plain
 /// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the

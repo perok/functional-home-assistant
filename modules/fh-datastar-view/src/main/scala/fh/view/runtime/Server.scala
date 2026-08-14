@@ -879,8 +879,8 @@ class Server(
           resumedIO.flatMap { resumed =>
             val claim = resumed.fold(store.version)(_ => covered)
             val record = resumed.fold(
-              session.holds.set(painted.own.map { case (id, html) =>
-                id -> Digest.of(html)
+              session.holds.set(painted.own.map { case (id, p) =>
+                id -> Held(Some(Digest.of(p.html)), p.signals)
               })
             )(patches =>
               session.holds.update(patches.foldLeft(_)(Patches.applied))
@@ -935,13 +935,22 @@ class Server(
                   // [[openingPatches]] makes for its own repaint. Leaving
                   // `told` behind here would let the keepalive announce a LOWER
                   // version than the swap just did.
-                  session.position.set(store.version) *>
+                  // TRACED, so the repaint says what it painted — the same
+                  // claim `openingPatches` makes for its own. Load-bearing for
+                  // signal slots: this body carries fresh inline seeds, so a
+                  // record left describing the PREVIOUS dashboard's values
+                  // would suppress the frame a value's return needs.
+                  val painted = r.renderBodyTraced(store.entities, uiState)
+                  session.holds.set(painted.own.map { case (id, p) =>
+                    id -> Held(Some(Digest.of(p.html)), p.signals)
+                  }) *>
+                    session.position.set(store.version) *>
                     session.told
                       .set(store.version)
                       .as(
                         head ++ List(
                           Datastar.patch(
-                            r.renderBody(store.entities, uiState),
+                            painted.html,
                             PatchMode.Inner,
                             Some("#dashboard")
                           ),
@@ -1355,8 +1364,8 @@ class Server(
               uiState,
               renderer.openPopup(uiState)
             )
-            _ <- session.holds.set(painted.own.map { case (id, html) =>
-              id -> Digest.of(html)
+            _ <- session.holds.set(painted.own.map { case (id, p) =>
+              id -> Held(Some(Digest.of(p.html)), p.signals)
             })
             _ <- session.position.set(store.version)
             // The page renders the cursor into its own signals, so the document

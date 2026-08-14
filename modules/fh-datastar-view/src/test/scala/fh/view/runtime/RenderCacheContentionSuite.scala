@@ -122,12 +122,13 @@ class RenderCacheContentionSuite extends ServerHarness {
     override def renderNodeById(
         id: NodeId,
         states: Map[String, EntityState],
-        uiState: Map[String, String]
+        uiState: Map[String, String],
+        form: SlotForm
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
-      super.renderNodeById(id, states, uiState)
+      super.renderNodeById(id, states, uiState, form)
     }
 
     def reset: IO[Unit] = IO(counts.clear())

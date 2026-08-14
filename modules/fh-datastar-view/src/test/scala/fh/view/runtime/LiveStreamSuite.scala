@@ -338,7 +338,7 @@ class LiveStreamSuite extends ServerHarness {
             _ <- sessions.register(conn, session)
             renderer <- ref.get
             live <- server.liveSlug("dashboard")
-            painted = Digest.of(
+            painted = Held.of(
               renderer
                 .renderNodeById(
                   "s_det__c_0",
@@ -484,7 +484,7 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed).map(Digest.of)
+      r.renderNodeById(leaf, armed).map(Held.of)
     )
     // And the branch ROOT gets nothing: it has no rendering of its own, so a
     // claim there could never be resolved.
@@ -511,8 +511,8 @@ class LiveStreamSuite extends ServerHarness {
     // DEFAULT variant's bytes — tab 0's bar, which is what a repaint or an
     // earlier connect on tab 0 would have left behind.
     val log = FragmentLog("w23").touched(host, 5L)
-    val holds: Map[NodeId, Digest] =
-      Map(host -> Digest.of(r.renderNodeById(host, states).get))
+    val holds: Map[NodeId, Held] =
+      Map(host -> Held.of(r.renderNodeById(host, states).get))
     val owed = resumeNow(
       r,
       log,
@@ -552,7 +552,7 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderLogged(id, before, mine).map(h => id -> Digest.of(h))
+      r.renderLogged(id, before, mine).map(h => id -> Held.of(h))
     }.toMap
 
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its

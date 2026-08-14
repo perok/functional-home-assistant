@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.build.LibPackage
-import fh.view.model.NodeId
+import fh.view.model.{NodeId, SignalId}
 
 /** A 128-bit content digest.
   *
@@ -18,6 +18,40 @@ private[runtime] opaque type Digest = String
 private[runtime] object Digest {
   def of(html: String): Digest =
     LibPackage.sha256(html.getBytes("UTF-8")).take(32)
+}
+
+/** What one client has, for one node: the digest of the bytes it was last sent,
+  * and the values its SIGNAL slots were last set to (ADR 0017).
+  *
+  * Both halves answer the same question — "is this worth sending?" — of one
+  * node, which is why they share a map rather than sitting in parallel ones. It
+  * is not a nicety: a mount fill makes everything under it unknown, and with a
+  * separate signal map keyed by signal NAME that invalidation could only be
+  * expressed by string-prefixing the name back into a node id. Keyed by node,
+  * it is the id-prefix test `Patches.applied` already runs.
+  *
+  * '''`digest` is optional because a patch can establish one half alone.''' A
+  * patch-form morph carries bytes and no values (that is the point of it); a
+  * `Patch.Signals` frame carries values and touches no element. So this doubles
+  * as the DELTA a patch reports and the RECORD a session keeps, with [[merge]]
+  * as the one rule for putting the two together.
+  */
+private[runtime] case class Held(
+    digest: Option[Digest] = None,
+    signals: Map[SignalId, String] = Map.empty
+) {
+
+  /** `later` wins where it says anything, and says nothing by being absent —
+    * never by being empty, so a frame that re-sends one of a node's two signals
+    * cannot silently drop the other.
+    */
+  def merge(later: Held): Held =
+    Held(later.digest.orElse(digest), signals ++ later.signals)
+}
+
+private[runtime] object Held {
+  def bytes(digest: Digest): Held = Held(Some(digest))
+  def of(html: String): Held = bytes(Digest.of(html))
 }
 
 /** Which kind decides how a resume replays the member: an entity's card is a

@@ -212,12 +212,21 @@ this pipeline has had to chase bugs out of before.
 So `Traced` carries both forms:
 
 ```scala
+/** One node as a wholesale render left it: its PATCH-form bytes (what seeds
+  * `holds`) and the signals its inline seed put in the client's store. */
+private[runtime] case class Painted(html: String, signals: Map[SignalId, String])
+
 private[runtime] case class Traced(
-    html: String,                 // document form — the bytes the browser gets
-    patch: String,                // patch form — same node, signal values withheld
-    own: Map[NodeId, String]      // per node, in PATCH form: what seeds `holds`
+    html: String,               // document form — the bytes the browser gets
+    patch: String,              // patch form — same node, signal values withheld
+    own: Map[NodeId, Painted]   // per node, both halves, from the one walk
 )
 ```
+
+`own` is a PRODUCT, not a sum: a node has bytes *and* signals, and they are established together by
+the same render. Carrying them as one value is what lets `Held(digest, signals)` fall straight out
+of a page render instead of the caller re-deriving the signal half with a second pass over the
+painted ids.
 
 **What the second form actually costs.** It is a second `tpl.execute` on the *same compiled
 template* with a different context map (signal slots emptied, seed absent) — one execute, not a
@@ -257,8 +266,9 @@ question) — two reasons, and only the second is incidental:
 
 Neither is fatal — leaf bytes could come from the cache during a walk, giving both sharing between
 simultaneous loads and a warm cache for the first live tick. That is a restructuring of the
-document path, **out of scope here**, recorded as an open question. Note it composes with this
-design rather than fighting it: the walk would want the patch form, and (having dropped
+document path, **out of scope here**: it is
+[issue #130](https://github.com/perok/functional-home-assistant/issues/130). Note it composes with
+this design rather than fighting it: the walk would want the patch form, and (having dropped
 `?signals=false`) the patch form is the only thing the cache ever holds.
 
 ## Validation

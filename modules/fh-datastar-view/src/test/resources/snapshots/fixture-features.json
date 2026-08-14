@@ -35,6 +35,7 @@
                         "value" : {
                           "bypassUnavailable" : true,
                           "reactive" : true,
+                          "signal" : true,
                           "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                         }
                       }
@@ -49,6 +50,7 @@
                           "bypassUnavailable" : true,
                           "default" : "",
                           "reactive" : true,
+                          "signal" : false,
                           "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                         },
                         "entity_id" : "sensor.outside_temp"
@@ -88,6 +90,7 @@
           "value" : {
             "bypassUnavailable" : true,
             "reactive" : true,
+            "signal" : true,
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
         }
@@ -104,12 +107,14 @@
           "onclick" : {
             "bypassUnavailable" : false,
             "reactive" : false,
+            "signal" : false,
             "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
           },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
             "reactive" : true,
+            "signal" : true,
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
         }
@@ -138,12 +143,14 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reactive" : false,
+                          "signal" : false,
                           "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
                           "reactive" : true,
+                          "signal" : true,
                           "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                         }
                       }
@@ -163,12 +170,14 @@
                             "onclick" : {
                               "bypassUnavailable" : false,
                               "reactive" : false,
+                              "signal" : false,
                               "transform" : "\"@post('sse/action/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                             },
                             "tappable" : "1",
                             "value" : {
                               "bypassUnavailable" : true,
                               "reactive" : true,
+                              "signal" : true,
                               "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                             }
                           }
@@ -189,6 +198,7 @@
                           "bypassUnavailable" : true,
                           "default" : "",
                           "reactive" : true,
+                          "signal" : false,
                           "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                         },
                         "entity_id" : "light.kitchen"
@@ -228,6 +238,7 @@
           "value" : {
             "bypassUnavailable" : true,
             "reactive" : true,
+            "signal" : true,
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
         }
@@ -244,12 +255,14 @@
             "bypassUnavailable" : false,
             "default" : "100",
             "reactive" : true,
+            "signal" : false,
             "transform" : "($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)"
           },
           "fillColor" : {
             "bypassUnavailable" : false,
             "default" : "currentcolor",
             "reactive" : true,
+            "signal" : false,
             "transform" : "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 ? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); \"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) & \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
           },
           "icon" : "mdi-lightbulb",
@@ -260,12 +273,14 @@
           "state" : {
             "bypassUnavailable" : true,
             "reactive" : true,
+            "signal" : false,
             "transform" : "$state"
           },
           "value" : {
             "bypassUnavailable" : false,
             "default" : "0",
             "reactive" : true,
+            "signal" : false,
             "transform" : "$attr.brightness"
           }
         }
@@ -292,12 +307,14 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
+                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -326,12 +343,14 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
+                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -429,7 +448,7 @@
         "value",
         "entity_id"
       ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\" {{{value__bind}}}>{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "entityInfo" : {
       "slots" : [
@@ -555,6 +574,7 @@
                             "value" : {
                               "bypassUnavailable" : true,
                               "reactive" : true,
+                              "signal" : true,
                               "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                             }
                           }
@@ -569,6 +589,7 @@
                               "bypassUnavailable" : true,
                               "default" : "",
                               "reactive" : true,
+                              "signal" : false,
                               "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                             },
                             "entity_id" : "sensor.outside_temp"
@@ -608,6 +629,7 @@
               "value" : {
                 "bypassUnavailable" : true,
                 "reactive" : true,
+                "signal" : true,
                 "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
               }
             }

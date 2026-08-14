@@ -131,7 +131,7 @@ class DynamicGroupSuite extends ServerHarness {
       // the shared log; the suppression it drives is now this client's own.
       seedCache: Map[String, String] = Map.empty,
       ui: Map[String, String] = Map.empty
-  ): IO[(List[String], Map[NodeId, Digest])] =
+  ): IO[(List[String], Map[NodeId, Held])] =
     (for {
       store <- StateStore.inMemory(after)
       ref <- SignallingRef[IO].of(Renderer.create(dash))

@@ -2,8 +2,8 @@ package fh.view.model
 
 import io.circe.Decoder
 
-/** The two kinds of id the runtime moves around, separated so one cannot be
-  * mistaken for the other.
+/** The kinds of id the runtime moves around, separated so one cannot be
+  * mistaken for another.
   *
   * They were both `String` until the self/mount split
   * (docs/adr/0012-each-session-renders-what-it-is-owed.md) made the distinction
@@ -54,4 +54,24 @@ object DomId {
     /** The CSS selector for this element, which is what the wire wants. */
     def selector: String = "#" + d
   }
+}
+
+/** The name of a Datastar SIGNAL a slot's value lives in — `_c_1__value` (ADR
+  * 0017). Neither an element nor a log key: it addresses a slot of a node
+  * inside the client's signal store, which is a third space again.
+  *
+  * Named for the same reason [[NodeId]] and [[DomId]] are. It threads through
+  * the renderer, the session record, the SSE frame and the inline seed, and as
+  * a bare `String` it reads exactly like the node id it is derived from — which
+  * is precisely the confusion that would put one in the other's map.
+  */
+opaque type SignalId <: String = String
+
+object SignalId {
+
+  /** Mint one. Deliberately awkward to reach: the ONE derivation is
+    * [[fh.view.runtime.Renderer.signalName]], and a signal id from anywhere
+    * else is a card binding a signal nothing will ever patch.
+    */
+  private[view] def derived(s: String): SignalId = s
 }

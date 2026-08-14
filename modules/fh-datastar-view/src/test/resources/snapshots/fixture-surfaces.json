@@ -69,6 +69,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
+                                    "signal" : true,
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -83,6 +84,7 @@
                                     "bypassUnavailable" : true,
                                     "default" : "",
                                     "reactive" : true,
+                                    "signal" : false,
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -122,6 +124,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -152,12 +155,14 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
+                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -224,6 +229,7 @@
                                   "value" : {
                                     "bypassUnavailable" : true,
                                     "reactive" : true,
+                                    "signal" : true,
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
                                 }
@@ -238,6 +244,7 @@
                                     "bypassUnavailable" : true,
                                     "default" : "",
                                     "reactive" : true,
+                                    "signal" : false,
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -277,6 +284,7 @@
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -317,12 +325,14 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
+                      "signal" : false,
                       "transform" : "\"@post('sse/action/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
                       "reactive" : true,
+                      "signal" : true,
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
                   }
@@ -359,7 +369,7 @@
         "value",
         "entity_id"
       ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\">{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}\"{{#tappable}}\n  data-on:click=\"{{{onclick}}}\"{{/tappable}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}{{label}}</header>\n  <span class=\"state\" {{{value__bind}}}>{{value}}</span>{{#secondary}}\n  <span class=\"slider-group-sub\">{{secondary}}</span>{{/secondary}}\n</article>"
     },
     "entityInfo" : {
       "slots" : [

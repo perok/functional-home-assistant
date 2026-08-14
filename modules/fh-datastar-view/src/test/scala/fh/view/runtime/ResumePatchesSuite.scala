@@ -180,25 +180,25 @@ class ResumePatchesSuite extends munit.FunSuite {
     * bytes it described and suppress that value coming round again.
     */
   test("a fill forgets its mount, then claims what it placed") {
-    val holds: Map[NodeId, Digest] = List(
+    val holds: Map[NodeId, Held] = List(
       "c" -> "<c/>",
       "c_1" -> "<one/>",
       "c_10" -> "<ten/>",
       "c_1_0" -> "<nested/>",
       "d_1" -> "<other/>"
-    ).map { case (id, html) => (id: NodeId) -> Digest.of(html) }.toMap
+    ).map { case (id, html) => (id: NodeId) -> Held.of(html) }.toMap
     val after = Patches.applied(
       holds,
       Addressed(
         Patch.Morph("<ignored/>"),
-        establishes = Map(("c_1": NodeId) -> Digest.of("<fresh/>")),
+        establishes = Map(("c_1": NodeId) -> Held.of("<fresh/>")),
         invalidates = Set[NodeId]("c_1")
       )
     )
     // The root of the fill and everything under it are unknown again...
     assertEquals(after.get("c_1_0"), None, clue = after)
     // ...but the same patch's own placement survives the prune it triggered.
-    assertEquals(after.get("c_1"), Some(Digest.of("<fresh/>")), clue = after)
+    assertEquals(after.get("c_1"), Some(Held.of("<fresh/>")), clue = after)
     // A prefix is not a sibling: `c_1` must not swallow `c_10`.
     assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
     assertEquals(after.get("c"), holds.get("c"), clue = after)

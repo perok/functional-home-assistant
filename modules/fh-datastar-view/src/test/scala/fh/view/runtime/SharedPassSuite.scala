@@ -126,14 +126,14 @@ class SharedPassSuite extends ServerHarness {
       // not of what the dashboard looks like.
       assertEquals(
         held.get("c_0"),
-        renderer.renderNodeById("c_0", states).map(Digest.of),
+        renderer.renderNodeById("c_0", states).map(Held.of),
         clue = held
       )
       // The untouched sibling still carries what the repaint gave it, so the
       // claim above is not simply "everything, re-derived".
       assertEquals(
         held.get("c_1"),
-        renderer.renderNodeById("c_1", states).map(Digest.of),
+        renderer.renderNodeById("c_1", states).map(Held.of),
         clue = held
       )
       assertEquals(at, version)
