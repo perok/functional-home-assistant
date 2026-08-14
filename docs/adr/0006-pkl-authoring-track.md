@@ -240,8 +240,10 @@ slot key remains `"class"`.
 - **A fresh `Evaluator.preconfigured()` per eval** (~0.5 s cold, per entry per
   reload). Fine at current scale; reuse an evaluator (or restrict re-eval to
   affected entries) if reload latency grows with the dump.
-- `BuildApp` reads `DASHBOARD_ENTRY` (default `dashboard.pkl`) to build a
-  Pkl artifact — the default errors until the `dashboard.pkl` port lands.
+- `BuildApp` takes the entry as an ARGUMENT and has no default
+  (`sbt 'dashboardBuild overetasje.pkl'`): a workspace holds several entries and
+  the build writes one artifact, so which one is the caller's to say. With none,
+  it names the entries the workspace actually has.
 - Generated-code safety in `PklDump`: every identifier backticked, strings
   escaped (backslash first also neutralizes `\(` interpolation), null
   `friendly_name` omitted, floor slugs guarded against the module's own

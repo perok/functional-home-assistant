@@ -29,10 +29,11 @@ import javax.imageio.ImageIO
   * environments while still catching real visual regressions.
   *
   * To regenerate after an intentional visual change: `sbt
-  * dashboardSnapshotsUpdate` (the scoped-`sys.props` alias — NOT a plain
-  * `FH_UPDATE_SNAPSHOTS=1` shell export, which sbt 2.0's persistent server
-  * keeps forever, leaving the gate silently stuck in regenerate mode; see
-  * `PklBuildSuite`).
+  * dashboardVisualSnapshotsUpdate` — and normally, DON'T. A local rebaseline
+  * records this machine's font rasterization, which CI does not share; the
+  * portable move is to let CI fail, collect its before/after artifact, and
+  * decide from that. `dashboardSnapshotsUpdate` (the wire snapshots) cannot
+  * reach these — separate flags, on purpose.
   */
 object VisualSnapshot {
 
@@ -78,9 +79,15 @@ object VisualSnapshot {
     */
   private val MaxDimDelta = 2
 
+  /** Its OWN gate, not the wire snapshots' `FH_UPDATE_SNAPSHOTS`. The wire
+    * snapshots are rebaselined routinely and reviewed as a JSON diff; these are
+    * PNGs from this machine's font rasterization, so regenerating them locally
+    * bakes in rendering CI does not share. Sharing one flag meant the routine
+    * operation silently rewrote the dangerous artifact.
+    */
   private def updating: Boolean =
-    sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
-      sys.props.get("FH_UPDATE_SNAPSHOTS").contains("1")
+    sys.env.get("FH_UPDATE_VISUAL_SNAPSHOTS").contains("1") ||
+      sys.props.get("FH_UPDATE_VISUAL_SNAPSHOTS").contains("1")
 
   private def decode(bytes: Array[Byte]): BufferedImage =
     ImageIO.read(new ByteArrayInputStream(bytes))

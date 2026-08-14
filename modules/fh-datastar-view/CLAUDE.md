@@ -39,19 +39,21 @@ same commit; ADRs that change the pipeline update it too.
    evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
    snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
    the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
-   Regenerate them deliberately when the wire format is *meant* to change — but NOT by
-   exporting `FH_UPDATE_SNAPSHOTS=1` into the shell: the long-lived sbt server keeps its
-   start-time env forever, leaving the gate silently stuck in regenerate mode. Use the
-   scoped form instead:
-   `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1"); fh-datastar-view/testFull; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`.
+   Regenerate them deliberately when the wire format is *meant* to change, with
+   **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
 
-   **That chain does not clean up if the test task FAILS** — sbt aborts the rest of the
-   command line, so `remove` never runs and the long-lived server stays in regenerate mode
-   for every later invocation, silently. The tell is a run that "passes" while rewriting
-   files you did not mean to touch (the `visual-snapshots/*.png` baselines are the ones that
-   hurt — never regenerate those locally, see the slider-flake note). Always confirm with
-   `sbt 'eval sys.props.get("FH_UPDATE_SNAPSHOTS")'` (want `None`) before trusting a green
-   run, and `git status` after.
+   **Use the command; do not hand-roll the flag.** Two footguns it exists to close, both of
+   which have fired: a shell `FH_UPDATE_SNAPSHOTS=1` export sticks to the long-lived sbt
+   server forever, and a hand-written `; put ; testFull ; remove` chain skips its `remove`
+   when the test task fails — sbt aborts the rest of the chain — leaving the server in
+   regenerate mode where every later run reports green *while rewriting files*. The command
+   is a `Command` with `try/finally` (`build.sbt`), so it clears either way. If you suspect
+   a leak: `sbt 'eval sys.props.get("FH_UPDATE_SNAPSHOTS")'` should say `None`.
+
+   The **visual PNG baselines have a separate gate** (`dashboardVisualSnapshotsUpdate` /
+   `FH_UPDATE_VISUAL_SNAPSHOTS`) precisely so the routine wire regeneration cannot touch
+   them — a local rebaseline records this machine's font rasterization, which CI does not
+   share. Normally you do not run it at all: let CI fail and read its before/after artifact.
    The backend model (`Dashboard.scala`) should not need to change for
    authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
    — were the sanctioned structural exception; see ADR 0008).
@@ -108,8 +110,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).
 - **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
-  `dashboard.json` artifact for inspection/CI. The runtime does not need it. `BuildApp` honors
-  `DASHBOARD_ENTRY` (default `dashboard.pkl` — which errors until that entry is ported).
+  `dashboard.json` artifact for inspection/CI. The runtime does not need it. **The entry is a
+  required argument** — `sbt 'dashboardBuild overetasje.pkl'`; with none it lists the workspace's
+  entries rather than defaulting to a file that may not exist.
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
   Pkl entries in memory on startup** (so pkl-core *is* on the startup path — but never on the live
   hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from

@@ -1782,17 +1782,16 @@ class PklBuildSuite extends munit.FunSuite {
   // nondeterministic. No live HA — HouseFixture.transformedDump supplies the
   // entities.
   //
-  // To regenerate after an intentional change: `FH_UPDATE_SNAPSHOTS=1 sbt
-  // 'fh-datastar-view/testFull'` rewrites the resource files, then commit them.
+  // To regenerate after an intentional change: `sbt dashboardSnapshotsUpdate`,
+  // then read the JSON diff and commit it. It touches only these; the visual
+  // PNG baselines have their own gate (`VisualSnapshot`).
   //
-  // GOTCHA: the env var is read from the JVM the tests run IN — the persistent
-  // sbt server. A server started (even once, long ago) from a shell exporting
-  // FH_UPDATE_SNAPSHOTS=1 keeps it forever and silently REGENERATES on every
-  // run instead of checking (the gate is off). Regenerate without poisoning
-  // the server via the sys.props fallback instead:
-  //   sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1")' \
-  //       'fh-datastar-view/testFull' \
-  //       'eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'
+  // GOTCHA the command exists to contain: the gate is read from the JVM the
+  // tests run IN — the persistent sbt server. Anything that leaves
+  // FH_UPDATE_SNAPSHOTS set there (a shell export; a hand-rolled
+  // `; put ; test ; remove` chain, whose `remove` is SKIPPED when the test task
+  // fails) sticks it in regenerate mode, and every later run then reports green
+  // while rewriting files.
   // ---------------------------------------------------------------------------
 
   /** Checked-in expected snapshots (repo-relative, mirroring `resourcesLib`).
@@ -1830,7 +1829,7 @@ class PklBuildSuite extends munit.FunSuite {
         else
           fail(
             s"missing snapshot $file — regenerate with " +
-              "FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull'"
+              "sbt dashboardSnapshotsUpdate"
           )
       if (expected != actual) {
         val actualFile = os.temp.dir() / s"$name.actual.json"
@@ -1840,7 +1839,7 @@ class PklBuildSuite extends munit.FunSuite {
         actual,
         expected,
         clue = s"wire-format snapshot for $name.json changed. If intended, " +
-          "regenerate with FH_UPDATE_SNAPSHOTS=1 sbt 'fh-datastar-view/testFull' " +
+          "regenerate with 'sbt dashboardSnapshotsUpdate' " +
           "(actual output also written to a temp *.actual.json next to the diff)."
       )
     }

@@ -21,6 +21,8 @@ val commonSettings = Seq(
 )
 addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
 // Datastar dashboard: build phase (regenerate dashboard.json) and runtime server.
+// Takes the entry to build: `sbt 'dashboardBuild overetasje.pkl'`. An alias is
+// textual, so the trailing argument reaches `runMain`.
 addCommandAlias(
   "dashboardBuild",
   "fh-datastar-view/runMain fh.view.build.BuildApp"
@@ -33,15 +35,39 @@ addCommandAlias(
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
-// Rebaseline the wire-format + visual snapshots after an INTENTIONAL change.
-// Uses the scoped `sys.props` form (set → testFull → unset) rather than a shell
-// `FH_UPDATE_SNAPSHOTS=1` export: sbt 2.0's persistent server keeps its
-// start-time env forever, which would silently leave the gate in regenerate
-// mode. See VisualSnapshot / PklBuildSuite.
-addCommandAlias(
-  "dashboardSnapshotsUpdate",
-  """; eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1") ; fh-datastar-view/testFull ; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")"""
+// Rebaseline snapshots after an INTENTIONAL change.
+//
+// TWO gates, deliberately, because the two artifacts have opposite risk. The
+// wire snapshots are regenerated often and reviewed as a JSON diff; the visual
+// PNG baselines must NOT be regenerated on a developer machine at all (font
+// rasterization differs from CI's, so a local rebaseline bakes this machine's
+// rendering into the repo). One flag for both meant the routine operation
+// silently rewrote the dangerous artifact.
+//
+// A COMMAND, not an `addCommandAlias` chain: sbt aborts the rest of a `;` chain
+// when a task fails, so a trailing `sys.props.remove` never ran on the exact
+// path that needs it most — leaving the persistent server stuck in regenerate
+// mode, where every later run reports green while rewriting files. `try/finally`
+// around `Command.process` clears it either way. (`sys.props`, not a shell
+// export: sbt 2.0's server keeps its start-time env forever.)
+lazy val snapshotUpdateCommands = Seq(
+  Command.command("dashboardSnapshotsUpdate") { state =>
+    runWithFlag("FH_UPDATE_SNAPSHOTS", "fh-datastar-view/testFull", state)
+  },
+  Command.command("dashboardVisualSnapshotsUpdate") { state =>
+    runWithFlag(
+      "FH_UPDATE_VISUAL_SNAPSHOTS",
+      "fh-datastar-view/testOnly fh.view.smoke.*",
+      state
+    )
+  }
 )
+
+def runWithFlag(flag: String, command: String, state: State): State = {
+  sys.props.put(flag, "1")
+  try Command.process(command, state)
+  finally sys.props.remove(flag)
+}
 
 lazy val `ha-api` = project // todo add api layer here as well
   .in(file("modules/ha-api"))
@@ -238,6 +264,7 @@ lazy val root = project
     name := "Functional home assistant",
     version := "0.1.0-SNAPSHOT",
     commonSettings,
+    commands ++= snapshotUpdateCommands,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
     libraryDependencies += "org.scalameta" %% "munit" % "1.3.4" % Test,

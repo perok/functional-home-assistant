@@ -1,33 +1,15 @@
-/// What a TAP on an entity means, per domain — Home Assistant's service model,
-/// vendored the same way `hass/light.pkl` vendors the light constants.
+/// What a TAP on an entity means, per domain — HA's service model, vendored the
+/// way `hass/light.pkl` vendors the light constants. Why it is a build-time
+/// table rather than a runtime `$lookup($domain)` is ADR 0016.
 ///
-/// This table answers one question: *given only a domain, is there a service
-/// call that is the obvious thing a click should do?* A domain that is absent
-/// has no such call, and that absence is the useful half — it is what lets a
-/// card fall back to more-info instead of rendering a pointer cursor over a
-/// service that does not exist (issue #106).
+/// **A domain that is absent has no sensible tap, and that absence is the point**
+/// — it is what lets a card fall back to more-info instead of putting a pointer
+/// cursor over a service that does not exist.
 ///
-/// **Why a table rather than a runtime `$lookup($domain)`.** Candidate sets are
-/// static (ADR 0003), so an entity — and therefore its domain — is known at
-/// BUILD time. The old default emitted one `$lookup` transform per card whose
-/// else-branch was `homeassistant/toggle`, i.e. "anything I do not recognise is
-/// toggleable". Measured against a live instance (1069 entities), 143 were:
-/// the other 87% got a dead click. Deciding per entity at build time makes the
-/// answer a literal AND lets it be *no answer*.
-///
-/// **Checked against a live instance's `/api/services`** (2026-08-14, HA with 83
-/// service domains). Every `Call` below names a service that domain actually
-/// registers; the `homeassistant/toggle` entries are the domains that have
-/// `turn_on`/`turn_off` but no `toggle` of their own, where HA's own
-/// `homeassistant.toggle` dispatches correctly. Re-run that check when syncing
-/// to a newer HA — services are added far more often than removed, so the risk
-/// is a missing entry (harmless: more-info), not a wrong one.
-///
-/// **Deliberately absent, though they do have services:** `update` (`install` —
-/// flashing firmware on a stray tap), `alarm_control_panel` (arm/disarm),
-/// `number`/`select`/`text`/`date`/`time` (a value has to be *chosen*, not
-/// toggled). Each of these opens more-info instead, which is the correct
-/// answer rather than a missing one.
+/// Checked against a live instance's `/api/services` (2026-08-14, 83 service
+/// domains); re-run that when syncing to a newer HA. Services are added far more
+/// often than renamed, so the way this goes stale is a missing row — which
+/// degrades to more-info — rather than a wrong one.
 module hass_actions
 
 /// A tap whose service is the same whatever the entity's state — the common
@@ -37,32 +19,31 @@ class Call {
   action: String
 }
 
-/// A tap whose service depends on the entity's CURRENT state: calls [[then]]
-/// while the state equals [[whenState]], and [[otherwise]] every other time.
+/// A tap whose service depends on the entity's CURRENT state: [[then]] while the
+/// state equals [[whenState]], [[otherwise]] in every other state.
 ///
-/// This is the whole reason a tap can still need a live expression: a lock has
-/// `lock`/`unlock` and no `toggle`, so which one to call is not knowable until
-/// the click. The set is small on purpose — most domains have a real `toggle`
-/// and stay literals — and a slot built from this is `reactive`, so it drops out
-/// of the renderer's identity cache. That costs no extra wakeups: the card
-/// already tracks its entity for the state it displays.
+/// A lock has `lock`/`unlock` and no `toggle`, so which to call is not knowable
+/// until the click. A slot built from this is `reactive` and leaves the
+/// renderer's identity cache — which is why the shape is deliberately limited to
+/// a two-way test, and why growing past one is the trigger to revisit ADR 0016.
 class CallByState {
-  /// The state that selects [[then]] — HA's own state string (`"locked"`,
-  /// `"cleaning"`).
+  /// HA's own state string — `"locked"`, `"cleaning"`.
   whenState: String
-  /// `"<domain>/<service>"` called while the entity is in [[whenState]].
   then: String
-  /// `"<domain>/<service>"` called in every other state.
   otherwise: String
 }
 
-/// What a tap on this domain does, if anything.
 typealias DomainAction = Call|CallByState
 
-/// Domain → what a tap on one of its entities calls. **Absent means there is no
-/// sensible action**, not that one was forgotten — see the module doc.
+/// Domain → what a tap on one of its entities calls. Absent = no sensible
+/// action; see the module doc.
+///
+/// Absent ON PURPOSE, though they do have services: `update` (`install` would
+/// flash firmware on a stray tap), `alarm_control_panel` (arm/disarm), and
+/// `number`/`select`/`text`/`date`/`time`, where a value has to be *chosen*
+/// rather than toggled. Those open more-info, which is the right answer and not
+/// a gap.
 const ACTIONS: Mapping<String, DomainAction> = new {
-  // ---- a real `toggle` service of their own ----
   ["light"] = new Call { action = "light/toggle" }
   ["switch"] = new Call { action = "switch/toggle" }
   ["fan"] = new Call { action = "fan/toggle" }
@@ -73,28 +54,23 @@ const ACTIONS: Mapping<String, DomainAction> = new {
   ["siren"] = new Call { action = "siren/toggle" }
   ["remote"] = new Call { action = "remote/toggle" }
   ["media_player"] = new Call { action = "media_player/toggle" }
-  // Toggling an automation ENABLES/DISABLES it (`automation/trigger` is the
-  // one that runs it) — matching what HA's own toggle on an automation row does.
-  ["automation"] = new Call { action = "automation/toggle" }
   ["input_boolean"] = new Call { action = "input_boolean/toggle" }
+  // Toggling an automation ENABLES/DISABLES it; `automation/trigger` runs it.
+  ["automation"] = new Call { action = "automation/toggle" }
 
-  // ---- turn_on/turn_off but no `toggle`: HA's own dispatcher handles it ----
+  // These have turn_on/turn_off but no `toggle` of their own, so HA's own
+  // dispatcher does the work.
   ["camera"] = new Call { action = "homeassistant/toggle" }
   ["water_heater"] = new Call { action = "homeassistant/toggle" }
   ["group"] = new Call { action = "homeassistant/toggle" }
 
-  // ---- one-shot: pressing it IS the action ----
   ["button"] = new Call { action = "button/press" }
   ["input_button"] = new Call { action = "input_button/press" }
-  // A scene has `turn_on` and nothing else — applying it twice is idempotent,
-  // so there is nothing for a toggle to mean.
   ["scene"] = new Call { action = "scene/turn_on" }
   // RUN it. `script/toggle` (stop a running script) is the other defensible
-  // reading; running is what a tap means on HA's own script rows, and a script
-  // short enough to tap is rarely still running when you tap again.
+  // reading; running is what a tap means on HA's own script rows.
   ["script"] = new Call { action = "script/turn_on" }
 
-  // ---- the state decides ----
   ["lock"] = new CallByState {
     whenState = "locked"
     then = "lock/unlock"
@@ -117,6 +93,6 @@ const ACTIONS: Mapping<String, DomainAction> = new {
   }
 }
 
-/// What a tap on `domain` calls, or null when nothing sensible does — the
-/// null is what a card turns into a more-info tap.
+/// What a tap on `domain` calls, or null when nothing sensible does — the null
+/// is what a card turns into a more-info tap.
 const function forDomain(domain: String): DomainAction? = ACTIONS.getOrNull(domain)
