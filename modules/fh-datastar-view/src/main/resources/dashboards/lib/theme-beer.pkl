@@ -277,8 +277,14 @@ class BeerTheme extends themeMod.Theme {
        card is a track edge to edge with text over it, so the inset the eye reads
        is the LINE's, and the card's job is only to keep a member row's pill
        clear of the corner radius. The pair reads tighter than the default
-       without the group needing `padding:0` plus a re-add on every part. */
-    .slider-card{padding:.5rem}
+       without the group needing `padding:0` plus a re-add on every part.
+       Set through `--_padding` rather than `padding`, because BeerCSS declares
+       `article{--_padding:1rem;padding:var(--_padding)}` and then reads the
+       VARIABLE again elsewhere — `header.fixed`/`footer.fixed` bleed to the card
+       edge with `calc(var(--_padding)*-1)`, and the `.padding`/`.left-padding`
+       utilities resolve against it. Overriding `padding` alone leaves those
+       reading 1rem against a .5rem card. */
+    .slider-card{--_padding:.5rem}
     /* An explicit line-height, because `normal` is the FONT's own figure: the
        line box then changes size with whatever font resolved, which is half of
        how the same markup ends up looking different per engine. 1.5 is what the
@@ -381,7 +387,7 @@ class BeerTheme extends themeMod.Theme {
        the fill instead of sitting in a line above it. Members carry their own
        surface and no elevation — a shadow over the master's coloured fill reads
        as grime. */
-    .slider-members .card{display:grid;min-block-size:3rem;margin:0;padding:0;
+    .slider-members .card{display:grid;min-block-size:3rem;margin:0;--_padding:0;
       background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
     .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
     /* Block padding off: a row is sized by `min-block-size`, so its own padding
