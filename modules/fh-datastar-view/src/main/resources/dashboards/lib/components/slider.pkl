@@ -139,7 +139,7 @@ class Slider extends nodes.Node {
   /// overrides it; an explicit `icon = null` renders no badge at all.
   hidden icon: String? = icons.iconFor(entity)
   /// A button at the right of the line — the group's on/off. Null renders none.
-  hidden tap: tapMod.Tap? = null
+  hidden tapAction: tapMod.TapAction? = null
   /// Second line under the label — an attribute name, or an [[expr]] naming a
   /// DIFFERENT entity (the room's temperature beside its lights). Null renders
   /// no second line.
@@ -167,7 +167,7 @@ class Slider extends nodes.Node {
     "($v := \(valueExpr); $v != null ? $string($round(($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) & \" %\" : \"0 %\")"
   // Copy the tap's inline surfaces onto the node so the hoist lifts them
   // (see [[EntityCard.inlineSurfaces]]).
-  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
+  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
   // Resolved here rather than inline in `slots`, because a body that AMENDS an
   // inherited property does not see the inherited `icon` by name — only this
   // class's own members and the module.
@@ -184,8 +184,8 @@ class Slider extends nodes.Node {
     when (resolvedIcon != null) {
       ["icon"] = resolvedIcon!!
     }
-    when (tap != null) {
-      ["onclick"] = tap!!.onclick
+    when (tapAction != null) {
+      ["onclick"] = tapAction!!.onclick
       // Lights the button while the entity is on — the one thing the fill
       // cannot say, since a light at 0 % and a light that is off look alike.
       ["lit"] = new slotMod.Slot {
@@ -260,7 +260,7 @@ class Slider extends nodes.Node {
   // already means that, and a second `noIcon()` builder would be a parallel way
   // to say the same thing.
   function icon(i: String?): Slider = let (self = this) (self) { icon = i }
-  function tap(t: tapMod.Tap): Slider = let (self = this) (self) { tap = t }
+  function tapAction(t: tapMod.TapAction): Slider = let (self = this) (self) { tapAction = t }
   function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO

@@ -76,15 +76,15 @@ extended. Once the hand-port completes they are deleted.
    fully supported. On top of the classes, entity-first **factory methods** make
    the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
    options applied by a **parenthesized amend** of the call result:
-   `(c.entityCard(e)) { tap = ...; label = ... }` (the outer parens are
+   `(c.entityCard(e)) { tapAction = ...; label = ... }` (the outer parens are
    mandatory; the parens-free form is a parse error). Each option is **also a
    fluent builder method** on the card class, so options can instead chain
-   paren-free — `c.entityCard(e).tap(...).label(...)`: the method amends `this`
+   paren-free — `c.entityCard(e).tapAction(...).label(...)`: the method amends `this`
    and returns the same class, and because slots are late-bound off the hidden
    props the emitted node is **byte-identical** to the amend/`new` forms
    (spike-verified on pkl-core 0.31.1; guarded by the builder-vs-amend identity
    test + the wire snapshots). Methods and properties are separate namespaces, so
-   `function tap(t)` coexists with the `hidden tap` prop; the builder covers the
+   `function tapAction(t)` coexists with the `hidden tapAction` prop; the builder covers the
    parameterized case `|>` mixins cannot (a mixin takes no arguments). `|>` is
    reserved for
    **additions** — a mixin like `tappable` chains on the end
@@ -199,7 +199,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - `serviceTap`/`toggleTap`/`stateServiceTap`/`domainTap`/`navigate` (what a card
   clicks by default, and the vendored domain table behind it, is ADR 0016);
   popups/surfaces — `SurfaceDef`,
-  `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
+  `inlineSurfaces` on `Node`+`TapAction`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
   `openPopupInline(body)`, popup CSS in the theme modules (0002). A registered
   popup surface amends into existence via `entry.pkl`'s `surfaces` mapping
@@ -283,7 +283,7 @@ slot key remains `"class"`.
 - A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
   first: a bare `this` inside the `new {}` body rebinds to the freshly-built
   object, not the receiver. The same guard applies to a **self-amending builder
-  method** (`function tap(t) = let (self = this) (self) { tap = t }`): capture the
+  method** (`function tapAction(t) = let (self = this) (self) { tapAction = t }`): capture the
   receiver before the amend body, and name the parameter differently from the
   property it sets (a same-named param self-references in the amend).
 - **`const` is transitive**: a `const` property (or any reference from a class

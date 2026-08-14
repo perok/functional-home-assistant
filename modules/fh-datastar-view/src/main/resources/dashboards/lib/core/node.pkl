@@ -34,7 +34,7 @@ class Cell {
 /// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
 /// builders return the base [[LayoutNode]] type, so chain them AFTER
 /// card-specific ones:
-/// `c.entityCard(e).tap(c.toggleTap).columns(3)`.
+/// `c.entityCard(e).tapAction(c.tap.toggleTap).columns(3)`.
 abstract class LayoutNode {
   kind: String
   /// Layout-cell classes for this node's wrapper. Null (dropped from the wire

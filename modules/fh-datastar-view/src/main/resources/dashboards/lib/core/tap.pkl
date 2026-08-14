@@ -23,7 +23,7 @@ import "../hass/actions.pkl" as hassActions
 /// behavior (middle-click, open-in-new-tab, status bar, no JS). `onclick` is
 /// then the equivalent for cards whose root element cannot be an `<a>` (the
 /// `<article>` of [[EntityCard]]), so every card renders the same intent.
-class Tap {
+class TapAction {
   onclick: slotMod.Slot|String
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
@@ -59,7 +59,7 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
 }
 
 /// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
-const function serviceTap(action: String): Tap =
+const function serviceTap(action: String): TapAction =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false) }
 
 /// Toggle whatever the card's entity is, via HA's own domain-dispatching
@@ -67,7 +67,7 @@ const function serviceTap(action: String): Tap =
 /// rather than the default: [[domainTap]] names each domain's own service, and
 /// knows which domains have none. Still the right answer for an entity whose
 /// domain this library does not know but you do.
-const toggleTap: Tap = serviceTap("homeassistant/toggle")
+const toggleTap: TapAction = serviceTap("homeassistant/toggle")
 
 /// A service call whose service depends on the entity's CURRENT state: `then`
 /// while the state equals `whenState`, `otherwise` in every other state. The
@@ -76,7 +76,7 @@ const toggleTap: Tap = serviceTap("homeassistant/toggle")
 /// The one tap that carries a LIVE expression, so its click slot re-renders on
 /// state change like a value slot does. Prefer a plain [[serviceTap]] wherever a
 /// real `toggle` service exists.
-const function stateServiceTap(whenState: String, then: String, otherwise: String): Tap =
+const function stateServiceTap(whenState: String, then: String, otherwise: String): TapAction =
   new {
     onclick = clickSlot(
       serviceOnclick(#"$state = "\#(whenState)" ? "\#(then)" : "\#(otherwise)""#),
@@ -92,7 +92,7 @@ const function stateServiceTap(whenState: String, then: String, otherwise: Strin
 /// That null is the point: a card turns it into a more-info tap rather than
 /// rendering a pointer cursor over a service that does not exist. The table is
 /// `hass/actions.pkl`; override any single card with `.tap(...)`.
-const function domainTap(e: hass.Entity): Tap? =
+const function domainTap(e: hass.Entity): TapAction? =
   let (action = hassActions.forDomain(e.domain))
     if (action == null) null
     else if (action is hassActions.Call) serviceTap(action.action)
@@ -112,7 +112,7 @@ const local function serviceValueOnclick(action: String, key: String, value: Str
 /// A service call carrying ONE static value: `serviceValueTap("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
-function serviceValueTap(action: String, key: String, value: String): Tap =
+function serviceValueTap(action: String, key: String, value: String): TapAction =
   new { onclick = clickSlot(serviceValueOnclick(action, key, value), false) }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
@@ -120,7 +120,7 @@ function serviceValueTap(action: String, key: String, value: String): Tap =
 /// <base href> (works directly and behind ingress); the `onclick` twin is for
 /// non-anchor cards only and has to build the URL itself, since
 /// `location.assign` does not consult <base href>.
-function navigate(slug: String): Tap = new {
+function navigate(slug: String): TapAction = new {
   href = "d/\(slug)"
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
@@ -129,12 +129,12 @@ function navigate(slug: String): Tap = new {
 /// /sse/popup/close`. Drop a button carrying this inside a popup's content.
 /// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
 /// the signal is what a refresh and a reconnect restore from.
-function closePopup(): Tap = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
+function closePopup(): TapAction = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
-function openPopup(surfaceId: String): Tap =
+function openPopup(surfaceId: String): TapAction =
   new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
@@ -153,7 +153,7 @@ function openPopup(surfaceId: String): Tap =
 // or a candidate set (`q...build()`'s `SetNode`) — this parameter must accept
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
-function openPopupInline(body: nodes.LayoutNode): Tap = new {
+function openPopupInline(body: nodes.LayoutNode): TapAction = new {
   onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_self'); $ui_popups = '\(nodes.NODE_ID)_self'"
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }

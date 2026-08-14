@@ -61,7 +61,7 @@ card = (c.grid) {
         // emitted node is byte-identical (the wire snapshot guards this).
         c.entityCard(dump.entities.sensor_ams_1a4e_u1)
           .value(c.expr(#"$round($number($state), 1) & " V""#))
-          .tap(c.tap.serviceTap("homeassistant/toggle"))
+          .tapAction(c.tap.serviceTap("homeassistant/toggle"))
 
         // Domain-checked: only entities with a sliderSpec row (lights) compile.
         // A slider wants room — span the full grid width.
@@ -87,7 +87,7 @@ card = (c.grid) {
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
       .`else`((e) -> c.entityCard(e)
-        .tap(c.tap.toggleTap)
+        .tapAction(c.tap.toggleTap)
         .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#)))
       .build()
       .fullWidth()

@@ -98,7 +98,7 @@ know.
    (HA `grid_options.columns`), `fullWidth()` (HA `columns: full`), `hug()`
    (shrink to content), and the `cellClass("…")` escape hatch. They append to the node's `cell.classes`
    (never amending the null default) and return the base `LayoutNode` type —
-   chain them AFTER card-specific builders (`c.entityCard(e).tap(…).columns(3)`).
+   chain them AFTER card-specific builders (`c.entityCard(e).tapAction(…).columns(3)`).
    `caseOf` copies a render fn's `cell` onto the emitted `Case`. The `Grid`
    class (`card = "fhgrid"`) is the default top-level container and carries the
    `centered(on: Boolean)` toggle (group-centering, default on); `Row`/`Column`

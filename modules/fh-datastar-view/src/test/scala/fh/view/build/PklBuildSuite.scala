@@ -752,7 +752,7 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tap(c.tap.toggleTap)
+       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggleTap)
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
@@ -1136,8 +1136,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tap = c.tap.toggleTap }
-        |ctor = new c.EntityCard { entity = x; tap = c.tap.toggleTap }
+        |call = (c.entityCard(x)) { tapAction = c.tap.toggleTap }
+        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggleTap }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1150,8 +1150,8 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("builder methods emit the same node JSON as the amend form") {
-    // The fluent config methods (`.tap(...).label(...)`) are pure sugar for the
-    // paren-amend `(c.entityCard(x)) { tap = ...; label = ... }`: each amends
+    // The fluent config methods (`.tapAction(...).label(...)`) are pure sugar for the
+    // paren-amend `(c.entityCard(x)) { tapAction = ...; label = ... }`: each amends
     // `this` and returns the same class, so late binding re-derives `slots` and
     // the emitted node JSON must be byte-identical across all three styles
     // (builder, amend, `new`). Covers EntityCard, Button, and Slider.
@@ -1166,12 +1166,12 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tap(c.tap.toggleTap).label("Office")
-        |cardAmend = (c.entityCard(x)) { tap = c.tap.toggleTap; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tap = c.tap.toggleTap; label = "Office" }
+        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggleTap).label("Office")
+        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggleTap; label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggleTap; label = "Office" }
         |
         |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
-        |btnAmend = new c.Button { label = "Dismiss"; action = c.tap.closePopup() }
+        |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
         |
         |sliderBuilder = c.slider(x).label("Lamp").min(10).max(200)
         |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
@@ -1500,7 +1500,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.tap.toggleTap }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggleTap }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")

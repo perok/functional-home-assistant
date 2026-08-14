@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-14
-- **Scope:** `lib/hass/actions.pkl`, `lib/core/tap.pkl`, `lib/components/{entity,control,moreinfo}.pkl`
+- **Scope:** `lib/hass/actions.pkl`, `lib/core/tap.pkl`, `lib/components/*.pkl`
 - **Refines:** ADR 0001, which made a service action a JSONata value rather than
   a Scala domain table. That still holds — this one replaces *which* JSONata,
   and when there should be none.
@@ -29,9 +29,15 @@ table is allowed to say *nothing*.
 
 ```
 hass/actions.pkl   domain -> Call | CallByState | (absent)
-core/tap.pkl       domainTap(e): Tap?          — the table, as a Tap
+core/tap.pkl       domainTap(e): TapAction?     — the table, as a TapAction
 components/…       defaultTap(e) = domainTap(e) ?? moreInfo(e)
 ```
+
+Every card names it `tapAction`, after HA's own `tap_action`, and it is the only
+property that holds one. `action` is left to mean what it means on the wire and
+in ADR 0001 — a `"<domain>/<service>"` string (`SliderSpec.action`, `Call.action`,
+the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
+`Slider.action` held a service string: one name, two types, on sibling cards.
 
 ### 1. The table says whether, not just which
 
@@ -70,13 +76,34 @@ identity cache. It buys no extra wakeups: the card already tracks its entity for
 the state it displays. Revisit (b) if the state-dependent list grows past a
 two-way conditional — that is the trigger to watch, not the row count.
 
+**You send what you saw, and this is deliberate.** A transform is evaluated
+server-side at render time and its *result* is spliced into the template
+(`Renderer.resolveSlot`), so the markup carries a fully-resolved literal —
+`data-on:click="@post('sse/action/lock/unlock/lock.front', …)"`. Nothing is
+resolved in the browser. The action a card offers was therefore chosen from the
+state that produced the pixels in front of you, and it stays that action until an
+SSE patch replaces the markup. Repeated taps on an unchanged card agree with each
+other and with what is on screen, even once the server's state has moved on.
+
+That is a property (b) would have given up: an intent route resolves at *click*
+time, so a double-tap on a lock reading "locked" would send unlock, then lock —
+silently undoing itself. Here it sends unlock twice, which is what the visible
+affordance promised and is idempotent besides. It generalises past locks: any
+optimistic-looking UI where the screen and the server disagree for a moment
+should honour the screen, because that is what the person acted on.
+
+The seam is the render, not the click, so the honest caveat is that an
+`unavailable` entity does not match `whenState` and falls to `otherwise` — an
+unavailable lock's card offers "lock". Harmless, but the fallback arm is doing
+double duty as "not in the special state" and "we do not know".
+
 ### 3. More-info is the floor, which is why it landed first
 
-`EntityCard.tap` now defaults to `defaultTap(entity)`. Where the domain has no
+`EntityCard.tapAction` now defaults to `defaultTap(entity)`. Where the domain has no
 action, that is `moreInfo(e)` — the popup from issue #106's first half. So
 **nothing renders as clickable-but-dead, and nothing renders as inert either**:
 a card either does the thing its domain implies, or shows you everything it
-knows. `tap = null` is the explicit opt-out.
+knows. `tapAction = null` is the explicit opt-out.
 
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,
@@ -86,7 +113,9 @@ and a Pkl fact holds that line.
 
 ### 4. A pressable card with nothing to press is a build error
 
-`Button`/`Pill`/`Toggle` defaulted to `action ?? toggleTap`. Since the factories
+`Button`/`Pill`/`Toggle` defaulted to `action ?? toggleTap` — the author set
+`action`, a separate derived `tap` did the work, and the split was half of why
+the naming read badly. There is now one `tapAction` property. Since the factories
 require an action this only bit in the amend form, where `(c.button) { label =
 "x" }` posted `homeassistant/toggle` with an *empty* entity id. They now derive
 from their entity where they have one and `throw` where they do not. A button is
@@ -115,6 +144,10 @@ this library does not know but the author does.
   *renamed* would be a wrong row, but HA does not rename services for the same
   reason it does not renumber feature bits. Re-check `/api/services` when syncing
   to a newer HA.
+- **The rename is behaviour-preserving, and the snapshots prove it.** `Tap` →
+  `TapAction`, and `tap`/`action` → `tapAction` on all five cards, touched no
+  wire byte: the checked-in wire snapshots passed untouched across it. That is
+  the same evidence ADR 0015 used for the library split.
 - **This is a breaking behaviour change** (alpha, deliberate): a card that
   previously posted `homeassistant/toggle` for an unrecognised domain now opens
   more-info instead. Any dashboard relying on the old blanket toggle names

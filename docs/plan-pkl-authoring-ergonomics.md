@@ -27,6 +27,12 @@ Render lambdas won: a dynamic branch is a **function of the matched entity**, `(
 
 ## Spike results (all confirmed on pkl-core 0.31.1, our pin, 2026-07-06)
 
+> **Names below are pre-ADR-0016.** The snippets say `tap = …` / `action = …` and
+> the type `Tap`; a card's click property is now `tapAction` everywhere and the
+> type is `TapAction`. The mechanics each snippet demonstrates (late binding,
+> mixins as pipe stages, builder ≡ amend) are unchanged, which is what this
+> section is a record of.
+
 Scratchpad mini-modules mirroring the card classes (hidden props, derived `slots` Mapping with `when` blocks):
 
 - `(c.entityCard(e)) { label = "y"; tap = t }` — amending a parenthesized **method-call result** through an import alias works; the amended value keeps its class (`is EntityCard`), and hidden derived props **late-bind** (setting `tap` in the amend makes the `onclick` slot appear).

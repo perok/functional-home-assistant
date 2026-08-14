@@ -33,21 +33,17 @@ class Button extends nodes.Node {
   }
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
-  hidden action: tapMod.Tap? = null
-  /// The tap actually rendered — late binding re-derives it (and the slots
-  /// below) when a builder amends `action`.
-  ///
-  /// A button is a thing you press, so it must know what pressing it DOES: with
-  /// no `action` and no `entity` there is nothing to derive one from, and this
-  /// fails the build. It used to default to `homeassistant/toggle` with an empty
+  /// What pressing it DOES. Defaults to the entity's domain action where the
+  /// button has an entity — and with neither, this FAILS the build: a button is
+  /// defined by what pressing it does, so not knowing that is not a state it
+  /// should reach. It used to default to `homeassistant/toggle` with an empty
   /// entity id, so `(c.button) { label = "x" }` posted a call that could only
   /// ever error at HA (issue #106).
-  hidden tap: tapMod.Tap =
-    action
-      ?? (if (entity != null) tapMod.domainTap(entity!!) else null)
+  hidden tapAction: tapMod.TapAction =
+    (if (entity != null) tapMod.domainTap(entity!!) else null)
       ?? throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
-  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  inlineSurfaces = tapAction.inlineSurfaces
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
@@ -56,16 +52,16 @@ class Button extends nodes.Node {
     // The anchor form wins when the tap offers one; the other slot is then
     // omitted entirely rather than emitted-and-ignored, so the node JSON says
     // which element it is.
-    when (tap.href != null) {
-      ["href"] = tap.href!!
+    when (tapAction.href != null) {
+      ["href"] = tapAction.href!!
     } else {
-      ["onclick"] = tap.onclick
+      ["onclick"] = tapAction.onclick
     }
   }
   // Fluent config (see [[EntityCard]]'s builder methods).
   function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
-  function action(a: tapMod.Tap): Button = let (self = this) (self) { action = a }
+  function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
 }
 
 /// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
@@ -93,13 +89,12 @@ class Toggle extends nodes.Node {
   }
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null
-  hidden action: tapMod.Tap? = null
   /// Defaults to the entity's domain action. A switch that cannot be switched
   /// is not a thing, so a domain with no action ([[hass_actions]]) fails the
   /// build here rather than rendering a checkbox that does nothing — use
   /// [[EntityCard]] (which falls back to more-info) for those.
-  hidden tap: tapMod.Tap = action ?? tapMod.domainTap(entity) ?? throw(noAction("c.toggle"))
-  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  hidden tapAction: tapMod.TapAction = tapMod.domainTap(entity) ?? throw(noAction("c.toggle"))
+  inlineSurfaces = tapAction.inlineSurfaces
   slots {
     ["entity_id"] = entity.entity_id
     ["label"] = slotMod.labelSlot(entity, label)
@@ -110,10 +105,10 @@ class Toggle extends nodes.Node {
       default = ""
       bypassUnavailable = false
     }
-    ["onclick"] = tap.onclick
+    ["onclick"] = tapAction.onclick
   }
   function label(l: String|slotMod.Expr): Toggle = let (self = this) (self) { label = l }
-  function action(a: tapMod.Tap): Toggle = let (self = this) (self) { action = a }
+  function tapAction(a: tapMod.TapAction): Toggle = let (self = this) (self) { tapAction = a }
 }
 
 /// Static toggle as a call — see [[Toggle]].
@@ -147,30 +142,28 @@ class Pill extends nodes.Node {
   cell = new nodes.Cell { classes { "fh-hug" } }
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
-  hidden action: tapMod.Tap? = null
-  /// See [[Button.tap]] — same rule, same build error.
-  hidden tap: tapMod.Tap =
-    action
-      ?? (if (entity != null) tapMod.domainTap(entity!!) else null)
+  /// See [[Button.tapAction]] — same rule, same build error.
+  hidden tapAction: tapMod.TapAction =
+    (if (entity != null) tapMod.domainTap(entity!!) else null)
       ?? throw(noAction("c.pill"))
-  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  inlineSurfaces = tapAction.inlineSurfaces
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
     }
     ["label"] = slotMod.labelSlot(entity, label)
-    when (tap.href != null) {
-      ["href"] = tap.href!!
+    when (tapAction.href != null) {
+      ["href"] = tapAction.href!!
     } else {
-      ["onclick"] = tap.onclick
+      ["onclick"] = tapAction.onclick
     }
   }
   function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
-  function action(a: tapMod.Tap): Pill = let (self = this) (self) { action = a }
+  function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
 }
 
-/// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
-function button(l: String, a: tapMod.Tap): Button = new Button { label = l; action = a }
-/// The compact form of the same thing: `c.pill("Underetasje", c.navigate("under"))`.
-function pill(l: String, a: tapMod.Tap): Pill = new Pill { label = l; action = a }
+/// A service/navigate button as a call: `c.button("Close", c.tap.closePopup())`.
+function button(l: String, a: tapMod.TapAction): Button = new Button { label = l; tapAction = a }
+/// The compact form of the same thing: `c.pill("Underetasje", c.tap.navigate("under"))`.
+function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapAction = a }

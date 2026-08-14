@@ -209,17 +209,19 @@ facts {
     body.children.toList().first.inlineSurfaces == null
   }
 
-  ["`tap = null` is how a card opts out of being clickable at all"] {
-    local card = (c.entityCard(outside)) { tap = null }
+  ["`tapAction = null` is how a card opts out of being clickable at all"] {
+    local card = (c.entityCard(outside)) { tapAction = null }
     !card.slots.containsKey("tappable")
     !card.slots.containsKey("onclick")
   }
 
   ["a pressable card with nothing to press is a BUILD error"] {
-    // It used to post `homeassistant/toggle` with an empty entity id.
+    // The amend form is the one that could reach it: the factories take an
+    // action, so only `new c.Button { label = ... }` leaves both unset. It used
+    // to post `homeassistant/toggle` with an empty entity id.
     // `slots["onclick"]` and not `slots`: reading the object does not force its
     // entries, so a `catch` over the bare `slots` sees no error at all.
-    module.catch(() -> (c.button("x", c.tap.toggleTap)) { action = null }.slots["onclick"])
+    module.catch(() -> (new c.Button { label = "x" }).slots["onclick"])
       .contains("nothing happens on click")
     // A toggle whose domain cannot be toggled is the same mistake.
     module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
