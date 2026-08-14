@@ -646,9 +646,11 @@ class PklBuildSuite extends munit.FunSuite {
       // only `label` is declared — same shape as `button`/`pill`.
       "toggle" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
+      // No `state`: a slider that holds member rows omits the readout slot
+      // entirely, and a declared slot is one EVERY node of the card must carry
+      // (`icon`/`secondary`/`onclick`/`group` are optional for the same reason).
       "slider" -> List(
         "label",
-        "state",
         "value",
         "action",
         "min",
@@ -1443,6 +1445,102 @@ class PklBuildSuite extends munit.FunSuite {
       !slots.values.exists(_.transform.contains("$lookup")),
       clue = slots.view.mapValues(_.transform).toMap
     )
+  }
+
+  test("a slider with children is the same card, holding ordinary nodes") {
+    // The master resolves its own domain config exactly like a childless
+    // slider — it IS one — and the members arrive as children: their own
+    // cards, with their own entities and their own config.
+    val group = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
+        |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.toggleTap }
+        |""".stripMargin
+    )
+    assertEquals(group.card, "slider")
+    // The one thing the markup takes from having children.
+    assertEquals(group.slots("group").literal, Some("slider-group"))
+    // A head does not repeat a readout its rows already carry.
+    assert(!group.slots.contains("state"), clue = group.slots.keySet)
+    assertEquals(group.slots("entity_id").literal, Some("light.lys"))
+    assertEquals(group.slots("action").literal, Some("light/turn_on"))
+    assertEquals(group.slots("icon").literal, Some("mdi-lightbulb-group"))
+    assert(group.slots.contains("onclick"), clue = group.slots.keySet)
+
+    val members = group.children.collect { case c: LayoutNode.Component => c }
+    assertEquals(members.map(_.card), List("slider", "slider"))
+    assertEquals(
+      members.map(_.slots("entity_id").literal),
+      List(Some("light.a"), Some("cover.blind"))
+    )
+    // Each member keeps its OWN domain's config — the group does not impose the
+    // master's.
+    assertEquals(
+      members.map(_.slots("key").literal),
+      List(Some("brightness"), Some("position"))
+    )
+    // …and reads out its LEVEL rather than its state, off its own range.
+    assert(
+      members.head.slots("state").transform.contains("""& " %""""),
+      clue = members.head.slots("state").transform
+    )
+    assert(
+      members(1).slots("state").transform.contains("$attr.current_position"),
+      clue = members(1).slots("state").transform
+    )
+
+    // A childless slider is the plain row it always was: no group modifier, no
+    // badge, no button, and its state back as the readout.
+    val plain = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = c.slider(light)
+        |""".stripMargin
+    )
+    assertEquals(
+      plain.slots.keySet -- Set("entity_id", "label", "state"),
+      Set("value", "fill", "fillColor", "action", "key", "min", "max", "icon"),
+      clue = plain.slots.keySet
+    )
+    assertEquals(plain.slots("state").transform, "$state")
+    // The badge is the entity's OWN icon, baked as a literal — here the light
+    // domain's default, since this probe entity declares none.
+    assertEquals(plain.slots("icon").literal, Some("mdi-lightbulb"))
+    // …and opting out drops the slot, so the template renders no badge at all.
+    val bare = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = c.slider(light).icon(null)
+        |""".stripMargin
+    )
+    assert(!bare.slots.contains("icon"), clue = bare.slots.keySet)
+  }
+
+  test("a slider's readout takes an expression, not just the two names") {
+    // The named readings are shorthands for expressions needing the axis config
+    // the card resolved — which the author can splice instead of re-deriving:
+    // `percentExpr` and friends are the card's own hidden properties.
+    val own = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |node = (c.slider(light)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
+        |""".stripMargin
+    )
+    val state = own.slots("state")
+    assert(state.transform.contains("$attr.brightness"), clue = state.transform)
+    assert(
+      state.transform.endsWith(""" & " · " & $state"""),
+      clue = state.transform
+    )
+    // …and it can read a DIFFERENT entity, like every other Expr slot.
+    val other = probeComponent(
+      """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
+        |power: hass.GenericEntity = new { entity_id = "sensor.w"; domain = "sensor" }
+        |node = (c.slider(light)).readout(c.exprOf(power, #"$state & " W""#))
+        |""".stripMargin
+    )
+    assertEquals(other.slots("state").entityId, Some("sensor.w"))
+    assertEquals(other.slots("state").transform, """$state & " W"""")
+    // The subject is unchanged — only the readout looks elsewhere.
+    assertEquals(other.slots("entity_id").literal, Some("light.lys"))
   }
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {

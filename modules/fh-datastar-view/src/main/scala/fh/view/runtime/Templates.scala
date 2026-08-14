@@ -20,7 +20,8 @@ import fh.view.model.{CardDef, Dashboard}
 class Templates private (
     val components: Map[String, Template],
     val selves: Map[String, Template],
-    val mounts: Map[String, Template]
+    val mounts: Map[String, Template],
+    val selvesCarryChildren: Set[String]
 )
 
 object Templates {
@@ -45,7 +46,16 @@ object Templates {
       // Compiled alongside `template`, so the patch path is a lookup rather
       // than a re-parse on the hot path.
       selves = part(dashboard, _.self),
-      mounts = part(dashboard, _.mount)
+      mounts = part(dashboard, _.mount),
+      // Which selves actually SPLICE their children (a tab bar's buttons), as
+      // opposed to leaving them all to the mount. The renderer needs it to
+      // decide whether a child's mount can reach this node's own bytes: it
+      // cannot when the self never renders that child at all. Read off the
+      // source because that is the question — a card cannot be asked to declare
+      // it truthfully, and the compiled template does not expose its sections.
+      selvesCarryChildren = dashboard.cards.collect {
+        case (name, cd) if cd.self.exists(_.contains("{{#children}}")) => name
+      }.toSet
     )
 
   private def part(

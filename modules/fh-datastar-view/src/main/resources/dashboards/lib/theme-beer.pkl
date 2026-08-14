@@ -74,6 +74,15 @@ const local mdiVersion: String = "7.4.47"
 const local mdiCdn: String =
   "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
 
+/// The TEXT font BeerCSS's own `--font` stack asks for first and never loads.
+/// Without it every browser falls back to a different system sans, and the
+/// metrics differ enough to move glyphs inside an identically-sized line box —
+/// a label reads centred in one engine and high in another, on the same page,
+/// on the same machine. Localised by `AssetCache` exactly like the icon font,
+/// so the woff2s are served from us.
+const local interCdn: String =
+  "https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin.css"
+
 /// A mapping rendered as CSS custom-property declarations
 /// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
 /// class bodies may only reference `const` module members.
@@ -178,6 +187,7 @@ class BeerTheme extends themeMod.Theme {
   stylesheets {
     "\(beerCdn)/beer.min.css"
     mdiCdn
+    interCdn
   }
 
   // Required by this theme's CSS, not for behavior (which stays Datastar's):
@@ -259,7 +269,26 @@ class BeerTheme extends themeMod.Theme {
        absolutely-positioned overlay filling the card), so it must not take the
        pointer — without this the label and the live value are two dead strips
        the user has to aim around. */
-    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3;pointer-events:none}
+    /* The readout is pushed right rather than the line being `space-between`,
+       because the line has THREE items once a slider carries its entity's icon
+       badge — and "spread evenly" would centre the label between the badge and
+       the readout instead of keeping it next to what it names. */
+    /* Half of BeerCSS's 1rem, matched by the line's own .5rem below: a slider's
+       card is a track edge to edge with text over it, so the inset the eye reads
+       is the LINE's, and the card's job is only to keep a member row's pill
+       clear of the corner radius. The pair reads tighter than the default
+       without the group needing `padding:0` plus a re-add on every part.
+       `--_padding` is BeerCSS's own knob for a card's scale, and other BeerCSS
+       rules read it (fixed header/footer bleed, the `.padding` utilities), so
+       overriding `padding` instead would leave those on the 1rem default. */
+    .slider-card{--_padding:.5rem}
+    /* An explicit line-height, because `normal` is the FONT's own figure: the
+       line box then changes size with whatever font resolved, which is half of
+       how the same markup ends up looking different per engine. 1.5 is what the
+       current stack already computed, so this pins today's rhythm rather than
+       changing it. */
+    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
+    .slider-head>.state{margin-inline-start:auto}
     /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
        "pick this up and move it anywhere". */
     .slider.max,.slider.max>input{cursor:ew-resize}
@@ -283,6 +312,88 @@ class BeerTheme extends themeMod.Theme {
       .slider.max>input{pointer-events:none}
       .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--primary)}
     }
+    /* The card's two structural wrappers. `display:contents` on the self
+       wrapper is deliberate: it is the patch target (`{{selfId}}`), and a
+       boxless one leaves the head and the track laid out by the CARD exactly as
+       they were before the card split into self + mount. The mount is an empty
+       div on every childless slider, which is the whole reason `:empty` is
+       here. */
+    .slider-body{display:contents}
+    .slider-members:empty{display:none}
+    /* A slider that HOLDS sliders. The master's fill is the whole card's
+       background, painted BEHIND the member rows, which is what makes the group
+       read as one control rather than a titled list — `.slider.max` already
+       fills the card, so the group only has to keep the rows on top of it and
+       the drag surface off them.
+
+       The head is the same markup a plain row has: the badge, the second line
+       and the button are pieces a plain row simply does not carry, so only the
+       arrangement changes — a two-row grid with the badge and the button
+       spanning both rows. */
+    .slider-group{overflow:hidden}
+    /* Scoped through `.slider-body` on purpose: `display:contents` removes its
+       BOX, not its place in the DOM, so it still has to appear in a selector —
+       and every one of these rules must miss the members' own heads and
+       tracks, which are `.slider-head`/`.slider.max` too. */
+    /* Rows are DECLARED, not implicit, so the label and its second line are one
+       block of ordinary text: an implicit grid sizes its rows to whatever spans
+       them, and the badge (taller than two lines together) pushed the two lines
+       apart to fill itself. Declaring them makes the text keep its own rhythm
+       and the badge centre against the pair. Same reason the spans say `1/3`
+       rather than `1/-1`: `-1` is the last line of the EXPLICIT grid, which is
+       only well defined now that there is one. */
+    .slider-group>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+      grid-template-rows:auto auto;align-items:center;align-content:center;gap:0 .75rem;
+      min-block-size:4.5rem;box-sizing:border-box}
+    .slider-group>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
+    .slider-group>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
+    .slider-group>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
+    .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
+    .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/3}
+    .slider-icon{display:flex;align-items:center;justify-content:center;
+      inline-size:2rem;block-size:2rem;border-radius:50%;
+      background:var(--surface-container-highest);color:var(--primary)}
+    .slider-icon>i{font-size:1.25rem}
+    /* Bigger on a group's head alone, where the badge reads as a card header
+       rather than a row's icon. */
+    .slider-group>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
+    .slider-group>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
+    .slider-sub{font-size:.8rem;color:var(--on-surface-variant)}
+    /* The one thing in the head that IS a control has to take the pointer back
+       from `.slider-head`'s `pointer-events:none`. */
+    .slider-action{pointer-events:auto;background:var(--surface-container-highest);color:var(--on-surface)}
+    .slider-action.lit{background:var(--primary);color:var(--on-primary)}
+    /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the
+       card, so the master's track — and its painted span — span the WHOLE card,
+       members included. Nothing constrains the master's range input to the head
+       strip either, and it should not: the member rows are painted over it
+       (opaque, stacked below), so a drag lands on the master exactly where its
+       own fill is what the finger is on. */
+    .slider-group>.slider-body>.slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+    /* Above the master's painted `<span>`, which is positioned and would
+       otherwise cover the member rows' own backgrounds — the fill belongs
+       AROUND the rows, not through them. */
+    /* Indented to start where the head's BADGE does, not where its card does —
+       so the rows read as belonging to the head rather than as a second list.
+       It also lands each row's own label at the head's label, since the row is
+       inset by exactly the difference between the two badge sizes. */
+    .slider-members{display:flex;flex-direction:column;gap:.25rem;
+      padding:0 .5rem .5rem;z-index:2}
+    /* A member is an ordinary slider card collapsed onto its own track: card
+       and track share one grid cell, so the label and the live value ride ON
+       the fill instead of sitting in a line above it. Members carry their own
+       surface and no elevation — a shadow over the master's coloured fill reads
+       as grime. */
+    .slider-members .card{display:grid;min-block-size:3rem;margin:0;--_padding:0;
+      background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
+    .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
+    /* Block padding off: a row is sized by `min-block-size`, so its own padding
+       would only make it taller than the pill it is. */
+    .slider-members .slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
+    .slider-members .slider.max{margin:0;block-size:100%}
+    .slider-members .slider.max>input{block-size:100%}
+    .slider-members .slider.max:before{display:none}
+    .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels
