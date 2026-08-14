@@ -273,19 +273,18 @@ class BeerTheme extends themeMod.Theme {
        because the line has THREE items once a slider carries its entity's icon
        badge — and "spread evenly" would centre the label between the badge and
        the readout instead of keeping it next to what it names. */
-    /* The card's own padding is nearly nothing, and the LINE carries the inset
-       instead. A slider's card is a track edge to edge with text over it, so
-       card padding only ever moved the text — while costing the fill's rounded
-       ends and, on a group, forcing `padding:0` plus a re-add on every part.
-       Held at .25rem rather than 0 so a member row's pill still clears the
-       card's own corner radius. */
-    .slider-card{padding:.25rem}
+    /* Half of BeerCSS's 1rem, matched by the line's own .5rem below: a slider's
+       card is a track edge to edge with text over it, so the inset the eye reads
+       is the LINE's, and the card's job is only to keep a member row's pill
+       clear of the corner radius. The pair reads tighter than the default
+       without the group needing `padding:0` plus a re-add on every part. */
+    .slider-card{padding:.5rem}
     /* An explicit line-height, because `normal` is the FONT's own figure: the
        line box then changes size with whatever font resolved, which is half of
        how the same markup ends up looking different per engine. 1.5 is what the
        current stack already computed, so this pins today's rhythm rather than
        changing it. */
-    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.75rem;line-height:1.5;z-index:3;pointer-events:none}
+    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
     .slider-head>.state{margin-inline-start:auto}
     /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
        "pick this up and move it anywhere". */
@@ -333,14 +332,22 @@ class BeerTheme extends themeMod.Theme {
        BOX, not its place in the DOM, so it still has to appear in a selector —
        and every one of these rules must miss the members' own heads and
        tracks, which are `.slider-head`/`.slider.max` too. */
+    /* Rows are DECLARED, not implicit, so the label and its second line are one
+       block of ordinary text: an implicit grid sizes its rows to whatever spans
+       them, and the badge (taller than two lines together) pushed the two lines
+       apart to fill itself. Declaring them makes the text keep its own rhythm
+       and the badge centre against the pair. Same reason the spans say `1/3`
+       rather than `1/-1`: `-1` is the last line of the EXPLICIT grid, which is
+       only well defined now that there is one. */
     .slider-group>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
-      align-items:center;align-content:center;gap:0 .75rem;
+      grid-template-rows:auto auto;align-items:center;align-content:center;gap:0 .75rem;
       min-block-size:4.5rem;box-sizing:border-box}
     .slider-group>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
     .slider-group>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
-    .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/-1}
-    .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/-1}
-    .slider-icon{grid-row:1/-1;display:flex;align-items:center;justify-content:center;
+    .slider-group>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
+    .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
+    .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/3}
+    .slider-icon{display:flex;align-items:center;justify-content:center;
       inline-size:2rem;block-size:2rem;border-radius:50%;
       background:var(--surface-container-highest);color:var(--primary)}
     .slider-icon>i{font-size:1.25rem}
@@ -368,7 +375,7 @@ class BeerTheme extends themeMod.Theme {
        It also lands each row's own label at the head's label, since the row is
        inset by exactly the difference between the two badge sizes. */
     .slider-members{display:flex;flex-direction:column;gap:.25rem;
-      padding:0 .75rem .75rem;z-index:2}
+      padding:0 .5rem .5rem;z-index:2}
     /* A member is an ordinary slider card collapsed onto its own track: card
        and track share one grid cell, so the label and the live value ride ON
        the fill instead of sitting in a line above it. Members carry their own
