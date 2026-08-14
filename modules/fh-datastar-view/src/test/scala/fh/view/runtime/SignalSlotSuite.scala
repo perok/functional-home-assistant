@@ -8,7 +8,11 @@ import fh.view.model.{
   SignalBind,
   SlotSource
 }
+import api.homeassistant.HomeAssistantApi
+import cats.effect.IO
 import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.FakeHomeAssistant
+import fs2.concurrent.SignallingRef
 import fh.view.testkit.TestIds.given
 
 /** Signal slots (ADR 0017): a value that changes without re-rendering its card.
@@ -420,6 +424,66 @@ class SignalSlotSuite extends ServerHarness {
       List(frame(Renderer.signalName(leaf, "value") -> "21.6")),
       clue = events(out).map(_.renderString)
     )
+  }
+
+  test("two frames recorded, then ONE pull: one event at the newest value") {
+    // The coalescing case driven through the REAL `Server.pull` rather than
+    // `Patches.resume`: two versions reach the changelog before this session
+    // pulls at all, and the pull is what has to cover both.
+    //
+    // Deterministic on purpose. The fully end-to-end version — two
+    // `store.update`s racing one session's pull fiber — cannot assert "it
+    // pulled once", because whether the fiber is scheduled in between is
+    // exactly the nondeterminism `LiveWorld.settle` exists to remove. What is
+    // worth pinning is what `pull` does GIVEN a log two versions ahead of the
+    // session, and that is decidable.
+    (for {
+      // The store holds where the entity ENDED UP; the log says it moved twice.
+      // That is the real shape of a coalesced wake — the intermediate value was
+      // never written down anywhere (§6), which is why none can be served.
+      store <- StateStore.inMemory(at("21.6"))
+      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            renderer <- ref.get
+            live <- server.liveSlug("dashboard")
+            session <- Session.create("dashboard")
+            _ <- session.holds.set(documentHolds(renderer, at("21.4")))
+            _ <- sessions.register("c1", session)
+            _ <- live.log.update(_.touched(leaf, 1L).touched(leaf, 2L))
+            // ONE pull, woken for the LATER version — the doorbell having
+            // coalesced 1 into 2.
+            first <- server.pull(live, session, 2L)
+            position <- session.position.get
+            // ...and the gate: nothing is owed for a version already served.
+            again <- server.pull(live, session, 2L)
+          } yield (first, position, again)
+        }
+    } yield out).map { case (first, position, again) =>
+      // ONE event: the frame and the cursor merged, because a value tick puts
+      // no element patch between them.
+      assertEquals(
+        first.map(_.data),
+        List(
+          Some(
+            """signals {"_c__value":"21.6","_cursor":{"storeVersion":2}}"""
+          )
+        ),
+        clue = first.map(_.renderString)
+      )
+      assertEquals(position, 2L)
+      assertEquals(again, Nil)
+    }
   }
 
   test("the cursor merges into a signals-only batch, and not past a morph") {
