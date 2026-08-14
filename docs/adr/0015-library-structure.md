@@ -55,7 +55,7 @@ which is what makes the grouping worth having rather than decorative.
 ## What the editor forced
 
 Measured against pkl-lsp 0.8.0 driven over JSON-RPC, not assumed. Full write-up
-and repro: `docs/pkl-lsp-extends-completion-bug.md`.
+and repro: `docs/issue-report-2-pkl-lsp-extends-completion.md`.
 
 - **Every re-export carries an explicit type.** `hidden tap = tapMod` evaluates
   fine and completes to NOTHING (`unknown`); `hidden tap: tapMod = tapMod`

@@ -17,8 +17,8 @@
 ///
 /// A re-export must carry an explicit TYPE (`hidden tap: tapMod = tapMod`, not
 /// `hidden tap = tapMod`): an untyped one evaluates fine and then completes to
-/// nothing in the editor. See `docs/pkl-lsp-extends-completion-bug.md`, which
-/// also records why this module must never use an `extends` clause.
+/// nothing in the editor. See `docs/issue-report-2-pkl-lsp-extends-completion.md`,
+/// which also records why this module must never use an `extends` clause.
 module components
 
 import "hass.pkl"

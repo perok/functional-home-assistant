@@ -1,11 +1,13 @@
-# pkl-lsp: a module `extends` clause kills completion through that module's properties
+# Issue report 2 — pkl-lsp: a module `extends` clause kills completion through that module's properties
 
-Not filed upstream yet — this is the write-up to file from, when we get to it.
+- **Against:** apple/pkl-lsp **0.8.0** (`.pkl-lsp/pkl-lsp-0.8.0.jar`), JDK 25, Linux
+- **Status:** not filed upstream — this is the write-up to file from
+- **Our workaround:** the `components.pkl` facade never uses `extends`, and every
+  re-export carries an explicit type (ADR 0015)
+
 Found while measuring which namespacing shapes survive editor tooling, before the
-`components.pkl` split (see `docs/adr/0006-pkl-authoring-track.md`).
-
-**Environment:** pkl-lsp **0.8.0** (`.pkl-lsp/pkl-lsp-0.8.0.jar`), JDK 25, Linux.
-Driven over stdio JSON-RPC directly, so no editor is in the loop.
+`components.pkl` split (ADR 0015). Driven over stdio JSON-RPC directly, so no
+editor is in the loop.
 
 ## The bug
 

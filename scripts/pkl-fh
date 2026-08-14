@@ -11,7 +11,7 @@
 # resource allowlist is ALSO checked against the rewritten url, and `pkl:settings`
 # has no `allowedResources` property to lift. The command line is the only
 # remaining lever, and the plugin does not expose it — so we wrap the executable
-# instead. See docs/pkl-issue-http-rewrites-project-resolve.md.
+# instead. See docs/issue-report-1-pkl-cli-http-rewrites-project-resolve.md.
 #
 # Nothing is baked in: instance URLs come from the workspaces' own
 # `.fh/machine.json`, falling back to the rewrite in ~/.pkl/settings.pkl for the
