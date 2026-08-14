@@ -1,0 +1,168 @@
+/// The runtime predicate/candidate-set wire AST — the vocabulary `query.pkl`
+/// builds and the backend decodes.
+///
+/// Authors never write these by hand: there are no free constructors, so a term
+/// always carries a binding (a set's candidate, or the entity `q.entity(e)`
+/// names). This module exists so the query language and the card library can
+/// share the wire shape without depending on each other.
+module core.predicate
+
+import "node.pkl" as nodes
+
+// ---- dynamic groups (the Predicate AST + Mapping-branch DSL) ----
+/// A property-query comparison operator. TYPED — a misspelled op is now a build
+/// error (the backend `Op` decoder is case-insensitive over exactly these).
+typealias PredicateOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
+
+/// The runtime property-query AST. `kind` is the circe discriminator.
+/// Built by `query.pkl`, never by hand — there are no free constructors, so a
+/// term always carries a binding (a set's candidate, or the entity a
+/// `query.entity(e)` names). Combinators are METHODS (methods never render, so
+/// no `hidden` needed): `.and(...)`, `.or(...)`, `.not()` — legal method names,
+/// since the Pkl operators are `&&`/`||`/`!`.
+abstract class Predicate {
+  kind: String
+  /// Matches when BOTH this and `other` match.
+  function and(other: Predicate): PAnd = let (l = this) new PAnd { items { l; other } }
+  /// Matches when EITHER this or `other` matches.
+  function or(other: Predicate): POr = let (l = this) new POr { items { l; other } }
+  /// Matches when this does NOT. (`let (l = this)`: a bare `this` inside the
+  /// `new {}` body rebinds to the freshly-built object, not the receiver.)
+  function not(): PNot = let (l = this) new PNot { item = l }
+}
+
+/// `property <op> value`. `property` is one of `"domain"`, `"state"`,
+/// `"entity_id"`, or `"attr:<name>"`; `value` is Any so a numeric threshold
+/// rides as a JSON number (unlike a slot literal, a query value is not
+/// stringified).
+class Cmp extends Predicate {
+  kind: "cmp" = "cmp"
+  property: String
+  op: PredicateOp
+  value: Any
+  /// Absent means "the subject" — the entity this predicate is attached to,
+  /// which is every predicate written before candidate sets existed. Present
+  /// names a DIFFERENT entity ("show this light while its room's motion sensor
+  /// is on"), resolved at build time by [[query.entity]]; those ids reach the
+  /// reverse index through `SetNode.liveEntities`, or the node is never woken
+  /// by them.
+  entity: String? = null
+}
+
+/// How many of a STATIC candidate list are PRESENT, compared against a number.
+///
+/// No quantifier and no query: over a known list, `any` is `count > 0`, `none`
+/// is `count == 0`, `all` is `count == length`. Built by `query.pkl`'s
+/// `.count()`/`.any()`/`.none()`/`.all()`, never by hand.
+///
+/// `when` holds the guard for the candidates that have one; a candidate absent
+/// from it is unconditionally present. Per-candidate rather than one shared
+/// condition for the same reason a set member's clauses are: a statically-true
+/// term short-circuits a disjunction, so residuals diverge across one set.
+class Count extends Predicate {
+  kind: "count" = "count"
+  candidates: Listing<String>
+  `when`: Mapping<String, Predicate> = new {}
+  op: PredicateOp
+  value: Any
+}
+
+class PAnd extends Predicate {
+  kind: "and" = "and"
+  items: Listing<Predicate>
+}
+
+class POr extends Predicate {
+  kind: "or" = "or"
+  items: Listing<Predicate>
+}
+
+class PNot extends Predicate {
+  kind: "not" = "not"
+  item: Predicate
+}
+
+// ---- candidate sets ----
+//
+// The wire vocabulary only. Authors do not write these — `lib/query.pkl` builds
+// them from a chain (`q.from(...).where(...).render(...)`), and it is the only
+// thing that should. They live here because a set is a LAYOUT NODE, and this
+// module owns the layout vocabulary; putting them in `query.pkl` would split
+// ownership of the wire between two modules.
+//
+// See `docs/adr/0003-dynamic-groups.md` for why membership is static
+// and the runtime decides only presence.
+
+/// One guarded rendering for a member: "if `when` holds, render `node`".
+///
+/// The node is COMPLETE — card, cell, slots, children, all inline — so a clause
+/// cannot be wrong about which member it belongs to, and nothing has to be
+/// looked up or merged to render one. `when = null` is unconditional.
+class SetClause {
+  `when`: Predicate? = null
+  node: nodes.LayoutNode
+}
+
+/// A member is a `cond` expression: clauses are tried in order and the first
+/// whose guard holds decides. FALLING OFF THE END means the member is not
+/// rendered — which is why there is no separate presence field, and why
+/// omitting the `else` is how "only while on" is written.
+class SetMember {
+  clauses: Listing<SetClause>
+}
+
+/// A set over a STATICALLY KNOWN candidate list. The candidates are decided at
+/// build time from the typed dump, so the runtime never invents a member: it
+/// decides presence, and (phase 3) order.
+class SetNode extends nodes.LayoutNode {
+  kind: "set" = "set"
+  /// In render order. When the ordering folded to registry facts this list is
+  /// already sorted: the runtime filters to the present members and preserves
+  /// it, with no comparisons.
+  candidates: Listing<String>
+  /// Lexicographic, most significant first. EMPTY when the whole ordering
+  /// folded to registry facts — then `candidates` is already in render order
+  /// and the runtime compares nothing.
+  orderBy: Listing<SortTerm> = new {}
+  /// Show at most this many PRESENT members, applied after ordering. Every
+  /// candidate still ships: which of them is cut depends on live values, so
+  /// only the runtime can decide it. A cut member is ABSENT from the DOM, not
+  /// hidden in it.
+  limit: Int? = null
+  members: Mapping<String, SetMember>
+}
+
+/// One ordering position. `by` reads a property's VALUE ([[SortProp]]) or
+/// whether a predicate HOLDS ([[SortHolds]], true first under `asc`) — both are
+/// orderings and neither expresses the other.
+class SortTerm {
+  by: SortKey
+  dir: "asc"|"desc" = "asc"
+}
+
+abstract class SortKey {
+  kind: String
+}
+
+class SortProp extends SortKey {
+  kind: "prop" = "prop"
+  /// `state` or `attr:<name>` — the same vocabulary a [[Cmp]] names. Never
+  /// `reg:`: a registry key folds at build time into the candidate order.
+  property: String
+}
+
+class SortHolds extends SortKey {
+  kind: "holds" = "holds"
+  predicate: Predicate
+}
+
+/// The `else` branch's condition, and what [[iff]] makes of a condition the
+/// build already settled as true. An empty conjunction is vacuously true and
+/// reads nothing — unlike [[always]], which compares a subject an [[If]] does
+/// not have. `const` because [[If.inlineSurfaces]] reads it from the class body.
+const alwaysHolds: PAnd = new PAnd { items = new Listing {} }
+
+/// The mirror: an empty disjunction never holds. What [[iff]] makes of a
+/// condition the build settled as false — `q.from(emptyRoom).any()` folds to
+/// `false`, and the branch it guards then simply never shows.
+const neverHolds: POr = new POr { items = new Listing {} }

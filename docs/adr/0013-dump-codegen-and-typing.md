@@ -313,7 +313,7 @@ takes **the group alone** and still knows its subject:
 ```pkl
 c.slider(l)               // the domain's default axis — a light's brightness
 c.slider(l.colourTemp)    // colour temperature, bounds from the light itself
-c.effectPills(l.effects)
+c.light.effectPills(l.effects)
 ```
 
 `Slider` accepts `SlideAxis = hass.Entity|hass.ColourTemp` and pattern-matches

@@ -1,0 +1,126 @@
+/// Taps — what a click DOES, as the whole Datastar expression a card splices
+/// into `data-on:click`.
+///
+/// A tap is either a service call, a navigation (which also carries an `href`,
+/// so a card whose root can be an `<a>` gets real link behaviour), or a surface
+/// open/close. Re-exported as the `c.tap` namespace for authors.
+module core.tap
+
+import "node.pkl" as nodes
+import "slot.pkl" as slotMod
+import "surface.pkl" as surfaceMod
+
+/// A tap descriptor: the whole Datastar click expression, either live (a Slot
+/// reading $entity_id/$domain) or a constant string. A tap that opens
+/// an INLINE popup also carries `inlineSurfaces` (the dialog content); the card
+/// copies it onto the node so the hoist can lift it.
+///
+/// A tap that goes somewhere ([[navigate]]) ALSO sets `href`, and a card that
+/// can be an anchor must prefer it — that is what gives the browser real link
+/// behavior (middle-click, open-in-new-tab, status bar, no JS). `onclick` is
+/// then the equivalent for cards whose root element cannot be an `<a>` (the
+/// `<article>` of [[EntityCard]]), so every card renders the same intent.
+class Tap {
+  onclick: slotMod.Slot|String
+  href: String? = null
+  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+}
+// The default service route (domain/service) for a tap, resolved per entity
+// at runtime ($domain). Scenes/scripts turn_on, buttons press, everything
+// else homeassistant/toggle — same JSONata as components.libsonnet.
+const local defaultRoute =
+  #"($a := $lookup({"scene": "scene/turn_on", "script": "script/turn_on", "button": "button/press", "input_button": "input_button/press"}, $domain); $a ? $a : "homeassistant/toggle")"#
+
+// Wrap a JSONata route expression into the full Datastar click expression
+//   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
+// All app URLs are RELATIVE: they resolve against the page's <base href>
+// (`/` served directly, the ingress prefix behind the HA supervisor proxy).
+//
+// SENDS NO SIGNALS. This route reads nothing from the request body — the
+// domain, service and entity are all in the path — but Datastar's default is to
+// serialise the whole signal store into every request, so without the filter
+// each tap ships `conn`, the four cursor signals and every `ui_*` for the server
+// to ignore. `exclude` is a REGEX (not a glob), so `.*` is "everything";
+// `filterSignals` must be nested or it is silently ignored — see the datastar
+// skill, both verified against the pinned bundle rather than the vendored docs.
+const noSignals = #"{filterSignals:{exclude:'.*'}}"#
+
+const local function serviceOnclick(route: String): String =
+  #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
+    noSignals + #")""#
+
+// A click expression is identity-derived: it inherits the card's entity to
+// resolve $entity_id/$domain, but never varies with state (reactive = false)
+// and must resolve even when the entity is unavailable.
+const local function clickSlot(transformExpr: String): slotMod.Slot = new {
+  transform = transformExpr
+  reactive = false
+  bypassUnavailable = false
+}
+
+/// Service call resolved from the entity's domain (the default tap).
+const toggleTap: Tap = new { onclick = clickSlot(serviceOnclick(defaultRoute)) }
+
+/// Explicit "<domain>/<service>" override, e.g. serviceTap("lock/lock").
+function serviceTap(action: String): Tap =
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\"")) }
+
+// The value-carrying action route: the service call gets `service_data`, with
+// the value riding in the URL PATH (the same route the slider's template posts
+// to). A path segment, so a value containing a space is percent-encoded — the
+// one character that actually shows up in HA's own vocabularies (effect names
+// like "Color loop", preset modes).
+const local function serviceValueOnclick(action: String, key: String, value: String): String =
+  #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
+    + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
+
+/// A service call carrying ONE static value: `serviceValueTap("light/turn_on",
+/// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
+/// the same tap works on any card that has one.
+function serviceValueTap(action: String, key: String, value: String): Tap =
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value)) }
+
+/// Go to dashboard `slug` — an ordinary document load, so the browser owns the
+/// history entry (ADR 0002). The `href` is RELATIVE and resolves against
+/// <base href> (works directly and behind ingress); the `onclick` twin is for
+/// non-anchor cards only and has to build the URL itself, since
+/// `location.assign` does not consult <base href>.
+function navigate(slug: String): Tap = new {
+  href = "d/\(slug)"
+  onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
+}
+
+/// Dismiss the (single, at-a-time) open popup — the id-less `POST
+/// /sse/popup/close`. Drop a button carrying this inside a popup's content.
+/// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
+/// the signal is what a refresh and a reconnect restore from.
+function closePopup(): Tap = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
+
+/// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
+/// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
+/// renders it bare into the `#popups` mount.
+function openPopup(surfaceId: String): Tap =
+  new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
+
+/// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
+/// under this node's `inlineSurfaces["self"]`; the onclick references the future
+/// surface id (`<NODE_ID>_self`) the hoist mints and splices. (Pkl can't
+/// union-dispatch string|node in one function like jsonnet's `openPopup`, so the
+/// registered and inline forms are two named functions — a deliberate API
+/// deviation, see ADR 0006.)
+// The parameter is `body`, NOT `content`: a bare `content` inside the nested
+// `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
+// bind to SurfaceDef's own `content` member (a self-reference → stack overflow),
+// per the Pkl amend-scoping gotcha.
+//
+// Typed `LayoutNode`, not `Node`: `Popup.children` (inherited from [[Node]])
+// is itself `Listing<LayoutNode>` so a container can hold either a component
+// or a candidate set (`q...build()`'s `SetNode`) — this parameter must accept
+// the same widened type or it rejects exactly the case `children` was widened
+// for.
+function openPopupInline(body: nodes.LayoutNode): Tap = new {
+  onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_self'); $ui_popups = '\(nodes.NODE_ID)_self'"
+  inlineSurfaces = new Mapping {
+    ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
+  }
+}

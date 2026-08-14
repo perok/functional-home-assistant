@@ -516,13 +516,16 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     * `componentModules`.
     */
   private val privateComponent =
+    // A card author imports the KIT (`core/node.pkl`), not the shipped
+    // components: `components.pkl` is the dashboard-authoring facade and holds
+    // no card contract at all.
     """module mycards
       |
-      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/core/node.pkl" as nodes
       |
-      |class Gauge extends c.Node {
+      |class Gauge extends nodes.Node {
       |  card = "gauge"
-      |  cardDef = new c.LeafCard {
+      |  cardDef = new nodes.LeafCard {
       |    template = "<article class=\"mine\">{{label}}</article>"
       |    slots { "label" }
       |  }

@@ -1,0 +1,37 @@
+/// Recipes — opinionated whole sections, composed from the shipped cards.
+///
+/// A recipe is a shortcut, never a new mechanism: everything here could be
+/// written out by hand in an entry, and each one is worth having only because
+/// the hand-written version is long and always the same.
+module recipes
+
+import "hass.pkl"
+import "layout.pkl" as layout
+import "components/text.pkl" as textMod
+import "components/slider.pkl" as sliderMod
+
+// ---- floor/area composition (typed-dump driven) ----
+
+/// One section per area of `floor` that HAS lights: the area name as a
+/// [[SectionTitle]] followed by a [[Slider]] per light, each area wrapped in its
+/// own column. The typed counterpart of `overetasje.jsonnet`'s `areaView`,
+/// driven by the generated dump's `Floor.areas` / `Area.lights` member lists
+/// (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never rendered).
+/// Areas with no lights are skipped, so the result is exactly the light-bearing
+/// sections. Returns a [[Column]] so it drops straight into an entry's tree.
+function floorView(floor: hass.Floor): layout.Column = new layout.Column {
+  children {
+    for (area in floor.areas) {
+      when (!area.lights.isEmpty) {
+        new layout.Column {
+          children {
+            textMod.title(area.area_name)
+            for (light in area.lights) {
+              sliderMod.slider(light)
+            }
+          }
+        }
+      }
+    }
+  }
+}

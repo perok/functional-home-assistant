@@ -1,0 +1,90 @@
+/// The containers — grid, row, column.
+///
+/// Not cards you compose so much as the boxes you compose INTO, which is why
+/// they sit beside `components.pkl` rather than inside it. [[Grid]] is the
+/// default top-level container (the HA "sections" feel); per-cell sizing rides
+/// on the `columns(n)`/`fullWidth()`/`hug()` builders from `core/node.pkl`.
+module layout
+
+import "core/node.pkl" as nodes
+
+// `cssClass` is the authoring name (`class` is a Pkl reserved word); it emits
+// the literal slot key `"class"` that the `{{#class}}` template sections read.
+class Row extends nodes.Node {
+  card = "fhrow"
+  // Pure mount: the row IS where its children go, so there is no `self` and
+  // `template` stays the default. No id — nothing fills a row from outside.
+  cardDef = new nodes.ContainerCard {
+    mount = """
+      <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
+}
+
+/// Amendable base instance — `(c.row) { children { ... } }`. The parens are
+/// MANDATORY: Pkl requires them around ANY amend parent that isn't a `new`
+/// expression (qualified reads, method calls, even bare in-scope names).
+/// There is no comma-free call form: function arguments are always
+/// comma-separated, and a typed-object amend body accepts only PROPERTIES
+/// (bare elements/entries need a Listing/Mapping parent — hence `children`).
+hidden row: Row = new Row {}
+
+class Column extends nodes.Node {
+  card = "fhcol"
+  cardDef = new nodes.ContainerCard {
+    mount = """
+      <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden cssClass: String? = null
+  slots {
+    when (cssClass != null) {
+      ["class"] = cssClass!!
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
+}
+/// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
+hidden column: Column = new Column {}
+
+/// 12-column grid container — the DEFAULT top-level container (the HA
+/// "sections" feel): children flow as rows, each cell spanning `columns(n)`
+/// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
+/// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
+/// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
+/// layout contract CSS lives in lib/theme.pkl.
+class Grid extends nodes.Node {
+  card = "fhgrid"
+  cardDef = new nodes.ContainerCard {
+    mount = """
+      <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  hidden cssClass: String? = null
+  /// Group-center the cells: a partial row is centered, a full row fills.
+  /// DEFAULT true; `centered(false)` emits the `fh-start` marker to left-pack.
+  hidden centered: Boolean = true
+  slots {
+    when (cssClass != null || !centered) {
+      ["class"] = new Listing<String> {
+        when (cssClass != null) { cssClass!! }
+        when (!centered) { "fh-start" }
+      }.toList().join(" ")
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
+  /// Toggle group-centering of the cells (see [[centered]] property).
+  function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
+}
+/// Amendable base instance — `(c.grid) { children { ... } }` (see [[row]]).
+hidden grid: Grid = new Grid {}

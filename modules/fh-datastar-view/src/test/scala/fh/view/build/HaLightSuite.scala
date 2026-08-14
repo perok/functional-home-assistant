@@ -2,14 +2,14 @@ package fh.view.build
 
 import fh.view.testkit.PklWorkspace
 
-/** [[HaLight]] and `lib/hass-light.pkl` are two copies of HA's light constants
+/** [[HaLight]] and `lib/hass/light.pkl` are two copies of HA's light constants
   * — the generator's and the author's. This suite is what stops them drifting:
   * every value is read back out of the Pkl source and compared.
   */
 class HaLightSuite extends munit.FunSuite {
 
   private lazy val source: String =
-    os.read(PklWorkspace.resourcesLib / "hass-light.pkl")
+    os.read(PklWorkspace.resourcesLib / "hass" / "light.pkl")
 
   /** The string literals of a `typealias X = "a"|"b"|...` declaration. */
   private def union(name: String): List[String] =
@@ -39,7 +39,7 @@ class HaLightSuite extends munit.FunSuite {
     s"""const $name: Int = (\\d+)""".r
       .findFirstMatchIn(source)
       .map(_.group(1).toInt)
-      .getOrElse(fail(s"no `const $name` in hass-light.pkl"))
+      .getOrElse(fail(s"no `const $name` in hass/light.pkl"))
 
   test("ColorMode union matches HaLight.ColorModes") {
     assertEquals(union("ColorMode"), HaLight.ColorModes)

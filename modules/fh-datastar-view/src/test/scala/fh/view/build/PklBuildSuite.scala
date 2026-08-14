@@ -119,7 +119,7 @@ class PklBuildSuite extends munit.FunSuite {
     // `unrelated.pkl` exclusion still guards against the all-*.pkl superset
     // fallback (which would sweep both the alias target and the orphan in).
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "unrelated.pkl",
       """module unrelated
@@ -157,17 +157,12 @@ class PklBuildSuite extends munit.FunSuite {
     * even for `@fh-dashboard`-only probes; [[writeDump]] overrides it with real
     * content when a probe imports the dump.
     */
-  private def copyLib(tmp: os.Path, names: String*): Unit = {
+  private def copyLib(tmp: os.Path): Unit = {
     PklWorkspace.bootstrap(tmp)
-    os.makeDir.all(tmp / "lib")
-    // `hass.pkl` imports its vendored HA-constants sibling, so a probe that
-    // copies one and not the other fails with "Cannot find module". Pulled in
-    // here rather than at all 18 call sites.
-    val withSiblings =
-      if (names.contains("hass.pkl")) names :+ "hass-light.pkl" else names
-    withSiblings.distinct.foreach(n =>
-      os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib")
-    )
+    // The WHOLE tree, not a named subset: the library is a graph of modules
+    // across `core/`, `components/` and the roots, and a probe that copied only
+    // the files it names would fail on whatever those import.
+    os.copy(PklWorkspace.resourcesLib, tmp / "lib", replaceExisting = true)
   }
 
   /** Re-seed the `@fh-home` package from `source`, so a probe that imports
@@ -235,7 +230,7 @@ class PklBuildSuite extends munit.FunSuite {
       port: Int,
       version: String
   ): Unit = {
-    copyLib(tmp, "hass.pkl")
+    copyLib(tmp)
     writeThirdPartyManifest(tmp, port, version)
     os.write.over(
       tmp / "probe.pkl",
@@ -321,7 +316,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("hass.pkl types the dump's entity shapes with a generic fallback") {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -521,7 +516,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     // And the rendered module must actually evaluate, dot-paths included.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl")
+    copyLib(tmp)
     writeDump(tmp, src)
     os.write(
       tmp / "probe.pkl",
@@ -544,7 +539,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl")
+    copyLib(tmp)
     writeDump(tmp, PklDump.render(fakeTransformedDump))
     os.write(
       tmp / "probe.pkl",
@@ -576,7 +571,7 @@ class PklBuildSuite extends munit.FunSuite {
     // the Theme contract every implementation module must satisfy (the wire
     // snapshots additionally pin the beer theme's full JSON).
     val tmp = os.temp.dir()
-    copyLib(tmp, "theme.pkl", "theme-beer.pkl", "tokens.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -629,7 +624,7 @@ class PklBuildSuite extends munit.FunSuite {
     // `cardDef`). The key set must be EXACTLY the card classes — no strays
     // from non-card classes (Tab, Case, SliderSpec, ...), and nothing missing.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -748,7 +743,7 @@ class PklBuildSuite extends munit.FunSuite {
        |    body {
        |      c.title("Detail")
        |      c.entityCard(dump.entities.sensor_outside_temp)
-       |      c.button("Close", c.closePopup())
+       |      c.button("Close", c.tap.closePopup())
        |    }
        |  }
        |}
@@ -757,18 +752,18 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tap(c.toggleTap)
+       |    c.entityCard(dump.entities.light_kitchen).tap(c.tap.toggleTap)
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
        |      .where(q.eq(q.stateProp, "on"))
        |      .render((e) -> c.entityCard(e))
        |      .build()
-       |    c.button("Detail…", c.openPopup("detail"))
-       |    c.button("Inline…", c.openPopupInline(new c.Column {
+       |    c.button("Detail…", c.tap.openPopup("detail"))
+       |    c.button("Inline…", c.tap.openPopupInline(new c.Column {
        |      children {
        |        c.title("Inline")
-       |        c.button("Close", c.closePopup())
+       |        c.button("Close", c.tap.closePopup())
        |      }
        |    }))
        |  }
@@ -941,7 +936,7 @@ class PklBuildSuite extends munit.FunSuite {
     */
   private def probeComponent(body: String): LayoutNode.Component = {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       s"""module probe
@@ -988,7 +983,7 @@ class PklBuildSuite extends munit.FunSuite {
     */
   private def probeSet(body: String): LayoutNode.SetNode = {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
+    copyLib(tmp)
     writeDump(tmp, PklDump.render(setDump))
     os.write(
       tmp / "probe.pkl",
@@ -1126,7 +1121,7 @@ class PklBuildSuite extends munit.FunSuite {
     // JSON must be byte-identical. Evaluate both through the fake-dump pipeline
     // and compare the raw `card`/`ctor` node JSON (not just the decoded model).
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1136,8 +1131,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tap = c.toggleTap }
-        |ctor = new c.EntityCard { entity = x; tap = c.toggleTap }
+        |call = (c.entityCard(x)) { tap = c.tap.toggleTap }
+        |ctor = new c.EntityCard { entity = x; tap = c.tap.toggleTap }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1156,7 +1151,7 @@ class PklBuildSuite extends munit.FunSuite {
     // the emitted node JSON must be byte-identical across all three styles
     // (builder, amend, `new`). Covers EntityCard, Button, and Slider.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1166,12 +1161,12 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tap(c.toggleTap).label("Office")
-        |cardAmend = (c.entityCard(x)) { tap = c.toggleTap; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tap = c.toggleTap; label = "Office" }
+        |cardBuilder = c.entityCard(x).tap(c.tap.toggleTap).label("Office")
+        |cardAmend = (c.entityCard(x)) { tap = c.tap.toggleTap; label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tap = c.tap.toggleTap; label = "Office" }
         |
-        |btnBuilder = c.button("Close", c.closePopup()).label("Dismiss")
-        |btnAmend = new c.Button { label = "Dismiss"; action = c.closePopup() }
+        |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
+        |btnAmend = new c.Button { label = "Dismiss"; action = c.tap.closePopup() }
         |
         |sliderBuilder = c.slider(x).label("Lamp").min(10).max(200)
         |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
@@ -1194,7 +1189,7 @@ class PklBuildSuite extends munit.FunSuite {
     // `cellClass`) append to the node-level `cell.classes`; the emitted JSON
     // must be byte-identical to assigning the `cell` property.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1223,8 +1218,8 @@ class PklBuildSuite extends munit.FunSuite {
         |// one), so it survives a span and composes with it rather than being
         |// replaced. A Pill defaults to it, the same self-defaulted-cell move.
         |hugged = c.entityCard(x).hug()
-        |pill = c.pill("Underetasje", c.navigate("under"))
-        |pillSized = c.pill("Underetasje", c.navigate("under")).columns(6)
+        |pill = c.pill("Underetasje", c.tap.navigate("under"))
+        |pillSized = c.pill("Underetasje", c.tap.navigate("under")).columns(6)
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1256,7 +1251,7 @@ class PklBuildSuite extends munit.FunSuite {
     "Grid group-centering: default emits no marker, centered(false) emits fh-start"
   ) {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1319,7 +1314,7 @@ class PklBuildSuite extends munit.FunSuite {
     // across chained calls (late binding) — so the two authoring forms must
     // emit byte-identical node JSON.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1357,7 +1352,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("q.entity names the entity on the term, not as a property test") {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl", "query.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1410,7 +1405,8 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("a navigating button is an anchor: `href`, and no onclick at all") {
-    val nav = probeComponent("""node = c.button("Home", c.navigate("other"))""")
+    val nav =
+      probeComponent("""node = c.button("Home", c.tap.navigate("other"))""")
     // Relative, so it resolves against the page's <base href> (ingress-safe),
     // and it is a literal — nothing about a link depends on live state.
     assertEquals(nav.slots("href").literal, Some("d/other"))
@@ -1419,7 +1415,7 @@ class PklBuildSuite extends munit.FunSuite {
     // template's `{{^href}}` arm is what renders it.
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.toggleTap).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.toggleTap).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     assert(toggle.slots("onclick").transform.contains("@post"))
@@ -1499,7 +1495,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.toggleTap }
+        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tap = c.tap.toggleTap }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
@@ -1589,7 +1585,7 @@ class PklBuildSuite extends munit.FunSuite {
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       """module probe
@@ -1612,7 +1608,7 @@ class PklBuildSuite extends munit.FunSuite {
     */
   private def cardShapeAccepted(body: String): Boolean = {
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     os.write(
       tmp / "probe.pkl",
       s"""module probe
@@ -1691,7 +1687,7 @@ class PklBuildSuite extends munit.FunSuite {
     // column (stue), skipping the light-less `bad`, each area column holding a
     // sectionTitle(area_name) + a slider per light.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     val fakeDump = io.circe.parser
       .parse("""
         {
@@ -1735,7 +1731,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-home/dump.pkl" as dump
         |
-        |node = c.floorView(dump.over)
+        |node = c.recipes.floorView(dump.over)
         |""".stripMargin
     )
 
@@ -1884,7 +1880,7 @@ class PklBuildSuite extends munit.FunSuite {
         """  colourModes = new Listing { "color_temp"; "xy" }
           |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }
           |  effects = new hass.Effects { owner = l; list = new Listing { "off"; "Color loop" } }""".stripMargin,
-        "c.lightControls(l)"
+        "c.light.controls(l)"
       )
     )
     assertEquals(col.card, "fhcol")
@@ -1909,7 +1905,7 @@ class PklBuildSuite extends munit.FunSuite {
     val col = probeComponent(
       lightProbe(
         """  colourModes = new Listing { "onoff" }""",
-        "c.lightControls(l)"
+        "c.light.controls(l)"
       )
     )
     val kids = col.children.collect { case c: LayoutNode.Component => c }
@@ -1924,7 +1920,7 @@ class PklBuildSuite extends munit.FunSuite {
     // off a `List<hass.LightEntity>` still meets `ColourTemp?` and still has
     // to be guarded. One name, two views.
     val tmp = os.temp.dir()
-    copyLib(tmp, "hass.pkl", "components.pkl")
+    copyLib(tmp)
     val fakeDump = io.circe.parser
       .parse("""
         {

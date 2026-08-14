@@ -116,9 +116,9 @@ class PklDumpMembersSuite extends munit.FunSuite {
       )
     )
     // Assigned, not declared: the types and the `List()` defaults live in
-    // `@fh-dashboard/dump-base.pkl`, which the module extends.
+    // `@fh-dashboard/internal/dump-base.pkl`, which the module extends.
     assert(
-      src.contains("""extends "@fh-dashboard/dump-base.pkl""""),
+      src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
     )
     assert(src.contains("lights = List(e_light_a, e_light_b)"), clue = src)
@@ -144,7 +144,7 @@ class PklDumpMembersSuite extends munit.FunSuite {
     assert(!src.contains("lights ="), clue = src)
     assert(!src.contains("generic ="), clue = src)
     assert(
-      src.contains("""extends "@fh-dashboard/dump-base.pkl""""),
+      src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
     )
   }

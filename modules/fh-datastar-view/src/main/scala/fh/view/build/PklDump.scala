@@ -74,7 +74,7 @@ object PklDump {
          |
          |entities: Entities = new {}""".stripMargin
 
-    // The house-wide lists. DECLARED in `@fh-dashboard/dump-base.pkl` (which
+    // The house-wide lists. DECLARED in `@fh-dashboard/internal/dump-base.pkl` (which
     // this module extends) and merely filled here — so a home with no switches
     // answers `List()` rather than "Cannot find property", and the starter
     // dashboard can query them without having seen this dump. `all` is derived
@@ -234,7 +234,7 @@ object PklDump {
        |/// defaults, not properties this generator has to remember to emit.
        |/// `extends` rather than `amends` because an amending module may not
        |/// declare classes, and a dump is mostly classes.
-       |extends "@fh-dashboard/dump-base.pkl"
+       |extends "@fh-dashboard/internal/dump-base.pkl"
        |
        |import "@fh-dashboard/hass.pkl"
        |

@@ -101,7 +101,7 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 - **`fh-codegen-plugin`** — The actual code generators. `fh.codegen.Plugin` is the `IOApp` entry point invoked by the sbt task; it fetches services/entities/devices/manifests/config-entries/triggers from the API and runs `CodeGenEntities`, `CodeGenDevices`, `CodeGenServices`, `CodeGenConfigEntries`, `CodeGenManifests`. `ThingReference[T]` is the central abstraction — a named, packaged unit of generated code that knows its own file path and package. Generation uses plain string templating (scalameta does not support Scala 3 / Dotty).
 - **`home-codegen`** — Output target for generated code (under `ha.generated.*`). Enables the `FHCodegenPlugin`. Contents are gitignored.
 - **`home`** — The runnable application (`AppHome`, an `IOApp.Simple`). Depends on `ha-api` and `home-codegen`, so automations here can reference generated devices/entities by name.
-- **`fh-datastar-view`** — A simpler HA web frontend (port of the TS prototype in `../ha-frontend`). Has its own `CLAUDE.md`.
+- **`fh-datastar-view`** — A simpler HA web frontend (port of the TS prototype in `../ha-frontend`). Has its own `CLAUDE.md`. Its Pkl authoring library is split by AUDIENCE (ADR 0015): `lib/core/` is what a component author extends, `lib/components.pkl` + `lib/components/` is what a dashboard author writes against.
 - **`fh-api`, `fh-automation`** — Stubs / WIP (marked "TODO needed?" in build.sbt).
 
 ### `fh-datastar-view` — the Datastar dashboard

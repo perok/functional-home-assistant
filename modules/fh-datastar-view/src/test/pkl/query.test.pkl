@@ -81,7 +81,7 @@ facts {
     // is settled at build time and neither clause carries a guard.
     local s = q.from(stue)
       .caseOf(q.candidate((e) -> (e as hass.LightEntity).supportsFlash), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off-duty", c.navigate("/")))
+      .`else`((e) -> c.pill("off-duty", c.tap.navigate("/")))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
@@ -95,7 +95,7 @@ facts {
     // fallback. Order is author order, which IS match order.
     local s = q.from(stue)
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("off", c.navigate("/")))
+      .`else`((e) -> c.pill("off", c.tap.navigate("/")))
       .build()
     memberOf.apply(s, "light.taklys").length == 2
     memberOf.apply(s, "light.taklys")[0].`when`.property == "state"
@@ -348,7 +348,7 @@ facts {
     local s = q.from(allEnts)
       .cases(new Mapping {
         [q.eq(q.prop("domain"), "light")] = (e) -> c.entityCard(e)
-        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.navigate("/"))
+        [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.tap.navigate("/"))
       })
       .build()
     memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
@@ -380,7 +380,7 @@ facts {
     // reaches the wire.
     local s = q.from(stue)
       .caseOf(q.candidate((_e) -> true), (e) -> c.entityCard(e))
-      .`else`((e) -> c.pill("never", c.navigate("/")))
+      .`else`((e) -> c.pill("never", c.tap.navigate("/")))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"

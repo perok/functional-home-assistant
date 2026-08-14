@@ -1,0 +1,86 @@
+/// More-info: everything we know about one entity, in a popup.
+///
+/// The entity as a card, the controls its domain has, and its raw facts. What
+/// makes a tap on a NON-actionable entity do something rather than nothing —
+/// see issue #106. HA's own more-info also carries history and settings;
+/// neither is here.
+module components.moreinfo
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "../layout.pkl" as layout
+import "control.pkl" as control
+import "entity.pkl" as entityMod
+import "light.pkl" as light
+
+/// The raw facts about an entity: its id, and every attribute it currently
+/// reports as one `name: value` line each. The information half of a more-info
+/// popup ([[moreInfoBody]]); the controls half is composed alongside it.
+///
+/// The attribute lines are ONE live slot rather than a card per attribute,
+/// because which attributes an entity reports is a runtime fact and a template
+/// has no loop — so a text block a transform formats is the only shape that can
+/// show all of them (see [[ATTR_LINES]]).
+class EntityInfo extends nodes.Node {
+  card = "entityInfo"
+  cardDef = new nodes.LeafCard {
+    template = """
+      <div class="card entity-info">
+        <code class="entity-info-id">{{entity_id}}</code>{{#attributes}}
+        <pre class="entity-info-attrs">{{attributes}}</pre>{{/attributes}}
+      </div>
+      """
+    slots { "entity_id"; "attributes" }
+  }
+  hidden entity: hass.Entity
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["attributes"] = new slotMod.Slot { transform = ATTR_LINES; default = "" }
+  }
+}
+
+/// The raw facts about an entity as a call — see [[EntityInfo]].
+function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
+
+// Every attribute the entity currently reports, one `name: value` line each,
+// sorted by name — HA's payload order is not stable and an unsorted block would
+// reshuffle under the reader on an unrelated change. Non-string values
+// ($string-ed) show as their JSON, so an `rgb_color` reads `[255,0,10]`. An
+// entity with no attributes yields null, which the slot's "" default collapses.
+const local ATTR_LINES =
+  #"$join($sort($each($attr, function($v, $k) { $k & ": " & $string($v) })), "\n")"#
+
+// ---- more-info ----
+
+/// What a more-info popup holds: the entity as a card (icon, name, live state),
+/// the controls its domain supports, and its raw facts ([[EntityInfo]]).
+/// HA's own more-info dialog also carries history and settings; neither is here.
+///
+/// Only `light` contributes controls, because [[lightControls]] is the only
+/// domain composition that exists — every other domain gets the card and the
+/// facts, which is the whole point: a popup that always has SOMETHING to show is
+/// what lets a tap on a non-actionable entity open this instead of doing nothing.
+function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
+  children {
+    entityMod.entityCard(e)
+    when (e is hass.LightEntity) {
+      light.controls(e as hass.LightEntity)
+    }
+    entityInfo(e)
+    control.button("Close", tapMod.closePopup())
+  }
+}
+
+/// Open `e`'s more-info popup — `c.entityCard(e).tap(c.moreInfo(e))`, or
+/// `c.entityCard(e) |> c.informative` where the card already names it.
+/// An INLINE popup ([[openPopupInline]]): the body is this entity's, so there is
+/// no registered surface to share and the hoist mints the id.
+function moreInfo(e: hass.Entity): tapMod.Tap = tapMod.openPopupInline(moreInfoBody(e))
+
+
+/// The more-info-on-tap addition: `c.entityCard(x) |> c.informative`. Reads the
+/// card's OWN entity, so `x` is named once (where `.tap(c.moreInfo(x))` names it
+/// twice). See [[moreInfo]].
+informative: Mixin<entityMod.EntityCard> = new { tap = moreInfo(entity) }

@@ -14,9 +14,10 @@ module hass
 // HA's own `light` domain constants (ColorMode, LightEntityFeature), vendored.
 // Re-exported below as `ColorMode` so the generated dump can type its colour
 // modes without a second import. (A `///` doc comment cannot attach to an
-// import in Pkl — it is a parse error.) The `as` alias is REQUIRED: Pkl binds an
-// import to its FILE name, and `hass-light` is not a legal identifier.
-import "hass-light.pkl" as hassLight
+// import in Pkl — it is a parse error.) The `as` alias keeps the reading clear:
+// a bare `import "hass/light.pkl"` would bind the name `light`, which reads as a
+// light ENTITY rather than as HA's light-domain constants.
+import "hass/light.pkl" as hassLight
 
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
 

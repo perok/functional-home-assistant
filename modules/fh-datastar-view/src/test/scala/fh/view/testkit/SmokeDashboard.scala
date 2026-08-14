@@ -50,7 +50,7 @@ object SmokeDashboard {
        |    body {
        |      c.title("Kitchen Detail")
        |      c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
-       |      c.button("Close", c.closePopup())
+       |      c.button("Close", c.tap.closePopup())
        |    }
        |  }
        |}
@@ -59,8 +59,8 @@ object SmokeDashboard {
        |  children {
        |    c.title("Smoke House")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
-       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tap(c.openPopup("detail"))
-       |    c.button("Toggle Kitchen", c.serviceTap("light/toggle")).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tap(c.tap.openPopup("detail"))
+       |    c.button("Toggle Kitchen", c.tap.serviceTap("light/toggle")).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    (c.tabs) {
        |      tabs {

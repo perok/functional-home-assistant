@@ -11,7 +11,7 @@
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
-import "../../main/resources/dashboards/lib/dump-base.pkl" as dumpBase
+import "../../main/resources/dashboards/lib/internal/dump-base.pkl" as dumpBase
 
 const local bulb: hass.LightEntity = new { entity_id = "light.a"; area_id = "stue" }
 const local temp: hass.SensorEntity = new { entity_id = "sensor.t"; area_id = "stue" }

@@ -1,0 +1,157 @@
+/// Icon resolution — the MDI name a card shows for an entity, in Home
+/// Assistant's own order: the entity's own `icon` attribute (a user or
+/// integration override) beats its device_class, which beats its domain.
+///
+/// Shared, because more than one card wants it (an entity card's header, a
+/// slider's badge) and because a third-party card should be able to look like a
+/// shipped one without copying the tables.
+module core.icon
+
+import "../hass.pkl"
+
+// ---- entity icons ----
+//
+// Names are MDI (`mdi:thermometer`) throughout, because that is what HOME
+// ASSISTANT's own icons are: an entity's `icon` attribute is whatever its user
+// or integration set, and translating those into another icon set is a lossy
+// table with no end. The theme loads the MDI stylesheet; see `theme-beer.pkl`
+// for its weight and the build-time SVG inlining that should replace it.
+//
+// Measured on a real instance (1069 entities): only 24% carry an `icon` at all.
+// HA's frontend derives the rest from domain + device_class + state, and that
+// derivation never crosses the wire — so these tables are not a nicety, they
+// are what three quarters of the cards render.
+
+/// Per device_class, where the domain alone is too coarse — a `temperature`
+/// sensor should not look like a `humidity` one. Tried BEFORE [[domainIcons]].
+///
+/// One table, not one per domain: HA keys these by (domain, device_class) and a
+/// few names genuinely differ, but the overlap is small and a single table is
+/// the version worth maintaining by hand. State-dependent icons (HA shows a
+/// door open vs closed) are deliberately out — an icon resolved at build time
+/// cannot vary with state, and making it live would put a JSONata transform
+/// back on every card to save one glyph.
+const deviceClassIcons: Mapping<String, String> = new {
+  ["temperature"] = "mdi:thermometer"
+  ["humidity"] = "mdi:water-percent"
+  ["pressure"] = "mdi:gauge"
+  ["atmospheric_pressure"] = "mdi:thermometer-lines"
+  ["battery"] = "mdi:battery"
+  ["power"] = "mdi:flash"
+  ["energy"] = "mdi:lightning-bolt"
+  ["voltage"] = "mdi:sine-wave"
+  ["current"] = "mdi:current-ac"
+  ["illuminance"] = "mdi:brightness-5"
+  ["signal_strength"] = "mdi:wifi"
+  ["timestamp"] = "mdi:clock"
+  ["duration"] = "mdi:progress-clock"
+  ["data_size"] = "mdi:database"
+  ["data_rate"] = "mdi:transmission-tower"
+  ["carbon_dioxide"] = "mdi:molecule-co2"
+  ["pm25"] = "mdi:blur"
+  ["pm10"] = "mdi:blur"
+  ["water"] = "mdi:water"
+  ["gas"] = "mdi:meter-gas"
+  ["door"] = "mdi:door-open"
+  ["garage_door"] = "mdi:garage-open"
+  ["window"] = "mdi:window-open"
+  ["opening"] = "mdi:square-outline"
+  ["motion"] = "mdi:motion-sensor"
+  ["occupancy"] = "mdi:home-account"
+  ["presence"] = "mdi:home"
+  ["moisture"] = "mdi:water-alert"
+  ["smoke"] = "mdi:smoke-detector"
+  ["problem"] = "mdi:alert-circle"
+  ["connectivity"] = "mdi:lan-connect"
+  ["update"] = "mdi:package-up"
+  ["running"] = "mdi:play"
+  ["lock"] = "mdi:lock"
+  ["safety"] = "mdi:shield-check"
+  ["tamper"] = "mdi:hand-back-right"
+  ["sound"] = "mdi:music-note"
+  ["vibration"] = "mdi:vibrate"
+  ["plug"] = "mdi:power-plug"
+  ["shutter"] = "mdi:window-shutter"
+  ["blind"] = "mdi:blinds"
+  ["curtain"] = "mdi:curtains"
+  ["awning"] = "mdi:awning-outline"
+  ["enum"] = "mdi:format-list-bulleted"
+}
+
+/// Per domain — the last resort before no icon at all. Covers every domain the
+/// reference instance reports; an unlisted one yields null and the template
+/// section renders nothing, which is the right failure (a wrong glyph is worse
+/// than none).
+const domainIcons: Mapping<String, String> = new {
+  ["light"] = "mdi:lightbulb"
+  ["switch"] = "mdi:toggle-switch-variant"
+  ["input_boolean"] = "mdi:toggle-switch-variant"
+  ["sensor"] = "mdi:eye"
+  ["binary_sensor"] = "mdi:radiobox-blank"
+  ["lock"] = "mdi:lock"
+  ["cover"] = "mdi:window-shutter"
+  ["climate"] = "mdi:thermostat"
+  ["fan"] = "mdi:fan"
+  ["media_player"] = "mdi:speaker"
+  ["camera"] = "mdi:video"
+  ["person"] = "mdi:account"
+  ["device_tracker"] = "mdi:account-arrow-right"
+  ["scene"] = "mdi:palette"
+  ["script"] = "mdi:script-text"
+  ["automation"] = "mdi:robot"
+  ["vacuum"] = "mdi:robot-vacuum"
+  ["lawn_mower"] = "mdi:robot-mower"
+  ["weather"] = "mdi:weather-partly-cloudy"
+  ["button"] = "mdi:gesture-tap-button"
+  ["number"] = "mdi:ray-vertex"
+  ["input_number"] = "mdi:ray-vertex"
+  ["select"] = "mdi:form-select"
+  ["input_select"] = "mdi:form-select"
+  ["text"] = "mdi:form-textbox"
+  ["input_text"] = "mdi:form-textbox"
+  ["date"] = "mdi:calendar"
+  ["datetime"] = "mdi:calendar-clock"
+  ["time"] = "mdi:clock"
+  ["calendar"] = "mdi:calendar"
+  ["event"] = "mdi:calendar-clock"
+  ["image"] = "mdi:image"
+  ["update"] = "mdi:package-up"
+  ["sun"] = "mdi:white-balance-sunny"
+  ["zone"] = "mdi:map-marker-radius"
+  ["notify"] = "mdi:message"
+  ["conversation"] = "mdi:forum"
+  ["siren"] = "mdi:bullhorn"
+  ["valve"] = "mdi:pipe-valve"
+  ["water_heater"] = "mdi:water-boiler"
+  ["humidifier"] = "mdi:air-humidifier"
+  ["alarm_control_panel"] = "mdi:shield-home"
+}
+
+/// `mdi:thermometer` -> `mdi-thermometer`, the class the MDI stylesheet styles.
+/// Accepts either spelling so an author's `.icon("mdi-foo")` also works.
+const function mdiClass(name: String): String =
+  name.replaceFirst("mdi:", "mdi-")
+
+/// The icon for an entity, resolved AT BUILD TIME, in Home Assistant's own
+/// order: the entity's own `icon` attribute (a user or integration override)
+/// beats its device_class, which beats its domain.
+///
+/// `getPropertyOrNull` rather than a declared field, because ADR 0013 puts
+/// capability attributes on the class generated PER ENTITY — an entity that
+/// reports no `icon` has no such property, and reading it directly is an eval
+/// error rather than a null.
+///
+/// A non-MDI override falls THROUGH to the tables: a custom icon set (this
+/// instance has six `hue:` entities from a HACS integration) ships no glyph
+/// here, and a class the stylesheet does not define renders as blank space —
+/// visibly worse than the domain default.
+const function iconFor(e: hass.Entity?): String? =
+  if (e == null) null
+  else
+    let (own = e.getPropertyOrNull("icon"))
+    let (dc = e.getPropertyOrNull("device_class"))
+      if (own is String && own.startsWith("mdi:")) mdiClass(own)
+      else if (dc is String && deviceClassIcons.containsKey(dc))
+        mdiClass(deviceClassIcons[dc])
+      else if (domainIcons.containsKey(e.domain)) mdiClass(domainIcons[e.domain])
+      else null

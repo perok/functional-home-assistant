@@ -1,0 +1,22 @@
+/// Static text cards.
+module components.text
+
+import "../core/node.pkl" as nodes
+
+/// Static title text (not bound to an entity).
+class SectionTitle extends nodes.Node {
+  card = "sectionTitle"
+  cardDef = new nodes.LeafCard {
+    template = """
+      <h2 class="section">{{label}}</h2>
+      """
+    slots { "label" }
+  }
+  hidden text: String
+  slots {
+    ["label"] = text
+  }
+}
+
+/// Static title text as a call: `c.title("Active now")`.
+function title(t: String): SectionTitle = new SectionTitle { text = t }

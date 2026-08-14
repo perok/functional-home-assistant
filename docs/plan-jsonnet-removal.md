@@ -55,7 +55,7 @@ JSON of the Pkl demo entries so every phase below is byte-identity-checked by
 
 **LANDED.** `lib/entry.pkl` base module (entries `amends` it; required `card`, optional
 `title`/`surfaces`/`theme`; the missing-`card` error points at `entry.pkl` and its doc comment
-explains where the real fix is), `c.floorView(floor)`, and the per-dashboard `<title>` backend
+explains where the real fix is), `c.recipes.floorView(floor)`, and the per-dashboard `<title>` backend
 (optional `title` in the wire model, HTML-escaped; Server falls back to the slug).
 
 - **`lib/entry.pkl`** — the entry base module:
@@ -79,7 +79,7 @@ explains where the real fix is), `c.floorView(floor)`, and the per-dashboard `<t
   entry forgets required `card`? Also confirm `amends` + sibling imports resolve from a
   top-level entry into `lib/`. The `title` field needs the small backend half of the
   TODO2 title item (optional model field + `Server.page` uses it).
-- **`c.floorView(floor)`** — the pattern three of the five dashboards hand-roll: one
+- **`c.recipes.floorView(floor)`** — the pattern three of the five dashboards hand-roll: one
   section per area that has lights (`area.area_name` title + a slider per light),
   driven by the typed dump's `Floor.areas` / `Area.lights` member lists (already
   generated — no dump change needed). Port of `overetasje.jsonnet`'s `areaView`.

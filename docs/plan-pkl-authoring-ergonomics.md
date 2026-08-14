@@ -93,12 +93,12 @@ Authoring before/after (pkl-demo.pkl):
 new c.EntityCard {
   entity = dump.entities.sensor_ams_1a4e_u1
   value = c.expr(#"$round($number($state), 1) & " V""#)
-  tap = c.serviceTap("homeassistant/toggle")
+  tap = c.tap.serviceTap("homeassistant/toggle")
 }
 // after — entity-first call, options amended onto the result
 (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
   value = c.expr(#"$round($number($state), 1) & " V""#)
-  tap = c.serviceTap("homeassistant/toggle")
+  tap = c.tap.serviceTap("homeassistant/toggle")
 }
 // the trivial case collapses to a plain call:
 c.entityCard(dump.entities.`sensor_ams_1a4e_q`)
@@ -127,11 +127,11 @@ Authoring — the three styles are interchangeable and emit byte-identical node 
 
 ```pkl
 // amend (mandatory parens)
-(c.entityCard(x)) { value = c.expr("…"); tap = c.serviceTap("homeassistant/toggle") }
+(c.entityCard(x)) { value = c.expr("…"); tap = c.tap.serviceTap("homeassistant/toggle") }
 // builder (paren-free chain) — reads top-to-bottom, no wrapping parens
-c.entityCard(x).value(c.expr("…")).tap(c.serviceTap("homeassistant/toggle"))
+c.entityCard(x).value(c.expr("…")).tap(c.tap.serviceTap("homeassistant/toggle"))
 // especially cleaner inside a dynamic render lambda:
-render = (e) -> c.entityCard(e).tap(c.toggleTap).label(c.expr("…"))
+render = (e) -> c.entityCard(e).tap(c.tap.toggleTap).label(c.expr("…"))
 ```
 
 Added to `EntityCard` (`label`/`value`/`secondary`/`icon`/`tap`), `Button` (`entity`/`label`/`action`), `Slider` (`label`/`action`/`key`/`min`/`max`), and `Row`/`Column` (`cssClass`). Mechanics + gotchas: methods and properties are separate namespaces so `function tap` coexists with the `hidden tap` prop; late binding re-derives `slots` from the amended value; `let (self = this)` captures the receiver before the amend body (a bare `this` would rebind); the parameter must not be named after the property it sets (self-reference in the amend). This fills the gap `|>` mixins cannot — a mixin like `tappable` takes no arguments, so parameterized options had no paren-free form before. Verified on pkl-core 0.31.1 (spike: builder == amend == `new`, byte-identical, for all four card families incl. inside a render lambda) and guarded in `PklBuildSuite` by the builder-vs-amend identity test plus the unchanged wire snapshots.
@@ -166,7 +166,7 @@ c.groupCases(c.whenState("on"), c.dynWhen(new Listing {
   c.dynCase(c.whenDomain("light"), new c.Slider { entity = hass.SELF })
 }, new c.EntityCard {
   entity = hass.SELF
-  tap = c.toggleTap
+  tap = c.tap.toggleTap
   label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
 }))
 // after
@@ -176,7 +176,7 @@ new c.DynamicGroup {
     [c.domainIs("light")] = c.slider
   }
   render = (e) -> (c.entityCard(e)) {
-    tap = c.toggleTap
+    tap = c.tap.toggleTap
     label = c.expr(#"$attr.friendly_name & " (" & $state & ")""#)
   }
 }
@@ -213,7 +213,7 @@ abstract class Predicate {
 - `modules/fh-datastar-view/src/main/resources/dashboards/lib/components.pkl` — Parts A–C: factory methods + dual-name render values + `tappable` + `title`/`button`; reworked `DynamicGroup` (Mapping branches, `render`, `const local caseOf`, `const always`); Predicate methods + helper renames; delete `group`/`groupCases`/`dynWhen`/`dynCase`/`pAnd`/`pOr`/`pNot` (keep `Case`).
 - `modules/fh-datastar-view/src/main/resources/dashboards/pkl-demo.pkl` — rewrite in the new style (call-amend for the three static leaves, both dynamic groups as above, `c.title(...)`, `c.button(...)`).
 - `modules/fh-datastar-view/src/main/resources/dashboards/pkl-tabs.pkl` — call-amend forms for the entity cards inside tabs; `c.title`/`c.button`.
-- `modules/fh-datastar-view/src/test/scala/fh/view/build/PklBuildSuite.scala` — update dynamic-group / predicate-helper snippets to the new API; add one equivalence test: `(c.entityCard(x)) { tap = c.toggleTap }` emits node JSON identical to the `new c.EntityCard {...}` form.
+- `modules/fh-datastar-view/src/test/scala/fh/view/build/PklBuildSuite.scala` — update dynamic-group / predicate-helper snippets to the new API; add one equivalence test: `(c.entityCard(x)) { tap = c.tap.toggleTap }` emits node JSON identical to the `new c.EntityCard {...}` form.
 - `docs/adr/0006-pkl-authoring-track.md` — rewrite Decision 6 (classes + call-style factories, parenthesized amend for options, `|>` for mixins, the dual-namespace delegate); add a decision for the dynamic authoring model (Mapping branches + render lambdas, `SELF` internal-only, old function API removed — a deliberate jsonnet divergence); extend the gotchas list (mandatory parens around an amended call; function values need `.apply`/dual names; function-valued module props aren't exportable; the `let (l = this)` binding note).
 - `lib/hass.pkl` — doc-comment update only on `SELF`/`DynamicEntity` ("internal to components.pkl's `caseOf`; authors write render lambdas").
 
