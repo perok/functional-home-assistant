@@ -100,10 +100,10 @@ object Datastar {
   /** Signal-slot values as the [[patchSignals]] payload. Sorted, so one frame's
     * bytes are a function of its contents and a test can name them.
     */
-  def signalsJson(values: Map[SignalId, String]): String =
+  def signalsJson(values: Map[SignalId, Json]): String =
     Json
       .obj(values.toList.sortBy(_._1).map { case (k, v) =>
-        (k: String) -> Json.fromString(v)
+        (k: String) -> v
       }*)
       .noSpaces
 

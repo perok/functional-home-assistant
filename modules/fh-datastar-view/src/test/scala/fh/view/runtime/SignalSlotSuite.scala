@@ -50,6 +50,15 @@ class SignalSlotSuite extends ServerHarness {
 
   private def renderer = Renderer.create(dash)
 
+  /** A frame's expected payload. Slot values are always strings on the wire;
+    * the `Json` in [[Patch.Signals]] is there so the CURSOR — a nested object —
+    * can ride in the same patch kind and merge with one.
+    */
+  private def frame(kv: (fh.view.model.SignalId, String)*): Patch.Signals =
+    Patch.Signals(kv.map { case (k, v) =>
+      k -> io.circe.Json.fromString(v)
+    }.toMap)
+
   // ---------------------------------------------------------------------------
   // The two forms
   // ---------------------------------------------------------------------------
@@ -128,7 +137,7 @@ class SignalSlotSuite extends ServerHarness {
     val out = resumeFrom(r, at("21.4"), at("21.5"))
     assertEquals(
       out.map(_.patch),
-      List(Patch.Signals(Map(Renderer.signalName(leaf, "value") -> "21.5"))),
+      List(frame(Renderer.signalName(leaf, "value") -> "21.5")),
       clue = events(out).map(_.renderString)
     )
     // The whole point, stated as the absence it is: no card was re-sent.
@@ -323,12 +332,10 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(
-        Patch.Signals(
-          Map(
-            Renderer.signalName(leaf, "state") -> "41",
-            Renderer.signalName(leaf, "value") -> "41",
-            Renderer.signalName(leaf, "fill") -> "41%"
-          )
+        frame(
+          Renderer.signalName(leaf, "state") -> "41",
+          Renderer.signalName(leaf, "value") -> "41",
+          Renderer.signalName(leaf, "fill") -> "41%"
         )
       ),
       clue = events(out).map(_.renderString)
@@ -376,15 +383,41 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(
-        Patch.Signals(
-          Map(
-            Renderer.signalName("c_0", "value") -> "9",
-            Renderer.signalName("c_1", "value") -> "8"
-          )
+        frame(
+          Renderer.signalName("c_0", "value") -> "9",
+          Renderer.signalName("c_1", "value") -> "8"
         )
       ),
       clue = events(out).map(_.renderString)
     )
+  }
+
+  test("the cursor merges into a signals-only batch, and not past a morph") {
+    // A value tick is ONE event on the wire, not a frame followed by a cursor
+    // frame. `encode` merges adjacent signal patches the way it merges adjacent
+    // morphs, and the cursor rides as a patch so it lands in that merge.
+    val values = frame(Renderer.signalName(leaf, "value") -> "21.5")
+    val cursor = Server.versionPatch(27L)
+    assertEquals(
+      Patches.encode(List(Addressed(values), Addressed(cursor))).map(_.data),
+      List(
+        Some(
+          """signals {"_c__value":"21.5","_cursor":{"storeVersion":27}}"""
+        )
+      )
+    )
+    // ...but an element patch between them keeps them apart, which the cursor's
+    // meaning REQUIRES: echoing it is a claim to have applied what came before
+    // it, so it must not overtake a morph (ADR 0011).
+    val withMorph = Patches.encode(
+      List(
+        Addressed(values),
+        Addressed(Patch.Morph("<div id=\"c\"></div>")),
+        Addressed(cursor)
+      )
+    )
+    assertEquals(withMorph.size, 3, clue = withMorph.map(_.renderString))
+    assertEquals(withMorph.last.data, Some(cursor.toSse.data.get))
   }
 
   test("a member leaving sends the remove and NO signal for it") {

@@ -5,6 +5,7 @@ import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
 import fh.view.model.{DomId, NodeId, SignalId}
 import fh.view.model.DomId.selector
+import io.circe.Json
 import org.http4s.ServerSentEvent
 
 /** One DOM patch the diff pass wants to send, rendered to a Datastar SSE event
@@ -30,7 +31,7 @@ private[runtime] enum Patch:
   case Morph(html: String)
   case Insert(html: String, mode: PatchMode, target: DomId)
   case Remove(target: DomId)
-  case Signals(values: Map[SignalId, String])
+  case Signals(values: Map[SignalId, Json])
 
   def toSse: ServerSentEvent = this match
     case Patch.Morph(html)                => Datastar.patchElements(html)
@@ -724,7 +725,11 @@ private[runtime] object Patches {
     Option
       .when(moved.nonEmpty)(
         Addressed(
-          Patch.Signals(moved.map(_._2).toMap),
+          Patch.Signals(
+            moved.map { case (_, (name, value)) =>
+              name -> io.circe.Json.fromString(value)
+            }.toMap
+          ),
           moved.groupMap(_._1)(_._2).map { case (id, kvs) =>
             id -> Held(signals = kvs.toMap)
           }
@@ -906,6 +911,20 @@ private[runtime] object Patches {
       .foldLeft(List.empty[Patch]) {
         case (Patch.Morph(before) :: rest, Patch.Morph(next)) =>
           Patch.Morph(before + next) :: rest
+        // Adjacent signal frames merge for the same reason morphs do — one
+        // event instead of two, with identical effect, since a
+        // `datastar-patch-signals` payload is merged into the client's store
+        // rather than replacing it.
+        //
+        // ADJACENT is the whole rule, and it is what keeps the cursor honest:
+        // the cursor rides as a signal patch at the END of a batch, so it
+        // merges with the batch's own frame exactly when nothing separates them
+        // — a signals-only batch, which is the common case for a value tick.
+        // Put an element patch between them and they stay two events, which is
+        // required: a client echoing the cursor must have applied what came
+        // before it (ADR 0011).
+        case (Patch.Signals(before) :: rest, Patch.Signals(next)) =>
+          Patch.Signals(before ++ next) :: rest
         case (acc, one) => one :: acc
       }
       .reverse

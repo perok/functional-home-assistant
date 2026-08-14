@@ -13,7 +13,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.{Dashboard, DomId, NodeId}
+import fh.view.model.{Dashboard, DomId, NodeId, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -711,7 +711,17 @@ class Server(
                   .as(
                     if (patches.isEmpty) Nil
                     else
-                      Patches.encode(patches) :+ Server.versionSignal(version)
+                      // The cursor goes through `encode` as a patch rather than
+                      // being appended as an event, so it MERGES with this
+                      // batch's own signal frame when nothing separates them —
+                      // which is every batch whose nodes only moved a signal
+                      // slot. It stays a separate, trailing event whenever an
+                      // element patch sits in between, which is what its ack
+                      // meaning requires.
+                      Patches.encode(
+                        patches :+
+                          Addressed(Server.versionPatch(version))
+                      )
                   )
             }
         }
@@ -2165,10 +2175,22 @@ object Server {
     * batch moves.
     */
   private[runtime] def versionSignal(version: Long): ServerSentEvent =
-    // Nested, and merged rather than replaced by the client, so naming only
-    // the version leaves the other three cursor fields standing.
-    Datastar.patchSignals(
-      s"""{"$CursorSignal":{"$StoreVersionSignal":$version}}"""
+    versionPatch(version).toSse
+
+  /** [[versionSignal]] as a PATCH rather than a wire event, so a batch that
+    * ends with it can merge it into its own signal frame — see
+    * [[Patches.encode]]. A value tick with no element patches is then one
+    * `datastar-patch-signals` on the wire instead of two.
+    *
+    * Nested, and merged rather than replaced by the client, so naming only the
+    * version leaves the other three cursor fields standing.
+    */
+  private[runtime] def versionPatch(version: Long): Patch =
+    Patch.Signals(
+      Map(
+        SignalId.derived(CursorSignal) ->
+          Json.obj(StoreVersionSignal -> Json.fromLong(version))
+      )
     )
 
   /** The session this tab used BEFORE the document that opened this stream —

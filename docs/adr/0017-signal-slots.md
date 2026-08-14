@@ -175,10 +175,27 @@ and does no extra work. In the shipped library the second clause almost never fi
 
 - A frame is diffed against what this viewer holds, exactly as bytes are — a node is a candidate
   because an entity it binds moved, which is not the same as its signal slots having moved.
-- The frame goes **first** in a batch. A signal set before the element binding it is simply the
-  value that element paints with when it arrives, and Datastar re-evaluates a binding on morph
-  either way. That ordering is what makes a member *insert* correct: its bytes are patch-form and
-  carry no seed, so the frame is the only thing that gives it a value.
+- **One frame per batch**, merged across every node it touched — not one per node. It goes **first**:
+  a signal set before the element binding it is simply the value that element paints with when it
+  arrives, and Datastar re-evaluates a binding on morph either way. That ordering is what makes a
+  member *insert* correct, since its bytes are patch-form and carry no seed.
+- **The cursor merges into it when nothing separates them.** `Patches.encode` merges adjacent
+  `Patch.Signals` the way it merges adjacent morphs, and the cursor rides as a patch rather than an
+  appended event — so a value tick is ONE `datastar-patch-signals` on the wire instead of a frame
+  followed by a cursor frame. *Adjacent* is the whole rule, and it is what keeps the cursor honest:
+  put an element patch between them and they stay two events, which echoing-as-ack requires
+  (ADR 0011).
+- **A departing node's signal is not sent, and not cleared.** A `Gone` is not a candidate, so
+  nothing is emitted for a value that has left the DOM. Safe rather than merely cheap, because
+  signals outlive the elements bound to them: if the member returns with the same value, its
+  re-inserted (patch-form, seedless) element reads a store that is still correct. What leaks is one
+  entry per departed member on each side, bounded by the dashboard — a set's candidates are static
+  (ADR 0003).
+- **One entity shown in N places mints N signals**, equal by construction, because a name is scoped
+  to the node that shows the value rather than to the value. Deliberate for now — the alternative
+  keys on `(entity, transform)` and trades away both readable names and the node-prefix invalidation
+  rule. Measured and argued in
+  [issue #134](https://github.com/perok/functional-home-assistant/issues/134).
 - **No `RenderCache` change at all**, and that is a consequence of what was left out (below): the
   cache only ever holds patch-form bytes, so there is one form per (node, selection) and
   `RenderInputs` does not grow.
