@@ -338,6 +338,132 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   // ---------------------------------------------------------------------------
+  // One frame per batch, and what a departure carries
+  // ---------------------------------------------------------------------------
+
+  test("a frame MERGES every node the batch touched") {
+    // One frame per batch, not one per node: `signalFrame` collects across all
+    // candidates before emitting. Two entities moving in one HA frame is the
+    // normal case, not an edge one.
+    val two = Dashboard(
+      cards,
+      LayoutNode.Component(
+        "col",
+        children = List(gauge("sensor.a"), gauge("sensor.b"))
+      ),
+      // A bare container: no rendering of its own, so the two leaves are the
+      // patch units and the frame has to reach both.
+      theme = fh.view.model.Theme()
+    ).copy(cards =
+      cards + ("col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>"
+      ))
+    )
+    val r = Renderer.create(two)
+    def both(a: String, b: String) =
+      Map(
+        "sensor.a" -> st("sensor.a", a, "friendly_name" -> "A".asJson),
+        "sensor.b" -> st("sensor.b", b, "friendly_name" -> "B".asJson)
+      )
+    val log = FragmentLog("test")
+      .touched(NodeId.derived("c_0"), 1L)
+      .touched(NodeId.derived("c_1"), 1L)
+    val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    val out =
+      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Map.empty)
+    assertEquals(
+      out.map(_.patch),
+      List(
+        Patch.Signals(
+          Map(
+            Renderer.signalName("c_0", "value") -> "9",
+            Renderer.signalName("c_1", "value") -> "8"
+          )
+        )
+      ),
+      clue = events(out).map(_.renderString)
+    )
+  }
+
+  test("a member leaving sends the remove and NO signal for it") {
+    // A departing node is not a candidate — `signalFrame` reads the ids the
+    // batch renders, and a `Gone` is not among them — so nothing is sent for a
+    // value that has left the DOM.
+    //
+    // The client's signal store KEEPS that value, and that is why this is safe
+    // rather than merely cheap: signals outlive the elements bound to them, so
+    // if the member returns with the same value its re-inserted element (which
+    // is patch-form, and carries no seed) reads a store that is still correct.
+    // A different value is a difference this session's record can see, so the
+    // frame carries it. What leaks is one entry per departed member on both
+    // sides, bounded by the dashboard — a set's candidates are static (ADR
+    // 0003), so there is no unbounded set of names to accumulate.
+    def member(id: String) = LayoutNode.Component(
+      "gauge",
+      Map(
+        "entity_id" -> SlotSource(literal = Some(id)),
+        "label" -> SlotSource(transform = "$attr.friendly_name"),
+        "value" -> SlotSource(signal = Some(SignalBind.Text))
+      )
+    )
+    // TWO candidates, because one leaving an otherwise-empty set is the
+    // wholesale-refill path instead (`now.isEmpty`) and says nothing about a
+    // per-member departure.
+    val set = LayoutNode.SetNode(
+      candidates = List("light.a", "light.b"),
+      members = List("light.a", "light.b").map { id =>
+        id -> LayoutNode.SetMember(
+          List(LayoutNode.SetClause(when = Some(isOn), node = member(id)))
+        )
+      }.toMap
+    )
+    val r = Renderer.create(Dashboard(cards, set))
+    val on =
+      Map("light.a" -> st("light.a", "on"), "light.b" -> st("light.b", "on"))
+    val gone = on.updated("light.a", st("light.a", "off"))
+    // The graph has to have SEEN the members before it can report one leaving,
+    // and the LOG has to know them or the group is not "established" and a
+    // departure fills the mount wholesale instead of emitting a delta.
+    val _ = r.syncMembers(Nil, on, on)
+    val held = r.renderPageTraced(on).own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    val seededLog = List("c_light_a", "c_light_b")
+      .foldLeft(FragmentLog("test"))((l, id) =>
+        l.touched(NodeId.derived(id), 0L)
+      )
+    val delta = r.syncMembers(
+      List(
+        StateChange("light.a", Some(st("light.a", "on")), st("light.a", "off"))
+      ),
+      on,
+      gone
+    )
+    val log = Patches.record(
+      r,
+      seededLog,
+      Patches.DiffRequest(
+        staticIds = Nil,
+        dynamics = List((NodeId.derived("c"), None)),
+        flips = Nil,
+        changes = Nil,
+        states = gone,
+        before = on,
+        membership = delta,
+        at = 1L
+      )
+    )
+    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Map.empty)
+    assertEquals(
+      out.map(_.patch),
+      List(Patch.Remove(r.elementId("c_light_a"))),
+      clue = events(out).map(_.renderString)
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // Validation — both failures are otherwise silent
   // ---------------------------------------------------------------------------
 

@@ -659,12 +659,12 @@ Live list — delete an entry when it is answered, and say where the answer land
   Signal slots make it easier rather than harder — the walk now produces a patch-form rendering per
   node, and the patch form is the only thing the cache ever holds.
 
-- **A morph-only client profile.** ADR 0017 keeps the PLAIN form (no binding, no seed — today's
-  pre-signal bytes) reachable behind one predicate, for a device that can implement
-  `datastar-patch-elements` but not an expression evaluator. Nothing exposes it yet, deliberately:
-  such a client is equally defeated by `data-on:click` on every tappable card and `data-effect` on
-  the URL mirror, so it wants ONE capability profile designed against a real client, not this axis
-  alone.
+- **A morph-only client profile** —
+  [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the
+  PLAIN form (no binding, no seed — today's pre-signal bytes) reachable behind one predicate for a
+  device that implements `datastar-patch-elements` but not an expression evaluator. Nothing exposes
+  it yet: such a client is equally defeated by `data-on:click` on every tappable card and
+  `data-effect` on the URL mirror.
 
 ---
 

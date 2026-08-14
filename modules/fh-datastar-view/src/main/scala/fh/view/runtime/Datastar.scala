@@ -125,8 +125,11 @@ object Datastar {
     else
       values.toList
         .sortBy(_._1)
+        // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
+        // after a quoted attribute value, and `id="c"data-signals=…` is a parse
+        // error browsers only recover from by accident.
         .map { case (k, v) => s"$k: '${escapeJs(v)}'" }
-        .mkString("""data-signals="{""", ", ", """}"""")
+        .mkString(""" data-signals="{""", ", ", """}"""")
 
   /** The binding attribute for a signal slot — what `<slot>__bind` renders to
     * (ADR 0017). `""` where a value is not signal-backed, which is what keeps
@@ -147,6 +150,9 @@ object Datastar {
     case SignalBind.Style(property) =>
       s"""data-style:$property="$$$signal""""
     case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
+    // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
+    // class name is written as it appears in CSS and nowhere else.
+    case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
 
   /** Backslash and single quote — everything a single-quoted JS string literal
     * can be broken by. The attribute is double-quoted, so `"` needs no JS

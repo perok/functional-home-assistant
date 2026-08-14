@@ -71,7 +71,7 @@ follow that a template-authored `data-text` would not give:
 
 - **The plain form stays a one-predicate seam.** `Renderer.isSignalSlot` answering `false`
   everywhere yields exactly the bytes this renderer emitted before signal slots existed — no
-  binding, no seed. See "morph-only clients" below.
+  binding, no seed — see "What was deliberately left out", and issue #133.
 - **Multiple signal slots per node work.** The seed is **node-level**: one `data-signals` on the
   `.fh-cell` wrapper carrying every signal slot in the patch unit. A per-slot seed puts two
   `data-signals` on one element the moment a card has two, and the browser silently keeps one.
@@ -196,19 +196,16 @@ and does no extra work. In the shipped library the second clause almost never fi
 already running Datastar, with `data-on`, `data-show`, `data-effect` and `data-init` evaluating in
 the connection banner before a card renders. A few `data-text` bindings are noise against that.
 
-The rationale that *does* hold is **protocol capability**, and it is why the plain form stays
-reachable as a predicate. The two SSE event types are nowhere near equally hard to implement:
-`datastar-patch-elements` in `outer` mode is "parse this HTML, swap the element with that id",
-implementable on a microcontroller; `datastar-patch-signals` needs a signal store, an evaluator for
-`$name`, a dependency graph and re-application on change. A cheap ESP32/e-ink wall panel speaking
-the morph-only subset is a plausible consumer for a home-automation dashboard.
+The rationale that *does* hold is **protocol capability** — a device that implements
+`datastar-patch-elements` but not an expression evaluator — and that is
+[issue #133](https://github.com/perok/functional-home-assistant/issues/133), not this ADR. What
+belongs here is the consequence for the design: it is why the PLAIN form stays reachable behind one
+predicate (`Renderer.signalBind` answering `None`), and therefore why `SignalBind` is a
+renderer-side enumeration rather than an attribute a card writes.
 
-Shipping that one axis now would not deliver its own rationale, though: such a client is equally
-defeated by `data-on:click` on every tappable card, `data-show` on the banners and `data-effect` on
-the URL mirror. It wants one capability profile (`?client=morph-only`) covering all of them,
-designed when a real client exists. And leaving it out is what keeps this small — the switch was
-the only thing that would have made `RenderInputs` grow, because a plain-form viewer needs a
-different form out of the same `Patches.bytes` call.
+Leaving the switch out is also what keeps this change small, non-obviously: it was the only thing
+that would have made `RenderInputs` grow, because a plain-form viewer needs a different form out of
+the same `Patches.bytes` call.
 
 **No-JS is a separate question and needs no mode.** It cannot be detected server-side, and the
 document already carries every value inline in both forms. Suppressing the seed or binding for it

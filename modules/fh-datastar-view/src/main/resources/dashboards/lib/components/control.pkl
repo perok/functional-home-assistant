@@ -80,7 +80,7 @@ class Toggle extends nodes.Node {
       <article class="card row">
         <span class="max">{{label}}</span>
         <label class="switch">
-          <input type="checkbox" {{{checked}}} data-on:click="{{{onclick}}}" />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{{onclick}}}" />
           <span></span>
         </label>
       </article>
@@ -100,10 +100,25 @@ class Toggle extends nodes.Node {
     ["label"] = slotMod.labelSlot(entity, label)
     // Opt OUT of the unavailable bypass (unlike a display value, "unavailable"
     // is not a checkbox state) so an unavailable entity just renders unchecked.
+    //
+    // A TWO-WAY signal slot (ADR 0017), which is the only correct binding for a
+    // checkbox: `data-attr:checked` sets the ATTRIBUTE, and after load the
+    // browser reads the PROPERTY, so an attribute patch would move nothing. The
+    // value is `"on"`/`""` to match the input's `value="on"` — the bundle's
+    // checkbox setter compares a string signal against `el.value` — and the
+    // template renders the initial `checked` attribute from a mustache SECTION
+    // off the same slot, which an empty string collapses. So the document (and
+    // a JS-less reader) still gets the state in the markup, and the patch form
+    // withholds it because the signal owns it from then on.
+    //
+    // Two-way is a small behaviour change worth naming: a click now moves the
+    // signal immediately, so the switch flips optimistically and the frame that
+    // follows either confirms it or puts it back.
     ["checked"] = new slotMod.Slot {
-      transform = #"$state = "on" ? "checked" : """#
+      transform = #"$state = "on" ? "on" : """#
       default = ""
       bypassUnavailable = false
+      signal = slotMod.asBind
     }
     ["onclick"] = tapAction.onclick
   }

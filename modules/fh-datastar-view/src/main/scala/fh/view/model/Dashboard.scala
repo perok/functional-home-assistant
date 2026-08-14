@@ -145,18 +145,26 @@ object SlotSource:
   *     included). The VALUE carries its own unit, so the expression is a bare
   *     signal read and the authoring layer decides whether a fill is a
   *     percentage or a colour.
-  *   - [[Attr]] — `data-attr:<name>`, one attribute.
+  *   - [[Attr]] — `data-attr:<name>`, one attribute. Note this sets the
+  *     ATTRIBUTE, which for a form control is not the property the browser
+  *     reads after load (`checked` is the classic trap) — reach for [[Bind]]
+  *     there instead.
+  *   - [[Class]] — `data-class:<name>`, one class present while the value is
+  *     truthy. A boolean state, where the value is `""` for off and anything
+  *     for on: an empty string is the only falsy thing a slot can produce, so
+  *     `"false"` would read as ON.
   *   - [[Bind]] — `data-bind`, TWO-WAY on a form control: the server writes the
   *     signal and the user's input writes it back. What a range input's
-  *     position wants, and the one kind whose card is therefore not
-  *     plain-form-capable — an interactive control needs a client signal
-  *     whatever this setting says.
+  *     position and a checkbox's `checked` PROPERTY want, and the one kind
+  *     whose card is therefore not plain-form-capable — an interactive control
+  *     needs a client signal whatever this setting says.
   */
 enum SignalBind derives CanEqual:
   case Text
   case Bind
   case Style(property: String)
   case Attr(name: String)
+  case Class(name: String)
 
 object SignalBind:
 
@@ -169,6 +177,7 @@ object SignalBind:
     case "bind" :: Nil          => Some(Bind)
     case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
     case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
+    case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
     case _                      => None
 
   given Decoder[SignalBind] =

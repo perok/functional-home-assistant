@@ -188,10 +188,15 @@ class Slider extends nodes.Node {
       ["onclick"] = tapAction!!.onclick
       // Lights the button while the entity is on — the one thing the fill
       // cannot say, since a light at 0 % and a light that is off look alike.
+      // A CLASS signal slot: the FIFTH thing on this card that moves, and the
+      // one that would have kept re-rendering it on every on/off had it stayed
+      // bytes. `""` for off, because an empty string is the only falsy value a
+      // slot can produce.
       ["lit"] = new slotMod.Slot {
         transform = #"$state = "on" ? "lit" : """#
         default = ""
         bypassUnavailable = false
+        signal = slotMod.asClass("lit")
       }
     }
     when (secondary != null) {
@@ -321,7 +326,7 @@ class Slider extends nodes.Node {
           <strong>{{label}}</strong>
           {{#secondary}}<span class="slider-sub">{{secondary}}</span>{{/secondary}}
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
-          {{#onclick}}<button class="circle small slider-action {{lit}}" data-on:click="{{{onclick}}}"><i class="mdi mdi-power"></i></button>{{/onclick}}
+          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{{onclick}}}"><i class="mdi mdi-power"></i></button>{{/onclick}}
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill"))>
           <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
