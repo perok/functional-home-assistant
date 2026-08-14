@@ -1,0 +1,57 @@
+/// Light-domain composition — the controls a light actually supports, and none
+/// it does not.
+///
+/// This is the payoff of typing capabilities as GROUPS (ADR 0013): a card takes
+/// the capability group, which carries its `owner`, so the entity is named once
+/// and aiming a control at a light that lacks the capability is unwriteable.
+/// Other domains follow this file's pattern as they get modelled.
+module components.light
+
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "../layout.pkl" as layout
+import "control.pkl" as control
+import "entity.pkl" as entityMod
+import "slider.pkl" as sliderMod
+
+// ---- capability-conditional composition (light) ----
+// What the dump's capability GROUPS are for (ADR 0013). A card that needs a
+// capability takes THE GROUP — never the entity plus a flag, and never the
+// entity plus the group. One argument carries both the values and (via its
+// `owner`) the subject, so it cannot be aimed at an entity that lacks the
+// capability and there is no second argument to disagree with.
+
+/// One pill per named effect the light exposes, each posting
+/// `light/turn_on effect=<name>`: `c.effectPills(l.effects)`.
+function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
+  children {
+    for (name in fx.list) {
+      control.pill(name, tapMod.serviceValueTap("light/turn_on", "effect", name))
+        .entity(fx.owner)
+    }
+  }
+}
+
+/// Every control this light actually supports, and none it does not: a
+/// brightness slider when it dims (a tappable card when it only switches), a
+/// colour-temperature slider when it has a kelvin range, an effect pill row
+/// when it names effects.
+///
+/// This is the payoff of typing capabilities as groups — the composition reads
+/// as the capability list, and adding a control for a capability the light
+/// lacks is not a runtime blank, it is unwriteable.
+function controls(l: hass.LightEntity): layout.Column = new layout.Column {
+  children {
+    when (l.supportsBrightness) {
+      sliderMod.slider(l)
+    } else {
+      (entityMod.entityCard(l)) |> entityMod.tappable
+    }
+    when (l.colourTemp != null) {
+      sliderMod.slider(l.colourTemp!!)
+    }
+    when (l.effects != null) {
+      effectPills(l.effects!!)
+    }
+  }
+}

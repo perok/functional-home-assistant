@@ -1,0 +1,245 @@
+/// The cards built ON surfaces: a tab bar over one panel, and a conditional
+/// section whose branch is chosen by live entity state.
+///
+/// Both are pure composition over `core/surface.pkl` — the backend reads only
+/// structural surface fields and never a card name (ADR 0002/0007). The popup
+/// dialog itself lives in `core/surface.pkl`, with the mechanism that wraps it.
+module components.surface
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/surface.pkl" as surfaceMod
+import "../core/predicate.pkl" as pred
+import "../layout.pkl" as layout
+
+/// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
+/// anchors), so the MD3 tab look (underline active indicator, hover/press
+/// states, even distribution) comes from the framework, not hand-rolled CSS.
+/// Built by [[Tabs]] internally; not an authoring surface. `active` is the
+/// Datastar boolean expression driving the `.active` class client-side
+/// (`data-class`); `onclick` opens the tab's hoisted surface, seeds the
+/// signal.
+class TabButton extends nodes.Node {
+  card = "tab"
+  cardDef = new nodes.LeafCard {
+    template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
+    slots { "label"; "onclick"; "active" }
+    // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
+    // styling is the structural selector `.tabs > a` — so this is the one card
+    // that opts out of the universal `.fh-cell` wrapper.
+    wrapAsCell = false
+  }
+  hidden label: String
+  hidden onclick: String
+  hidden active: String
+  slots {
+    ["label"] = label
+    ["onclick"] = onclick
+    ["active"] = active
+  }
+}
+
+/// A tab bar over ONE inline panel — one tab visible at a time. Pure
+/// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
+/// cards become an inline surface baked into this component's panel host
+/// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
+/// the bar buttons open them and set the active-tab signal `ui_<id>` — which
+/// the backend reads (it rides every request) and the panel host mirrors into
+/// the `ui.<id>` URL param, so reconnect / navigate / refresh all restore the
+/// tab flash-free. The first tab is default-open (baked on
+/// first paint) via `UserActivation { defaultOpen = true }` — the rest emit no
+/// `activation` at all (null, dropped by omitNullProperties) and decode to the
+/// closed user default.
+class Tabs extends nodes.Node {
+  card = "tabs"
+  // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
+  // anchors); the panel host + `{{{panel}}}` hole live below it.
+  // `data-signals` seeds the active-tab signal to the baked tab's index
+  // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
+  // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
+  // later change back into the URL via the page shell's `fhUrl` helper.
+  //
+  // The active-tab signal is SEEDED on the bar with `__ifmissing`, and mirrored
+  // to the URL from the panel below. Seeding initialises rather than asserts, so
+  // a re-render can never overwrite the tab this client actually chose — which
+  // a tab click racing a patch already in flight otherwise does.
+  //
+  // It has to be the BAR, not the panel: `__ifmissing` declines for a signal
+  // something has already READ, and this bar's buttons read `$ui_<id>` for
+  // their highlight. A parent's seed reaches its children's readers; a later
+  // sibling's does not, and the signal would stay "" forever (pinned by
+  // `DatastarMorphContractSuite`).
+  //
+  // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
+  // rendering per member, its own log entry per variant, and every path that
+  // renders it by id must know the viewer — including `Patches.resume`, which
+  // is why that had to learn the viewer first.
+  // THE self/mount split's one real user in the shipped library. The bar is the
+  // card's own presentation (`self`), the panel is where the selected tab's
+  // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
+  // touch the panel. BeerCSS already dictated this shape: its tab styling is the
+  // structural selector `.tabs > a`.
+  //
+  // The bar carries no live value today (the active highlight is client-side,
+  // `data-class` off `ui_<id>`), so the `self` machinery is not yet exercised —
+  // but this is the card a live header ("the tab bar with the current
+  // temperature") would be authored on.
+  //
+  // `{{mountId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
+  // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
+  // stop agreeing by convention.
+  cardDef = new nodes.ContainerCard {
+    template = """
+      <div class="fh-col">{{{self}}}{{{mount}}}</div>
+      """
+    self = """
+      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{#children}}{{{html}}}{{/children}}</div>
+      """
+    mount = """
+      <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
+      """
+  }
+  // A tab bar is a section-level component, not a third of a grid row. Its own
+  // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it
+  // was accepted and then silently dropped, because a bake owner was denied the
+  // wrapper those classes ride on.
+  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
+  /// it). The Listing DEFAULT lets a tab amend into existence and add cards
+  /// directly — no `new`, no `children`:
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.slider(l) } } }
+  /// Each tab's cards are wrapped in a [[Row]] panel; a tab wanting a different
+  /// container nests it as the single card: `["X"] { new Column { ... } }`.
+  hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
+  // Insertion-ordered labels; the derivations below need the tab INDEX (surface
+  // keys, bakeIndex, the signal seed), which a Mapping generator lacks — a List
+  // generator yields (index, element).
+  hidden labels: List<String> = tabs.keys.toList()
+  // Each tab's cards hoisted into a Row-wrapped panel surface.
+  inlineSurfaces = new Mapping {
+    for (i, l in labels) {
+      ["t\(i)"] = new surfaceMod.SurfaceDef {
+        content = new layout.Row { children = tabs[l] }
+        bakeInto = nodes.NODE_ID
+        bakeAs = "panel"
+        bakeIndex = i
+        activation = if (i == 0) new surfaceMod.UserActivation { defaultOpen = true } else null
+      }
+    }
+  }
+  // The `.tabs` bar anchors: each opens its tab's surface (`<id>_t<i>`) and
+  // sets the active-tab signal; the URL mirror follows from the panel host's
+  // effect. `$` is a literal Datastar signal sigil (Pkl only interpolates
+  // `\(...)`); the exact onclick text is asserted in the tests.
+  children = new Listing {
+    for (i, l in labels) {
+      new TabButton {
+        label = l
+        active = "$ui_\(nodes.NODE_ID) == \(i)"
+        onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_t\(i)'); $ui_\(nodes.NODE_ID) = \(i)"
+      }
+    }
+  }
+}
+
+/// Amendable base instance — `(c.tabs) { tabs { ["Lights"] { ... } } }`.
+hidden tabs: Tabs = new Tabs {}
+
+// Build a [[StateActivation]]. `p` is NOT named after the property it sets
+// (the amend-scoping gotcha — `condition = condition` inside the `new` would
+// self-recurse); `const local` because [[If.inlineSurfaces]] calls it from the
+// class body.
+const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivation =
+  new { condition = p }
+
+// ---- conditional sections (If/else via state-activated surfaces) ----
+// An If is NOT a new wire kind: it reuses the tabs machinery literally — a
+// host card with one bake hole + one inline surface per branch
+// (`bakeInto`/`bakeAs`/`bakeIndex`) — but the ACTIVE member is selected by a
+// condition over live entity state ([[StateActivation]]) instead of the
+// client's selection, so the choice is server truth, shared by every viewer.
+// Hidden-branch silence is structural: branch nodes live in surface indexes,
+// never the main reverse index, so the inactive branch is not rendered and
+// receives no updates.
+
+/// A conditional section: the `then` cards are shown while `condition` holds
+/// over live entity state, the (optional) `else` cards while it does not. Built
+/// by [[iff]] — builder calls for single-card branches, the amend form for
+/// multi-card ones:
+///   c.iff(q.entity(dump.e_x).stateIs("on"))
+///     .then(c.title("on")).`else`(c.title("off"))
+///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
+/// With no matching member (a condition that fails and no `else`) the host
+/// bakes empty; nesting an If inside `else` is the else-if story.
+class If extends nodes.Node {
+  card = "ifhost"
+  // Pure mount: one `{{{branch}}}` bake hole (the selected member's rendered
+  // content, injected by the backend like the tabs `{{{panel}}}` — not a
+  // declared slot). No `self` at all — an If has no presentation of its own, so
+  // there is nothing about it that could change without its content changing.
+  // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
+  // no matching branch the bake hole is the empty string, and without the class
+  // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
+  // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
+  cardDef = new nodes.ContainerCard {
+    mount = #"<div class="fh-ifhost" id="{{mountId}}">{{{branch}}}</div>"#
+  }
+  // A conditional SECTION, sized like one; its content's own layout stays the
+  // branch `Row`'s business. (Layout transparency was considered and dropped:
+  // the branch is always Row-wrapped, so it is a box regardless and could never
+  // flow into a grandparent grid.)
+  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  hidden condition: pred.Predicate
+  // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
+  // backticked for visual pairing (backticks are pure quoting, not identity).
+  hidden `then`: Listing<nodes.LayoutNode> = new {}
+  hidden `else`: Listing<nodes.LayoutNode> = new {}
+  // Each branch's cards hoisted into a Row-wrapped surface (like a tab panel).
+  // Selection is first-match in `bakeIndex` order: `then` is member 0 with the
+  // authored condition; `else` — present only when non-empty — is member 1
+  // with the always-true predicate. BOTH members carry the SAME `bakeAs`
+  // ("branch"): the backend reads a group's bake var off its first member.
+  inlineSurfaces = new Mapping {
+    ["then"] = new surfaceMod.SurfaceDef {
+      content = new layout.Row { children = `then` }
+      bakeInto = nodes.NODE_ID
+      bakeAs = "branch"
+      bakeIndex = 0
+      activation = stateActivation(condition)
+    }
+    when (!`else`.isEmpty) {
+      ["else"] = new surfaceMod.SurfaceDef {
+        content = new layout.Row { children = `else` }
+        bakeInto = nodes.NODE_ID
+        bakeAs = "branch"
+        bakeIndex = 1
+        activation = stateActivation(pred.alwaysHolds)
+      }
+    }
+  }
+  /// Append card(s) to the `then` branch — one node, or `new Listing { ... }`
+  /// for several (a bare `new { ... }` argument cannot infer the Listing type;
+  /// multi-card branches read best in the amend form). Repeat calls append,
+  /// and the derived surfaces re-derive across chained calls (late binding).
+  function then(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
+  /// Append card(s) to the `else` branch — call sites backtick the reserved
+  /// word: `` .`else`(c.title("off")) ``.
+  function `else`(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): If = let (l = this)
+    if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
+}
+
+/// A conditional section as a call: `c.iff(p).then(...).`else`(...)` — shown
+/// while `p` holds. `p` must name the entities it reads; build it with
+/// `query.entity(e)` for one entity, or `query.from(list).any()`/`.none()`/
+/// `.all()`/`.count(...)` over a set. See [[If]] for the amend form.
+/// A `Boolean` is accepted because the build FOLDS: a count over a set whose
+/// candidates all resolve statically is a number, so `q.from(emptyRoom).any()`
+/// is `false` before anything runs. Taking it here keeps that an ordinary
+/// condition instead of a type error the author has to route around.
+function iff(p: pred.Predicate|Boolean): If =
+  new If {
+    condition =
+      if (p is Boolean) (if (p) pred.alwaysHolds else pred.neverHolds)
+      else p
+  }

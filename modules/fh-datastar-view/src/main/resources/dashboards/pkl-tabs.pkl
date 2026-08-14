@@ -27,7 +27,7 @@ card = (c.column) {
 
     (c.row) {
       children {
-        c.button("« Home", c.navigate("dashboard"))
+        c.button("« Home", c.tap.navigate("dashboard"))
       }
     }
     (c.tabs) {
@@ -35,7 +35,7 @@ card = (c.column) {
         // Entity cards toggled on tap (options amended onto the call).
         ["Lights"] {
           (c.entityCard(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)) {
-            tap = c.toggleTap
+            tap = c.tap.toggleTap
           }
         }
         // Live value expressions (own unit).

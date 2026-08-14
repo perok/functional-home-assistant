@@ -27,7 +27,7 @@
 /// `local` modifier"; the error names `extends` as the way out).
 open module dumpBase
 
-import "hass.pkl"
+import "../hass.pkl"
 
 /// Every light in the home, in entity-id order. A dashboard wanting another
 /// order sorts the list with plain Pkl before `from`.

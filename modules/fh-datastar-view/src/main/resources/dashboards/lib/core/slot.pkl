@@ -1,0 +1,68 @@
+/// Slot values — what a card puts in a template hole, and the shared builders
+/// that shape the common ones the same way every card does.
+///
+/// A slot is either a bare String (a constant literal) or a [[Slot]] object (a
+/// live JSONata transform over the card's entity). The builders are the reason
+/// a third-party card can look like a shipped one: `labelSlot` falls back to
+/// friendly_name, `valueSlot` appends the entity's unit, `secondarySlot` keeps
+/// the mustache section collapsed when blank.
+module core.slot
+
+import "../hass.pkl"
+
+/// The object form of a slot (fh.view.model.SlotSource). A live JSONata
+/// expression over the card's entity; `reactive = false` marks an
+/// identity-derived slot (resolved once, never re-rendered on state change).
+class Slot {
+  entityId: String? = null
+  transform: String = "$state"
+  default: String? = null
+  bypassUnavailable: Boolean = true
+  reactive: Boolean = true
+}
+
+/// A live value expression for a display field that also accepts a plain
+/// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the
+/// literal `label = "Kitchen"`.
+class Expr {
+  entityId: String? = null
+  transform: String
+}
+
+function expr(s: String): Expr = new { transform = s }
+
+/// A live value expression bound to an EXPLICIT entity (a cross-entity read):
+/// the emitted slot names its own `entityId` instead of inheriting the card's.
+/// Mirrors jsonnet `entityOf` (components.libsonnet:102-105).
+function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
+
+// Auto-appended unit for a value display: the entity's unit_of_measurement,
+// space-separated, when it has one.
+const UNIT =
+  #" & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"#
+
+// label: Expr -> live (still resolving when unavailable, so a label shows the
+// name, not "unavailable"); String -> literal; null -> the entity's
+// friendly_name (falling back to its id) baked as a literal.
+const function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
+  if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
+  else if (label != null) label
+  else if (entity != null) entity.friendly_name ?? entity.entity_id
+  else ""
+
+// value: null -> $state (+ unit); String -> that attribute (+ unit);
+// Expr -> your expression verbatim (you own the unit).
+const function valueSlot(value: (String|Expr)?): Slot =
+  if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
+  else new Slot {
+    transform = (if (value == null) "$state" else "$attr." + value) + UNIT
+  }
+
+// secondary (only built when authored): String -> an attribute (no unit);
+// Expr -> live. Empty default keeps the mustache section collapsed when blank.
+const function secondarySlot(secondary: String|Expr): Slot =
+  new Slot {
+    entityId = if (secondary is Expr) secondary.entityId else null
+    transform = if (secondary is Expr) secondary.transform else "$attr." + secondary
+    default = ""
+  }

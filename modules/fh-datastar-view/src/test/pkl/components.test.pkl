@@ -7,6 +7,7 @@
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
@@ -135,7 +136,7 @@ facts {
   ["more-info is an inline popup, so every entity's body is its own surface"] {
     local t = c.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
-    t.onclick.contains("sse/surface/open/\(c.NODE_ID)_self")
+    t.onclick.contains("sse/surface/open/\(nodes.NODE_ID)_self")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {

@@ -38,21 +38,26 @@ class WireShapeSuite extends munit.FunSuite {
     val tmp = os.temp.dir()
     val _ = PklWorkspace.bootstrap(tmp)
     os.makeDir.all(tmp / "lib")
-    List(
-      "hass.pkl",
-      "hass-light.pkl",
-      "components.pkl",
-      "tokens.pkl",
-      "theme.pkl"
-    )
-      .foreach(n => os.copy.into(PklWorkspace.resourcesLib / n, tmp / "lib"))
     os.write(
       tmp / "probe.pkl",
       """module probe
         |import "pkl:reflect"
         |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/core/node.pkl" as nodes
+        |import "@fh-dashboard/core/slot.pkl" as slotMod
+        |import "@fh-dashboard/core/surface.pkl" as surfaceMod
+        |import "@fh-dashboard/core/tap.pkl" as tapMod
+        |import "@fh-dashboard/core/predicate.pkl" as pred
         |
-        |local own = reflect.Module(c).classes
+        |// The wire shape is spread across the library's modules, and reflection
+        |// sees only what a module DECLARES — the facade declares no classes at
+        |// all. So merge every module that owns wire classes; that also keeps
+        |// "does this module own the ancestor" true across a module boundary
+        |// (`SetNode extends LayoutNode` now spans two files).
+        |local mods: List<Module> =
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred) + c.modules
+        |local own: Map<String, reflect.Class> =
+        |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
         |// INHERITED properties count: `SetNode extends LayoutNode`, and `cell`
         |// is declared on the base. `reflect.Class.properties` reports only what

@@ -46,7 +46,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |    c.title("Fixture Home")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
-       |    c.button("Elsewhere", c.navigate("other"))
+       |    c.button("Elsewhere", c.tap.navigate("other"))
        |  }
        |}
        |""".stripMargin

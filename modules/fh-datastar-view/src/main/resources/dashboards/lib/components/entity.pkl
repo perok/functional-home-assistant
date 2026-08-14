@@ -1,0 +1,87 @@
+/// The entity card — HA's familiar icon + label + value tile — and the icon
+/// resolution every card shares.
+module components.entity
+
+import "../core/icon.pkl" as icons
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+
+/// HA-like entity card: icon + label + value (state or attribute, unit
+/// auto-appended) + optional secondary line + optional tap. `icon` overrides
+/// what [[iconFor]] resolved, as an MDI name (`mdi:thermometer`).
+class EntityCard extends nodes.Node {
+  card = "entityCard"
+  cardDef = new nodes.LeafCard {
+    template = """
+      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
+        data-on:click="{{{onclick}}}"{{/tappable}}>
+        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}{{label}}</header>
+        <span class="state">{{value}}</span>{{#secondary}}
+        <span class="slider-group-sub">{{secondary}}</span>{{/secondary}}
+      </article>
+      """
+    slots { "label"; "value"; "entity_id" }
+  }
+  hidden entity: hass.Entity
+  hidden label: (String|slotMod.Expr)? = null
+  hidden value: (String|slotMod.Expr)? = null
+  hidden secondary: (String|slotMod.Expr)? = null
+  hidden icon: String? = null
+  hidden tap: tapMod.Tap? = null
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them
+  // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
+  // is null or carries no inline popup → dropped by omitNullProperties.
+  inlineSurfaces = if (tap != null) tap!!.inlineSurfaces else null
+  slots {
+    // entity_id is the card's subject — the magical slot the others inherit.
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    ["value"] = slotMod.valueSlot(value)
+    // A LITERAL, always: the entity's own icon, its device_class or its domain
+    // are all registry facts, so there is nothing here for the runtime to
+    // decide. This used to be a `$lookup($domain)` transform on every card,
+    // because a query group's member had no identity at build time.
+    when (icons.iconFor(entity) != null || icon != null) {
+      ["icon"] = if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!
+    }
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
+    }
+    when (tap != null) {
+      ["tappable"] = "1"
+      ["onclick"] = tap!!.onclick
+    }
+  }
+  // ---- fluent config (builder style) ----
+  // Each option is ALSO a method: it amends `this` and returns the same class,
+  // so options chain paren-free — `c.entityCard(x).tap(c.toggleTap).label("Office")`
+  // — instead of the mandatory-paren amend `(c.entityCard(x)) { ... }`. Methods
+  // and properties are separate namespaces, so `function tap` coexists with the
+  // `hidden tap` prop; late binding re-derives `slots` from the amended value, so
+  // the emitted node JSON is byte-identical to the amend form (see the
+  // builder-vs-amend identity test). `let (self = this)` captures the receiver
+  // before the amend body (where a bare `this` would rebind). The param is never
+  // named after the property it sets (that would self-reference in the amend).
+  function label(l: String|slotMod.Expr): EntityCard = let (self = this) (self) { label = l }
+  function value(v: String|slotMod.Expr): EntityCard = let (self = this) (self) { value = v }
+  function secondary(s: String|slotMod.Expr): EntityCard = let (self = this) (self) { secondary = s }
+  /// Override the resolved icon with an MDI name — `mdi:thermometer`, or the
+  /// `mdi-thermometer` class spelling; both work.
+  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
+  function tap(t: tapMod.Tap): EntityCard = let (self = this) (self) { tap = t }
+}
+
+/// Static entity card as a call (amend options in parens).
+function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
+/// The SAME constructor as a VALUE, for a query's render positions:
+/// `q.from(xs).render(c.entityCard)`. Methods and function-value
+/// properties are separate namespaces, so this delegate co-exists with the method
+/// above — the parens in `entityCard(e)` pick the method (no recursion). The
+/// factory param is `e`, NOT `entity`: a param named after the property it sets
+/// self-references inside the amend (the amend-scoping gotcha).
+hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)
+
+/// The common toggle-on-tap addition: `c.entityCard(x) |> c.tappable`.
+tappable: Mixin<EntityCard> = new { tap = tapMod.toggleTap }

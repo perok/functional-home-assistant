@@ -30,7 +30,8 @@
 /// says "unknown method" at the point of use.
 module query
 
-import "components.pkl"
+import "core/predicate.pkl" as pred
+import "core/node.pkl" as nodes
 import "hass.pkl"
 
 /// A comparison value. Not `Any` — only scalars are comparable.
@@ -49,15 +50,15 @@ typealias Scalar = String|Int|Float|Boolean
 /// Everything that can appear where a condition is expected, resolved or not.
 /// Usable in every NON-recursive position; the two positions that would close
 /// the alias cycle take `Any` and say why.
-typealias Cond = Boolean|components.Predicate|Pending|CandidateTerm|Group
+typealias Cond = Boolean|pred.Predicate|Pending|CandidateTerm|Group
 
 /// An UNRESOLVED comparison — its key is still a [[PropName]], so where the
 /// value comes from is not decided yet. Resolving it against the candidates
 /// either FOLDS it to a `Boolean` (a registry fact the build can read) or
-/// produces a live `components.Cmp`.
+/// produces a live `pred.Cmp`.
 class Pending {
   key: PropName
-  op: components.PredicateOp
+  op: pred.PredicateOp
   value: Scalar
 }
 
@@ -86,24 +87,24 @@ class Group {
 // `new { items = items }` the RHS binds to the object's own member and recurses
 // ~10 000 deep, with a trace pointing at the field rather than the cause.
 const local function isResolved(xs: List<Cond>): Boolean =
-  xs.every((i) -> i is Boolean || i is components.Predicate)
+  xs.every((i) -> i is Boolean || i is pred.Predicate)
 
 /// Conjunction. A statically-false term decides the candidate immediately.
 function all(xs: List<Cond>): Cond =
-  if (isResolved(xs)) foldAll(xs as List<Boolean|components.Predicate>)
+  if (isResolved(xs)) foldAll(xs as List<Boolean|pred.Predicate>)
   else new Group { gop = "all"; items = xs }
 
 /// Disjunction. A statically-true term short-circuits the whole thing — which
 /// is why presence residuals can DIFFER between members of one set, and so why
 /// presence has to live on the clause rather than beside it.
 function any(xs: List<Cond>): Cond =
-  if (isResolved(xs)) foldAny(xs as List<Boolean|components.Predicate>)
+  if (isResolved(xs)) foldAny(xs as List<Boolean|pred.Predicate>)
   else new Group { gop = "any"; items = xs }
 
 /// Negation. Static stays static; a live term becomes a runtime `not`.
 function not(x: Cond): Cond =
   if (x is Boolean) !x
-  else if (x is components.Predicate) new components.PNot { item = x }
+  else if (x is pred.Predicate) new pred.PNot { item = x }
   else new Group { gop = "not"; items = List(x) }
 
 /// Fold a mixed list of build-time Booleans and runtime predicates.
@@ -116,31 +117,31 @@ function not(x: Cond): Cond =
 /// and the runtime would evaluate the same predicate twice. One level of
 /// flattening suffices, because every group is built through these.
 const local function flatten(
-  gop: String, ts: List<components.Predicate>
-): List<components.Predicate> =
+  gop: String, ts: List<pred.Predicate>
+): List<pred.Predicate> =
   ts.flatMap((t) ->
-    if (gop == "and" && t is components.PAnd) t.items.toList()
-    else if (gop == "or" && t is components.POr) t.items.toList()
+    if (gop == "and" && t is pred.PAnd) t.items.toList()
+    else if (gop == "or" && t is pred.POr) t.items.toList()
     else List(t)).distinct
 
-const local function listing(ts: List<components.Predicate>): Listing<components.Predicate> =
+const local function listing(ts: List<pred.Predicate>): Listing<pred.Predicate> =
   new Listing { for (t in ts) { t } }
 
-const local function foldAll(xs: List<Boolean|components.Predicate>): Boolean|components.Predicate =
+const local function foldAll(xs: List<Boolean|pred.Predicate>): Boolean|pred.Predicate =
   if (xs.any((i) -> i is Boolean && i == false)) false
   else
-    let (rest = flatten("and", xs.filter((i) -> i is components.Predicate) as List<components.Predicate>))
+    let (rest = flatten("and", xs.filter((i) -> i is pred.Predicate) as List<pred.Predicate>))
       if (rest.isEmpty) true
       else if (rest.length == 1) rest.first
-      else new components.PAnd { items = listing(rest) }
+      else new pred.PAnd { items = listing(rest) }
 
-const local function foldAny(xs: List<Boolean|components.Predicate>): Boolean|components.Predicate =
+const local function foldAny(xs: List<Boolean|pred.Predicate>): Boolean|pred.Predicate =
   if (xs.any((i) -> i is Boolean && i == true)) true
   else
-    let (rest = flatten("or", xs.filter((i) -> i is components.Predicate) as List<components.Predicate>))
+    let (rest = flatten("or", xs.filter((i) -> i is pred.Predicate) as List<pred.Predicate>))
       if (rest.isEmpty) false
       else if (rest.length == 1) rest.first
-      else new components.POr { items = listing(rest) }
+      else new pred.POr { items = listing(rest) }
 
 // ---- property references, shared by predicates AND ordering ----------------
 //
@@ -252,11 +253,11 @@ const local function applyOp(cmpOp: String, l: Any, r: Any): Boolean =
 /// the build can read the property, otherwise a live term.
 const local function resolvePending(
   items: List<hass.Entity>, e: hass.Entity, pd: Pending
-): Boolean|components.Predicate =
+): Boolean|pred.Predicate =
   if (isBuildReadable(items, pd.key))
     applyOp(pd.op, e.getPropertyOrNull(pd.key.name), pd.value)
   else
-    new components.Cmp {
+    new pred.Cmp {
       property = resolveProp(items, pd.key)
       op = pd.op
       value = pd.value
@@ -264,7 +265,7 @@ const local function resolvePending(
 
 // ---- comparisons: the same terms work in `where` and in `orderBy` ----------
 
-const local function cmp(k: PropName, cmpOp: components.PredicateOp, v: Scalar): Pending =
+const local function cmp(k: PropName, cmpOp: pred.PredicateOp, v: Scalar): Pending =
   new { key = k; op = cmpOp; value = v }
 
 function eq(k: PropName, v: Scalar): Pending = cmp(k, "eq", v)
@@ -293,12 +294,12 @@ class EntityRef {
 
   /// The shorthand: naming an entity is nearly always to test its state, so
   /// that should not cost a `q.eq(q.stateProp, …)` every time.
-  function stateIs(s: String): components.Cmp = cmpOn(id, source, stateProp, "eq", s)
-  function stateIsNot(s: String): components.Cmp = cmpOn(id, source, stateProp, "ne", s)
-  function eq(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "eq", v)
-  function ne(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "ne", v)
-  function gt(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "gt", v)
-  function lt(k: PropName, v: Scalar): components.Cmp = cmpOn(id, source, k, "lt", v)
+  function stateIs(s: String): pred.Cmp = cmpOn(id, source, stateProp, "eq", s)
+  function stateIsNot(s: String): pred.Cmp = cmpOn(id, source, stateProp, "ne", s)
+  function eq(k: PropName, v: Scalar): pred.Cmp = cmpOn(id, source, k, "eq", v)
+  function ne(k: PropName, v: Scalar): pred.Cmp = cmpOn(id, source, k, "ne", v)
+  function gt(k: PropName, v: Scalar): pred.Cmp = cmpOn(id, source, k, "gt", v)
+  function lt(k: PropName, v: Scalar): pred.Cmp = cmpOn(id, source, k, "lt", v)
 }
 
 /// Name one entity. Prefer passing the typed dump entity —
@@ -318,8 +319,8 @@ function entity(e: hass.Entity|String): EntityRef =
 // (the capability-derived schema is not built); once it is, this becomes an
 // error rather than a warning.
 const local function cmpOn(
-  who: String, src: hass.Entity?, k: PropName, cmpOp: components.PredicateOp, v: Scalar
-): components.Cmp =
+  who: String, src: hass.Entity?, k: PropName, cmpOp: pred.PredicateOp, v: Scalar
+): pred.Cmp =
   let (_checked =
         if (src != null && k.name != "state" && !src.hasProperty(k.name))
           trace("fh: '\(k.name)' is not a property of \(who) — assuming a live attribute") != null
@@ -360,7 +361,7 @@ const local function specKey(s: OrderSpec): PropName =
 /// still compare.
 class Ordering {
   entities: List<hass.Entity>
-  terms: List<components.SortTerm>
+  terms: List<pred.SortTerm>
 }
 
 /// Fold the ordering.
@@ -426,19 +427,19 @@ const local function orderValue(
 
 const local function liveTerm(
   items: List<hass.Entity>, s: OrderSpec
-): components.SortTerm =
+): pred.SortTerm =
   new {
     by =
       if (s.by is Pending)
         let (pd = s.by as Pending)
-          new components.SortHolds {
-            predicate = new components.Cmp {
+          new pred.SortHolds {
+            predicate = new pred.Cmp {
               property = resolveProp(items, pd.key)
               op = pd.op
               value = pd.value
             }
           }
-      else new components.SortProp { property = resolveProp(items, s.by as PropName) }
+      else new pred.SortProp { property = resolveProp(items, s.by as PropName) }
     dir = s.dir
   }
 
@@ -448,8 +449,8 @@ const local function liveTerm(
 /// render when it wins. The key returns `Boolean` (folds at build time) or a
 /// predicate (defers to the wire).
 class Branch {
-  key: (hass.Entity) -> Boolean|components.Predicate
-  render: (hass.Entity) -> components.Node
+  key: (hass.Entity) -> Boolean|pred.Predicate
+  render: (hass.Entity) -> nodes.Node
 }
 
 /// What [[EntitySet.where]] and [[EntitySet.caseOf]] accept: the data form, a
@@ -492,7 +493,7 @@ class EntitySet {
   /// One guarded rendering. The guard takes exactly what [[where]] takes and
   /// folds the same way: a `Boolean` decides at build time, anything else
   /// defers to the wire.
-  function caseOf(g: Filter, r: (hass.Entity) -> components.Node): EntitySet =
+  function caseOf(g: Filter, r: (hass.Entity) -> nodes.Node): EntitySet =
     let (l = this)
       (l) {
         branches = l.branches.add(new Branch {
@@ -503,7 +504,7 @@ class EntitySet {
 
   /// Several guarded renderings at once. A `Mapping` keeps author order — which
   /// is match order — and rejects duplicate keys.
-  function cases(m: Mapping<Filter, (hass.Entity) -> components.Node>): EntitySet =
+  function cases(m: Mapping<Filter, (hass.Entity) -> nodes.Node>): EntitySet =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
@@ -513,10 +514,10 @@ class EntitySet {
   /// The unconditional last clause. OPTIONAL, and its absence is meaningful: a
   /// candidate matching no clause is simply not rendered, which is how "show it
   /// only while on" is written.
-  function `else`(r: (hass.Entity) -> components.Node): EntitySet = caseOf((_e) -> true, r)
+  function `else`(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf((_e) -> true, r)
 
   /// The only rendering, when there is nothing to dispatch on.
-  function render(r: (hass.Entity) -> components.Node): EntitySet = caseOf((_e) -> true, r)
+  function render(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf((_e) -> true, r)
 
   /// How many of this set's candidates are PRESENT, as a comparable value.
   /// `.count().gt(2)` is "more than two of these are on".
@@ -540,7 +541,7 @@ class EntitySet {
 
   /// The emitted node. A chain ends here — Pkl has no implicit conversion, so
   /// the set is a layout node only once you ask for it.
-  function build(): components.SetNode =
+  function build(): pred.SetNode =
     let (l = this)
       let (ordering = foldOrder(l.items, l.specs))
         buildSet(
@@ -566,7 +567,7 @@ class CountRef {
   /// Candidate id -> its presence residual: `true` for one the build settled,
   /// a predicate for one the runtime must decide. Statically-absent candidates
   /// are already gone.
-  hidden residuals: List<Pair<String, Boolean|components.Predicate>>
+  hidden residuals: List<Pair<String, Boolean|pred.Predicate>>
 
   hidden knownCount: Int? =
     if (residuals.every((p) -> p.second == true)) residuals.length else null
@@ -578,16 +579,16 @@ class CountRef {
   function eq(v: Int): Cond = let (l = this) l.compareTo("eq", v)
   function ne(v: Int): Cond = let (l = this) l.compareTo("ne", v)
 
-  function compareTo(cmpOp: components.PredicateOp, v: Int): Cond =
+  function compareTo(cmpOp: pred.PredicateOp, v: Int): Cond =
     let (l = this)
       if (l.knownCount != null) staticCompare(cmpOp, l.knownCount!!, v)
       else
-        new components.Count {
+        new pred.Count {
           candidates = new Listing { for (p in l.residuals) { p.first } }
           `when` = new Mapping {
             for (p in l.residuals) {
-              when (p.second is components.Predicate) {
-                [p.first] = p.second as components.Predicate
+              when (p.second is pred.Predicate) {
+                [p.first] = p.second as pred.Predicate
               }
             }
           }
@@ -608,7 +609,7 @@ const local function staticCompare(cmpOp: String, n: Int, v: Int): Boolean =
 /// candidate `e`.
 const local function normalise(
   items: List<hass.Entity>, e: hass.Entity, f: Any
-): Boolean|components.Predicate =
+): Boolean|pred.Predicate =
   let (r = if (f is Function) (f as ((Any) -> Any)).apply(e) else f)
     if (r is List) foldAll((r as List<Any>).map((x) -> normalise(items, e, x)))
     else if (r is Pending) resolvePending(items, e, r as Pending)
@@ -619,8 +620,8 @@ const local function normalise(
           if (g.gop == "all") foldAll(kids)
           else if (g.gop == "any") foldAny(kids)
           else if (kids.first is Boolean) !(kids.first as Boolean)
-          else new components.PNot { item = kids.first as components.Predicate }
-    else r as (Boolean|components.Predicate)
+          else new pred.PNot { item = kids.first as pred.Predicate }
+    else r as (Boolean|pred.Predicate)
 
 /// Which branches survive for one candidate, in author order, with their
 /// residual runtime condition. A branch whose key folded to `false` is gone; one
@@ -628,14 +629,14 @@ const local function normalise(
 /// after it can ever win.
 const local function liveBranches(
   e: hass.Entity, branches: List<Branch>
-): List<Pair<Branch, components.Predicate?>> =
+): List<Pair<Branch, pred.Predicate?>> =
   let (evaluated = branches
         .map((b) -> Pair(b, b.key.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
     let (firstUnconditional = evaluated.findIndexOrNull((p) -> p.second == true))
       (if (firstUnconditional == null) evaluated else evaluated.take(firstUnconditional + 1))
         .map((p) ->
-          Pair(p.first, if (p.second is components.Predicate) p.second as components.Predicate else null))
+          Pair(p.first, if (p.second is pred.Predicate) p.second as pred.Predicate else null))
 
 /// Conjoin a candidate's presence residual with one branch's residual. Either
 /// may be statically decided; the result is the guard the wire must carry, or
@@ -645,12 +646,12 @@ const local function liveBranches(
 /// residual identical to the branch guard collapses to one term instead of being
 /// conjoined with itself.
 const local function conjoin(
-  presence: Boolean|components.Predicate, branch: components.Predicate?
-): components.Predicate? =
+  presence: Boolean|pred.Predicate, branch: pred.Predicate?
+): pred.Predicate? =
   let (parts =
-        (if (presence is components.Predicate) List(presence as components.Predicate) else List()) +
+        (if (presence is pred.Predicate) List(presence as pred.Predicate) else List()) +
         (if (branch != null) List(branch) else List()))
-    if (parts.isEmpty) null else foldAll(parts) as components.Predicate
+    if (parts.isEmpty) null else foldAll(parts) as pred.Predicate
 
 /// Build the wire node from a static candidate list and authored branches.
 ///
@@ -662,8 +663,8 @@ const local function buildSet(
   items: List<hass.Entity>,
   branches: List<Branch>,
   cap: Int?,
-  presence: (hass.Entity) -> Boolean|components.Predicate
-): components.SetNode =
+  presence: (hass.Entity) -> Boolean|pred.Predicate
+): pred.SetNode =
   // 1. presence folds PER CANDIDATE; a statically-absent one is dropped here and
   //    never reaches the wire.
   let (kept = ordering.entities
@@ -681,16 +682,16 @@ const local function buildSet(
         Pair(p.first, p.second.map((b) ->
           Pair(b.first.render.apply(p.first),
                conjoin(presenceOf[p.first.entity_id], b.second))))))
-    new components.SetNode {
+    new pred.SetNode {
       candidates = new Listing { for (p in dispatched) { p.first.entity_id } }
       orderBy = new Listing { for (t in ordering.terms) { t } }
       limit = cap
       members = new Mapping {
         for (p in rendered) {
-          [p.first.entity_id] = new components.SetMember {
+          [p.first.entity_id] = new pred.SetMember {
             clauses = new Listing {
               for (q in p.second) {
-                new components.SetClause { `when` = q.second; node = q.first }
+                new pred.SetClause { `when` = q.second; node = q.first }
               }
             }
           }

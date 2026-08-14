@@ -142,7 +142,7 @@ Datastar expression (spliced as literal text into
 - service call → `@post('/sse/action/<domain>/<service>/<entity_id>')`
 - popup → `@post('/sse/surface/open/<id>')` / `@post('/sse/popup/close')`
 
-This is why reuse "just works": `c.button(eo, action=c.openPopup('x'))` needs
+This is why reuse "just works": `c.button(eo, action=c.tap.openPopup('x'))` needs
 no new template.
 
 **Going somewhere is the exception, and it is not an expression at all.** A `Tap`
@@ -156,7 +156,7 @@ styles buttons as `:is(button,.button)`, so the anchor form is visually
 identical.) The `Tap` also carries the equivalent `onclick`
 (`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
 root element cannot be an anchor — `entityCard`'s `<article>` — so one authored
-`c.navigate('x')` renders correctly wherever it is dropped.
+`c.tap.navigate('x')` renders correctly wherever it is dropped.
 
 ### Navigation is a real page load
 

@@ -1,0 +1,232 @@
+/// The layout tree and the card contract — what a component-library author
+/// extends to add a card of their own.
+///
+/// A card is a CLASS: subclass [[Node]], give it a `card` name and a `cardDef`
+/// (its template + declared slots), and [[cardsOf]] finds it by reflection. Every
+/// node is a CELL — the renderer wraps it in an id'd `.fh-cell`, and the layout
+/// builders here put the `fh-` contract classes on that wrapper.
+///
+/// CONTRACT: literal slots must be JSON strings, never numbers — the backend
+/// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
+module core.node
+
+import "slot.pkl" as slotMod
+import "surface.pkl" as surfaceMod
+import "pkl:reflect"
+
+/// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
+/// classes the renderer puts on this node's `.fh-cell` wrapper. The class
+/// names are the theme-agnostic `fh-` layout contract (see lib/theme.pkl).
+/// Authors normally use the builder methods on [[LayoutNode]] (`columns`,
+/// `fullWidth`, `cellClass`) rather than writing one directly.
+class Cell {
+  classes: Listing<String> = new {}
+}
+
+/// The common supertype of every layout-tree node. `kind` is the circe
+/// discriminator: `"component"` for a [[Node]], `"set"` for a [[SetNode]].
+///
+/// Every node is a CELL: the renderer wraps it in an id'd `.fh-cell` (the
+/// real flex/grid item), and the layout builders below put `fh-` contract
+/// classes on that wrapper. They follow HA's `grid_options` conventions —
+/// inside a [[Grid]] (12 columns), `columns(n)` is a card's width in grid
+/// columns (default 4, a third of the grid, like HA sections). No effect
+/// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
+/// builders return the base [[LayoutNode]] type, so chain them AFTER
+/// card-specific ones:
+/// `c.entityCard(e).tap(c.toggleTap).columns(3)`.
+abstract class LayoutNode {
+  kind: String
+  /// Layout-cell classes for this node's wrapper. Null (dropped from the wire
+  /// JSON) until a layout builder adds one.
+  cell: Cell? = null
+  /// This cell spans `n` of the surrounding grid's 12 columns (HA
+  /// `grid_options.columns`). No effect outside a [[Grid]]/group.
+  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
+  /// Span the surrounding grid's full width (HA `columns: full`).
+  function fullWidth(): LayoutNode = addCellClass("fh-cols-full")
+  /// Shrink this cell to its content instead of filling its share. The escape
+  /// from the default every other card wants — see [[Pill]], which is this plus
+  /// chip styling.
+  function hug(): LayoutNode = addCellClass("fh-hug")
+  /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
+  /// custom rule). Must be a plain class token — validated at build time.
+  function cellClass(cls: String): LayoutNode = addCellClass(cls)
+  // Shared appender: replace `cell` with a copy carrying one more class (the
+  // null default is never amended — amending a null Listing is an error).
+  //
+  // ONE SPAN PER NODE: adding an `fh-cols-*` class DROPS any it already had.
+  // Both `columns(n)` and `fullWidth()` emit a `flex-basis` rule, so with two
+  // present which one applies would be decided by the order of the rules in the
+  // stylesheet, not by the author's last word — a silently-losing override. It
+  // is also what lets a card DEFAULT its span ([[Tabs]], [[If]]) and still be
+  // overridden per node.
+  function addCellClass(cls: String): LayoutNode =
+    let (self = this)
+    let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
+    let (kept = if (cls.startsWith("fh-cols-")) had.filter((c) -> !c.startsWith("fh-cols-")) else had)
+      (self) {
+        cell = new Cell {
+          classes = new Listing<String> {
+            for (c in kept) { c }
+            cls
+          }
+        }
+      }
+}
+
+abstract class Node extends LayoutNode {
+  kind: "component" = "component"
+  card: String
+  // The card's template + declared slots, CO-LOCATED with the class that
+  // populates them. `hidden`, so it never emits into a node's JSON — the
+  // [[cards]] registry at the bottom collects each concrete subclass's
+  // class-level default by reflection. Must be a self-contained default (no
+  // instance-property references). NOTE (multiline templates): each HTML
+  // *attribute value* must stay on one physical line — line breaks between
+  // tags/attributes are harmless whitespace, but a newline inside an
+  // attribute would break it.
+  hidden cardDef: CardDef
+  // A LIVE slot on a bare container is a build error — the hazard the whole
+  // self/mount split exists to remove. Such a card hosts content AND would
+  // re-render on state, and having no `self` its patch would carry everything
+  // its mount holds. Declaring a `self` is the fix, and it lifts the ban.
+  //
+  // Checked at the NODE, not the card, because liveness is a property of the
+  // VALUE: `Slot|String` IS the distinction (a Pkl `String` is exactly the
+  // wire's `literal`), so [[Grid]] keeps its `class` slot — a literal — and only
+  // a genuinely reactive one is rejected. Mirrors
+  // `LayoutNode.Component.liveEntities`, subject case included (the subject
+  // counts only when `entity_id` is a literal).
+  slots: Mapping<String, slotMod.Slot|String>(
+    !bareContainer(cardDef) || !toMap().values.any((v) ->
+      v is slotMod.Slot && v.reactive && (v.entityId != null ||
+        (containsKey("entity_id") && this["entity_id"] is String)))
+  ) = new {}
+  // Widened to LayoutNode so a container can nest either a component or a
+  // dynamic group.
+  children: Listing<LayoutNode> = new {}
+  // A node-level map of inline surfaces the build-phase hoist lifts into the
+  // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
+  // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
+  // from JSON by omitNullProperties) unless a tap composes an inline popup.
+  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+}
+
+/// A card's markup. A LEAF card is just a `template`; a card that HOLDS other
+/// nodes splits into two parts placed at independent holes in it:
+///
+///   - `mount` — the element the children occupy. Filled as its own operation
+///     (a tab select, a popup open, a group repaint); a live patch never
+///     renders into it.
+///   - `self` — the card's own presentation: a tab bar, a header, a frame. This
+///     is what a live patch renders, under the engine's `{{selfId}}`.
+///
+/// They are SIBLINGS — `self` must not contain the `{{{mount}}}` hole — and
+/// that is the whole mechanism: a top-level patch matches only the element
+/// carrying its own id, so a patch at the self element cannot reach the mount.
+/// Hence the rule the design rests on: a node's patch carries its own rendering
+/// and NEVER the contents of a mount, so a host changing cannot re-render what
+/// it hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md).
+///
+/// A container with a `mount` and NO `self` ([[Row]]/[[Column]]/[[Grid]]) has
+/// only children to show, so its whole HTML contains them and it must never be
+/// patched — which is why a LIVE slot on that shape is a build error.
+abstract class CardDef {
+  /// The whole card. Defaults to the two parts back to back, which is right for
+  /// a container that is nothing but its mount.
+  template: String = "{{{self}}}{{{mount}}}"
+  slots: Listing<String> = new {}
+  // Whether the renderer wraps this card's HTML in the id'd `.fh-cell` layout
+  // wrapper. Null (dropped by omitNullProperties, backend defaults TRUE) for
+  // every normal card; set `false` only for a card whose root must stay a
+  // direct child of a framework-structural parent (the [[TabButton]] anchors
+  // under BeerCSS's `.tabs > a`). It means exactly "my root must not be wrapped
+  // in a layout box" — NOT "never a morph target", which is now decided by card
+  // shape (a container patches through its `self`).
+  wrapAsCell: Boolean? = null
+}
+
+/// A card with no children: one `template`, nothing to mount.
+class LeafCard extends CardDef {}
+
+/// A card that HOLDS other nodes. Splitting the two parts into separate
+/// properties placed at independent holes is what makes "they are siblings"
+/// structural: the ONLY way to nest them would be for `self` to contain the
+/// mount hole, and the constraint below forbids exactly that.
+class ContainerCard extends CardDef {
+  /// Where child nodes go. Carries `id="{{mountId}}"` only when something FILLS
+  /// it — a tab panel, an [[If]] branch — which is exactly where a surface's
+  /// `bakeAs` names it. A plain container's children arrive nested, so its mount
+  /// needs no id.
+  mount: String
+  /// The card's own presentation, patched independently of the mount. It IS the
+  /// patch target, so it must carry the engine's `{{selfId}}`; and it must not
+  /// nest the mount, or a patch would carry the mounted content after all.
+  self: String?(this == null ||
+    (this.contains("{{selfId}}") && !this.contains("{{{mount}}}"))) = null
+}
+
+/// Whether a card holds content but has NO presentation of its own — so its
+/// whole HTML contains its children, and patching it would re-render them. Such
+/// a card must never enter a diff set, which is why a LIVE slot on it is a build
+/// error (see [[Node.slots]]).
+const local function bareContainer(d: CardDef): Boolean =
+  d is ContainerCard && d.self == null
+
+// ---- the backend-facing card library (DERIVED from the card classes) ----
+// Each card class carries its own template + declared slots (`cardDef`,
+// co-located with the logic; hidden, so it never emits into a node's JSON).
+// [[cardsOf]] assembles `cardName -> CardDef` by reflecting over the concrete
+// [[Node]] subclasses of the given modules — within a module, registration is
+// automatic: a new card is just a class. `reflect.Property.defaultValue` reads
+// the evaluated CLASS-LEVEL default, which is why a `cardDef` must be
+// self-contained.
+//
+// Why a LIST of modules rather than just this one: a card class defined outside
+// this library (a third-party component) has to reach the registry too, or the
+// backend has no template to render it with. Pkl cannot discover those on its
+// own — `reflect.Module.imports` yields import URIs as plain STRINGS, and Pkl
+// has no reflect-by-string, so there is no way to walk the import graph and
+// collect what it finds. The module VALUES must therefore be named, which is
+// what an entry's `componentModules` does (see `entry.pkl`).
+//
+// Note a component must live in its own module: classes in an AMENDING module
+// (every entry) require the `local` modifier, and `local` classes are invisible
+// to reflect — so a card class written inline in an entry can never register.
+
+const local nodeClass = reflect.Class(Node)
+
+const local function cardNameOf(clsName: String, cls: reflect.Class): String =
+  let (v = cls.properties["card"].defaultValue)
+    if (v is String) v
+    else throw("card class \(clsName) must default `card` to a literal card name")
+
+const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
+  let (v = cls.properties["cardDef"].defaultValue)
+    if (v is CardDef) v
+    else throw("card class \(clsName) must set `cardDef` (its template + declared slots)")
+
+/// The card registry for `mods` — every concrete [[Node]] subclass they define,
+/// keyed by its card name. Two modules claiming the SAME card name is a Pkl
+/// error ("Duplicate definition of member"), so a component module cannot
+/// silently shadow a library card.
+function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
+  for (m in mods) {
+    for (clsName, cls in reflect.Module(m).classes) {
+      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+      }
+    }
+  }
+}
+
+
+
+// The placeholder a node uses to refer to its own backend-minted id — the SAME
+// id the renderer injects as `{{id}}`. The build-phase hoist
+// (DashboardBuild.hoistInlineSurfaces / NodeIdToken) splices the real id in.
+// MUST equal DashboardBuild.NodeIdToken. Authors never type it — the
+// `openPopupInline` tap embeds it (paired with an `inlineSurfaces` marker under
+// the matching local key).
+const NODE_ID: String = "@@NODE_ID@@"

@@ -1,4 +1,10 @@
-# `pkl project resolve <dir>` ignores the project's `evaluatorSettings` (`http.rewrites`, `moduleCacheDir`, `allowedResources`); `pkl project resolve .` honors them
+# Issue report 1 — `pkl project resolve <dir>` ignores the project's `evaluatorSettings`
+
+*(`http.rewrites`, `moduleCacheDir`, `allowedResources`; `pkl project resolve .` honors them)*
+
+- **Against:** apple/pkl (the `pkl` CLI)
+- **Status:** not filed upstream — this is the write-up to file from
+- **Our workaround:** `fh init-lsp-fix` writes the rewrite to `~/.pkl/settings.pkl`
 
 ## Summary
 

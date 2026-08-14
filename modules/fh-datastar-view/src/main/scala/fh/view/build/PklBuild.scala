@@ -152,7 +152,7 @@ object PklBuild {
     * builder makes pkl derive those settings ONCE, instead of us re-deriving
     * from the manifest — the same wiring the CLI does by hand, and the same it
     * OMITS in `project resolve <dir>` mode
-    * (docs/pkl-issue-http-rewrites-project-resolve.md).
+    * (docs/issue-report-1-pkl-cli-http-rewrites-project-resolve.md).
     *
     * Resolution touches the network only for a REMOTE dependency not already in
     * the cache: local deps read files, and a cached remote version satisfies

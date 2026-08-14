@@ -41,13 +41,13 @@ card = (c.grid) {
     // changing swaps its own card and touches nothing else.
     q.from(dump.lights)
       .caseOf(q.eq(q.stateProp, "on"), c.slider)
-      .`else`((e) -> (c.entityCard(e)) { tap = c.toggleTap })
+      .`else`((e) -> (c.entityCard(e)) { tap = c.tap.toggleTap })
       .build()
       .fullWidth()
 
     c.title("Switches").fullWidth()
     q.from(dump.switches)
-      .render((e) -> (c.entityCard(e)) { tap = c.toggleTap })
+      .render((e) -> (c.entityCard(e)) { tap = c.tap.toggleTap })
       .build()
       .fullWidth()
 

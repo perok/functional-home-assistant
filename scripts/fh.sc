@@ -800,7 +800,7 @@ def pklUserSettings: Path =
   * and `pkl:settings` has no `allowedResources` property to lift it into. Only
   * the command line can carry it, so point the IDE's Pkl executable at
   * `scripts/pkl-fh`, which injects both flags (verified on 0.32.1; see
-  * docs/pkl-issue-http-rewrites-project-resolve.md).
+  * docs/issue-report-1-pkl-cli-http-rewrites-project-resolve.md).
   */
 def lspFixContent(url: String): String =
   s"""amends "pkl:settings"

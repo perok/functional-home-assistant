@@ -25,7 +25,7 @@ surfaces {
     body {
       c.title("Power detail")
       c.entityCard(dump.entities.sensor_ams_1a4e_q)
-      c.button("Close", c.closePopup())
+      c.button("Close", c.tap.closePopup())
     }
   }
 }
@@ -61,7 +61,7 @@ card = (c.grid) {
         // emitted node is byte-identical (the wire snapshot guards this).
         c.entityCard(dump.entities.sensor_ams_1a4e_u1)
           .value(c.expr(#"$round($number($state), 1) & " V""#))
-          .tap(c.serviceTap("homeassistant/toggle"))
+          .tap(c.tap.serviceTap("homeassistant/toggle"))
 
         // Domain-checked: only entities with a sliderSpec row (lights) compile.
         // A slider wants room — span the full grid width.
@@ -87,7 +87,7 @@ card = (c.grid) {
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
       .`else`((e) -> c.entityCard(e)
-        .tap(c.toggleTap)
+        .tap(c.tap.toggleTap)
         .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#)))
       .build()
       .fullWidth()
@@ -116,15 +116,15 @@ card = (c.grid) {
     c.title("Popups").fullWidth()
     (c.row) {
       children {
-        c.button("Power detail…", c.openPopup("detail"))
-        c.button("Quick info…", c.openPopupInline(new c.Column {
+        c.button("Power detail…", c.tap.openPopup("detail"))
+        c.button("Quick info…", c.tap.openPopupInline(new c.Column {
           children {
             c.title("Quick info")
             c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-            c.button("Close", c.closePopup())
+            c.button("Close", c.tap.closePopup())
           }
         }))
-        c.button("« Back to jsonnet", c.navigate("dashboard"))
+        c.button("« Back to jsonnet", c.tap.navigate("dashboard"))
       }
     }
   }

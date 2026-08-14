@@ -1,7 +1,7 @@
 package fh.view.build
 
 /** Home Assistant's `light` domain constants, vendored — the generator's copy
-  * of what `lib/hass-light.pkl` exposes to dashboard authors.
+  * of what `lib/hass/light.pkl` exposes to dashboard authors.
   *
   * Two copies exist because the two sides need them at different times: this
   * one derives the capability predicates during codegen, the Pkl one lets an

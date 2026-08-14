@@ -1,0 +1,152 @@
+/// The things you press: button, pill, toggle.
+module components.control
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+
+/// Generic click button (service call or navigate). `action = null` defaults
+/// to the domain-resolved service call, which needs an entity. (Tab-bar
+/// entries are NOT buttons — see [[TabButton]].)
+class Button extends nodes.Node {
+  card = "button"
+  cardDef = new nodes.LeafCard {
+    // A button that GOES somewhere is an `<a href>`, not a scripted click: the
+    // browser then gives it middle-click, open-in-new-tab, the status-bar
+    // preview, and a working click before Datastar has even loaded. `.button`
+    // is BeerCSS's element-independent button styling, so the two forms look
+    // the same (verified in beer.min.css: every button rule is
+    // `:is(button,.button)`). Only `label` is a declared slot — the other two
+    // are the two arms of one choice, so neither is always present.
+    template = """
+      {{#href}}<a class="button card" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="card" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
+      """
+    slots { "label" }
+  }
+  hidden entity: hass.Entity? = null
+  hidden label: (String|slotMod.Expr)? = null
+  hidden action: tapMod.Tap? = null
+  // The tap actually rendered — late binding re-derives it (and the slots
+  // below) when a builder amends `action`.
+  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = slotMod.labelSlot(entity, label)
+    // The anchor form wins when the tap offers one; the other slot is then
+    // omitted entirely rather than emitted-and-ignored, so the node JSON says
+    // which element it is.
+    when (tap.href != null) {
+      ["href"] = tap.href!!
+    } else {
+      ["onclick"] = tap.onclick
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
+  function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
+  function action(a: tapMod.Tap): Button = let (self = this) (self) { action = a }
+}
+
+/// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
+/// `<label class="switch"><input type="checkbox"><span></span></label>`).
+/// Unlike [[Button]]/[[Pill]], the checkbox itself must show which state it is
+/// IN, not just act on it, so `checked` is a live slot baked from the entity's
+/// own state — the same baked-attribute move as [[Slider]]'s fill, and for the
+/// same reason: an SSE morph only replaces markup, so the state must already be
+/// in the HTML it sends rather than something a client script re-derives.
+/// Always calls a service (there is no href arm — a checkbox cannot be an
+/// `<a>`), defaulting to the same domain-resolved toggle every [[Button]] does.
+class Toggle extends nodes.Node {
+  card = "toggle"
+  cardDef = new nodes.LeafCard {
+    template = """
+      <article class="card row">
+        <span class="max">{{label}}</span>
+        <label class="switch">
+          <input type="checkbox" {{{checked}}} data-on:click="{{{onclick}}}" />
+          <span></span>
+        </label>
+      </article>
+      """
+    slots { "label" }
+  }
+  hidden entity: hass.Entity
+  hidden label: (String|slotMod.Expr)? = null
+  hidden action: tapMod.Tap? = null
+  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    // Opt OUT of the unavailable bypass (unlike a display value, "unavailable"
+    // is not a checkbox state) so an unavailable entity just renders unchecked.
+    ["checked"] = new slotMod.Slot {
+      transform = #"$state = "on" ? "checked" : """#
+      default = ""
+      bypassUnavailable = false
+    }
+    ["onclick"] = tap.onclick
+  }
+  function label(l: String|slotMod.Expr): Toggle = let (self = this) (self) { label = l }
+  function action(a: tapMod.Tap): Toggle = let (self = this) (self) { action = a }
+}
+
+/// Static toggle as a call — see [[Toggle]].
+function toggle(e: hass.Entity): Toggle = new Toggle { entity = e }
+/// The SAME constructor as a VALUE, for a query's render positions (mirrors
+/// [[entityCard]]).
+hidden toggle: (hass.Entity) -> Toggle = (e) -> toggle(e)
+
+/// Compact tappable pill — the same two arms as [[Button]] (navigate = `<a>`,
+/// service call = `<button>`), styled as a chip and sized to its label instead
+/// of to its cell. For a run of small choices — floors, scenes, modes — where a
+/// row of full-width buttons would read as a stack of unrelated slabs.
+///
+/// Its cell defaults to `fh-hug` (the same self-defaulted-cell move [[Tabs]]
+/// makes with `fh-cols-full`), which is the whole difference in layout terms:
+/// a hugging cell packs at the container's gap, so pills in a [[Grid]] centre
+/// and wrap as one group. An author still overrides it — `columns(n)` and
+/// `fullWidth()` compose on top, and a pill that spans a grid column is a
+/// perfectly reasonable thing to ask for.
+class Pill extends nodes.Node {
+  card = "pill"
+  cardDef = new nodes.LeafCard {
+    // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
+    // and already `box-sizing:border-box` (unlike `.button`, which is
+    // content-box — see the theme's `.fh-cell>.button` rule).
+    template = """
+      {{#href}}<a class="chip" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
+      """
+    slots { "label" }
+  }
+  cell = new nodes.Cell { classes { "fh-hug" } }
+  hidden entity: hass.Entity? = null
+  hidden label: (String|slotMod.Expr)? = null
+  hidden action: tapMod.Tap? = null
+  hidden tap: tapMod.Tap = action ?? tapMod.toggleTap
+  inlineSurfaces = if (action != null) action!!.inlineSurfaces else null
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (tap.href != null) {
+      ["href"] = tap.href!!
+    } else {
+      ["onclick"] = tap.onclick
+    }
+  }
+  function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }
+  function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
+  function action(a: tapMod.Tap): Pill = let (self = this) (self) { action = a }
+}
+
+/// A service/navigate button as a call: `c.button("Close", c.closePopup())`.
+function button(l: String, a: tapMod.Tap): Button = new Button { label = l; action = a }
+/// The compact form of the same thing: `c.pill("Underetasje", c.navigate("under"))`.
+function pill(l: String, a: tapMod.Tap): Pill = new Pill { label = l; action = a }

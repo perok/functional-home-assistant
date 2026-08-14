@@ -37,7 +37,9 @@ import "theme-beer.pkl" as themeMod
 /// Your cards must live in their own module (not inline in this entry): classes
 /// in an amending module need `local`, and `local` classes are invisible to
 /// reflection, so an inline card class would never register.
-hidden componentModules: Listing<Module> = new { c }
+hidden componentModules: Listing<Module> = new {
+  for (m in c.modules) { m }
+}
 
 /// The reflected card registry (each card class's template + slots), collected
 /// from [[componentModules]]. Two modules claiming one card name is an error.
