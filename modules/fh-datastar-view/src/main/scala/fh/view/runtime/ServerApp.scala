@@ -143,6 +143,7 @@ object ServerApp extends IOApp {
         ).toResource
         entries = prepared.entries
         built = prepared.built
+        failed = prepared.failed
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
@@ -168,10 +169,20 @@ object ServerApp extends IOApp {
           )
           .toResource
 
-        rendererRefs <- built
-          .traverse { case (slug, (renderer, _)) =>
+        // Every discovered entry is registered, built or not: `built` become
+        // `Ready` renderers, `failed` become `Failed` states serving their
+        // error page and rebuilding live on a fix.
+        stateOf: Map[String, Server.RendererState] =
+          built.map { case (slug, (renderer, _)) =>
+            slug -> Server.RendererState.Ready(renderer)
+          }.toMap ++
+            failed.map { case (slug, message) =>
+              slug -> Server.RendererState.Failed(message)
+            }
+        rendererRefs <- prepared.entries
+          .traverse { case (slug, _) =>
             SignallingRef[IO]
-              .of(Server.RendererState.Ready(renderer))
+              .of(stateOf(slug))
               .map(slug -> _)
           }
           .map(_.toMap)
@@ -180,9 +191,14 @@ object ServerApp extends IOApp {
           .of(watchedSet(dashboardsDir, entries, built.map(_._2._2)))
           .toResource
 
-        // Only slugs that actually built (a skipped entry must not become
-        // the default and 404 the root).
-        defaultSlug = defaultSlugFrom(config.defaultDashboard, built.map(_._1))
+        // The configured default wins even when broken (its error page is the
+        // fix path); with none, prefer a built `dashboard`, then the first
+        // entry that built, then the first entry.
+        defaultSlug = defaultSlugFrom(
+          config.defaultDashboard,
+          entries.map(_._1),
+          built.map(_._1)
+        )
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
         // dump and swap it in only if every currently-building dashboard still
@@ -257,13 +273,16 @@ object ServerApp extends IOApp {
     } yield ExitCode.Success
 
   /** Everything [[prepareRenderers]] hands back: the FULL discovered entry list
-    * (slug -> filename, including entries that failed to build — the reload /
-    * refresh machinery can still rebuild them after a fix) and the subset that
-    * actually built into a renderer (with its import set, for watching).
+    * (slug -> filename), the subset that built into a renderer (with its import
+    * set, for watching), and the failures (slug -> message). An entry that
+    * failed to build is REGISTERED as a failed dashboard (serving its error
+    * page and rebuilding live on a fix) rather than skipped, so no discoverable
+    * entry is ever silently absent from the server.
     */
   private[runtime] case class Prepared(
       entries: List[(String, String)],
-      built: List[(String, (Renderer, Set[os.Path]))]
+      built: List[(String, (Renderer, Set[os.Path]))],
+      failed: List[(String, String)]
   )
 
   /** Discover, dump, and build every dashboard — the entry-to-renderer path
@@ -272,10 +291,11 @@ object ServerApp extends IOApp {
     *
     * Blocks on the feed's first connect + seed (so a live template call has a
     * connection), seeds the `@fh-home` dump ONCE from the live API
-    * ([[DashboardBuild.prepareDumps]]), then builds each entry against it —
-    * skipping (logging, not crashing) an entry that fails, exactly as
-    * production tolerates one bad user edit. Fails only when the dir has no
-    * entries, or none of them build.
+    * ([[DashboardBuild.prepareDumps]]), then builds each entry against it. Only
+    * an EMPTY dir is fatal: a broken entry (a bad user edit before a restart)
+    * becomes a registered `Failed` dashboard, not a crash — it serves an error
+    * page and rebuilds live on a fix, exactly the same shape the reload
+    * machinery uses after startup.
     */
   private[runtime] def prepareRenderers(
       feed: HaFeed,
@@ -292,30 +312,29 @@ object ServerApp extends IOApp {
       // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
       // the build phase, which owns fetching + packaging the dump.
       _ <- DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
-      // Per-entry: a broken dashboard (a bad user edit before a restart) is
-      // logged and skipped, not a crash loop; only zero buildable is fatal.
-      built <- entries
+      // Per-entry: a broken dashboard (a bad user edit before a restart) is a
+      // registered `Failed` dashboard, not a crash; the entry list is
+      // exhausted either way.
+      results <- entries
         .traverse { case (slug, entry) =>
-          buildEntry(dashboardsDir, slug, entry).attempt.flatMap {
-            case Right(r) =>
-              // Built, but maybe not sound: report what still serves and only
-              // misbehaves (a popup with nowhere to mount).
-              r._1.warnings
-                .traverse_(w => IO.println(s"[warn] '$slug': $w"))
-                .as(Some((slug, r)))
-            case Left(err) =>
-              IO.println(
-                s"Skipping dashboard '$slug' (build failed): ${err.getMessage}"
-              ).as(None)
+          buildEntry(dashboardsDir, slug, entry).attempt.map {
+            case Right(r)  => Right((slug, r))
+            case Left(err) => Left((slug, err))
           }
         }
-        .map(_.flatten)
-      _ <- IO.raiseWhen(built.isEmpty)(
-        FHError.internal(
-          s"all *.pkl dashboards in $dashboardsDir failed to build"
-        )
-      )
-    } yield Prepared(entries, built)
+      built = results.collect { case Right((slug, r)) => (slug, r) }
+      failed = results.collect { case Left((slug, err)) =>
+        (slug, failureOf(err))
+      }
+      _ <- built.traverse_ { case (slug, (renderer, _)) =>
+        // Built, but maybe not sound: report what still serves and only
+        // misbehaves (a popup with nowhere to mount).
+        renderer.warnings.traverse_(w => IO.println(s"[warn] '$slug': $w"))
+      }
+      _ <- failed.traverse_ { case (slug, message) =>
+        IO.println(s"Dashboard '$slug' failed to build: $message")
+      }
+    } yield Prepared(entries, built, failed)
 
   /** The runtime KERNEL both [[run]] (production) and the test harness
     * (`TestServer`) funnel through, so the live-Server wiring cannot silently
@@ -367,18 +386,34 @@ object ServerApp extends IOApp {
         .toList
     }
 
-  /** Default dashboard: the configured `DEFAULT_DASHBOARD` if it built, else
-    * `dashboard`, else the first slug. Pure — `configured` is already parsed
-    * from the environment into [[Config]].
+  /** Default dashboard: the configured `DEFAULT_DASHBOARD` wins whenever it
+    * names ANY discovered entry — even one that failed to build, whose error
+    * page is the point (it stays fixable in the editor rather than silently
+    * bouncing to a different dashboard). Otherwise a *built* `dashboard`, then
+    * an entry `dashboard`, then the first built, then the first entry — so a
+    * home with zero buildable dashboards still serves the lexicographically
+    * first entry as its root. Pure — `configured` is already parsed from the
+    * environment into [[Config]].
     */
-  private def defaultSlugFrom(
+  private[runtime] def defaultSlugFrom(
       configured: Option[String],
-      slugs: List[String]
+      all: List[String],
+      built: List[String]
   ): String =
     configured
-      .filter(slugs.contains)
-      .orElse(Option.when(slugs.contains("dashboard"))("dashboard"))
-      .getOrElse(slugs.head)
+      .filter(all.contains)
+      .orElse(Option.when(built.contains("dashboard"))("dashboard"))
+      .orElse(Option.when(all.contains("dashboard"))("dashboard"))
+      .orElse(built.headOption)
+      .getOrElse(all.head)
+
+  /** A failure's message for `Failed(...)` states and logs; exceptions can
+    * throw a null message, which neither an error page nor a log line wants.
+    */
+  private def failureOf(err: Throwable): String =
+    Option(err.getMessage)
+      .filter(_.nonEmpty)
+      .getOrElse(err.getClass.getSimpleName)
 
   /** Evaluate one entry against the on-disk dump and create its renderer,
     * forcing its slug to the filename-derived one (routing is by slug).
