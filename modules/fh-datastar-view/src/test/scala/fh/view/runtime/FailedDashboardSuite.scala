@@ -314,6 +314,19 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test("a live stream on an unknown slug is a 404, not an empty SSE") {
+    // The gate lives on the stream's own single lookup, so this is the same
+    // question the recover 404 asks — and the answer must be a 404, never a
+    // 200 whose body ends as soon as nothing is registered (which an empty
+    // `renderers` map read by the ROUTE would have produced under a stale
+    // double lookup).
+    withLiveServer(failed) { (server, _, _, _) =>
+      server.routes.orNotFound
+        .run(Request[IO](Method.GET, uri"/sse/dashboard/nope/patch"))
+        .map(resp => assertEquals(resp.status, Status.NotFound))
+    }
+  }
+
   test(
     "a bookmarked SSE URL on a failed slug is still answered with a reload"
   ) {

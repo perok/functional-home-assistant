@@ -216,9 +216,9 @@ class Server(
       }
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
-      renderers.get.flatMap { rs =>
-        if (rs.contains(slug)) sseStream(slug, req) else NotFound()
-      }
+      // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
+      // lookup, not here — see that method.
+      sseStream(slug, req)
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
@@ -500,7 +500,8 @@ class Server(
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
     * patches (filtered to what this client can see, with any [[Varying]]
     * resolved against its selections), the session control channel, live-reload
-    * body repaints, and a heartbeat.
+    * body repaints, and a heartbeat. An unknown slug is a 404 — the gate lives
+    * at the tail, on the stream's own single lookup ([[liveFor]]).
     */
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
@@ -668,47 +669,57 @@ class Server(
         // nobody reads is merely wasteful; claiming a digest for it is
         // permanent staleness.
         .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
-      resp <- Ok(stream)
+      // The 404 gate is on THIS stream's own (single) lookup, not in the route:
+      // a route-side `renderers.get` and this read could disagree (a slug
+      // removed between them) and answer a 200 empty-body SSE instead of a
+      // 404. Nothing has been registered for an absent slug by this point —
+      // registration is bracketed to `stream`, which never runs — and the
+      // session `adoptOrMint` created is unreferenced garbage.
+      resp <- liveOpt match
+        case None    => NotFound()
+        case Some(_) => Ok(stream)
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
     * `Failed -> Ready` transitions as reloads, and nothing else — no session,
-    * no `conn`, no holds, no cursor, no `openingPatches`. Its FIRST element is
-    * the subscription's initial value, so it doubles as the connection marker:
-    * a `recover-open` comment under `Failed` (the browser discards SSE comments
-    * before any listener, so Datastar never even receives it) or an immediate
-    * reload when the fix landed between the page's render and this connect.
-    * After that, a `Ready` state reloads, a `Failed` state reloads only when
-    * its error MESSAGE changes (the page shows the message, so a re-broken edit
-    * must repaint it), and an unchanged `Failed` sends nothing — so opening
-    * under a still-failed slug emits a marker, never a reload, and the
-    * anti-loop is structural.
+    * no `conn`, no holds, no cursor, no `openingPatches`
+    * ([[recoverTransitions]]).
+    *
+    * The ONE slug lookup lives here, not in the route: a slug removed between a
+    * route-side lookup and the stream would have answered a 200 empty-body SSE
+    * instead of a 404.
     */
   private def recoverStream(slug: String): IO[Response[IO]] =
-    // ONE lookup, here — not one in the route and one here: a slug removed
-    // between the two would have answered a 200 empty-body SSE instead of a
-    // 404, so the route delegates outright and this is the only read.
     liveFor(slug).flatMap {
       case None       => NotFound()
-      case Some(live) =>
-        val transitions =
-          live.renderer.discrete.zipWithPrevious.map {
-            // The connection marker: the stream's FIRST element, sent once it
-            // has subscribed under the CURRENT state — a comment under
-            // `Failed`, or an immediate reload when the fix landed between the
-            // page's render and this connect.
-            case (None, st) =>
-              Some(
-                if (st.rendererOf.isDefined) Server.reloadPatch
-                else Server.recoverOpenMarker
-              )
-            // The one rule: reload unless the state is an UNCHANGED `Failed` —
-            // the page already shows that message, so a reload would just loop.
-            case (prev, st) =>
-              Option.unless(unchangedFailed(prev, st))(Server.reloadPatch)
-          }.unNone
-        Ok(transitions.merge(keepAliveComments))
+      case Some(live) => Ok(recoverTransitions(live).merge(keepAliveComments))
     }
+
+  /** The recover stream's state changes ([[recoverStream]]), as the error page
+    * must react to them. Its FIRST element doubles as the connection marker: a
+    * comment under `Failed` (the browser discards SSE comments before any
+    * listener, so Datastar never even receives it) or an immediate reload when
+    * the fix landed between the page's render and this connect. After that, the
+    * one rule: reload unless the state is an UNCHANGED `Failed` — the page
+    * already shows that message, so a reload would just loop.
+    */
+  private def recoverTransitions(
+      live: Server.LiveSlug
+  ): Stream[IO, ServerSentEvent] =
+    live.renderer.discrete.zipWithPrevious.map {
+      // The connection marker: the stream's FIRST element, sent once it has
+      // subscribed under the CURRENT state — a comment under `Failed`, or an
+      // immediate reload when the fix landed between the page's render and
+      // this connect.
+      case (None, st) =>
+        Some(
+          if (st.rendererOf.isDefined) Server.reloadPatch
+          else Server.recoverOpenMarker
+        )
+      // The one rule: reload unless the state is an UNCHANGED `Failed`.
+      case (prev, st) =>
+        Option.unless(unchangedFailed(prev, st))(Server.reloadPatch)
+    }.unNone
 
   /** Whether the state change is a no-op for the error page: still `Failed`
     * with the SAME message, so the page already shows it and a reload would
@@ -1300,30 +1311,36 @@ class Server(
   private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
     rendererFor(slug).flatMap {
       case None           => NotFound()
-      case Some(renderer) =>
-        stateStore.snapshot.flatMap { states =>
-          // `id` is a URL segment — an untrusted CLAIM about a node id, which
-          // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
-          val entities = renderer.entitiesForNode(NodeId.derived(id))
-          val arr = Json.arr(entities.map { e =>
-            states.get(e) match {
-              case Some(st) =>
-                Json.obj(
-                  "entity_id" -> Json.fromString(e),
-                  "state" -> Json.fromString(st.state),
-                  "attributes" -> Json.fromFields(st.attributes.toList)
-                )
-              case None =>
-                Json.obj(
-                  "entity_id" -> Json.fromString(e),
-                  "state" -> Json.Null,
-                  "attributes" -> Json.obj()
-                )
-            }
-          }*)
-          Ok(arr.noSpaces)
-            .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+      case Some(renderer) => nodeDebugJson(renderer, id)
+    }
+
+  /** The debug payload for a registered slug ([[nodeDebug]]). */
+  private def nodeDebugJson(
+      renderer: Renderer,
+      id: String
+  ): IO[Response[IO]] =
+    stateStore.snapshot.flatMap { states =>
+      // `id` is a URL segment — an untrusted CLAIM about a node id, which
+      // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
+      val entities = renderer.entitiesForNode(NodeId.derived(id))
+      val arr = Json.arr(entities.map { e =>
+        states.get(e) match {
+          case Some(st) =>
+            Json.obj(
+              "entity_id" -> Json.fromString(e),
+              "state" -> Json.fromString(st.state),
+              "attributes" -> Json.fromFields(st.attributes.toList)
+            )
+          case None =>
+            Json.obj(
+              "entity_id" -> Json.fromString(e),
+              "state" -> Json.Null,
+              "attributes" -> Json.obj()
+            )
         }
+      }*)
+      Ok(arr.noSpaces)
+        .map(_.withContentType(`Content-Type`(MediaType.application.json)))
     }
 
   /** Decode a pushed dashboard and install it live under `slug`.
@@ -1419,18 +1436,27 @@ class Server(
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     liveFor(slug).flatMap {
       case None       => NotFound()
-      case Some(live) =>
-        (
-          live.renderer.get,
-          live.log.get,
-          IO.randomUUID.map(_.toString)
-        ).flatMapN { (state, log, conn) =>
-          state match
-            case Server.RendererState.Failed(message) =>
-              errorPage(slug, message, req)
-            case Server.RendererState.Ready(renderer) =>
-              renderPage(slug, renderer, log, conn, req)
-        }
+      case Some(live) => pageFor(slug, live, req)
+    }
+
+  /** The document for a registered slug ([[pageResponse]]): the error page when
+    * its renderer is `Failed`, the full dashboard when it is `Ready`.
+    */
+  private def pageFor(
+      slug: String,
+      live: Server.LiveSlug,
+      req: Request[IO]
+  ): IO[Response[IO]] =
+    (
+      live.renderer.get,
+      live.log.get,
+      IO.randomUUID.map(_.toString)
+    ).flatMapN { (state, log, conn) =>
+      state match
+        case Server.RendererState.Failed(message) =>
+          errorPage(slug, message, req)
+        case Server.RendererState.Ready(renderer) =>
+          renderPage(slug, renderer, log, conn, req)
     }
 
   /** The full dashboard document ([[page]]) for a `Ready` slug: mint this

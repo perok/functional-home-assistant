@@ -165,6 +165,11 @@ GET /d/:slug
     // has no browser mechanism to fall back on
 
 GET /sse/dashboard/:slug/patch
+  an UNKNOWN slug is a 404, decided on the stream's own single lookup:
+    // not in the route — a route-side `renderers.get` and the stream's read
+    // could disagree (a slug removed between them) and answer a 200 empty-body
+    // SSE instead. Nothing is registered by the time the gate says no
+    // (registration is bracketed to the stream body, which never runs).
   announce `conn` ONLY if this URL named none (a bookmarked SSE endpoint):
     the document seeds it, so echoing it back says nothing
   retire the session `?prev=` names, if any, unless a stream is HOLDING it
