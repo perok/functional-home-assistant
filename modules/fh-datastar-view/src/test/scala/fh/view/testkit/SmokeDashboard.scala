@@ -74,4 +74,30 @@ object SmokeDashboard {
 
   val dashboard: Dashboard =
     PklFixture.buildDashboard("smoke-house", entrySource)
+
+  /** A slider whose line reads out its LEVEL — the readout a drag has to move
+    * itself, since it is a function of the position rather than of the state.
+    * Its own dashboard rather than a sixth card on [[dashboard]], because that
+    * one is what [[fh.view.smoke.ComponentVisualSuite]] photographs and a new
+    * card there is a new PNG baseline for a behavioural test.
+    */
+  val percentSlider: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-percent",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Percent"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).readout("percent")
+         |  }
+         |}
+         |""".stripMargin
+    )
 }
