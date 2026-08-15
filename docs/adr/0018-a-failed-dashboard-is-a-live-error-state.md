@@ -1,5 +1,9 @@
 # 0018 — A failed dashboard is a live error state
 
+> Supersedes the design plans `docs/plan-failed-dashboard-recovery.md` and
+> `docs/plan-error-page-recovery-reload.md` (deleted; the alternatives they
+> rejected are recorded in the section below).
+
 ## Context
 
 A dashboard whose Pkl source is broken — a bad edit, a removed entity, a stale
@@ -117,3 +121,32 @@ an empty stream, so `failed.log` never sees `publisherFor`'s output.
   honest state, and the `reload` repaint makes the transition explicit.
 - **Retry/backoff of the build.** Unneeded: the source watcher already
   re-evaluates on every edit, so the repair loop is the edit itself.
+- **Re-mint a failed slug's registry entry on its first successful build.**
+  "Minting" means constructing a fresh `LiveSlug` on demand — new renderer
+  ref, log, doorbell, and recorder fiber (the shape `push` uses for a brand
+  new slug). It only sounds small: the ref map is immutable and seeded at
+  boot, so a late slug means threading a mutable map through `run` and
+  `reloadEntries`; the error page needs a parallel slug→error structure with
+  its own sync; and the registry would still need to know a slug is "known
+  but failed" to tell its error page from a 404. The chosen design is
+  simpler: one ref per slug registered at boot, repair is a single `.set`.
+- **`SignallingRef[IO, Option[Renderer]]` with the message stored
+  elsewhere.** The error page needs the failure message, and a side-table kept
+  in step with the ref is exactly the drift this design exists to remove.
+  `Failed(message)` carries it on the value.
+- **Recovery on the shared patch stream via an `?error-page=1` query
+  param.** Drags the whole session machinery along — `conn` minting, registry
+  registration, `holds`, cursor bookkeeping — for a connection that uses none
+  of it, and routes the seam inside `openingPatches`. The dedicated
+  `recover` stream has no session, no cursor, no `openingPatches`, and a
+  bookmarking or direct-URL connection to the shared stream keeps its
+  defensive `reload` path.
+- **A hand-rolled inline `EventSource` on the error page.** Raw `indexOf`
+  substring matching on a `"_reload":true` flag. The page uses the Datastar
+  convention the live page already does (`@get` + `data-effect`), which
+  deletes the script entirely.
+- **`TestControl` for the anti-loop test.** It virtualizes time but cannot
+  assert a causal fact — both a real sleep and a virtual sleep say "pass a
+  window and hope the open completed". The `recover-open` marker is the
+  causal proof the test awaits: receiving it means the stream subscribed to
+  the ref under `Failed`.
