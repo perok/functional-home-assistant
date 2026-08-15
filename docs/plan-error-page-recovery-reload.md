@@ -1,6 +1,8 @@
 # Plan: error-page recovery via a dedicated `recover` endpoint + Datastar, and the review follow-ups (fh-datastar-view)
 
-**Status: agreed design, not yet implemented.** This is the follow-up to `plan-failed-dashboard-recovery.md`
+**Status: implemented.** Landed as one commit alongside ADR 0018's rewrite and the pipeline
+doc (module CLAUDE.md: docs travel with the code). This file is kept for the record; the live
+descriptions now live in ADR 0018 and `docs/architecture-rendering-pipeline.md`. This is the follow-up to `plan-failed-dashboard-recovery.md`
 (implemented, ADR 0018): a review of that work surfaced five points; the design discussion settled
 each of them. This file is the concrete todo list for the implementation commit.
 

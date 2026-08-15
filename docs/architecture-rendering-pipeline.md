@@ -136,11 +136,14 @@ for each slug: start a recorder fiber
 ```
 GET /d/:slug
   a Failed slug serves the error page: a self-contained HTML document (no
-    renderer, no theme, no Datastar) naming the slug and the build error, with an
-    editor link straight to the source — the fix path. Its one connection is a
-    tiny inline SSE client (marked `error-page=1`) that reloads the page on the
-    `_reload` signal; opening under `Failed` sends nothing (no reload loop), so
-    recovery reloads exactly when the slug does. Non-HTML consumers see
+    renderer, no theme, no cursor) naming the slug and the build error, with an
+    editor link straight to the source — the fix path. Its only script is the
+    Datastar module; `data-init` opens the dedicated `sse/dashboard/<slug>/recover`
+    stream, whose `_reload` signal the page's `data-effect` turns into
+    `window.location.reload()`. Opening under `Failed` sends the inert
+    `recover-open` marker, not a reload (no reload loop); under an already-
+    `Ready` slug it sends an immediate reload (the fix landed between render and
+    connect). Recovery reloads exactly when the slug does. Non-HTML consumers see
     a failed slug as absent, exactly like an unknown one
   render the WHOLE page from the current snapshot
   mint conn; create Session{slug, open surfaces, control queue, holds, position}

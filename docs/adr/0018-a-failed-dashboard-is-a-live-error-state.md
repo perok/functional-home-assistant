@@ -31,24 +31,29 @@ the seam.
   `Prepared.failed` and seeded as `Failed` refs, so an all-failed workspace
   still boots — to the editor and each slug's error page.
 - **The error page is the fix path.** `GET /d/:slug` on a `Failed` slug serves
-  a self-contained HTML document: no renderer, no theme, no Datastar, no cursor —
-  it names the slug, the escaped build error, and carries an editor link to
+  a self-contained HTML document: no renderer, no theme, no cursor — it names
+  the slug, the escaped build error, and carries an editor link to
   `<slug>.pkl`. HTML requests get the page; non-HTML consumers (`nodeDebug`,
   action POSTs, `publisherFor`) see a failed slug as absent, exactly as they
   see an unknown one. A connected SSE session is told to `reload` across both
   directions of a `Ready`⇄`Failed` transition — the error document has no
   `#dashboard` to patch and no head to patch into, so a full reload is the
   only sound transition either way.
-- **Recovery is the SSE reload, not a meta-refresh.** The one exception to "no
-  SSE" is the error page's own connection: a small inline client opens
-  `sse/dashboard/<slug>/patch?error-page=1` and reloads the page when it sees
-  the `_reload` signal. `openingPatches` routes on the marker
-  (`ErrorPageParam`): opening under a still-`Failed` slug sends NOTHING — a
-  reload here would loop, since the page just loaded — and opening under an
-  already-`Ready` slug sends a reload (the fix landed between render and
-  connect, after the transition's reload was sent to nobody). The reload that
-  announces recovery therefore arrives precisely when the slug recovers, never
-  on a poll schedule.
+- **Recovery is a dedicated Datastar stream, not a meta-refresh.** The error
+  page's only script is the Datastar module; its `data-init` opens the
+  dedicated `sse/dashboard/<slug>/recover` stream
+  ([[Server#recoverStream]]) — a plain subscription to the slug's state with
+  no session, no cursor, no `openingPatches`. Its first element doubles as the
+  connection marker ([[Server.recoverOpenMarker]], a `recover-open` event type
+  Datastar has no listener for): a still-`Failed` slug emits the marker, NOT a
+  reload — a reload here would loop, since the page just loaded — and an
+  already-`Ready` slug emits a `_reload` patch (the fix landed between render
+  and connect, after the transition's reload was sent to nobody). Every later
+  `Failed -> Ready` transition emits a `_reload` patch that `data-effect`
+  turns into `window.location.reload()`. The reload that announces recovery
+  therefore arrives precisely when the slug recovers, never on a poll
+  schedule, and the anti-loop is structural — a `Failed` state never emits a
+  reload, on open or thereafter.
 - **Repair is live.** `reloadEntries` re-evaluates every entry on each source
   edit and sets **every** ref: `Right` → `Ready`, `Left` → `Failed(message)`.
   A dashboard broken since startup recovers without a restart; a live one that
@@ -75,8 +80,9 @@ all keep taking a concrete `Renderer`. Exactly five seams match on the state:
 |---|---|---|
 | `rendererFor` | the renderer | `None` → 404 for non-HTML consumers |
 | `publisherFor` | record frames | an empty stream (nothing to record) |
-| `openingPatches` | the narrowest patch | `None` → a `reload` patch; an error-page connect ([[Server.ErrorPageParam]]) sends nothing under `Failed` (no reload loop) and a `reload` under `Ready` |
+| `openingPatches` | the narrowest patch | `None` → a `reload` patch (defensive: only a stale connection or a direct SSE URL reaches it — the error page opens the `recover` stream) |
 | `reloadRepaints` | repaint connections | `reload` patch across the transition |
+| `recoverStream` | an immediate `reload` on open (the fix landed between render and connect) | the inert `recover-open` marker on open; a `reload` on each `Failed -> Ready` |
 | `pageResponse` | the page | the self-contained error page |
 
 `withSession`, `nodeDebug`, and the session machinery ride `rendererFor`;

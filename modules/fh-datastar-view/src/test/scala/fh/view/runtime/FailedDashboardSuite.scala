@@ -190,7 +190,9 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
-  test("the error page carries an SSE auto-reload, not a meta-refresh") {
+  test(
+    "the error page reloads via Datastar on the recover stream, not a meta-refresh"
+  ) {
     withLiveServer(failed) { (server, _, _, _) =>
       for {
         resp <- server.routes.orNotFound.run(
@@ -198,34 +200,33 @@ class FailedDashboardSuite extends ServerHarness {
         )
         body <- resp.body.through(fs2.text.utf8.decode).compile.string
       } yield {
-        // The page opens this slug's SSE stream (marked [[Server.ErrorPageParam]])
-        // and reloads on the `_reload` signal. The slug itself is joined at
-        // runtime, so the URL is asserted as its two literal halves.
-        assert(body.contains("sse/dashboard/"), clue = body)
+        // Recovery is Datastar's `@get` on the dedicated recover stream: the
+        // module is the page's only script, and the reload is declared as a
+        // `data-effect` on the `_reload` signal — no hand-rolled EventSource.
+        assert(body.contains("datastar.js"), clue = body)
+        assert(body.contains("sse/dashboard/dashboard/recover"), clue = body)
+        assert(body.contains("data-effect"), clue = body)
         assert(
-          body.contains(s"/patch?${Server.ErrorPageParam}=1"),
+          body.contains(s"{${Server.ReloadSignal}: false}"),
           clue = body
         )
-        assert(body.contains("datastar-patch-signals"), clue = body)
-        assert(body.contains(s""""${Server.ReloadSignal}":true"""), clue = body)
-        // A real reload mechanism, not a polling meta-refresh.
+        assert(body.contains("window.location.reload()"), clue = body)
+        // A real reload mechanism, not a polling meta-refresh, and no inline JS.
+        assert(!body.contains("EventSource"), clue = body)
         assert(!body.contains("http-equiv"), clue = body)
       }
     }
   }
 
   test(
-    "an error-page SSE connection is not reloaded on open under a failed slug, " +
+    "a recover stream is not reloaded on open under a failed slug, " +
       "but reloads when the slug recovers"
   ) {
     withLiveServer(failed) { (server, _, ref, _) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
         resp <- server.routes.orNotFound.run(
-          Request[IO](
-            Method.GET,
-            uri"/sse/dashboard/dashboard/patch?error-page=1"
-          )
+          Request[IO](Method.GET, uri"/sse/dashboard/dashboard/recover")
         )
         _ <- Supervisor[IO].use { supervisor =>
           supervisor.supervise(
@@ -235,10 +236,14 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
           ) *>
-            // The opening under Failed must send nothing: a reload here would
-            // loop, because the page just loaded. The recovery reload comes
-            // from the Failed -> Ready transition instead.
-            IO.sleep(500.millis) *>
+            // The connection marker is the stream's first element and only
+            // exists once it subscribed under the CURRENT state — awaiting it
+            // proves the open ran under Failed (a fixed sleep could pass
+            // vacuously before the open did). What follows must be nothing
+            // reload-triggering: a reload here would loop, since the page just
+            // loaded. The recovery reload comes from the Failed -> Ready
+            // transition instead.
+            awaitMarker(seen) *>
             assertNothing(seen) *>
             ref.set(
               Server.RendererState.Ready(Renderer.create(liveLeafDash))
@@ -248,8 +253,48 @@ class FailedDashboardSuite extends ServerHarness {
         reloads <- seen.get
       } yield {
         val reloadEvents = reloads.filter(reloadEvent)
-        assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+        // Exactly one reload, and it is the recovery reload — nothing preceded
+        // the transition (the anti-loop half).
+        assertEquals(reloadEvents.size, 1, clue = reloadEvents)
       }
+    }
+  }
+
+  test(
+    "a recover stream opened under an already-recovered slug reloads immediately"
+  ) {
+    withLiveServer(Server.RendererState.Ready(Renderer.create(liveLeafDash))) {
+      (server, _, _, _) =>
+        for {
+          seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+          resp <- server.routes.orNotFound.run(
+            Request[IO](Method.GET, uri"/sse/dashboard/dashboard/recover")
+          )
+          _ <- Supervisor[IO].use { supervisor =>
+            supervisor.supervise(
+              resp.body
+                .through(ServerSentEvent.decoder[IO])
+                .evalMap(e => seen.update(_ :+ e))
+                .compile
+                .drain
+            ) *>
+              awaitReload(seen)
+          }
+          reloads <- seen.get
+        } yield {
+          val reloadEvents = reloads.filter(reloadEvent)
+          // The fix landed between the page's render and this connect: the
+          // transition's reload was sent to nobody, so the stream says it now.
+          assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+        }
+    }
+  }
+
+  test("a recover stream on an unknown slug is a 404") {
+    withLiveServer(failed) { (server, _, _, _) =>
+      server.routes.orNotFound
+        .run(Request[IO](Method.GET, uri"/sse/dashboard/nope/recover"))
+        .map(resp => assertEquals(resp.status, Status.NotFound))
     }
   }
 
@@ -411,6 +456,24 @@ class FailedDashboardSuite extends ServerHarness {
       .compile
       .drain
       .timeout(15.seconds)
+
+  /** The recover stream's first element, sent once it has subscribed under the
+    * connection's own state. It is [[Server.recoverOpenMarker]] — a marker
+    * Datastar ignores — so awaiting it proves the open completed without
+    * asserting anything reload-triggering.
+    */
+  private def awaitMarker(
+      seen: Ref[IO, Vector[ServerSentEvent]]
+  ): IO[Unit] =
+    fs2.Stream
+      .repeatEval(seen.get <* IO.sleep(10.millis))
+      .find(_.exists(isMarker))
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  private def isMarker(e: ServerSentEvent): Boolean =
+    e.eventType == Server.recoverOpenMarker.eventType
 
   /** The negative half of an SSE-opening test: nothing reload-triggering may
     * arrive in a window that would cover any immediate-reload bug.

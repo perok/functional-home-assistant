@@ -220,6 +220,14 @@ class Server(
         if (rs.contains(slug)) sseStream(slug, req) else NotFound()
       }
 
+    // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
+    // dedicated stream with no session/conn/cursor — the error page opens it and
+    // reloads on the first `_reload` signal ([[errorPage]]).
+    case GET -> Root / "sse" / "dashboard" / slug / "recover" =>
+      renderers.get.flatMap { rs =>
+        if (rs.contains(slug)) recoverStream(slug) else NotFound()
+      }
+
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
@@ -664,6 +672,40 @@ class Server(
       resp <- Ok(stream)
     } yield resp
 
+  /** The error page's recovery stream ([[errorPage]]): the slug's
+    * `Failed -> Ready` transitions as reloads, and nothing else — no session,
+    * no `conn`, no holds, no cursor, no `openingPatches`. Its FIRST element is
+    * the subscription's initial value, so it doubles as the connection marker:
+    * a `recover-open` event under `Failed` (an event type Datastar has no
+    * listener for, so it is inert on the page) or an immediate reload when the
+    * fix landed between the page's render and this connect. After that, a
+    * `Ready` state reloads and a `Failed` one sends nothing — so opening under
+    * a still-failed slug emits a marker, never a reload, and the anti-loop is
+    * structural.
+    */
+  private def recoverStream(slug: String): IO[Response[IO]] =
+    val transitions =
+      for {
+        live <- Stream.eval(liveFor(slug)).unNone
+        s <- live.renderer.discrete.zipWithPrevious.map {
+          case (None, st) =>
+            Some(
+              if (st.rendererOf.isDefined) Server.reloadPatch
+              else Server.recoverOpenMarker
+            )
+          case (_, st) =>
+            Option.when(st.rendererOf.isDefined)(Server.reloadPatch)
+        }.unNone
+      } yield s
+    // Same cadence as the shared stream: a connection that sits on a failed slug
+    // for hours otherwise looks idle to an intermediary. Datastar's retry would
+    // restore a reaped one, but a kept connection costs a comment.
+    val keepAlive =
+      Stream
+        .awakeEvery[IO](Server.KeepAliveInterval)
+        .as(Server.keepAliveComment)
+    Ok(transitions.merge(keepAlive))
+
   /** One session's pull: what THIS client is owed from `position + 1`, rendered
     * against the current snapshot and its own selections.
     *
@@ -818,21 +860,11 @@ class Server(
     )
       .flatMapN { (covered, state, log, store, holds, told) =>
         state.rendererOf match
-          // An ERROR-PAGE connection is not a document: no body to patch, no
-          // cursor to claim, and opening under a still-failed slug sends NOTHING —
-          // an immediate reload would loop, since the page just loaded. The
-          // reload that announces recovery arrives from `reloadRepaints` on the
-          // Failed -> Ready transition. Opening under an already-recovered
-          // renderer means the fix landed between the page render and this
-          // connect, so the transition's reload was sent to nobody — say it now.
-          case None if Server.errorPageOf(req)    => IO.pure(Nil)
-          case Some(_) if Server.errorPageOf(req) =>
-            IO.pure(List(Server.reloadPatch))
           // A failed slug has no document to open, so no claim to bookkeep:
           // whatever a stale connection or a bookmarked SSE URL asks for, the
-          // error page is a reload away. Defensive — the error page mints no
-          // session/conn, so this is only reachable by a slug that went
-          // `Failed` mid-session or by direct URL entry.
+          // error page is a reload away. Defensive — the error page opens the
+          // dedicated `recover` stream instead, so this is only reachable by a
+          // slug that went `Failed` mid-session or by direct URL entry.
           case None           => IO.pure(List(Server.reloadPatch))
           case Some(renderer) =>
             val cursor = Server.cursorOf(req)
@@ -1488,17 +1520,18 @@ class Server(
   }
 
   /** A self-contained error document for a slug whose eval/build failed: no
-    * renderer, so no theme, no Datastar, no session/conn minting, no cursor.
-    * The `<base href>` still honors the ingress prefix so links resolve behind
-    * the HA proxy. The editor link is the write path — fixing the source here
-    * recovers the dashboard live (the reload loop re-evals on the edit).
+    * renderer, so no theme, no session/conn minting, no cursor. The `<base
+    * href>` still honors the ingress prefix so links resolve behind the HA
+    * proxy. The editor link is the write path — fixing the source here recovers
+    * the dashboard live (the reload loop re-evals on the edit).
     *
-    * Recovery is an inline SSE connection ([[ErrorPageParam]]), not a
-    * meta-refresh: the page opens `sse/dashboard/<slug>/patch?error-page=1` and
-    * reloads on the `_reload` signal, which the server sends exactly when the
-    * slug transitions `Failed -> Ready` ([[reloadRepaints]]) — a poll would
-    * re-eval on a fixed schedule; this reloads precisely at the moment the fix
-    * lands.
+    * Recovery is Datastar's `@get` on the dedicated `recover` stream
+    * ([[recoverStream]]), not a meta-refresh: the module opens
+    * `sse/dashboard/<slug>/recover` and the `_reload` signal — sent exactly
+    * when the slug transitions `Failed -> Ready` — triggers `data-effect`'s
+    * reload. A poll would re-eval on a fixed schedule; this reloads precisely
+    * at the moment the fix lands. The Datastar module is the page's only
+    * dependency beyond itself.
     */
   private def errorPage(
       slug: String,
@@ -1515,26 +1548,18 @@ class Server(
          |  <meta name="viewport" content="width=device-width, initial-scale=1">
          |  <base href="$baseHref">
          |  <title>Dashboard $title</title>
+         |  <script type="module" src="${assets.rewrite(
+          Server.DatastarCdn
+        )}"></script>
          |</head>
-         |<body data-slug="$title">
-         |  <h1>Dashboard $title failed to build</h1>
-         |  <pre>${Server.escapeHtml(message)}</pre>
-         |  <p>Fix the source in the editor — the dashboard reloads automatically.</p>
-         |  <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
-         |  <script>
-         |    (function () {
-         |      var slug = document.body.dataset.slug
-         |      if (!slug) return
-         |      var es = new EventSource(
-         |        "sse/dashboard/" + encodeURIComponent(slug) + "/patch?${Server.ErrorPageParam}=1"
-         |      )
-         |      es.addEventListener("datastar-patch-signals", function (e) {
-         |        if (e.data.indexOf('"${Server.ReloadSignal}":true') !== -1) {
-         |          window.location.reload()
-         |        }
-         |      })
-         |    })()
-         |  </script>
+         |<body data-init="@get('sse/dashboard/$slug/recover', ${Server.SseRetry})">
+         |  <div data-signals="{${Server.ReloadSignal}: false}"
+         |       data-effect="$$${Server.ReloadSignal} && window.location.reload()">
+         |    <h1>Dashboard $title failed to build</h1>
+         |    <pre>${Server.escapeHtml(message)}</pre>
+         |    <p>Fix the source in the editor — the dashboard reloads automatically.</p>
+         |    <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |  </div>
          |</body>
          |</html>""".stripMargin
     Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -2069,18 +2094,13 @@ object Server {
 
   val PrevConnParam: String = "prev"
 
-  /** Query marker on an error page's SSE URL (see [[errorPage]]). The error
-    * page is the ONE connection that opens with no document behind it, so it
-    * cannot be told apart from a plain cursor-less connect by its lack of a
-    * cursor — it names itself. `openingPatches` routes on it ([[errorPageOf]]).
+  /** The recover stream's connection marker ([[recoverStream]]): an SSE event
+    * Datastar has no listener for, so it is inert on the error page — its only
+    * job is to be the stream's first element, the proof a test can await that
+    * the stream subscribed under the current state.
     */
-  val ErrorPageParam: String = "error-page"
-
-  /** Whether this SSE request comes from an error page rather than a document
-    * ([[ErrorPageParam]]).
-    */
-  private[runtime] def errorPageOf(req: Request[IO]): Boolean =
-    req.uri.query.params.contains(ErrorPageParam)
+  private[runtime] val recoverOpenMarker: ServerSentEvent =
+    ServerSentEvent(eventType = Some("recover-open"))
 
   /** The page shell's own JavaScript, read from the frontend bundle
     * (`src/js/shell.ts` -> vite -> managed resources).

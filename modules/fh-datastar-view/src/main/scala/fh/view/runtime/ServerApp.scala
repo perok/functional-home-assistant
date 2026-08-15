@@ -488,7 +488,8 @@ object ServerApp extends IOApp {
   /** The source watcher's pipeline, decoupled from the OS watcher: the caller
     * supplies the event stream and the watch/unwatch side effect, so a test can
     * drive the same `events -> reloadEntries` wiring with a controlled stream
-    * instead of a live `WatchService`.
+    * instead of a live `WatchService`. The `WatchService` itself is only
+    * exercised manually (`sbt dashboardServe`).
     */
   private[runtime] def watchSourcesWith(
       events: Stream[IO, Watcher.Event],
@@ -565,11 +566,12 @@ object ServerApp extends IOApp {
           case (slug, Left(err)) =>
             val message = failureOf(err)
             rendererRefs(slug)
-              .modify[Option[String]] { _ =>
-                (
-                  Server.RendererState.Failed(message),
-                  Some(s"Dashboard '$slug' is now broken: $message")
-                )
+              .modify[Option[String]] { prev =>
+                val note = prev match
+                  case Server.RendererState.Failed(_) => None
+                  case _                              =>
+                    Some(s"Dashboard '$slug' is now broken: $message")
+                (Server.RendererState.Failed(message), note)
               }
               .flatMap(_.traverse_(IO.println))
         } *>
