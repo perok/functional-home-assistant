@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Ref, Resource}
-import cats.effect.std.Supervisor
+import cats.effect.std.{Queue, Supervisor}
 import cats.syntax.all.*
 import fh.view.build.PklDump
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
@@ -190,6 +190,150 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test("the error page carries an SSE auto-reload, not a meta-refresh") {
+    withLiveServer(failed) { (server, _, _, _) =>
+      for {
+        resp <- server.routes.orNotFound.run(
+          Request[IO](Method.GET, uri"/d/dashboard")
+        )
+        body <- resp.body.through(fs2.text.utf8.decode).compile.string
+      } yield {
+        // The page opens this slug's SSE stream (marked [[Server.ErrorPageParam]])
+        // and reloads on the `_reload` signal. The slug itself is joined at
+        // runtime, so the URL is asserted as its two literal halves.
+        assert(body.contains("sse/dashboard/"), clue = body)
+        assert(
+          body.contains(s"/patch?${Server.ErrorPageParam}=1"),
+          clue = body
+        )
+        assert(body.contains("datastar-patch-signals"), clue = body)
+        assert(body.contains(s""""${Server.ReloadSignal}":true"""), clue = body)
+        // A real reload mechanism, not a polling meta-refresh.
+        assert(!body.contains("http-equiv"), clue = body)
+      }
+    }
+  }
+
+  test(
+    "an error-page SSE connection is not reloaded on open under a failed slug, " +
+      "but reloads when the slug recovers"
+  ) {
+    withLiveServer(failed) { (server, _, ref, _) =>
+      for {
+        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+        resp <- server.routes.orNotFound.run(
+          Request[IO](
+            Method.GET,
+            uri"/sse/dashboard/dashboard/patch?error-page=1"
+          )
+        )
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            resp.body
+              .through(ServerSentEvent.decoder[IO])
+              .evalMap(e => seen.update(_ :+ e))
+              .compile
+              .drain
+          ) *>
+            // The opening under Failed must send nothing: a reload here would
+            // loop, because the page just loaded. The recovery reload comes
+            // from the Failed -> Ready transition instead.
+            IO.sleep(500.millis) *>
+            assertNothing(seen) *>
+            ref.set(
+              Server.RendererState.Ready(Renderer.create(liveLeafDash))
+            ) *>
+            awaitReload(seen)
+        }
+        reloads <- seen.get
+      } yield {
+        val reloadEvents = reloads.filter(reloadEvent)
+        assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+      }
+    }
+  }
+
+  test(
+    "a bookmarked SSE URL on a failed slug is still answered with a reload"
+  ) {
+    withLiveServer(failed) { (server, _, _, _) =>
+      for {
+        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+        resp <- server.routes.orNotFound.run(
+          Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
+        )
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            resp.body
+              .through(ServerSentEvent.decoder[IO])
+              .evalMap(e => seen.update(_ :+ e))
+              .compile
+              .drain
+          ) *>
+            awaitReload(seen)
+        }
+        reloads <- seen.get
+      } yield {
+        val reloadEvents = reloads.filter(reloadEvent)
+        assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+      }
+    }
+  }
+
+  test(
+    "the source watcher pipeline repairs a broken dashboard and breaks it again, " +
+      "driven without a live OS watcher"
+  ) {
+    // The [[ServerApp.watchSourcesWith]] seam: the same `events -> reloadEntries`
+    // wiring the OS watcher drives, here fed a controlled event stream — a real
+    // file edit and the WatchService event it would raise.
+    stageRepairWorld.use { case (ws, _) =>
+      for {
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        refs = Map("dash" -> ref)
+        entries = List("dash" -> "dash.pkl")
+        events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
+        watched <- Ref[IO].of(Vector.empty[fs2.io.file.Path])
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            ServerApp
+              .watchSourcesWith(
+                fs2.Stream.fromQueueUnterminated(events),
+                p => watched.update(_ :+ p).as(IO.unit),
+                ws,
+                entries,
+                refs,
+                imports
+              )
+              .compile
+              .drain
+          ) *>
+            // Fix the source, deliver the edit event: the ref must become Ready.
+            IO.blocking(os.write.over(ws / "dash.pkl", kitchenEntry)) *>
+            events.offer(modified(ws / "dash.pkl")) *>
+            awaitState(ref)(_.isInstanceOf[Server.RendererState.Ready]) *>
+            // The fixed entry's files joined the watch graph.
+            awaitWatched(watched) *>
+            // Break it again: the same pipeline flips the ref back to Failed.
+            IO.blocking(
+              os.write.over(ws / "dash.pkl", "this is not valid pkl")
+            ) *>
+            events.offer(modified(ws / "dash.pkl")) *>
+            awaitState(ref)(_.isInstanceOf[Server.RendererState.Failed])
+        }
+        finalState <- ref.get
+      } yield {
+        assert(
+          finalState.isInstanceOf[Server.RendererState.Failed],
+          clue = finalState
+        )
+      }
+    }
+  }
+
   /** A real package-form workspace (lib + the fixture house seeded as the
     * `@fh-home` dump) whose `dash.pkl` starts BROKEN — the same staging the
     * production boot produces for a bad user edit, minus the boot itself.
@@ -267,6 +411,40 @@ class FailedDashboardSuite extends ServerHarness {
       .compile
       .drain
       .timeout(15.seconds)
+
+  /** The negative half of an SSE-opening test: nothing reload-triggering may
+    * arrive in a window that would cover any immediate-reload bug.
+    */
+  private def assertNothing(
+      seen: Ref[IO, Vector[ServerSentEvent]]
+  ): IO[Unit] =
+    seen.get.map(events => assert(!events.exists(reloadEvent), clue = events))
+
+  private def awaitState(
+      ref: SignallingRef[IO, Server.RendererState]
+  )(pred: Server.RendererState => Boolean): IO[Unit] =
+    fs2.Stream
+      .repeatEval(ref.get <* IO.sleep(10.millis))
+      .find(pred)
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  private def awaitWatched(
+      watched: Ref[IO, Vector[fs2.io.file.Path]]
+  ): IO[Unit] =
+    fs2.Stream
+      .repeatEval(watched.get <* IO.sleep(10.millis))
+      .find(_.exists(_.toString.endsWith("dash.pkl")))
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  private def modified(p: os.Path): fs2.io.file.Watcher.Event =
+    fs2.io.file.Watcher.Event.Modified(
+      fs2.io.file.Path.fromNioPath(p.toNIO),
+      1
+    )
 
   private def reloadEvent(e: ServerSentEvent): Boolean =
     e.signals.exists(_.contains(s""""${Server.ReloadSignal}":true"""))

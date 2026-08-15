@@ -475,40 +475,62 @@ object ServerApp extends IOApp {
       importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] =
     Stream.resource(Watcher.default[IO]).flatMap { watcher =>
-      val reconcile =
-        Stream
-          .eval(cats.effect.kernel.Ref[IO].of(Map.empty[Path, IO[Unit]]))
-          .flatMap { active =>
-            importsRef.discrete.evalMap { imports =>
-              active.get.flatMap { current =>
-                val toAdd = imports -- current.keySet
-                val toCancel = current.keySet -- imports
-                for {
-                  added <- toAdd.toList
-                    .traverse(p => watcher.watch(p, watchedEvents).tupleLeft(p))
-                  _ <- toCancel.toList
-                    .traverse_(p => current.getOrElse(p, IO.unit))
-                  _ <- active.set((current ++ added) -- toCancel)
-                } yield ()
-              }
+      watchSourcesWith(
+        watcher.events(),
+        path => watcher.watch(path, watchedEvents),
+        dashboardsDir,
+        entries,
+        rendererRefs,
+        importsRef
+      )
+    }
+
+  /** The source watcher's pipeline, decoupled from the OS watcher: the caller
+    * supplies the event stream and the watch/unwatch side effect, so a test can
+    * drive the same `events -> reloadEntries` wiring with a controlled stream
+    * instead of a live `WatchService`.
+    */
+  private[runtime] def watchSourcesWith(
+      events: Stream[IO, Watcher.Event],
+      watch: Path => IO[IO[Unit]],
+      dashboardsDir: os.Path,
+      entries: List[(String, String)],
+      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
+      importsRef: SignallingRef[IO, Set[Path]]
+  ): Stream[IO, Unit] = {
+    val reconcile =
+      Stream
+        .eval(cats.effect.kernel.Ref[IO].of(Map.empty[Path, IO[Unit]]))
+        .flatMap { active =>
+          importsRef.discrete.evalMap { imports =>
+            active.get.flatMap { current =>
+              val toAdd = imports -- current.keySet
+              val toCancel = current.keySet -- imports
+              for {
+                added <- toAdd.toList
+                  .traverse(p => watch(p).tupleLeft(p))
+                _ <- toCancel.toList
+                  .traverse_(p => current.getOrElse(p, IO.unit))
+                _ <- active.set((current ++ added) -- toCancel)
+              } yield ()
             }
           }
+        }
 
-      val reload =
-        watcher
-          .events()
-          .debounce(200.millis)
-          .evalMap { _ =>
-            reloadEntries(
-              dashboardsDir,
-              entries,
-              rendererRefs,
-              importsRef
-            )
-          }
+    val reload =
+      events
+        .debounce(200.millis)
+        .evalMap { _ =>
+          reloadEntries(
+            dashboardsDir,
+            entries,
+            rendererRefs,
+            importsRef
+          )
+        }
 
-      reload.concurrently(reconcile)
-    }
+    reload.concurrently(reconcile)
+  }
 
   /** Re-evaluate ALL entries against the on-disk sources + dump and hot-swap
     * each renderer. Every entry's ref is set either way — `Ready` with the new
@@ -530,17 +552,26 @@ object ServerApp extends IOApp {
       .flatMap { results =>
         results.traverse_ {
           case (slug, Right((renderer, _))) =>
-            rendererRefs(slug).get.flatMap {
-              case Server.RendererState.Failed(_) =>
-                rendererRefs(slug).set(Server.RendererState.Ready(renderer)) *>
-                  IO.println(s"Dashboard '$slug' recovered")
-              case _ =>
-                rendererRefs(slug).set(Server.RendererState.Ready(renderer))
-            }
+            rendererRefs(slug)
+              .modify[Option[String]] { prev =>
+                val note =
+                  prev match
+                    case Server.RendererState.Failed(_) =>
+                      Some(s"Dashboard '$slug' recovered")
+                    case _ => None
+                (Server.RendererState.Ready(renderer), note)
+              }
+              .flatMap(_.traverse_(IO.println))
           case (slug, Left(err)) =>
             val message = failureOf(err)
-            rendererRefs(slug).set(Server.RendererState.Failed(message)) *>
-              IO.println(s"Dashboard '$slug' is now broken: $message")
+            rendererRefs(slug)
+              .modify[Option[String]] { _ =>
+                (
+                  Server.RendererState.Failed(message),
+                  Some(s"Dashboard '$slug' is now broken: $message")
+                )
+              }
+              .flatMap(_.traverse_(IO.println))
         } *>
           // A repaired entry's import set joins the watch graph, so later edits
           // to *its* imports fire too; a still-broken entry's loose `file:`

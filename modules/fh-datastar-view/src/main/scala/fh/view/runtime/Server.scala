@@ -818,6 +818,16 @@ class Server(
     )
       .flatMapN { (covered, state, log, store, holds, told) =>
         state.rendererOf match
+          // An ERROR-PAGE connection is not a document: no body to patch, no
+          // cursor to claim, and opening under a still-failed slug sends NOTHING —
+          // an immediate reload would loop, since the page just loaded. The
+          // reload that announces recovery arrives from `reloadRepaints` on the
+          // Failed -> Ready transition. Opening under an already-recovered
+          // renderer means the fix landed between the page render and this
+          // connect, so the transition's reload was sent to nobody — say it now.
+          case None if Server.errorPageOf(req)    => IO.pure(Nil)
+          case Some(_) if Server.errorPageOf(req) =>
+            IO.pure(List(Server.reloadPatch))
           // A failed slug has no document to open, so no claim to bookkeep:
           // whatever a stale connection or a bookmarked SSE URL asks for, the
           // error page is a reload away. Defensive — the error page mints no
@@ -1478,10 +1488,17 @@ class Server(
   }
 
   /** A self-contained error document for a slug whose eval/build failed: no
-    * renderer, so no theme, no Datastar, no SSE, no session/conn minting, no
-    * cursor. The `<base href>` still honors the ingress prefix so links resolve
-    * behind the HA proxy. The editor link is the write path — fixing the source
-    * here recovers the dashboard live (the reload loop re-evals on the edit).
+    * renderer, so no theme, no Datastar, no session/conn minting, no cursor.
+    * The `<base href>` still honors the ingress prefix so links resolve behind
+    * the HA proxy. The editor link is the write path — fixing the source here
+    * recovers the dashboard live (the reload loop re-evals on the edit).
+    *
+    * Recovery is an inline SSE connection ([[ErrorPageParam]]), not a
+    * meta-refresh: the page opens `sse/dashboard/<slug>/patch?error-page=1` and
+    * reloads on the `_reload` signal, which the server sends exactly when the
+    * slug transitions `Failed -> Ready` ([[reloadRepaints]]) — a poll would
+    * re-eval on a fixed schedule; this reloads precisely at the moment the fix
+    * lands.
     */
   private def errorPage(
       slug: String,
@@ -1499,11 +1516,25 @@ class Server(
          |  <base href="$baseHref">
          |  <title>Dashboard $title</title>
          |</head>
-         |<body>
+         |<body data-slug="$title">
          |  <h1>Dashboard $title failed to build</h1>
          |  <pre>${Server.escapeHtml(message)}</pre>
          |  <p>Fix the source in the editor — the dashboard reloads automatically.</p>
          |  <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |  <script>
+         |    (function () {
+         |      var slug = document.body.dataset.slug
+         |      if (!slug) return
+         |      var es = new EventSource(
+         |        "sse/dashboard/" + encodeURIComponent(slug) + "/patch?${Server.ErrorPageParam}=1"
+         |      )
+         |      es.addEventListener("datastar-patch-signals", function (e) {
+         |        if (e.data.indexOf('"${Server.ReloadSignal}":true') !== -1) {
+         |          window.location.reload()
+         |        }
+         |      })
+         |    })()
+         |  </script>
          |</body>
          |</html>""".stripMargin
     Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.html)))
@@ -2037,6 +2068,19 @@ object Server {
   val StoreVersionSignal: String = "storeVersion"
 
   val PrevConnParam: String = "prev"
+
+  /** Query marker on an error page's SSE URL (see [[errorPage]]). The error
+    * page is the ONE connection that opens with no document behind it, so it
+    * cannot be told apart from a plain cursor-less connect by its lack of a
+    * cursor — it names itself. `openingPatches` routes on it ([[errorPageOf]]).
+    */
+  val ErrorPageParam: String = "error-page"
+
+  /** Whether this SSE request comes from an error page rather than a document
+    * ([[ErrorPageParam]]).
+    */
+  private[runtime] def errorPageOf(req: Request[IO]): Boolean =
+    req.uri.query.params.contains(ErrorPageParam)
 
   /** The page shell's own JavaScript, read from the frontend bundle
     * (`src/js/shell.ts` -> vite -> managed resources).
