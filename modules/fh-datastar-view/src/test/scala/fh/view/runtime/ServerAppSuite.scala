@@ -26,7 +26,8 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     )
     // ...and beats even a built "dashboard".
     assertEquals(
-      ServerApp.defaultSlugFrom(Some("b"), List("b", "dashboard"), List("dashboard")),
+      ServerApp
+        .defaultSlugFrom(Some("b"), List("b", "dashboard"), List("dashboard")),
       "b"
     )
     // A configured default that names no entry falls through to the normal
@@ -39,7 +40,11 @@ class ServerAppSuite extends munit.CatsEffectSuite {
 
   test("defaultSlugFrom: a built dashboard wins over a merely-discovered one") {
     assertEquals(
-      ServerApp.defaultSlugFrom(None, List("a", "dashboard", "c"), List("a", "dashboard")),
+      ServerApp.defaultSlugFrom(
+        None,
+        List("a", "dashboard", "c"),
+        List("a", "dashboard")
+      ),
       "dashboard"
     )
     // No built "dashboard": the entry NAMED "dashboard" wins even when broken.
@@ -48,7 +53,10 @@ class ServerAppSuite extends munit.CatsEffectSuite {
       "dashboard"
     )
     // No "dashboard" at all: the first BUILT slug, then the first entry.
-    assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a"), List("a")), "a")
+    assertEquals(
+      ServerApp.defaultSlugFrom(None, List("b", "a"), List("a")),
+      "a"
+    )
     // All-fail: the first entry, so the root still serves something editable.
     assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a"), Nil), "b")
   }
@@ -78,7 +86,10 @@ class ServerAppSuite extends munit.CatsEffectSuite {
         assertEquals(root._1, Status.Ok)
         assert(root._2.contains("failed to build"), clue = root._2)
         assertEquals(broken._1, Status.Ok)
-        assert(broken._2.contains("Dashboard a failed to build"), clue = broken._2)
+        assert(
+          broken._2.contains("Dashboard a failed to build"),
+          clue = broken._2
+        )
         assert(broken._2.contains(htmlEscape(failedMsg)), clue = broken._2)
         // Unknown slugs are still 404, exactly as with a healthy server.
         assertEquals(unknown._1, Status.NotFound)
@@ -93,8 +104,7 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     * `prepareRenderers` -> `liveServer`) and compose the production route set
     * (server + editor) over it.
     */
-  private def allFailed
-      : Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
+  private def allFailed: Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
     for {
       tmp <- IO.blocking(os.temp.dir(prefix = "fh-all-failed")).toResource
       _ <- IO.blocking {
@@ -136,7 +146,11 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     app
       .run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
       .flatMap(resp =>
-        resp.body.through(fs2.text.utf8.decode).compile.string.map(resp.status -> _)
+        resp.body
+          .through(fs2.text.utf8.decode)
+          .compile
+          .string
+          .map(resp.status -> _)
       )
 
   private def htmlEscape(s: String): String =
