@@ -1,10 +1,11 @@
 package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
-import cats.effect.{IO, Ref}
+import cats.effect.{IO, Ref, Resource}
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
-import fh.view.testkit.FakeHomeAssistant
+import fh.view.build.PklDump
+import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.headers.`Content-Type`
@@ -12,11 +13,11 @@ import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
-/** Objective 4 of the failed-dashboard plan — the `Failed` semantics on the
-  * hot paths: the error page (HTML, self-contained), the non-HTML consumers
-  * seeing a failed slug as absent (`nodeDebug` 404s, actions are unchanged),
-  * and a live connection being told to RELOAD when its slug breaks — and when
-  * it recovers.
+/** Objective 4 of the failed-dashboard plan — the `Failed` semantics on the hot
+  * paths: the error page (HTML, self-contained), the non-HTML consumers seeing
+  * a failed slug as absent (`nodeDebug` 404s, actions are unchanged), and a
+  * live connection being told to RELOAD when its slug breaks — and when it
+  * recovers.
   */
 class FailedDashboardSuite extends ServerHarness {
 
@@ -29,14 +30,18 @@ class FailedDashboardSuite extends ServerHarness {
     */
   private def withLiveServer(
       state: Server.RendererState
-  )(use: (
-      Server,
-      StateStore,
-      SignallingRef[IO, Server.RendererState],
-      FakeHomeAssistant
-  ) => IO[Unit]): IO[Unit] =
+  )(
+      use: (
+          Server,
+          StateStore,
+          SignallingRef[IO, Server.RendererState],
+          FakeHomeAssistant
+      ) => IO[Unit]
+  ): IO[Unit] =
     (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "a0"))).toResource
+      store <- StateStore
+        .inMemory(Map("sensor.a" -> es("sensor.a", "a0")))
+        .toResource
       ref <- SignallingRef[IO].of(state).toResource
       sessions <- Sessions.create.toResource
       fake <- FakeHomeAssistant.create(Nil).toResource
@@ -100,7 +105,9 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
-  test("a live connection is told to reload when its slug breaks, and recovers") {
+  test(
+    "a live connection is told to reload when its slug breaks, and recovers"
+  ) {
     withLiveServer(Server.RendererState.Ready(Renderer.create(liveLeafDash))) {
       (server, _, ref, _) =>
         for {
@@ -129,7 +136,9 @@ class FailedDashboardSuite extends ServerHarness {
               ref.set(failed) *> awaitReload(seen) *>
               // Recover it: the same reload, from the error page back to the
               // dashboard.
-              ref.set(Server.RendererState.Ready(Renderer.create(liveLeafDash))) *>
+              ref.set(
+                Server.RendererState.Ready(Renderer.create(liveLeafDash))
+              ) *>
               awaitReload(seen)
           }
           reloads <- seen.get
@@ -139,6 +148,115 @@ class FailedDashboardSuite extends ServerHarness {
         }
     }
   }
+
+  test(
+    "reloadEntries repairs a broken dashboard and breaks a live one, without restart"
+  ) {
+    // Objective 1 — the widened ServerApp.reloadEntries seam drives the REAL
+    // eval path: a dashboard that failed at boot recovers when its source is
+    // fixed, and a live one breaks back to its error page when the source
+    // breaks. No restart, no re-boot.
+    stageRepairWorld.use { case (ws, fake) =>
+      for {
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        refs = Map("dash" -> ref)
+        entries = List("dash" -> "dash.pkl")
+        // Fix the source on disk — the ref must become Ready and serve the
+        // dashboard.
+        _ <- IO.blocking(os.write.over(ws / "dash.pkl", kitchenEntry))
+        _ <- ServerApp.reloadEntries(ws, entries, refs, imports)
+        ready <- ref.get
+        fixedPage <- serve(ws, fake, refs)
+        // Break it again — the ref must become Failed and serve the error page.
+        _ <- IO.blocking(
+          os.write.over(ws / "dash.pkl", "this is not valid pkl")
+        )
+        _ <- ServerApp.reloadEntries(ws, entries, refs, imports)
+        broken <- ref.get
+        brokenPage <- serve(ws, fake, refs)
+      } yield {
+        assert(ready.isInstanceOf[Server.RendererState.Ready], clue = ready)
+        assert(fixedPage._1 == Status.Ok, clue = fixedPage)
+        assert(fixedPage._2.contains("light.kitchen"), clue = fixedPage._2)
+        assert(broken.isInstanceOf[Server.RendererState.Failed], clue = broken)
+        assertEquals(brokenPage._1, Status.Ok)
+        assert(brokenPage._2.contains("failed to build"), clue = brokenPage._2)
+        // The old dashboard is gone from the wire: no stale title.
+        assert(!brokenPage._2.contains("light.kitchen"), clue = brokenPage._2)
+      }
+    }
+  }
+
+  /** A real package-form workspace (lib + the fixture house seeded as the
+    * `@fh-home` dump) whose `dash.pkl` starts BROKEN — the same staging the
+    * production boot produces for a bad user edit, minus the boot itself.
+    */
+  private def stageRepairWorld: Resource[IO, (os.Path, FakeHomeAssistant)] =
+    for {
+      tmp <- IO.blocking(os.temp.dir(prefix = "fh-repair")).toResource
+      _ <- IO.blocking {
+        val _ =
+          PklWorkspace.bootstrap(
+            tmp,
+            PklDump.render(HouseFixture.transformedDump)
+          )
+        os.list(tmp)
+          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
+          .foreach(os.remove)
+        os.write.over(tmp / "dash.pkl", "this is not valid pkl")
+      }.toResource
+      fake <- FakeHomeAssistant.create(Nil).toResource
+    } yield (tmp, fake)
+
+  /** Serve `GET /d/dash` through a real Server holding `refs` — what a client
+    * sees after the ref moved.
+    */
+  private def serve(
+      ws: os.Path,
+      fake: FakeHomeAssistant,
+      refs: Map[String, SignallingRef[IO, Server.RendererState]]
+  ): IO[(Status, String)] =
+    (for {
+      store <- StateStore
+        .inMemory(Map("light.kitchen" -> es("light.kitchen", "on")))
+        .toResource
+      sessions <- Sessions.create.toResource
+      server <- Server.resource(
+        HomeAssistantApi.fromWs(fake),
+        store,
+        refs,
+        "dash",
+        sessions
+      )
+    } yield server).use { server =>
+      server.routes.orNotFound
+        .run(Request[IO](Method.GET, uri"/d/dash"))
+        .flatMap(resp =>
+          resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .map(resp.status -> _)
+        )
+    }
+
+  /** A valid entry pinned to the fixture `light_kitchen` — builds only while
+    * the fixture house is the seeded dump, exactly like DumpRefreshSuite's.
+    */
+  private val kitchenEntry =
+    """amends "@fh-dashboard/entry.pkl"
+      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-home/dump.pkl" as dump
+      |title = "Kitchen"
+      |card = (c.grid) {
+      |  children {
+      |    c.title(dump.entities.light_kitchen.entity_id)
+      |  }
+      |}
+      |""".stripMargin
 
   private def awaitReload(
       seen: Ref[IO, Vector[ServerSentEvent]]

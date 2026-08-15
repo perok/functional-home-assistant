@@ -461,9 +461,10 @@ object ServerApp extends IOApp {
   /** Watch every dashboard's source graph and, on change, re-evaluate ALL
     * entries (they share the `lib/` modules, so one edit can touch several) and
     * hot-swap each renderer; the SSE streams repaint their body. Re-eval is
-    * per-entry: a failing entry logs and keeps its previous renderer while the
-    * others still swap (an entry that failed at STARTUP has no renderer ref —
-    * fixing it needs a restart). Mirrors the single-dashboard watcher: a
+    * per-entry and every entry's ref is set either way — a failing entry
+    * becomes `Failed` (its error page is the fix path) and a broken one that
+    * starts building again becomes `Ready`, so a dashboard broken since startup
+    * repairs without a restart. Mirrors the single-dashboard watcher: a
     * concurrent reconcile tracks `importsRef` so newly-imported files start
     * being watched and removed ones stop.
     */
@@ -510,11 +511,13 @@ object ServerApp extends IOApp {
     }
 
   /** Re-evaluate ALL entries against the on-disk sources + dump and hot-swap
-    * each renderer (per-entry: a failing entry logs and keeps its previous
-    * renderer). The body behind both the source watcher and the post-dump-swap
-    * reload ([[refreshOnce]] — the dump is deliberately not watched).
+    * each renderer. Every entry's ref is set either way — `Ready` with the new
+    * renderer or `Failed` with the error message — so a broken dashboard shows
+    * its error page and a fixed one recovers, both WITHOUT a restart. The body
+    * behind both the source watcher and the post-dump-swap reload
+    * ([[refreshOnce]] — the dump is deliberately not watched).
     */
-  private def reloadEntries(
+  private[runtime] def reloadEntries(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
       rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
@@ -522,32 +525,40 @@ object ServerApp extends IOApp {
   ): IO[Unit] =
     entries
       .traverse { case (slug, entry) =>
-        buildEntry(dashboardsDir, slug, entry).attempt
-          .map((slug, _))
+        buildEntry(dashboardsDir, slug, entry).attempt.map((slug, _))
       }
       .flatMap { results =>
-        val rebuilt = results.collect { case (slug, Right(r)) =>
-          (slug, r)
-        }
-        val failed = results.collect { case (slug, Left(err)) =>
-          (slug, err)
-        }
-        failed.traverse_ { case (slug, err) =>
-          IO.println(
-            s"Dashboard '$slug' reload failed (keeping previous): ${err.getMessage}"
-          )
+        results.traverse_ {
+          case (slug, Right((renderer, _))) =>
+            rendererRefs(slug).get.flatMap {
+              case Server.RendererState.Failed(_) =>
+                rendererRefs(slug).set(Server.RendererState.Ready(renderer)) *>
+                  IO.println(s"Dashboard '$slug' recovered")
+              case _ =>
+                rendererRefs(slug).set(Server.RendererState.Ready(renderer))
+            }
+          case (slug, Left(err)) =>
+            val message = failureOf(err)
+            rendererRefs(slug).set(Server.RendererState.Failed(message)) *>
+              IO.println(s"Dashboard '$slug' is now broken: $message")
         } *>
-          rebuilt.traverse_ { case (slug, (renderer, _)) =>
-            rendererRefs
-              .get(slug)
-              .traverse_(_.set(Server.RendererState.Ready(renderer)))
-          } *>
-          IO.whenA(rebuilt.nonEmpty)(
+          // A repaired entry's import set joins the watch graph, so later edits
+          // to *its* imports fire too; a still-broken entry's loose `file:`
+          // imports stay outside it (known edge, plan).
+          IO.whenA(results.exists(_._2.isRight))(
             importsRef.set(
-              watchedSet(dashboardsDir, entries, rebuilt.map(_._2._2))
+              watchedSet(
+                dashboardsDir,
+                entries,
+                results.collect { case (_, Right((_, imports))) => imports }
+              )
             ) *>
               IO.println(
-                s"Dashboards reloaded (${rebuilt.map(_._1).mkString(", ")})"
+                s"Dashboards reloaded (${results
+                    .collect { case (slug, Right(_)) =>
+                      slug
+                    }
+                    .mkString(", ")})"
               )
           )
       }
