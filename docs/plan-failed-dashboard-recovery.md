@@ -86,18 +86,35 @@ nothing to serve); only **"every entry failed to build"** stops being fatal.
 
 ## Design
 
-### The state transitions, per use site
+### The `Failed` check stops at the top; it does not leak
 
-| Site | Current (`Renderer`) | Under `RendererState` |
-|---|---|---|
-| `rendererFor` (266) | `renderer.get` | `Ready(r)` → `Some(r)`; `Failed(_)` → `None` — `withSession`/`nodeDebug` treat a failed slug as absent, which they already do for unknown ones |
-| `publisherFor` (306) | `discrete.zipWithIndex.switchMap` records always | `discrete.zipWithIndex.switchMap`: `Ready(r)` → record with `r` (as today); `Failed(_)` → `Stream.empty` (nothing recorded, doorbell frozen). Log rotation stays arm>0, so a `Failed`→`Ready` transition rotates the log identity and every old cursor is invalid → reconnect repaints (the existing "a change in the switch window is harmless, every connection repaints on reload" argument covers the gap) |
-| `push` (389) | `existing.renderer.set(Renderer...)` | `.set(RendererState.Ready(...))` — a push always succeeds |
-| `sseStream` (509/519) | `rendererOpt.traverse_` seeds `session.open` | state → `Option[Renderer]`; a failed slug seeds an empty open set and streams nothing but the keepalive |
-| `pull` (678) | renders owed frames | `Failed` → nothing owed (no frames were recorded, log is empty) |
-| `openingPatches` (791) | renders resume/repaint | `Failed(_)` → `List(reloadPatch)` — the client's DOM (if any) is stale and there is no renderer to repaint with, so send the browser to the error page; skip the claim bookkeeping (the reload supersedes it) |
-| `reloadRepaints` (927) | `discrete.zipWithPrevious`, headHash logic | any transition where **either side is `Failed`** → `reloadPatch` (Ready→Failed: go to the error page; Failed→Ready: go to the live dashboard — the repaint path cannot target `#dashboard` on a page that has no dashboard). Ready⇄Ready keeps today's headHash/styleHash logic |
-| `pageResponse` (1312) | `renderer.get` → render page | `Ready(r)` → today's path. `Failed(msg)` → a standalone HTML error page (see below). `liveFor = None` (unknown slug) → `NotFound()` unchanged |
+The one thing the design must not do is thread `RendererState` through the machinery — that
+would be the "every method checks for Ready" failure mode. It does not. The rule:
+
+- **One converter, `rendererOf: RendererState => Option[Renderer]`** (on the ADT's companion).
+  Every read site that needs a renderer goes through it: `Failed` collapses to `None`, which
+  is a shape the codebase already models **everywhere** — `rendererFor` returns
+  `Option[Renderer]`, `withSession`/`nodeDebug`/`sseStream` already handle `None` with
+  `traverse_`/404, and `pull`'s "silent frame" branch already produces `Nil` for nothing-owed.
+  So the bulk of `Server.scala` never learns `RendererState` exists.
+- **Exactly five seams match on the state itself**, and all of them are already the
+  top-level "stop things here" points — a route entry, the recorder fiber, the reload
+  watcher, the page route. Everything below them (`recordFrame`, `Patches.resume`,
+  `renderBodyTraced`, `renderPageTraced`, `swapHost`, `openSurface`, the pull computation)
+  keeps taking a concrete `Renderer` and is unchanged.
+
+| Seam | What it does with the state |
+|---|---|
+| `rendererFor` (266) — the shared `RendererState → Option[Renderer]` read | via `rendererOf`; `Failed(_)` → `None`, so `withSession`/`nodeDebug` treat a failed slug exactly as an unknown one (no-op / 404) |
+| `publisherFor` (306) — the recorder fiber | match **once** at the top of the `switchMap` arm: `Ready(r)` → record with `r` (today's body, unchanged); `Failed(_)` → `Stream.empty` (nothing recorded, doorbell frozen). Log rotation stays arm>0, so a `Failed`→`Ready` transition rotates the log identity and every old cursor is invalid → reconnect repaints (the existing "a change in the switch window is harmless, every connection repaints on reload" argument covers the gap) |
+| `openingPatches` (781) — the connect-time opening block | via `rendererOf`; `None` → `List(reloadPatch)`, no claim bookkeeping. Defensive — a failed slug's error page mints no session/conn, so this is only reachable by a bookmarked SSE URL or a slug that went `Failed` mid-session, and reload is the right answer either way |
+| `reloadRepaints` (927) — the live-reload watcher | match on the (previous, current) pair: any `Failed` involved → `reloadPatch` (Ready→Failed: go to the error page; Failed→Ready: go to the live dashboard — the repaint path cannot target `#dashboard` on a page that has no dashboard). Ready⇄Ready keeps today's headHash/styleHash logic |
+| `pageResponse` (1312) — the page route | the ONE place that needs the message: `Ready(r)` → today's path; `Failed(msg)` → the error page below. `liveFor = None` (unknown slug) → `NotFound()` unchanged |
+
+Reads that never see the state at all, because `rendererOf` already collapsed it to the
+`Option` they were written for: `sseStream`'s open-set seeding (509/519), `pull` (678 —
+`None` → `Nil`, the existing silent-frame case), `push` (389 — sets `Ready`, a push always
+succeeds). `withSession` and `nodeDebug` ride `rendererFor`.
 
 ### The error page (`pageResponse`, `Failed(msg)` branch)
 
@@ -177,8 +194,9 @@ below.
 
 ### Phase 3 — `Failed` semantics in the hot paths + the error page (objective 4)
 
-`publisherFor` / `pull` / `openingPatches` / `reloadRepaints` / `sseStream` / `pageResponse`
-per the table; the error page. New tests below. Verify: `testFull`.
+`rendererOf` + the five state seams (`rendererFor`, `publisherFor`, `openingPatches`,
+`reloadRepaints`, `pageResponse`) per the table; the error page; `sseStream`/`pull` read via
+`rendererOf` with no new logic. New tests below. Verify: `testFull`.
 
 ### Phase 4 — live repair without restart (objective 1)
 
