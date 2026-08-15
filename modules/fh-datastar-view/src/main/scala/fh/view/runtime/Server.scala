@@ -781,11 +781,10 @@ class Server(
           session.holds.get,
           session.open.get
         ).flatMapN { (state, log, store, holds, open) =>
-          state.rendererOf match
-            // A failed dashboard has nothing to render: the silent frame, the
-            // same bytes a version this client is owed nothing for produces.
-            case None           => IO.pure(Nil)
-            case Some(renderer) =>
+          // A failed dashboard has nothing to render: the silent frame, the
+          // same bytes a version this client is owed nothing for produces.
+          state.rendererOf
+            .traverse { renderer =>
               Patches
                 .resume(
                   renderer,
@@ -829,6 +828,8 @@ class Server(
                           )
                       )
                 }
+            }
+            .map(_.getOrElse(Nil))
         }
     }
 
