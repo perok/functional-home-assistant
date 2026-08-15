@@ -222,6 +222,25 @@ class FailedDashboardSuite extends ServerHarness {
     "a recover stream is not reloaded on open under a failed slug, " +
       "but reloads when the slug recovers"
   ) {
+    recoveryReload(Server.RendererState.Ready(Renderer.create(liveLeafDash)))
+  }
+
+  test(
+    "a recover stream reloads when a still-failed slug's error message changes"
+  ) {
+    recoveryReload(
+      Server.RendererState.Failed("boom: the edit is STILL broken")
+    )
+  }
+
+  /** Both anti-loop tests share one shape: open the recover stream under a
+    * `Failed` slug, prove the open completed via the connection marker, prove
+    * nothing reload-triggering follows it, then flip the state and require
+    * exactly ONE reload. The flips differ in what they mean — recovery (`Failed
+    * -> Ready`) and a re-broken edit (`Failed -> Failed` with a new message the
+    * page must show) — but the assertion is the same.
+    */
+  private def recoveryReload(flip: Server.RendererState): IO[Unit] =
     withLiveServer(failed) { (server, _, ref, _) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
@@ -241,24 +260,21 @@ class FailedDashboardSuite extends ServerHarness {
             // proves the open ran under Failed (a fixed sleep could pass
             // vacuously before the open did). What follows must be nothing
             // reload-triggering: a reload here would loop, since the page just
-            // loaded. The recovery reload comes from the Failed -> Ready
-            // transition instead.
+            // loaded. The single reload comes from the flip.
             awaitMarker(seen) *>
             assertNothing(seen) *>
-            ref.set(
-              Server.RendererState.Ready(Renderer.create(liveLeafDash))
-            ) *>
+            ref.set(flip) *>
             awaitReload(seen)
         }
         reloads <- seen.get
       } yield {
         val reloadEvents = reloads.filter(reloadEvent)
-        // Exactly one reload, and it is the recovery reload — nothing preceded
-        // the transition (the anti-loop half).
+        // Exactly one reload, and it is the flip's — nothing preceded the flip
+        // (the anti-loop half). For the still-`Failed` flip, the page SHOWS the
+        // message, so a changed one must repaint it.
         assertEquals(reloadEvents.size, 1, clue = reloadEvents)
       }
     }
-  }
 
   test(
     "a recover stream opened under an already-recovered slug reloads immediately"
@@ -459,8 +475,8 @@ class FailedDashboardSuite extends ServerHarness {
 
   /** The recover stream's first element, sent once it has subscribed under the
     * connection's own state. It is [[Server.recoverOpenMarker]] — a marker
-    * Datastar ignores — so awaiting it proves the open completed without
-    * asserting anything reload-triggering.
+    * COMMENT the browser's EventSource drops before Datastar — so awaiting it
+    * proves the open completed without asserting anything reload-triggering.
     */
   private def awaitMarker(
       seen: Ref[IO, Vector[ServerSentEvent]]
@@ -473,7 +489,7 @@ class FailedDashboardSuite extends ServerHarness {
       .timeout(15.seconds)
 
   private def isMarker(e: ServerSentEvent): Boolean =
-    e.eventType == Server.recoverOpenMarker.eventType
+    e.comment == Server.recoverOpenMarker.comment
 
   /** The negative half of an SSE-opening test: nothing reload-triggering may
     * arrive in a window that would cover any immediate-reload bug.

@@ -222,11 +222,10 @@ class Server(
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
-    // reloads on the first `_reload` signal ([[errorPage]]).
+    // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
+    // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
     case GET -> Root / "sse" / "dashboard" / slug / "recover" =>
-      renderers.get.flatMap { rs =>
-        if (rs.contains(slug)) recoverStream(slug) else NotFound()
-      }
+      recoverStream(slug)
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -676,35 +675,66 @@ class Server(
     * `Failed -> Ready` transitions as reloads, and nothing else — no session,
     * no `conn`, no holds, no cursor, no `openingPatches`. Its FIRST element is
     * the subscription's initial value, so it doubles as the connection marker:
-    * a `recover-open` event under `Failed` (an event type Datastar has no
-    * listener for, so it is inert on the page) or an immediate reload when the
-    * fix landed between the page's render and this connect. After that, a
-    * `Ready` state reloads and a `Failed` one sends nothing — so opening under
-    * a still-failed slug emits a marker, never a reload, and the anti-loop is
-    * structural.
+    * a `recover-open` comment under `Failed` (the browser discards SSE comments
+    * before any listener, so Datastar never even receives it) or an immediate
+    * reload when the fix landed between the page's render and this connect.
+    * After that, a `Ready` state reloads, a `Failed` state reloads only when
+    * its error MESSAGE changes (the page shows the message, so a re-broken edit
+    * must repaint it), and an unchanged `Failed` sends nothing — so opening
+    * under a still-failed slug emits a marker, never a reload, and the
+    * anti-loop is structural.
     */
   private def recoverStream(slug: String): IO[Response[IO]] =
-    val transitions =
-      for {
-        live <- Stream.eval(liveFor(slug)).unNone
-        s <- live.renderer.discrete.zipWithPrevious.map {
-          case (None, st) =>
-            Some(
-              if (st.rendererOf.isDefined) Server.reloadPatch
-              else Server.recoverOpenMarker
-            )
-          case (_, st) =>
-            Option.when(st.rendererOf.isDefined)(Server.reloadPatch)
-        }.unNone
-      } yield s
-    // Same cadence as the shared stream: a connection that sits on a failed slug
-    // for hours otherwise looks idle to an intermediary. Datastar's retry would
-    // restore a reaped one, but a kept connection costs a comment.
-    val keepAlive =
-      Stream
-        .awakeEvery[IO](Server.KeepAliveInterval)
-        .as(Server.keepAliveComment)
-    Ok(transitions.merge(keepAlive))
+    // ONE lookup, here — not one in the route and one here: a slug removed
+    // between the two would have answered a 200 empty-body SSE instead of a
+    // 404, so the route delegates outright and this is the only read.
+    liveFor(slug).flatMap {
+      case None       => NotFound()
+      case Some(live) =>
+        val transitions =
+          live.renderer.discrete.zipWithPrevious.map {
+            // The connection marker: the stream's FIRST element, sent once it
+            // has subscribed under the CURRENT state — a comment under
+            // `Failed`, or an immediate reload when the fix landed between the
+            // page's render and this connect.
+            case (None, st) =>
+              Some(
+                if (st.rendererOf.isDefined) Server.reloadPatch
+                else Server.recoverOpenMarker
+              )
+            // The one rule: reload unless the state is an UNCHANGED `Failed` —
+            // the page already shows that message, so a reload would just loop.
+            case (prev, st) =>
+              Option.unless(unchangedFailed(prev, st))(Server.reloadPatch)
+          }.unNone
+        Ok(transitions.merge(keepAliveComments))
+    }
+
+  /** Whether the state change is a no-op for the error page: still `Failed`
+    * with the SAME message, so the page already shows it and a reload would
+    * just loop. Every other change — a fix, a break, a re-broken edit with a
+    * different error — must repaint the page.
+    */
+  private def unchangedFailed(
+      prev: Option[Server.RendererState],
+      current: Server.RendererState
+  ): Boolean =
+    (prev, current) match
+      case (
+            Some(Server.RendererState.Failed(m1)),
+            Server.RendererState.Failed(m2)
+          ) =>
+        m1 == m2
+      case _ => false
+
+  /** A pure keep-alive comment at the shared stream's cadence — what a stream
+    * that only waits on state ([[recoverStream]]) needs to keep an intermediary
+    * from reaping it. The shared stream's keep-alive is richer (it catches the
+    * cursor up too), so it drives its own; both read the same interval and the
+    * same [[Server.keepAliveComment]].
+    */
+  private val keepAliveComments: Stream[IO, ServerSentEvent] =
+    Stream.awakeEvery[IO](Server.KeepAliveInterval).as(Server.keepAliveComment)
 
   /** One session's pull: what THIS client is owed from `position + 1`, rendered
     * against the current snapshot and its own selections.
@@ -2094,13 +2124,15 @@ object Server {
 
   val PrevConnParam: String = "prev"
 
-  /** The recover stream's connection marker ([[recoverStream]]): an SSE event
-    * Datastar has no listener for, so it is inert on the error page — its only
-    * job is to be the stream's first element, the proof a test can await that
-    * the stream subscribed under the current state.
+  /** The recover stream's connection marker ([[recoverStream]]): an SSE COMMENT
+    * line, not an event — the browser's EventSource discards comments before
+    * any listener, so Datastar never even receives it (it costs a `: …` line,
+    * not a `data:` event). Its only job is to be the stream's first element,
+    * the proof a test can await that the stream subscribed under the current
+    * state.
     */
   private[runtime] val recoverOpenMarker: ServerSentEvent =
-    ServerSentEvent(eventType = Some("recover-open"))
+    ServerSentEvent(comment = Some("recover-open"))
 
   /** The page shell's own JavaScript, read from the frontend bundle
     * (`src/js/shell.ts` -> vite -> managed resources).

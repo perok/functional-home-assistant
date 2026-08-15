@@ -44,16 +44,29 @@ the seam.
   dedicated `sse/dashboard/<slug>/recover` stream
   ([[Server#recoverStream]]) — a plain subscription to the slug's state with
   no session, no cursor, no `openingPatches`. Its first element doubles as the
-  connection marker ([[Server.recoverOpenMarker]], a `recover-open` event type
-  Datastar has no listener for): a still-`Failed` slug emits the marker, NOT a
-  reload — a reload here would loop, since the page just loaded — and an
+  connection marker ([[Server.recoverOpenMarker]], a `recover-open` SSE
+  COMMENT — the browser's EventSource discards comments before any listener,
+  so Datastar never even receives it): a still-`Failed` slug emits the marker,
+  NOT a reload — a reload here would loop, since the page just loaded — and an
   already-`Ready` slug emits a `_reload` patch (the fix landed between render
   and connect, after the transition's reload was sent to nobody). Every later
-  `Failed -> Ready` transition emits a `_reload` patch that `data-effect`
-  turns into `window.location.reload()`. The reload that announces recovery
-  therefore arrives precisely when the slug recovers, never on a poll
-  schedule, and the anti-loop is structural — a `Failed` state never emits a
-  reload, on open or thereafter.
+  `Failed -> Ready` transition — and every re-broken edit, whose CHANGED
+  `Failed` message the page must show — emits a `_reload` patch that
+  `data-effect` turns into `window.location.reload()`. The reload that
+  announces recovery therefore arrives precisely when the slug recovers or its
+  error changes, never on a poll schedule, and the anti-loop is structural —
+  an UNCHANGED `Failed` state never emits a reload, on open or thereafter.
+
+  **Known limitation: a re-break while the SSE is down goes stale.** The
+  message-change reload only compares against the PREVIOUS element of the SAME
+  connection. If the stream disconnects (or the error page is opened, served,
+  and the connection drops) and the slug is re-broken while it is down, the
+  reconnected stream's first element under `Failed` is the marker, not a reload
+  — the page keeps the last message it rendered until the next state change.
+  Closing it would need the page to tell the server which message it last
+  showed (a `_`-prefixed signal serializing into the reconnect URL), which is
+  client state the design deliberately avoids; the live-connection path that
+  always sees every transition ([[Server.reloadRepaints]]) does not miss it.
 - **Repair is live.** `reloadEntries` re-evaluates every entry on each source
   edit and sets **every** ref: `Right` → `Ready`, `Left` → `Failed(message)`.
   A dashboard broken since startup recovers without a restart; a live one that
@@ -82,7 +95,7 @@ all keep taking a concrete `Renderer`. Exactly five seams match on the state:
 | `publisherFor` | record frames | an empty stream (nothing to record) |
 | `openingPatches` | the narrowest patch | `None` → a `reload` patch (defensive: only a stale connection or a direct SSE URL reaches it — the error page opens the `recover` stream) |
 | `reloadRepaints` | repaint connections | `reload` patch across the transition |
-| `recoverStream` | an immediate `reload` on open (the fix landed between render and connect) | the inert `recover-open` marker on open; a `reload` on each `Failed -> Ready` |
+| `recoverStream` | an immediate `reload` on open (the fix landed between render and connect) | the inert `recover-open` comment on open; a `reload` on each `Failed -> Ready` and on a changed `Failed` message |
 | `pageResponse` | the page | the self-contained error page |
 
 `withSession`, `nodeDebug`, and the session machinery ride `rendererFor`;

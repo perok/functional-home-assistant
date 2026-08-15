@@ -141,9 +141,11 @@ GET /d/:slug
     Datastar module; `data-init` opens the dedicated `sse/dashboard/<slug>/recover`
     stream, whose `_reload` signal the page's `data-effect` turns into
     `window.location.reload()`. Opening under `Failed` sends the inert
-    `recover-open` marker, not a reload (no reload loop); under an already-
-    `Ready` slug it sends an immediate reload (the fix landed between render and
-    connect). Recovery reloads exactly when the slug does. Non-HTML consumers see
+    `recover-open` comment (dropped by the browser before Datastar), not a
+    reload (no reload loop); under an already-`Ready` slug it sends an
+    immediate reload (the fix landed between render and connect). Recovery
+    reloads exactly when the slug does — a fix, or a re-broken edit whose
+    changed error message the page must show. Non-HTML consumers see
     a failed slug as absent, exactly like an unknown one
   render the WHOLE page from the current snapshot
   mint conn; create Session{slug, open surfaces, control queue, holds, position}
