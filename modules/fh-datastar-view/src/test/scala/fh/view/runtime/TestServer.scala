@@ -255,7 +255,7 @@ object TestServer {
       fake <- FakeHomeAssistant.create(entities).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
       rendererRef <- SignallingRef[IO]
-        .of(Renderer.create(dashboard))
+        .of(Server.RendererState.Ready(Renderer.create(dashboard)))
         .toResource
       // Delegate the whole live-Server assembly (health gate, sessions,
       // Server.fromFeed) to the SAME kernel production uses, so the harness
@@ -315,7 +315,9 @@ object TestServer {
       prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
       rendererRefs <- prepared.built
         .traverse { case (s, (renderer, _)) =>
-          SignallingRef[IO].of(renderer).map(s -> _)
+          SignallingRef[IO]
+            .of(Server.RendererState.Ready(renderer))
+            .map(s -> _)
         }
         .map(_.toMap)
         .toResource
@@ -342,7 +344,9 @@ object TestServer {
       fake <- FakeHomeAssistant.create(entities).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
       renderer = Renderer.create(dashboard)
-      rendererRef <- SignallingRef[IO].of(renderer).toResource
+      rendererRef <- SignallingRef[IO]
+        .of(Server.RendererState.Ready(renderer))
+        .toResource
       httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
       assetsDir <- IO
         .blocking(os.temp.dir(prefix = "fh-smoke-assets"))

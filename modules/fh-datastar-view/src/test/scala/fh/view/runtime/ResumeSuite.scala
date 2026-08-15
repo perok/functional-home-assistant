@@ -198,7 +198,9 @@ class ResumeSuite extends ServerHarness {
   test("recording prunes what no live session can still ask for") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -221,7 +223,7 @@ class ResumeSuite extends ServerHarness {
             _ <- live.log.update(
               _.removed("c", "c_old", 2L).removed("c", "c_new", 9L)
             )
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             _ <- server.recordFrame("dashboard", renderer, live.log, Nil)
             log <- live.log.get
           } yield log
@@ -427,7 +429,9 @@ class ResumeSuite extends ServerHarness {
     )
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server

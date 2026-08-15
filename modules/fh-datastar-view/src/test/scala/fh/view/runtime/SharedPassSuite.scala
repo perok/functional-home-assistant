@@ -74,7 +74,9 @@ class SharedPassSuite extends ServerHarness {
           "sensor.b" -> EntityState("sensor.b", "b0", Map.empty)
         )
       )
-      ref <- SignallingRef[IO].of(Renderer.create(twoLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(twoLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -142,9 +144,10 @@ class SharedPassSuite extends ServerHarness {
 
   private def stateAndRenderer(
       store: StateStore,
-      ref: SignallingRef[IO, Renderer]
+      ref: SignallingRef[IO, Server.RendererState]
   ): IO[(Long, Renderer, Map[String, EntityState])] =
-    (store.current, ref.get).mapN((s, r) => (s.version, r, s.entities))
+    (store.current, ref.get)
+      .mapN((s, r) => (s.version, r.rendererOf.get, s.entities))
 
   test(
     "a change published during the connect handshake still reaches the connection"
@@ -166,7 +169,11 @@ class SharedPassSuite extends ServerHarness {
         )
       )
       ref <- SignallingRef[IO]
-        .of(new CountingRenderer(twoLeafDash, renders): Renderer)
+        .of(
+          Server.RendererState.Ready(
+            new CountingRenderer(twoLeafDash, renders): Renderer
+          )
+        )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       text <- Server
@@ -223,7 +230,7 @@ class SharedPassSuite extends ServerHarness {
       // A dashboard with a PER-SESSION node (a tabs host bakes the client's
       // selected panel), so the per-connection pass really emits — the case
       // that can block, unlike a page whose every node is shared.
-      ref <- SignallingRef[IO].of(tabsRenderer)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(tabsRenderer))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       _ <- Server
@@ -302,7 +309,9 @@ class SharedPassSuite extends ServerHarness {
         Map("sensor.a" -> EntityState("sensor.a", "initial", Map.empty))
       )
       renderer = new CountingRenderer(liveLeafDash, count)
-      ref <- SignallingRef[IO].of(renderer: Renderer)
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(renderer: Renderer)
+      )
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.

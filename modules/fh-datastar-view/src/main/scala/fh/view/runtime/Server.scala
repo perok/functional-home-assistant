@@ -52,10 +52,11 @@ import scala.concurrent.duration.*
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    // One hot-swappable renderer per dashboard slug, paired with that slug's
-    // fragment log (live reload swaps the renderer in place; `.discrete` drives a
-    // body repaint over SSE). A `Ref` because the slug set is not fixed at
-    // startup: `push` mints one at runtime (ADR 0010).
+    // One hot-swappable renderer STATE per dashboard slug ([[RendererState]]:
+    // `Ready` or `Failed`), paired with that slug's fragment log (live reload
+    // swaps the state in place; `.discrete` drives a body repaint over SSE). A
+    // `Ref` because the slug set is not fixed at startup: `push` mints one at
+    // runtime (ADR 0010).
     renderers: Ref[IO, Map[String, Server.LiveSlug]],
     defaultSlug: String,
     sessions: Sessions,
@@ -263,7 +264,9 @@ class Server(
     * after startup.
     */
   private def rendererFor(slug: String): IO[Option[Renderer]] =
-    liveFor(slug).flatMap(_.traverse(_.renderer.get))
+    liveFor(slug).flatMap(
+      _.traverse(_.renderer.get).map(_.flatMap(_.rendererOf))
+    )
 
   /** Test seam: the live state for one slug (its renderer signal + its log), so
     * a suite can assert on what a path wrote to the ledger rather than only on
@@ -303,28 +306,38 @@ class Server(
       slug: String,
       live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    live.renderer.discrete.zipWithIndex.switchMap { case (renderer, arm) =>
-      // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
-      // cursor issued against the previous renderer's log names versions this
-      // one never had, so it must not be resumable
-      // (docs/adr/0011-the-live-connection.md).
-      //
-      // Not on the FIRST arm, though. `discrete` emits the current renderer
-      // immediately, and rotating there invalidates cursors for no reason —
-      // the log the `LiveSlug` was created with is already this renderer's.
-      // It also races the page route: a document served in that window would
-      // advertise the old id, get its first connect refused, and repaint a
-      // body it already had.
-      Stream.exec(
-        IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
-      ) ++
-        stateStore.changes.evalMap(
-          // The doorbell rings AFTER the log is written, or a session woken by
-          // it could read a log that does not yet describe the version it was
-          // told about — and would then set its position past changes it
-          // never saw.
-          recordFrame(slug, renderer, live.log, _).flatMap(live.doorbell.set)
-        )
+    live.renderer.discrete.zipWithIndex.switchMap {
+      case (Server.RendererState.Failed(_), _) =>
+        // A failed dashboard records nothing and rings nothing: there is no
+        // renderer to diff against, and the error page has no sessions. The
+        // doorbell stays frozen at the last successful build's version. The
+        // transition back to `Ready` re-arms this arm with the fresh renderer
+        // and rotates the log identity (arm > 0), so every old cursor is
+        // invalid and a reconnect repaints — the same argument that covers a
+        // change landing in the switch window below.
+        Stream.empty
+      case (Server.RendererState.Ready(renderer), arm) =>
+        // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
+        // cursor issued against the previous renderer's log names versions this
+        // one never had, so it must not be resumable
+        // (docs/adr/0011-the-live-connection.md).
+        //
+        // Not on the FIRST arm, though. `discrete` emits the current renderer
+        // immediately, and rotating there invalidates cursors for no reason —
+        // the log the `LiveSlug` was created with is already this renderer's.
+        // It also races the page route: a document served in that window would
+        // advertise the old id, get its first connect refused, and repaint a
+        // body it already had.
+        Stream.exec(
+          IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
+        ) ++
+          stateStore.changes.evalMap(
+            // The doorbell rings AFTER the log is written, or a session woken by
+            // it could read a log that does not yet describe the version it was
+            // told about — and would then set its position past changes it
+            // never saw.
+            recordFrame(slug, renderer, live.log, _).flatMap(live.doorbell.set)
+          )
     }.drain
 
   /** Start every currently-registered slug's publisher. Slugs pushed later get
@@ -373,7 +386,7 @@ class Server(
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
     SignallingRef[IO]
-      .of(Renderer.fromValidated(validated))
+      .of(Server.RendererState.Ready(Renderer.fromValidated(validated)))
       .flatMap(Server.LiveSlug.create)
       .flatMap { fresh =>
         val slug = validated.dashboard.slug
@@ -386,7 +399,9 @@ class Server(
           }
           .flatMap {
             case Some(existing) =>
-              existing.renderer.set(Renderer.fromValidated(validated))
+              existing.renderer.set(
+                Server.RendererState.Ready(Renderer.fromValidated(validated))
+              )
             case None =>
               supervisor
                 .supervise(publisherFor(slug, fresh).compile.drain)
@@ -506,7 +521,9 @@ class Server(
       adopted <- adoptOrMint(slug, conn)
       (session, epoch) = adopted
       liveOpt <- liveFor(slug)
-      rendererOpt <- liveOpt.traverse(_.renderer.get)
+      rendererOpt <- liveOpt
+        .traverse(_.renderer.get)
+        .map(_.flatMap(_.rendererOf))
       // Seed the open set from this client's ui state — its selected tab
       // panels AND the popup it says it still has open, which is now the same
       // kind of selection read from the same map — so all of them receive live
@@ -680,50 +697,55 @@ class Server(
           stateStore.current,
           session.holds.get,
           session.open.get
-        ).flatMapN { (renderer, log, store, holds, open) =>
-          Patches
-            .resume(
-              renderer,
-              live.cache,
-              log,
-              holds,
-              store.entities,
-              position + 1,
-              open,
-              // The LIVE selection, not the one this connection arrived with: a
-              // tab select moves it mid-stream.
-              renderer.uiStateFrom(open)
-            )
-            .flatMap { patches =>
-              session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
-                // The cursor rides LAST below, which is what makes it an ack:
-                // a client echoing it applied the patches in front of it. Only
-                // recorded when there are bytes — a silent frame announces
-                // nothing, so `told` must not move for it.
-                IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
-                session.position
-                  .set(version)
-                  // `position` advances whatever happened; the SIGNAL only goes
-                  // out with bytes it belongs to. A frame this client was owed
-                  // nothing for is silence on the wire, and the keepalive
-                  // carries the cursor forward within one interval — safe for
-                  // the reasons written up on [[Session.position]].
-                  .as(
-                    if (patches.isEmpty) Nil
-                    else
-                      // The cursor goes through `encode` as a patch rather than
-                      // being appended as an event, so it MERGES with this
-                      // batch's own signal frame when nothing separates them —
-                      // which is every batch whose nodes only moved a signal
-                      // slot. It stays a separate, trailing event whenever an
-                      // element patch sits in between, which is what its ack
-                      // meaning requires.
-                      Patches.encode(
-                        patches :+
-                          Addressed(Server.versionPatch(version))
+        ).flatMapN { (state, log, store, holds, open) =>
+          state.rendererOf match
+            // A failed dashboard has nothing to render: the silent frame, the
+            // same bytes a version this client is owed nothing for produces.
+            case None           => IO.pure(Nil)
+            case Some(renderer) =>
+              Patches
+                .resume(
+                  renderer,
+                  live.cache,
+                  log,
+                  holds,
+                  store.entities,
+                  position + 1,
+                  open,
+                  // The LIVE selection, not the one this connection arrived with: a
+                  // tab select moves it mid-stream.
+                  renderer.uiStateFrom(open)
+                )
+                .flatMap { patches =>
+                  session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
+                    // The cursor rides LAST below, which is what makes it an ack:
+                    // a client echoing it applied the patches in front of it. Only
+                    // recorded when there are bytes — a silent frame announces
+                    // nothing, so `told` must not move for it.
+                    IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
+                    session.position
+                      .set(version)
+                      // `position` advances whatever happened; the SIGNAL only goes
+                      // out with bytes it belongs to. A frame this client was owed
+                      // nothing for is silence on the wire, and the keepalive
+                      // carries the cursor forward within one interval — safe for
+                      // the reasons written up on [[Session.position]].
+                      .as(
+                        if (patches.isEmpty) Nil
+                        else
+                          // The cursor goes through `encode` as a patch rather than
+                          // being appended as an event, so it MERGES with this
+                          // batch's own signal frame when nothing separates them —
+                          // which is every batch whose nodes only moved a signal
+                          // slot. It stays a separate, trailing event whenever an
+                          // element patch sits in between, which is what its ack
+                          // meaning requires.
+                          Patches.encode(
+                            patches :+
+                              Addressed(Server.versionPatch(version))
+                          )
                       )
-                  )
-            }
+                }
         }
     }
 
@@ -794,113 +816,122 @@ class Server(
       session.holds.get,
       session.told.get
     )
-      .flatMapN { (covered, renderer, log, store, holds, told) =>
-        val cursor = Server.cursorOf(req)
-        if (cursor.exists(_.headHash != renderer.headHash))
-          IO.pure(List(Server.reloadPatch))
-        else {
-          val head =
-            if (cursor.exists(_.styleHash != renderer.styleHash))
-              Server.headPatches(renderer, slug)
-            else Nil
-          // `Patches.resume` is TOTAL — a container whose history aged out is
-          // answered with a fill for THAT mount, not a refusal — so the only
-          // reasons left to repaint the body are the genuinely global ones
-          // checked here: no cursor at all, a cursor minted against another log
-          // (a restart or a renderer swap, which is every dashboard change),
-          // one ahead of this store (a restart with a rewound counter), or one
-          // from before a GAP — a stretch this slug passed over because nobody
-          // was watching it ([[FragmentLog.reaches]]), which is what a client
-          // returning after its session was reaped presents.
-          // ...plus the one thing only the CLIENT can answer: did it actually
-          // apply what we last claimed it has? A resume trusts `holds`, and
-          // `holds` records what was SENT, which is not proof of receipt — a
-          // stream that broke mid-batch, or a tab frozen while the socket kept
-          // filling, leaves this session claiming digests that DOM never got,
-          // and every later resume then computes "nothing owed" forever.
-          //
-          // The cursor is that proof. It is server-set, but it rides LAST in
-          // its batch (`pull`), so a client echoing version V demonstrably
-          // applied everything before it. Behind `told` ⇒ bytes we claimed were
-          // lost ⇒ `holds` is unproven and the body is repainted.
-          //
-          // This does NOT fire on an ordinary tab switch: while a stream is
-          // closed nothing is sent, so `told` cannot move, and the returning
-          // client's echo still matches it.
-          val resumedIO = cursor
-            .filter(c =>
-              c.logId == log.id && c.version <= store.version &&
-                log.reaches(c.version) && c.version >= told
-            )
-            .traverse(c =>
-              Patches
-                .resume(
-                  renderer,
-                  live.cache,
-                  log,
-                  holds,
-                  store.entities,
-                  resumeFrom(req, c),
-                  open,
-                  uiState
+      .flatMapN { (covered, state, log, store, holds, told) =>
+        state.rendererOf match
+          // A failed slug has no document to open, so no claim to bookkeep:
+          // whatever a stale connection or a bookmarked SSE URL asks for, the
+          // error page is a reload away. Defensive — the error page mints no
+          // session/conn, so this is only reachable by a slug that went
+          // `Failed` mid-session or by direct URL entry.
+          case None           => IO.pure(List(Server.reloadPatch))
+          case Some(renderer) =>
+            val cursor = Server.cursorOf(req)
+            if (cursor.exists(_.headHash != renderer.headHash))
+              IO.pure(List(Server.reloadPatch))
+            else {
+              val head =
+                if (cursor.exists(_.styleHash != renderer.styleHash))
+                  Server.headPatches(renderer, slug)
+                else Nil
+              // `Patches.resume` is TOTAL — a container whose history aged out is
+              // answered with a fill for THAT mount, not a refusal — so the only
+              // reasons left to repaint the body are the genuinely global ones
+              // checked here: no cursor at all, a cursor minted against another log
+              // (a restart or a renderer swap, which is every dashboard change),
+              // one ahead of this store (a restart with a rewound counter), or one
+              // from before a GAP — a stretch this slug passed over because nobody
+              // was watching it ([[FragmentLog.reaches]]), which is what a client
+              // returning after its session was reaped presents.
+              // ...plus the one thing only the CLIENT can answer: did it actually
+              // apply what we last claimed it has? A resume trusts `holds`, and
+              // `holds` records what was SENT, which is not proof of receipt — a
+              // stream that broke mid-batch, or a tab frozen while the socket kept
+              // filling, leaves this session claiming digests that DOM never got,
+              // and every later resume then computes "nothing owed" forever.
+              //
+              // The cursor is that proof. It is server-set, but it rides LAST in
+              // its batch (`pull`), so a client echoing version V demonstrably
+              // applied everything before it. Behind `told` ⇒ bytes we claimed were
+              // lost ⇒ `holds` is unproven and the body is repainted.
+              //
+              // This does NOT fire on an ordinary tab switch: while a stream is
+              // closed nothing is sent, so `told` cannot move, and the returning
+              // client's echo still matches it.
+              val resumedIO = cursor
+                .filter(c =>
+                  c.logId == log.id && c.version <= store.version &&
+                    log.reaches(c.version) && c.version >= told
                 )
-            )
-          // Lazy: rendering the whole body is the cost this exists to avoid.
-          // TRACED, because a repaint is the largest thing that ever puts
-          // fragments in this DOM and it knows exactly what it put where — the
-          // same claim the DOCUMENT makes from the same render. Clearing
-          // `holds` instead would leave the client's open surfaces unclaimed
-          // and re-sent on the very next pull.
-          lazy val painted = renderer.renderBodyTraced(store.entities, uiState)
-          lazy val repaint = Datastar.patch(
-            painted.html,
-            PatchMode.Inner,
-            Some("#dashboard")
-          )
-          // An open popup needs no restore branch of its own: its nodes are in
-          // `open`, so the resume rule reconciles them on their own ids, and a
-          // body repaint replaces `#dashboard` only — `#popups` lives in the
-          // chrome outside it, so the dialog is never disturbed.
-          //
-          // What DOES need saying is a claim this dashboard no longer recognises
-          // (its surface renamed or removed): that dialog belongs to nothing, is
-          // in nobody's open set, and would otherwise sit on screen forever.
-          val orphan = Option
-            .when(
-              uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-                renderer.openPopup(uiState).isEmpty
-            )(
-              Datastar.patch(
-                s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                PatchMode.Outer,
-                None
+                .traverse(c =>
+                  Patches
+                    .resume(
+                      renderer,
+                      live.cache,
+                      log,
+                      holds,
+                      store.entities,
+                      resumeFrom(req, c),
+                      open,
+                      uiState
+                    )
+                )
+              // Lazy: rendering the whole body is the cost this exists to avoid.
+              // TRACED, because a repaint is the largest thing that ever puts
+              // fragments in this DOM and it knows exactly what it put where — the
+              // same claim the DOCUMENT makes from the same render. Clearing
+              // `holds` instead would leave the client's open surfaces unclaimed
+              // and re-sent on the very next pull.
+              lazy val painted =
+                renderer.renderBodyTraced(store.entities, uiState)
+              lazy val repaint = Datastar.patch(
+                painted.html,
+                PatchMode.Inner,
+                Some("#dashboard")
               )
-            )
-            .toList
-          // What this connection is about to be told, recorded against the
-          // session before it is told: a resume's patches establish and
-          // invalidate exactly as a live one's do, and a REPAINT forgets
-          // everything — it replaces the body wholesale with no per-node trace,
-          // so every claim the document made now describes bytes that are gone.
-          // ...and the position with it, which is what the pull loop starts
-          // from. A repaint painted the whole snapshot, so it claims that; a
-          // resume could only answer for what the changelog covered when this
-          // connection began, so it claims THAT — see the doorbell note above.
-          resumedIO.flatMap { resumed =>
-            val claim = resumed.fold(store.version)(_ => covered)
-            val record = resumed.fold(
-              session.holds.set(painted.own.map { case (id, p) =>
-                id -> Held(Some(Digest.of(p.html)), p.signals)
-              })
-            )(patches =>
-              session.holds.update(patches.foldLeft(_)(Patches.applied))
-            ) *> session.position.set(claim) *> session.told.set(claim)
-            record.as(
-              head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                orphan :+ Server.cursorSignals(renderer, log.id, claim)
-            )
-          }
-        }
+              // An open popup needs no restore branch of its own: its nodes are in
+              // `open`, so the resume rule reconciles them on their own ids, and a
+              // body repaint replaces `#dashboard` only — `#popups` lives in the
+              // chrome outside it, so the dialog is never disturbed.
+              //
+              // What DOES need saying is a claim this dashboard no longer recognises
+              // (its surface renamed or removed): that dialog belongs to nothing, is
+              // in nobody's open set, and would otherwise sit on screen forever.
+              val orphan = Option
+                .when(
+                  uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+                    renderer.openPopup(uiState).isEmpty
+                )(
+                  Datastar.patch(
+                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                    PatchMode.Outer,
+                    None
+                  )
+                )
+                .toList
+              // What this connection is about to be told, recorded against the
+              // session before it is told: a resume's patches establish and
+              // invalidate exactly as a live one's do, and a REPAINT forgets
+              // everything — it replaces the body wholesale with no per-node trace,
+              // so every claim the document made now describes bytes that are gone.
+              // ...and the position with it, which is what the pull loop starts
+              // from. A repaint painted the whole snapshot, so it claims that; a
+              // resume could only answer for what the changelog covered when this
+              // connection began, so it claims THAT — see the doorbell note above.
+              resumedIO.flatMap { resumed =>
+                val claim = resumed.fold(store.version)(_ => covered)
+                val record = resumed.fold(
+                  session.holds.set(painted.own.map { case (id, p) =>
+                    id -> Held(Some(Digest.of(p.html)), p.signals)
+                  })
+                )(patches =>
+                  session.holds.update(patches.foldLeft(_)(Patches.applied))
+                ) *> session.position.set(claim) *> session.told.set(claim)
+                record.as(
+                  head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
+                    orphan :+ Server.cursorSignals(renderer, log.id, claim)
+                )
+              }
+            }
       }
 
   /** Live-reload body repaints for one connection: watch the ONE renderer this
@@ -926,53 +957,62 @@ class Server(
       .flatMap { live =>
         live.renderer.discrete.zipWithPrevious
           .drop(1)
-          .evalMap { case (previous, r) =>
-            if (previous.exists(_.headHash != r.headHash))
-              IO.pure(List(Server.reloadPatch))
-            else
-              // The repaint re-bakes the body (selected tabs included), so
-              // re-seed the open set to match. Reuses this client's selection
-              // (closed over).
-              (session.open.set(r.selectedSurfaces(uiState)) *>
-                (stateStore.current, live.log.get).tupled)
-                .flatMap { case (store, log) =>
-                  val head =
-                    if (previous.exists(_.styleHash != r.styleHash))
-                      Server.headPatches(r, session.slug)
-                    else Nil
-                  // A repaint painted the whole snapshot, so this client is
-                  // both served and told through it — the same claim
-                  // [[openingPatches]] makes for its own repaint. Leaving
-                  // `told` behind here would let the keepalive announce a LOWER
-                  // version than the swap just did.
-                  // TRACED, so the repaint says what it painted — the same
-                  // claim `openingPatches` makes for its own. Load-bearing for
-                  // signal slots: this body carries fresh inline seeds, so a
-                  // record left describing the PREVIOUS dashboard's values
-                  // would suppress the frame a value's return needs.
-                  val painted = r.renderBodyTraced(store.entities, uiState)
-                  session.holds.set(painted.own.map { case (id, p) =>
-                    id -> Held(Some(Digest.of(p.html)), p.signals)
-                  }) *>
-                    session.position.set(store.version) *>
-                    session.told
-                      .set(store.version)
-                      .as(
-                        head ++ List(
-                          Datastar.patch(
-                            painted.html,
-                            PatchMode.Inner,
-                            Some("#dashboard")
-                          ),
-                          // A swap rotates the log identity and can move the style
-                          // hash, and live batches carry only the version now — so
-                          // this is where the client learns the rest. Without it a
-                          // reconnect would quote a log that no longer exists and be
-                          // answered with a body repaint.
-                          Server.cursorSignals(r, log.id, store.version)
-                        )
-                      )
-                }
+          .evalMap { case (previous, current) =>
+            (previous.flatMap(_.rendererOf), current.rendererOf) match
+              case (_, None) | (None, _) =>
+                // A swap that involved a failed dashboard: the page either
+                // shows (or is about to show) the error document, which has no
+                // #dashboard to target and no head to patch — so the watching
+                // connection is told to RELOAD, from the error page to the
+                // dashboard or back.
+                IO.pure(List(Server.reloadPatch))
+              case (Some(prev), Some(r)) =>
+                if (prev.headHash != r.headHash)
+                  IO.pure(List(Server.reloadPatch))
+                else
+                  // The repaint re-bakes the body (selected tabs included), so
+                  // re-seed the open set to match. Reuses this client's selection
+                  // (closed over).
+                  (session.open.set(r.selectedSurfaces(uiState)) *>
+                    (stateStore.current, live.log.get).tupled)
+                    .flatMap { case (store, log) =>
+                      val head =
+                        if (prev.styleHash != r.styleHash)
+                          Server.headPatches(r, session.slug)
+                        else Nil
+                      // A repaint painted the whole snapshot, so this client is
+                      // both served and told through it — the same claim
+                      // [[openingPatches]] makes for its own repaint. Leaving
+                      // `told` behind here would let the keepalive announce a LOWER
+                      // version than the swap just did.
+                      // TRACED, so the repaint says what it painted — the same
+                      // claim `openingPatches` makes for its own. Load-bearing for
+                      // signal slots: this body carries fresh inline seeds, so a
+                      // record left describing the PREVIOUS dashboard's values
+                      // would suppress the frame a value's return needs.
+                      val painted = r.renderBodyTraced(store.entities, uiState)
+                      session.holds.set(painted.own.map { case (id, p) =>
+                        id -> Held(Some(Digest.of(p.html)), p.signals)
+                      }) *>
+                        session.position.set(store.version) *>
+                        session.told
+                          .set(store.version)
+                          .as(
+                            head ++ List(
+                              Datastar.patch(
+                                painted.html,
+                                PatchMode.Inner,
+                                Some("#dashboard")
+                              ),
+                              // A swap rotates the log identity and can move the style
+                              // hash, and live batches carry only the version now — so
+                              // this is where the client learns the rest. Without it a
+                              // reconnect would quote a log that no longer exists and be
+                              // answered with a body repaint.
+                              Server.cursorSignals(r, log.id, store.version)
+                            )
+                          )
+                    }
           }
           .flatMap(Stream.emits)
       }
@@ -1312,112 +1352,162 @@ class Server(
           live.renderer.get,
           live.log.get,
           IO.randomUUID.map(_.toString)
-        ).flatMapN { (renderer, log, conn) =>
-          val uiState = Server.uiStateOf(req)
-          // The editor embeds the dashboard as `?edit=1`; that turns on the
-          // per-node inspection overlay (Focus / Debug). Off for normal viewers.
-          val editMode = req.uri.query.params.get("edit").contains("1")
-          // What this document is showing, and so also what it must hand back
-          // on connect for the stream to agree with it — the ui state (the
-          // open popup included) AND the version it was rendered at. That
-          // last part is what stops the first connect repainting a body the
-          // document already contains.
-          //
-          // The popup claim is NARROWED first: a document does not show a
-          // dialog this dashboard cannot serve, so it must not seed one back
-          // either — on the signal or in the connect URL.
-          val restoreUi = renderer.openPopup(uiState) match {
-            case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
-            case None      => uiState - Dashboard.PopupHostId
-          }
-          // The surfaces this client will have open. They are the resume
-          // rule's second candidate set, and they are also what the recorder
-          // reads to decide a frame is worth recording at all — hence the
-          // ordering below.
-          val open = renderer.selectedSurfaces(uiState)
-          for {
-            // The session this document belongs to, established HERE — the
-            // document is the first and largest thing that puts fragments in
-            // this client's DOM, and the only place that knows what they were.
-            // Its `holds` therefore has ONE meaning for its whole life: bytes
-            // this client was sent. It is also why no node needs a per-
-            // selection key: this render used THIS viewer's `uiState`, where a
-            // shared record would have to hold one digest per selection to
-            // avoid claiming somebody else's tab.
-            // ONE read, used twice: the banner this page renders and the
-            // record of what it told this client must be the same value, or the
-            // stream will either repeat it or skip a real change.
-            live <- healthy.get
-            session <- Session
-              .create(slug)
-              .flatTap(_.open.set(open))
-              .flatTap(_.haDown.set(Some(!live)))
-            // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
-            // bearing, not tidiness: [[recordFrame]] skips a frame no session
-            // is watching, so a session registered after the read could be
-            // handed a version the log never described. Registering first makes
-            // any skipped version one this page already contains — see the
-            // argument in `recordFrame`.
-            _ <- sessions.register(conn, session)
-            _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
-            store <- stateStore.current
-            // ONE render, used twice: the bytes go to the browser and the
-            // per-node trace seeds `holds`. Fingerprinting separately means
-            // walking the open surfaces a second time, node by node, to
-            // re-derive what the page just composed.
-            //
-            // Every painted node, not just the open surfaces' — the document
-            // contains all of it, so recording less would be a claim that is
-            // merely narrower, not safer.
-            painted = renderer.renderPageTraced(
-              store.entities,
-              uiState,
-              renderer.openPopup(uiState)
-            )
-            _ <- session.holds.set(painted.own.map { case (id, p) =>
-              id -> Held(Some(Digest.of(p.html)), p.signals)
-            })
-            _ <- session.position.set(store.version)
-            // The page renders the cursor into its own signals, so the document
-            // IS an announcement — and the first one. Without this a client
-            // that connects, misses a batch and reconnects would be measured
-            // against -1 and trusted.
-            _ <- session.told.set(store.version)
-            _ <- warnAnomalies(renderer, uiState)
-            // What this document is showing, and so also what it must hand
-            // back on connect for the stream to agree with it — the ui state
-            // (the open popup included) AND the version it was rendered at.
-            // That last part is what stops the first connect repainting a body
-            // the document already contains.
-            restore = Server.Restore(
-              restoreUi,
-              conn,
-              Some(
-                Server.Cursor(
-                  renderer.headHash,
-                  renderer.styleHash,
-                  log.id,
-                  store.version
-                )
-              )
-            )
-            resp <- Ok(
-              page(
-                slug,
-                painted.html,
-                renderer.stylesheets.map(assets.rewrite),
-                renderer.scripts.map(assets.rewrite),
-                renderer.inlineScripts,
-                renderer.title,
-                Server.ingressPrefixOf(req),
-                restore,
-                editMode,
-                haDown = !live
-              )
-            )
-          } yield resp.withContentType(`Content-Type`(MediaType.text.html))
+        ).flatMapN { (state, log, conn) =>
+          state match
+            case Server.RendererState.Failed(message) =>
+              errorPage(slug, message, req)
+            case Server.RendererState.Ready(renderer) =>
+              renderPage(slug, renderer, log, conn, req)
         }
     }
+
+  /** The full dashboard document ([[page]]) for a `Ready` slug: mint this
+    * client's session, record every painted node, and hand back the page whose
+    * `restore` cursor the stream will answer to.
+    */
+  private def renderPage(
+      slug: String,
+      renderer: Renderer,
+      log: FragmentLog,
+      conn: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val uiState = Server.uiStateOf(req)
+    // The editor embeds the dashboard as `?edit=1`; that turns on the
+    // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+    val editMode = req.uri.query.params.get("edit").contains("1")
+    // What this document is showing, and so also what it must hand back
+    // on connect for the stream to agree with it — the ui state (the
+    // open popup included) AND the version it was rendered at. That
+    // last part is what stops the first connect repainting a body the
+    // document already contains.
+    //
+    // The popup claim is NARROWED first: a document does not show a
+    // dialog this dashboard cannot serve, so it must not seed one back
+    // either — on the signal or in the connect URL.
+    val restoreUi = renderer.openPopup(uiState) match {
+      case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
+      case None      => uiState - Dashboard.PopupHostId
+    }
+    // The surfaces this client will have open. They are the resume
+    // rule's second candidate set, and they are also what the recorder
+    // reads to decide a frame is worth recording at all — hence the
+    // ordering below.
+    val open = renderer.selectedSurfaces(uiState)
+    for {
+      // The session this document belongs to, established HERE — the
+      // document is the first and largest thing that puts fragments in
+      // this client's DOM, and the only place that knows what they were.
+      // Its `holds` therefore has ONE meaning for its whole life: bytes
+      // this client was sent. It is also why no node needs a per-
+      // selection key: this render used THIS viewer's `uiState`, where a
+      // shared record would have to hold one digest per selection to
+      // avoid claiming somebody else's tab.
+      // ONE read, used twice: the banner this page renders and the
+      // record of what it told this client must be the same value, or the
+      // stream will either repeat it or skip a real change.
+      live <- healthy.get
+      session <- Session
+        .create(slug)
+        .flatTap(_.open.set(open))
+        .flatTap(_.haDown.set(Some(!live)))
+      // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
+      // bearing, not tidiness: [[recordFrame]] skips a frame no session
+      // is watching, so a session registered after the read could be
+      // handed a version the log never described. Registering first makes
+      // any skipped version one this page already contains — see the
+      // argument in `recordFrame`.
+      _ <- sessions.register(conn, session)
+      _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
+      store <- stateStore.current
+      // ONE render, used twice: the bytes go to the browser and the
+      // per-node trace seeds `holds`. Fingerprinting separately means
+      // walking the open surfaces a second time, node by node, to
+      // re-derive what the page just composed.
+      //
+      // Every painted node, not just the open surfaces' — the document
+      // contains all of it, so recording less would be a claim that is
+      // merely narrower, not safer.
+      painted = renderer.renderPageTraced(
+        store.entities,
+        uiState,
+        renderer.openPopup(uiState)
+      )
+      _ <- session.holds.set(painted.own.map { case (id, p) =>
+        id -> Held(Some(Digest.of(p.html)), p.signals)
+      })
+      _ <- session.position.set(store.version)
+      // The page renders the cursor into its own signals, so the document
+      // IS an announcement — and the first one. Without this a client
+      // that connects, misses a batch and reconnects would be measured
+      // against -1 and trusted.
+      _ <- session.told.set(store.version)
+      _ <- warnAnomalies(renderer, uiState)
+      // What this document is showing, and so also what it must hand
+      // back on connect for the stream to agree with it — the ui state
+      // (the open popup included) AND the version it was rendered at.
+      // That last part is what stops the first connect repainting a body
+      // the document already contains.
+      restore = Server.Restore(
+        restoreUi,
+        conn,
+        Some(
+          Server.Cursor(
+            renderer.headHash,
+            renderer.styleHash,
+            log.id,
+            store.version
+          )
+        )
+      )
+      resp <- Ok(
+        page(
+          slug,
+          painted.html,
+          renderer.stylesheets.map(assets.rewrite),
+          renderer.scripts.map(assets.rewrite),
+          renderer.inlineScripts,
+          renderer.title,
+          Server.ingressPrefixOf(req),
+          restore,
+          editMode,
+          haDown = !live
+        )
+      )
+    } yield resp.withContentType(`Content-Type`(MediaType.text.html))
+  }
+
+  /** A self-contained error document for a slug whose eval/build failed: no
+    * renderer, so no theme, no Datastar, no SSE, no session/conn minting, no
+    * cursor. The `<base href>` still honors the ingress prefix so links resolve
+    * behind the HA proxy. The editor link is the write path — fixing the source
+    * here recovers the dashboard live (the reload loop re-evals on the edit).
+    */
+  private def errorPage(
+      slug: String,
+      message: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val baseHref = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
+    val title = Server.escapeHtml(slug)
+    val body =
+      s"""<!doctype html>
+         |<html>
+         |<head>
+         |  <meta charset="utf-8">
+         |  <meta name="viewport" content="width=device-width, initial-scale=1">
+         |  <base href="$baseHref">
+         |  <title>Dashboard $title</title>
+         |</head>
+         |<body>
+         |  <h1>Dashboard $title failed to build</h1>
+         |  <pre>${Server.escapeHtml(message)}</pre>
+         |  <p>Fix the source in the editor — the dashboard reloads automatically.</p>
+         |  <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |</body>
+         |</html>""".stripMargin
+    Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+  }
 
   /** Full HTML document wrapping the rendered dashboard. The theme owns all
     * presentation (its tokens + inline CSS travel inside the body;
@@ -1598,6 +1688,28 @@ class Server(
 
 object Server {
 
+  /** One slug's live state: either a `Ready` renderer (serving, recording,
+    * hot-swappable) or a `Failed` dashboard (a build/eval error — still
+    * registered, still watched, served as an error page, recovered by the next
+    * successful reload). The ADT lives in the ref so a repair is one `.set`; it
+    * is consumed at the top-level seams only ([[Server.rendererFor]],
+    * [[Server.publisherFor]], [[Server.openingPatches]],
+    * [[Server.reloadRepaints]], `pageResponse`) — everything else reads
+    * [[RendererState.rendererOf]] and sees the `Option[Renderer]` the rest of
+    * `Server` is written against.
+    */
+  private[runtime] enum RendererState:
+    case Ready(renderer: Renderer)
+    case Failed(message: String)
+
+    /** Collapse to the renderer, or `None` for a failed dashboard — the shape
+      * every consumer below already models (`rendererFor` returns
+      * `Option[Renderer]`, `pull`'s silent frame is `Nil`).
+      */
+    def rendererOf: Option[Renderer] = this match
+      case Ready(r)  => Some(r)
+      case Failed(_) => None
+
   /** One slug's live state: the hot-swappable renderer and the fragment log its
     * cursors are valid for. ONE value rather than two slug-keyed maps, because
     * a swap must not be able to leave them out of step — and because the log
@@ -1608,7 +1720,7 @@ object Server {
     * a freshly-identified log ([[Server.publisherFor]]) rather than the ref.
     */
   private[runtime] case class LiveSlug(
-      renderer: SignallingRef[IO, Renderer],
+      renderer: SignallingRef[IO, RendererState],
       log: Ref[IO, FragmentLog],
       // Shared by every session viewing this slug: N sessions woken by one ring
       // of the doorbell render each node once between them. Not rotated on a
@@ -1624,7 +1736,7 @@ object Server {
   )
 
   private[runtime] object LiveSlug {
-    def create(renderer: SignallingRef[IO, Renderer]): IO[LiveSlug] =
+    def create(renderer: SignallingRef[IO, RendererState]): IO[LiveSlug] =
       (
         freshLog.flatMap(Ref[IO].of),
         RenderCache.create,
@@ -1651,7 +1763,7 @@ object Server {
   def resource(
       api: HomeAssistantApi[IO],
       stateStore: StateStore,
-      renderers: Map[String, SignallingRef[IO, Renderer]],
+      renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
@@ -1697,7 +1809,7 @@ object Server {
     */
   def fromFeed(
       feed: HaFeed,
-      renderers: Map[String, SignallingRef[IO, Renderer]],
+      renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,

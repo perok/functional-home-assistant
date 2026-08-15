@@ -44,7 +44,9 @@ class SessionLifecycleSuite extends ServerHarness {
     )
     (for {
       store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -113,7 +115,9 @@ class SessionLifecycleSuite extends ServerHarness {
     )
     (for {
       store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -150,7 +154,7 @@ class SessionLifecycleSuite extends ServerHarness {
             // Lingering by now, since this stream has read its opening block
             // and ended.
             epoch <- established.traverse(_.tenure.get)
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             snapshot <- store.current
           } yield (held, epoch, renderer, snapshot)
         }
@@ -181,7 +185,9 @@ class SessionLifecycleSuite extends ServerHarness {
   test("a second stream for one session displaces the first") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -233,7 +239,9 @@ class SessionLifecycleSuite extends ServerHarness {
     def pageWith(healthy: Boolean): IO[String] =
       for {
         store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Ready(Renderer.create(liveLeafDash))
+        )
         sessions <- Sessions.create
         fake <- FakeHomeAssistant.create(Nil)
         html <- Server
@@ -286,7 +294,9 @@ class SessionLifecycleSuite extends ServerHarness {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "A0")))
       ref <- SignallingRef[IO].of(
-        new CountingRenderer(liveLeafDash, count): Renderer
+        Server.RendererState.Ready(
+          new CountingRenderer(liveLeafDash, count): Renderer
+        )
       )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
@@ -359,7 +369,9 @@ class SessionLifecycleSuite extends ServerHarness {
     def eventsOn(healthy: Boolean): IO[List[ServerSentEvent]] =
       for {
         store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-        ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Ready(Renderer.create(liveLeafDash))
+        )
         sessions <- Sessions.create
         fake <- FakeHomeAssistant.create(Nil)
         out <- Server
@@ -433,7 +445,9 @@ class SessionLifecycleSuite extends ServerHarness {
     // names no session, and there the client genuinely does not know.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -492,7 +506,9 @@ class SessionLifecycleSuite extends ServerHarness {
     // sessionStorage; the server drops it.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -539,7 +555,9 @@ class SessionLifecycleSuite extends ServerHarness {
     // that a no-op instead of pulling the rug from under a live viewer.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -626,7 +644,9 @@ class SessionLifecycleSuite extends ServerHarness {
   ) {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -694,7 +714,9 @@ class SessionLifecycleSuite extends ServerHarness {
   test("a session nobody comes back for is reaped") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -738,7 +760,9 @@ class SessionLifecycleSuite extends ServerHarness {
   test("a document nobody connects to does not leak a session") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(Renderer.create(liveLeafDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server

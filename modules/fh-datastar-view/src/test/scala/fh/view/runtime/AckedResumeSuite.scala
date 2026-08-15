@@ -111,7 +111,9 @@ class AckedResumeSuite extends ServerHarness {
   ): IO[A] =
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server

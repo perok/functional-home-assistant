@@ -143,7 +143,9 @@ class ServerRoutesSuite extends ServerHarness {
   private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
     (for {
       store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
@@ -174,7 +176,9 @@ class ServerRoutesSuite extends ServerHarness {
   private def response(uri: String): IO[Response[IO]] =
     (for {
       store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       resp <- Server
@@ -493,7 +497,9 @@ class ServerRoutesSuite extends ServerHarness {
     )
     val (dumpStatus, dumpBody, hassStatus, missStatus) = (for {
       store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -535,7 +541,9 @@ class ServerRoutesSuite extends ServerHarness {
     // default empty SystemPkl is fine).
     val (base, consumer, gitignore) = (for {
       store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -589,7 +597,9 @@ class ServerRoutesSuite extends ServerHarness {
 
     val (ok, okTag, matched, stale) = (for {
       store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(Renderer.create(titleDash("home", None)))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server

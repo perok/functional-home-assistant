@@ -170,7 +170,9 @@ object ServerApp extends IOApp {
 
         rendererRefs <- built
           .traverse { case (slug, (renderer, _)) =>
-            SignallingRef[IO].of(renderer).map(slug -> _)
+            SignallingRef[IO]
+              .of(Server.RendererState.Ready(renderer))
+              .map(slug -> _)
           }
           .map(_.toMap)
           .toResource
@@ -331,7 +333,7 @@ object ServerApp extends IOApp {
     */
   private[runtime] def liveServer(
       feed: HaFeed,
-      renderers: Map[String, SignallingRef[IO, Renderer]],
+      renderers: Map[String, SignallingRef[IO, Server.RendererState]],
       defaultSlug: String,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
@@ -433,7 +435,7 @@ object ServerApp extends IOApp {
   private def watchSources(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Renderer]],
+      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] =
     Stream.resource(Watcher.default[IO]).flatMap { watcher =>
@@ -480,7 +482,7 @@ object ServerApp extends IOApp {
   private def reloadEntries(
       dashboardsDir: os.Path,
       entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Renderer]],
+      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[Unit] =
     entries
@@ -501,7 +503,9 @@ object ServerApp extends IOApp {
           )
         } *>
           rebuilt.traverse_ { case (slug, (renderer, _)) =>
-            rendererRefs.get(slug).traverse_(_.set(renderer))
+            rendererRefs
+              .get(slug)
+              .traverse_(_.set(Server.RendererState.Ready(renderer)))
           } *>
           IO.whenA(rebuilt.nonEmpty)(
             importsRef.set(
@@ -523,7 +527,7 @@ object ServerApp extends IOApp {
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
       entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Renderer]],
+      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[DumpRefresh.Result] =
     RegistryDump

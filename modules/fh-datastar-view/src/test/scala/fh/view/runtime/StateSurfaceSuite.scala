@@ -340,7 +340,9 @@ class StateSurfaceSuite extends ServerHarness {
       )
     (for {
       store <- StateStore.inMemory(after)
-      ref <- SignallingRef[IO].of(Renderer.create(d))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(d))
+      )
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
@@ -355,7 +357,7 @@ class StateSurfaceSuite extends ServerHarness {
         )
         .use { server =>
           for {
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
