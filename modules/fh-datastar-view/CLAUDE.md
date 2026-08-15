@@ -160,9 +160,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
   Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
   (text), `value` (bind, replacing its hand-rolled `_val_<id>`), `fill` (`style:--_end`) and
-  `fillColor` (`style:background`). **Known risk on the slider**, called out in ADR 0017 because it
-  needs a browser: Datastar's style plugin re-applies its property when anything else writes the
-  `style` attribute, and `beer.min.js` repaints the fill during a drag. The contract is a NEGATIVE one — a broken
+  `fillColor` (`style:background`). A DRAG paints the fill (and a percent readout) itself, from
+  `data-on:input` — the style plugin re-applies its property whenever anything else writes the
+  `style` attribute, which `beer.min.js` does on every move, so without that the whole gesture
+  showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken
   implementation still updates the card, because the morph the frame was meant to replace is still
   being sent — so `SignalSlotSuite` asserts what is *not* on the wire.
 - **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`

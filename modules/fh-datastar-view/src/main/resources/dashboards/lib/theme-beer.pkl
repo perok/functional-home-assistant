@@ -295,9 +295,9 @@ class BeerTheme extends themeMod.Theme {
     .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
     .slider.max>input::-moz-range-thumb{cursor:ew-resize}
     /* Slide the fill to a state change instead of snapping. `inset` is what
-       BeerCSS derives from `--_start`/`--_end`, so animating it covers both the
-       server-baked value and beer.min.js's repaint; `background` covers a light
-       changing colour. Suppressed while the slider is being dragged — there the
+       BeerCSS derives from `--_start`/`--_end`, so animating it covers every
+       writer of those props alike; `background` covers a light changing
+       colour. Suppressed while the slider is being dragged — there the
        fill must track the thumb frame by frame, and a transition reads as lag.
        :active alone is not enough: a pointer drag ends with the input still
        focused, and the echoed state should land where the user let go. */

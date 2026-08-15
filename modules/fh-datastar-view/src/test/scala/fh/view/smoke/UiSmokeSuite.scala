@@ -132,6 +132,61 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  /** The track fill DURING a gesture, not after it. `--_end` is the distance
+    * from the right edge, so a drag to the right LOWERS it — read off the
+    * computed style rather than the inline attribute, since both `beer.min.js`
+    * (`style.cssText = …`) and Datastar's style plugin write it and only the
+    * resolved value says who won.
+    */
+  private def fillEnd(page: Page): IO[String] = IO.blocking(
+    page
+      .evaluate(
+        "getComputedStyle(document.querySelector('.slider')).getPropertyValue('--_end')"
+      )
+      .toString
+      .trim
+  )
+
+  test("slider: the fill follows the thumb mid-drag, not only on release") {
+    withPage(scene) { (page, _) =>
+      val slider = page.locator("input[type=range]")
+      for {
+        box <- IO.blocking(slider.boundingBox())
+        mid = box.y + box.height / 2
+        before <- fillEnd(page)
+        seeded <- IO.blocking(slider.inputValue())
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.1, mid))
+        _ <- IO.blocking(page.mouse().down())
+        // Held DOWN across the assertion: a range input fires `input` on every
+        // move but `change` only on release, so this is exactly the window the
+        // fill used to sit still in.
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.9, mid))
+        // Prove the gesture landed before blaming the fill for not following
+        // it: a failure here is a broken drag, not a broken binding.
+        _ <- IO.blocking(assertThat(slider).not().hasValue(seeded))
+        during <- eventually(fillEnd(page))(_ != before)
+        _ <- IO.blocking(page.mouse().up())
+      } yield assertNotEquals(during, before)
+    }
+  }
+
+  test("slider: a percent readout moves with the drag too") {
+    withPage(Scene.of(SmokeDashboard.percentSlider)) { (page, _) =>
+      val slider = page.locator("input[type=range]")
+      val readout = page.locator(".state")
+      for {
+        box <- IO.blocking(slider.boundingBox())
+        mid = box.y + box.height / 2
+        before <- IO.blocking(readout.textContent())
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.1, mid))
+        _ <- IO.blocking(page.mouse().down())
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.9, mid))
+        _ <- IO.blocking(assertThat(readout).not().hasText(before))
+        _ <- IO.blocking(page.mouse().up())
+      } yield ()
+    }
+  }
+
   test("slider: a keyboard commit posts the value-carrying action") {
     withPage(scene) { (page, ts) =>
       val slider = page.locator("input[type=range]")

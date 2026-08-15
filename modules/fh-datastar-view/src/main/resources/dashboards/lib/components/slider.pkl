@@ -43,6 +43,18 @@ const local sliderFillColor: String =
   + #""rgb(" & $string($round(255 - 54 * $t)) & "," & $string($round(166 + 60 * $t)) "#
   + #"& "," & $string($round(87 + 168 * $t)) & ")") : null)"#
 
+// The dragged position as a percentage of the card's own range, in JS — the
+// client-side twin of `percentExpr`'s JSONata, spliced into the template so the
+// range arrives through the `min`/`max` SLOTS. It cannot read `minExpr`/
+// `maxExpr` instead: `cardDef` is shared by every slider on the page, and
+// reading this card's own entity there closes the `on`/`entity` mutual default
+// into a stack overflow.
+//
+// `evt.target.value` rather than the bound signal, because `data-bind` listens
+// for `input` on this same element and the earlier-registered listener wins —
+// off the event there is no ordering to get wrong.
+const local dragPos: String = "((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))"
+
 // A slider config slot (action/key/min/max): author override, else the spec
 // literal (stringified — the backend slot decoder rejects numbers).
 //
@@ -268,6 +280,13 @@ class Slider extends nodes.Node {
       // would re-render the card on exactly the ticks the other three avoid.
       signal = slotMod.asStyle("background")
     }
+    // Whether a DRAG should also move the readout — only a percent one is a
+    // function of the position; `"state"` is on/off and any [[Expr]] is the
+    // author's own. A section flag, not the expression itself: the expression
+    // names signals, and a signal's name is a template var the renderer fills.
+    when (readout == "percent") {
+      ["dragPercent"] = "1"
+    }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)
     ["key"] = sliderConfig(key, spec, (s) -> s.key)
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
@@ -292,23 +311,16 @@ class Slider extends nodes.Node {
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
   // `.tooltip` — its value text bled through behind the track, and the live
-  // value already shows in the head line). The FILL is backend-rendered:
-  // the template bakes `--_start`/`--_end` as an inline style from the `fill`
-  // slot, because BeerCSS's own fill is an inline style its JS writes on
-  // `input` events — a Datastar morph wipes it and (the vars defaulting to
-  // 0%) the track snaps to fully-filled. Baking it makes every morph correct
-  // by construction; beer.min.js still repaints live DURING a drag. The label
-  // line is a `.slider-head` class contract (both themes style it) — NOT a
-  // `<header>` (BeerCSS styles header as a 4rem app-bar grid, which swallowed
-  // the text) and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the
-  // state span into per-character wrapping).
-  //
-  // The drag signal is `_`-prefixed on purpose: Datastar sends every
-  // non-`_` signal with EVERY backend action, so an unprefixed one would ride
-  // the URL of every action POST and every SSE reconnect — a dashboard with a
-  // dozen sliders paid several hundred bytes per request for state only this
-  // browser uses. It is read client-side into the action URL (`$_val_…`) and
-  // never from a request body, so nothing server-side loses anything.
+  // value already shows in the head line). The FILL is OURS, never BeerCSS's:
+  // its own fill is an inline style its JS writes on `input`, which a Datastar
+  // morph wipes — and with the vars defaulting to 0% the track then snaps to
+  // fully-filled. The `fill` slot owns `--_end` instead, baked into the style
+  // attribute for the first paint and bound as a signal after it, with
+  // `data-on:input` keeping it under the thumb mid-gesture. The label line is a
+  // `.slider-head` class contract (both themes style it) — NOT a `<header>`
+  // (BeerCSS styles header as a 4rem app-bar grid, which swallowed the text)
+  // and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the state span
+  // into per-character wrapping).
   //
   // The head is the `self` and the members the `mount`, so the group's rows are
   // never carried by the master's patch (ADR 0012). A childless slider still
@@ -331,6 +343,7 @@ class Slider extends nodes.Node {
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill"))>
           <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
+            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
             data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
         </div>

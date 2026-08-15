@@ -130,13 +130,22 @@ not optional: getting any one of them wrong re-renders the card and the other th
 | `fill` | `style:--_end` | the track fill; the transform now emits its own `%` |
 | `fillColor` | `style:background` | moves with a light's colour |
 
-**One known risk, and it needs a browser to settle.** Datastar's style plugin keeps a
+**The predicted fight happened, and the drag lost.** Datastar's style plugin keeps a
 `MutationObserver` on the `style` attribute and re-applies its property when anything else writes
-there. `beer.min.js` repaints the slider fill on `input` events during a drag. So during a drag the
-two may fight, with the server's `--_end` snapping back over BeerCSS's live paint. If it does, the
-fix is to make the fill a client-side function of the *bound* signal rather than a server value of
-its own — either a `data-style` expression over `$…__value`, or a CSS `calc()` off a bound custom
-property. Neither is verifiable from a terminal, so it is called out rather than guessed at.
+there; `beer.min.js` repaints the slider fill on `input` by rewriting the wrapper's whole
+`style.cssText`. So every move of a drag was answered by the server's last `--_end` snapping back,
+and the gesture showed nothing at all until the release committed it.
+
+The fix keeps the binding server-owned and gives the drag its own paint: `data-on:input` on the
+range input writes `$…__fill` (and, where the readout is a percent, `$…__state`) from
+`evt.target.value` — so the very re-application that was clobbering the fill now re-applies the
+right value. It reads the event rather than the bound signal because `data-bind` listens for
+`input` on the same element and the earlier-registered listener wins.
+
+This is **optimistic**: the server's next value overwrites it, and a call HA rejects leaves the fill
+where the thumb is. That is the drift `data-bind` already has on the thumb, kept consistent with it,
+not a new one. `UiSmokeSuite`'s two mid-drag tests hold the mouse DOWN across the assertion, which
+is the only window in which any of this is observable.
 
 ### One record, not two
 

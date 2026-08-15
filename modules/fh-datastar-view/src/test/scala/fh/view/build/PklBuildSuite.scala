@@ -1538,6 +1538,11 @@ class PklBuildSuite extends munit.FunSuite {
       members(1).slots("state").transform.contains("$attr.current_position"),
       clue = members(1).slots("state").transform
     )
+    // …and because that reading IS the position, a drag moves it locally too —
+    // the flag the template's section reads. The head, reading out nothing, has
+    // no such slot, so its `data-on:input` paints the fill alone.
+    assertEquals(members.head.slots("dragPercent").literal, Some("1"))
+    assert(!group.slots.contains("dragPercent"), clue = group.slots.keySet)
 
     // A childless slider is the plain row it always was: no group modifier, no
     // badge, no button, and its state back as the readout.
