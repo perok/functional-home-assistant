@@ -1,0 +1,90 @@
+# 0018 — A failed dashboard is a live error state
+
+## Context
+
+A dashboard whose Pkl source is broken — a bad edit, a removed entity, a stale
+import — failed hard. At startup a single broken entry made `prepareRenderers`
+raise, and an all-failed workspace took the whole boot down: the server that
+exists to *fix* the sources could not start. On a source watcher tick the same
+failure was silently dropped (`rendererRefs.get(slug).traverse_`), leaving the
+previous renderer serving stale HTML with no fix path and no hint that the
+edit had even been seen. And `defaultSlugFrom` picked only among *built*
+dashboards, so a broken configured default silently bounced the root to
+whatever did build.
+
+`BuildApp`/`sbt dashboardBuild` stays eagerly failing on purpose — that path is
+a person at a terminal wanting an error. The runtime is a person at a browser
+who needs the server alive.
+
+## Decision
+
+**A failed dashboard is a live error state, not a skipped entry.** Every
+discovered entry is registered at boot, watched, and served; what differs is
+what serving means. The per-slug `SignallingRef` holds a
+`Server.RendererState` — `Ready(renderer)` or `Failed(message)` — and the five
+places that must behave differently on `Failed` match on it. Everything else
+keeps taking a concrete `Renderer`; a single converter collapses the state at
+the seam.
+
+- **Boot tolerates any failure, including all of them.** `prepareRenderers`
+  keeps only an empty directory fatal; per-entry failures are collected into
+  `Prepared.failed` and seeded as `Failed` refs, so an all-failed workspace
+  still boots — to the editor and each slug's error page.
+- **The error page is the fix path.** `GET /d/:slug` on a `Failed` slug serves
+  a self-contained HTML document: no renderer, no theme, no Datastar, no SSE —
+  it names the slug, the escaped build error, and carries an editor link to
+  `<slug>.pkl`. HTML requests get the page; non-HTML consumers (`nodeDebug`,
+  action POSTs, `publisherFor`) see a failed slug as absent, exactly as they
+  see an unknown one. A connected SSE session is told to `reload` across both
+  directions of a `Ready`⇄`Failed` transition — the error document has no
+  `#dashboard` to patch and no head to patch into, so a full reload is the
+  only sound transition either way.
+- **Repair is live.** `reloadEntries` re-evaluates every entry on each source
+  edit and sets **every** ref: `Right` → `Ready`, `Left` → `Failed(message)`.
+  A dashboard broken since startup recovers without a restart; a live one that
+  breaks shows the error page; a repaired entry's import set joins the watch
+  graph. The known edge, accepted: a never-built entry's loose `file:` imports
+  are not watched until it builds once (the entry file and the `PklProject`
+  manifest always are, so the common paths fire).
+- **The configured default stays the default even when it is broken.** If
+  `DEFAULT_DASHBOARD` names any discovered entry, it wins — its error page at
+  the root is the point. Only a configured value naming no entry falls through
+  to the built-`dashboard` → entry-`dashboard` → first-built → first-entry
+  order, which keeps an all-failed workspace serving the first entry (editable)
+  rather than 404ing.
+
+### The seam, not the machinery
+
+The `Failed` state deliberately never propagates down into the rendering
+machinery. `RendererState.rendererOf: Option[Renderer]` collapses it, and the
+bulk of `Server.scala` sees `None` where a failed slug lives — the recorder,
+`Patches.resume`, `recordFrame`, the page render, surface swap and mount fill
+all keep taking a concrete `Renderer`. Exactly five seams match on the state:
+
+| seam | `Ready` | `Failed` |
+|---|---|---|
+| `rendererFor` | the renderer | `None` → 404 for non-HTML consumers |
+| `publisherFor` | record frames | an empty stream (nothing to record) |
+| `openingPatches` | the narrowest patch | `None` → a `reload` patch |
+| `reloadRepaints` | repaint connections | `reload` patch across the transition |
+| `pageResponse` | the page | the self-contained error page |
+
+`withSession`, `nodeDebug`, and the session machinery ride `rendererFor`;
+`push` always writes `Ready` (a swap after a fix is a swap back to health).
+The startup failure messages are not logged — a `Failed` slug's publisher is
+an empty stream, so `failed.log` never sees `publisherFor`'s output.
+
+## Rejected alternatives
+
+- **Skip the broken entry.** It becomes invisible: no error page, no editor
+  shortcut, and — until this change — no recovery short of a restart, because
+  a startup-failed entry had no ref for `reloadEntries` to set. "Skip" was
+  also the default-flavored problem: the root silently points at a different
+  dashboard, and the fix is masked.
+- **Keep serving the previous renderer on a broken edit.** The edit is then
+  not a failure the user can see — the dashboard looks fine and is stale, with
+  no affordance pointing at the break. A failing entry with no previous
+  renderer (startup) still had nowhere to go. The error page is the more
+  honest state, and the `reload` repaint makes the transition explicit.
+- **Retry/backoff of the build.** Unneeded: the source watcher already
+  re-evaluates on every edit, so the repair loop is the edit itself.

@@ -1,7 +1,9 @@
 # Plan: a failed dashboard is a live error state, not a skipped entry (fh-datastar-view)
 
-**Status: proposed** — no code landed yet. This is the plan for the four startup/reload
-hardening objectives below; implementation follows it phase by phase.
+**Status: implemented** — landed on this branch in four commits (the `RendererState` ADT +
+`LiveSlug` sweep, startup tolerance, the error-page/`Failed`-seam semantics, and the live-repair
+`reloadEntries`); ADR 0018 records the decisions and `architecture-rendering-pipeline.md`
+travels with the code.
 
 ## The four objectives
 
