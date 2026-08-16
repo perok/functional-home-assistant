@@ -469,7 +469,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ): IO[SharedHarness] =
       (for {
         store <- StateStore.inMemory(initial)
-        ref <- SignallingRef[IO].of(Renderer.create(dash))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Ready(Renderer.create(dash))
+        )
         sessions <- Sessions.create
         // The viewer this harness drains for, registered because a slug nobody
         // is watching records nothing. Its open set is empty, matching what
@@ -491,7 +493,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           sessions,
           suiteSupervisor
         )
-        renderer <- ref.get
+        renderer <- ref.get.map(_.rendererOf.get)
         // The recorder writes the SLUG's log — the same one a reconnecting
         // client resumes from — so a cursor issued by `step` is valid at
         // `opening`, as in production.
@@ -752,7 +754,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   )(use: LiveWorld => IO[Unit]): IO[Unit] =
     (for {
       store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(renderer)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       clients <- Ref[IO].of(List.empty[LiveClient])

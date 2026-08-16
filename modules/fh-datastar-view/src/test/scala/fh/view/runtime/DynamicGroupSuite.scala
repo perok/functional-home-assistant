@@ -134,7 +134,9 @@ class DynamicGroupSuite extends ServerHarness {
   ): IO[(List[String], Map[NodeId, Held])] =
     (for {
       store <- StateStore.inMemory(after)
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
@@ -149,7 +151,7 @@ class DynamicGroupSuite extends ServerHarness {
         )
         .use { server =>
           for {
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             seed = seeded(renderer, after, seedCache.keys)
             log <- Ref[IO].of(seed._1)
             patches <- recordAndPull(
@@ -451,7 +453,7 @@ class DynamicGroupSuite extends ServerHarness {
       StateChange("sensor.b", Some(es("sensor.b", "B0")), es("sensor.b", "B1"))
     (for {
       store <- StateStore.inMemory(after)
-      ref <- SignallingRef[IO].of(tabsRenderer)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(tabsRenderer))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -470,7 +472,7 @@ class DynamicGroupSuite extends ServerHarness {
             viewingT1 <- Session.create("dashboard")
             _ <- viewingT1.open.set(Set("c_t1"))
             _ <- sessions.register("b", viewingT1)
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             log <- Ref[IO].of(FragmentLog("test"))
             // Recorded ONCE for the slug; each viewer then pulls its own.
             forB <- recordAndPull(
@@ -521,7 +523,9 @@ class DynamicGroupSuite extends ServerHarness {
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
     (for {
       store <- StateStore.inMemory(after)
-      ref <- SignallingRef[IO].of(Renderer.create(surfaceDynDash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(surfaceDynDash))
+      )
       sessions <- Sessions.create
       // Stub HA: the SSE/patch path never calls it (an unexpected registry call
       // still raises); the store is driven in-memory, so the empty seed is inert.
@@ -539,7 +543,7 @@ class DynamicGroupSuite extends ServerHarness {
             session <- Session.create("dashboard")
             _ <- session.open.set(Set("det"))
             _ <- sessions.register("conn", session)
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             log <- Ref[IO].of(FragmentLog("test"))
             ps <- recordAndPull(
               server,

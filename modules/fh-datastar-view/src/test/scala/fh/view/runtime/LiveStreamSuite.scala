@@ -320,7 +320,9 @@ class LiveStreamSuite extends ServerHarness {
     )
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(Renderer.create(dash))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(dash))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -336,7 +338,7 @@ class LiveStreamSuite extends ServerHarness {
           for {
             session <- Session.create("dashboard")
             _ <- sessions.register(conn, session)
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             live <- server.liveSlug("dashboard")
             painted = Held.of(
               renderer

@@ -100,7 +100,7 @@ old renderer cannot be resumed.
 | Scope | One per | What lives there |
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
-| Per slug | dashboard | the recorder fiber, the `Renderer` (in a `SignallingRef`, hot-swapped) **and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
+| Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
@@ -119,8 +119,12 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 open ONE WebSocket to Home Assistant, subscribe_entities
   the opening frame IS the full entity set, so there is no separate seeding step
 create ONE StateStore              // for every dashboard, not one each
-evaluate every *.pkl entry         // slug = filename
-  per slug: one Renderer in a SignallingRef   // hot-swapped on file edit
+evaluate every *.pkl entry         // slug = filename; a broken entry does NOT
+                                   // crash the boot — it registers too
+  per slug: one RendererState in a SignallingRef
+      Ready(renderer) when it built, Failed(message) when it did not
+      // hot-swapped on file edit; a failed entry is watched, serves an
+      // error page, and rebuilds live when the source is fixed
   per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
 create ONE Sessions registry
 for each slug: start a recorder fiber
@@ -131,6 +135,18 @@ for each slug: start a recorder fiber
 
 ```
 GET /d/:slug
+  a Failed slug serves the error page: a self-contained HTML document (no
+    renderer, no theme, no cursor) naming the slug and the build error, with an
+    editor link straight to the source — the fix path. Its only script is the
+    Datastar module; `data-init` opens the dedicated `sse/dashboard/<slug>/recover`
+    stream, whose `_reload` signal the page's `data-effect` turns into
+    `window.location.reload()`. Opening under `Failed` sends the inert
+    `recover-open` comment (dropped by the browser before Datastar), not a
+    reload (no reload loop); under an already-`Ready` slug it sends an
+    immediate reload (the fix landed between render and connect). Recovery
+    reloads exactly when the slug does — a fix, or a re-broken edit whose
+    changed error message the page must show. Non-HTML consumers see
+    a failed slug as absent, exactly like an unknown one
   render the WHOLE page from the current snapshot
   mint conn; create Session{slug, open surfaces, control queue, holds, position}
   holds = the digest of every node this render painted   // what THIS client's DOM has
@@ -149,6 +165,11 @@ GET /d/:slug
     // has no browser mechanism to fall back on
 
 GET /sse/dashboard/:slug/patch
+  an UNKNOWN slug is a 404, decided on the stream's own single lookup:
+    // not in the route — a route-side `renderers.get` and the stream's read
+    // could disagree (a slug removed between them) and answer a 200 empty-body
+    // SSE instead. Nothing is registered by the time the gate says no
+    // (registration is bracketed to the stream body, which never runs).
   announce `conn` ONLY if this URL named none (a bookmarked SSE endpoint):
     the document seeds it, so echoing it back says nothing
   retire the session `?prev=` names, if any, unless a stream is HOLDING it
@@ -609,6 +630,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
+| per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadEntries` sets every ref on re-eval |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
 | what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |

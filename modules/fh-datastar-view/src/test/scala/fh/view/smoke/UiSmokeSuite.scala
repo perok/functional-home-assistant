@@ -111,6 +111,14 @@ class UiSmokeSuite extends SmokeSuite {
       val dashboard = page.url()
       val offset = IO.blocking(page.evaluate("scrollY").toString.toDouble)
       for {
+        // Settle the theme's web fonts (the test-pinned Inter + the vendored
+        // MDI glyphs) before taking the baseline: a font swap reflows line
+        // heights and the browser compensates the anchored scrollY by a couple
+        // of px, so an offset read mid-swap disagrees with the one `pagehide`
+        // saves a beat later — and `fhScroll` faithfully restores THAT one.
+        // The forward load re-uses this context's font cache; the wait after
+        // it is insurance that `after` is also read font-settled.
+        _ <- IO.blocking(page.evaluate("document.fonts.ready"))
         room <- IO.blocking(
           page
             .evaluate("document.documentElement.scrollHeight - innerHeight")
@@ -127,8 +135,19 @@ class UiSmokeSuite extends SmokeSuite {
         origin <- IO.blocking(page.evaluate("location.origin").toString)
         _ <- IO.blocking(page.navigate(s"$origin/not-a-dashboard"))
         _ <- IO.blocking(page.navigate(dashboard))
+        _ <- IO.blocking(page.evaluate("document.fonts.ready"))
         after <- eventually(offset)(_ > 0d)
-      } yield assertEquals(after, before)
+      } yield assert(
+        // Not an exact compare: on a live page the restored offset is whatever
+        // the post-restore settle leaves — a web-font reflow or the SSE
+        // connect's opening repaint growing content above the viewport, and
+        // the browser's scroll anchoring pays that in a couple of px (CI shows
+        // a deterministic 3px drift; the bound leaves it a little margin).
+        // What the test guards is that `fhScroll` brings the offset back — a
+        // broken restore lands at the top (0) or pages off, not 3px off.
+        math.abs(after - before) <= 4d,
+        clue = s"offset drifted: before=$before after=$after"
+      )
     }
   }
 

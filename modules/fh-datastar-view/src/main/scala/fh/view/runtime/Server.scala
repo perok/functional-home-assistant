@@ -1,6 +1,8 @@
 package fh.view.runtime
 
+import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
+import cats.data.OptionT
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -52,10 +54,11 @@ import scala.concurrent.duration.*
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    // One hot-swappable renderer per dashboard slug, paired with that slug's
-    // fragment log (live reload swaps the renderer in place; `.discrete` drives a
-    // body repaint over SSE). A `Ref` because the slug set is not fixed at
-    // startup: `push` mints one at runtime (ADR 0010).
+    // One hot-swappable renderer STATE per dashboard slug ([[RendererState]]:
+    // `Ready` or `Failed`), paired with that slug's fragment log (live reload
+    // swaps the state in place; `.discrete` drives a body repaint over SSE). A
+    // `Ref` because the slug set is not fixed at startup: `push` mints one at
+    // runtime (ADR 0010).
     renderers: Ref[IO, Map[String, Server.LiveSlug]],
     defaultSlug: String,
     sessions: Sessions,
@@ -215,9 +218,16 @@ class Server(
       }
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
-      renderers.get.flatMap { rs =>
-        if (rs.contains(slug)) sseStream(slug, req) else NotFound()
-      }
+      // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
+      // lookup, not here — see that method.
+      sseStream(slug, req)
+
+    // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
+    // dedicated stream with no session/conn/cursor — the error page opens it and
+    // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
+    // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
+    case GET -> Root / "sse" / "dashboard" / slug / "recover" =>
+      recoverStream(slug)
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -263,7 +273,9 @@ class Server(
     * after startup.
     */
   private def rendererFor(slug: String): IO[Option[Renderer]] =
-    liveFor(slug).flatMap(_.traverse(_.renderer.get))
+    liveFor(slug).flatMap(
+      _.traverse(_.renderer.get).map(_.flatMap(_.rendererOf))
+    )
 
   /** Test seam: the live state for one slug (its renderer signal + its log), so
     * a suite can assert on what a path wrote to the ledger rather than only on
@@ -303,28 +315,38 @@ class Server(
       slug: String,
       live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    live.renderer.discrete.zipWithIndex.switchMap { case (renderer, arm) =>
-      // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
-      // cursor issued against the previous renderer's log names versions this
-      // one never had, so it must not be resumable
-      // (docs/adr/0011-the-live-connection.md).
-      //
-      // Not on the FIRST arm, though. `discrete` emits the current renderer
-      // immediately, and rotating there invalidates cursors for no reason —
-      // the log the `LiveSlug` was created with is already this renderer's.
-      // It also races the page route: a document served in that window would
-      // advertise the old id, get its first connect refused, and repaint a
-      // body it already had.
-      Stream.exec(
-        IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
-      ) ++
-        stateStore.changes.evalMap(
-          // The doorbell rings AFTER the log is written, or a session woken by
-          // it could read a log that does not yet describe the version it was
-          // told about — and would then set its position past changes it
-          // never saw.
-          recordFrame(slug, renderer, live.log, _).flatMap(live.doorbell.set)
-        )
+    live.renderer.discrete.zipWithIndex.switchMap {
+      case (Server.RendererState.Failed(_), _) =>
+        // A failed dashboard records nothing and rings nothing: there is no
+        // renderer to diff against, and the error page has no sessions. The
+        // doorbell stays frozen at the last successful build's version. The
+        // transition back to `Ready` re-arms this arm with the fresh renderer
+        // and rotates the log identity (arm > 0), so every old cursor is
+        // invalid and a reconnect repaints — the same argument that covers a
+        // change landing in the switch window below.
+        Stream.empty
+      case (Server.RendererState.Ready(renderer), arm) =>
+        // A fresh log IDENTITY per SWAP, in the ref every connection reads: a
+        // cursor issued against the previous renderer's log names versions this
+        // one never had, so it must not be resumable
+        // (docs/adr/0011-the-live-connection.md).
+        //
+        // Not on the FIRST arm, though. `discrete` emits the current renderer
+        // immediately, and rotating there invalidates cursors for no reason —
+        // the log the `LiveSlug` was created with is already this renderer's.
+        // It also races the page route: a document served in that window would
+        // advertise the old id, get its first connect refused, and repaint a
+        // body it already had.
+        Stream.exec(
+          IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
+        ) ++
+          stateStore.changes.evalMap(
+            // The doorbell rings AFTER the log is written, or a session woken by
+            // it could read a log that does not yet describe the version it was
+            // told about — and would then set its position past changes it
+            // never saw.
+            recordFrame(slug, renderer, live.log, _).flatMap(live.doorbell.set)
+          )
     }.drain
 
   /** Start every currently-registered slug's publisher. Slugs pushed later get
@@ -373,7 +395,7 @@ class Server(
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
     SignallingRef[IO]
-      .of(Renderer.fromValidated(validated))
+      .of(Server.RendererState.Ready(Renderer.fromValidated(validated)))
       .flatMap(Server.LiveSlug.create)
       .flatMap { fresh =>
         val slug = validated.dashboard.slug
@@ -386,7 +408,9 @@ class Server(
           }
           .flatMap {
             case Some(existing) =>
-              existing.renderer.set(Renderer.fromValidated(validated))
+              existing.renderer.set(
+                Server.RendererState.Ready(Renderer.fromValidated(validated))
+              )
             case None =>
               supervisor
                 .supervise(publisherFor(slug, fresh).compile.drain)
@@ -478,7 +502,8 @@ class Server(
   /** The per-connection SSE stream: a `conn` signal, then the slug's shared
     * patches (filtered to what this client can see, with any [[Varying]]
     * resolved against its selections), the session control channel, live-reload
-    * body repaints, and a heartbeat.
+    * body repaints, and a heartbeat. An unknown slug is a 404 — the gate lives
+    * at the tail, on the stream's own single lookup ([[liveFor]]).
     */
   private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
@@ -506,7 +531,9 @@ class Server(
       adopted <- adoptOrMint(slug, conn)
       (session, epoch) = adopted
       liveOpt <- liveFor(slug)
-      rendererOpt <- liveOpt.traverse(_.renderer.get)
+      rendererOpt <- liveOpt
+        .traverse(_.renderer.get)
+        .map(_.flatMap(_.rendererOf))
       // Seed the open set from this client's ui state — its selected tab
       // panels AND the popup it says it still has open, which is now the same
       // kind of selection read from the same map — so all of them receive live
@@ -644,8 +671,83 @@ class Server(
         // nobody reads is merely wasteful; claiming a digest for it is
         // permanent staleness.
         .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
-      resp <- Ok(stream)
+      // The 404 gate is on THIS stream's own (single) lookup, not in the route:
+      // a route-side `renderers.get` and this read could disagree (a slug
+      // removed between them) and answer a 200 empty-body SSE instead of a
+      // 404. Nothing has been registered for an absent slug by this point —
+      // registration is bracketed to `stream`, which never runs — and the
+      // session `adoptOrMint` created is unreferenced garbage.
+      resp <- liveOpt match
+        case None    => NotFound()
+        case Some(_) => Ok(stream)
     } yield resp
+
+  /** The error page's recovery stream ([[errorPage]]): the slug's
+    * `Failed -> Ready` transitions as reloads, and nothing else — no session,
+    * no `conn`, no holds, no cursor, no `openingPatches`
+    * ([[recoverTransitions]]).
+    *
+    * The ONE slug lookup lives here, not in the route: a slug removed between a
+    * route-side lookup and the stream would have answered a 200 empty-body SSE
+    * instead of a 404.
+    */
+  private def recoverStream(slug: String): IO[Response[IO]] =
+    liveFor(slug).flatMap {
+      case None       => NotFound()
+      case Some(live) => Ok(recoverTransitions(live).merge(keepAliveComments))
+    }
+
+  /** The recover stream's state changes ([[recoverStream]]), as the error page
+    * must react to them. Its FIRST element doubles as the connection marker: a
+    * comment under `Failed` (the browser discards SSE comments before any
+    * listener, so Datastar never even receives it) or an immediate reload when
+    * the fix landed between the page's render and this connect. After that, the
+    * one rule: reload unless the state is an UNCHANGED `Failed` — the page
+    * already shows that message, so a reload would just loop.
+    */
+  private def recoverTransitions(
+      live: Server.LiveSlug
+  ): Stream[IO, ServerSentEvent] =
+    live.renderer.discrete.zipWithPrevious.map {
+      // The connection marker: the stream's FIRST element, sent once it has
+      // subscribed under the CURRENT state — a comment under `Failed`, or an
+      // immediate reload when the fix landed between the page's render and
+      // this connect.
+      case (None, st) =>
+        Some(
+          if (st.rendererOf.isDefined) Server.reloadPatch
+          else Server.recoverOpenMarker
+        )
+      // The one rule: reload unless the state is an UNCHANGED `Failed`.
+      case (prev, st) =>
+        Option.unless(unchangedFailed(prev, st))(Server.reloadPatch)
+    }.unNone
+
+  /** Whether the state change is a no-op for the error page: still `Failed`
+    * with the SAME message, so the page already shows it and a reload would
+    * just loop. Every other change — a fix, a break, a re-broken edit with a
+    * different error — must repaint the page.
+    */
+  private def unchangedFailed(
+      prev: Option[Server.RendererState],
+      current: Server.RendererState
+  ): Boolean =
+    (prev, current) match
+      case (
+            Some(Server.RendererState.Failed(m1)),
+            Server.RendererState.Failed(m2)
+          ) =>
+        m1 == m2
+      case _ => false
+
+  /** A pure keep-alive comment at the shared stream's cadence — what a stream
+    * that only waits on state ([[recoverStream]]) needs to keep an intermediary
+    * from reaping it. The shared stream's keep-alive is richer (it catches the
+    * cursor up too), so it drives its own; both read the same interval and the
+    * same [[Server.keepAliveComment]].
+    */
+  private val keepAliveComments: Stream[IO, ServerSentEvent] =
+    Stream.awakeEvery[IO](Server.KeepAliveInterval).as(Server.keepAliveComment)
 
   /** One session's pull: what THIS client is owed from `position + 1`, rendered
     * against the current snapshot and its own selections.
@@ -675,12 +777,16 @@ class Server(
       if (version <= position) IO.pure(Nil)
       else
         (
-          live.renderer.get,
-          live.log.get,
-          stateStore.current,
-          session.holds.get,
-          session.open.get
+          OptionT(live.renderer.get.map(_.rendererOf)),
+          OptionT.liftF(live.log.get),
+          OptionT.liftF(stateStore.current),
+          OptionT.liftF(session.holds.get),
+          OptionT.liftF(session.open.get)
         ).flatMapN { (renderer, log, store, holds, open) =>
+          // A failed dashboard has nothing to render: the silent frame, the
+          // same bytes a version this client is owed nothing for produces.
+          // `rendererOf` is the tuple's option: a None short-circuits the
+          // flatMap before any of the refs below are even run.
           Patches
             .resume(
               renderer,
@@ -695,7 +801,8 @@ class Server(
               renderer.uiStateFrom(open)
             )
             .flatMap { patches =>
-              session.holds.update(patches.foldLeft(_)(Patches.applied)) *>
+              session.holds
+                .update(patches.foldLeft(_)(Patches.applied)) *>
                 // The cursor rides LAST below, which is what makes it an ack:
                 // a client echoing it applied the patches in front of it. Only
                 // recorded when there are bytes — a silent frame announces
@@ -724,7 +831,9 @@ class Server(
                       )
                   )
             }
-        }
+            .pipe(OptionT.liftF)
+        }.value
+          .map(_.getOrElse(Nil))
     }
 
   /** The version a resume should ask for, which is NOT always the cursor's.
@@ -787,17 +896,17 @@ class Server(
       open: Set[String]
   ): IO[List[ServerSentEvent]] =
     (
-      live.doorbell.get,
-      live.renderer.get,
-      live.log.get,
-      stateStore.current,
-      session.holds.get,
-      session.told.get
+      OptionT.liftF(live.doorbell.get),
+      OptionT(live.renderer.get.map(_.rendererOf)),
+      OptionT.liftF(live.log.get),
+      OptionT.liftF(stateStore.current),
+      OptionT.liftF(session.holds.get),
+      OptionT.liftF(session.told.get)
     )
       .flatMapN { (covered, renderer, log, store, holds, told) =>
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
-          IO.pure(List(Server.reloadPatch))
+          OptionT.pure[IO](List(Server.reloadPatch))
         else {
           val head =
             if (cursor.exists(_.styleHash != renderer.styleHash))
@@ -886,7 +995,7 @@ class Server(
           // from. A repaint painted the whole snapshot, so it claims that; a
           // resume could only answer for what the changelog covered when this
           // connection began, so it claims THAT — see the doorbell note above.
-          resumedIO.flatMap { resumed =>
+          val result = resumedIO.flatMap { resumed =>
             val claim = resumed.fold(store.version)(_ => covered)
             val record = resumed.fold(
               session.holds.set(painted.own.map { case (id, p) =>
@@ -900,8 +1009,17 @@ class Server(
                 orphan :+ Server.cursorSignals(renderer, log.id, claim)
             )
           }
+
+          OptionT.liftF(result)
         }
       }
+      .value
+      // A failed slug has no document to open, so no claim to bookkeep:
+      // whatever a stale connection or a bookmarked SSE URL asks for, the
+      // error page is a reload away. Defensive — the error page opens the
+      // dedicated `recover` stream instead, so this is only reachable by a
+      // slug that went `Failed` mid-session or by direct URL entry.
+      .map(_.getOrElse(List(Server.reloadPatch)))
 
   /** Live-reload body repaints for one connection: watch the ONE renderer this
     * connection views (its slug is fixed for the connection's lifetime — going
@@ -926,10 +1044,20 @@ class Server(
       .flatMap { live =>
         live.renderer.discrete.zipWithPrevious
           .drop(1)
-          .evalMap { case (previous, r) =>
-            if (previous.exists(_.headHash != r.headHash))
+          .map { case (previous, current) =>
+            (previous.flatMap(_.rendererOf), current.rendererOf)
+          }
+          .evalMap {
+            case (_, None) | (None, _) =>
+              // A swap that involved a failed dashboard: the page either
+              // shows (or is about to show) the error document, which has no
+              // #dashboard to target and no head to patch — so the watching
+              // connection is told to RELOAD, from the error page to the
+              // dashboard or back.
               IO.pure(List(Server.reloadPatch))
-            else
+            case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
+              IO.pure(List(Server.reloadPatch))
+            case (Some(prev), Some(r)) =>
               // The repaint re-bakes the body (selected tabs included), so
               // re-seed the open set to match. Reuses this client's selection
               // (closed over).
@@ -937,7 +1065,7 @@ class Server(
                 (stateStore.current, live.log.get).tupled)
                 .flatMap { case (store, log) =>
                   val head =
-                    if (previous.exists(_.styleHash != r.styleHash))
+                    if (prev.styleHash != r.styleHash)
                       Server.headPatches(r, session.slug)
                     else Nil
                   // A repaint painted the whole snapshot, so this client is
@@ -1188,30 +1316,36 @@ class Server(
   private def nodeDebug(slug: String, id: String): IO[Response[IO]] =
     rendererFor(slug).flatMap {
       case None           => NotFound()
-      case Some(renderer) =>
-        stateStore.snapshot.flatMap { states =>
-          // `id` is a URL segment — an untrusted CLAIM about a node id, which
-          // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
-          val entities = renderer.entitiesForNode(NodeId.derived(id))
-          val arr = Json.arr(entities.map { e =>
-            states.get(e) match {
-              case Some(st) =>
-                Json.obj(
-                  "entity_id" -> Json.fromString(e),
-                  "state" -> Json.fromString(st.state),
-                  "attributes" -> Json.fromFields(st.attributes.toList)
-                )
-              case None =>
-                Json.obj(
-                  "entity_id" -> Json.fromString(e),
-                  "state" -> Json.Null,
-                  "attributes" -> Json.obj()
-                )
-            }
-          }*)
-          Ok(arr.noSpaces)
-            .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+      case Some(renderer) => nodeDebugJson(renderer, id)
+    }
+
+  /** The debug payload for a registered slug ([[nodeDebug]]). */
+  private def nodeDebugJson(
+      renderer: Renderer,
+      id: String
+  ): IO[Response[IO]] =
+    stateStore.snapshot.flatMap { states =>
+      // `id` is a URL segment — an untrusted CLAIM about a node id, which
+      // the renderer's index resolves (unknown ⇒ no entities, hence `[]`).
+      val entities = renderer.entitiesForNode(NodeId.derived(id))
+      val arr = Json.arr(entities.map { e =>
+        states.get(e) match {
+          case Some(st) =>
+            Json.obj(
+              "entity_id" -> Json.fromString(e),
+              "state" -> Json.fromString(st.state),
+              "attributes" -> Json.fromFields(st.attributes.toList)
+            )
+          case None =>
+            Json.obj(
+              "entity_id" -> Json.fromString(e),
+              "state" -> Json.Null,
+              "attributes" -> Json.obj()
+            )
         }
+      }*)
+      Ok(arr.noSpaces)
+        .map(_.withContentType(`Content-Type`(MediaType.application.json)))
     }
 
   /** Decode a pushed dashboard and install it live under `slug`.
@@ -1307,117 +1441,190 @@ class Server(
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     liveFor(slug).flatMap {
       case None       => NotFound()
-      case Some(live) =>
-        (
-          live.renderer.get,
-          live.log.get,
-          IO.randomUUID.map(_.toString)
-        ).flatMapN { (renderer, log, conn) =>
-          val uiState = Server.uiStateOf(req)
-          // The editor embeds the dashboard as `?edit=1`; that turns on the
-          // per-node inspection overlay (Focus / Debug). Off for normal viewers.
-          val editMode = req.uri.query.params.get("edit").contains("1")
-          // What this document is showing, and so also what it must hand back
-          // on connect for the stream to agree with it — the ui state (the
-          // open popup included) AND the version it was rendered at. That
-          // last part is what stops the first connect repainting a body the
-          // document already contains.
-          //
-          // The popup claim is NARROWED first: a document does not show a
-          // dialog this dashboard cannot serve, so it must not seed one back
-          // either — on the signal or in the connect URL.
-          val restoreUi = renderer.openPopup(uiState) match {
-            case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
-            case None      => uiState - Dashboard.PopupHostId
-          }
-          // The surfaces this client will have open. They are the resume
-          // rule's second candidate set, and they are also what the recorder
-          // reads to decide a frame is worth recording at all — hence the
-          // ordering below.
-          val open = renderer.selectedSurfaces(uiState)
-          for {
-            // The session this document belongs to, established HERE — the
-            // document is the first and largest thing that puts fragments in
-            // this client's DOM, and the only place that knows what they were.
-            // Its `holds` therefore has ONE meaning for its whole life: bytes
-            // this client was sent. It is also why no node needs a per-
-            // selection key: this render used THIS viewer's `uiState`, where a
-            // shared record would have to hold one digest per selection to
-            // avoid claiming somebody else's tab.
-            // ONE read, used twice: the banner this page renders and the
-            // record of what it told this client must be the same value, or the
-            // stream will either repeat it or skip a real change.
-            live <- healthy.get
-            session <- Session
-              .create(slug)
-              .flatTap(_.open.set(open))
-              .flatTap(_.haDown.set(Some(!live)))
-            // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
-            // bearing, not tidiness: [[recordFrame]] skips a frame no session
-            // is watching, so a session registered after the read could be
-            // handed a version the log never described. Registering first makes
-            // any skipped version one this page already contains — see the
-            // argument in `recordFrame`.
-            _ <- sessions.register(conn, session)
-            _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
-            store <- stateStore.current
-            // ONE render, used twice: the bytes go to the browser and the
-            // per-node trace seeds `holds`. Fingerprinting separately means
-            // walking the open surfaces a second time, node by node, to
-            // re-derive what the page just composed.
-            //
-            // Every painted node, not just the open surfaces' — the document
-            // contains all of it, so recording less would be a claim that is
-            // merely narrower, not safer.
-            painted = renderer.renderPageTraced(
-              store.entities,
-              uiState,
-              renderer.openPopup(uiState)
-            )
-            _ <- session.holds.set(painted.own.map { case (id, p) =>
-              id -> Held(Some(Digest.of(p.html)), p.signals)
-            })
-            _ <- session.position.set(store.version)
-            // The page renders the cursor into its own signals, so the document
-            // IS an announcement — and the first one. Without this a client
-            // that connects, misses a batch and reconnects would be measured
-            // against -1 and trusted.
-            _ <- session.told.set(store.version)
-            _ <- warnAnomalies(renderer, uiState)
-            // What this document is showing, and so also what it must hand
-            // back on connect for the stream to agree with it — the ui state
-            // (the open popup included) AND the version it was rendered at.
-            // That last part is what stops the first connect repainting a body
-            // the document already contains.
-            restore = Server.Restore(
-              restoreUi,
-              conn,
-              Some(
-                Server.Cursor(
-                  renderer.headHash,
-                  renderer.styleHash,
-                  log.id,
-                  store.version
-                )
-              )
-            )
-            resp <- Ok(
-              page(
-                slug,
-                painted.html,
-                renderer.stylesheets.map(assets.rewrite),
-                renderer.scripts.map(assets.rewrite),
-                renderer.inlineScripts,
-                renderer.title,
-                Server.ingressPrefixOf(req),
-                restore,
-                editMode,
-                haDown = !live
-              )
-            )
-          } yield resp.withContentType(`Content-Type`(MediaType.text.html))
-        }
+      case Some(live) => pageFor(slug, live, req)
     }
+
+  /** The document for a registered slug ([[pageResponse]]): the error page when
+    * its renderer is `Failed`, the full dashboard when it is `Ready`.
+    */
+  private def pageFor(
+      slug: String,
+      live: Server.LiveSlug,
+      req: Request[IO]
+  ): IO[Response[IO]] =
+    (
+      live.renderer.get,
+      live.log.get,
+      IO.randomUUID.map(_.toString)
+    ).flatMapN { (state, log, conn) =>
+      state match
+        case Server.RendererState.Failed(message) =>
+          errorPage(slug, message, req)
+        case Server.RendererState.Ready(renderer) =>
+          renderPage(slug, renderer, log, conn, req)
+    }
+
+  /** The full dashboard document ([[page]]) for a `Ready` slug: mint this
+    * client's session, record every painted node, and hand back the page whose
+    * `restore` cursor the stream will answer to.
+    */
+  private def renderPage(
+      slug: String,
+      renderer: Renderer,
+      log: FragmentLog,
+      conn: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val uiState = Server.uiStateOf(req)
+    // The editor embeds the dashboard as `?edit=1`; that turns on the
+    // per-node inspection overlay (Focus / Debug). Off for normal viewers.
+    val editMode = req.uri.query.params.get("edit").contains("1")
+    // What this document is showing, and so also what it must hand back
+    // on connect for the stream to agree with it — the ui state (the
+    // open popup included) AND the version it was rendered at. That
+    // last part is what stops the first connect repainting a body the
+    // document already contains.
+    //
+    // The popup claim is NARROWED first: a document does not show a
+    // dialog this dashboard cannot serve, so it must not seed one back
+    // either — on the signal or in the connect URL.
+    val restoreUi = renderer.openPopup(uiState) match {
+      case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
+      case None      => uiState - Dashboard.PopupHostId
+    }
+    // The surfaces this client will have open. They are the resume
+    // rule's second candidate set, and they are also what the recorder
+    // reads to decide a frame is worth recording at all — hence the
+    // ordering below.
+    val open = renderer.selectedSurfaces(uiState)
+    for {
+      // The session this document belongs to, established HERE — the
+      // document is the first and largest thing that puts fragments in
+      // this client's DOM, and the only place that knows what they were.
+      // Its `holds` therefore has ONE meaning for its whole life: bytes
+      // this client was sent. It is also why no node needs a per-
+      // selection key: this render used THIS viewer's `uiState`, where a
+      // shared record would have to hold one digest per selection to
+      // avoid claiming somebody else's tab.
+      // ONE read, used twice: the banner this page renders and the
+      // record of what it told this client must be the same value, or the
+      // stream will either repeat it or skip a real change.
+      live <- healthy.get
+      session <- Session
+        .create(slug)
+        .flatTap(_.open.set(open))
+        .flatTap(_.haDown.set(Some(!live)))
+      // REGISTERED BEFORE THE SNAPSHOT IS READ, and that order is load
+      // bearing, not tidiness: [[recordFrame]] skips a frame no session
+      // is watching, so a session registered after the read could be
+      // handed a version the log never described. Registering first makes
+      // any skipped version one this page already contains — see the
+      // argument in `recordFrame`.
+      _ <- sessions.register(conn, session)
+      _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
+      store <- stateStore.current
+      // ONE render, used twice: the bytes go to the browser and the
+      // per-node trace seeds `holds`. Fingerprinting separately means
+      // walking the open surfaces a second time, node by node, to
+      // re-derive what the page just composed.
+      //
+      // Every painted node, not just the open surfaces' — the document
+      // contains all of it, so recording less would be a claim that is
+      // merely narrower, not safer.
+      painted = renderer.renderPageTraced(
+        store.entities,
+        uiState,
+        renderer.openPopup(uiState)
+      )
+      _ <- session.holds.set(painted.own.map { case (id, p) =>
+        id -> Held(Some(Digest.of(p.html)), p.signals)
+      })
+      _ <- session.position.set(store.version)
+      // The page renders the cursor into its own signals, so the document
+      // IS an announcement — and the first one. Without this a client
+      // that connects, misses a batch and reconnects would be measured
+      // against -1 and trusted.
+      _ <- session.told.set(store.version)
+      _ <- warnAnomalies(renderer, uiState)
+      // What this document is showing, and so also what it must hand
+      // back on connect for the stream to agree with it — the ui state
+      // (the open popup included) AND the version it was rendered at.
+      // That last part is what stops the first connect repainting a body
+      // the document already contains.
+      restore = Server.Restore(
+        restoreUi,
+        conn,
+        Some(
+          Server.Cursor(
+            renderer.headHash,
+            renderer.styleHash,
+            log.id,
+            store.version
+          )
+        )
+      )
+      resp <- Ok(
+        page(
+          slug,
+          painted.html,
+          renderer.stylesheets.map(assets.rewrite),
+          renderer.scripts.map(assets.rewrite),
+          renderer.inlineScripts,
+          renderer.title,
+          Server.ingressPrefixOf(req),
+          restore,
+          editMode,
+          haDown = !live
+        )
+      )
+    } yield resp.withContentType(`Content-Type`(MediaType.text.html))
+  }
+
+  /** A self-contained error document for a slug whose eval/build failed: no
+    * renderer, so no theme, no session/conn minting, no cursor. The `<base
+    * href>` still honors the ingress prefix so links resolve behind the HA
+    * proxy. The editor link is the write path — fixing the source here recovers
+    * the dashboard live (the reload loop re-evals on the edit).
+    *
+    * Recovery is Datastar's `@get` on the dedicated `recover` stream
+    * ([[recoverStream]]), not a meta-refresh: the module opens
+    * `sse/dashboard/<slug>/recover` and the `_reload` signal — sent exactly
+    * when the slug transitions `Failed -> Ready` — triggers `data-effect`'s
+    * reload. A poll would re-eval on a fixed schedule; this reloads precisely
+    * at the moment the fix lands. The Datastar module is the page's only
+    * dependency beyond itself.
+    */
+  private def errorPage(
+      slug: String,
+      message: String,
+      req: Request[IO]
+  ): IO[Response[IO]] = {
+    val baseHref = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
+    val title = Server.escapeHtml(slug)
+    val body =
+      s"""<!doctype html>
+         |<html>
+         |<head>
+         |  <meta charset="utf-8">
+         |  <meta name="viewport" content="width=device-width, initial-scale=1">
+         |  <base href="$baseHref">
+         |  <title>Dashboard $title</title>
+         |  <script type="module" src="${assets.rewrite(
+          Server.DatastarCdn
+        )}"></script>
+         |</head>
+         |<body data-init="@get('sse/dashboard/$slug/recover', ${Server.SseRetry})">
+         |  <div data-signals="{${Server.ReloadSignal}: false}"
+         |       data-effect="$$${Server.ReloadSignal} && window.location.reload()">
+         |    <h1>Dashboard $title failed to build</h1>
+         |    <pre>${Server.escapeHtml(message)}</pre>
+         |    <p>Fix the source in the editor — the dashboard reloads automatically.</p>
+         |    <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |  </div>
+         |</body>
+         |</html>""".stripMargin
+    Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.html)))
+  }
 
   /** Full HTML document wrapping the rendered dashboard. The theme owns all
     * presentation (its tokens + inline CSS travel inside the body;
@@ -1598,6 +1805,28 @@ class Server(
 
 object Server {
 
+  /** One slug's live state: either a `Ready` renderer (serving, recording,
+    * hot-swappable) or a `Failed` dashboard (a build/eval error — still
+    * registered, still watched, served as an error page, recovered by the next
+    * successful reload). The ADT lives in the ref so a repair is one `.set`; it
+    * is consumed at the top-level seams only ([[Server.rendererFor]],
+    * [[Server.publisherFor]], [[Server.openingPatches]],
+    * [[Server.reloadRepaints]], `pageResponse`) — everything else reads
+    * [[RendererState.rendererOf]] and sees the `Option[Renderer]` the rest of
+    * `Server` is written against.
+    */
+  private[runtime] enum RendererState:
+    case Ready(renderer: Renderer)
+    case Failed(message: String)
+
+    /** Collapse to the renderer, or `None` for a failed dashboard — the shape
+      * every consumer below already models (`rendererFor` returns
+      * `Option[Renderer]`, `pull`'s silent frame is `Nil`).
+      */
+    def rendererOf: Option[Renderer] = this match
+      case Ready(r)  => Some(r)
+      case Failed(_) => None
+
   /** One slug's live state: the hot-swappable renderer and the fragment log its
     * cursors are valid for. ONE value rather than two slug-keyed maps, because
     * a swap must not be able to leave them out of step — and because the log
@@ -1608,7 +1837,7 @@ object Server {
     * a freshly-identified log ([[Server.publisherFor]]) rather than the ref.
     */
   private[runtime] case class LiveSlug(
-      renderer: SignallingRef[IO, Renderer],
+      renderer: SignallingRef[IO, RendererState],
       log: Ref[IO, FragmentLog],
       // Shared by every session viewing this slug: N sessions woken by one ring
       // of the doorbell render each node once between them. Not rotated on a
@@ -1624,7 +1853,7 @@ object Server {
   )
 
   private[runtime] object LiveSlug {
-    def create(renderer: SignallingRef[IO, Renderer]): IO[LiveSlug] =
+    def create(renderer: SignallingRef[IO, RendererState]): IO[LiveSlug] =
       (
         freshLog.flatMap(Ref[IO].of),
         RenderCache.create,
@@ -1651,7 +1880,7 @@ object Server {
   def resource(
       api: HomeAssistantApi[IO],
       stateStore: StateStore,
-      renderers: Map[String, SignallingRef[IO, Renderer]],
+      renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
@@ -1697,7 +1926,7 @@ object Server {
     */
   def fromFeed(
       feed: HaFeed,
-      renderers: Map[String, SignallingRef[IO, Renderer]],
+      renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
@@ -1925,6 +2154,16 @@ object Server {
   val StoreVersionSignal: String = "storeVersion"
 
   val PrevConnParam: String = "prev"
+
+  /** The recover stream's connection marker ([[recoverStream]]): an SSE COMMENT
+    * line, not an event — the browser's EventSource discards comments before
+    * any listener, so Datastar never even receives it (it costs a `: …` line,
+    * not a `data:` event). Its only job is to be the stream's first element,
+    * the proof a test can await that the stream subscribed under the current
+    * state.
+    */
+  private[runtime] val recoverOpenMarker: ServerSentEvent =
+    ServerSentEvent(comment = Some("recover-open"))
 
   /** The page shell's own JavaScript, read from the frontend bundle
     * (`src/js/shell.ts` -> vite -> managed resources).

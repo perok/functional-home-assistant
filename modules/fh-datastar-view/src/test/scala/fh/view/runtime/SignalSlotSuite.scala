@@ -448,7 +448,9 @@ class SignalSlotSuite extends ServerHarness {
       // intermediate value was written down anywhere (§6), which is why none
       // can be served by mistake.
       store <- StateStore.inMemory(both("21.6", "48"))
-      ref <- SignallingRef[IO].of(Renderer.create(twoNodes))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(twoNodes))
+      )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
@@ -461,7 +463,7 @@ class SignalSlotSuite extends ServerHarness {
         )
         .use { server =>
           for {
-            renderer <- ref.get
+            renderer <- ref.get.map(_.rendererOf.get)
             live <- server.liveSlug("dashboard")
             session <- Session.create("dashboard")
             _ <- session.holds.set(
