@@ -57,6 +57,8 @@ class RegistryDumpSuite extends munit.FunSuite {
       configuration_url = None,
       config_entries = Nil,
       config_entries_subentries = None,
+      config_entry_id = None,
+      config_subentry_id = None,
       connections = Nil,
       created_at = 0d,
       disabled_by = None,
