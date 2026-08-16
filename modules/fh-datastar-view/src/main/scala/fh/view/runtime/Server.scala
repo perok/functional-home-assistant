@@ -1055,53 +1055,52 @@ class Server(
               // connection is told to RELOAD, from the error page to the
               // dashboard or back.
               IO.pure(List(Server.reloadPatch))
+            case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
+              IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
-              if (prev.headHash != r.headHash)
-                IO.pure(List(Server.reloadPatch))
-              else
-                // The repaint re-bakes the body (selected tabs included), so
-                // re-seed the open set to match. Reuses this client's selection
-                // (closed over).
-                (session.open.set(r.selectedSurfaces(uiState)) *>
-                  (stateStore.current, live.log.get).tupled)
-                  .flatMap { case (store, log) =>
-                    val head =
-                      if (prev.styleHash != r.styleHash)
-                        Server.headPatches(r, session.slug)
-                      else Nil
-                    // A repaint painted the whole snapshot, so this client is
-                    // both served and told through it — the same claim
-                    // [[openingPatches]] makes for its own repaint. Leaving
-                    // `told` behind here would let the keepalive announce a LOWER
-                    // version than the swap just did.
-                    // TRACED, so the repaint says what it painted — the same
-                    // claim `openingPatches` makes for its own. Load-bearing for
-                    // signal slots: this body carries fresh inline seeds, so a
-                    // record left describing the PREVIOUS dashboard's values
-                    // would suppress the frame a value's return needs.
-                    val painted = r.renderBodyTraced(store.entities, uiState)
-                    session.holds.set(painted.own.map { case (id, p) =>
-                      id -> Held(Some(Digest.of(p.html)), p.signals)
-                    }) *>
-                      session.position.set(store.version) *>
-                      session.told
-                        .set(store.version)
-                        .as(
-                          head ++ List(
-                            Datastar.patch(
-                              painted.html,
-                              PatchMode.Inner,
-                              Some("#dashboard")
-                            ),
-                            // A swap rotates the log identity and can move the style
-                            // hash, and live batches carry only the version now — so
-                            // this is where the client learns the rest. Without it a
-                            // reconnect would quote a log that no longer exists and be
-                            // answered with a body repaint.
-                            Server.cursorSignals(r, log.id, store.version)
-                          )
+              // The repaint re-bakes the body (selected tabs included), so
+              // re-seed the open set to match. Reuses this client's selection
+              // (closed over).
+              (session.open.set(r.selectedSurfaces(uiState)) *>
+                (stateStore.current, live.log.get).tupled)
+                .flatMap { case (store, log) =>
+                  val head =
+                    if (prev.styleHash != r.styleHash)
+                      Server.headPatches(r, session.slug)
+                    else Nil
+                  // A repaint painted the whole snapshot, so this client is
+                  // both served and told through it — the same claim
+                  // [[openingPatches]] makes for its own repaint. Leaving
+                  // `told` behind here would let the keepalive announce a LOWER
+                  // version than the swap just did.
+                  // TRACED, so the repaint says what it painted — the same
+                  // claim `openingPatches` makes for its own. Load-bearing for
+                  // signal slots: this body carries fresh inline seeds, so a
+                  // record left describing the PREVIOUS dashboard's values
+                  // would suppress the frame a value's return needs.
+                  val painted = r.renderBodyTraced(store.entities, uiState)
+                  session.holds.set(painted.own.map { case (id, p) =>
+                    id -> Held(Some(Digest.of(p.html)), p.signals)
+                  }) *>
+                    session.position.set(store.version) *>
+                    session.told
+                      .set(store.version)
+                      .as(
+                        head ++ List(
+                          Datastar.patch(
+                            painted.html,
+                            PatchMode.Inner,
+                            Some("#dashboard")
+                          ),
+                          // A swap rotates the log identity and can move the style
+                          // hash, and live batches carry only the version now — so
+                          // this is where the client learns the rest. Without it a
+                          // reconnect would quote a log that no longer exists and be
+                          // answered with a body repaint.
+                          Server.cursorSignals(r, log.id, store.version)
                         )
-                  }
+                      )
+                }
           }
           .flatMap(Stream.emits)
       }
