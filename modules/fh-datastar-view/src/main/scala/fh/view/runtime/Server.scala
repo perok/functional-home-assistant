@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
 import cats.data.OptionT
 import cats.effect.{IO, Resource}
@@ -786,52 +787,51 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          OptionT.liftF(
-            Patches
-              .resume(
-                renderer,
-                live.cache,
-                log,
-                holds,
-                store.entities,
-                position + 1,
-                open,
-                // The LIVE selection, not the one this connection arrived with: a
-                // tab select moves it mid-stream.
-                renderer.uiStateFrom(open)
-              )
-              .flatMap { patches =>
-                session.holds
-                  .update(patches.foldLeft(_)(Patches.applied)) *>
-                  // The cursor rides LAST below, which is what makes it an ack:
-                  // a client echoing it applied the patches in front of it. Only
-                  // recorded when there are bytes — a silent frame announces
-                  // nothing, so `told` must not move for it.
-                  IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
-                  session.position
-                    .set(version)
-                    // `position` advances whatever happened; the SIGNAL only goes
-                    // out with bytes it belongs to. A frame this client was owed
-                    // nothing for is silence on the wire, and the keepalive
-                    // carries the cursor forward within one interval — safe for
-                    // the reasons written up on [[Session.position]].
-                    .as(
-                      if (patches.isEmpty) Nil
-                      else
-                        // The cursor goes through `encode` as a patch rather than
-                        // being appended as an event, so it MERGES with this
-                        // batch's own signal frame when nothing separates them —
-                        // which is every batch whose nodes only moved a signal
-                        // slot. It stays a separate, trailing event whenever an
-                        // element patch sits in between, which is what its ack
-                        // meaning requires.
-                        Patches.encode(
-                          patches :+
-                            Addressed(Server.versionPatch(version))
-                        )
-                    )
-              }
-          )
+          Patches
+            .resume(
+              renderer,
+              live.cache,
+              log,
+              holds,
+              store.entities,
+              position + 1,
+              open,
+              // The LIVE selection, not the one this connection arrived with: a
+              // tab select moves it mid-stream.
+              renderer.uiStateFrom(open)
+            )
+            .flatMap { patches =>
+              session.holds
+                .update(patches.foldLeft(_)(Patches.applied)) *>
+                // The cursor rides LAST below, which is what makes it an ack:
+                // a client echoing it applied the patches in front of it. Only
+                // recorded when there are bytes — a silent frame announces
+                // nothing, so `told` must not move for it.
+                IO.whenA(patches.nonEmpty)(session.told.set(version)) *>
+                session.position
+                  .set(version)
+                  // `position` advances whatever happened; the SIGNAL only goes
+                  // out with bytes it belongs to. A frame this client was owed
+                  // nothing for is silence on the wire, and the keepalive
+                  // carries the cursor forward within one interval — safe for
+                  // the reasons written up on [[Session.position]].
+                  .as(
+                    if (patches.isEmpty) Nil
+                    else
+                      // The cursor goes through `encode` as a patch rather than
+                      // being appended as an event, so it MERGES with this
+                      // batch's own signal frame when nothing separates them —
+                      // which is every batch whose nodes only moved a signal
+                      // slot. It stays a separate, trailing event whenever an
+                      // element patch sits in between, which is what its ack
+                      // meaning requires.
+                      Patches.encode(
+                        patches :+
+                          Addressed(Server.versionPatch(version))
+                      )
+                  )
+            }
+            .pipe(OptionT.liftF)
         }.value
           .map(_.getOrElse(Nil))
     }
