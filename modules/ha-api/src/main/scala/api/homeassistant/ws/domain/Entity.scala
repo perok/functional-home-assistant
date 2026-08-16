@@ -68,6 +68,12 @@ case class Device(
     configuration_url: Option[String],
     config_entries: List[EntryId],
     config_entries_subentries: Option[Json],
+    // HA 2026.8 tied a device to a single config entry: the registry list now
+    // also carries these two keys (deprecating `config_entries` /
+    // `primary_config_entry`). `Option` so a pre-2026.8 HA — which lacks the
+    // keys entirely — still decodes.
+    config_entry_id: Option[EntryId],
+    config_subentry_id: Option[String],
     connections: List[List[String]],
     created_at: Double,
     disabled_by: Option[String],
