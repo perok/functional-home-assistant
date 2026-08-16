@@ -388,12 +388,12 @@ object ServerApp extends IOApp {
   /** Default dashboard: the configured `DEFAULT_DASHBOARD` wins whenever it
     * names ANY discovered entry — even one that failed to build, whose error
     * page is the point (it stays fixable in the editor rather than silently
-    * bouncing to a different dashboard). Otherwise the entry named
-    * `dashboard`, then the lexicographically first discovered entry. Pure
-    * discovery order, never filtered by build status: a failed dashboard is a
-    * live error state that serves its error page at the root, so there is
-    * nothing to prefer a buildable one for. Pure — `configured` is already
-    * parsed from the environment into [[Config]].
+    * bouncing to a different dashboard). Otherwise the entry named `dashboard`,
+    * then the lexicographically first discovered entry. Pure discovery order,
+    * never filtered by build status: a failed dashboard is a live error state
+    * that serves its error page at the root, so there is nothing to prefer a
+    * buildable one for. Pure — `configured` is already parsed from the
+    * environment into [[Config]].
     */
   private[runtime] def defaultSlugFrom(
       configured: Option[String],
