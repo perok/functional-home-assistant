@@ -78,12 +78,14 @@ the seam.
   graph. The known edge, accepted: a never-built entry's loose `file:` imports
   are not watched until it builds once (the entry file and the `PklProject`
   manifest always are, so the common paths fire).
-- **The configured default stays the default even when it is broken.** If
-  `DEFAULT_DASHBOARD` names any discovered entry, it wins — its error page at
-  the root is the point. Only a configured value naming no entry falls through
-  to the built-`dashboard` → entry-`dashboard` → first-built → first-entry
-  order, which keeps an all-failed workspace serving the first entry (editable)
-  rather than 404ing.
+- **The default is chosen in pure discovery order, never by build status.**
+  If `DEFAULT_DASHBOARD` names any discovered entry, it wins — its error page
+  at the root is the point. Only a configured value naming no entry falls
+  through to the entry named `dashboard`, then the lexicographically first
+  discovered entry — a failed dashboard serves its error page and repairs
+  live, so there is nothing to prefer a buildable one for, and the rule never
+  needs to know whether an entry evaluates. An all-failed workspace still
+  serves the first entry (editable) rather than 404ing.
 
 ### The seam, not the machinery
 

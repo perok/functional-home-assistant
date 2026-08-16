@@ -21,44 +21,36 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     // page is the fix path), it is not silently swapped for a dashboard that
     // built.
     assertEquals(
-      ServerApp.defaultSlugFrom(Some("broken"), List("a", "broken"), List("a")),
+      ServerApp.defaultSlugFrom(Some("broken"), List("a", "broken")),
       "broken"
     )
     // ...and beats even a built "dashboard".
     assertEquals(
-      ServerApp
-        .defaultSlugFrom(Some("b"), List("b", "dashboard"), List("dashboard")),
+      ServerApp.defaultSlugFrom(Some("b"), List("b", "dashboard")),
       "b"
     )
     // A configured default that names no entry falls through to the normal
     // preference order.
     assertEquals(
-      ServerApp.defaultSlugFrom(Some("nope"), List("a", "b"), List("a", "b")),
+      ServerApp.defaultSlugFrom(Some("nope"), List("a", "b")),
       "a"
     )
   }
 
-  test("defaultSlugFrom: a built dashboard wins over a merely-discovered one") {
+  test("defaultSlugFrom: pure discovery order, never build status") {
+    // The entry NAMED "dashboard" wins even when broken: a failed dashboard
+    // serves its error page, so there is nothing to prefer a buildable one for.
     assertEquals(
-      ServerApp.defaultSlugFrom(
-        None,
-        List("a", "dashboard", "c"),
-        List("a", "dashboard")
-      ),
+      ServerApp.defaultSlugFrom(None, List("a", "dashboard", "c")),
       "dashboard"
     )
-    // No built "dashboard": the entry NAMED "dashboard" wins even when broken.
+    // No "dashboard" at all: the first discovered entry, built or not.
     assertEquals(
-      ServerApp.defaultSlugFrom(None, List("a", "dashboard"), List("a")),
-      "dashboard"
-    )
-    // No "dashboard" at all: the first BUILT slug, then the first entry.
-    assertEquals(
-      ServerApp.defaultSlugFrom(None, List("b", "a"), List("a")),
-      "a"
+      ServerApp.defaultSlugFrom(None, List("b", "a")),
+      "b"
     )
     // All-fail: the first entry, so the root still serves something editable.
-    assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a"), Nil), "b")
+    assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a")), "b")
   }
 
   test("prepareRenderers on an all-failed workspace returns the failures") {
@@ -129,7 +121,7 @@ class ServerAppSuite extends munit.CatsEffectSuite {
         }
         .map(_.toMap)
         .toResource
-      default = ServerApp.defaultSlugFrom(None, prepared.entries.map(_._1), Nil)
+      default = ServerApp.defaultSlugFrom(None, prepared.entries.map(_._1))
       server <- ServerApp.liveServer(
         feed,
         refs,

@@ -192,12 +192,11 @@ object ServerApp extends IOApp {
           .toResource
 
         // The configured default wins even when broken (its error page is the
-        // fix path); with none, prefer a built `dashboard`, then the first
-        // entry that built, then the first entry.
+        // fix path); with none, the entry named `dashboard`, then the first
+        // discovered entry — pure discovery order, never build status.
         defaultSlug = defaultSlugFrom(
           config.defaultDashboard,
-          entries.map(_._1),
-          built.map(_._1)
+          entries.map(_._1)
         )
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
@@ -389,22 +388,20 @@ object ServerApp extends IOApp {
   /** Default dashboard: the configured `DEFAULT_DASHBOARD` wins whenever it
     * names ANY discovered entry — even one that failed to build, whose error
     * page is the point (it stays fixable in the editor rather than silently
-    * bouncing to a different dashboard). Otherwise a *built* `dashboard`, then
-    * an entry `dashboard`, then the first built, then the first entry — so a
-    * home with zero buildable dashboards still serves the lexicographically
-    * first entry as its root. Pure — `configured` is already parsed from the
-    * environment into [[Config]].
+    * bouncing to a different dashboard). Otherwise the entry named
+    * `dashboard`, then the lexicographically first discovered entry. Pure
+    * discovery order, never filtered by build status: a failed dashboard is a
+    * live error state that serves its error page at the root, so there is
+    * nothing to prefer a buildable one for. Pure — `configured` is already
+    * parsed from the environment into [[Config]].
     */
   private[runtime] def defaultSlugFrom(
       configured: Option[String],
-      all: List[String],
-      built: List[String]
+      all: List[String]
   ): String =
     configured
       .filter(all.contains)
-      .orElse(Option.when(built.contains("dashboard"))("dashboard"))
       .orElse(Option.when(all.contains("dashboard"))("dashboard"))
-      .orElse(built.headOption)
       .getOrElse(all.head)
 
   /** A failure's message for `Failed(...)` states and logs; exceptions can
