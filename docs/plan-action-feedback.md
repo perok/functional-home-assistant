@@ -322,9 +322,16 @@ against HA's docs and source:
 ### The busy look (theme-owned)
 
 `theme-beer.pkl` (and the `theme.pkl` contract's `styles`) styles `fh-busy`:
-`cursor: progress` on the card, a slight opacity/scale drop, and (phase-2
-polish) a small CSS spinner pseudo-element over the icon. Nothing in the
-templates carries presentation.
+`cursor: progress` on the card, a slight opacity/scale drop, and — when the
+busy element carries an `i.mdi` icon (an entity card's header badge, a
+slider's power button or head badge) — a spinning ring replaces the glyph.
+The glyph lives in `.mdi:before`, so the ring is the `i`'s `::after`; the busy
+`i` gets an explicit 1em square box so the fixed-size ring is exact — a
+glyph's natural advance box is smaller, and a ring laid over it overflows,
+miscentres, and gets clipped by a button's `overflow:hidden`. A `.slider.max`
+commit busy carries no icon of its own, so it also classed its head badge —
+the badge's icon spins for the whole in-flight window, while the track shows
+only dim + cursor. Nothing in the templates carries presentation.
 
 ### The failure toast (client-only)
 

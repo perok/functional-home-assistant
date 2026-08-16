@@ -149,8 +149,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The busy visual rides on the track wrapper, not the input.
+          // The busy visual rides on the track wrapper AND the head badge (so
+          // the badge's icon spins during the commit); the input itself stays
+          // free of the class — it is frozen via `data-attr:disabled` instead.
           assert(html.contains("data-class:fh-busy=\"$_c_0__busy_change\""), clue = html)
+          assert(
+            html.contains(
+              "class=\"slider-icon\" data-class:fh-busy=\"$_c_0__busy_change\"><i class=\"mdi mdi-lightbulb\">"
+            ),
+            clue = html
+          )
           // The power button on the same node keeps its own unsuffixed name —
           // the two guarded elements never share a signal (a shared one would
           // let one element's `finished` clear the other's in-flight busy).

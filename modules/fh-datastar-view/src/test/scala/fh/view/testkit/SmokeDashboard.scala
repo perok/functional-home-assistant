@@ -91,11 +91,38 @@ object SmokeDashboard {
          |
          |title = "Smoke Percent"
          |
+          |$fontPinnedTheme
+          |
+          |card = (c.column) {
+          |  children {
+          |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).readout("percent")
+          |  }
+          |}
+          |""".stripMargin
+    )
+
+  /** A slider whose POWER BUTTON is a busy-guarded tap: the button carries
+    * both an `i.mdi` icon and `data-class:fh-busy`, which is the "icon turns
+    * into a spinner while the call is in flight" case ([[fh.view.smoke.
+    * ControlSmokeSuite]] drives it). Its own dashboard rather than a card on
+    * [[dashboard]], for the same PNG-baseline reason [[percentSlider]] has
+    * its own.
+    */
+  val busyIcon: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-busy-icon",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Busy Icon"
+         |
          |$fontPinnedTheme
          |
          |card = (c.column) {
          |  children {
-         |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).readout("percent")
+         |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.service("light/toggle"))
          |  }
          |}
          |""".stripMargin

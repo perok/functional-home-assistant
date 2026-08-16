@@ -115,6 +115,10 @@ class ControlSmokeSuite extends SmokeSuite {
       (page, ts) =>
         val slider = page.locator("input[type=range]")
         val wrapper = page.locator(".slider.max")
+        // The head badge is the slider's icon (`mdi-lightbulb`); the commit's
+        // busy class lands on it too, so its glyph becomes a spinner for the
+        // whole in-flight window.
+        val badge = page.locator(".slider-icon i.mdi")
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
@@ -122,6 +126,14 @@ class ControlSmokeSuite extends SmokeSuite {
               .asInstanceOf[Boolean]
           )
         def disabled: IO[Boolean] = IO.blocking(slider.isDisabled())
+        def badgeSpinning: IO[Boolean] =
+          IO.blocking(
+            badge
+              .evaluate(
+                "el => getComputedStyle(el, '::after').animationName === 'fh-busy-spin'"
+              )
+              .asInstanceOf[Boolean]
+          )
         for {
           _ <- IO.blocking(assert(!slider.isDisabled()))
           // Commit once: End jumps the thumb to `max` (255) and releases.
@@ -131,6 +143,8 @@ class ControlSmokeSuite extends SmokeSuite {
           // While the POST is held, the slider says busy and is frozen...
           _ <- eventually(busy)(identity)
           _ <- eventually(disabled)(identity)
+          // ...and the badge icon spins for the same window.
+          _ <- eventually(badgeSpinning)(identity)
           // ...and a second commit is a no-op, not a second call.
           _ <- IO.blocking(
             slider.evaluate(
@@ -143,6 +157,36 @@ class ControlSmokeSuite extends SmokeSuite {
           // The held response lands, and the slider wakes back up.
           _ <- eventually(busy)(b => !b)
           _ <- eventually(disabled)(d => !d)
+          _ <- eventually(badgeSpinning)(s => !s)
+        } yield ()
+    }
+  }
+
+  test("a busy-guarded element's icon becomes a spinner while its call is in flight") {
+    // The slider's power button carries an `i.mdi` icon AND the busy pieces,
+    // so while its POST is held the theme swaps the glyph for a spinning
+    // `::after` ring (`fh-busy-spin`). Computed style, because the ring is a
+    // pseudo-element — the class check alone proves nothing about the look.
+    withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
+      (page, ts) =>
+        val icon = page.locator("button.slider-action i.mdi")
+        def spinning: IO[Boolean] =
+          IO.blocking(
+            icon
+              .evaluate(
+                "el => getComputedStyle(el, '::after').animationName === 'fh-busy-spin'"
+              )
+              .asInstanceOf[Boolean]
+          )
+        for {
+          idle <- spinning
+          _ <- IO(assert(!idle))
+          // Click the power button: the toggle POST is held, so the button
+          // shows busy — and the icon should be a spinner for the whole window.
+          _ <- IO.blocking(icon.click())
+          _ <- eventually(spinning)(identity)
+          // The held response lands and the glyph comes back.
+          _ <- eventually(spinning)(s => !s)
         } yield ()
     }
   }

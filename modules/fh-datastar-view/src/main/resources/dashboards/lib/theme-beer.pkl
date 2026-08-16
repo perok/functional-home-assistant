@@ -256,9 +256,25 @@ class BeerTheme extends themeMod.Theme {
     /* The busy state a guarded tap toggles while its POST is in flight (see
        docs/plan-action-feedback.md): say "working" with a progress cursor and
        a dim. Applied to the tappable element ITSELF, whatever it is — card,
-       button, pill, switch, slider power button. A CSS spinner pseudo-element
-       over the icon is the Phase-2 polish, not Phase 1. */
+       button, pill, switch, slider power button. When that element carries an
+       icon (`i.mdi` — an entity card's header badge, a slider's power button
+       or head badge), the glyph is replaced by a spinning ring: the glyph
+       lives in `.mdi:before` and the ring takes `::after`, so the two never
+       fight. The busy `i` gets an EXPLICIT 1em square box — a glyph's natural
+       advance box is smaller, so a fixed-size ring laid over it overflows,
+       miscentres, and gets clipped by the button's `overflow:hidden`; sizing
+       the box to the ring makes `inset:0` exact by construction. */
     .fh-busy{cursor:progress;opacity:.65;transition:opacity .15s}
+    .fh-busy i.mdi{position:relative;display:inline-block;
+      block-size:1em;inline-size:1em;line-height:1}
+    .fh-busy i.mdi::before{content:""}
+    .fh-busy i.mdi::after{content:"";position:absolute;inset:0;border-radius:50%;
+      border:.125em solid currentColor;border-top-color:transparent;
+      animation:fh-busy-spin .8s linear infinite}
+    @keyframes fh-busy-spin{to{transform:rotate(1turn)}}
+    @media (prefers-reduced-motion:reduce){
+      .fh-busy i.mdi::after{animation:none;border-top-color:currentColor}
+    }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
        its row or an n/12 grid span — left-aligns a short pill in a wide box:

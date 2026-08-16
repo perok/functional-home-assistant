@@ -33,7 +33,10 @@
 ///   A guarded action while its POST is in flight toggles `.fh-busy` on the
 ///   tappable element itself (cards, buttons, pills, toggles, slider power
 ///   buttons — a theme should say "working", e.g. `cursor:progress` plus a
-///   slight dim); a failed action shows `.fh-toast`, a small fixed bar created
+///   slight dim; when the element carries an `i.mdi` icon, the default theme
+///   replaces the glyph with a spinning ring — the ring is the `::after` of
+///   the `i`, which is why the glyph's own `::before` can be emptied);
+///   a failed action shows `.fh-toast`, a small fixed bar created
 ///   by the shell on `datastar-fetch:error` — structure/behavior live in the
 ///   shell, the LOOK here.
 ///
