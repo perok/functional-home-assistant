@@ -111,6 +111,14 @@ class UiSmokeSuite extends SmokeSuite {
       val dashboard = page.url()
       val offset = IO.blocking(page.evaluate("scrollY").toString.toDouble)
       for {
+        // Settle the theme's web fonts (the test-pinned Inter + the vendored
+        // MDI glyphs) before taking the baseline: a font swap reflows line
+        // heights and the browser compensates the anchored scrollY by a couple
+        // of px, so an offset read mid-swap disagrees with the one `pagehide`
+        // saves a beat later — and `fhScroll` faithfully restores THAT one. The
+        // forward load reuses this context's font cache, so it is settled on
+        // arrival; the wait after it below is cheap insurance.
+        _ <- IO.blocking(page.evaluate("document.fonts.ready"))
         room <- IO.blocking(
           page
             .evaluate("document.documentElement.scrollHeight - innerHeight")
@@ -127,6 +135,7 @@ class UiSmokeSuite extends SmokeSuite {
         origin <- IO.blocking(page.evaluate("location.origin").toString)
         _ <- IO.blocking(page.navigate(s"$origin/not-a-dashboard"))
         _ <- IO.blocking(page.navigate(dashboard))
+        _ <- IO.blocking(page.evaluate("document.fonts.ready"))
         after <- eventually(offset)(_ > 0d)
       } yield assertEquals(after, before)
     }
