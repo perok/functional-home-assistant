@@ -2,8 +2,10 @@ package fh.view.smoke
 
 import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import fh.view.testkit.{HouseFixture, Scene, ServiceCall, SmokeDashboard}
+import fh.view.testkit.{FakeConfig, HouseFixture, Scene, ServiceCall, SmokeDashboard}
 import io.circe.Json
+
+import scala.concurrent.duration.*
 
 /** "Click -> HA -> back": the control->service->feed->browser loop, driven
   * through an actual mouse click rather than a raw `POST` (the Scala functional
@@ -51,6 +53,124 @@ class ControlSmokeSuite extends SmokeSuite {
         _ <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
         _ <- ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
         _ <- IO.blocking(assertThat(kitchenState).hasText("off"))
+      } yield ()
+    }
+  }
+
+  test("a guarded control shows busy while its call is in flight and ignores a second click") {
+    // The fake HOLDS the call_service response for 2s, so the fetch stays in
+    // flight long enough to click inside the guard window and read the busy
+    // state.
+    withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
+      (page, ts) =>
+        val toggle = page.locator(
+          "button",
+          new com.microsoft.playwright.Page.LocatorOptions()
+            .setHasText("Toggle Kitchen")
+        )
+        def busy: IO[Boolean] =
+          IO.blocking(
+            toggle
+              .evaluate("el => el.classList.contains('fh-busy')")
+              .asInstanceOf[Boolean]
+          )
+        for {
+          // Idle before anything was clicked...
+          before <- busy
+          _ <- IO(assert(!before))
+          // First click: the call is in flight (the response is held)...
+          _ <- IO.blocking(toggle.click())
+          _ <- eventually(busy)(identity)
+          // ...so a second click is a no-op, not a second call.
+          _ <- IO.blocking(toggle.click())
+          _ <- IO.sleep(300.millis)
+          during <- ts.fake.recordedCalls
+          _ <- IO(
+            assertEquals(
+              during,
+              Vector(
+                ServiceCall(
+                  "light",
+                  "toggle",
+                  HouseFixture.kitchenLight.entityId,
+                  Json.obj()
+                )
+              )
+            )
+          )
+          // The held response lands, and busy clears.
+          _ <- eventually(busy)(b => !b)
+          after <- ts.fake.recordedCalls
+        } yield assertEquals(after.size, 1)
+    }
+  }
+
+  test("a slider's commit is guarded: re-releasing while the POST is in flight is a no-op") {
+    // A slider paints live on `input` but COMMITS on release (`change` → the
+    // value POST). The fake holds that POST for 2s; while it is in flight the
+    // input is disabled (`data-attr:disabled`) and a second `change` — here
+    // dispatched programmatically, because a disabled input cannot fire one
+    // natively — is swallowed by the guard, not turned into a second call.
+    withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
+      (page, ts) =>
+        val slider = page.locator("input[type=range]")
+        val wrapper = page.locator(".slider.max")
+        def busy: IO[Boolean] =
+          IO.blocking(
+            wrapper
+              .evaluate("el => el.classList.contains('fh-busy')")
+              .asInstanceOf[Boolean]
+          )
+        def disabled: IO[Boolean] = IO.blocking(slider.isDisabled())
+        for {
+          _ <- IO.blocking(assert(!slider.isDisabled()))
+          // Commit once: End jumps the thumb to `max` (255) and releases.
+          _ <- IO.blocking(slider.focus())
+          _ <- IO.blocking(slider.press("End"))
+          _ <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+          // While the POST is held, the slider says busy and is frozen...
+          _ <- eventually(busy)(identity)
+          _ <- eventually(disabled)(identity)
+          // ...and a second commit is a no-op, not a second call.
+          _ <- IO.blocking(
+            slider.evaluate(
+              "el => el.dispatchEvent(new Event('change', {bubbles: true}))"
+            )
+          )
+          _ <- IO.sleep(300.millis)
+          during <- ts.fake.recordedCalls
+          _ <- IO(assertEquals(during.size, 1))
+          // The held response lands, and the slider wakes back up.
+          _ <- eventually(busy)(b => !b)
+          _ <- eventually(disabled)(d => !d)
+        } yield ()
+    }
+  }
+
+  test("a rejected action surfaces a toast and clears busy") {
+    // The fake's call_service RAISES; the server answers the action POST with
+    // 400, and the shell's datastar-fetch listener turns that error into a
+    // toast (the click-filter keeps the SSE stream's own errors out of it).
+    withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, _) =>
+      val toggle = page.locator(
+        "button",
+        new com.microsoft.playwright.Page.LocatorOptions()
+          .setHasText("Toggle Kitchen")
+      )
+      def busy: IO[Boolean] =
+        IO.blocking(
+          toggle
+            .evaluate("el => el.classList.contains('fh-busy')")
+            .asInstanceOf[Boolean]
+        )
+      for {
+        _ <- IO.blocking(toggle.click())
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-toast")).hasText("Command failed (400)")
+        )
+        // `finished` fires even on a rejected fetch, so busy clears here too —
+        // an error must not leave the button stuck in the guarded state.
+        _ <- eventually(busy)(b => !b)
       } yield ()
     }
   }

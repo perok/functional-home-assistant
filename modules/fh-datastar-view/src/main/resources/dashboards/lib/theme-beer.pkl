@@ -253,6 +253,12 @@ class BeerTheme extends themeMod.Theme {
        Symbols and would otherwise win the cascade over `.mdi:before`. */
     .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
+    /* The busy state a guarded tap toggles while its POST is in flight (see
+       docs/plan-action-feedback.md): say "working" with a progress cursor and
+       a dim. Applied to the tappable element ITSELF, whatever it is — card,
+       button, pill, switch, slider power button. A CSS spinner pseudo-element
+       over the icon is the Phase-2 polish, not Phase 1. */
+    .fh-busy{cursor:progress;opacity:.65;transition:opacity .15s}
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
        its row or an n/12 grid span — left-aligns a short pill in a wide box:
@@ -294,6 +300,14 @@ class BeerTheme extends themeMod.Theme {
     .slider.max,.slider.max>input{cursor:ew-resize}
     .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
     .slider.max>input::-moz-range-thumb{cursor:ew-resize}
+    /* The busy commit overrides the drag affordance while a slider's value
+       POST is in flight: the wrapper and the input each set their own
+       ew-resize, so `.fh-busy` alone (which matches the input only by
+       inheritance) never beats them. Pairs with `.slider.max.fh-busy`'s
+       opacity dim, so the whole control says "wait" together. */
+    .slider.max.fh-busy,.slider.max.fh-busy>input{cursor:progress}
+    .slider.max.fh-busy>input::-webkit-slider-thumb{cursor:progress}
+    .slider.max.fh-busy>input::-moz-range-thumb{cursor:progress}
     /* Slide the fill to a state change instead of snapping. `inset` is what
        BeerCSS derives from `--_start`/`--_end`, so animating it covers every
        writer of those props alike; `background` covers a light changing
@@ -431,6 +445,14 @@ class BeerTheme extends themeMod.Theme {
     .fh-offline-ha{background:var(--warning-color,#ffa600);color:#000}
     .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
       border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
+
+    /* The failure toast for a rejected action POST (shell.ts): a small fixed
+       bar, error role, auto-dismissed ~4s (later toasts replace earlier ones).
+       Structure/behavior live in the shell; the LOOK is theme-owned, like the
+       banners above. */
+    .fh-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+      z-index:1100;background:var(--error);color:var(--on-error);padding:.75rem 1rem;
+      border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
     """
 }
 

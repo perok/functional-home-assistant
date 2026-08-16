@@ -27,6 +27,17 @@ class TapAction {
   onclick: slotMod.Slot|String
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+  /// Whether this tap is worth guarding: while its POST is in flight, a second
+  /// click is a no-op and the card shows the theme's busy state. TRUE on the
+  /// service taps (the only ones with a server round-trip worth either); FALSE
+  /// on `navigate` (a full document load — no in-flight UI wanted) and the
+  /// surface opens/closes (instant local POSTs, where a busy state would fight
+  /// the popup itself). The slider's continuous value drag is NOT guarded even
+  /// though it posts: it is not a discrete tap.
+  ///
+  /// The opt-out is the flag itself: a tap with `busy = false` renders
+  /// byte-identical to before this field existed.
+  busy: Boolean = false
 }
 // Wrap a JSONata route expression into the full Datastar click expression
 //   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
@@ -41,6 +52,55 @@ class TapAction {
 // `filterSignals` must be nested or it is silently ignored — see the datastar
 // skill, both verified against the pinned bundle rather than the vendored docs.
 const noSignals = #"{filterSignals:{exclude:'.*'}}"#
+
+/// The two busy pieces a card splices onto a guarded tap's element, keeping the
+/// `_<nodeId>__busy` signal name in ONE place (`{{id}}` stays a Mustache token
+/// inside them — the renderer fills it per node). Splice them ONLY when the
+/// tap has `busy = true`:
+///
+///   data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"
+///   {{#busy}}\(tapMod.busyAttrs){{/busy}}
+///
+/// `busyGuard` makes the click expression a no-op while the signal is truthy
+/// (the anti-spam); `busyAttrs` arms the indicator that drives the signal and
+/// toggles the theme's `.fh-busy` class (the visuals). One guarded element per
+/// node, so the name is never shared — a sibling's `finished` would otherwise
+/// clear an in-flight busy (see `docs/plan-action-feedback.md`).
+const busyGuard: String = #"$_{{id}}__busy ? '' : "#
+// The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
+// NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
+// KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
+// signal named `_<id>` and the `__busy` suffix would silently become a mod —
+// the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.
+// The value string is not split (verified against the pinned bundle's `hn`).
+const busyAttrs: String =
+  #"data-indicator="_{{id}}__busy" data-class:fh-busy="$_{{id}}__busy""#
+
+/// The slider's VALUE-COMMIT variant of the busy pieces. A slider commits its
+/// position on RELEASE (its `data-on:change` → the value POST), and dragging
+/// back on while that POST is still in flight would fire a second commit the
+/// server would happily process — so the range input carries its OWN
+/// `_<nodeId>__busy_change` signal. The separate name is required, not
+/// cosmetic: a slider may ALSO have a guarded power button, and a shared name
+/// would let one element's `finished` clear the other's in-flight busy (the
+/// per-element invariant in `docs/plan-action-feedback.md`).
+///
+/// Splice them on the slider's own markup:
+///
+///   <input … \(tapMod.busyAttrsChange)
+///     data-on:change="\(tapMod.busyGuardChange)@post(…)" />
+///   <div class="slider max" … \(tapMod.busyClassChange)>
+///
+/// `busyAttrsChange` also DISABLES the input while the signal is set. That is
+/// safe because busy can only become true on RELEASE (never mid-drag), so
+/// disabling freezes the control between drags and the browser fires no
+/// `input`/`change` at all — the guard is the belt for a programmatic
+/// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
+/// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
+const busyGuardChange: String = #"$_{{id}}__busy_change ? '' : "#
+const busyAttrsChange: String =
+  #"data-indicator="_{{id}}__busy_change" data-attr:disabled="$_{{id}}__busy_change""#
+const busyClassChange: String = #"data-class:fh-busy="$_{{id}}__busy_change""#
 
 const local function serviceOnclick(route: String): String =
   #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
@@ -60,7 +120,7 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
-  new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false) }
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false); busy = true }
 
 /// Toggle whatever the card's entity is, via HA's own domain-dispatching
 /// `homeassistant.toggle`. The blunt instrument, and an explicit choice now
@@ -82,6 +142,7 @@ const function stateService(whenState: String, then: String, otherwise: String):
       serviceOnclick(#"$state = "\#(whenState)" ? "\#(then)" : "\#(otherwise)""#),
       true
     )
+    busy = true
   }
 
 /// What a tap on `e` should call, decided from its domain at BUILD time — or
@@ -113,7 +174,7 @@ const local function serviceValueOnclick(action: String, key: String, value: Str
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
 function serviceValue(action: String, key: String, value: String): TapAction =
-  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false) }
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false); busy = true }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
