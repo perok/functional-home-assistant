@@ -960,8 +960,7 @@ class Server(
           // same claim the DOCUMENT makes from the same render. Clearing
           // `holds` instead would leave the client's open surfaces unclaimed
           // and re-sent on the very next pull.
-          lazy val painted =
-            renderer.renderBodyTraced(store.entities, uiState)
+          lazy val painted = renderer.renderBodyTraced(store.entities, uiState)
           lazy val repaint = Datastar.patch(
             painted.html,
             PatchMode.Inner,
@@ -996,22 +995,22 @@ class Server(
           // from. A repaint painted the whole snapshot, so it claims that; a
           // resume could only answer for what the changelog covered when this
           // connection began, so it claims THAT — see the doorbell note above.
-          resumedIO
-            .flatMap { resumed =>
-              val claim = resumed.fold(store.version)(_ => covered)
-              val record = resumed.fold(
-                session.holds.set(painted.own.map { case (id, p) =>
-                  id -> Held(Some(Digest.of(p.html)), p.signals)
-                })
-              )(patches =>
-                session.holds.update(patches.foldLeft(_)(Patches.applied))
-              ) *> session.position.set(claim) *> session.told.set(claim)
-              record.as(
-                head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                  orphan :+ Server.cursorSignals(renderer, log.id, claim)
-              )
-            }
-            .pipe(OptionT.liftF)
+          val result = resumedIO.flatMap { resumed =>
+            val claim = resumed.fold(store.version)(_ => covered)
+            val record = resumed.fold(
+              session.holds.set(painted.own.map { case (id, p) =>
+                id -> Held(Some(Digest.of(p.html)), p.signals)
+              })
+            )(patches =>
+              session.holds.update(patches.foldLeft(_)(Patches.applied))
+            ) *> session.position.set(claim) *> session.told.set(claim)
+            record.as(
+              head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
+                orphan :+ Server.cursorSignals(renderer, log.id, claim)
+            )
+          }
+
+          OptionT.liftF(result)
         }
       }
       .value
