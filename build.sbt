@@ -87,7 +87,7 @@ lazy val `ha-api` = project // todo add api layer here as well
       "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
     ),
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "munit" % "1.3.4" % Test,
+      "org.scalameta" %% "munit" % "1.3.5" % Test,
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test
     )
   )
@@ -233,7 +233,7 @@ lazy val `fh-datastar-view` = project
       "com.samskivert" % "jmustache" % "1.16",
       // JSONata for per-slot value transforms (pure-JVM port of the spec)
       "com.dashjoin" % "jsonata" % "0.9.10",
-      "org.scalameta" %% "munit" % "1.3.4" % Test,
+      "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
@@ -267,7 +267,7 @@ lazy val root = project
     commands ++= snapshotUpdateCommands,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.4" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.5" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
