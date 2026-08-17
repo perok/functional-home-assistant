@@ -2,7 +2,13 @@ package fh.view.smoke
 
 import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
-import fh.view.testkit.{FakeConfig, HouseFixture, Scene, ServiceCall, SmokeDashboard}
+import fh.view.testkit.{
+  FakeConfig,
+  HouseFixture,
+  Scene,
+  ServiceCall,
+  SmokeDashboard
+}
 import io.circe.Json
 
 import scala.concurrent.duration.*
@@ -57,7 +63,9 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("a guarded control shows busy while its call is in flight and ignores a second click") {
+  test(
+    "a guarded control shows busy while its call is in flight and ignores a second click"
+  ) {
     // The fake HOLDS the call_service response for 2s, so the fetch stays in
     // flight long enough to click inside the guard window and read the busy
     // state.
@@ -105,13 +113,12 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("the busy look is delayed: both fh-disabled dim and fh-loading spinner appear only after the threshold") {
-    // Both classes, one timing (the action-feedback plan):
-    // Datastar binds BOTH `fh-disabled` and `fh-loading` the moment the guard
-    // flips — both classes are on the same signal. The CSS
-    // `animation-delay: 300ms` delays both the dim and the spinner ring, so
-    // a fast action never flashes any visual.
-    // Both classes are present immediately; only the animations are delayed.
+  test(
+    "the guard look is immediate: fh-disabled and fh-loading land with the tap and clear with the response"
+  ) {
+    // These two are the answer to the tap ("landed, and this is inert now"), so
+    // they are NOT gated — both bind straight to the busy signal and flip in
+    // the same Datastar frame. Only the spinner waits, on a derived signal.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
         val toggle = page.locator(
@@ -143,7 +150,9 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("a slider's commit is guarded: re-releasing while the POST is in flight is a no-op") {
+  test(
+    "a slider's commit is guarded: re-releasing while the POST is in flight is a no-op"
+  ) {
     // A slider paints live on `input` but COMMITS on release (`change` → the
     // value POST). The fake holds that POST for 2s; while it is in flight the
     // input is disabled (`data-attr:disabled`) and a second `change` — here
@@ -154,9 +163,9 @@ class ControlSmokeSuite extends SmokeSuite {
         val slider = page.locator("input[type=range]")
         val wrapper = page.locator(".slider.max")
         // The head badge is the slider's icon (`mdi-lightbulb`); the commit's
-        // busy class lands on it too, so its glyph becomes a spinner for the
-        // whole in-flight window.
-        val badge = page.locator(".slider-icon i.mdi")
+        // busy pieces land BeerCSS's `.shape.loading-indicator` on it, so its
+        // glyph becomes a spinner for the whole in-flight window.
+        val badge = page.locator(".slider-icon")
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
@@ -167,9 +176,7 @@ class ControlSmokeSuite extends SmokeSuite {
         def badgeSpinning: IO[Boolean] =
           IO.blocking(
             badge
-              .evaluate(
-                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
-              )
+              .evaluate("el => el.classList.contains('loading-indicator')")
               .asInstanceOf[Boolean]
           )
         for {
@@ -200,32 +207,35 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("a busy-guarded element's icon becomes a spinner while its call is in flight") {
+  test(
+    "a busy-guarded element's icon becomes a spinner while its call is in flight"
+  ) {
     // The slider's power button carries an `i.mdi` icon AND the busy pieces,
-    // so while its POST is held the theme overlays a `::after` ring that spins
-    // (`fh-loading-spin`). Computed style, because the ring is a pseudo-element
-    // — the class check alone proves nothing about the look.
-    withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
-      (page, ts) =>
-        val icon = page.locator("button.slider-action i.mdi")
-        def spinning: IO[Boolean] =
-          IO.blocking(
-            icon
-              .evaluate(
-                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
-              )
-              .asInstanceOf[Boolean]
-          )
-        for {
-          idle <- spinning
-          _ <- IO(assert(!idle))
-          // Click the power button: the toggle POST is held, so the button
-          // shows busy — and the icon should be a spinner for the whole window.
-          _ <- IO.blocking(icon.click())
-          _ <- eventually(spinning)(identity)
-          // The held response lands and the glyph comes back.
-          _ <- eventually(spinning)(s => !s)
-        } yield ()
+    // so while its POST is held it takes BeerCSS's `.shape.loading-indicator`
+    // and paints a morphing shape around the glyph. The class IS the assertion
+    // now: it is bound to the delayed signal `tap.pkl` derives, so its presence
+    // already means "we decided to show this".
+    withPage(
+      Scene.of(SmokeDashboard.busyIcon),
+      fakeConfig = FakeConfig(callDelay = 2.seconds)
+    ) { (page, ts) =>
+      val icon = page.locator("button.slider-action")
+      def spinning: IO[Boolean] =
+        IO.blocking(
+          icon
+            .evaluate("el => el.classList.contains('loading-indicator')")
+            .asInstanceOf[Boolean]
+        )
+      for {
+        idle <- spinning
+        _ <- IO(assert(!idle))
+        // Click the power button: the toggle POST is held, so the button
+        // shows busy — and the icon should be a spinner for the whole window.
+        _ <- IO.blocking(icon.click())
+        _ <- eventually(spinning)(identity)
+        // The held response lands and the glyph comes back.
+        _ <- eventually(spinning)(s => !s)
+      } yield ()
     }
   }
 

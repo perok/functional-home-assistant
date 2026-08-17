@@ -8,7 +8,12 @@ import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{PklDump, SystemPkl}
 import fh.view.model.Dashboard
-import fh.view.testkit.{FakeConfig, FakeHomeAssistant, FixtureEntity, PklWorkspace}
+import fh.view.testkit.{
+  FakeConfig,
+  FakeHomeAssistant,
+  FixtureEntity,
+  PklWorkspace
+}
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*

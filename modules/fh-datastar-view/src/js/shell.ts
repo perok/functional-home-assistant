@@ -197,7 +197,7 @@ function showToast(text: string): void {
  * as `type === 'error'`, and `argsRaw` carries only `{status}` — never the
  * response body — so the backend's `{success:false,error}` message is
  * unreachable here (surfacing the real text is a Phase-2 `datastar-signals`
- * frame; see `docs/plan-action-feedback.md`).
+ * frame; see `docs/adr/0019-an-action-in-flight.md`).
  *
  * The filter is the whole point. The persistent SSE stream is ALSO a Datastar
  * fetch (the `@get` on `<body>`), and ITS errors are already the `_sse` /

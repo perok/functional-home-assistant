@@ -254,38 +254,39 @@ class BeerTheme extends themeMod.Theme {
     .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
     /* The busy state a guarded action toggles while its POST is in flight (see
-       docs/plan-action-feedback.md): TWO theme classes, because "the guard is
-       on" and "this is taking a while" are different statements.
-       `fh-disabled` dims the element (opacity 0→.5) and `fh-loading` shows the
-       spinner — both delayed 300ms so a fast action never flashes any visual.
-       Both classes flip in the same Datastar frame; the CSS
-       `animation-delay: 300ms` means the spinner shape and the opacity
-       transition don't start until 300ms later; if either class is removed
-       before that, its animation never started.        The spinner uses BeerCSS's `loading-indicator` shape — a sibling `<div>`
-       inside a `.shape` wrapper, absolutely positioned over the MDI icon. The
-       shape's keyframes start at `opacity:0` and jump to `opacity:1` at 1%,
-       so the ring is invisible during the 300ms delay and appears+spins in
-       one step. The glyph's own `::before` is emptied so it doesn't fight
-       the overlay. */
-    .fh-disabled{opacity:0;
-      animation:fh-disabled-delay .15s .3s forwards}
-    @keyframes fh-disabled-delay{to{opacity:.5}}
+       docs/adr/0019-an-action-in-flight.md). `fh-disabled`/`fh-loading` say "your tap
+       landed, this control is inert", so they are IMMEDIATE and plain — no
+       animation, nothing to time. The spinner is the only delayed half, and
+       its delay is a derived signal in `tap.pkl`, not CSS: `shape` gives the
+       element a box as well as paint, and no `animation-delay` can defer a
+       layout change. So by the time these rules see the class, showing is
+       already the decision. */
+    .fh-disabled{opacity:.5}
     .fh-loading{cursor:progress}
-    .fh-loading i.mdi{position:relative;display:inline-block;
-      block-size:1em;inline-size:1em;line-height:1}
-    .fh-loading i.mdi::before{content:""}
-    .fh-loading i.mdi::after{
-      content:"";position:absolute;inset:-.15em;
-      border:.15em solid var(--primary);
-      border-top-color:transparent;border-radius:50%;
-      animation:fh-loading-spin .8s linear infinite;animation-delay:.3s;
-      opacity:0}
-    @keyframes fh-loading-spin{
-      0%{opacity:0;rotate:0deg}
-      1%{opacity:1}to{opacity:1;rotate:360deg}}
+    /* BeerCSS's own `.shape.loading-indicator` — an SVG mask that morphs
+       itself (internal `<animate>`, no CSS animation needed to spin it) —
+       painted around the `i.mdi` glyph rather than replacing it. It lands on
+       an element that already exists wherever there is one (`.slider-icon`,
+       the power `button`); only the entity header, whose glyph is bare inline
+       text, needs a wrapper, and that wrapper is a `<span>` precisely so it
+       needs no resting style at all. `background` is restated because a host's
+       own resting background would otherwise win the cascade and paint the
+       blob in the wrong colour. `filter:invert(1)` is BeerCSS's contrast trick
+       for arbitrary photo content; our glyph carries an explicit colour
+       already, so it takes the shape's `--on-primary` instead. */
+    .fh-icon-shape.shape,.slider-icon.shape,.slider-action.shape{
+      display:inline-flex;align-items:center;justify-content:center;
+      vertical-align:middle;background:var(--primary)}
+    .shape>i.mdi{filter:none;color:var(--on-primary)}
+    /* The two slider hosts are already sized circles; only the header badge
+       has no box of its own. BeerCSS's `.shape` default is 3.5rem, which would
+       balloon a header row. */
+    .fh-icon-shape.shape{inline-size:2.25rem;block-size:2.25rem}
     @media (prefers-reduced-motion:reduce){
-      .fh-disabled{animation:none;opacity:.5}
-      .fh-loading i.mdi::after{animation:none;opacity:1}
+      /* The morph is baked into the SVG mask's own `<animate>` elements, which
+         no CSS property can reach. Dropping the mask is the only way to hold
+         still, so the badge becomes a plain filled disc instead. */
+      .shape.loading-indicator{mask-image:none;border-radius:50%}
     }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of

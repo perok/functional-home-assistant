@@ -226,7 +226,7 @@ to.
 
 The CQRS split (action POST is no-content; the result arrives later over the
 stream, ADR 0005) leaves a click visibly answerless, so the card layer adds
-client-only feedback around the `@post` — see `docs/plan-action-feedback.md`:
+client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flight.md`:
 
 - **Busy, per node.** A guarded tap renders `data-indicator="_<id>__busy"`
   (the value form — the pinned bundle splits attribute KEYS on `__`, so the
@@ -237,12 +237,16 @@ client-only feedback around the `@post` — see `docs/plan-action-feedback.md`:
   `_`-prefixed client-only state: it never joins a request and is per-node, so
   one card spinning never disables its sibling. A node re-render (the state
   change that is the whole point of the action) replaces the element and resets
-  the signal — that is the NORMAL clear. The busy LOOK is two classes, two
-  timings (see `docs/plan-action-feedback.md`): Datastar binds the instant
-  `fh-disabled` dim the moment the signal flips, and `shell.ts`'s
-  `MutationObserver` promotes a node that stays busy past `FH_LOADING_DELAY`
-  (100 ms) to `fh-loading` (progress cursor + icon spinner). `busyVisual =
-  false` on a tap/slider drops both class bindings but never the guard.
+  the signal — that is the NORMAL clear. The busy LOOK is TWO timings (ADR
+  0019). `fh-disabled` (dim) and `fh-loading` (`cursor:progress`) bind straight
+  to the signal and are IMMEDIATE — they answer the tap. The spinner (BeerCSS's
+  `.shape.loading-indicator`, a self-morphing SVG mask around any `i.mdi` glyph
+  the element carries) binds to `_<id>__busy_slow`, which a
+  `data-on-signal-patch__delay.300ms` handler on the same element copies from
+  the busy signal after the threshold — so a fast action never adds the class at
+  all. The gate is that signal, NOT CSS: a class carries layout as well as
+  paint, so `animation-delay` cannot defer it. `busyVisual = false` on a
+  tap/slider drops every class binding but never the guard.
 - **The slider's value commit is the second guarded element.** A slider commits
   on release (`data-on:change` → the value POST), so its range input carries the
   same pieces under its own `_<id>__busy_change` signal (never sharing the power

@@ -165,11 +165,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The busy LOOK (`fh-disabled` + `fh-loading`, both on the same
-          // signal, CSS-delayed via animation-delay) rides on the track wrapper
-          // AND the head badge (so the badge's icon spins during the commit);
-          // the input itself stays free of the class — it is frozen via
-          // `data-attr:disabled` instead.
+          // The busy LOOK (`fh-disabled` + `fh-loading`, both immediate, on the
+          // same signal) rides on the track wrapper AND the head badge (which
+          // also carries the delayed spinner splice, so its icon spins once the
+          // commit runs long); the input itself stays free of the class — it is
+          // frozen via `data-attr:disabled` instead.
           assert(
             html.contains("data-class:fh-disabled=\"$_c_0__busy_change\""),
             clue = html
@@ -180,7 +180,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0__busy_change\" data-class:fh-loading=\"$_c_0__busy_change\">"
+              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0__busy_change\" data-class:fh-loading=\"$_c_0__busy_change\" "
             ),
             clue = html
           )

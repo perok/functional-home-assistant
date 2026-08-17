@@ -26,10 +26,10 @@ case class ServiceCall(
 
 /** The stubbed `call_service` response knobs a behaviour test turns on:
   * `callDelay` HOLDS the response for that long (the in-flight window a busy
-  * guard test clicks inside), `failCalls` makes every `call_service` RAISE
-  * (the server then answers the action POST with 400 — the toast test's
-  * trigger). Both default off, so a test that does not ask gets today's
-  * instant-success fake and no existing caller changes.
+  * guard test clicks inside), `failCalls` makes every `call_service` RAISE (the
+  * server then answers the action POST with 400 — the toast test's trigger).
+  * Both default off, so a test that does not ask gets today's instant-success
+  * fake and no existing caller changes.
   */
 final case class FakeConfig(
     callDelay: FiniteDuration = Duration.Zero,
