@@ -147,10 +147,6 @@ module theme
 /// always outrank `:where()`'s zero specificity); `--fh-gap` retunes spacing
 /// per theme.
 const layoutCss: String = """
-  @view-transitions { /* PWA */
-    transition: auto
-  }
-
   .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}
   .fh-grid.fh-start{justify-content:flex-start}
   .fh-group{display:contents}
