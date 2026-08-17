@@ -303,8 +303,8 @@ class BeerTheme extends themeMod.Theme {
        focused, and the echoed state should land where the user let go. */
     .slider.max>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
     .slider.max:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
-    /* Touch: the CSS half of the press-and-hold gate (fhSliderHold in the page
-       shell owns the timing). The range input is inert so a swipe that starts
+    /* Touch: the CSS half of the axis-intent gate (themeMod.sliderHoldScript
+       owns the timing). The range input is inert so a swipe that starts
        on a card scrolls the list instead of setting a value, and `pan-y` keeps
        that scroll native; the script drives the value itself once armed. */
     @media (pointer:coarse){
