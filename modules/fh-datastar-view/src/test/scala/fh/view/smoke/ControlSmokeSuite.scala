@@ -105,13 +105,13 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("the busy look is delayed: fh-disabled is instant, fh-loading only after the threshold") {
-    // Two classes, one timing (the action-feedback plan):
+  test("the busy look is delayed: both fh-disabled dim and fh-loading spinner appear only after the threshold") {
+    // Both classes, one timing (the action-feedback plan):
     // Datastar binds BOTH `fh-disabled` and `fh-loading` the moment the guard
-    // flips — both classes are on the same signal. The spinner's
-    // `animation-delay: 300ms` in the theme CSS means the ring doesn't start
-    // spinning until 300ms later, so a fast action never flashes a spinner.
-    // Both classes are present immediately; only the animation is delayed.
+    // flips — both classes are on the same signal. The CSS
+    // `animation-delay: 300ms` delays both the dim and the spinner ring, so
+    // a fast action never flashes any visual.
+    // Both classes are present immediately; only the animations are delayed.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
         val toggle = page.locator(

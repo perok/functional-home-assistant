@@ -153,8 +153,8 @@ class Slider extends nodes.Node {
   /// A button at the right of the line — the group's on/off. Null renders none.
   hidden tapAction: tapMod.TapAction? = null
   /// Whether this slider's busy LOOK shows at all — the commit's `fh-disabled`
-  /// dim on the track and badge, and the `fh-loading` spinner (CSS-delayed via
-  /// `animation-delay: 300ms`), AND the power button's. The GUARD and the
+  /// dim on the track and badge, and the `fh-loading` spinner, both CSS-delayed
+  /// via `animation-delay: 300ms`, AND the power button's. The GUARD and the
   /// input freeze (`data-attr:disabled`) are signal-driven and stay either way;
   /// false only hides the visuals. The power button additionally honours its
   /// OWN tap's `TapAction.busyVisual`, so the two knobs compose.

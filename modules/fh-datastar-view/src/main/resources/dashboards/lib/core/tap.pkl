@@ -43,7 +43,8 @@ class TapAction {
   /// `busy = true, busyVisual = false` still swallows a re-click, it just
   /// never dims or spins — for a control whose action answers fast, where
   /// any busy flicker reads as noise. The CSS `animation-delay: 300ms`
-  /// delays the spinner ring so a fast action never flashes a spinner.
+  /// delays both the dim and the spinner ring so a fast action never
+  /// flashes any visual.
   busyVisual: Boolean = true
 }
 // Wrap a JSONata route expression into the full Datastar click expression

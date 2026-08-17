@@ -32,21 +32,23 @@
 ///   cap it gets a dialog as tall as the entity is chatty).
 ///   A guarded action while its POST is in flight toggles TWO classes on the
 ///   tappable element itself (cards, buttons, pills, toggles, slider power
-///   buttons):
-///   - `.fh-disabled` — INSTANT, bound directly to the busy signal by
-///     `data-class:fh-disabled`; the guard is active, so the element is
-///     genuinely inert and should say so (the default theme dims it).
-///   - `.fh-loading` — bound to the SAME signal by `data-class:fh-loading`;
-///     both classes flip in the same Datastar frame. The spinner carries an
-///     `animation-delay: 300ms` so a fast action never flashes a ring: the
-///     class is added, but the `::after` animation doesn't start until 300ms
-///     later; if `fh-loading` is removed before that, the animation never
-///     started. The "still working" look (the default theme: `cursor:progress`,
-///     and a spinning ring in place of any `i.mdi` icon — the ring is the
-///     `::after` of the `i`, which is why the glyph's own `::before` can be
-///     emptied).
-///   A component opts out of the whole busy look via `busyVisual = false`
-///   (it then never binds `fh-disabled` or `fh-loading`); the guard stays.
+  ///   buttons):
+  ///   - `.fh-disabled` — bound directly to the busy signal by
+  ///     `data-class:fh-disabled`; the guard is active, so the element is
+  ///     genuinely inert and should say so (the default theme dims it).
+  ///     The dim is delayed 300ms (CSS `animation-delay`) so a fast action
+  ///     never flashes any visual.
+  ///   - `.fh-loading` — bound to the SAME signal by `data-class:fh-loading`;
+  ///     both classes flip in the same Datastar frame. The spinner carries an
+  ///     `animation-delay: 300ms` so a fast action never flashes a ring: the
+  ///     class is added, but the `::after` animation doesn't start until 300ms
+  ///     later; if `fh-loading` is removed before that, the animation never
+  ///     started. The "still working" look (the default theme: `cursor:progress`,
+  ///     and a spinning ring in place of any `i.mdi` icon — the ring is the
+  ///     `::after` of the `i`, which is why the glyph's own `::before` can be
+  ///     emptied).
+  ///   A component opts out of the whole busy look via `busyVisual = false`
+  ///   (it then never binds `fh-disabled` or `fh-loading`); the guard stays.
 ///   A failed action shows `.fh-toast`, a small fixed bar created
 ///   by the shell on `datastar-fetch:error` — structure/behavior live in the
 ///   shell, the LOOK here.

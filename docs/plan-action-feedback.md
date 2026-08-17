@@ -153,7 +153,7 @@ to today. That covers a tap that must be repeatable on rapid clicks (double-tap
 means something) or that must not visually spin. A SECOND flag, `busyVisual:
 Boolean` (default `true`, on `TapAction` and on the slider itself), is the
 Pkl-level opt-out of the busy LOOK only: it drops the `data-class:fh-disabled`
-bindings (instant dim + delayed spinner) but keeps the guard and the indicator,
+bindings (delayed dim + delayed spinner) but keeps the guard and the indicator,
 so a control the author wants to look unbusy still swallows spam clicks and
 still freezes its value commit. The slider's power button obeys BOTH its own
 tap's `busyVisual` AND the card's (so `tapAction.busyVisual = false` quiets it
