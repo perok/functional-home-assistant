@@ -156,7 +156,7 @@ class ControlSmokeSuite extends SmokeSuite {
         // The head badge is the slider's icon (`mdi-lightbulb`); the commit's
         // busy class lands on it too, so its glyph becomes a spinner for the
         // whole in-flight window.
-        val badge = page.locator(".slider-icon .shape.loading-indicator")
+        val badge = page.locator(".slider-icon .shape .loading-indicator")
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
@@ -208,7 +208,7 @@ class ControlSmokeSuite extends SmokeSuite {
     // alone proves nothing about the look.
     withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
-        val icon = page.locator("button.slider-action .shape.loading-indicator")
+        val icon = page.locator("button.slider-action .shape .loading-indicator")
         def spinning: IO[Boolean] =
           IO.blocking(
             icon

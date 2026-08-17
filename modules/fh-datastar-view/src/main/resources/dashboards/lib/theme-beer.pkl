@@ -261,21 +261,21 @@ class BeerTheme extends themeMod.Theme {
        Both classes flip in the same Datastar frame; the CSS
        `animation-delay: 300ms` means the spinner shape and the opacity
        transition don't start until 300ms later; if either class is removed
-       before that, its animation never started. The spinner uses BeerCSS's
-       native `loading-indicator` shape (an SVG mask on a `<div>`) spun by
-       `rotate`, with the MDI icon sitting inside it — the ring and the glyph
-       coexist rather than replacing each other. */
+       before that, its animation never started.        The spinner uses BeerCSS's
+       native `loading-indicator` shape (an SVG-masked `<div>`) that overlays
+       the MDI icon as a sibling — the ring appears over the glyph during
+       loading, and both are invisible when idle. */
     .fh-disabled{opacity:0;transition:opacity .15s;
       animation:fh-disabled-delay .15s .3s forwards}
     @keyframes fh-disabled-delay{to{opacity:.5}}
     .fh-loading{cursor:progress}
-    .shape.loading-indicator{opacity:0}
-    .fh-loading .shape.loading-indicator{opacity:1;
+    .shape .loading-indicator{opacity:0;position:absolute;inset:0}
+    .fh-loading .shape .loading-indicator{opacity:1;
       animation:fh-loading-spin .8s linear infinite;animation-delay:.3s}
     @keyframes fh-loading-spin{from{rotate:0deg}to{rotate:360deg}}
     @media (prefers-reduced-motion:reduce){
       .fh-disabled{animation:none;opacity:.5}
-      .fh-loading .shape.loading-indicator{animation:none;opacity:1}
+      .fh-loading .shape .loading-indicator{animation:none;opacity:1}
     }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of

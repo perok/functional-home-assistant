@@ -44,9 +44,9 @@
   ///     class is added, but the spinner doesn't start until 300ms later;
   ///     if `fh-loading` is removed before that, the animation never started.
   ///     The "still working" look (the default theme: `cursor:progress`,
-  ///     and a BeerCSS `loading-indicator` shape spinning around any `i.mdi`
-  ///     icon — the shape is a `<div>` wrapping the icon, so the ring and
-  ///     the glyph coexist).
+  ///     and a BeerCSS `loading-indicator` shape spinning over any `i.mdi`
+  ///     icon — the shape is a sibling `<div>` overlaying the glyph, so the
+  ///     ring appears over the icon during loading).
   ///   A component opts out of the whole busy look via `busyVisual = false`
   ///   (it then never binds `fh-disabled` or `fh-loading`); the guard stays.
 ///   A failed action shows `.fh-toast`, a small fixed bar created
