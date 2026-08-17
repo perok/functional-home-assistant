@@ -4,7 +4,7 @@ import cats.effect.{IO, Resource}
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
 import com.microsoft.playwright.options.ViewportSize
 import fh.view.runtime.TestServer
-import fh.view.testkit.Scene
+import fh.view.testkit.{FakeConfig, Scene}
 
 import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
@@ -110,7 +110,10 @@ abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
     */
   def withPage[A](
       scene: Scene,
-      viewport: Option[(Int, Int)] = None
+      viewport: Option[(Int, Int)] = None,
+      // The [[FakeConfig]] knobs for THIS test's fake — a delayed or failing
+      // `call_service`, for the guarded-action feedback tests.
+      fakeConfig: FakeConfig = FakeConfig()
   )(
       f: (Page, TestServer) => IO[A]
   ): IO[A] = {
@@ -120,7 +123,7 @@ abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
     val resource = for {
-      served <- TestServer.served(scene.dashboard, scene.entities)
+      served <- TestServer.served(scene.dashboard, scene.entities, fakeConfig)
       (ts, uri) = served
       context <- Resource.make(IO.blocking(browser.newContext(contextOptions)))(
         c => IO.blocking(c.close())

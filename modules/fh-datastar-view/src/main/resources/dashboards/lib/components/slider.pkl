@@ -152,6 +152,13 @@ class Slider extends nodes.Node {
   hidden icon: String? = icons.iconFor(entity)
   /// A button at the right of the line — the group's on/off. Null renders none.
   hidden tapAction: tapMod.TapAction? = null
+  /// Whether this slider's busy LOOK shows at all — the commit's immediate
+  /// `fh-disabled` dim on the track and badge, its delayed spinner on the
+  /// badge, AND the power button's. The GUARD and the
+  /// input freeze (`data-attr:disabled`) are signal-driven and stay either way;
+  /// false only hides the visuals. The power button additionally honours its
+  /// OWN tap's `TapAction.busyVisual`, so the two knobs compose.
+  hidden busyVisual: Boolean = true
   /// Second line under the label — an attribute name, or an [[expr]] naming a
   /// DIFFERENT entity (the room's temperature beside its lights). Null renders
   /// no second line.
@@ -210,6 +217,18 @@ class Slider extends nodes.Node {
         bypassUnavailable = false
         signal = slotMod.asClass("lit")
       }
+    }
+    when (tapAction != null && tapAction!!.busy) {
+      ["busy"] = "1"
+    }
+    // The commit's busy LOOK (the wrapper + badge `fh-disabled` bindings) is
+    // gated on the card's own `busyVisual`; the power button's on the same AND
+    // its tap's — see the `busyVisual` doc above.
+    when (busyVisual) {
+      ["busyVisual"] = "1"
+    }
+    when (tapAction != null && tapAction!!.busy && busyVisual && tapAction!!.busyVisual) {
+      ["busyTapVisual"] = "1"
     }
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
@@ -307,6 +326,7 @@ class Slider extends nodes.Node {
   // to say the same thing.
   function icon(i: String?): Slider = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): Slider = let (self = this) (self) { tapAction = t }
+  function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
@@ -322,6 +342,14 @@ class Slider extends nodes.Node {
   // and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the state span
   // into per-character wrapping).
   //
+  // A drag is LIVE client-side (`data-on:input`) but only COMMITS on release
+  // (`data-on:change` → the value POST), so a drag back on while that POST is
+  // in flight must not fire a second commit. `\(tapMod.busyAttrsChange)`
+  // (indicator + `data-attr:disabled`) and `\(tapMod.busyGuardChange)` are the
+  // same busy pieces the power button uses, under the input's own
+  // `_<id>__busy_change` signal — see `tap.pkl` for why the name is separate
+  // and why disabling is safe.
+  //
   // The head is the `self` and the members the `mount`, so the group's rows are
   // never carried by the master's patch (ADR 0012). A childless slider still
   // renders the mount — an empty `<div>` the theme hides — because a card is
@@ -334,17 +362,18 @@ class Slider extends nodes.Node {
     self = """
       <div id="{{selfId}}" class="slider-body">
         <div class="slider-head">
-          {{#icon}}<div class="slider-icon"><i class="mdi {{icon}}"></i></div>{{/icon}}
+          {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
           <strong>{{label}}</strong>
           {{#secondary}}<span class="slider-sub">{{secondary}}</span>{{/secondary}}
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
-          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{{onclick}}}"><i class="mdi mdi-power"></i></button>{{/onclick}}
+          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass) \(tapMod.busyShapeClass){{/busyTapVisual}}><i class="mdi mdi-power"></i></button>{{/onclick}}
         </div>
-        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill"))>
+        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
           <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
+            \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
         </div>
       </div>

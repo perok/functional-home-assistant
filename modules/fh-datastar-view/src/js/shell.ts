@@ -162,4 +162,60 @@ window.fhRegisterSw = (url) => {
   sw.register(url).catch(() => {})
 }
 
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * Toast a rejected action POST (`status >= 400`) as a transient bar.
+ *
+ * The LOOK is theme-owned (`.fh-toast` in each theme's `styles`); this owns
+ * presence only. A later toast replaces an earlier one instead of stacking,
+ * and each dismisses itself after ~4s.
+ */
+function showToast(text: string): void {
+  let el = document.querySelector<HTMLElement>(".fh-toast")
+  if (!el) {
+    el = document.createElement("div")
+    el.className = "fh-toast"
+    el.setAttribute("role", "status")
+    document.body.appendChild(el)
+  }
+  el.textContent = text
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    const toast = document.querySelector<HTMLElement>(".fh-toast")
+    if (toast && toast.parentNode) toast.parentNode.removeChild(toast)
+    toastTimer = undefined
+  }, 4000)
+}
+
+/**
+ * The action-failure half of this page's Datastar fetch events. Datastar
+ * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
+ * attributes make, `detail = {type, el, argsRaw}` (verified against the pinned
+ * v1.0.2 bundle: `re = (e,t,n) => document.dispatchEvent(new CustomEvent(j,
+ * {detail:{type:e, el:t, argsRaw:n}}))`). A click action that HA rejects lands
+ * as `type === 'error'`, and `argsRaw` carries only `{status}` — never the
+ * response body — so the backend's `{success:false,error}` message is
+ * unreachable here (surfacing the real text is a Phase-2 `datastar-signals`
+ * frame; see `docs/adr/0019-an-action-in-flight.md`).
+ *
+ * The filter is the whole point. The persistent SSE stream is ALSO a Datastar
+ * fetch (the `@get` on `<body>`), and ITS errors are already the `_sse` /
+ * `haDown` banners' job — they arrive with `el` = `<body>`, which sits under no
+ * `[data-on:click]`, so this listener toasts only action failures. Without the
+ * filter a stream outage would toast "Command failed" over the banner.
+ */
+document.addEventListener("datastar-fetch", (e: Event) => {
+  const detail = (
+    e as CustomEvent<{ type: string; el: Element | null; argsRaw: { status: string } }>
+  ).detail
+  if (!detail || detail.type !== "error") return
+  const el = detail.el
+  // The escaped colon is load-bearing: `data-on:click` is not a valid CSS
+  // selector as written, and `closest` throws a SyntaxError on it — which
+  // killed this listener (and the toast with it) before it ever ran.
+  if (!el || !el.closest("[data-on\\:click]")) return
+  showToast("Command failed (" + detail.argsRaw.status + ")")
+})
+
 export {}

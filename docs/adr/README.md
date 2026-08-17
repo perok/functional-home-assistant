@@ -35,3 +35,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0016 — What a tap does: per-entity defaults, and more-info as the floor](0016-what-a-tap-does.md)
 - [0017 — Signal slots: a value that changes without re-rendering its card](0017-signal-slots.md)
 - [0018 — A failed dashboard is a live error state](0018-a-failed-dashboard-is-a-live-error-state.md)
+- [0019 — An action in flight: the guard is the feature, the spinner is the afterthought](0019-an-action-in-flight.md)

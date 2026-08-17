@@ -30,6 +30,31 @@
 ///   more-info facts -> `.entity-info`/`.entity-info-id`/`.entity-info-attrs`
 ///   (the attribute block is preformatted text — a theme that does not wrap and
 ///   cap it gets a dialog as tall as the entity is chatty).
+///   A guarded action while its POST is in flight toggles TWO classes on the
+///   tappable element itself (cards, buttons, pills, toggles, slider power
+///   buttons):
+///   - `.fh-disabled` — bound directly to the busy signal by
+///     `data-class:fh-disabled`; the guard is active, so the element is
+///     genuinely inert and should say so (the default theme dims it).
+///     IMMEDIATE, and a theme must keep it so: this is the answer to the tap.
+///   - `.fh-loading` — bound to the SAME signal by `data-class:fh-loading`,
+///     equally immediate; the "still working" cursor.
+///   The SPINNER is separate and DELAYED, because "this is taking a while" is
+///   a different statement from "your tap landed". Any element hosting an
+///   `i.mdi` glyph (an entity header badge, a slider's head badge or power
+///   button) binds BeerCSS's own `.shape`/`.loading-indicator` — an SVG-masked
+///   shape that morphs itself, painted around the glyph — to a signal `tap.pkl`
+///   derives from the busy one, true only once the action has run past the
+///   threshold. A theme therefore styles those classes as "showing", with no
+///   delay of its own: the decision was already made before they landed.
+///   They are bound rather than styled inert because
+///   `.shape>i{filter:invert(1)}` is unconditional in BeerCSS and would tint
+///   the glyph at rest otherwise.
+///   A component opts out of the whole busy look via `busyVisual = false`
+///   (it then binds none of the four); the guard stays.
+///   A failed action shows `.fh-toast`, a small fixed bar created
+///   by the shell on `datastar-fetch:error` — structure/behavior live in the
+///   shell, the LOOK here.
 ///
 /// The `fh-` LAYOUT classes have ready-made framework-agnostic CSS below
 /// ([[layoutCss]]): a theme normally interpolates it at the top of its

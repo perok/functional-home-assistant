@@ -253,6 +253,41 @@ class BeerTheme extends themeMod.Theme {
        Symbols and would otherwise win the cascade over `.mdi:before`. */
     .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
+    /* The busy state a guarded action toggles while its POST is in flight (see
+       docs/adr/0019-an-action-in-flight.md). `fh-disabled`/`fh-loading` say "your tap
+       landed, this control is inert", so they are IMMEDIATE and plain — no
+       animation, nothing to time. The spinner is the only delayed half, and
+       its delay is a derived signal in `tap.pkl`, not CSS: `shape` gives the
+       element a box as well as paint, and no `animation-delay` can defer a
+       layout change. So by the time these rules see the class, showing is
+       already the decision. */
+    .fh-disabled{opacity:.5}
+    .fh-loading{cursor:progress}
+    /* BeerCSS's own `.shape.loading-indicator` — an SVG mask that morphs
+       itself (internal `<animate>`, no CSS animation needed to spin it) —
+       painted around the `i.mdi` glyph rather than replacing it. It lands on
+       an element that already exists wherever there is one (`.slider-icon`,
+       the power `button`); only the entity header, whose glyph is bare inline
+       text, needs a wrapper, and that wrapper is a `<span>` precisely so it
+       needs no resting style at all. `background` is restated because a host's
+       own resting background would otherwise win the cascade and paint the
+       blob in the wrong colour. `filter:invert(1)` is BeerCSS's contrast trick
+       for arbitrary photo content; our glyph carries an explicit colour
+       already, so it takes the shape's `--on-primary` instead. */
+    .fh-icon-shape.shape,.slider-icon.shape,.slider-action.shape{
+      display:inline-flex;align-items:center;justify-content:center;
+      vertical-align:middle;background:var(--primary)}
+    .shape>i.mdi{filter:none;color:var(--on-primary)}
+    /* The two slider hosts are already sized circles; only the header badge
+       has no box of its own. BeerCSS's `.shape` default is 3.5rem, which would
+       balloon a header row. */
+    .fh-icon-shape.shape{inline-size:2.25rem;block-size:2.25rem}
+    @media (prefers-reduced-motion:reduce){
+      /* The morph is baked into the SVG mask's own `<animate>` elements, which
+         no CSS property can reach. Dropping the mask is the only way to hold
+         still, so the badge becomes a plain filled disc instead. */
+      .shape.loading-indicator{mask-image:none;border-radius:50%}
+    }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
        its row or an n/12 grid span — left-aligns a short pill in a wide box:
@@ -294,6 +329,15 @@ class BeerTheme extends themeMod.Theme {
     .slider.max,.slider.max>input{cursor:ew-resize}
     .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
     .slider.max>input::-moz-range-thumb{cursor:ew-resize}
+    /* The loading commit overrides the drag affordance once a slider's value
+       POST has held past the loading delay: the wrapper and the input each set
+       their own ew-resize, so `.fh-loading` alone (which matches the input
+       only by inheritance) never beats them. Pairs with `.fh-disabled`'s dim
+       (which lands instantly, before this), so the whole control says "wait"
+       together. */
+    .slider.max.fh-loading,.slider.max.fh-loading>input{cursor:progress}
+    .slider.max.fh-loading>input::-webkit-slider-thumb{cursor:progress}
+    .slider.max.fh-loading>input::-moz-range-thumb{cursor:progress}
     /* Slide the fill to a state change instead of snapping. `inset` is what
        BeerCSS derives from `--_start`/`--_end`, so animating it covers every
        writer of those props alike; `background` covers a light changing
@@ -431,6 +475,14 @@ class BeerTheme extends themeMod.Theme {
     .fh-offline-ha{background:var(--warning-color,#ffa600);color:#000}
     .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
       border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
+
+    /* The failure toast for a rejected action POST (shell.ts): a small fixed
+       bar, error role, auto-dismissed ~4s (later toasts replace earlier ones).
+       Structure/behavior live in the shell; the LOOK is theme-owned, like the
+       banners above. */
+    .fh-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+      z-index:1100;background:var(--error);color:var(--on-error);padding:.75rem 1rem;
+      border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
     """
 }
 

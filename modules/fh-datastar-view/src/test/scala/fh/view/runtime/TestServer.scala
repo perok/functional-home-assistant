@@ -8,7 +8,12 @@ import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{PklDump, SystemPkl}
 import fh.view.model.Dashboard
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklWorkspace}
+import fh.view.testkit.{
+  FakeConfig,
+  FakeHomeAssistant,
+  FixtureEntity,
+  PklWorkspace
+}
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -338,10 +343,11 @@ object TestServer {
     */
   def served(
       dashboard: Dashboard,
-      entities: List[FixtureEntity]
+      entities: List[FixtureEntity],
+      config: FakeConfig = FakeConfig()
   ): Resource[IO, (TestServer, Uri)] =
     for {
-      fake <- FakeHomeAssistant.create(entities).toResource
+      fake <- FakeHomeAssistant.create(entities, config).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
       renderer = Renderer.create(dashboard)
       rendererRef <- SignallingRef[IO]

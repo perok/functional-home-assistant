@@ -51,6 +51,25 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
+  /** A slider that ALSO carries a power button — the one node with two guarded
+    * elements — so the test can prove the button's `_<id>__busy` and the
+    * input's `_<id>__busy_change` are distinct names that never collide.
+    */
+  private val sliderEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+       |      tapAction = c.tap.service("light/toggle")
+       |    }
+       |  }
+       |}
+       |""".stripMargin
+
   private def withServer[A](f: TestServer => IO[A]): IO[A] =
     TestServer
       .fromWorkspace("fixture-home", entrySource, entities)
@@ -82,6 +101,190 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         clue = html
       )
     }
+  }
+
+  test(
+    "a guarded tap renders its busy guard, indicator and class; unguarded taps do not"
+  ) {
+    withServer(_.page()).map { html =>
+      // The light entity card's default service tap is guarded (ADR 0016), and
+      // every guarded element carries the pieces the frontend contract names
+      // (see `tap.pkl`'s `busyGuard`/`busyAttrs`/`busyClass` and the
+      // action-feedback plan): the guard makes the click expression a no-op
+      // while the call is in flight, the indicator drives the `_<id>__busy`
+      // signal, and the class binds both `fh-disabled` (instant dim) and
+      // `fh-loading` (CSS-delayed spinner) on the same signal.
+      assert(html.contains("data-indicator=\"_c_2__busy\""), clue = html)
+      assert(
+        html.contains("data-class:fh-disabled=\"$_c_2__busy\""),
+        clue = html
+      )
+      assert(
+        html.contains("data-class:fh-loading=\"$_c_2__busy\""),
+        clue = html
+      )
+      assert(
+        html.contains("data-on:click=\"$_c_2__busy ? '' : @post('sse/action/"),
+        clue = html
+      )
+      // Every guarded POST is no-signals, so the `_<id>__busy` signal —
+      // created client-side by the indicator, and therefore invisible to this
+      // HTML — can never reach an action request body.
+      assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
+      // The sensor card's more-info tap is not guarded (it opens a popup, no
+      // in-flight service POST worth a busy state)...
+      assert(!html.contains("data-indicator=\"_c_1__busy\""), clue = html)
+      assert(!html.contains("data-on:click=\"$_c_1__busy"), clue = html)
+      // ...and a navigating button is an anchor; anchors are never guarded.
+      assert(!html.contains("data-indicator=\"_c_3__busy\""), clue = html)
+    }
+  }
+
+  test("a slider's value commit carries its own guarded, disabled input") {
+    TestServer
+      .fromWorkspace("fixture-slider", sliderEntry, entities)
+      .use { ts =>
+        ts.page().map { html =>
+          // The slider's range input commits its value on `change`, so it is
+          // the node's SECOND guarded element — the power button owns
+          // `_<id>__busy`, this owns the element-suffixed `_<id>__busy_change`
+          // (see `tap.pkl`'s `busyGuardChange`/`busyAttrsChange`/`busyClassChange`).
+          // The three pieces: the indicator arms the signal, the attr freezes
+          // the control while it is set, and the guard swallows a second commit.
+          assert(
+            html.contains("data-indicator=\"_c_0__busy_change\""),
+            clue = html
+          )
+          assert(
+            html.contains("data-attr:disabled=\"$_c_0__busy_change\""),
+            clue = html
+          )
+          assert(
+            html.contains(
+              "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/light/turn_on/"
+            ),
+            clue = html
+          )
+          // The busy LOOK (`fh-disabled` + `fh-loading`, both immediate, on the
+          // same signal) rides on the track wrapper AND the head badge (which
+          // also carries the delayed spinner splice, so its icon spins once the
+          // commit runs long); the input itself stays free of the class — it is
+          // frozen via `data-attr:disabled` instead.
+          assert(
+            html.contains("data-class:fh-disabled=\"$_c_0__busy_change\""),
+            clue = html
+          )
+          assert(
+            html.contains("data-class:fh-loading=\"$_c_0__busy_change\""),
+            clue = html
+          )
+          assert(
+            html.contains(
+              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0__busy_change\" data-class:fh-loading=\"$_c_0__busy_change\" "
+            ),
+            clue = html
+          )
+          // The power button on the same node keeps its own unsuffixed name —
+          // the two guarded elements never share a signal (a shared one would
+          // let one element's `finished` clear the other's in-flight busy).
+          // Its busy class is the tap's own `_<id>__busy` binding.
+          assert(html.contains("data-indicator=\"_c_0__busy\""), clue = html)
+          assert(
+            html.contains("data-on:click=\"$_c_0__busy ? '' : @post("),
+            clue = html
+          )
+          assert(
+            html.contains("data-class:fh-disabled=\"$_c_0__busy\""),
+            clue = html
+          )
+          assert(
+            html.contains("data-class:fh-loading=\"$_c_0__busy\""),
+            clue = html
+          )
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test(
+    "busyVisual = false drops the busy look but keeps the guard and the freeze"
+  ) {
+    // The whole-look opt-out (`TapAction.busyVisual`, and the slider's own
+    // `busyVisual`) removes both `data-class:fh-disabled` and
+    // `data-class:fh-loading` bindings: the guard, the indicator and the input
+    // freeze are signal-driven and must stay byte-identical, or a
+    // fast-answering control would lose its anti-spam the moment it stopped
+    // dimming.
+    val buttonEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.button("Toggle", (c.tap.service("light/toggle")) { busyVisual = false })
+         |  }
+         |}
+         |""".stripMargin
+    val quietSliderEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      busyVisual = false
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    for {
+      _ <- TestServer
+        .fromWorkspace("fixture-quiet-button", buttonEntry, entities)
+        .use { ts =>
+          ts.page().map { html =>
+            assert(html.contains("data-indicator=\"_c_0__busy\""), clue = html)
+            assert(
+              html.contains(
+                "data-on:click=\"$_c_0__busy ? '' : @post('sse/action/"
+              ),
+              clue = html
+            )
+            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(!html.contains("data-class:fh-loading"), clue = html)
+          }
+        }
+        .timeout(60.seconds)
+      _ <- TestServer
+        .fromWorkspace("fixture-quiet-slider", quietSliderEntry, entities)
+        .use { ts =>
+          ts.page().map { html =>
+            // The commit's guard, indicator and input freeze survive; only the
+            // wrapper/badge `data-class:fh-disabled` and `data-class:fh-loading`
+            // bindings are gone.
+            assert(
+              html.contains("data-indicator=\"_c_0__busy_change\""),
+              clue = html
+            )
+            assert(
+              html.contains("data-attr:disabled=\"$_c_0__busy_change\""),
+              clue = html
+            )
+            assert(
+              html.contains(
+                "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/light/turn_on/"
+              ),
+              clue = html
+            )
+            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(!html.contains("data-class:fh-loading"), clue = html)
+          }
+        }
+        .timeout(60.seconds)
+    } yield ()
   }
 
   test("a state change streams a fragment through the Pkl-built dashboard") {

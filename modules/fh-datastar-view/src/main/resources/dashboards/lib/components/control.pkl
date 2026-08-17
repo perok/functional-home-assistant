@@ -27,7 +27,7 @@ class Button extends nodes.Node {
     // `:is(button,.button)`). Only `label` is a declared slot — the other two
     // are the two arms of one choice, so neither is always present.
     template = """
-      {{#href}}<a class="button card" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="card" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
+      {{#href}}<a class="button card" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="card" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>{{label}}</button>{{/href}}
       """
     slots { "label" }
   }
@@ -57,6 +57,18 @@ class Button extends nodes.Node {
     } else {
       ["onclick"] = tapAction.onclick
     }
+    // Only the non-anchor arm carries the busy splice — an anchor is a
+    // navigate, which is never guarded (`busy = false`), so this can never
+    // name a slot the template does not place. The GUARD (`busy`) and the
+    // LOOK (`busyVisual`) are separate slots: the class binding behind
+    // `busyVisual` is the whole `fh-disabled`/`fh-loading` visual, and a tap
+    // with `busyVisual = false` still swallows re-clicks, just never dims.
+    when (tapAction.href == null && tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
   }
   // Fluent config (see [[EntityCard]]'s builder methods).
   function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
@@ -80,7 +92,7 @@ class Toggle extends nodes.Node {
       <article class="card row">
         <span class="max">{{label}}</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{{onclick}}}" />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}} />
           <span></span>
         </label>
       </article>
@@ -121,6 +133,12 @@ class Toggle extends nodes.Node {
       signal = slotMod.asBind
     }
     ["onclick"] = tapAction.onclick
+    when (tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
   }
   function label(l: String|slotMod.Expr): Toggle = let (self = this) (self) { label = l }
   function tapAction(a: tapMod.TapAction): Toggle = let (self = this) (self) { tapAction = a }
@@ -150,7 +168,7 @@ class Pill extends nodes.Node {
     // and already `box-sizing:border-box` (unlike `.button`, which is
     // content-box — see the theme's `.fh-cell>.button` rule).
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{{onclick}}}">{{label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>{{label}}</button>{{/href}}
       """
     slots { "label" }
   }
@@ -171,6 +189,12 @@ class Pill extends nodes.Node {
       ["href"] = tapAction.href!!
     } else {
       ["onclick"] = tapAction.onclick
+    }
+    when (tapAction.href == null && tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
     }
   }
   function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }

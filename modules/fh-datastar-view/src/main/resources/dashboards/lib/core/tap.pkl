@@ -27,6 +27,25 @@ class TapAction {
   onclick: slotMod.Slot|String
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+  /// Whether this tap is worth GUARDING: while its POST is in flight, a second
+  /// click is a no-op. TRUE on the service taps (the only ones with a server
+  /// round-trip worth guarding); FALSE on `navigate` (a full document load — no
+  /// in-flight UI wanted) and the surface opens/closes (instant local POSTs,
+  /// where a busy state would fight the popup itself). The slider's continuous
+  /// value drag is NOT guarded even though it posts: it is not a discrete tap.
+  ///
+  /// The opt-out is the flag itself: a tap with `busy = false` renders
+  /// byte-identical to before this field existed.
+  busy: Boolean = false
+  /// Whether the guard's in-flight window also shows the theme's busy LOOK
+  /// ([[busyClass]] — the `fh-disabled` dim and the `fh-loading` spinner,
+  /// both bound to the same Datastar signal). Independent of [[busy]]:
+  /// `busy = true, busyVisual = false` still swallows a re-click, it just
+  /// never dims or spins — for a control whose action answers fast, where
+  /// any busy flicker reads as noise. The dim is IMMEDIATE (it is the
+  /// "your tap landed, the control is inert" feedback); only the spinner
+  /// waits, on the derived signal [[busyShapeClass]] builds.
+  busyVisual: Boolean = true
 }
 // Wrap a JSONata route expression into the full Datastar click expression
 //   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
@@ -41,6 +60,116 @@ class TapAction {
 // `filterSignals` must be nested or it is silently ignored — see the datastar
 // skill, both verified against the pinned bundle rather than the vendored docs.
 const noSignals = #"{filterSignals:{exclude:'.*'}}"#
+
+/// The busy pieces a card splices onto a guarded tap's element, keeping the
+/// `_<nodeId>__busy` signal name in ONE place (`{{id}}` stays a Mustache token
+/// inside them — the renderer fills it per node). Splice them ONLY when the
+/// tap has `busy = true`:
+///
+///   data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"
+///   {{#busy}}\(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}
+///
+/// `busyGuard` makes the click expression a no-op while the signal is truthy
+/// (the anti-spam); `busyAttrs` arms the indicator that drives the signal and
+/// the guard. `busyClass` is the IMMEDIATE visual — `fh-disabled` (dim) and
+/// `fh-loading` (cursor) land the instant the tap does, because "your tap
+/// landed and this control is inert now" is exactly what a tap should answer.
+/// The SPINNER is the delayed half and lives in `busyShapeClass`.
+/// A card splices it only when the tap also has `busyVisual = true`.
+/// One guarded element per node, so the name is never shared — a sibling's
+/// `finished` would otherwise clear an in-flight busy (see
+/// `docs/adr/0019-an-action-in-flight.md`).
+const busyGuard: String = #"$_{{id}}__busy ? '' : "#
+// The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
+// NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
+// KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
+// signal named `_<id>` and the `__busy` suffix would silently become a mod —
+// the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.
+// The value string is not split (verified against the pinned bundle's `hn`).
+const busyAttrs: String = #"data-indicator="_{{id}}__busy""#
+const busyClass: String =
+  #"data-class:fh-disabled="$_{{id}}__busy" data-class:fh-loading="$_{{id}}__busy""#
+
+/// How long an action may take before it is worth SAYING it is taking a
+/// while. Below this, the spinner never appears at all.
+const busyDelayMs: Int = 300
+
+/// The spinner splice, for an element that hosts an `i.mdi` glyph (the entity
+/// header badge, the slider's head badge and its power button). It gains
+/// BeerCSS's `shape`/`loading-indicator` classes — an SVG mask that morphs
+/// itself, wrapping the glyph rather than replacing it.
+///
+/// The [[busyDelayMs]] gate is a DERIVED SIGNAL, not a CSS `animation-delay`.
+/// A class carries more than paint: `shape` also gives the element a box
+/// (`display`, size, background), and no `animation-delay` can defer THAT —
+/// the layout moved the instant the class landed. Worse, the only property a
+/// delay could hold back is `opacity`, which dims the element AND the glyph
+/// inside it, so a sub-threshold action blinked its own icon out and back.
+/// Gating the SIGNAL instead means the class is simply absent until we mean
+/// it, and the CSS is then an ordinary "this is what a spinner looks like".
+///
+/// Read the derivation: the busy signal flips, [[busyDelayMs]] later the
+/// handler copies whatever it is by THEN. A fast action is already false, so
+/// nothing is ever added and nothing renders. A slow one is still true, so
+/// the spinner appears at full strength. The same delay on the way down is
+/// deliberate — it swallows the on/off chatter of a burst of quick taps.
+///
+/// `data-on-signal-patch` fires on EVERY signal write, local ones included
+/// (verified in the pinned bundle: the store proxy's setter dispatches it), so
+/// the indicator's own write is what drives this. The `-filter` companion is
+/// not optional — unfiltered, every HA state patch on the page would arm a
+/// timer on every guarded element. Node ids are `[A-Za-z0-9_]` only
+/// (`Dashboard.sanitize`), so interpolating one into the regex is safe.
+///
+/// The classes must be ABSENT at rest rather than styled inert:
+/// `.shape>i{filter:invert(1)}` is unconditional in BeerCSS, so a
+/// permanently-present class would tint the glyph when nothing is happening.
+///
+/// KNOWN DEBT: `shape`/`loading-indicator` are BeerCSS's OWN class names, named
+/// here in the framework-agnostic core kit. `fh-disabled`/`fh-loading` go
+/// through the theme contract properly; this one skipped that layer, so a
+/// second theme cannot restyle a busy control without shipping BeerCSS's
+/// names. Decoupling it into an `fh-`-prefixed contract is open work — see
+/// `docs/adr/0019-an-action-in-flight.md` "Consequences".
+/// `__ifmissing` is load-bearing: this element is a morph target, and a plain
+/// `data-signals` would re-seed the signal to false on every patch that
+/// touches it — including the ones the in-flight action itself provokes.
+const local function busySpinner(sig: String): String = #"""
+  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" data-class:shape="$\#(sig)_slow" data-class:loading-indicator="$\#(sig)_slow"
+  """#
+
+const busyShapeClass: String = busySpinner("_{{id}}__busy")
+
+/// The slider's VALUE-COMMIT variant of the busy pieces. A slider commits its
+/// position on RELEASE (its `data-on:change` → the value POST), and dragging
+/// back on while that POST is still in flight would fire a second commit the
+/// server would happily process — so the range input carries its OWN
+/// `_<nodeId>__busy_change` signal. The separate name is required, not
+/// cosmetic: a slider may ALSO have a guarded power button, and a shared name
+/// would let one element's `finished` clear the other's in-flight busy (the
+/// per-element invariant in `docs/adr/0019-an-action-in-flight.md`).
+///
+/// Splice them on the slider's own markup:
+///
+///   <input … \(tapMod.busyAttrsChange)
+///     data-on:change="\(tapMod.busyGuardChange)@post(…)" />
+///   <div class="slider max" … \(tapMod.busyClassChange)>
+///
+/// `busyAttrsChange` also DISABLES the input while the signal is set. That is
+/// safe because busy can only become true on RELEASE (never mid-drag), so
+/// disabling freezes the control between drags and the browser fires no
+/// `input`/`change` at all — the guard is the belt for a programmatic
+/// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
+/// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
+const busyGuardChange: String = #"$_{{id}}__busy_change ? '' : "#
+const busyAttrsChange: String =
+  #"data-indicator="_{{id}}__busy_change" data-attr:disabled="$_{{id}}__busy_change""#
+const busyClassChange: String =
+  #"data-class:fh-disabled="$_{{id}}__busy_change" data-class:fh-loading="$_{{id}}__busy_change""#
+/// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
+/// the track carries no icon of its own, so the badge is what spins for the
+/// whole commit window.
+const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
 const local function serviceOnclick(route: String): String =
   #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
@@ -60,7 +189,7 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
-  new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false) }
+  new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false); busy = true }
 
 /// Toggle whatever the card's entity is, via HA's own domain-dispatching
 /// `homeassistant.toggle`. The blunt instrument, and an explicit choice now
@@ -82,6 +211,7 @@ const function stateService(whenState: String, then: String, otherwise: String):
       serviceOnclick(#"$state = "\#(whenState)" ? "\#(then)" : "\#(otherwise)""#),
       true
     )
+    busy = true
   }
 
 /// What a tap on `e` should call, decided from its domain at BUILD time — or
@@ -113,7 +243,7 @@ const local function serviceValueOnclick(action: String, key: String, value: Str
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
 function serviceValue(action: String, key: String, value: String): TapAction =
-  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false) }
+  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false); busy = true }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against

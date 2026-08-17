@@ -12,6 +12,8 @@ import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 
+import scala.concurrent.duration.*
+
 /** One recorded `call_service` invocation — what the dashboard sent back to HA
   * when a control was actuated.
   */
@@ -20,6 +22,18 @@ case class ServiceCall(
     service: String,
     entityId: String,
     serviceData: Json
+)
+
+/** The stubbed `call_service` response knobs a behaviour test turns on:
+  * `callDelay` HOLDS the response for that long (the in-flight window a busy
+  * guard test clicks inside), `failCalls` makes every `call_service` RAISE (the
+  * server then answers the action POST with 400 — the toast test's trigger).
+  * Both default off, so a test that does not ask gets today's instant-success
+  * fake and no existing caller changes.
+  */
+final case class FakeConfig(
+    callDelay: FiniteDuration = Duration.Zero,
+    failCalls: Boolean = false
 )
 
 /** A stubbed Home Assistant that stands in for a live instance in end-to-end
@@ -71,7 +85,10 @@ final class FakeHomeAssistant private (
     // re-subscribes. See [[awaitEventSubscribes]].
     eventSubscribes: SignallingRef[IO, Int],
     // Which CONNECTION generation subscriptions belong to. See [[dropConnection]].
-    generation: SignallingRef[IO, Int]
+    generation: SignallingRef[IO, Int],
+    // The `call_service` response knobs ([[FakeConfig]]): a delay to hold the
+    // response, or failure — both for tests of the guarded-action feedback.
+    config: FakeConfig
 ) extends HAWSApiLowLevel[IO] {
 
   /** Model a dropped connection: every subscription opened on the current
@@ -124,6 +141,7 @@ final class FakeHomeAssistant private (
               cs.service_data
             )
           )
+          .flatMap(_ => delayedOrFailedResponse)
           .as(Json.obj())
           .asInstanceOf[IO[Response]]
 
@@ -233,6 +251,19 @@ final class FakeHomeAssistant private (
   /** Forget every recorded call (per-test isolation). */
   def resetCalls: IO[Unit] = calls.set(Vector.empty)
 
+  /** The [[FakeConfig]] knob half of a `call_service` answer: fail (the server
+    * turns the raised error into a 400 action response — the toast test's
+    * trigger), else hold the configured delay (the in-flight window the busy
+    * guard test clicks inside), else return at once.
+    */
+  private def delayedOrFailedResponse: IO[Unit] =
+    if (config.failCalls)
+      IO.raiseError(
+        new RuntimeException("call_service rejected by the fake")
+      )
+    else if (config.callDelay > Duration.Zero) IO.sleep(config.callDelay)
+    else IO.unit
+
   private def na: IO[Nothing] =
     IO.raiseError(
       new NotImplementedError("FakeHomeAssistant: unexpected WS command")
@@ -243,9 +274,13 @@ final class FakeHomeAssistant private (
 object FakeHomeAssistant {
 
   /** Build a fake seeded with the given entities. Unbounded event queue: tests
-    * emit a handful of changes, never enough to matter.
+    * emit a handful of changes, never enough to matter. `config` defaults to
+    * instant-success — the knobs are opt-in per test.
     */
-  def create(seed: List[FixtureEntity]): IO[FakeHomeAssistant] =
+  def create(
+      seed: List[FixtureEntity],
+      config: FakeConfig = FakeConfig()
+  ): IO[FakeHomeAssistant] =
     for {
       stateRef <- Ref[IO].of(seed.map(e => e.entityId -> e).toMap)
       queues <- Ref[IO].of(Map.empty[String, Queue[IO, Json]])
@@ -261,6 +296,7 @@ object FakeHomeAssistant {
       deltas,
       clock,
       eventSubscribes,
-      generation
+      generation,
+      config
     )
 }

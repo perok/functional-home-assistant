@@ -222,6 +222,51 @@ only state that counts as a live stream (`Sessions.liveStreams`, the readiness
 seam tests wait on) — a lingering session is registered and has nobody to send
 to.
 
+### An action POST and its feedback
+
+The CQRS split (action POST is no-content; the result arrives later over the
+stream, ADR 0005) leaves a click visibly answerless, so the card layer adds
+client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flight.md`:
+
+- **Busy, per node.** A guarded tap renders `data-indicator="_<id>__busy"`
+  (the value form — the pinned bundle splits attribute KEYS on `__`, so the
+  keyed form would arm a differently-named signal) + a
+  `data-class:fh-disabled="$<id>__busy"`, and wraps its click in
+  `$<id>__busy ? '' : …` (a second click while in flight is a no-op). The
+  indicator clears in a `finally` on success AND error. The signal is
+  `_`-prefixed client-only state: it never joins a request and is per-node, so
+  one card spinning never disables its sibling. A node re-render (the state
+  change that is the whole point of the action) replaces the element and resets
+  the signal — that is the NORMAL clear. The busy LOOK is TWO timings (ADR
+  0019). `fh-disabled` (dim) and `fh-loading` (`cursor:progress`) bind straight
+  to the signal and are IMMEDIATE — they answer the tap. The spinner (BeerCSS's
+  `.shape.loading-indicator`, a self-morphing SVG mask around any `i.mdi` glyph
+  the element carries) binds to `_<id>__busy_slow`, which a
+  `data-on-signal-patch__delay.300ms` handler on the same element copies from
+  the busy signal after the threshold — so a fast action never adds the class at
+  all. The gate is that signal, NOT CSS: a class carries layout as well as
+  paint, so `animation-delay` cannot defer it. `busyVisual = false` on a
+  tap/slider drops every class binding but never the guard.
+- **The slider's value commit is the second guarded element.** A slider commits
+  on release (`data-on:change` → the value POST), so its range input carries the
+  same pieces under its own `_<id>__busy_change` signal (never sharing the power
+  button's name — the indicator counter is per-element but writes a named
+  signal, so a shared name would let one element's `finished` clear the other's
+  busy). While the signal is set the input is also `disabled` — safe because
+  busy can only become true on release — so a drag back on is frozen at the
+  browser and a programmatic `change` is swallowed by the guard. The busy class
+  rides the `.slider.max` track wrapper (and the head badge, whose icon spins
+  during the commit).
+- **Failure toast, in the shell.** `shell.ts` listens for
+  `datastar-fetch:error` whose element sits under a `[data-on\:click]` (the
+  escaped-colon selector; the persistent stream's errors arrive with `el` =
+  `<body>` and are already the `_sse`/haDown banners' job) and shows a themed
+  `fh-toast`. The error detail carries only `status`, so the toast is generic —
+  surfacing HA's actual rejection text is a deferred backend step.
+- **What did NOT change.** The POST is still `NoContent`; the state change still
+  flows back over the persistent stream. A rejected call (400) only toasts —
+  nothing in the feedback layer blocks the SSE patch path.
+
 ### A state change arrives — once, globally
 
 ```

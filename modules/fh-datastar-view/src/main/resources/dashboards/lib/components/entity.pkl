@@ -17,8 +17,8 @@ class EntityCard extends nodes.Node {
   cardDef = new nodes.LeafCard {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-        data-on:click="{{{onclick}}}"{{/tappable}}>
-        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}{{label}}</header>
+        data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{/tappable}}{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>
+        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}{{label}}</header>
         <span class="state" \(slotMod.signalBind("value"))>{{value}}</span>{{#secondary}}
         <span class="slider-group-sub">{{secondary}}</span>{{/secondary}}
       </article>
@@ -62,6 +62,15 @@ class EntityCard extends nodes.Node {
     when (tapAction != null) {
       ["tappable"] = "1"
       ["onclick"] = tapAction!!.onclick
+    }
+    when (tapAction != null && tapAction!!.busy) {
+      ["busy"] = "1"
+    }
+    // The LOOK is a separate slot from the GUARD (`busy`): the class binding
+    // behind it is the whole `fh-disabled`/`fh-loading` visual, and a tap with
+    // `busyVisual = false` still swallows re-clicks, just never dims or spins.
+    when (tapAction != null && tapAction!!.busy && tapAction!!.busyVisual) {
+      ["busyVisual"] = "1"
     }
   }
   // ---- fluent config (builder style) ----
