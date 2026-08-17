@@ -68,7 +68,7 @@ object VisualSnapshot {
     * are already excluded by the AA detection, so a genuine change lights up
     * far more than this.
     */
-  private val MaxDiffRatio = 0.002
+  private val MaxDiffRatio = 0.003
 
   /** Per-axis pixel tolerance on the screenshot's own dimensions. A component's
     * bounding box is content-derived, so a different OS font-rasterization

@@ -41,12 +41,12 @@
   ///   - `.fh-loading` — bound to the SAME signal by `data-class:fh-loading`;
   ///     both classes flip in the same Datastar frame. The spinner carries an
   ///     `animation-delay: 300ms` so a fast action never flashes a ring: the
-  ///     class is added, but the `::after` animation doesn't start until 300ms
-  ///     later; if `fh-loading` is removed before that, the animation never
-  ///     started. The "still working" look (the default theme: `cursor:progress`,
-  ///     and a spinning ring in place of any `i.mdi` icon — the ring is the
-  ///     `::after` of the `i`, which is why the glyph's own `::before` can be
-  ///     emptied).
+  ///     class is added, but the spinner doesn't start until 300ms later;
+  ///     if `fh-loading` is removed before that, the animation never started.
+  ///     The "still working" look (the default theme: `cursor:progress`,
+  ///     and a BeerCSS `loading-indicator` shape spinning around any `i.mdi`
+  ///     icon — the shape is a `<div>` wrapping the icon, so the ring and
+  ///     the glyph coexist).
   ///   A component opts out of the whole busy look via `busyVisual = false`
   ///   (it then never binds `fh-disabled` or `fh-loading`); the guard stays.
 ///   A failed action shows `.fh-toast`, a small fixed bar created

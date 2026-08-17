@@ -259,30 +259,22 @@ class BeerTheme extends themeMod.Theme {
        `fh-disabled` dims the element (opacity 0→.5) and `fh-loading` shows the
        spinner — both delayed 300ms so a fast action never flashes any visual.
        Both classes flip in the same Datastar frame; the CSS
-       `animation-delay: 300ms` means the `::after` ring and the opacity
+       `animation-delay: 300ms` means the spinner shape and the opacity
        transition don't start until 300ms later; if either class is removed
-       before that, its animation never started. The busy `i` gets an EXPLICIT
-       1em square box — a glyph's natural advance box is smaller, so a
-       fixed-size ring laid over it overflows, miscentres, and gets clipped by
-       the button's `overflow:hidden`; sizing the box to the ring makes
-       `inset:0` exact by construction. The glyph lives in `.mdi:before` and
-       the ring takes `::after`, so the two never fight. */
+       before that, its animation never started. The spinner uses BeerCSS's
+       native `loading-indicator` shape (an SVG mask on a `<div>`) spun by
+       `rotate`, with the MDI icon sitting inside it — the ring and the glyph
+       coexist rather than replacing each other. */
     .fh-disabled{opacity:0;transition:opacity .15s;
       animation:fh-disabled-delay .15s .3s forwards}
     @keyframes fh-disabled-delay{to{opacity:.5}}
     .fh-loading{cursor:progress}
-    .fh-loading i.mdi{position:relative;display:inline-block;
-      block-size:1em;inline-size:1em;line-height:1}
-    .fh-loading i.mdi::before{content:""}
-    .fh-loading i.mdi::after{content:"";position:absolute;inset:0;border-radius:50%;
+    .fh-loading .shape.loading-indicator{
       animation:fh-loading-spin .8s linear infinite;animation-delay:.3s}
-    @keyframes fh-loading-spin{
-      0%{border:.125em solid currentColor;border-top-color:transparent}
-      to{border:.125em solid currentColor;border-top-color:transparent;transform:rotate(1turn)}}
+    @keyframes fh-loading-spin{from{rotate:0deg}to{rotate:360deg}}
     @media (prefers-reduced-motion:reduce){
       .fh-disabled{animation:none;opacity:.5}
-      .fh-loading i.mdi::after{animation:none;border:.125em solid currentColor;
-        border-top-color:currentColor}
+      .fh-loading .shape.loading-indicator{animation:none}
     }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of

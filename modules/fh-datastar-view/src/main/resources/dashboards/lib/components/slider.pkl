@@ -362,11 +362,11 @@ class Slider extends nodes.Node {
     self = """
       <div id="{{selfId}}" class="slider-body">
         <div class="slider-head">
-          {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
+          {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>{{#busyVisual}}<div class="shape loading-indicator medium">{{/busyVisual}}<i class="mdi {{icon}}"></i>{{#busyVisual}}</div>{{/busyVisual}}</div>{{/icon}}
           <strong>{{label}}</strong>
           {{#secondary}}<span class="slider-sub">{{secondary}}</span>{{/secondary}}
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
-          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass){{/busyTapVisual}}><i class="mdi mdi-power"></i></button>{{/onclick}}
+          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass){{/busyTapVisual}}>{{#busyTapVisual}}<div class="shape loading-indicator medium">{{/busyTapVisual}}<i class="mdi mdi-power"></i>{{#busyTapVisual}}</div>{{/busyTapVisual}}</button>{{/onclick}}
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
           <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
