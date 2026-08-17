@@ -275,11 +275,13 @@ class BeerTheme extends themeMod.Theme {
       block-size:1em;inline-size:1em;line-height:1}
     .fh-loading i.mdi::before{content:""}
     .fh-loading i.mdi::after{content:"";position:absolute;inset:0;border-radius:50%;
-      border:.125em solid currentColor;border-top-color:transparent;
       animation:fh-loading-spin .8s linear infinite;animation-delay:.3s}
-    @keyframes fh-loading-spin{to{transform:rotate(1turn)}}
+    @keyframes fh-loading-spin{
+      0%{border:.125em solid currentColor;border-top-color:transparent}
+      to{border:.125em solid currentColor;border-top-color:transparent;transform:rotate(1turn)}}
     @media (prefers-reduced-motion:reduce){
-      .fh-loading i.mdi::after{animation:none;border-top-color:currentColor}
+      .fh-loading i.mdi::after{animation:none;border:.125em solid currentColor;
+        border-top-color:currentColor}
     }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
