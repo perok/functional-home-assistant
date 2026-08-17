@@ -253,27 +253,33 @@ class BeerTheme extends themeMod.Theme {
        Symbols and would otherwise win the cascade over `.mdi:before`. */
     .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
     .card.tappable{cursor:pointer}
-    /* The busy state a guarded tap toggles while its POST is in flight (see
-       docs/plan-action-feedback.md): say "working" with a progress cursor and
-       a dim. Applied to the tappable element ITSELF, whatever it is — card,
-       button, pill, switch, slider power button. When that element carries an
-       icon (`i.mdi` — an entity card's header badge, a slider's power button
-       or head badge), the glyph is replaced by a spinning ring: the glyph
-       lives in `.mdi:before` and the ring takes `::after`, so the two never
-       fight. The busy `i` gets an EXPLICIT 1em square box — a glyph's natural
-       advance box is smaller, so a fixed-size ring laid over it overflows,
-       miscentres, and gets clipped by the button's `overflow:hidden`; sizing
-       the box to the ring makes `inset:0` exact by construction. */
-    .fh-busy{cursor:progress;opacity:.65;transition:opacity .15s}
-    .fh-busy i.mdi{position:relative;display:inline-block;
+    /* The busy state a guarded action toggles while its POST is in flight (see
+       docs/plan-action-feedback.md): TWO theme classes, because "the guard is
+       on" and "this is taking a while" are different statements.
+       `fh-disabled` is the INSTANT one — Datastar binds it directly to the
+       busy signal, so the moment the guard swallows a re-click the element
+       shows a dim: the control really is inert right now. `fh-loading` is
+       bound to the SAME signal — both classes flip in the same Datastar frame.
+       The spinner carries an `animation-delay: 300ms` so a fast action never
+       flashes a spinner: the class is added, but the `::after` ring doesn't
+       start spinning until 300ms later; if `fh-loading` is removed before
+       that, the animation never started. The busy `i` gets an EXPLICIT 1em
+       square box — a glyph's natural advance box is smaller, so a fixed-size
+       ring laid over it overflows, miscentres, and gets clipped by the
+       button's `overflow:hidden`; sizing the box to the ring makes `inset:0`
+       exact by construction. The glyph lives in `.mdi:before` and the ring
+       takes `::after`, so the two never fight. */
+    .fh-disabled{opacity:.5;transition:opacity .15s}
+    .fh-loading{cursor:progress}
+    .fh-loading i.mdi{position:relative;display:inline-block;
       block-size:1em;inline-size:1em;line-height:1}
-    .fh-busy i.mdi::before{content:""}
-    .fh-busy i.mdi::after{content:"";position:absolute;inset:0;border-radius:50%;
+    .fh-loading i.mdi::before{content:""}
+    .fh-loading i.mdi::after{content:"";position:absolute;inset:0;border-radius:50%;
       border:.125em solid currentColor;border-top-color:transparent;
-      animation:fh-busy-spin .8s linear infinite}
-    @keyframes fh-busy-spin{to{transform:rotate(1turn)}}
+      animation:fh-loading-spin .8s linear infinite;animation-delay:.3s}
+    @keyframes fh-loading-spin{to{transform:rotate(1turn)}}
     @media (prefers-reduced-motion:reduce){
-      .fh-busy i.mdi::after{animation:none;border-top-color:currentColor}
+      .fh-loading i.mdi::after{animation:none;border-top-color:currentColor}
     }
     /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
        (inline-flex, content-box), which inside a cell — always a full share of
@@ -316,14 +322,15 @@ class BeerTheme extends themeMod.Theme {
     .slider.max,.slider.max>input{cursor:ew-resize}
     .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
     .slider.max>input::-moz-range-thumb{cursor:ew-resize}
-    /* The busy commit overrides the drag affordance while a slider's value
-       POST is in flight: the wrapper and the input each set their own
-       ew-resize, so `.fh-busy` alone (which matches the input only by
-       inheritance) never beats them. Pairs with `.slider.max.fh-busy`'s
-       opacity dim, so the whole control says "wait" together. */
-    .slider.max.fh-busy,.slider.max.fh-busy>input{cursor:progress}
-    .slider.max.fh-busy>input::-webkit-slider-thumb{cursor:progress}
-    .slider.max.fh-busy>input::-moz-range-thumb{cursor:progress}
+    /* The loading commit overrides the drag affordance once a slider's value
+       POST has held past the loading delay: the wrapper and the input each set
+       their own ew-resize, so `.fh-loading` alone (which matches the input
+       only by inheritance) never beats them. Pairs with `.fh-disabled`'s dim
+       (which lands instantly, before this), so the whole control says "wait"
+       together. */
+    .slider.max.fh-loading,.slider.max.fh-loading>input{cursor:progress}
+    .slider.max.fh-loading>input::-webkit-slider-thumb{cursor:progress}
+    .slider.max.fh-loading>input::-moz-range-thumb{cursor:progress}
     /* Slide the fill to a state change instead of snapping. `inset` is what
        BeerCSS derives from `--_start`/`--_end`, so animating it covers every
        writer of those props alike; `background` covers a light changing

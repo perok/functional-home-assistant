@@ -1553,7 +1553,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(
       plain.slots.keySet -- Set("entity_id", "label", "state"),
-      Set("value", "fill", "fillColor", "action", "key", "min", "max", "icon"),
+      Set("value", "fill", "fillColor", "action", "key", "min", "max", "icon", "busyVisual"),
       clue = plain.slots.keySet
     )
     assertEquals(plain.slots("state").transform, "$state")

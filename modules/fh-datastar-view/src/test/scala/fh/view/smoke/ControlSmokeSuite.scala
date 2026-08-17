@@ -71,7 +71,7 @@ class ControlSmokeSuite extends SmokeSuite {
         def busy: IO[Boolean] =
           IO.blocking(
             toggle
-              .evaluate("el => el.classList.contains('fh-busy')")
+              .evaluate("el => el.classList.contains('fh-disabled')")
               .asInstanceOf[Boolean]
           )
         for {
@@ -105,6 +105,44 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("the busy look is delayed: fh-disabled is instant, fh-loading only after the threshold") {
+    // Two classes, one timing (the action-feedback plan):
+    // Datastar binds BOTH `fh-disabled` and `fh-loading` the moment the guard
+    // flips — both classes are on the same signal. The spinner's
+    // `animation-delay: 300ms` in the theme CSS means the ring doesn't start
+    // spinning until 300ms later, so a fast action never flashes a spinner.
+    // Both classes are present immediately; only the animation is delayed.
+    withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
+      (page, ts) =>
+        val toggle = page.locator(
+          "button",
+          new com.microsoft.playwright.Page.LocatorOptions()
+            .setHasText("Toggle Kitchen")
+        )
+        def disabled: IO[Boolean] =
+          IO.blocking(
+            toggle
+              .evaluate("el => el.classList.contains('fh-disabled')")
+              .asInstanceOf[Boolean]
+          )
+        def loading: IO[Boolean] =
+          IO.blocking(
+            toggle
+              .evaluate("el => el.classList.contains('fh-loading')")
+              .asInstanceOf[Boolean]
+          )
+        for {
+          _ <- IO.blocking(toggle.click())
+          // Both classes are there immediately (same signal).
+          _ <- eventually(disabled)(identity)
+          _ <- eventually(loading)(identity)
+          // The response lands (2s), busy clears, and both classes drop.
+          _ <- eventually(loading)(l => !l)
+          _ <- eventually(disabled)(d => !d)
+        } yield ()
+    }
+  }
+
   test("a slider's commit is guarded: re-releasing while the POST is in flight is a no-op") {
     // A slider paints live on `input` but COMMITS on release (`change` → the
     // value POST). The fake holds that POST for 2s; while it is in flight the
@@ -122,7 +160,7 @@ class ControlSmokeSuite extends SmokeSuite {
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
-              .evaluate("el => el.classList.contains('fh-busy')")
+              .evaluate("el => el.classList.contains('fh-disabled')")
               .asInstanceOf[Boolean]
           )
         def disabled: IO[Boolean] = IO.blocking(slider.isDisabled())
@@ -130,7 +168,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             badge
               .evaluate(
-                "el => getComputedStyle(el, '::after').animationName === 'fh-busy-spin'"
+                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
               )
               .asInstanceOf[Boolean]
           )
@@ -165,7 +203,7 @@ class ControlSmokeSuite extends SmokeSuite {
   test("a busy-guarded element's icon becomes a spinner while its call is in flight") {
     // The slider's power button carries an `i.mdi` icon AND the busy pieces,
     // so while its POST is held the theme swaps the glyph for a spinning
-    // `::after` ring (`fh-busy-spin`). Computed style, because the ring is a
+    // `::after` ring (`fh-loading-spin`). Computed style, because the ring is a
     // pseudo-element — the class check alone proves nothing about the look.
     withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
@@ -174,7 +212,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             icon
               .evaluate(
-                "el => getComputedStyle(el, '::after').animationName === 'fh-busy-spin'"
+                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
               )
               .asInstanceOf[Boolean]
           )
@@ -204,7 +242,7 @@ class ControlSmokeSuite extends SmokeSuite {
       def busy: IO[Boolean] =
         IO.blocking(
           toggle
-            .evaluate("el => el.classList.contains('fh-busy')")
+            .evaluate("el => el.classList.contains('fh-disabled')")
             .asInstanceOf[Boolean]
         )
       for {

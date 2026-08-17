@@ -13,6 +13,16 @@ A follow-on requirement — **a rejected action reverts client-mutated state to
 the server's truth** — is designed below ("Failed-action revert", not yet
 applied).
 
+**Refinement (applied after Phase-1 sign-off, branch `await-spinning`):** the
+busy LOOK is now two classes with two timings — the instant `fh-disabled`
+(bound by Datastar the moment the guard flips; the dim that kills the flicker
+on fast calls) and the delayed `fh-loading` (added by `shell.ts`'s
+`MutationObserver` only after busy has held for `FH_LOADING_DELAY` = 100 ms;
+the progress cursor + icon spinner). And `TapAction.busyVisual` (plus the
+slider's own `busyVisual`) opts a control out of the busy look entirely while
+keeping the guard — see "The busy look" and "TapAction carries the intent"
+below.
+
 ## Goal
 
 Today a tap fires `POST /sse/action/<domain>/<service>/<entity_id>` and the
@@ -137,19 +147,24 @@ additions to `tap.pkl`, exactly the extension point documented here).
   carries the same busy pieces under `_<id>__busy_change` (below, "The slider's
   value commit").
 
-**The opt-out is the flag itself.** `busy: Boolean = false` on any `TapAction`
-means that tap neither guards nor spins — it renders byte-identical to today.
-That covers both directions an author might want:
-
-- a tap that must be repeatable on rapid clicks (double-tap means something),
-  or that must not visually spin;
-- the answer to "are we disabling doing both at the same time?": **no** —
-  nothing in this design blocks one action because another is in flight. Each
-  guarded element is independent; the light's effect pills are separate nodes,
-  and on the slider the power button and the range input's commit each guard
-  themselves (`_<id>__busy` vs `_<id>__busy_change`) without either blocking
-  the other. The only suppression is same-element: a second click on the button,
-  or a second value commit while one is in flight.
+**The opt-outs are two flags, one per concern.** `busy: Boolean = false` on a
+`TapAction` means that tap neither guards nor spins — it renders byte-identical
+to today. That covers a tap that must be repeatable on rapid clicks (double-tap
+means something) or that must not visually spin. A SECOND flag, `busyVisual:
+Boolean` (default `true`, on `TapAction` and on the slider itself), is the
+Pkl-level opt-out of the busy LOOK only: it drops the `data-class:fh-disabled`
+bindings (instant dim + delayed spinner) but keeps the guard and the indicator,
+so a control the author wants to look unbusy still swallows spam clicks and
+still freezes its value commit. The slider's power button obeys BOTH its own
+tap's `busyVisual` AND the card's (so `tapAction.busyVisual = false` quiets it
+even when the card is otherwise visual), while the commit wrapper/badge obey
+only the card's. And on the "are we disabling doing both at the same time?"
+question: **no** — nothing in this design blocks one action because another is
+in flight. Each guarded element is independent; the light's effect pills are
+separate nodes, and on the slider the power button and the range input's commit
+each guard themselves (`_<id>__busy` vs `_<id>__busy_change`) without either
+blocking the other. The only suppression is same-element: a second click on the
+button, or a second value commit while one is in flight.
 
 What the flag does NOT opt into is **device-level mutual exclusion** — "don't
 fire the effect pill while the power pill is spinning". That is a different
@@ -159,21 +174,24 @@ above is what makes per-element the safe default.
 
 ### Two Pkl helpers keep the convention in one place
 
-The signal *name* appears in three template spots; embedding the literal in
-every card would give the name six homes. So `tap.pkl` exposes two `const`
-strings and the templates splice them via Pkl interpolation `\(…)` (the
+The signal *name* appears in several template spots; embedding the literal in
+every card would give the name multiple homes. So `tap.pkl` exposes three
+`const` strings and the templates splice them via Pkl interpolation `\(…)` (the
 `{{id}}` stays a Mustache token inside them, rendered by the engine):
 
 ```pkl
 const busyGuard: String = #"$_{{id}}__busy ? '' : "#
-const busyAttrs: String =
-  #"data-indicator="_{{id}}__busy" data-class:fh-busy="$_{{id}}__busy""#
+const busyAttrs: String = #"data-indicator="_{{id}}__busy""#
+const busyClass: String = #"data-class:fh-disabled="$_{{id}}__busy""#
 ```
 
 The indicator uses the **value form** — `data-indicator="_c_3__busy"`, not
 `data-indicator:_c_3__busy` — because the pinned bundle's parser splits the
 attribute *key* on `__` but not the value (see the primitives section). The
 keyed form would arm a differently-named signal and busy would never show.
+`busyAttrs` carries ONLY the indicator (the guard rides in the click
+expression, the class rides its own splice, gated separately on `busyVisual`),
+so the whole-look opt-out is a pure remove of the `busyClass` splice.
 
 ### Cards splice them, gated on a `busy` slot
 
@@ -194,12 +212,13 @@ data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"
 `busy` is an **optional** template var exactly like the existing `tappable` /
 `onclick` — not added to any card's declared `slots` list, so validate does not
 require it. When absent the section is falsy and the card renders byte-identical
-to today. When present:
+to today. When present (and, for the class splice, only when `busyVisual` also
+holds):
 
 - `data-indicator="_{{id}}__busy"` — busy=true while the `@post` is in flight,
   cleared by the `finally` `finished` on success and error alike.
-- `data-class:fh-busy="$_{{id}}__busy"` — the theme toggles the `fh-busy`
-  class (spinner/cursor, below).
+- `data-class:fh-disabled="$_{{id}}__busy"` — the theme's instant `fh-disabled`
+  dim, shell-promoted to the delayed `fh-loading` spinner/cursor (below).
 - the guard `$_{{id}}__busy ? '' : …` — a second click during the fetch
   evaluates to `''` and never calls `@post`.
 
@@ -222,7 +241,7 @@ names):
 const busyGuardChange: String = #"$_{{id}}__busy_change ? '' : "#
 const busyAttrsChange: String =
   #"data-indicator="_{{id}}__busy_change" data-attr:disabled="$_{{id}}__busy_change""#
-const busyClassChange: String = #"data-class:fh-busy="$_{{id}}__busy_change""#
+const busyClassChange: String = #"data-class:fh-disabled="$_{{id}}__busy_change""#
 ```
 
 spliced in `slider.pkl`'s self template:
@@ -245,9 +264,10 @@ spliced in `slider.pkl`'s self template:
   remains the belt for a programmatic dispatch (verified by a smoke test that
   dispatches `change` while a held POST is in flight).
 - **The busy visual rides on the track wrapper** (`.slider.max`, the element
-  that owns the thumb and the painted fill) rather than the native input alone,
-  plus `cursor: progress` overrides the slider's own `ew-resize` — the theme's
-  `.slider.max.fh-busy` rules in `theme-beer.pkl`.
+  that owns the thumb and the painted fill) AND the head badge (whose icon
+  spins for the whole in-flight window, since the track carries no icon of its
+  own), plus `cursor: progress` overrides the slider's own `ew-resize` — the
+  theme's `.slider.max.fh-loading` rules in `theme-beer.pkl`.
 - The drag itself (`data-on:input`) stays unguarded: it is client-side paint,
   and the disabled input already stops it during a commit.
 
@@ -319,19 +339,29 @@ against HA's docs and source:
   button in the busy UI would therefore just fire the inverse service — which
   for a toggle is exactly what the next tap already does.
 
-### The busy look (theme-owned)
+### The busy look (theme-owned, two classes, two timings)
 
-`theme-beer.pkl` (and the `theme.pkl` contract's `styles`) styles `fh-busy`:
-`cursor: progress` on the card, a slight opacity/scale drop, and — when the
-busy element carries an `i.mdi` icon (an entity card's header badge, a
-slider's power button or head badge) — a spinning ring replaces the glyph.
-The glyph lives in `.mdi:before`, so the ring is the `i`'s `::after`; the busy
-`i` gets an explicit 1em square box so the fixed-size ring is exact — a
-glyph's natural advance box is smaller, and a ring laid over it overflows,
-miscentres, and gets clipped by a button's `overflow:hidden`. A `.slider.max`
-commit busy carries no icon of its own, so it also classed its head badge —
-the badge's icon spins for the whole in-flight window, while the track shows
-only dim + cursor. Nothing in the templates carries presentation.
+`theme-beer.pkl` (and the `theme.pkl` contract's `styles`) owns the busy look as
+TWO classes, split so the *instant* feedback and the *sustained* feedback can
+have different costs and different opt-outs:
+
+- **`.fh-disabled`** — bound by Datastar the moment the guard flips (`data-class:fh-disabled="$<id>__busy"`): a slight opacity drop (`.5`, fast `transition`), no animation, no cursor. This is the anti-flicker half: fast calls get dim + dim only, with no spinner flash.
+- **`.fh-loading`** — added by `shell.ts`'s `MutationObserver` (watching `class` + `childList` per node) only after the busy state has held for `FH_LOADING_DELAY` = 100 ms, and removed the moment `fh-disabled` drops. This is the "it is genuinely taking a while" half: `cursor: progress` on the card, and — when the busy element carries an `i.mdi` icon (an entity card's header badge, a slider's power button or head badge) — a spinning ring replaces the glyph. `shell.ts` also suppresses the spinner under `prefers-reduced-motion`.
+
+The observer adds/removes `fh-loading` from the element whose `class`
+attribute gains/loses `fh-disabled`, with per-node `WeakMap` timers so a
+fast-then-slow flip never leaks a stale promotion. **Themes must never bind
+`fh-loading` themselves** — it is shell-promoted only, so a theme cannot
+accidentally flash it on page load; `fh-disabled` is the Datastar-bound half
+themes may style. The glyph ring: the busy `i` gets an explicit 1em square box
+so the fixed-size `::after` ring is exact — a glyph's natural advance box is
+smaller, and a ring laid over it overflows, miscentres, and gets clipped by a
+button's `overflow:hidden`. A `.slider.max` commit busy carries no icon of its
+own, so it also classed its head badge — the badge's icon spins for the whole
+in-flight window, while the track shows only dim + cursor. Nothing in the
+templates carries presentation. `busyVisual = false` (a tap or the slider)
+simply drops both `data-class:fh-disabled` bindings, so neither class can ever
+land — the guard and the indicator are untouched.
 
 ### The failure toast (client-only)
 
@@ -470,42 +500,53 @@ than the HTTP boundary:
 
 ## Files touched (core scope)
 
-- `resources/dashboards/lib/core/tap.pkl` — `busy` on `TapAction`,
-  `busyGuard`/`busyAttrs`, the `busy` flags on the service constructors, and
-  the slider commit's `busyGuardChange`/`busyAttrsChange`/`busyClassChange`.
+- `resources/dashboards/lib/core/tap.pkl` — `busy` AND `busyVisual` on
+  `TapAction`, `busyGuard`/`busyAttrs`/`busyClass`, the busy flags on the
+  service constructors, and the slider commit's `busyGuardChange`/
+  `busyAttrsChange`/`busyClassChange`.
 - `resources/dashboards/lib/components/entity.pkl`, `control.pkl`,
-  `slider.pkl` — `busy` slot + template splice on the tappable elements; the
-  slider's self template also gains the commit guard on its range input.
+  `slider.pkl` — `busy` slot + template splice on the tappable elements,
+  gated on `busyVisual`; the slider's self template also gains the commit
+  guard on its range input, a `busyVisual` knob, and the power button's
+  `busyTapVisual` (its own tap's `busyVisual` AND the card's).
 - `resources/dashboards/lib/theme-beer.pkl` (and the `theme.pkl` contract if
-  it documents `styles`) — `.fh-busy` / `.fh-toast`, and the
-  `.slider.max.fh-busy` cursor overrides.
+  it documents `styles`) — `.fh-disabled` / `.fh-loading` / `.fh-toast`, the
+  `@keyframes fh-loading-spin`, and the `.slider.max.fh-loading` cursor
+  overrides.
 - `src/js/shell.ts` — the `datastar-fetch:error` toast listener (stays
-  import-free; a document listener needs no imports).
+  import-free; a document listener needs no imports) and the
+  `fh-loading`-promotion `MutationObserver` (`FH_LOADING_DELAY`).
 - `docs/architecture-rendering-pipeline.md` — updated in the same commit, per
   the module rule (the card template conventions are pipeline-adjacent).
 
 ## Tests
 
-- **Wire snapshots**: actionable cards now emit a `"busy":"1"` slot, and the
-  slider's `self` template carries the commit splices → the
-  `PklBuildSuite` snapshots drift. Regenerate deliberately with
-  `sbt dashboardSnapshotsUpdate` and read the JSON diff.
+- **Wire snapshots**: actionable cards now emit a `"busy":"1"` slot (and a
+  `"busyVisual":"1"` slot), and the slider's `self` template carries the
+  commit splices → the `PklBuildSuite` snapshots drift. Regenerate deliberately
+  with `sbt dashboardSnapshotsUpdate` and read the JSON diff.
 - **Functional**: `PklDashboardBehaviourSuite` asserts the rendered HTML of an
   actionable card carries `data-indicator="_{{id}}__busy"` (VALUE form — the
-  keyed form was the busy bug), the guard prefix `$_{{id}}__busy ? '' : `, and
-  that a non-actionable / more-info card does not; and that `_<id>__busy` never
-  appears in an action request body (it is `_`-prefixed and the taps already
-  send `noSignals`). A second case asserts the slider's commit renders
+  keyed form was the busy bug), the guard prefix `$_{{id}}__busy ? '' : `,
+  `data-class:fh-disabled="$_{{id}}__busy"`, and that a non-actionable /
+  more-info card does not; and that `_<id>__busy` never appears in an action
+  request body (it is `_`-prefixed and the taps already send `noSignals`). A
+  second case asserts the slider's commit renders
   `data-indicator="_{{id}}__busy_change"`, `data-attr:disabled`, the guarded
-  `data-on:change`, and the wrapper's `data-class:fh-busy`.
+  `data-on:change`, and the wrapper's `data-class:fh-disabled`; a third case
+  asserts `busyVisual = false` drops every `data-class:fh-disabled` while
+  keeping the guard, indicator and freeze byte-identical.
 - **Browser-level**: the `ControlSmokeSuite` busy + toast cases (guarded by the
   busy → gated pill/card, fake configurable call delay and forced failures)
   verify the indicator clears and the toast appears. The new slider case drives
   a real commit (keyboard `End` → the value POST, held 2s), asserts the wrapper
-  shows `fh-busy` and the input is disabled while it is in flight, dispatches a
-  programmatic `change` (a disabled input cannot fire one natively) and asserts
-  it is NOT a second call, then asserts busy and `disabled` clear when the held
-  response lands.
+  shows `fh-disabled` and the input is disabled while it is in flight,
+  dispatches a programmatic `change` (a disabled input cannot fire one
+  natively) and asserts it is NOT a second call, then asserts busy and
+  `disabled` clear when the held response lands. A delay case samples the
+  toggle at +50 ms after `fh-disabled` appears and asserts `fh-loading` is NOT
+  there yet (still inside the 100 ms threshold), then waits for the promotion
+  and its clear.
 - **`Dashboard.validate`**: no change expected (`busy` is optional like
   `tappable`; `{{id}}` is injected).
 - **Frontend**: `tsc --noEmit` runs in the vite build, so shell.ts is covered;

@@ -231,13 +231,18 @@ client-only feedback around the `@post` — see `docs/plan-action-feedback.md`:
 - **Busy, per node.** A guarded tap renders `data-indicator="_<id>__busy"`
   (the value form — the pinned bundle splits attribute KEYS on `__`, so the
   keyed form would arm a differently-named signal) + a
-  `data-class:fh-busy="$<id>__busy"`, and wraps its click in
+  `data-class:fh-disabled="$<id>__busy"`, and wraps its click in
   `$<id>__busy ? '' : …` (a second click while in flight is a no-op). The
   indicator clears in a `finally` on success AND error. The signal is
   `_`-prefixed client-only state: it never joins a request and is per-node, so
   one card spinning never disables its sibling. A node re-render (the state
   change that is the whole point of the action) replaces the element and resets
-  the signal — that is the NORMAL clear.
+  the signal — that is the NORMAL clear. The busy LOOK is two classes, two
+  timings (see `docs/plan-action-feedback.md`): Datastar binds the instant
+  `fh-disabled` dim the moment the signal flips, and `shell.ts`'s
+  `MutationObserver` promotes a node that stays busy past `FH_LOADING_DELAY`
+  (100 ms) to `fh-loading` (progress cursor + icon spinner). `busyVisual =
+  false` on a tap/slider drops both class bindings but never the guard.
 - **The slider's value commit is the second guarded element.** A slider commits
   on release (`data-on:change` → the value POST), so its range input carries the
   same pieces under its own `_<id>__busy_change` signal (never sharing the power
@@ -246,7 +251,8 @@ client-only feedback around the `@post` — see `docs/plan-action-feedback.md`:
   busy). While the signal is set the input is also `disabled` — safe because
   busy can only become true on release — so a drag back on is frozen at the
   browser and a programmatic `change` is swallowed by the guard. The busy class
-  rides the `.slider.max` track wrapper.
+  rides the `.slider.max` track wrapper (and the head badge, whose icon spins
+  during the commit).
 - **Failure toast, in the shell.** `shell.ts` listens for
   `datastar-fetch:error` whose element sits under a `[data-on\:click]` (the
   escaped-colon selector; the persistent stream's errors arrive with `el` =
