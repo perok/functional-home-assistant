@@ -156,7 +156,7 @@ class ControlSmokeSuite extends SmokeSuite {
         // The head badge is the slider's icon (`mdi-lightbulb`); the commit's
         // busy class lands on it too, so its glyph becomes a spinner for the
         // whole in-flight window.
-        val badge = page.locator(".slider-icon .shape .loading-indicator")
+        val badge = page.locator(".slider-icon i.mdi")
         def busy: IO[Boolean] =
           IO.blocking(
             wrapper
@@ -168,7 +168,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             badge
               .evaluate(
-                "el => getComputedStyle(el).animationName === 'fh-loading-appear'"
+                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
               )
               .asInstanceOf[Boolean]
           )
@@ -202,18 +202,17 @@ class ControlSmokeSuite extends SmokeSuite {
 
   test("a busy-guarded element's icon becomes a spinner while its call is in flight") {
     // The slider's power button carries an `i.mdi` icon AND the busy pieces,
-    // so while its POST is held the theme overlays a BeerCSS
-    // `loading-indicator` shape that spins (`fh-loading-appear`). Computed
-    // style, because the animation is on the shape div — the class check
-    // alone proves nothing about the look.
+    // so while its POST is held the theme overlays a `::after` ring that spins
+    // (`fh-loading-spin`). Computed style, because the ring is a pseudo-element
+    // — the class check alone proves nothing about the look.
     withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
-        val icon = page.locator("button.slider-action .shape .loading-indicator")
+        val icon = page.locator("button.slider-action i.mdi")
         def spinning: IO[Boolean] =
           IO.blocking(
             icon
               .evaluate(
-                "el => getComputedStyle(el).animationName === 'fh-loading-appear'"
+                "el => getComputedStyle(el, '::after').animationName === 'fh-loading-spin'"
               )
               .asInstanceOf[Boolean]
           )
