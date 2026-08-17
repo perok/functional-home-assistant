@@ -88,10 +88,11 @@ know.
    the container's own gap. Filling is the default because it is what a card
    wants; hugging is what makes a row of pills read as a row of pills instead of
    short labels rattling around in equal boxes. `--fh-gap` is the spacing knob;
-   `theme.pkl` carries all of this as a reusable `const layoutCss` a theme
-   interpolates at the top of its `styles` (theme-beer does) — a future theme
-   reuses it or replaces the layout system wholesale, and the visual classes
-   (`.card`, `.section`, …) remain each theme's own. The default-span selectors
+   `core/css.pkl` carries all of this as `layoutCss`, which `entry.pkl` puts on
+   the dashboard itself and the renderer emits ahead of any theme (ADR 0020) —
+   so a theme inherits the layout system rather than having to interpolate it,
+   and overrides it only if it means to replace the whole thing. The
+   default-span selectors
    use `:where()` so any authored `.fh-cols-<n>` wins on specificity.
 6. **Authoring follows HA naming.** Layout builders live on the Pkl
    `LayoutNode` base, so components and dynamic groups share them: `columns(n)`

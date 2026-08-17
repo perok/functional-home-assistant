@@ -95,9 +95,12 @@ const busyClass: String =
 const busyDelayMs: Int = 300
 
 /// The spinner splice, for an element that hosts an `i.mdi` glyph (the entity
-/// header badge, the slider's head badge and its power button). It gains
-/// BeerCSS's `shape`/`loading-indicator` classes — an SVG mask that morphs
-/// itself, wrapping the glyph rather than replacing it.
+/// header badge, the slider's head badge and its power button). The class it
+/// gains is the THEME's to name — the splice leaves a [[nodes.CLASS_BIND]] hole
+/// under the key `busySpin`, which the registry fills with whatever the theme
+/// lists there (BeerCSS's `shape loading-indicator`, an SVG mask that morphs
+/// itself around the glyph; `fh-busy-spin`, a plain ring, for a theme that says
+/// nothing). Only the TIMING is ours.
 ///
 /// The [[busyDelayMs]] gate is a DERIVED SIGNAL, not a CSS `animation-delay`.
 /// A class carries more than paint: `shape` also gives the element a box
@@ -121,21 +124,16 @@ const busyDelayMs: Int = 300
 /// timer on every guarded element. Node ids are `[A-Za-z0-9_]` only
 /// (`Dashboard.sanitize`), so interpolating one into the regex is safe.
 ///
-/// The classes must be ABSENT at rest rather than styled inert:
-/// `.shape>i{filter:invert(1)}` is unconditional in BeerCSS, so a
-/// permanently-present class would tint the glyph when nothing is happening.
+/// The class must be ABSENT at rest rather than styled inert: BeerCSS's
+/// `.shape>i{filter:invert(1)}` is unconditional, so a permanently-present
+/// class would tint the glyph when nothing is happening. A theme naming its
+/// spinner class here inherits that rule — bind, never style-inert.
 ///
-/// KNOWN DEBT: `shape`/`loading-indicator` are BeerCSS's OWN class names, named
-/// here in the framework-agnostic core kit. `fh-disabled`/`fh-loading` go
-/// through the theme contract properly; this one skipped that layer, so a
-/// second theme cannot restyle a busy control without shipping BeerCSS's
-/// names. Decoupling it into an `fh-`-prefixed contract is open work — see
-/// `docs/adr/0019-an-action-in-flight.md` "Consequences".
 /// `__ifmissing` is load-bearing: this element is a morph target, and a plain
 /// `data-signals` would re-seed the signal to false on every patch that
 /// touches it — including the ones the in-flight action itself provokes.
 const local function busySpinner(sig: String): String = #"""
-  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" data-class:shape="$\#(sig)_slow" data-class:loading-indicator="$\#(sig)_slow"
+  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" @@CLASSBIND:busySpin:$\#(sig)_slow@@
   """#
 
 const busyShapeClass: String = busySpinner("_{{id}}__busy")

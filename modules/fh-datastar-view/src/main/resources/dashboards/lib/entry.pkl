@@ -18,6 +18,7 @@
 module entry
 
 import "components.pkl" as c
+import "core/css.pkl" as cssMod
 import "theme-beer.pkl" as themeMod
 
 /// The component modules whose card classes this dashboard can use. The
@@ -41,9 +42,22 @@ hidden componentModules: Listing<Module> = new {
   for (m in c.modules) { m }
 }
 
-/// The reflected card registry (each card class's template + slots), collected
-/// from [[componentModules]]. Two modules claiming one card name is an error.
-cards = c.cardsOf(componentModules.toList())
+/// The reflected card registry (each card class's template, slots and CSS),
+/// collected from [[componentModules]]. Two modules claiming one card name is an
+/// error.
+///
+/// Built with the THEME, because this is the one point where a theme's own class
+/// names reach card markup (`core/node.pkl`'s `cardsWith` — the spinner is
+/// today's only user). A card's markup is a class-level default that cannot see
+/// the theme; the registry is an ordinary call that can.
+cards = c.cardsWith(componentModules.toList(), theme.classes)
+
+/// The CSS every dashboard gets whatever its theme: the `fh-` layout contract,
+/// the `--fh-*` variables the cards read, and the classes the runtime itself
+/// emits (`core/css.pkl`). Assigned here rather than reached through the theme
+/// precisely so a theme cannot drop it — it may only override it, since the
+/// renderer emits it first (ADR 0020).
+css = cssMod.baseCss
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a

@@ -1,0 +1,180 @@
+/// The CSS every dashboard gets, whatever its theme — the layout contract, the
+/// component-facing colour variables, and the look of the states and banners
+/// the SERVER (not a card) emits.
+///
+/// `entry.pkl` assigns this to the dashboard's `css`, so it is not a theme
+/// property and a theme cannot drop it. The runtime emits it BEFORE every
+/// card's own `cardDef.css` and before `theme.styles`, so both can override it
+/// by ordinary cascade order (see `fh.view.runtime.Renderer.themeStyleTag`).
+///
+/// THE THREE LAYERS, and what belongs in each:
+///   1. HERE — what is true of every dashboard: the `fh-` layout classes, the
+///      busy/offline/toast classes bound or emitted by the runtime, and the
+///      `--fh-*` variables below.
+///   2. A CARD's `cardDef.css` (`core/node.pkl`) — the STRUCTURE of the markup
+///      that card emits: its own class names, their box/flow/spacing. Colour
+///      goes through the `--fh-*` variables, never a framework's own role name,
+///      so the card renders sanely under any theme.
+///   3. A THEME's `styles` — paint, and whatever its framework needs on top:
+///      the palette, the framework's own class names (BeerCSS's `.shape`,
+///      `.chip`, `--_padding`), and any retune of layers 1-2.
+module core.css
+
+/// The colour contract a CARD's CSS is written against — one semantic name per
+/// job, defaulting to the HA-named design token that means the same thing (see
+/// `tokens.pkl`, which every theme supplies). A theme re-points these to its
+/// framework's own roles in `styles` (the BeerCSS theme does; its block is
+/// emitted at `body` specificity, so it wins over this `:root` one).
+///
+/// This is what keeps a card's CSS framework-agnostic without making it
+/// colourless: a card says `var(--fh-text-dim)`, not `var(--on-surface-variant)`
+/// (a Material role that only exists because BeerCSS is loaded) and not a
+/// literal.
+const local paletteVars: String = """
+  :root{
+  --fh-accent:var(--primary-color);
+  --fh-on-accent:var(--text-primary-color);
+  --fh-text:var(--primary-text-color);
+  --fh-text-dim:var(--secondary-text-color);
+  --fh-surface-alt:var(--secondary-background-color);
+  --fh-surface-sunken:var(--secondary-background-color);
+  --fh-error:var(--error-color);
+  --fh-on-error:var(--text-primary-color);
+  --fh-warning:var(--warning-color);
+  }
+  """
+
+/// Framework-agnostic CSS for the `fh-` layout contract — the sane default
+/// every theme can reuse. Three container behaviors, mirroring HA's
+/// "sections" dashboard (see ADR 0008):
+///
+///   - GRID (`.fh-grid`, the default top-level container): a 12-column
+///     sizing system where a cell's width is its `columns(n)` span (default
+///     4 — a third, HA's default card size) of 12. Built on flexbox rather
+///     than CSS grid so a PARTIAL row (cells not summing to 12) group-centers
+///     while a FULL row fills edge-to-edge — the HA-sections feel. Centering
+///     is ON by default; `Grid.centered(false)` emits `.fh-start` to
+///     left-pack instead. The span basis `(100% + gap) * n/12 - gap` makes
+///     any set of spans summing to 12 fit one row exactly (the `+gap`/`-gap`
+///     cancels the inter-cell gaps).
+///   - ROW (`.fh-row`): a horizontal flex line whose children SHARE the width
+///     equally (`flex:1 1 0`). No 12-col spans here — sizing is share-based.
+///   - COLUMN (`.fh-col`): a vertical flex stack whose children FILL the width.
+///
+/// A cell normally FILLS its share — the width its container hands it — which is
+/// what every card wants. `.fh-hug` (`LayoutNode.hug()`) is the opt-out: the cell
+/// shrinks to its content, so a run of them packs at the container's own gap
+/// instead of each one rattling around inside an equal share. It is what makes a
+/// row of pills read as a row of pills; a filling card in a grid still needs a
+/// SPAN, so `fh-hug` and `fh-cols-*` are different questions and compose.
+///
+/// **A container states its children's layout as an INHERITED CUSTOM PROPERTY
+/// (`--fh-cell-flex`/`--fh-cell-align-self`/`--fh-cell-width`), not a
+/// child-combinator selector** — every `.fh-cell` just reads
+/// `flex:var(--fh-cell-flex,…)` from whichever ancestor last declared it. A
+/// container only ever says "this is my children's layout"; it never reaches
+/// for a child directly, which is what makes a query set's `.fh-group`
+/// member container composable rather than a fixed flow of its own: it is
+/// ALWAYS `display:contents` (a pure CSS passthrough — it must stay in the
+/// DOM, the runtime's per-member patch target, ADR 0003, but need not
+/// generate a box), so its members always resolve their flex/width from
+/// whichever REAL container — `Row`, `Column`, `Grid` — actually holds them,
+/// at ANY nesting depth, because custom-property inheritance crosses a
+/// `display:contents` element exactly like any other. This is internal to
+/// how a set renders, not an authoring choice: there is nothing to opt into,
+/// and no flow a set could sensibly keep of its own once it always defers to
+/// its real container. A `.fh-row>.fh-cell` CHILD-COMBINATOR selector could
+/// not do this — selectors match the actual DOM tree, and `.fh-group` stays
+/// in it (nothing else could then target it by id), so the combinator would
+/// stop at the wrapper instead of reaching its grandchildren.
+///
+/// So `columns(n)`/`fullWidth()` are GRID-ONLY affordances; inside a row/column
+/// you don't size children, they share/fill (and on a query set, calling them
+/// is simply inert — a set has no box of its own to size). Rows and columns
+/// nest freely into each other and into grid cells. On narrow screens
+/// (<=640px) every grid cell collapses to full width, a set's members
+/// included (`.fh-group>.fh-cell` is a DOM selector, unaffected by
+/// `display:contents`, so it still reaches them). The default-span selectors
+/// use `:where()` so any authored `.fh-cols-<n>` beats them (as does
+/// `--fh-cell-flex` itself: real class selectors, `.fh-cols-<n>` included,
+/// always outrank `:where()`'s zero specificity); `--fh-gap` retunes spacing
+/// per theme.
+const layoutCss: String = """
+  .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}
+  .fh-grid.fh-start{justify-content:flex-start}
+  .fh-group{display:contents}
+  :where(.fh-cell){flex:var(--fh-cell-flex,0 1 auto);min-width:0;align-self:var(--fh-cell-align-self,stretch);width:var(--fh-cell-width,auto)}
+  """ + colSpans + """
+
+  .fh-cols-full{flex-basis:100%}
+  .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap;--fh-cell-flex:1 1 0;--fh-cell-align-self:flex-start}
+  .fh-cell.fh-hug{flex:0 0 auto}
+  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%}
+  .fh-cell:has(>.fh-ifhost:empty){display:none}
+  @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
+  """
+
+// One span rule per grid column count (`.fh-cols-1` .. `.fh-cols-12`): the
+// flex-basis that makes an n/12 cell fit (gaps cancel — see [[layoutCss]]).
+const local colSpans: String = new Listing {
+  for (n in IntSeq(1, 12)) {
+    ".fh-cols-\(n){flex-basis:calc((100% + var(--fh-gap,1rem)) * \(n) / 12 - var(--fh-gap,1rem))}"
+  }
+}.toList().join("\n")
+
+/// The busy state a guarded action toggles while its POST is in flight
+/// (`core/tap.pkl`, ADR 0019). `fh-disabled`/`fh-loading` say "your tap landed,
+/// this control is inert", so they are IMMEDIATE and plain — no animation,
+/// nothing to time. They are here rather than on a card because `core/tap.pkl`
+/// binds them onto whatever a tap lands on: a card, a button, a pill, a
+/// toggle, a slider's track.
+///
+/// The SPINNER is the delayed half, and the class it lands on is the THEME's
+/// choice (`Theme.classes["busySpin"]`, injected into the templates by
+/// `core/node.pkl`'s `cardsWith`). `.fh-busy-spin` below is the default a theme
+/// that names nothing falls back to — a plain rotating ring around the glyph.
+/// The BeerCSS theme names its own `shape loading-indicator` instead, so under
+/// it this rule matches nothing.
+const local busyCss: String = """
+  .fh-disabled{opacity:.5}
+  .fh-loading{cursor:progress}
+  .fh-busy-spin{display:inline-flex;align-items:center;justify-content:center;
+  inline-size:2.25rem;block-size:2.25rem;box-sizing:border-box;border-radius:50%;
+  border:.125rem solid var(--fh-accent);border-block-start-color:transparent;
+  animation:fh-busy-spin .8s linear infinite}
+  @keyframes fh-busy-spin{to{rotate:1turn}}
+  @media (prefers-reduced-motion:reduce){
+  .fh-busy-spin{animation:none;border-block-start-color:var(--fh-accent);opacity:.5}
+  }
+  """
+
+/// Live state the SHELL emits, not a card: the connection banners (`Server.page`)
+/// and the failed-action toast (`src/js/shell.ts`). Structure and behaviour are
+/// the server's, so the general look is here — a theme retunes it like anything
+/// else. Two banner kinds, coloured apart on purpose: the SSE transport is an
+/// error, the upstream HA feed a warning.
+const local shellCss: String = """
+  .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;text-align:center;
+  padding:.5rem 1rem;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  .fh-offline-sse{background:var(--fh-error);color:var(--fh-on-error)}
+  .fh-offline-ha{background:var(--fh-warning);color:#000}
+  .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
+  border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
+  .fh-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+  z-index:1100;background:var(--fh-error);color:var(--fh-on-error);padding:.75rem 1rem;
+  border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+  """
+
+/// The class contract two cards share, so it lives with neither: an entity's
+/// live reading (`components/entity.pkl`, `components/slider.pkl`) and a
+/// section title (`components/text.pkl`).
+const local sharedCss: String = """
+  .state{color:var(--fh-text-dim)}
+  .section{color:var(--fh-accent)}
+  """
+
+/// What `entry.pkl` puts on the dashboard's `css`. Order is cascade order:
+/// variables first (everything below reads them), then layout, then the
+/// runtime-owned classes.
+const baseCss: String =
+  List(paletteVars, layoutCss, busyCss, shellCss, sharedCss).join("\n")

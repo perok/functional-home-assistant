@@ -33,6 +33,17 @@ class EntityInfo extends nodes.Node {
       </div>
       """
     slots { "entity_id"; "attributes" }
+    // The attribute block is preformatted text, so it scrolls INSIDE its own
+    // box, capped: a chatty entity (a media player reports dozens) must not
+    // push the dialog's controls and ✕ off the screen.
+    css = """
+      .entity-info{display:flex;flex-direction:column;gap:.5rem}
+      .entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
+      color:var(--fh-text-dim)}
+      .entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
+      line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
+      color:var(--fh-text-dim)}
+      """
   }
   hidden entity: hass.Entity
   slots {

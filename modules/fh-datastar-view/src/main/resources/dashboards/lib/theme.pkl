@@ -10,65 +10,78 @@
 /// amending the instance (`tokens`/`styles` are ordinary properties; see the
 /// implementation modules for their amend forms).
 ///
-/// Everything visual lives in a theme, NOT in the server. The renderer emits
-/// `tokens` as `:root` custom properties (with `tokensDark` under
-/// prefers-color-scheme:dark); the server `<link>`s `stylesheets`, injects
-/// `scripts` as ES modules, and inlines `styles` + `inlineScripts`.
+/// Everything visual lives outside the server. The renderer emits `tokens` as
+/// `:root` custom properties (with `tokensDark` under prefers-color-scheme:dark);
+/// the server `<link>`s `stylesheets`, injects `scripts` as ES modules, and
+/// inlines `styles` + `inlineScripts`.
 ///
-/// Contract with the components/renderer (the class names they emit):
+/// ## A theme is the THIRD layer, not the only one (ADR 0020)
+///
+/// The page's CSS is assembled from three sources, in this order, all inside one
+/// `<style id="fh-theme">`:
+///
+///   1. `core/css.pkl`'s `baseCss` — the `fh-` layout contract, the `--fh-*`
+///      colour variables, and the classes the RUNTIME emits or binds
+///      (`fh-disabled`/`fh-loading`, the offline banners, the toast). `entry.pkl`
+///      puts it on the dashboard itself, so it is not yours to drop.
+///   2. every card's `cardDef.css` — the structure of the markup that card
+///      emits, written against the `--fh-*` variables.
+///   3. this theme's `styles`.
+///
+/// Later beats earlier by document order, so `styles` can override anything in
+/// 1 or 2 without either of them knowing. What is genuinely YOURS is the paint:
+/// the palette, the `--fh-*` re-pointing, your framework's own class names, and
+/// any retune of the two layers below.
+///
+/// ## What a card guarantees you
+///
+/// The class contract cards and the renderer emit, which your `styles` may
+/// restyle (all of it already has a working default from layers 1-2):
 ///   containers -> `.fh-grid` / `.fh-row` / `.fh-col`, the universal node
-///   wrapper (the id'd flex/grid item the renderer puts around EVERY card) ->
-///   `.fh-cell`, a query set's member container -> `.fh-group` — ALWAYS a
-///   pure CSS passthrough (see [[layoutCss]]), not an author-facing choice,
-///   per-cell layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full` (authored
-///   via the HA-style builders `columns(n)`/`fullWidth()` on
-///   components.pkl [[LayoutNode]] — inert on a query set, which has no box
-///   of its own to size), a grid's group-centering opt-out -> the
-///   `.fh-start` marker on the grid element (`Grid.centered(false)`),
-///   cards -> `.card`, section titles -> `.section`, state text -> `.state`,
-///   popup dialog -> `.popup`/`.popup-close`, tabs -> `.tabs`/`.tabbar`/`.tab`,
-///   more-info facts -> `.entity-info`/`.entity-info-id`/`.entity-info-attrs`
-///   (the attribute block is preformatted text — a theme that does not wrap and
-///   cap it gets a dialog as tall as the entity is chatty).
-///   A guarded action while its POST is in flight toggles TWO classes on the
-///   tappable element itself (cards, buttons, pills, toggles, slider power
-///   buttons):
-///   - `.fh-disabled` — bound directly to the busy signal by
-///     `data-class:fh-disabled`; the guard is active, so the element is
-///     genuinely inert and should say so (the default theme dims it).
-///     IMMEDIATE, and a theme must keep it so: this is the answer to the tap.
-///   - `.fh-loading` — bound to the SAME signal by `data-class:fh-loading`,
-///     equally immediate; the "still working" cursor.
-///   The SPINNER is separate and DELAYED, because "this is taking a while" is
-///   a different statement from "your tap landed". Any element hosting an
-///   `i.mdi` glyph (an entity header badge, a slider's head badge or power
-///   button) binds BeerCSS's own `.shape`/`.loading-indicator` — an SVG-masked
-///   shape that morphs itself, painted around the glyph — to a signal `tap.pkl`
-///   derives from the busy one, true only once the action has run past the
-///   threshold. A theme therefore styles those classes as "showing", with no
-///   delay of its own: the decision was already made before they landed.
-///   They are bound rather than styled inert because
-///   `.shape>i{filter:invert(1)}` is unconditional in BeerCSS and would tint
-///   the glyph at rest otherwise.
-///   A component opts out of the whole busy look via `busyVisual = false`
-///   (it then binds none of the four); the guard stays.
-///   A failed action shows `.fh-toast`, a small fixed bar created
-///   by the shell on `datastar-fetch:error` — structure/behavior live in the
-///   shell, the LOOK here.
+///   wrapper -> `.fh-cell`, a query set's member container -> `.fh-group`
+///   (ALWAYS a pure CSS passthrough, not an author-facing choice), per-cell
+///   layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full`, a grid's
+///   group-centering opt-out -> `.fh-start`, cards -> `.card`, section titles ->
+///   `.section`, state text -> `.state`, popup dialog -> `.popup`/`.popup-close`,
+///   tabs -> `.tabs`/`.tabbar`/`.tab`, more-info facts ->
+///   `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, the slider's parts ->
+///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-sub`/`.slider-action`/
+///   `.slider-body`/`.slider-members`/`.slider-group`.
 ///
-/// The `fh-` LAYOUT classes have ready-made framework-agnostic CSS below
-/// ([[layoutCss]]): a theme normally interpolates it at the top of its
-/// `styles` (`\(themeMod.layoutCss)`) and only re-implements it to change the
-/// layout system itself. The visual classes (`.card`, `.section`, …) are the
-/// part each theme styles its own way.
+/// A guarded action in flight toggles two classes on the tappable element
+/// itself: `.fh-disabled` (the guard is active, the element is genuinely inert)
+/// and `.fh-loading` (the "still working" cursor). Both are IMMEDIATE, and a
+/// theme must keep them so: this is the answer to the tap.
 ///
-/// WRITING A THEME (the whole API surface):
+/// ## Getting your OWN class names into a card's markup
+///
+/// The SPINNER is separate and DELAYED, because "this is taking a while" is a
+/// different statement from "your tap landed". It is also the one place where
+/// the right class depends on the framework, so [[classes]] is how you name it:
+/// the card templates carry a hole (`core/node.pkl`'s `CLASS_BIND`) that the
+/// card registry fills with the names you list. BeerCSS asks for
+/// `shape loading-indicator` — its own self-morphing SVG mask — and a theme that
+/// asks for nothing gets `fh-busy-spin`, the plain ring in `core/css.pkl`.
+/// Style whichever you name as "showing", with no delay of its own: the
+/// decision was already made before the class landed (the delay is a derived
+/// signal in `tap.pkl`). Bind rather than style-inert — BeerCSS's
+/// `.shape>i{filter:invert(1)}` is unconditional and would tint the glyph at
+/// rest.
+///
+/// A component opts out of the whole busy look via `busyVisual = false` (it then
+/// binds none of it); the guard stays. A failed action shows `.fh-toast`, a small
+/// fixed bar created by the shell on `datastar-fetch:error` — structure and
+/// behavior live in the shell, the LOOK is layer 1's, and yours to retune.
+///
+/// ## WRITING A THEME (the whole API surface)
 ///   1. Create a sibling `theme-<name>.pkl` exporting `theme: Theme` (or an
 ///      `open class` extending [[Theme]] if you want amendable knobs, like
 ///      theme-beer's palettes).
 ///   2. `tokens`/`tokensDark`: HA-named design tokens (see tokens.pkl) —
 ///      emitted as `:root` custom properties, dark under
-///      prefers-color-scheme.
+///      prefers-color-scheme. `core/css.pkl` defaults every `--fh-*` variable
+///      the cards read from these, so a theme that sets only tokens already
+///      renders coherently.
 ///   3. `stylesheets`/`scripts`: your framework's CDN links (pinned versions,
 ///      never `@latest`). Scripts are ES modules injected after stylesheets;
 ///      dashboard BEHAVIOR stays with Datastar — ship JS only for visuals
@@ -78,104 +91,31 @@
 ///      link — a pointer gesture your rules depend on, like
 ///      [[sliderHoldScript]]. Both force a page RELOAD when they change (a
 ///      script cannot be un-run), unlike `styles`, which patches.
-///   4. `styles`: start with `\(themeMod.layoutCss)` (the layout contract),
-///      then style the visual classes from the roster above on top of the
-///      tokens.
-///   5. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
+///   4. `styles`: the palette, then the `--fh-*` re-pointing if your framework
+///      has better roles than the HA tokens, then whatever your framework's own
+///      classes need. You do NOT need to restate the layout contract or any
+///      card's structure — they arrive ahead of you.
+///   5. `classes`: the class names you want injected into card markup (today:
+///      `busySpin`).
+///   6. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
 ///      `id="dashboard"` (the reload swap target; enforced by
 ///      Dashboard.validate) and, if the dashboard uses popups, host a
 ///      `<div id="popups">{{{popups}}}</div>` overlay mount. The hole is where
 ///      a popup being RESTORED on a refresh is baked, so it is on screen with
 ///      the first paint instead of arriving when the stream connects; leave it
 ///      out and the dialog still works, it just pops in a moment late.
-///   6. An entry opts in with `theme = (import "lib/theme-<name>.pkl").theme`.
+///   7. An entry opts in with `theme = (import "lib/theme-<name>.pkl").theme`.
 module theme
 
-/// Framework-agnostic CSS for the `fh-` layout contract — the sane default
-/// every theme can reuse. Three container behaviors, mirroring HA's
-/// "sections" dashboard (see ADR 0008):
-///
-///   - GRID (`.fh-grid`, the default top-level container): a 12-column
-///     sizing system where a cell's width is its `columns(n)` span (default
-///     4 — a third, HA's default card size) of 12. Built on flexbox rather
-///     than CSS grid so a PARTIAL row (cells not summing to 12) group-centers
-///     while a FULL row fills edge-to-edge — the HA-sections feel. Centering
-///     is ON by default; `Grid.centered(false)` emits `.fh-start` to
-///     left-pack instead. The span basis `(100% + gap) * n/12 - gap` makes
-///     any set of spans summing to 12 fit one row exactly (the `+gap`/`-gap`
-///     cancels the inter-cell gaps).
-///   - ROW (`.fh-row`): a horizontal flex line whose children SHARE the width
-///     equally (`flex:1 1 0`). No 12-col spans here — sizing is share-based.
-///   - COLUMN (`.fh-col`): a vertical flex stack whose children FILL the width.
-///
-/// A cell normally FILLS its share — the width its container hands it — which is
-/// what every card wants. `.fh-hug` (`LayoutNode.hug()`) is the opt-out: the cell
-/// shrinks to its content, so a run of them packs at the container's own gap
-/// instead of each one rattling around inside an equal share. It is what makes a
-/// row of pills read as a row of pills; a filling card in a grid still needs a
-/// SPAN, so `fh-hug` and `fh-cols-*` are different questions and compose.
-///
-/// **A container states its children's layout as an INHERITED CUSTOM PROPERTY
-/// (`--fh-cell-flex`/`--fh-cell-align-self`/`--fh-cell-width`), not a
-/// child-combinator selector** — every `.fh-cell` just reads
-/// `flex:var(--fh-cell-flex,…)` from whichever ancestor last declared it. A
-/// container only ever says "this is my children's layout"; it never reaches
-/// for a child directly, which is what makes a query set's `.fh-group`
-/// member container composable rather than a fixed flow of its own: it is
-/// ALWAYS `display:contents` (a pure CSS passthrough — it must stay in the
-/// DOM, the runtime's per-member patch target, ADR 0003, but need not
-/// generate a box), so its members always resolve their flex/width from
-/// whichever REAL container — `Row`, `Column`, `Grid` — actually holds them,
-/// at ANY nesting depth, because custom-property inheritance crosses a
-/// `display:contents` element exactly like any other. This is internal to
-/// how a set renders, not an authoring choice: there is nothing to opt into,
-/// and no flow a set could sensibly keep of its own once it always defers to
-/// its real container. A `.fh-row>.fh-cell` CHILD-COMBINATOR selector could
-/// not do this — selectors match the actual DOM tree, and `.fh-group` stays
-/// in it (nothing else could then target it by id), so the combinator would
-/// stop at the wrapper instead of reaching its grandchildren.
-///
-/// So `columns(n)`/`fullWidth()` are GRID-ONLY affordances; inside a row/column
-/// you don't size children, they share/fill (and on a query set, calling them
-/// is simply inert — a set has no box of its own to size). Rows and columns
-/// nest freely into each other and into grid cells. On narrow screens
-/// (<=640px) every grid cell collapses to full width, a set's members
-/// included (`.fh-group>.fh-cell` is a DOM selector, unaffected by
-/// `display:contents`, so it still reaches them). The default-span selectors
-/// use `:where()` so any authored `.fh-cols-<n>` beats them (as does
-/// `--fh-cell-flex` itself: real class selectors, `.fh-cols-<n>` included,
-/// always outrank `:where()`'s zero specificity); `--fh-gap` retunes spacing
-/// per theme.
-const layoutCss: String = """
-  .fh-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--fh-gap,1rem);--fh-cell-flex:0 1 calc((100% + var(--fh-gap,1rem)) * 4 / 12 - var(--fh-gap,1rem))}
-  .fh-grid.fh-start{justify-content:flex-start}
-  .fh-group{display:contents}
-  :where(.fh-cell){flex:var(--fh-cell-flex,0 1 auto);min-width:0;align-self:var(--fh-cell-align-self,stretch);width:var(--fh-cell-width,auto)}
-  """ + colSpans + """
-
-  .fh-cols-full{flex-basis:100%}
-  .fh-row{display:flex;gap:var(--fh-gap,1rem);flex-wrap:wrap;--fh-cell-flex:1 1 0;--fh-cell-align-self:flex-start}
-  .fh-cell.fh-hug{flex:0 0 auto}
-  .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem);--fh-cell-width:100%}
-  .fh-cell:has(>.fh-ifhost:empty){display:none}
-  @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
-  """
-
-// One span rule per grid column count (`.fh-cols-1` .. `.fh-cols-12`): the
-// flex-basis that makes an n/12 cell fit (gaps cancel — see [[layoutCss]]).
-const local colSpans: String = new Listing {
-  for (n in IntSeq(1, 12)) {
-    ".fh-cols-\(n){flex-basis:calc((100% + var(--fh-gap,1rem)) * \(n) / 12 - var(--fh-gap,1rem))}"
-  }
-}.toList().join("\n")
+import "core/node.pkl" as nodes
 
 /// Axis-intent gate before a TOUCH may move a slider, so a dashboard of slider
 /// cards is still a scrollable list. Without it every swipe that happens to
 /// start on a card sets a brightness, and a tap meant to stop a fling sets one
 /// too. Pair it with the CSS half — on coarse pointers the range input must be
-/// `pointer-events:none` and its wrapper `touch-action:pan-y` (see
-/// theme-beer.pkl); `.fh-armed` lands on the wrapper once armed, for whatever
-/// affordance the theme wants.
+/// `pointer-events:none` and its wrapper `touch-action:pan-y` (that half lives
+/// with the slider card, in `components/slider.pkl`); `.fh-armed` lands on the
+/// wrapper once armed, for whatever affordance the theme wants.
 ///
 /// Tracking starts on `pointerdown`, but the gesture isn't armed yet: each
 /// `pointermove` is checked against the along-axis (`x`) and cross-axis (`y`)
@@ -197,9 +137,8 @@ const local colSpans: String = new Listing {
 /// `data-on:change` POST) once, on release. Mouse gestures are left entirely
 /// alone.
 ///
-/// Keyed on `.slider.max`, which the slider CARD emits (components.pkl), so it
-/// is reusable by any theme that keeps that markup — the same deal as
-/// [[layoutCss]].
+/// Keyed on `.slider.max`, which the slider CARD emits (components/slider.pkl),
+/// so it is reusable by any theme that keeps that markup.
 const sliderHoldScript: String = """
   (()=>{const S=6,C=10;
   let w=null,i=null,x0=0,y0=0,pid=0,armed=false;
@@ -246,4 +185,17 @@ open class Theme {
   inlineScripts: Listing<String> = new {}
   styles: String
   chrome: String
+  /// Class names this theme wants injected into card markup, `key -> one or
+  /// more class names` (space-separated). Today's only key is `busySpin` — the
+  /// delayed spinner (see the module doc). An unlisted key binds nothing.
+  ///
+  /// `hidden`: it is consumed while the card registry is built
+  /// (`core/node.pkl`'s `cardsWith`, called from `entry.pkl`), so it never
+  /// reaches the wire and the runtime never learns a theme had an opinion.
+  hidden classes: Mapping<String, String> = nodeDefaults
 }
+
+// The fallback names, so a theme amending `classes` starts from the working
+// default rather than from nothing. A module-level `const` because a class body
+// may only reference those.
+const local nodeDefaults: Mapping<String, String> = nodes.defaultClasses

@@ -98,6 +98,9 @@ class Tabs extends nodes.Node {
     mount = """
       <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
       """
+    // The panel host is a patch target that must not be a box: the selected
+    // tab's own layout is what should reach the surrounding column.
+    css = ".tab-panel{display:contents}"
   }
   // A tab bar is a section-level component, not a third of a grid row. Its own
   // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it

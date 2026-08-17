@@ -29,6 +29,7 @@ Three tiers, by AUDIENCE rather than by kind:
 
 ```
 core/       node · slot · icon · tap · surface · predicate   — writing a COMPONENT
+            css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   text · entity · control ·     — writing a DASHBOARD
             slider · surface · light · moreinfo

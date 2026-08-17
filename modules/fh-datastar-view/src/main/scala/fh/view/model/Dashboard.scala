@@ -231,13 +231,20 @@ object SignalBind:
   * and NO `self` (`Grid`, `Row`, `Column`) has only children to show, so its
   * whole HTML contains them — it must never be patched, which the authoring
   * layer enforces by rejecting a *live* slot on exactly that shape.
+  *
+  * '''`css`''' is the structure the card's own markup needs — its class names,
+  * their box, flow and spacing — authored beside the template it belongs to
+  * (ADR 0020). Every registered card's `css` is concatenated into the page's
+  * `<style>` after [[Dashboard.css]] and before `theme.styles`, so a theme
+  * overrides any of it by ordinary cascade order.
   */
 case class CardDef(
     template: String,
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     mount: Option[String] = None,
-    self: Option[String] = None
+    self: Option[String] = None,
+    css: String = ""
 ) derives ConfiguredDecoder
 
 /** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
@@ -627,6 +634,12 @@ case class Surface(
   *   - `slug`: the dashboard's stable id (its route is `/d/<slug>`; navigation
   *     targets it). ServerApp defaults it from the entry filename.
   *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
+  *   - `css`: the base stylesheet every dashboard gets whatever its theme — the
+  *     `fh-` layout contract, the `--fh-*` variables the cards read, and the
+  *     classes the runtime itself emits (banners, toast, the busy states). It
+  *     sits here rather than on the [[Theme]] precisely so a theme cannot drop
+  *     it: it is emitted FIRST, and a theme may only override it (ADR 0020).
+  *     Authored in `lib/core/css.pkl`, assigned by `lib/entry.pkl`.
   *   - `theme`: all presentation (tokens + stylesheets + CSS); see [[Theme]].
   *   - `card`: the root of the recursive layout tree (itself a card, usually a
   *     container). Component HTML is composed in Scala (see `Renderer`), not
@@ -642,8 +655,21 @@ case class Dashboard(
     theme: Theme = Theme(),
     surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard",
-    title: Option[String] = None
+    title: Option[String] = None,
+    css: String = ""
 ) derives ConfiguredDecoder:
+
+  /** Every registered card's own CSS, in card-name order so the emitted
+    * stylesheet is a pure function of the model.
+    *
+    * All registered cards, not only the ones this tree uses: the registry is
+    * one library's worth (a handful of KB), and pruning it to the cards
+    * actually rendered would have to account for surfaces and dynamic cases
+    * too. The renderer has what it would need — see ADR 0020's open work,
+    * alongside minifying the whole block at runtime instead of by hand in Pkl.
+    */
+  lazy val cardCss: String =
+    cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
 
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable

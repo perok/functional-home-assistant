@@ -62,18 +62,18 @@ fetch too, so an error can never leave a control stuck. `shell.ts` turns
 
 ## Consequences
 
-**The busy look is hardcoded to BeerCSS's classes, and that is a known debt.**
-The spinner is BeerCSS's own `.shape` + `.loading-indicator` — an SVG mask that
-morphs itself — and `tap.pkl` names those two classes directly, in the *core*
-authoring kit, which is supposed to be framework-agnostic. The theme contract
-owns `fh-disabled`/`fh-loading` properly; the spinner skipped that layer.
-Consequences we are accepting for now: a second theme cannot change what a busy
-control looks like without shipping BeerCSS's class names, the reduced-motion
-story is stuck with what an SVG-animated mask allows (its `<animate>` elements
-are unreachable from CSS, so we drop the mask for a static disc), and
-`.shape>i{filter:invert(1)}` — an unconditional BeerCSS rule — is why the
-classes must be *absent* at rest rather than styled inert. Decoupling this into
-an `fh-`-prefixed contract like the other two classes is open work.
+**The busy look was hardcoded to BeerCSS's classes; ADR 0020 unhardcoded it.**
+The spinner is an SVG mask that morphs itself, and CSS has no way to lend one
+class another's rules — so the class *names* had to come from somewhere, and
+`tap.pkl` named BeerCSS's `.shape` + `.loading-indicator` directly, in the core
+kit that is supposed to be framework-agnostic. They now come from the theme
+(`Theme.classes["busySpin"]`, spliced into the templates when the card registry
+is built); a theme that names none gets `fh-busy-spin` and a plain ring. What
+remains true either way: the reduced-motion story is whatever the named look
+allows (BeerCSS's `<animate>` elements are unreachable from CSS, so that theme
+drops the mask for a static disc), and `.shape>i{filter:invert(1)}` — an
+unconditional BeerCSS rule — is why the classes must be *absent* at rest rather
+than styled inert.
 
 **A hung call has no floor.** The guard clears when the fetch settles, and a
 dead network means it never settles, so a control can sit inert until reload.
