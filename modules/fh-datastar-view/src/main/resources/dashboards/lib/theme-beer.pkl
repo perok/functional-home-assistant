@@ -275,7 +275,7 @@ class BeerTheme extends themeMod.Theme {
       block-size:1em;inline-size:1em;line-height:1}
     .fh-loading i.mdi::before{content:""}
     .fh-loading i.mdi::after{
-      content:"";position:absolute;inset:-.15em;z-index:-1;
+      content:"";position:absolute;inset:-.15em;
       border:.15em solid var(--primary);
       border-top-color:transparent;border-radius:50%;
       animation:fh-loading-spin .8s linear infinite;animation-delay:.3s;
