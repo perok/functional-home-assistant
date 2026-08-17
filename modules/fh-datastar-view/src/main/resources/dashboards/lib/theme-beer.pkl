@@ -261,18 +261,26 @@ class BeerTheme extends themeMod.Theme {
        Both classes flip in the same Datastar frame; the CSS
        `animation-delay: 300ms` means the spinner shape and the opacity
        transition don't start until 300ms later; if either class is removed
-       before that, its animation never started.        The spinner uses BeerCSS's
-       native `loading-indicator` shape (an SVG-masked `<div>`) that overlays
-       the MDI icon as a sibling — the ring appears over the glyph during
-       loading, and both are invisible when idle. */
+       before that, its animation never started.        The spinner uses BeerCSS's `loading-indicator` shape — a sibling `<div>`
+       inside a `.shape` wrapper, absolutely positioned over the MDI icon. The
+       shape's keyframes start at `opacity:0` and jump to `opacity:1` at 1%,
+       so the ring is invisible during the 300ms delay and appears+spins in
+       one step. The glyph's own `::before` is emptied so it doesn't fight
+       the overlay. */
     .fh-disabled{opacity:0;transition:opacity .15s;
       animation:fh-disabled-delay .15s .3s forwards}
     @keyframes fh-disabled-delay{to{opacity:.5}}
     .fh-loading{cursor:progress}
-    .shape .loading-indicator{opacity:0;position:absolute;inset:0}
-    .fh-loading .shape .loading-indicator{opacity:1;
-      animation:fh-loading-spin .8s linear infinite;animation-delay:.3s}
-    @keyframes fh-loading-spin{from{rotate:0deg}to{rotate:360deg}}
+    .fh-loading i.mdi{position:relative;display:inline-block;
+      block-size:1em;inline-size:1em;line-height:1}
+    .fh-loading i.mdi::before{content:""}
+    .shape{position:relative}
+    .shape .loading-indicator{position:absolute;inset:0;opacity:0}
+    .fh-loading .shape .loading-indicator{
+      animation:fh-loading-appear .8s linear infinite;animation-delay:.3s}
+    @keyframes fh-loading-appear{
+      0%{opacity:0;rotate:0deg}
+      1%{opacity:1}to{opacity:1;rotate:360deg}}
     @media (prefers-reduced-motion:reduce){
       .fh-disabled{animation:none;opacity:.5}
       .fh-loading .shape .loading-indicator{animation:none;opacity:1}

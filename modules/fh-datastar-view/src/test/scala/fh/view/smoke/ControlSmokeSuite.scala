@@ -168,7 +168,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             badge
               .evaluate(
-                "el => getComputedStyle(el).animationName === 'fh-loading-spin'"
+                "el => getComputedStyle(el).animationName === 'fh-loading-appear'"
               )
               .asInstanceOf[Boolean]
           )
@@ -202,9 +202,9 @@ class ControlSmokeSuite extends SmokeSuite {
 
   test("a busy-guarded element's icon becomes a spinner while its call is in flight") {
     // The slider's power button carries an `i.mdi` icon AND the busy pieces,
-    // so while its POST is held the theme wraps the glyph in a BeerCSS
-    // `loading-indicator` shape that spins (`fh-loading-spin`). Computed style,
-    // because the shape's animation is on the wrapper div — the class check
+    // so while its POST is held the theme overlays a BeerCSS
+    // `loading-indicator` shape that spins (`fh-loading-appear`). Computed
+    // style, because the animation is on the shape div — the class check
     // alone proves nothing about the look.
     withPage(Scene.of(SmokeDashboard.busyIcon), fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
@@ -213,7 +213,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             icon
               .evaluate(
-                "el => getComputedStyle(el).animationName === 'fh-loading-spin'"
+                "el => getComputedStyle(el).animationName === 'fh-loading-appear'"
               )
               .asInstanceOf[Boolean]
           )
