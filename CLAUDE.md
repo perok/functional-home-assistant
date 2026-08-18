@@ -165,26 +165,28 @@ easy to never see. Two consequences worth knowing:
 ## Before calling a change done
 
 Green tests are not the finish line. Make one pass over your own diff as if it were someone
-else's, checking these four specifically. Each fired at least once while landing #109, each
-survived a green suite, and three of them survived a written summary claiming the work was
-finished:
+else's. Every check below has caught a real defect that a passing suite said nothing about:
 
+- **Run the suite for every KIND of file you touched.** There are three runners and no single
+  command covers them: `sbt fh-datastar-view/testFull`, the pure-Pkl suite (see the module's
+  `CLAUDE.md` — any `.pkl` edit, comments included, moves the `@fh-dashboard` package hash),
+  and `scripts/fh.test.scala`. Touching a `.pkl` file silently opts you into a runner `sbt`
+  does not invoke.
 - **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
   to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
   commit that adds the second way is usually the same one that wrote the sentence. If a claim
-  would be falsified by a `grep`, run the `grep`. (`SetId`'s doc claimed forging one was
-  impossible while the counterexample sat in `TestIds`.)
+  would be falsified by a `grep`, run the `grep` — the counterexample is often already in the
+  tree, in a test helper.
 - **Cash the justification.** If the stated reason was testability, the same change adds the
-  test. If it was "one mechanism, not two", the second is deleted here, not left for later.
-  (`SurfaceGraph` was extracted for testability and shipped with no suite.)
+  test. If it was "one mechanism, not two", the second is deleted here, not left for later. A
+  refactor justified by a benefit it did not deliver is unfinished, not done.
 - **Test the property, not the line you changed.** An assertion on the value you just fixed
-  passes for that fix and is blind to the next instance of the same bug. Ask what would have
-  caught it in the first place, and write that instead. (A unit assertion on `Member.root`
-  pinned one surface-patch leak and missed the identical one on the container.)
+  passes for that fix and is blind to the next instance of the same bug — and identical bugs
+  come in pairs, because whatever produced one produced the other. Ask what would have caught
+  it in the first place, and write that instead.
 - **Look at what a new type or class can SEE, not only what it does.** A constructor taking a
-  whole aggregate to read one field declares a dependency you did not mean, and it shows up
-  first as awkward test fixtures. (`SurfaceGraph` took the whole `Dashboard` for
-  `dashboard.surfaces`.)
+  whole aggregate to read one field declares a dependency you did not mean. It shows up first
+  as awkward test fixtures: needing dummy arguments to hand over one map is the tell.
 
 ## Comments: the code says what, a comment says why
 
