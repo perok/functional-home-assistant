@@ -370,8 +370,8 @@ object Predicate:
   *     "else" member is simply `State(condition = Predicate.And(Nil))` — an
   *     empty conjunction is vacuously true and reads nothing — at a later
   *     `bakeIndex` (selection is first-match in `bakeIndex` order — see
-  *     `Renderer.surfaces.resolveActiveByState`); no member matching bakes
-  *     empty content.
+  *     `SurfaceGraph.resolveActiveByState`); no member matching bakes empty
+  *     content.
   *
   * Kind-discriminated on the wire like [[Predicate]]/[[LayoutNode]]. A bake
   * group must be mode-homogeneous — mixing kinds among one `bakeInto`'s members

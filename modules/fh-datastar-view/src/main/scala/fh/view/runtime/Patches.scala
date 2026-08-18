@@ -222,10 +222,10 @@ private[runtime] object Patches {
 
   /** Tag each selected node with the innermost user surface containing it, and
     * bundle the request. The tag comes from the node's PLACE in the tree
-    * ([[Renderer.surfaces.userSurfaceOfNode]]) — not from its id, which encodes
-    * only its own surface, and not from threading the originating surface down
-    * every branch of the selection above, which goes wrong the moment the walk
-    * grows a branch.
+    * ([[SurfaceGraph.userSurfaceOfNode]]) — not from its id, which encodes only
+    * its own surface, and not from threading the originating surface down every
+    * branch of the selection above, which goes wrong the moment the walk grows
+    * a branch.
     */
   private def request(
       renderer: Renderer,

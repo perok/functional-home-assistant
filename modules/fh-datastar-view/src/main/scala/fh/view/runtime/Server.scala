@@ -1283,9 +1283,9 @@ class Server(
       )
       .void
 
-  /** Log every bake-group anomaly [[Renderer.surfaces.uiStateAnomalies]]
-    * reports for this client's `uiState` (an off/hand-edited URL). Renderer
-    * stays pure — it returns the warnings, the Server logs them.
+  /** Log every bake-group anomaly [[SurfaceGraph.uiStateAnomalies]] reports for
+    * this client's `uiState` (an off/hand-edited URL). Renderer stays pure — it
+    * returns the warnings, the Server logs them.
     */
   private def warnAnomalies(
       renderer: Renderer,
@@ -2398,8 +2398,8 @@ object Server {
     * `history.replaceState`.
     *
     * The value is left opaque here — interpretation and the untrusted-value
-    * clamp live in [[Renderer.surfaces.resolveActive]], so a stale or
-    * hand-edited URL can never bake a non-existent surface.
+    * clamp live in [[SurfaceGraph.resolveActive]], so a stale or hand-edited
+    * URL can never bake a non-existent surface.
     */
   def uiStateOf(req: Request[IO]): Map[String, String] =
     uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals)
