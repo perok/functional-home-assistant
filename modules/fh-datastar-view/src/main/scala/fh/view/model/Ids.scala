@@ -54,22 +54,28 @@ object NodeId {
   * NOT in the static index (it hangs off a member), so selecting from the index
   * gave correct ids and correct markup and emitted no patches at all, forever.
   *
-  * So the answer is a VALUE now. There is exactly one way to obtain a `SetId` —
-  * [[fh.view.runtime.MemberGraph.setContainer]], whose `Some` IS the proof that
-  * the graph knows this container, plus
-  * [[fh.view.runtime.MemberGraph.innerSetId]] for one it just enumerated. A
-  * signature that takes a `SetId` therefore cannot be reached from the static
-  * index, and the bug above is not expressible.
+  * So the answer is a VALUE now, and **the constructor asks for the proof**:
+  * you cannot mint a `SetId` from an id alone, only from an id together with
+  * the [[LayoutNode.SetNode]] it names. A signature taking a `SetId` therefore
+  * cannot be satisfied by anything the static index handed back, and the bug
+  * above stops being expressible rather than merely discouraged.
+  *
+  * The way to get one for an id that arrives from somewhere else — a log key, a
+  * mutation's container — is [[fh.view.runtime.MemberGraph.setContainer]],
+  * which looks the node up and hands back `None` when there is none.
   */
 opaque type SetId <: NodeId = String
 
 object SetId {
 
-  /** Mint one. `private[view]` and used at exactly the places where membership
-    * in `MemberGraph.sources` — or the enumeration that built it — is the
-    * proof.
+  /** Mint one. `set` is not read; it is the EVIDENCE, and demanding it is the
+    * whole mechanism — every call site holds a `SetNode` it matched on or
+    * looked up, so passing it costs nothing and forging one is not possible.
     */
-  private[view] def of(id: NodeId): SetId = id
+  private[view] def of(
+      id: NodeId,
+      @annotation.unused set: LayoutNode.SetNode
+  ): SetId = id
 }
 
 /** A node id KNOWN to name a MATERIALISED member of a candidate set.

@@ -591,7 +591,8 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = List((SetId.of(NodeId.derived("c")), None)),
+        sets =
+          List((SetId.of(NodeId.derived("c"), LayoutNode.SetNode()), None)),
         flips = Nil,
         changes = Nil,
         states = gone,

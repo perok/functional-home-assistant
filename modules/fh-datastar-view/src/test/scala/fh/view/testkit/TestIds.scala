@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{DomId, MemberId, NodeId, SetId}
+import fh.view.model.{DomId, LayoutNode, MemberId, NodeId, SetId}
 
 /** Node ids as literals, for suites that hand-build a
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
@@ -36,6 +36,7 @@ object TestIds {
     * indexes. A suite naming `"c_0"` as the set it just authored is stating the
     * spec, and has no wrong index to reach for.
     */
-  given Conversion[String, SetId] = s => SetId.of(NodeId.derived(s))
+  given Conversion[String, SetId] = s =>
+    SetId.of(NodeId.derived(s), LayoutNode.SetNode())
   given Conversion[String, MemberId] = s => MemberId.of(NodeId.derived(s))
 }

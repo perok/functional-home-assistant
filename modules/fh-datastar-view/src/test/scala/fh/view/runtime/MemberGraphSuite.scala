@@ -23,7 +23,7 @@ import io.circe.Json
   */
 class MemberGraphSuite extends munit.FunSuite {
 
-  private val gid: SetId = SetId.of(NodeId.derived("c_0"))
+  private val gid: SetId = SetId.of(NodeId.derived("c_0"), LayoutNode.SetNode())
 
   private def card(e: String, kind: String): LayoutNode.Component =
     LayoutNode.Component(kind, Map("entity_id" -> lit(e)))
@@ -319,7 +319,7 @@ class MemberGraphSuite extends munit.FunSuite {
       )
     )
     val g = graphOf(outer, root = "detail")
-    val innerId = g.innerSetId(g.memberIdOf(gid, "light.a"), 0, List(0))
+    val innerId = g.innerSetId(g.memberIdOf(gid, "light.a"), 0, List(0), inner)
     assert(
       g.setContainer(innerId).isDefined,
       s"$innerId should be a set container"

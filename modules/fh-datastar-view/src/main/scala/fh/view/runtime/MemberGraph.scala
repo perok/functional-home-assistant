@@ -185,6 +185,12 @@ private[runtime] final class MemberGraph(
     /** Every candidate, in DOM order — what a full materialisation walks. */
     val candidates: Vector[String] = s.candidates.toVector
 
+    /** This source's container id, proof-carrying: `s` is exactly the evidence
+      * [[SetId.of]] asks for, so holding a `MemberSource` is what entitles a
+      * caller to a [[SetId]].
+      */
+    def setId(at: NodeId): SetId = SetId.of(at, s)
+
     /** The first clause whose guard holds. Falling off the end means the
       * candidate is NOT RENDERED — which is why a set has no presence field.
       *
@@ -309,9 +315,13 @@ private[runtime] final class MemberGraph(
   def innerSetId(
       member: MemberId,
       clauseIdx: Int,
-      path: List[Int]
+      path: List[Int],
+      set: LayoutNode.SetNode
   ): SetId =
-    SetId.of(NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}"))
+    SetId.of(
+      NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}"),
+      set
+    )
 
   /** Every member container, INCLUDING the ones nested inside a member — "a
     * tile per room", where each tile holds a set over that room's lights.
@@ -322,11 +332,11 @@ private[runtime] final class MemberGraph(
     * something materialised per frame, and it is why the inner members patch
     * themselves instead of the tile re-rendering.
     */
-  private val sources: Map[SetId, MemberSource] = {
+  private val sources: Map[NodeId, MemberSource] = {
     def nested(
         gid: SetId,
         s: LayoutNode.SetNode
-    ): List[(SetId, MemberSource)] =
+    ): List[(NodeId, MemberSource)] =
       for {
         candidate <- s.candidates
         (clause, ci) <- s.members
@@ -347,26 +357,27 @@ private[runtime] final class MemberGraph(
         clauseIdx: Int,
         node: LayoutNode,
         path: List[Int]
-    ): List[(SetId, MemberSource)] = node match {
+    ): List[(NodeId, MemberSource)] = node match {
       case c: LayoutNode.Component =>
         c.children.zipWithIndex.flatMap { case (child, i) =>
           setsIn(member, clauseIdx, child, path :+ i)
         }
       case inner: LayoutNode.SetNode =>
-        val id = innerSetId(member, clauseIdx, path)
+        val id = innerSetId(member, clauseIdx, path, inner)
         (id -> MemberSource(inner)) :: nested(id, inner)
     }
 
-    // The mint: the map's VALUE is the proof that this id names a SetNode.
-    val roots = setNodes.map { case (id, s) => SetId.of(id) -> MemberSource(s) }
-    roots ++ roots.toList.flatMap { case (gid, src) => nested(gid, src.s) }
+    val roots = setNodes.map { case (id, s) => id -> MemberSource(s) }
+    roots ++ roots.toList.flatMap { case (gid, src) =>
+      nested(src.setId(gid), src.s)
+    }
   }
 
   /** Which layout tree each member container is in — `""` for the main page,
     * else the surface id. A nested set inherits its tile's, because it is not
     * in the static index to be looked up in.
     */
-  private val sourceRoot: Map[SetId, String] =
+  private val sourceRoot: Map[NodeId, String] =
     sources.keys.map { gid =>
       gid -> rootOfIndexed.getOrElse(
         gid,
@@ -394,7 +405,8 @@ private[runtime] final class MemberGraph(
     * nest inside members it cannot tell an inner member from an outer one.
     */
   private val memberOwner: Map[NodeId, SetId] =
-    sources.toList.flatMap { case (gid, src) =>
+    sources.toList.flatMap { case (at, src) =>
+      val gid = src.setId(at)
       src.candidates.map(e => memberId(gid, MemberKey.Entity(e)) -> gid)
     }.toMap
 
@@ -432,11 +444,7 @@ private[runtime] final class MemberGraph(
     * A set's is the opposite, and gets per-member `remove`/`before`.
     */
   def setContainer(id: NodeId): Option[SetId] =
-    Option.when(sourceIds.contains(id))(SetId.of(id))
-
-  // [[sources]]'s keys widened, so the membership test above runs BEFORE the
-  // mint rather than after it.
-  private val sourceIds: Set[NodeId] = sources.keySet.toSet[NodeId]
+    sources.get(id).map(_.setId(id))
 
   /** A set's members in DOM order — from the graph once the stream has reached
     * the set, and derived from `states` until then.
@@ -520,7 +528,8 @@ private[runtime] final class MemberGraph(
       before: Map[String, EntityState],
       states: Map[String, EntityState]
   ): Map[SetId, MemberDelta] =
-    sources.map { case (gid, src) =>
+    sources.map { case (at, src) =>
+      val gid = src.setId(at)
       val was = groupOf(gid, before)
       val touched = changes.iterator.flatMap(src.affected).distinct.toList
       val (now, replaced) =
@@ -677,13 +686,13 @@ private[runtime] final class MemberGraph(
   ): List[SetId] =
     sources.iterator
       .collect {
-        case (gid, src)
-            if sourceRoot.getOrElse(gid, "") == root &&
+        case (at, src)
+            if sourceRoot.getOrElse(at, "") == root &&
               changes.exists(src.affected(_).nonEmpty) =>
-          gid
+          src.setId(at)
       }
       .toList
-      .sorted
+      .sortBy(id => id: String)
 }
 
 private[runtime] object MemberGraph {

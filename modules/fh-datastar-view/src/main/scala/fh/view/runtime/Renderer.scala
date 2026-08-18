@@ -1425,7 +1425,7 @@ class Renderer(
       case s: LayoutNode.SetNode =>
         // The match IS the proof: this node is a `SetNode`, which is exactly
         // the evidence `MemberGraph` mints its root [[SetId]]s from.
-        val id = SetId.of(LayoutNode.nodeId(idPrefix, path))
+        val id = SetId.of(LayoutNode.nodeId(idPrefix, path), s)
         val document = renderSet(id, s.cell, states, SlotForm.Document)
         Traced(
           document,
@@ -1557,7 +1557,7 @@ class Renderer(
       // values and their own seeds whatever form this tile is in — blanking
       // them here would withhold values no patch of THIS node restores.
       renderSet(
-        members.innerSetId(m.id, clauseIdx, path),
+        members.innerSetId(m.id, clauseIdx, path, inner),
         inner.cell,
         states,
         SlotForm.Document
