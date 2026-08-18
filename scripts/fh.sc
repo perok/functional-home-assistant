@@ -22,8 +22,10 @@
 // @fh-home.
 //
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
-// the instance, live and ephemeral; `--write` sends the SOURCE instead, into
-// the instance's own workspace, so it re-evaluates and survives a restart; and
+// the instance, live and ephemeral (pushing `dashboard.pkl` installs every
+// dashboard it names — ADR 0021); `--write` sends the SOURCE instead — the
+// entry AND the local modules it imports — into the instance's own workspace,
+// so it re-evaluates there and survives a restart; and
 // `--watch` keeps doing either on every change to a `*.pkl` in this workspace,
 // re-sending only the entries that change reaches (its import graph), so
 // `fh push --watch *.pkl` does not repaint every dashboard on every save.
@@ -424,14 +426,26 @@ case class Target(entry: Path, slug: String)
 /** Pair each entry with its slug — the filename sans `.pkl`, or `--slug` when
   * given. `--slug` renames ONE dashboard, so it is rejected against several
   * entries rather than silently applied to the last one.
+  *
+  * It is a `push` (JSON) option only. `--write` sends SOURCE, and a source
+  * file's name is not a slug any more (ADR 0021: the slug is a key inside
+  * `dashboard.pkl`), so combining them would rename the file while claiming to
+  * rename the dashboard.
   */
 def targets(
     entries: NonEmptyList[String],
-    slugOpt: Option[String]
+    slugOpt: Option[String],
+    write: Boolean = false
 ): IO[NonEmptyList[Target]] =
   def defaultSlug(entry: String) =
     Paths.get(entry).getFileName.toString.stripSuffix(".pkl")
   slugOpt match
+    case Some(_) if write =>
+      die(
+        "--slug renames a pushed dashboard, but --write sends SOURCE — the " +
+          "slug is a key in the instance's dashboard.pkl, not a filename. " +
+          "Drop --slug, or edit the key in dashboard.pkl and write that."
+      )
     case Some(_) if entries.size > 1 =>
       die(
         s"--slug names one dashboard, but ${entries.size} entries were given — " +
@@ -481,37 +495,106 @@ def installJson(
       MediaType.application.json,
       "push"
     )
+    // An entrypoint names its OWN slugs (ADR 0021), so the instance installs
+    // its keys and the URL's slug is inert — say what actually landed rather
+    // than pointing at a `/d/dashboard` that does not exist.
     _ <- IO.println(
-      s"pushed: $url/d/${target.slug} (ephemeral — gone when the instance restarts)"
+      siteSlugs(json) match
+        case Some(slugs) =>
+          s"pushed ${slugs.size} dashboard(s): " +
+            slugs.map(s => s"$url/d/$s").mkString(", ") +
+            " (ephemeral — gone when the instance restarts)"
+        case None =>
+          s"pushed: $url/d/${target.slug} (ephemeral — gone when the instance restarts)"
     )
   yield ()
 
-/** PUT the entry's SOURCE to the instance's own workspace
-  * (`/edit/file/<slug>.pkl`, the route the /edit editor saves through), so the
-  * instance owns and re-evaluates it — the dashboard survives a restart.
+/** The slugs an evaluated ENTRYPOINT names, or `None` for a single dashboard —
+  * the `dashboards` key is what tells the two payloads apart, on this side and
+  * on the instance's (`Site.DashboardsKey`).
+  */
+def siteSlugs(json: String): Option[List[String]] =
+  io.circe.jawn
+    .parse(json)
+    .toOption
+    .flatMap(_.hcursor.downField("dashboards").focus)
+    .flatMap(_.asObject)
+    .map(_.keys.toList.sorted)
+
+/** PUT the entry's SOURCE — and every local `*.pkl` it reads — into the
+  * instance's own workspace (`/edit/file/<path>`, the route the /edit editor
+  * saves through), so the instance owns and re-evaluates it and the result
+  * survives a restart.
   *
-  * Only the named entry travels: an entry importing a laptop-local `.pkl` will
-  * be written but fail to build on the instance (its imports are not there) —
-  * that is what plain `push` is for. Writing a MODULE lands a file nothing
-  * serves until a key in the instance's `dashboard.pkl` points at it (ADR
-  * 0021); writing the entrypoint itself (`fh push --write dashboard.pkl`) is
-  * what adds, removes or renames a dashboard, and it goes live immediately.
+  * '''The whole import set travels, not just the named file.''' A written file
+  * whose imports stayed on the laptop does not build on the instance, and since
+  * #116 that is no longer a one-dashboard problem: `dashboard.pkl` importing a
+  * module the instance lacks fails the site's evaluation, so EVERY dashboard
+  * shows that error (ADR 0021). Sending what the entry actually reads is the
+  * only way `--write` leaves the instance in a state it can evaluate.
+  *
+  * Writing the ENTRYPOINT is therefore how a dashboard is added, removed or
+  * renamed, and it goes live immediately. Writing a plain module lands a file
+  * nothing serves until a key in `dashboard.pkl` points at it.
   */
 def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   for
-    source <- IO.blocking(new String(Files.readAllBytes(target.entry), UTF_8))
-    _ <- post(
-      client,
-      s"$url/edit/file/${target.slug}.pkl",
-      Method.PUT,
-      source,
-      MediaType.text.plain,
-      "write"
-    )
+    files <- writeSet(target.entry)
+    _ <- files.traverse_ { case (rel, path) =>
+      IO.blocking(new String(Files.readAllBytes(path), UTF_8))
+        .flatMap(
+          post(
+            client,
+            s"$url/edit/file/$rel",
+            Method.PUT,
+            _,
+            MediaType.text.plain,
+            "write"
+          )
+        )
+    }
     _ <- IO.println(
-      s"wrote: ${target.slug}.pkl on the instance ($url/d/${target.slug})"
+      s"wrote ${files.size} file(s) on the instance: " +
+        files.map(_._1).mkString(", ")
     )
   yield ()
+
+/** `(instance-relative path, local file)` for everything [[writeSource]] sends:
+  * the entry plus its transitive local imports ([[importSet]]), each keyed by
+  * its path relative to this workspace — which is the path it takes on the
+  * instance, since both are the same workspace layout.
+  *
+  * The instance only accepts `<name>.pkl` and `lib/<name>.pkl` (its
+  * `EditorRoutes.resolveEditable`), so anything outside the workspace or deeper
+  * than that is refused HERE, naming the file — rather than as a 403 from a PUT
+  * halfway through the set.
+  */
+def writeSet(
+    entry: Path,
+    root: Path = Paths.get("").toAbsolutePath.normalize
+): IO[List[(String, Path)]] =
+  def relative(p: Path): IO[(String, Path)] =
+    val abs = p.toAbsolutePath.normalize
+    val rel = root.relativize(abs).toString
+    val depth = abs.getNameCount - root.getNameCount
+    if !abs.startsWith(root) then
+      die(
+        s"$rel is outside this workspace — the instance only takes files from " +
+          "the workspace itself; move it in, or push the evaluated JSON instead"
+      )
+    else if depth > 2 || (depth == 2 && !rel.startsWith("lib/")) then
+      die(
+        s"$rel is nested too deep for the instance, which takes <name>.pkl and " +
+          "lib/<name>.pkl only"
+      )
+    else IO.pure(rel -> abs)
+  importSet(entry).flatMap { local =>
+    local
+      .getOrElse(Set(entry.toAbsolutePath.normalize))
+      .toList
+      .sortBy(_.toString)
+      .traverse(relative)
+  }
 
 /** Send one body to the instance, failing with the response status (and its
   * body, which is where the server puts the validation message a pushing author
@@ -566,7 +649,7 @@ def cmdPush(
   withClient { client =>
     for
       url <- instanceUrl
-      ts <- targets(entries, slugOpt)
+      ts <- targets(entries, slugOpt, write)
       _ <-
         if !watch then ts.traverse_(pushOne(client, url, _, write))
         else watchPush(client, url, ts, write)
@@ -875,14 +958,17 @@ val opts: Opts[IO[ExitCode]] = Opts
         Opts
           .option[String](
             "slug",
-            "Install under this name instead of the filename (one entry only)."
+            "Install under this name instead of the filename (one entry only; " +
+              "not with --write, and inert when pushing an entrypoint, which " +
+              "names its own slugs)."
           )
           .orNone,
         Opts
           .flag(
             "write",
-            "Write the Pkl SOURCE into the instance's workspace instead — it " +
-              "re-evaluates and keeps the dashboard across restarts."
+            "Write the Pkl SOURCE into the instance's workspace instead — the " +
+              "entry and every local module it imports — so it re-evaluates " +
+              "there and survives a restart."
           )
           .orFalse,
         Opts

@@ -158,13 +158,25 @@ there instead of the JSON to `/system/push`, and no new route, write path or
 reload mechanism exists for it. The two modes stay honestly different: `push`
 delivers a RESULT the instance could never derive (ephemeral, works for cards
 the server has no source for), `--write` delivers a SOURCE the instance
-re-derives itself (persistent, and fails on the instance if the entry imports a
-file that only exists on the laptop). Both evaluate locally first, so `--write`
-cannot overwrite a working file with one that does not build. A slug the
-instance did not have at startup lands on disk but goes live on its next
-restart — the watcher reconciles the import sets of the entries it already
-knows, and minting a renderer from a written file is not something `--write`
-should quietly do behind the server's own discovery.
+re-derives itself (persistent). Both evaluate locally first, so `--write`
+cannot overwrite a working file with one that does not build.
+
+**`--write` sends the whole local import set**, not just the named file:
+the entry plus its transitive `file:` imports (the same `Analyzer.importGraph`
+call `--watch` uses), each at its workspace-relative path. Writing one file
+whose imports stayed on the laptop leaves the instance holding a source it
+cannot evaluate, and since ADR 0021 that is no longer a one-dashboard problem
+— an entrypoint importing a missing module fails the whole site's evaluation,
+so every dashboard shows that error. The instance accepts `<name>.pkl` and
+`lib/<name>.pkl` only, so a file outside the workspace or nested deeper is
+refused on the laptop, naming it, rather than as a `403` halfway through the
+set.
+
+Writing the ENTRYPOINT is what adds, removes or renames a dashboard, and it
+goes live immediately — membership is data the reload re-reads (ADR 0021).
+`--slug` stays a `push`-only option: a source file's name is not a slug, so
+combining it with `--write` would rename the file while claiming to rename the
+dashboard, and it is rejected.
 
 For their cards to exist at all, the entry must name their module in
 `componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
@@ -289,8 +301,9 @@ scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
 files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
 URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
 just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
-(several entries in one invocation, `--slug` renaming a single one, `--write`
-sending the source instead, `--watch` repeating either on every `*.pkl` change
+(several entries in one invocation, `--slug` renaming a single pushed one,
+`--write` sending the source + its local imports instead, `--watch` repeating
+either on every `*.pkl` change
 in the workspace — polled size+mtime, since these workspaces sit on synced
 filesystems). `--watch` re-sends only the entries a change actually reaches:
 `fh push --watch *.pkl` is the normal invocation, so re-sending every dashboard

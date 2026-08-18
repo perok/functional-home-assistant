@@ -117,6 +117,57 @@ object FhScriptSuite extends SimpleIOSuite:
       case other             => failure(s"expected Die, got: $other"))
   }
 
+  test("targets: --slug is a push option, never a --write one") {
+    // Since #116 a source file's name is not a slug (the slug is a key inside
+    // dashboard.pkl), so `--slug --write` would rename the FILE while claiming
+    // to rename the dashboard. Refused, with the fix in the message.
+    fh.targets(NonEmptyList.one("a.pkl"), Some("other"), write = true)
+      .attempt
+      .map {
+        case Left(fh.Die(msg)) =>
+          expect(clue(msg).contains("--write sends SOURCE")) and
+            expect(clue(msg).contains("dashboard.pkl"))
+        case other => failure(s"expected Die, got: $other")
+      }
+  }
+
+  pureTest("siteSlugs: an entrypoint is told apart by its `dashboards` key") {
+    // What decides whether a push installs one dashboard or a whole site —
+    // the same key the instance's `Site.decode` reads.
+    expect.same(
+      Some(List("home", "kitchen")),
+      fh.siteSlugs(
+        """{"dashboards":{"kitchen":{},"home":{}},"default":"home"}"""
+      )
+    ) and expect.same(None, fh.siteSlugs("""{"cards":{},"card":{}}""")) and
+      expect.same(None, fh.siteSlugs("not json"))
+  }
+
+  test("writeSet: the entry AND its local imports travel, workspace-relative") {
+    // A written file whose imports stayed on the laptop does not build on the
+    // instance — and for the entrypoint that fails the WHOLE site, so what
+    // `--write` sends has to be what the entry actually reads.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.writeString(ws.resolve("dashboard.pkl"), "// entry")
+    // No import graph is analyzable here (no PklProject), so it falls back to
+    // the entry alone — the workspace-relative path contract is what this pins.
+    fh.writeSet(ws.resolve("dashboard.pkl"), ws)
+      .map(files => expect.same(List("dashboard.pkl"), files.map(_._1)))
+  }
+
+  test("writeSet: a file the instance could not accept is refused here") {
+    // The instance takes <name>.pkl and lib/<name>.pkl only; catching it here
+    // names the file instead of 403-ing halfway through a multi-file write.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.createDirectories(ws.resolve("deep/nested"))
+    val deep = ws.resolve("deep/nested/x.pkl")
+    Files.writeString(deep, "// too deep")
+    fh.writeSet(deep, ws).attempt.map {
+      case Left(fh.Die(msg)) => expect(clue(msg).contains("nested too deep"))
+      case other             => failure(s"expected Die, got: $other")
+    }
+  }
+
   test("watchSources: fires on a *.pkl edit, ignores dot-directories") {
     // What `push --watch` sits in. The stamp is size+mtime, so the edit below
     // changes the size; the `.fh/` write must NOT wake it (that dir is where
