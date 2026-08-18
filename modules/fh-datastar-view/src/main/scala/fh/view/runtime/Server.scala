@@ -460,7 +460,8 @@ class Server(
         // group rather than the visible ones: the member graph tracks the state
         // stream, not who is watching. A frame that records nothing still moves
         // members, and the page that loads after it renders from the graph.
-        val membership = renderer.syncMembers(changes, before, store.entities)
+        val membership =
+          renderer.members.syncMembers(changes, before, store.entities)
         if (opens.isEmpty)
           log.update(_.skipped(store.version)).as(store.version)
         else {

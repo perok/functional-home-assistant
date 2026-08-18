@@ -20,7 +20,7 @@ class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
     private def affectedSetIds(change: StateChange): List[String] =
-      r.affectedSets(List(change))
+      r.members.affectedSets(List(change))
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -691,7 +691,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.affectedSetIds(ch("sensor.z")), Nil)
     // One frame, several candidates: ONE entry.
     assertEquals(
-      r.affectedSets(List(ch("light.a"), ch("light.b"))),
+      r.members.affectedSets(List(ch("light.a"), ch("light.b"))),
       List("c")
     )
   }
@@ -1132,8 +1132,8 @@ class RendererSuite extends munit.FunSuite {
 
   test("memberIdOf slugs the entity id under the group id") {
     val r = renderer(onGroup)
-    assertEquals(r.memberIdOf(setId("c"), "light.a"), "c_light_a")
-    assertEquals(r.memberIdOf(setId("c"), "light-b.x"), "c_light_b_x")
+    assertEquals(r.members.memberIdOf(setId("c"), "light.a"), "c_light_a")
+    assertEquals(r.members.memberIdOf(setId("c"), "light-b.x"), "c_light_b_x")
   }
 
   test("memberEntities: query + case matches, in DOM (entity-id) order") {
@@ -1144,11 +1144,11 @@ class RendererSuite extends munit.FunSuite {
       "light.c" -> st("light.c", "off") // fails the query
     )
     assertEquals(
-      r.memberEntities(setId("c"), states),
+      r.members.memberEntities(setId("c"), states),
       List("light.a", "light.b")
     )
     // unknown / non-set id -> no members
-    assertEquals(r.memberEntities(setId("zzz"), states), Nil)
+    assertEquals(r.members.memberEntities(setId("zzz"), states), Nil)
   }
 
   test(
@@ -1552,39 +1552,39 @@ class RendererSuite extends munit.FunSuite {
     // ticked is no longer asked here at all: a member that merely ticked is
     // found through the reverse index, like any other node.
     assertEquals(
-      r.affectedSets(
+      r.members.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
       List("c")
     )
     // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
-      r.affectedSets(
+      r.members.affectedSets(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
       ),
       List("c")
     )
     assertEquals(
-      r.affectedSets(List(StateChange("s.b", None, low("s.b")))),
+      r.members.affectedSets(List(StateChange("s.b", None, low("s.b")))),
       List("c")
     )
     // prev ∧ ¬cur
     assertEquals(
-      r.affectedSets(
+      r.members.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
       List("c")
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
-      r.affectedSets(
+      r.members.affectedSets(
         List(StateChange("s.z", Some(high("s.z")), high("s.z")))
       ),
       Nil
     )
     // One frame, several entities: ONE entry.
     assertEquals(
-      r.affectedSets(
+      r.members.affectedSets(
         List(
           StateChange("s.b", Some(high("s.b")), low("s.b")),
           StateChange("s.c", Some(low("s.c")), high("s.c"))

@@ -116,7 +116,7 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       // What this frame did to each candidate set's membership, as
-      // `Renderer.syncMembers` applied it to the graph. Carried rather than
+      // `MemberGraph.syncMembers` applied it to the graph. Carried rather than
       // re-derived because it IS the delta: recomputing it would ask the same
       // question a second time, of a graph that has already moved.
       membership: Map[SetId, MemberDelta],
@@ -202,8 +202,8 @@ private[runtime] object Patches {
     // One entry per group, however many of the frame's entities moved inside
     // it: the membership question is asked once, at the frame boundary.
     val sets =
-      (renderer.affectedSets(changes) ++
-        sids.flatMap(renderer.affectedSurfaceSets(_, changes))).distinct
+      (renderer.members.affectedSets(changes) ++
+        sids.flatMap(renderer.members.affectedSurfaceSets(_, changes))).distinct
     request(
       renderer,
       staticIds,
@@ -366,7 +366,7 @@ private[runtime] object Patches {
     * be, since two entities can cross the query boundary in opposite directions
     * in one tick, and each single-entity view of that reports a change the
     * frame did not make. `was`/`now` arrive from the graph
-    * ([[Renderer.syncMembers]]), which applied that frame.
+    * ([[MemberGraph.syncMembers]]), which applied that frame.
     *
     * '''Deltas by default; a fill only where it costs nothing or is the only
     * option.''' A fill re-renders the WHOLE mount, so it re-sends the members
@@ -418,7 +418,7 @@ private[runtime] object Patches {
       if (churn == 0) base
       else if (
         was.isEmpty || now.isEmpty || !base.holdsAnyOf(
-          was.map(renderer.memberIdOf(gid, _))
+          was.map(renderer.members.memberIdOf(gid, _))
         )
       )
         // Touched as well as filled: the fill re-supplies the mount, and the
@@ -426,14 +426,14 @@ private[runtime] object Patches {
         // membership change. Without them every change fills, and every fill
         // raises the horizon past another cursor.
         now.foldLeft(base.filled(gid, at))((l, e) =>
-          l.touched(renderer.memberIdOf(gid, e), at)
+          l.touched(renderer.members.memberIdOf(gid, e), at)
         )
       else {
         // A move is a departure and an arrival at the new place — the same
         // idempotent pair an arrival always is, which is why a reorder needs no
         // patch kind of its own.
         val afterRemoves = (removed ++ moved).foldLeft(base)((l, e) =>
-          l.removed(gid, renderer.memberIdOf(gid, e), at)
+          l.removed(gid, renderer.members.memberIdOf(gid, e), at)
         )
         // Placed from the BACK of the new order forwards, so each one's anchor
         // — its successor — is already in the DOM: either it never moved, or
@@ -442,7 +442,7 @@ private[runtime] object Patches {
         // insert-before a missing selector is silently dropped.
         val place = (added ++ moved).sortBy(now.indexOf).reverse
         place.foldLeft(afterRemoves) { (l, e) =>
-          val cid = renderer.memberIdOf(gid, e)
+          val cid = renderer.members.memberIdOf(gid, e)
           // Touched as well as placed: the mutation is what a resume replays,
           // but the fragment entry is what keeps the group ESTABLISHED for the
           // next membership change. `since` reports a resupplied node once, so
@@ -504,7 +504,7 @@ private[runtime] object Patches {
     * anchor is either a member the client already had, or one placed a moment
     * ago. Ascending fails — a node's anchor can be a later node not yet
     * inserted. This relies only on server and client agreeing on SOME total
-    * order over members, which [[Renderer.memberEntities]] provides; nothing
+    * order over members, which [[MemberGraph.memberEntities]] provides; nothing
     * here depends on that order being by entity id, so an author-chosen sort
     * works unchanged.
     *
@@ -540,7 +540,7 @@ private[runtime] object Patches {
     // candidate set's needs per-member deltas that preserve siblings, a state
     // group's holds one member and is simply overwritten.
     val (memberMoves, branch) = owed.moved.partition { case (_, m) =>
-      renderer.setContainer(m.container).isDefined
+      renderer.members.setContainer(m.container).isDefined
     }
     val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
     // Replaying a flip is the whole reason it is recorded structurally: without
@@ -579,8 +579,8 @@ private[runtime] object Patches {
         // `memberMoves` is exactly the moves whose container the graph knows,
         // so this always answers — and it is the one place a log key becomes a
         // set id.
-        renderer.setContainer(container).toList.flatTraverse { gid =>
-          val members = renderer.memberEntities(gid, states)
+        renderer.members.setContainer(container).toList.flatTraverse { gid =>
+          val members = renderer.members.memberEntities(gid, states)
           val position = members.zipWithIndex.toMap
           moves
             // Still a member; anything an ancestor is re-supplying was already
@@ -626,7 +626,7 @@ private[runtime] object Patches {
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
-      val asSet = renderer.setContainer(gid)
+      val asSet = renderer.members.setContainer(gid)
       val members = renderer.renderMount(gid, states, uiState)
       Addressed(
         Patch.Insert(
@@ -798,11 +798,12 @@ private[runtime] object Patches {
     * an insert is the same problem in both: name a sibling that is really
     * there. What differs is only which siblings qualify, which is `anchorable`.
     *
-    * It reads the order out of `ordered` — the list [[Renderer.memberEntities]]
-    * produced — rather than comparing entity ids. That is what keeps this
-    * correct if member order ever becomes author-chosen: comparing ids directly
-    * silently requires id-sorted membership, and disagrees with the resume
-    * path, which does it positionally.
+    * It reads the order out of `ordered` — the list
+    * [[MemberGraph.memberEntities]] produced — rather than comparing entity
+    * ids. That is what keeps this correct if member order ever becomes
+    * author-chosen: comparing ids directly silently requires id-sorted
+    * membership, and disagrees with the resume path, which does it
+    * positionally.
     */
   private def insertInto(
       renderer: Renderer,
@@ -817,7 +818,7 @@ private[runtime] object Patches {
         Patch.Insert(
           html,
           PatchMode.Before,
-          renderer.elementId(renderer.memberIdOf(gid, succ))
+          renderer.elementId(renderer.members.memberIdOf(gid, succ))
         )
       case None =>
         Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))

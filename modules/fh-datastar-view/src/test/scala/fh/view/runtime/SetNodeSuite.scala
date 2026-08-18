@@ -519,7 +519,7 @@ class SetNodeSuite extends ServerHarness {
     )
     painted.foreach(id =>
       assert(
-        r.setContainer(id).isDefined,
+        r.members.setContainer(id).isDefined,
         clue = s"painted group '$id' is not a registered container; html: $html"
       )
     )

@@ -223,7 +223,7 @@ class RenderInputsSuite extends munit.FunSuite {
       (b, j) <- line.zipWithIndex
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
-      id = ra.memberIdOf(setId("c_3"), entity)
+      id = ra.members.memberIdOf(setId("c_3"), entity)
       key <- ra.renderInputs(id, a, Map.empty).toList
       if rb.renderInputs(id, b, Map.empty).contains(key)
     } assertEquals(

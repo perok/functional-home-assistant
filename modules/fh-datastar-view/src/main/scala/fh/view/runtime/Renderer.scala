@@ -204,26 +204,20 @@ class Renderer(
     * node graph, beside the static [[allIndexed]]. It decides presence and
     * order; everything below this line paints.
     *
+    * EXPOSED rather than re-`export`ed. A delegating wrapper would let
+    * `renderer.affectedSets(…)` keep reading as though the renderer decided
+    * membership, which is the confusion the split exists to end; making callers
+    * write `renderer.members.affectedSets(…)` puts the seam in the call site.
+    *
     * `lazy` only because it reads [[prefixToRoot]], which is declared further
     * down the class body.
     */
-  private lazy val members: MemberGraph = new MemberGraph(
+  private[runtime] lazy val members: MemberGraph = new MemberGraph(
     allIndexed.collect { case (id, (s: LayoutNode.SetNode, _, _)) => id -> s },
     allIndexed.view.mapValues { case (_, _, prefix) =>
       prefixToRoot(prefix)
     }.toMap
   )
-
-  // The membership questions a caller asks THE RENDERER, because a renderer is
-  // what a slug hands out. Nothing here decides anything — see [[MemberGraph]].
-  export members.{
-    affectedSets,
-    affectedSurfaceSets,
-    memberEntities,
-    memberIdOf,
-    setContainer,
-    syncMembers
-  }
 
   /** [[bakeGroup]], for the flip path. A state group's members are a FIXED,
     * tiny set (its branches), which is why — unlike a candidate set over
@@ -465,7 +459,7 @@ class Renderer(
     }.toMap
 
   /** The O(1) pre-test of the flip check: the changed entities decide, not the
-    * surfaces, same as [[affectedSets]] for membership.
+    * surfaces, same as [[MemberGraph.affectedSets]] for membership.
     */
   private def conditionTouched(
       gid: NodeId,
@@ -988,9 +982,10 @@ class Renderer(
     * author never composes.
     *
     * ONE derivation, deliberately, because there are two places a node id comes
-    * from ([[LayoutNode.pathId]] for the static tree, [[memberIdOf]] for a
-    * group member), and injecting their vars separately means a var added to
-    * one silently misses the other. The rule this makes true:
+    * from ([[LayoutNode.pathId]] for the static tree,
+    * [[MemberGraph.memberIdOf]] for a group member), and injecting their vars
+    * separately means a var added to one silently misses the other. The rule
+    * this makes true:
     *
     * > Structural vars are a pure function of the node id in scope.
     *
