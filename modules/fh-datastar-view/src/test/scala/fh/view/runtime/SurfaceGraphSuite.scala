@@ -163,7 +163,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(hWarn.isDefined && nWarn.isDefined)
   }
 
-  test("uiStateAnomalies reports exactly the branches resolveActive warned on") {
+  test(
+    "uiStateAnomalies reports exactly the branches resolveActive warned on"
+  ) {
     assertEquals(tabs.uiStateAnomalies(Map("c" -> "1")), Nil)
     assertEquals(tabs.uiStateAnomalies(Map.empty), Nil)
     assertEquals(tabs.uiStateAnomalies(Map("c" -> "nope")).size, 1)
