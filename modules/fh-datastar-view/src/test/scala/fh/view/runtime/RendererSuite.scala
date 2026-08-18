@@ -13,7 +13,7 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, row, st}
-import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
 class RendererSuite extends munit.FunSuite {
@@ -449,7 +449,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(
       renderer(dyn)
         .renderMemberById(
-          "c",
+          setId("c"),
           "light.a",
           Map("light.a" -> st("light.a", "on"))
         )
@@ -1132,8 +1132,8 @@ class RendererSuite extends munit.FunSuite {
 
   test("memberIdOf slugs the entity id under the group id") {
     val r = renderer(onGroup)
-    assertEquals(r.memberIdOf("c", "light.a"), "c_light_a")
-    assertEquals(r.memberIdOf("c", "light-b.x"), "c_light_b_x")
+    assertEquals(r.memberIdOf(setId("c"), "light.a"), "c_light_a")
+    assertEquals(r.memberIdOf(setId("c"), "light-b.x"), "c_light_b_x")
   }
 
   test("memberEntities: query + case matches, in DOM (entity-id) order") {
@@ -1143,9 +1143,12 @@ class RendererSuite extends munit.FunSuite {
       "light.a" -> st("light.a", "on"),
       "light.c" -> st("light.c", "off") // fails the query
     )
-    assertEquals(r.memberEntities("c", states), List("light.a", "light.b"))
+    assertEquals(
+      r.memberEntities(setId("c"), states),
+      List("light.a", "light.b")
+    )
     // unknown / non-set id -> no members
-    assertEquals(r.memberEntities("zzz", states), Nil)
+    assertEquals(r.memberEntities(setId("zzz"), states), Nil)
   }
 
   test(
@@ -1157,14 +1160,14 @@ class RendererSuite extends munit.FunSuite {
       "light.b" -> st("light.b", "off")
     )
     assertEquals(
-      r.renderMemberById("c", "light.a", states).get,
+      r.renderMemberById(setId("c"), "light.a", states).get,
       """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
     )
     // fails the query -> not a member
-    assertEquals(r.renderMemberById("c", "light.b", states), None)
+    assertEquals(r.renderMemberById(setId("c"), "light.b", states), None)
     // unknown entity / unknown group -> None
-    assertEquals(r.renderMemberById("c", "light.z", states), None)
-    assertEquals(r.renderMemberById("zzz", "light.a", states), None)
+    assertEquals(r.renderMemberById(setId("c"), "light.z", states), None)
+    assertEquals(r.renderMemberById(setId("zzz"), "light.a", states), None)
   }
 
   // ---------------------------------------------------------------------------

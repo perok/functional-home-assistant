@@ -14,7 +14,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, lit, st}
-import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
 import scala.concurrent.duration.*
@@ -223,7 +223,7 @@ class RenderInputsSuite extends munit.FunSuite {
       (b, j) <- line.zipWithIndex
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
-      id = ra.memberIdOf("c_3", entity)
+      id = ra.memberIdOf(setId("c_3"), entity)
       key <- ra.renderInputs(id, a, Map.empty).toList
       if rb.renderInputs(id, b, Map.empty).contains(key)
     } assertEquals(

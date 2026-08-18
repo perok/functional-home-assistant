@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{DomId, LayoutNode, MemberId, NodeId, SetId}
+import fh.view.model.{DomId, LayoutNode, NodeId, SetId}
 
 /** Node ids as literals, for suites that hand-build a
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
@@ -30,13 +30,22 @@ object TestIds {
     */
   given munit.Compare[DomId, String] = (a, b) => a == b
 
-  /** Same trade again, for the two refinements. [[fh.view.model.SetId]] exists
-    * to stop a caller reaching a membership question with an id it got from the
-    * static index — a distinction that only exists at RUNTIME, between two
-    * indexes. A suite naming `"c_0"` as the set it just authored is stating the
-    * spec, and has no wrong index to reach for.
+  /** [[fh.view.model.SetId]] and [[fh.view.model.MemberId]] get NAMED helpers
+    * rather than the blanket conversion above, and the difference is not
+    * stylistic.
+    *
+    * [[NodeId]]'s conversion is safe because the confusion it guards against —
+    * a DOM id used as a log key — is not available to a test at all: the
+    * literal IS the spec. These two guard something else. A `SetId` asserts
+    * that the graph knows this container, which is a RUNTIME fact about which
+    * of two indexes was asked, and a suite can be wrong about it. An implicit
+    * conversion would make every `String` in the file silently claim it, which
+    * is the property the type was introduced to remove.
+    *
+    * So the mint stays visible at the call site. The `SetNode()` below is a
+    * stand-in — the only evidence a suite naming an id out of thin air can
+    * offer — which is another reason to have to type it.
     */
-  given Conversion[String, SetId] = s =>
+  def setId(s: String): SetId =
     SetId.of(NodeId.derived(s), LayoutNode.SetNode())
-  given Conversion[String, MemberId] = s => MemberId.of(NodeId.derived(s))
 }
