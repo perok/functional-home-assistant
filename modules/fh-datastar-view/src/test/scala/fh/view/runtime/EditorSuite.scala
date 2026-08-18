@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
@@ -92,14 +93,15 @@ class EditorSuite extends munit.FunSuite {
     assert(!FrontendAssets.serves("../application.conf"))
   }
 
-  /** A workspace shaped like a real one: two entries, the manifest, its
-    * generated lockfile, a machine-specific `.fh/`, and a `lib/` source.
+  /** A workspace shaped like a real one: the entrypoint, a module beside it,
+    * the manifest, its generated lockfile, a machine-specific `.fh/`, and a
+    * `lib/` source.
     */
   private def workspace(f: os.Path => Unit): Unit = {
     val ws = os.temp.dir() / "ws"
     os.makeDir.all(ws / "lib")
     os.makeDir.all(ws / ".fh")
-    os.write(ws / "pkl-demo.pkl", "// demo")
+    os.write(ws / "dashboard.pkl", "// the entrypoint")
     os.write(ws / "pkl-tabs.pkl", "// tabs")
     os.write(ws / "PklProject", "amends \"...\"")
     os.write(ws / "PklProject.deps.json", "{}")
@@ -109,7 +111,12 @@ class EditorSuite extends munit.FunSuite {
   }
 
   private def routes(ws: os.Path) =
-    new EditorRoutes(ws, None, "pkl-demo").routes(null)
+    new EditorRoutes(
+      ws,
+      None,
+      IO.pure("home"),
+      IO.pure(List("home", "kitchen"))
+    ).routes(null)
 
   private def get(ws: os.Path, path: String): (Status, String) = {
     val resp = routes(ws).orNotFound
@@ -121,35 +128,46 @@ class EditorSuite extends munit.FunSuite {
     )
   }
 
-  test("the file list carries the entries, the lib sources, and PklProject") {
+  test("the file list carries the sources, each with its kind") {
     workspace { ws =>
       val (status, body) = get(ws, "/edit/files")
       assertEquals(status, Status.Ok)
-      val names = parse(body).toOption
-        .flatMap(_.asArray)
-        .toList
-        .flatten
-        .flatMap(_.hcursor.get[String]("name").toOption)
-      assertEquals(
-        names,
-        List("pkl-demo.pkl", "pkl-tabs.pkl", "lib/components.pkl", "PklProject")
-      )
-      // Only a dashboard entry carries a slug — that is what the editor previews,
-      // and what dims everything else in the list.
-      val slugged = parse(body).toOption
+      val entries = parse(body).toOption
         .flatMap(_.asArray)
         .toList
         .flatten
         .flatMap(e =>
-          e.hcursor
-            .get[String]("slug")
-            .toOption
-            .map(_ => e.hcursor.get[String]("name").toOption.get)
+          (
+            e.hcursor.get[String]("name").toOption,
+            e.hcursor.get[String]("kind").toOption
+          ).tupled
         )
-      assertEquals(slugged, List("pkl-demo.pkl", "pkl-tabs.pkl"))
+      // Exactly ONE file is the entrypoint; everything else is an ordinary
+      // source, which is what dims it in the list (ADR 0021).
+      assertEquals(
+        entries,
+        List(
+          "dashboard.pkl" -> "entry",
+          "pkl-tabs.pkl" -> "module",
+          "lib/components.pkl" -> "lib",
+          "PklProject" -> "manifest"
+        )
+      )
       // The generated lockfile and the machine-specific files stay hidden.
+      val names = entries.map(_._1)
       assert(!names.contains("PklProject.deps.json"), clue = names)
       assert(!names.exists(_.startsWith(".fh")), clue = names)
+    }
+  }
+
+  test("the dashboard list is the LIVE slugs, not the files") {
+    workspace { ws =>
+      val (status, body) = get(ws, "/edit/dashboards")
+      assertEquals(status, Status.Ok)
+      assertEquals(
+        parse(body).flatMap(_.as[List[String]]).toOption,
+        Some(List("home", "kitchen"))
+      )
     }
   }
 

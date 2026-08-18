@@ -1,0 +1,56 @@
+/// The ENTRYPOINT's shape (ADR 0021): one module naming every dashboard the
+/// instance serves, keyed by slug.
+///
+/// Worth pinning because the whole authoring story rests on two Pkl properties
+/// that are easy to break by accident and silent when broken: the mapping's
+/// default must be an `entry`, so a key amends into existence without `new`,
+/// and an imported module that amends `entry.pkl` must satisfy the same type,
+/// so a big dashboard can live in its own file.
+///
+/// Outside `lib/` for the usual reason — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/site.pkl" as siteMod
+import "../../main/resources/dashboards/lib/components.pkl" as c
+
+// An inline dashboard: no `new`, just a key amended into existence.
+local inlineSite = (siteMod) {
+  default = "home"
+  dashboards {
+    ["home"] {
+      title = "Home"
+      card = c.title("hi")
+    }
+  }
+}
+
+// A dashboard living in its own module, pointed at by a key. Note the CALL
+// form of `import` — the declaration form does not parse in a value position.
+local importedSite = (siteMod) {
+  dashboards {
+    ["kitchen"] = import("site-kitchen.pkl")
+  }
+}
+
+facts {
+  ["an empty site names no dashboards and has no default"] {
+    siteMod.dashboards.isEmpty
+    siteMod.default == null
+  }
+
+  ["a key amends into existence, no `new` needed"] {
+    inlineSite.dashboards.keys == Set("home")
+    inlineSite.dashboards["home"].title == "Home"
+    inlineSite.default == "home"
+  }
+
+  ["the key is the slug, and an imported module is the same type"] {
+    importedSite.dashboards.keys == Set("kitchen")
+    importedSite.dashboards["kitchen"].title == "Kitchen"
+  }
+
+  ["every dashboard carries the entry scaffold — cards and a theme"] {
+    !inlineSite.dashboards["home"].cards.isEmpty
+    inlineSite.dashboards["home"].theme != null
+  }
+}

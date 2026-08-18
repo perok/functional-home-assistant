@@ -382,8 +382,8 @@ The split is what makes the publish story true rather than aspirational: with th
 dump inside `@fh-dashboard`, publishing would have forced it out at exactly the
 moment the schema became remote — the riskiest possible time to discover the
 identity constraint above. Splitting now costs one manifest and proves the
-arrangement works, and the dump lives only as a package — never a top-level
-`*.pkl` that `discoverEntries` would scan as an entry.
+arrangement works, and the dump lives only as a package — never a file in the
+workspace the author could edit or a key could point at.
 
 `PklBuild.resolveProjectDeps` resolves the mapping **in-process**, writes the
 `PklProject.deps.json` lockfile (gitignored; re-resolved whenever a `PklProject`

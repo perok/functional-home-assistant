@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.build.Site
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -28,9 +29,10 @@ import org.http4s.server.staticcontent.*
   *     injected).
   *   - `GET  /edit/{app,overlay}.css` the static stylesheets. The JavaScript is
   *     NOT here: it is content-hashed and served by `Server` from `/web`.
-  *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
-  *     the `lib` sources), each with its absolute on-disk path (LSP document
-  *     URI).
+  *   - `GET  /edit/files` the editable source list (top-level `*.pkl` + the
+  *     `lib` sources), each with its absolute on-disk path (LSP document URI)
+  *     and its `kind`.
+  *   - `GET  /edit/dashboards` the slugs currently served (the preview list).
   *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
   *     disk and the existing `ServerApp.watchSources` reload repaints every
   *     open preview — no coupling here.
@@ -48,7 +50,10 @@ import org.http4s.server.staticcontent.*
 final class EditorRoutes(
     dashboardsDir: os.Path,
     pklLspJar: Option[os.Path],
-    defaultSlug: String
+    // Read per request from the live site, never captured: both change while
+    // the editor is open — that is the point of editing the entrypoint.
+    defaultSlug: IO[String],
+    liveSlugs: IO[List[String]]
 ) {
 
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
@@ -65,6 +70,18 @@ final class EditorRoutes(
             _.withContentType(`Content-Type`(MediaType.application.json))
           )
         )
+
+      // The dashboards the instance is SERVING. Not derivable from the file
+      // list any more: a slug is a key in the entrypoint, so only the runtime
+      // knows what the sources currently evaluate to (ADR 0021).
+      case GET -> Root / "edit" / "dashboards" =>
+        liveSlugs
+          .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
+          .flatMap(
+            Ok(_).map(
+              _.withContentType(`Content-Type`(MediaType.application.json))
+            )
+          )
 
       case req @ GET -> "edit" /: "file" /: rest =>
         resolveEditable(rest) match {
@@ -116,37 +133,44 @@ final class EditorRoutes(
           */
         case resp if name.endsWith(".html") =>
           val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
-          val config = Json
-            .obj(
-              "defaultSlug" -> Json.fromString(defaultSlug),
-              "basePath" -> Json.fromString(base)
-            )
-            .noSpaces
 
-          resp.bodyText.compile.string
-            .map(
-              _.replace("__BASE__", base)
-                .replace("__CONFIG__", config)
-                // The editor's own bundle, by entry name: its filename carries
-                // a content hash, so the markup cannot spell it out. Relative,
-                // like every app URL, so it resolves against <base href>.
-                .replace("__APP_JS__", FrontendAssets.url("app"))
-            )
-            .map(s =>
-              resp
-                .withEntity(s)
-                .withContentType(`Content-Type`(MediaType.text.html))
-            )
+          (for {
+            slug <- defaultSlug
+            body <- resp.bodyText.compile.string
+          } yield {
+            val config = Json
+              .obj(
+                "defaultSlug" -> Json.fromString(slug),
+                "basePath" -> Json.fromString(base)
+              )
+              .noSpaces
+            body
+              .replace("__BASE__", base)
+              .replace("__CONFIG__", config)
+              // The editor's own bundle, by entry name: its filename carries
+              // a content hash, so the markup cannot spell it out. Relative,
+              // like every app URL, so it resolves against <base href>.
+              .replace("__APP_JS__", FrontendAssets.url("app"))
+          }).map(s =>
+            resp
+              .withEntity(s)
+              .withContentType(`Content-Type`(MediaType.text.html))
+          )
         case resp => IO.pure(resp)
       }
       .getOrElseF(
         NotFound("editor index.html not found on the classpath (/editor)")
       )
 
-  /** JSON list of editable sources: `{ name, path, slug? }`. `name` is the
+  /** JSON list of editable sources: `{ name, path, kind }`. `name` is the
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
-    * the absolute file (the LSP `file://` document URI); entries carry their
-    * `slug` (filename sans `.pkl`) so the page can preview them.
+    * the absolute file (the LSP `file://` document URI).
+    *
+    * `kind` is `entry` for the one entrypoint, `module` for any other top-level
+    * `*.pkl`, `lib` for a library module and `manifest` for `PklProject`. It
+    * replaced a per-file `slug`, which is no longer a property a FILE has: a
+    * dashboard is a key in the entrypoint (ADR 0021), so what is served comes
+    * from `GET /edit/dashboards`.
     *
     * Returns `IO` because it reads the filesystem: the scan owns its own
     * `IO.blocking` so no caller has to know it blocks. Only the scan is inside
@@ -154,23 +178,27 @@ final class EditorRoutes(
     */
   private def listFiles: IO[String] =
     IO.blocking(scanSources).map { case (top, lib, project) =>
-      def entryJson(rel: String, p: os.Path, slug: Option[String]): Json =
+      def entryJson(rel: String, p: os.Path, kind: String): Json =
         Json.obj(
           "name" -> Json.fromString(rel),
           "path" -> Json.fromString(p.toString),
-          "slug" -> slug.fold(Json.Null)(Json.fromString)
+          "kind" -> Json.fromString(kind)
         )
 
       def sorted(entries: List[Json]): List[Json] =
         entries.sortBy(_.hcursor.get[String]("name").toOption)
 
       val topJson =
-        sorted(
-          top.map(p => entryJson(p.last, p, Some(p.last.stripSuffix(".pkl"))))
-        )
-      val libJson = sorted(lib.map(p => entryJson(s"lib/${p.last}", p, None)))
+        sorted(top.map { p =>
+          entryJson(
+            p.last,
+            p,
+            if (p.last == Site.EntryFile) "entry" else "module"
+          )
+        })
+      val libJson = sorted(lib.map(p => entryJson(s"lib/${p.last}", p, "lib")))
       val projectJson =
-        project.map(p => entryJson(EditorRoutes.Manifest, p, None)).toList
+        project.map(p => entryJson(EditorRoutes.Manifest, p, "manifest")).toList
 
       Json.arr((topJson ++ libJson ++ projectJson)*).noSpaces
     }

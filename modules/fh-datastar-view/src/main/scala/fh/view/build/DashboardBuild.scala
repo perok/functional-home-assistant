@@ -343,4 +343,26 @@ object DashboardBuild {
       entry: String
   ): IO[(Dashboard.Validated, Set[os.Path])] =
     evalAndDecode(dashboardsDir, entry)
+
+  /** Evaluate the workspace's ONE entrypoint against the dump already on disk
+    * and decode every dashboard it names ([[Site.decode]]) — the whole-site
+    * counterpart of [[reevaluate]], and what both boot and live reload run.
+    *
+    * Failure splits in two, and the split is the point: an evaluation error is
+    * raised (nothing can be attributed to a slug — the site did not evaluate),
+    * while a single dashboard's decode/validate error is a `Left` inside the
+    * result and costs only that slug.
+    */
+  def evalSite(dashboardsDir: os.Path): IO[(Site.Decoded, Set[os.Path])] =
+    evalSource(dashboardsDir, Site.EntryFile).flatMap { r =>
+      Site.decode(r.value, r.imports).map(_ -> r.imports)
+    }
+
+  /** Fetch + write the dump, then [[evalSite]] — the boot path. */
+  def buildSite(
+      api: HomeAssistantApi[IO],
+      dashboardsDir: os.Path,
+      bundledLib: Option[LibPackage.Artifacts] = None
+  ): IO[(Site.Decoded, Set[os.Path])] =
+    prepareDumps(api, dashboardsDir, bundledLib) *> evalSite(dashboardsDir)
 }

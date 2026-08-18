@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.build.{DashboardBuild, PklDump, SourceEval}
+import fh.view.build.{DashboardBuild, PklDump, Site, SourceEval}
 import fh.view.model.Dashboard
 import io.circe.Json
 
@@ -79,12 +79,35 @@ object PklFixture {
       dump: Json = HouseFixture.transformedDump
   ): Dashboard = {
     val built = eval(slug, entrySource, dump)
+    decodeDashboard(slug, built.value)
+  }
+
+  /** Evaluate a whole ENTRYPOINT (a module amending `site.pkl`, ADR 0021) and
+    * return the dashboard it names under `slug` — for a fixture that is a site
+    * rather than a single dashboard, the shipped starter above all.
+    */
+  def buildSiteDashboard(
+      slug: String,
+      entrySource: String,
+      dump: Json = HouseFixture.transformedDump
+  ): Dashboard = {
+    val built = eval(Site.EntryFile.stripSuffix(".pkl"), entrySource, dump)
+    decodeDashboard(
+      slug,
+      built.value.hcursor
+        .downField(Site.DashboardsKey)
+        .downField(slug)
+        .focus
+        .getOrElse(sys.error(s"the site names no dashboard '$slug'"))
+    )
+  }
+
+  private def decodeDashboard(slug: String, value: Json): Dashboard =
     DashboardBuild
-      .hoistInlineSurfaces(built.value)
+      .hoistInlineSurfaces(value)
       .as[Dashboard]
       .fold(
         err => sys.error(s"decoding $slug as Dashboard failed: $err"),
         _.copy(slug = slug)
       )
-  }
 }

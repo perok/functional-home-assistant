@@ -806,15 +806,15 @@ class PklBuildSuite extends munit.FunSuite {
        |}
        |""".stripMargin
 
-  /** The SHIPPED starter entry, not a fixture — it is what every fresh install
-    * evaluates on its first boot, and nothing else here would notice it
+  /** The SHIPPED starter entrypoint, not a fixture — it is what every fresh
+    * install evaluates on its first boot, and nothing else here would notice it
     * breaking. Deliberately checked against a dump it was not written for
     * (`HouseFixture` has no switches at all): "renders on any installation" is
     * its whole design property, so an empty domain list must build, not throw.
     */
   test("the bundled starter dashboard builds against an arbitrary house") {
-    val d = PklFixture.buildDashboard(
-      "dashboard",
+    val d = PklFixture.buildSiteDashboard(
+      "home",
       fh.view.build.AddonBootstrap.defaultDashboard
     )
     assertEquals(d.validate(), Nil)

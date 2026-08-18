@@ -119,17 +119,34 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 open ONE WebSocket to Home Assistant, subscribe_entities
   the opening frame IS the full entity set, so there is no separate seeding step
 create ONE StateStore              // for every dashboard, not one each
-evaluate every *.pkl entry         // slug = filename; a broken entry does NOT
-                                   // crash the boot — it registers too
+evaluate the ONE entrypoint        // dashboard.pkl -> slug -> dashboard (ADR 0021);
+                                   // decoded PER SLUG, and neither a broken
+                                   // dashboard nor a broken entrypoint crashes
+                                   // the boot — both register
   per slug: one RendererState in a SignallingRef
       Ready(renderer) when it built, Failed(message) when it did not
-      // hot-swapped on file edit; a failed entry is watched, serves an
+      // hot-swapped on edit; a failed dashboard is watched, serves an
       // error page, and rebuilds live when the source is fixed
   per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
-create ONE Sessions registry
-for each slug: start a recorder fiber
-  // STARTS IMMEDIATELY, and runs whether or not a browser ever connects
+create ONE Sessions registry, and ONE LiveSite holding all of the above
+recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
+                                   // toCancel against LiveSite.changes
+  // a recorder STARTS IMMEDIATELY, and runs whether or not a browser connects
 ```
+
+### Membership moves while it runs
+
+The slug set is not fixed at boot. A source edit re-evaluates the entrypoint
+(`ServerApp.reloadSite`) and writes the registry: keys it names are installed
+(a swap for one already there), keys it dropped are removed, and `POST
+/system/push/<slug>` installs one with no source at all. Because the recorders
+are a reconcile over `LiveSite.changes`, that single write is also what starts
+or stops a recorder — there is no second path that could disagree, and a removed
+slug cannot leave a fiber diffing every state batch forever.
+
+Removal only ever reclaims a slug the ENTRYPOINT dropped: `ServerApp` diffs
+against its own record of what the site owned last time, so a pushed slug (ADR
+0010) is never in the removal set.
 
 ### A browser opens a dashboard
 
@@ -676,7 +693,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
-| per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadEntries` sets every ref on re-eval |
+| per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
+| which slugs exist, and which is `/` | `runtime/Server.scala` · `LiveSite` (`install`/`remove`/`defaultSlug`), `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` diffs membership |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
 | what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |

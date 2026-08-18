@@ -180,32 +180,44 @@ async function loadFiles() {
     files = await r.json()
   } catch (e) { setMsg("could not load file list: " + e.message); return }
 
+  // The dashboards being SERVED. They are keys in the entrypoint, not files,
+  // so the preview list comes from the runtime rather than from the file list.
+  let slugs = []
+  try {
+    const r = await fetch(cfg.basePath + "edit/dashboards")
+    if (r.ok) slugs = await r.json()
+  } catch (e) { setMsg("could not load dashboard list: " + e.message) }
+
   const list = document.getElementById("fh-file-list")
   list.innerHTML = ""
   previewSel.innerHTML = ""
-  if (!files || !files.length) { setMsg("no dashboards returned by edit/files"); return }
+  if (!files || !files.length) { setMsg("no sources returned by edit/files"); return }
 
   for (const f of files) {
     const li = document.createElement("li")
     li.textContent = f.name
     li.dataset.name = f.name
-    // Dim what is not a previewable dashboard: the lib sources and PklProject.
-    if (!f.slug) li.classList.add("aux")
+    // Dim what is not the entrypoint: the lib sources, PklProject, and the
+    // modules the entrypoint imports.
+    if (f.kind !== "entry") li.classList.add("aux")
     li.addEventListener("click", () => openFile(f))
     list.appendChild(li)
-    if (f.slug) {
-      const opt = document.createElement("option")
-      opt.value = f.slug
-      opt.textContent = f.slug
-      previewSel.appendChild(opt)
-    }
+  }
+  for (const slug of slugs) {
+    const opt = document.createElement("option")
+    opt.value = slug
+    opt.textContent = slug
+    previewSel.appendChild(opt)
   }
   previewSel.value = cfg.defaultSlug
   loadPreview()
 
   const params = new URLSearchParams(location.search)
   const wanted = params.get("file")
-  const first = files.find((f) => f.name === wanted) || files.find((f) => f.slug) || files[0]
+  const first =
+    files.find((f) => f.name === wanted) ||
+    files.find((f) => f.kind === "entry") ||
+    files[0]
   if (first) await openFile(first)
 
   const line = parseInt(params.get("line") || "", 10)

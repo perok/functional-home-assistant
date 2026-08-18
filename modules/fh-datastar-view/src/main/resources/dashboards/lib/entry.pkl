@@ -1,20 +1,24 @@
-/// The base module every dashboard entry `amends`. It carries the scaffold that
-/// used to be copy-pasted into each entry — the reflected card registry and the
-/// shared theme — so an entry opens with `amends "lib/entry.pkl"` and sets only
-/// `card` (plus an optional `title`/`surfaces`, or a `theme` override).
+/// ONE dashboard: the scaffold that used to be copy-pasted into each entry —
+/// the reflected card registry and the shared theme — so a dashboard is written
+/// as `card` (plus an optional `title`/`surfaces`, or a `theme` override) and
+/// nothing else.
 ///
-/// Slug = the amending entry's filename (ServerApp forces it at decode time).
+/// You reach this module through `site.pkl`'s `dashboards` mapping, either
+/// inline (`["home"] { card = ... }`) or as a file of its own that
+/// `amends "@fh-dashboard/entry.pkl"` and is imported into a key. The SLUG is
+/// that mapping key — never the filename (ADR 0021).
+///
 /// `title` feeds the page `<title>` (Server falls back to the slug when null);
-/// `omitNullProperties` drops it from the wire JSON when left unset, so a
-/// title-less entry is byte-identical to the pre-base-module scaffold.
+/// `omitNullProperties` drops it from the wire JSON when left unset.
 ///
-/// AUTHORING NOTE — the required `card`: because `card` has no default here, an
-/// amending entry that forgets to set it fails with
+/// AUTHORING NOTE — the required `card`: because `card` has no default here, a
+/// dashboard that forgets to set it fails with
 ///   "Tried to read property `card` but its value is undefined"
-/// whose caret points at THIS module's `card` line (below), NOT at the offending
-/// entry (Pkl reports a missing required property at the class/base definition —
-/// see the CLAUDE.md Pkl gotchas). If you hit that error, the fix is in YOUR
-/// entry: assign `card = new c.Column { ... }` (or another `c.Node`).
+/// whose caret points at THIS module's `card` line (below), NOT at your own
+/// source (Pkl reports a missing required property at the class/base definition
+/// — see the CLAUDE.md Pkl gotchas). The trailing "occurred when rendering path
+/// `dashboards[<slug>].card`" names WHICH dashboard, though. The fix is there:
+/// assign `card = new c.Column { ... }` (or another `c.Node`).
 module entry
 
 import "components.pkl" as c

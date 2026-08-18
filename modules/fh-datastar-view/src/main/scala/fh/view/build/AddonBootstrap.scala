@@ -135,16 +135,14 @@ object AddonBootstrap {
     if (!os.exists(dashboardsDir / ".gitignore"))
       os.write(dashboardsDir / ".gitignore", GitignoreTemplate)
 
-    // A starter entry only when the user has none at all — entries are the
-    // user's files from the moment they exist. Bundled straight into the jar's
-    // own resources, so there is no seed directory to keep in sync or copy
-    // into the image.
-    val hasEntries = os
-      .list(dashboardsDir)
-      .exists(p => os.isFile(p) && p.last.endsWith(".pkl"))
-    if (!hasEntries) {
-      os.write(dashboardsDir / "dashboard.pkl", defaultDashboard)
-      log += "seeded starter dashboard: dashboard.pkl"
+    // A starter site only when there is no entrypoint at all — it is the user's
+    // file from the moment it exists (a workspace with other `*.pkl` modules
+    // but no entrypoint still gets one; those modules are not dashboards until
+    // it names them). Bundled straight into the jar's own resources, so there
+    // is no seed directory to keep in sync or copy into the image.
+    if (!os.exists(dashboardsDir / Site.EntryFile)) {
+      os.write(dashboardsDir / Site.EntryFile, defaultDashboard)
+      log += s"seeded starter dashboard: ${Site.EntryFile}"
     }
 
     // The lockfile is a generated artifact; `PklBuild.staleLockfile` would

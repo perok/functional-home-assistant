@@ -46,11 +46,12 @@ extended. Once the hand-port completes they are deleted.
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
    the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
-   default and only shipped theme), `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
-   `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
-   entries. A directory convention separates the two (Pkl has one file
-   extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
-   non-recursive; the slug is the filename sans `.pkl`.
+   default and only shipped theme), `tokens.pkl`, the `site.pkl` entrypoint base
+   + the `entry.pkl` dashboard scaffold, and generated `dump.pkl`) live in
+   `dashboards/lib/`. Above it sits ONE authored entrypoint, `dashboard.pkl`,
+   naming every dashboard the instance serves (ADR 0021) — the slug is its
+   mapping key, and any other top-level `*.pkl` is an ordinary module a key may
+   import.
 
    How that library is laid out INSIDE `lib/` — the `core/` kit a component
    author extends, the `components/` families behind the `components.pkl`

@@ -6,6 +6,7 @@ import fh.view.build.{
   LibPackage,
   Pins,
   PklDump,
+  Site,
   SourceEval
 }
 import fh.view.testkit.{HouseFixture, PklFixture}
@@ -161,15 +162,20 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val _ =
       AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
 
-    // Nothing user-authored is touched: lib/, the consumer + entry all stay, and
-    // no backup is made. The stale lockfile IS removed (generated artifact), and
-    // there is no starter seeding (the user HAS an entry).
+    // Nothing user-authored is touched: lib/, the consumer + their module all
+    // stay, and no backup is made. The stale lockfile IS removed (generated
+    // artifact). A starter entrypoint IS seeded, because this workspace has
+    // none — a loose `*.pkl` is an ordinary module now, not a dashboard (ADR
+    // 0021), so it cannot stand in for one.
     assert(os.exists(box.ws / "lib"))
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
     assertEquals(os.read(box.ws / "PklProject"), oldConsumer)
     assertEquals(os.read(box.ws / "mine.pkl"), "// the user's own entry\n")
     assert(!os.exists(box.ws / "PklProject.deps.json"))
-    assert(!os.exists(box.ws / "dashboard.pkl"))
+    assertEquals(
+      os.read(box.ws / Site.EntryFile),
+      AddonBootstrap.defaultDashboard
+    )
 
     // Recovery: deleting the machine-era consumer opts into a fresh, package-form
     // re-seed — then it evaluates.
@@ -181,8 +187,8 @@ class AddonBootstrapSuite extends munit.FunSuite {
       PklDump.render(HouseFixture.transformedDump),
       Some(bundled)
     )
-    os.write.over(box.ws / "mine.pkl", AddonBootstrap.defaultDashboard)
-    assert(SourceEval.eval(box.ws, "mine.pkl").isRight)
+    os.write.over(box.ws / Site.EntryFile, AddonBootstrap.defaultDashboard)
+    assert(SourceEval.eval(box.ws, Site.EntryFile).isRight)
   }
 
   test("a user-customized manifest is never rewritten") {

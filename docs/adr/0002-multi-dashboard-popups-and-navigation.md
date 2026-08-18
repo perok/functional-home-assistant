@@ -24,12 +24,11 @@ popups *and* tabs. Correct laziness: a closed popup costs no render and no push.
 
 ## The design
 
-### Dashboards: slug = filename
+### Dashboards: slug = the entrypoint's key
 
-Every top-level `*.pkl` entry file in the dashboards dir is a dashboard whose
-slug is its filename (`dashboard.pkl` → `dashboard`, the default `/` — ADR
-0006). A `Renderer` is built per slug and served
-at `/d/:slug`. A connection shows exactly one dashboard for its whole lifetime,
+Every dashboard is a key in the workspace's one entrypoint, `dashboard.pkl`, and
+that key is its slug (ADR 0021). A `Renderer` is built per slug and served at
+`/d/:slug`; which slug `/` serves is the site's own `default`. A connection shows exactly one dashboard for its whole lifetime,
 so node ids are unique within a dashboard and **not slug-prefixed**.
 
 ### Surfaces: lazily-activated subtrees

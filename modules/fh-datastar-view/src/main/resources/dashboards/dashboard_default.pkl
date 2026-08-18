@@ -1,9 +1,14 @@
-// The starter dashboard, seeded as `dashboard.pkl` into a workspace with no
-// entries of its own (add-on first boot or a fresh local `dashboard-local-dev`)
-// — from then on it is YOURS to edit (changes to existing files hot-reload; a
-// brand-new *.pkl entry needs a restart, see DOCS.md). Bundled straight into
+// The starter site, seeded as `dashboard.pkl` into a workspace that has no
+// entrypoint of its own (add-on first boot or a fresh local
+// `dashboard-local-dev`) — from then on it is YOURS to edit; every change
+// hot-reloads, including adding or removing a dashboard. Bundled straight into
 // the jar's own resources ([[AddonBootstrap]]), so there is no seed directory
 // to keep in sync or copy into the image.
+//
+// THIS FILE IS THE ONE ENTRYPOINT (ADR 0021). Every dashboard the instance
+// serves is a key in `dashboards` below, and the key is the route: `["home"]`
+// serves at `/d/home`. Anything else you drop in this directory is an ordinary
+// module — it becomes a dashboard only when a key points at it.
 //
 // It names NO concrete entity: every section is a query over one of the dump's
 // house-wide lists (`dump.lights`, `dump.switches`, `dump.sensors`, `dump.all`),
@@ -20,49 +25,71 @@
 // holds the @fh-dashboard pin; the machine's own wiring lives in
 // `.fh/base.pkl`, machine-managed.
 
-amends "@fh-dashboard/entry.pkl"
+amends "@fh-dashboard/site.pkl"
 
 import "@fh-dashboard/components.pkl" as c
 import "@fh-dashboard/query.pkl" as q
 import "@fh-home/dump.pkl" as dump
 
-title = "Home"
+// The slug served at `/`. Drop this line and the key named `dashboard` wins,
+// else the first key.
+default = "home"
 
-// The GRID is the default container (HA "sections" feel): full-width section
-// titles break the flow, and each group spans the grid while its members flow
-// two-up in the group's own 12-column grid (HA's default card size). Size a
-// card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl for the fh-
-// layout contract).
-card = (c.grid) {
-  children {
-    c.title("Lights").fullWidth()
-    // Lights that are on get a brightness slider; the rest a plain card. Both
-    // renderings ride the wire and the runtime picks per light, so a light
-    // changing swaps its own card and touches nothing else. The card needs no
-    // `tap`: `light/toggle` is what its domain implies (issue #106).
-    q.from(dump.lights)
-      .caseOf(q.eq(q.stateProp, "on"), c.slider)
-      .`else`(c.entityCard)
-      .build()
-      .fullWidth()
+dashboards {
+  ["home"] {
+    title = "Home"
 
-    c.title("Switches").fullWidth()
-    q.from(dump.switches).render(c.entityCard).build().fullWidth()
+    // The GRID is the default container (HA "sections" feel): full-width
+    // section titles break the flow, and each group spans the grid while its
+    // members flow two-up in the group's own 12-column grid (HA's default card
+    // size). Size a card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl
+    // for the fh- layout contract).
+    card = (c.grid) {
+      children {
+        c.title("Lights").fullWidth()
+        // Lights that are on get a brightness slider; the rest a plain card.
+        // Both renderings ride the wire and the runtime picks per light, so a
+        // light changing swaps its own card and touches nothing else. The card
+        // needs no `tap`: `light/toggle` is what its domain implies (issue
+        // #106).
+        q.from(dump.lights)
+          .caseOf(q.eq(q.stateProp, "on"), c.slider)
+          .`else`(c.entityCard)
+          .build()
+          .fullWidth()
 
-    c.title("Low battery").fullWidth()
-    // `device_class` is registry data, so it SELECTS the candidates at build
-    // time and never reaches the runtime — `optional` because most sensors do
-    // not report one, and without it a name only some candidates carry is an
-    // error rather than a silent live attribute. The charge level is the
-    // sensor's own state, so that half stays live.
-    q.from(dump.sensors)
-      .where(q.eq(q.optional(q.prop("device_class")), "battery"))
-      .where(q.lt(q.stateProp, 20))
-      .render((e) -> (c.entityCard(e)) {
-        label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
-        secondary = "device_class"
-      })
-      .build()
-      .fullWidth()
+        c.title("Switches").fullWidth()
+        q.from(dump.switches).render(c.entityCard).build().fullWidth()
+
+        c.title("Low battery").fullWidth()
+        // `device_class` is registry data, so it SELECTS the candidates at
+        // build time and never reaches the runtime — `optional` because most
+        // sensors do not report one, and without it a name only some
+        // candidates carry is an error rather than a silent live attribute.
+        // The charge level is the sensor's own state, so that half stays live.
+        q.from(dump.sensors)
+          .where(q.eq(q.optional(q.prop("device_class")), "battery"))
+          .where(q.lt(q.stateProp, 20))
+          .render((e) -> (c.entityCard(e)) {
+            label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
+            secondary = "device_class"
+          })
+          .build()
+          .fullWidth()
+      }
+    }
   }
+
+  // A SECOND dashboard is one more key. Inline, like `home` above:
+  //
+  //   ["kitchen"] {
+  //     title = "Kitchen"
+  //     card = (c.grid) { children { q.from(dump.lights).render(c.entityCard).build() } }
+  //   }
+  //
+  // …or in its own file, for a big one — write `kitchen.pkl` starting with
+  // `amends "@fh-dashboard/entry.pkl"` and point a key at it (note the CALL
+  // form of `import`, which is what works in a value position):
+  //
+  //   ["kitchen"] = import("kitchen.pkl")
 }

@@ -90,9 +90,11 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/core/css.pkl` | The base stylesheet EVERY dashboard gets whatever its theme (ADR 0020): the `fh-` layout contract, the `--fh-*` colour variables a card's CSS is written against, and the classes the runtime itself emits or binds (busy states, offline banners, toast). `entry.pkl` puts it on `Dashboard.css`, and the renderer emits it FIRST — so a theme can override it but never drop it |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme`, the `sliderHoldScript` gesture, and the `hidden classes` a theme uses to get its OWN class names spliced into card markup) and the theme-author guide; implementations are the `theme-*.pkl` siblings. A theme is now the PAINT layer only — the layout contract is `core/css.pkl`'s and each card's structure is its own `cardDef.css` |
 | `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it |
-| `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
+| `resources/dashboards/lib/site.pkl` | The ENTRYPOINT base (ADR 0021) — the workspace's one `dashboard.pkl` amends it and names every dashboard in `dashboards` (key = slug), plus site-wide settings (`default` today, auth next). Its mapping default is an `entry`, so a key amends into existence; a key may also be assigned an imported module (`import("x.pkl")` — the CALL form, the declaration form does not parse in a value position) |
+| `resources/dashboards/lib/entry.pkl` | ONE dashboard — a `dashboards` value `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
-| `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
+| `resources/dashboards/dashboard_default.pkl` | The seeded starter SITE — what a fresh workspace's `dashboard.pkl` is ([[AddonBootstrap.defaultDashboard]], read off the jar's own resources) |
+| `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
 | `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
 | `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
@@ -111,11 +113,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   never injects live values, and authors never write node ids (the backend derives stable,
   location-based ids while recursing — `LayoutNode.pathId`).
 - **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
-  `dashboard.json` artifact for inspection/CI. The runtime does not need it. **The entry is a
-  required argument** — `sbt 'dashboardBuild overetasje.pkl'`; with none it lists the workspace's
-  entries rather than defaulting to a file that may not exist.
+  `dashboard.json` artifact for inspection/CI. The runtime does not need it. **No argument** —
+  there is one entrypoint (ADR 0021) and the artifact is the whole site; a dashboard that fails to
+  build fails the build.
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
-  Pkl entries in memory on startup** (so pkl-core *is* on the startup path — but never on the live
+  entrypoint in memory on startup** (so pkl-core *is* on the startup path — but never on the live
   hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
   `/api/states` and keeps it live from the `state_changed` WS stream (`StateStore`, a `Ref` +
   fs2 `Topic`, full attributes; publishes only on real change). On each change it re-renders the
@@ -127,8 +129,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   keeps a per-node last-rendered cache; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
   children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
-  URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (top-level
-  `*.pkl` entries + `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
+  URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
+  starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
   The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
   (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
@@ -184,10 +186,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
   (`hass.pkl` hand-written domain schema, the `core/` kit + `components/` families behind the
   `components.pkl` facade — ADR 0015, the `theme.pkl` contract +
-  the `theme-beer.pkl` implementation, `tokens.pkl`, the entry
-  scaffold `entry.pkl`); top-level `*.pkl` files are entries that `amends "lib/entry.pkl"` and set
-  only `card` (+ optional `title`/`surfaces`/`theme`). Slug = filename; `ServerApp.discoverEntries`
-  scans top-level `*.pkl` only. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
+  the `theme-beer.pkl` implementation, `tokens.pkl`, the `site.pkl` entrypoint base + the
+  `entry.pkl` dashboard scaffold). ONE top-level entrypoint, `dashboard.pkl`, `amends
+  "@fh-dashboard/site.pkl"` and names every dashboard in its `dashboards` mapping — the KEY is the
+  slug (ADR 0021), and each value is an `entry` (amended inline, or `import("x.pkl")`ed from a
+  module that `amends "@fh-dashboard/entry.pkl"` and sets only `card` + optional
+  `title`/`surfaces`/`theme`). Any other top-level `*.pkl` is an ordinary module. Membership is
+  live: adding or removing a key hot-reloads like any other edit. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
   fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
   a slider with `children` — the SAME card, holding member rows that are ORDINARY nodes: the head is

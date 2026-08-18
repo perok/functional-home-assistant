@@ -1,5 +1,5 @@
-// A Pkl-authored tabs dashboard, served at /d/pkl-tabs (slug = filename) — the
-// typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
+// A Pkl-authored tabs dashboard — point a key at it from `dashboard.pkl`
+// to serve it (ADR 0021). The typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
 // a single inline panel, one tab visible at a time.
 //
 // `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each

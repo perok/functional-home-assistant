@@ -16,6 +16,7 @@ import fh.view.build.{
   LibPackage,
   PklDump,
   RegistryDump,
+  Site,
   SystemPkl
 }
 import fs2.Stream
@@ -25,13 +26,15 @@ import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
   *
-  * Connects to Home Assistant, discovers every `*.pkl` dashboard entry in the
-  * dashboards dir (slug = filename), evaluates each **in memory** into the
-  * runtime model, seeds live state, and serves them with live Datastar updates.
-  * Run via `fh-datastar-view/runMain fh.view.runtime.ServerApp` with
-  * `SERVER`/`SECRET` set.
+  * Connects to Home Assistant, evaluates the workspace's ONE entrypoint
+  * (`dashboard.pkl`) **in memory** into a slug -> dashboard map (ADR 0021),
+  * seeds live state, and serves them all with live Datastar updates. Run via
+  * `fh-datastar-view/runMain fh.view.runtime.ServerApp` with `SERVER`/`SECRET`
+  * set.
   */
 object ServerApp extends IOApp {
+
+  import Server.RendererState.Failed
 
   // All relative to the module directory (the forked `run` working dir).
   //
@@ -68,8 +71,6 @@ object ServerApp extends IOApp {
       // verbatim so a non-numeric PORT reproduces the prior behavior exactly
       // (bindPort falls back to 8080, the URL echoes the raw value).
       loopbackPort: String,
-      // `DEFAULT_DASHBOARD`: the preferred default slug, if it built.
-      defaultDashboard: Option[String],
       // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
       // `PKL_LSP_JAR`: explicit pkl-lsp jar override (else cached/downloaded).
@@ -91,7 +92,6 @@ object ServerApp extends IOApp {
         bindPort = loopbackPort.toIntOption
           .flatMap(Port.fromInt)
           .getOrElse(port"8080")
-        defaultDashboard <- Env[IO].get("DEFAULT_DASHBOARD")
         watchRegistry <- Env[IO]
           .get("FH_WATCH_REGISTRY")
           .map(v => !v.map(_.trim.toLowerCase).exists(RegistryWatchOff))
@@ -103,7 +103,6 @@ object ServerApp extends IOApp {
         bindHost,
         bindPort,
         loopbackPort,
-        defaultDashboard,
         watchRegistry,
         pklLspJar
       )
@@ -133,17 +132,16 @@ object ServerApp extends IOApp {
         // until its store has been filled, so it is ready to read here.
         feed <- HaFeed.resource(FHApi.lowLevelConnectWithClose(haEnv))
         dashboardsDir = config.dashboardsDir
-        // Discover, seed the dump, and build every entry — the entry-to-renderer
-        // path shared with the test harness so it can't diverge. `bundledLib`
-        // pins the FIRST dump on a fresh workspace.
+        // Seed the dump and evaluate the entrypoint into every dashboard it
+        // names — the source-to-renderer path shared with the test harness so
+        // it can't diverge. `bundledLib` pins the FIRST dump on a fresh
+        // workspace.
         prepared <- prepareRenderers(
           feed,
           dashboardsDir,
           Some(bundledLib)
         ).toResource
-        entries = prepared.entries
         built = prepared.built
-        failed = prepared.failed
         // Serves this home's `dump.pkl` and its resolved package artifacts over
         // the public `/system/pkl/*` route for external tooling — the `fh`
         // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
@@ -162,42 +160,39 @@ object ServerApp extends IOApp {
         assets <- AssetCache
           .build(
             config.assetsDir,
-            Server.DatastarCdn :: built.flatMap { case (_, (renderer, _)) =>
+            Server.DatastarCdn :: built.flatMap { case (_, renderer) =>
               renderer.stylesheets ++ renderer.scripts
             },
             org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
           )
           .toResource
 
-        // Every discovered entry is registered, built or not: `built` become
-        // `Ready` renderers, `failed` become `Failed` states serving their
-        // error page and rebuilding live on a fix.
-        stateOf: Map[String, Server.RendererState] =
-          built.map { case (slug, (renderer, _)) =>
-            slug -> Server.RendererState.Ready(renderer)
-          }.toMap ++
-            failed.map { case (slug, message) =>
-              slug -> Server.RendererState.Failed(message)
-            }
-        rendererRefs <- prepared.entries
-          .traverse { case (slug, _) =>
-            SignallingRef[IO]
-              .of(stateOf(slug))
-              .map(slug -> _)
+        // Every dashboard the entrypoint named is registered, built or not:
+        // `built` become `Ready` renderers, `failed` become `Failed` states
+        // serving their error page and rebuilding live on a fix.
+        rendererRefs <- prepared.states.toList
+          .traverse { case (slug, state) =>
+            SignallingRef[IO].of(state).map(slug -> _)
           }
           .map(_.toMap)
           .toResource
         importsRef <- SignallingRef[IO]
-          .of(watchedSet(dashboardsDir, entries, built.map(_._2._2)))
+          .of(watchedSet(dashboardsDir, prepared.imports))
           .toResource
 
-        // The configured default wins even when broken (its error page is the
-        // fix path); with none, the entry named `dashboard`, then the first
-        // discovered entry — pure discovery order, never build status.
-        defaultSlug = defaultSlugFrom(
-          config.defaultDashboard,
-          entries.map(_._1)
-        )
+        // The live site: what is served, and which slug answers `/`. Built
+        // BEFORE the Server because the reload path writes it and the routes
+        // read it — one registry, two owners.
+        site <- Server.LiveSite
+          .of(
+            rendererRefs,
+            defaultSlugFrom(prepared.default, prepared.states.keys.toList)
+          )
+          .toResource
+        // The slugs the ENTRYPOINT owns, so a reload removes only what it
+        // dropped and never a slug `push` minted (ADR 0010).
+        siteSlugs <- SignallingRef[IO].of(prepared.states.keySet).toResource
+        reload = reloadSite(dashboardsDir, site, siteSlugs, importsRef)
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
         // dump and swap it in only if every currently-building dashboard still
@@ -205,13 +200,7 @@ object ServerApp extends IOApp {
         // mutex serializes the endpoint against the registry watcher.
         refreshMutex <- Mutex[IO].toResource
         refreshDump = refreshMutex.lock.surround(
-          refreshOnce(
-            feed.api,
-            dashboardsDir,
-            entries,
-            rendererRefs,
-            importsRef
-          )
+          refreshOnce(feed.api, dashboardsDir, reload)
         )
 
         // The live Server, assembled through the SHARED kernel `liveServer` (the
@@ -220,8 +209,7 @@ object ServerApp extends IOApp {
         // render-once fan-out every SSE connection subscribes to.
         server <- liveServer(
           feed,
-          rendererRefs,
-          defaultSlug,
+          site,
           assets,
           systemPkl,
           dumpRefresh = Some(refreshDump)
@@ -230,14 +218,14 @@ object ServerApp extends IOApp {
         // subprocess; None just disables completion/diagnostics (the editor and
         // local highlighting still work).
         pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
-        editor = new EditorRoutes(dashboardsDir, pklLspJar, defaultSlug)
-
-        _ <- watchSources(
+        editor = new EditorRoutes(
           dashboardsDir,
-          entries,
-          rendererRefs,
-          importsRef
-        ).compile.drain.background
+          pklLspJar,
+          site.defaultSlug,
+          site.names
+        )
+
+        _ <- watchSources(reload, importsRef).compile.drain.background
 
         // Registry-driven dump refresh: HA's `*_registry_updated` events say
         // the HOME changed (device/entity/area/floor added, renamed, removed)
@@ -262,78 +250,100 @@ object ServerApp extends IOApp {
           )
           .withShutdownTimeout(0.seconds)
           .build
+        defaultSlug <- site.defaultSlug.toResource
         _ <- IO
           .println(
             s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
-              s"(default '/$defaultSlug', all: ${entries.map(_._1).mkString(", ")})"
+              s"(default '/$defaultSlug', all: ${prepared.states.keys.toList.sorted.mkString(", ")})"
           )
           .toResource
       } yield ()).useForever
     } yield ExitCode.Success
 
-  /** Everything [[prepareRenderers]] hands back: the FULL discovered entry list
-    * (slug -> filename), the subset that built into a renderer (with its import
-    * set, for watching), and the failures (slug -> message). An entry that
-    * failed to build is REGISTERED as a failed dashboard (serving its error
-    * page and rebuilding live on a fix) rather than skipped, so no discoverable
-    * entry is ever silently absent from the server.
+  /** Everything [[prepareRenderers]] hands back: the state to register per slug
+    * (`Ready` or `Failed`), the slug the site wants at `/`, and the files the
+    * evaluation read (for watching). A dashboard that failed to build is
+    * REGISTERED as a failed one — serving its error page and rebuilding live on
+    * a fix — rather than skipped, so no slug the entrypoint names is ever
+    * silently absent from the server.
     */
   private[runtime] case class Prepared(
-      entries: List[(String, String)],
-      built: List[(String, (Renderer, Set[os.Path]))],
-      failed: List[(String, String)]
-  )
+      states: Map[String, Server.RendererState],
+      default: Option[String],
+      imports: Set[os.Path]
+  ) {
+    def built: List[(String, Renderer)] = states.toList.collect {
+      case (slug, Server.RendererState.Ready(r)) => slug -> r
+    }
+    def failed: List[(String, String)] = states.toList.collect {
+      case (slug, Server.RendererState.Failed(m)) => slug -> m
+    }
+  }
 
-  /** Discover, dump, and build every dashboard — the entry-to-renderer path
-    * that precedes serving, extracted so [[run]] (production) and the test
-    * harness (`TestServer.fromWorkspace`) share it and cannot diverge.
+  /** Dump and build every dashboard the entrypoint names — the source-to-
+    * renderer path that precedes serving, extracted so [[run]] (production) and
+    * the test harness (`TestServer.fromWorkspace`) share it and cannot diverge.
     *
     * Blocks on the feed's first connect + seed (so a live template call has a
     * connection), seeds the `@fh-home` dump ONCE from the live API
-    * ([[DashboardBuild.prepareDumps]]), then builds each entry against it. Only
-    * an EMPTY dir is fatal: a broken entry (a bad user edit before a restart)
-    * becomes a registered `Failed` dashboard, not a crash — it serves an error
-    * page and rebuilds live on a fix, exactly the same shape the reload
-    * machinery uses after startup.
+    * ([[DashboardBuild.prepareDumps]]), then evaluates `dashboard.pkl` against
+    * it. Nothing here is fatal: a dashboard that fails to decode or validate
+    * becomes a registered `Failed` one, and an entrypoint that will not
+    * evaluate at all registers a single failed dashboard under
+    * [[Server.DefaultSlug]] — so `/` and the editor still serve the error and
+    * the fix path, exactly the shape the reload machinery uses after startup.
     */
   private[runtime] def prepareRenderers(
       feed: HaFeed,
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts]
   ): IO[Prepared] =
-    for {
-      // Every top-level `*.pkl` is a dashboard; slug = filename sans ext. The
-      // library resolves through the `@fh-dashboard` cache package, not the dir.
-      entries <- discoverEntries(dashboardsDir)
-      _ <- IO.raiseWhen(entries.isEmpty)(
-        FHError.internal(s"no *.pkl dashboards in $dashboardsDir")
-      )
-      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
-      // the build phase, which owns fetching + packaging the dump.
-      _ <- DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
-      // Per-entry: a broken dashboard (a bad user edit before a restart) is a
-      // registered `Failed` dashboard, not a crash; the entry list is
-      // exhausted either way.
-      results <- entries
-        .traverse { case (slug, entry) =>
-          buildEntry(dashboardsDir, slug, entry).attempt.map {
-            case Right(r)  => Right((slug, r))
-            case Left(err) => Left((slug, err))
-          }
+    // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+    // the build phase, which owns fetching + packaging the dump.
+    DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib) *>
+      DashboardBuild
+        .evalSite(dashboardsDir)
+        .attempt
+        .flatMap {
+          case Right((site, imports)) =>
+            IO.pure(
+              Prepared(statesOf(site), site.default, imports)
+            )
+          case Left(err) =>
+            // Nothing evaluated, so nothing can be attributed to a slug: serve
+            // the error under the one name `/` will look for.
+            IO.pure(
+              Prepared(
+                Map(
+                  Server.DefaultSlug -> Server.RendererState
+                    .Failed(Site.messageOf(err))
+                ),
+                None,
+                Set(dashboardsDir / Site.EntryFile)
+              )
+            )
         }
-      built = results.collect { case Right((slug, r)) => (slug, r) }
-      failed = results.collect { case Left((slug, err)) =>
-        (slug, failureOf(err))
-      }
-      _ <- built.traverse_ { case (slug, (renderer, _)) =>
-        // Built, but maybe not sound: report what still serves and only
-        // misbehaves (a popup with nowhere to mount).
-        renderer.warnings.traverse_(w => IO.println(s"[warn] '$slug': $w"))
-      }
-      _ <- failed.traverse_ { case (slug, message) =>
-        IO.println(s"Dashboard '$slug' failed to build: $message")
-      }
-    } yield Prepared(entries, built, failed)
+        .flatTap { prepared =>
+          prepared.built.traverse_ { case (slug, renderer) =>
+            // Built, but maybe not sound: report what still serves and only
+            // misbehaves (a popup with nowhere to mount).
+            renderer.warnings.traverse_(w => IO.println(s"[warn] '$slug': $w"))
+          } *>
+            prepared.failed.traverse_ { case (slug, message) =>
+              IO.println(s"Dashboard '$slug' failed to build: $message")
+            }
+        }
+
+  /** The registry state for each slug an evaluated site names. */
+  private def statesOf(
+      site: Site.Decoded
+  ): Map[String, Server.RendererState] =
+    site.dashboards.map {
+      case (slug, Right(validated)) =>
+        slug -> Server.RendererState.Ready(Renderer.fromValidated(validated))
+      case (slug, Left(message)) =>
+        slug -> Server.RendererState.Failed(message)
+    }.toMap
 
   /** The runtime KERNEL both [[run]] (production) and the test harness
     * (`TestServer`) funnel through, so the live-Server wiring cannot silently
@@ -351,8 +361,7 @@ object ServerApp extends IOApp {
     */
   private[runtime] def liveServer(
       feed: HaFeed,
-      renderers: Map[String, SignallingRef[IO, Server.RendererState]],
-      defaultSlug: String,
+      site: Server.LiveSite,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
@@ -361,8 +370,7 @@ object ServerApp extends IOApp {
       sessions <- Sessions.create.toResource
       server <- Server.fromFeed(
         feed,
-        renderers,
-        defaultSlug,
+        site,
         sessions,
         assets,
         systemPkl,
@@ -370,63 +378,19 @@ object ServerApp extends IOApp {
       )
     } yield server
 
-  /** `(slug, entryFilename)` for every top-level `*.pkl` in the dir,
-    * slug-sorted. (`os.list` is non-recursive, so `lib/` — the Pkl library
-    * modules — is never scanned.) Slugs are unique by construction: with a
-    * single extension, slug = filename sans `.pkl`, and filenames are unique
-    * within a directory.
-    */
-  private def discoverEntries(dir: os.Path): IO[List[(String, String)]] =
-    IO.blocking {
-      os.list(dir)
-        .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-        .map(p => p.last.stripSuffix(".pkl") -> p.last)
-        .sortBy(_._1)
-        .toList
-    }
-
-  /** Default dashboard: the configured `DEFAULT_DASHBOARD` wins whenever it
-    * names ANY discovered entry — even one that failed to build, whose error
-    * page is the point (it stays fixable in the editor rather than silently
-    * bouncing to a different dashboard). Otherwise the entry named `dashboard`,
-    * then the lexicographically first discovered entry. Pure discovery order,
-    * never filtered by build status: a failed dashboard is a live error state
-    * that serves its error page at the root, so there is nothing to prefer a
-    * buildable one for. Pure — `configured` is already parsed from the
-    * environment into [[Config]].
+  /** The slug the site is seeded with at boot ([[Server.defaultSlugFor]], with
+    * the never-empty fallback a `LiveSite` needs). The site's own `default`
+    * wins whenever it names a dashboard the entrypoint declared, even one that
+    * failed to build — its error page is the point.
     */
   private[runtime] def defaultSlugFrom(
-      configured: Option[String],
+      preferred: Option[String],
       all: List[String]
   ): String =
-    configured
-      .filter(all.contains)
-      .orElse(Option.when(all.contains("dashboard"))("dashboard"))
-      .getOrElse(all.head)
+    Server.defaultSlugFor(preferred, all).getOrElse(Server.DefaultSlug)
 
-  /** A failure's message for `Failed(...)` states and logs; exceptions can
-    * throw a null message, which neither an error page nor a log line wants.
-    */
-  private def failureOf(err: Throwable): String =
-    Option(err.getMessage)
-      .filter(_.nonEmpty)
-      .getOrElse(err.getClass.getSimpleName)
-
-  /** Evaluate one entry against the on-disk dump and create its renderer,
-    * forcing its slug to the filename-derived one (routing is by slug).
-    */
-  private def buildEntry(
-      dashboardsDir: os.Path,
-      slug: String,
-      entry: String
-  ): IO[(Renderer, Set[os.Path])] =
-    DashboardBuild.reevaluate(dashboardsDir, entry).map {
-      case (validated, imports) =>
-        Renderer.fromValidated(validated.withSlug(slug)) -> imports
-    }
-
-  /** The set of files to watch: every entry's transitive imports plus the entry
-    * files themselves (so a brand-new import or a top-level edit is caught).
+  /** The set of files to watch: the entrypoint's transitive imports plus the
+    * entrypoint itself (so a brand-new import or a top-level edit is caught).
     *
     * The `lib/` authoring library and the `@fh-home` dump are cache-backed
     * PACKAGES (ADR 0010), so `PklBuild.importSet` filters their `package:`
@@ -437,11 +401,10 @@ object ServerApp extends IOApp {
     */
   private def watchedSet(
       dashboardsDir: os.Path,
-      entries: List[(String, String)],
-      imports: List[Set[os.Path]]
+      imports: Set[os.Path]
   ): Set[Path] =
-    (imports.flatten.toSet ++
-      entries.map { case (_, e) => dashboardsDir / e } +
+    (imports +
+      (dashboardsDir / Site.EntryFile) +
       // The workspace manifest, so adding a package dependency takes effect
       // like any other edit: the re-eval re-resolves the lockfile whenever this
       // file's mtime has moved (`PklBuild.staleLockfile`). It is editable in the
@@ -455,45 +418,37 @@ object ServerApp extends IOApp {
     Watcher.EventType.Deleted
   )
 
-  /** Watch every dashboard's source graph and, on change, re-evaluate ALL
-    * entries (they share the `lib/` modules, so one edit can touch several) and
-    * hot-swap each renderer; the SSE streams repaint their body. Re-eval is
-    * per-entry and every entry's ref is set either way — a failing entry
-    * becomes `Failed` (its error page is the fix path) and a broken one that
-    * starts building again becomes `Ready`, so a dashboard broken since startup
-    * repairs without a restart. Mirrors the single-dashboard watcher: a
-    * concurrent reconcile tracks `importsRef` so newly-imported files start
-    * being watched and removed ones stop.
+  /** Watch the entrypoint's source graph and, on change, re-evaluate it and
+    * hot-swap every dashboard it names; the SSE streams repaint their body.
+    * MEMBERSHIP moves too — a key added to `dashboards` starts serving and a
+    * key removed stops, without a restart (ADR 0021) — and each surviving
+    * slug's state is set either way, so a dashboard broken since startup
+    * repairs when it is fixed. A concurrent reconcile tracks `importsRef` so
+    * newly-imported files start being watched and removed ones stop.
     */
   private def watchSources(
-      dashboardsDir: os.Path,
-      entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
+      reload: IO[Unit],
       importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] =
     Stream.resource(Watcher.default[IO]).flatMap { watcher =>
       watchSourcesWith(
         watcher.events(),
         path => watcher.watch(path, watchedEvents),
-        dashboardsDir,
-        entries,
-        rendererRefs,
+        reload,
         importsRef
       )
     }
 
   /** The source watcher's pipeline, decoupled from the OS watcher: the caller
     * supplies the event stream and the watch/unwatch side effect, so a test can
-    * drive the same `events -> reloadEntries` wiring with a controlled stream
-    * instead of a live `WatchService`. The `WatchService` itself is only
-    * exercised manually (`sbt dashboardServe`).
+    * drive the same `events -> reload` wiring with a controlled stream instead
+    * of a live `WatchService`. The `WatchService` itself is only exercised
+    * manually (`sbt dashboardServe`).
     */
   private[runtime] def watchSourcesWith(
       events: Stream[IO, Watcher.Event],
       watch: Path => IO[IO[Unit]],
-      dashboardsDir: os.Path,
-      entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
+      reload: IO[Unit],
       importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] = {
     val reconcile =
@@ -515,83 +470,92 @@ object ServerApp extends IOApp {
           }
         }
 
-    val reload =
-      events
-        .debounce(200.millis)
-        .evalMap { _ =>
-          reloadEntries(
-            dashboardsDir,
-            entries,
-            rendererRefs,
-            importsRef
-          )
-        }
+    val reloadOnChange =
+      events.debounce(200.millis).evalMap(_ => reload)
 
-    reload.concurrently(reconcile)
+    reloadOnChange.concurrently(reconcile)
   }
 
-  /** Re-evaluate ALL entries against the on-disk sources + dump and hot-swap
-    * each renderer. Every entry's ref is set either way — `Ready` with the new
-    * renderer or `Failed` with the error message — so a broken dashboard shows
-    * its error page and a fixed one recovers, both WITHOUT a restart. The body
-    * behind both the source watcher and the post-dump-swap reload
-    * ([[refreshOnce]] — the dump is deliberately not watched).
+  /** Re-evaluate the entrypoint against the on-disk sources + dump and bring
+    * the live site up to what it now says: install the dashboards it names
+    * (`Ready`, or `Failed` with the message its own build failed with) and
+    * remove the ones it no longer names. The body behind both the source
+    * watcher and the post-dump-swap reload ([[refreshOnce]] — the dump is
+    * deliberately not watched).
+    *
+    * An entrypoint that will not EVALUATE is a different thing from a dashboard
+    * that will not build: nothing can be attributed to a slug, so every slug
+    * the site currently owns shows the error and MEMBERSHIP IS LEFT ALONE — the
+    * file no longer says what it is. Fixing the file restores all of them at
+    * once.
+    *
+    * `siteSlugs` is what the entrypoint owned last time, and it is what makes a
+    * removal safe: a slug installed by `push` was never in it, so nothing here
+    * can reclaim one (ADR 0010).
     */
-  private[runtime] def reloadEntries(
+  private[runtime] def reloadSite(
       dashboardsDir: os.Path,
-      entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
+      site: Server.LiveSite,
+      siteSlugs: SignallingRef[IO, Set[String]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[Unit] =
-    entries
-      .traverse { case (slug, entry) =>
-        buildEntry(dashboardsDir, slug, entry).attempt.map((slug, _))
-      }
-      .flatMap { results =>
-        results.traverse_ {
-          case (slug, Right((renderer, _))) =>
-            rendererRefs(slug)
-              .modify[Option[String]] { prev =>
-                val note =
-                  prev match
-                    case Server.RendererState.Failed(_) =>
-                      Some(s"Dashboard '$slug' recovered")
-                    case _ => None
-                (Server.RendererState.Ready(renderer), note)
-              }
-              .flatMap(_.traverse_(IO.println))
-          case (slug, Left(err)) =>
-            val message = failureOf(err)
-            rendererRefs(slug)
-              .modify[Option[String]] { prev =>
-                val note = prev match
-                  case Server.RendererState.Failed(_) => None
-                  case _                              =>
-                    Some(s"Dashboard '$slug' is now broken: $message")
-                (Server.RendererState.Failed(message), note)
-              }
-              .flatMap(_.traverse_(IO.println))
-        } *>
-          // A repaired entry's import set joins the watch graph, so later edits
-          // to *its* imports fire too; a still-broken entry's loose `file:`
-          // imports stay outside it (known edge, plan).
-          IO.whenA(results.exists(_._2.isRight))(
-            importsRef.set(
-              watchedSet(
-                dashboardsDir,
-                entries,
-                results.collect { case (_, Right((_, imports))) => imports }
-              )
-            ) *>
-              IO.println(
-                s"Dashboards reloaded (${results
-                    .collect { case (slug, Right(_)) =>
-                      slug
-                    }
-                    .mkString(", ")})"
-              )
+    DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
+      case Left(err) =>
+        val message = Site.messageOf(err)
+        siteSlugs.get.flatMap(
+          _.toList.sorted.traverse_(install(site, _, Failed(message)))
+        )
+      case Right((decoded, imports)) =>
+        val states = statesOf(decoded)
+        for {
+          previous <- siteSlugs.get
+          _ <- states.toList.sortBy(_._1).traverse_ { case (slug, state) =>
+            install(site, slug, state)
+          }
+          gone = (previous -- states.keySet).toList.sorted
+          _ <- gone.traverse_ { slug =>
+            site.remove(slug) *>
+              IO.println(s"Dashboard '$slug' removed (no longer in the site)")
+          }
+          _ <- siteSlugs.set(states.keySet)
+          _ <- site.setPreferred(decoded.default)
+          _ <- importsRef.set(watchedSet(dashboardsDir, imports))
+          _ <- IO.println(
+            s"Dashboards reloaded (${states.keys.toList.sorted.mkString(", ")})"
           )
-      }
+        } yield ()
+    }
+
+  /** Install one slug's state, announcing only the TRANSITIONS worth a log
+    * line: a dashboard that started serving, one that broke, one that
+    * recovered.
+    */
+  private def install(
+      site: Server.LiveSite,
+      slug: String,
+      state: Server.RendererState
+  ): IO[Unit] =
+    site.liveFor(slug).flatMap {
+      case None =>
+        site.install(slug, state) *> IO.println(state match {
+          case Failed(message) =>
+            s"Dashboard '$slug' added, but broken: $message"
+          case _ => s"Dashboard '$slug' added"
+        })
+      case Some(live) =>
+        live.renderer
+          .modify[Option[String]] { prev =>
+            val note = (prev, state) match {
+              case (Failed(_), Failed(_)) => None
+              case (Failed(_), _)       => Some(s"Dashboard '$slug' recovered")
+              case (_, Failed(message)) =>
+                Some(s"Dashboard '$slug' is now broken: $message")
+              case _ => None
+            }
+            (state, note)
+          }
+          .flatMap(_.traverse_(IO.println))
+    }
 
   /** One full dump refresh: fetch + render the live dump, validate-then-swap
     * ([[DumpRefresh.refresh]]), and on a swap hot-reload every renderer (the
@@ -602,9 +566,7 @@ object ServerApp extends IOApp {
   private def refreshOnce(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      entries: List[(String, String)],
-      rendererRefs: Map[String, SignallingRef[IO, Server.RendererState]],
-      importsRef: SignallingRef[IO, Set[Path]]
+      reload: IO[Unit]
   ): IO[DumpRefresh.Result] =
     RegistryDump
       .fetch(api)
@@ -612,19 +574,13 @@ object ServerApp extends IOApp {
         PklDump.warnings(_).traverse_(w => IO.println(s"dump warning: $w"))
       )
       .map(PklDump.render)
-      .flatMap(DumpRefresh.refresh(_, dashboardsDir, entries))
+      .flatMap(DumpRefresh.refresh(_, dashboardsDir))
       .flatTap {
         case DumpRefresh.Unchanged =>
           IO.println("dump refresh: home unchanged")
         case DumpRefresh.Swapped(version, seedLog) =>
           seedLog.traverse_(IO.println) *>
-            IO.println(s"dump refreshed -> $version") *>
-            reloadEntries(
-              dashboardsDir,
-              entries,
-              rendererRefs,
-              importsRef
-            )
+            IO.println(s"dump refreshed -> $version") *> reload
         case DumpRefresh.Rejected(errors) =>
           IO.println(
             "WARNING: dump refresh rejected — the new dump breaks dashboards " +

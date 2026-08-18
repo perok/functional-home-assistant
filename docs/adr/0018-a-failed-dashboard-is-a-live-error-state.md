@@ -71,21 +71,24 @@ the seam.
   showed (a `_`-prefixed signal serializing into the reconnect URL), which is
   client state the design deliberately avoids; the live-connection path that
   always sees every transition ([[Server.reloadRepaints]]) does not miss it.
-- **Repair is live.** `reloadEntries` re-evaluates every entry on each source
-  edit and sets **every** ref: `Right` → `Ready`, `Left` → `Failed(message)`.
-  A dashboard broken since startup recovers without a restart; a live one that
-  breaks shows the error page; a repaired entry's import set joins the watch
-  graph. The known edge, accepted: a never-built entry's loose `file:` imports
-  are not watched until it builds once (the entry file and the `PklProject`
-  manifest always are, so the common paths fire).
-- **The default is chosen in pure discovery order, never by build status.**
-  If `DEFAULT_DASHBOARD` names any discovered entry, it wins — its error page
-  at the root is the point. Only a configured value naming no entry falls
-  through to the entry named `dashboard`, then the lexicographically first
-  discovered entry — a failed dashboard serves its error page and repairs
-  live, so there is nothing to prefer a buildable one for, and the rule never
-  needs to know whether an entry evaluates. An all-failed workspace still
-  serves the first entry (editable) rather than 404ing.
+- **Repair is live.** `reloadSite` re-evaluates the entrypoint on each source
+  edit and sets **every** slug's state: a proven dashboard → `Ready`, one that
+  failed to decode or validate → `Failed(message)`. A dashboard broken since
+  startup recovers without a restart, and a live one that breaks shows the
+  error page.
+- **A failure of the ENTRYPOINT is site-wide, and membership survives it.**
+  With one entrypoint (ADR 0021) an evaluation error belongs to no slug, so
+  every slug the site currently owns takes that message, and the slug SET is
+  left untouched — the file no longer says what the dashboards are, so the last
+  thing it did say stands until it is fixed. At boot, with nothing registered
+  yet, the failure is registered under the single slug `dashboard`, which is
+  also what `/` resolves to, so a workspace that never built still serves its
+  error page rather than 404ing.
+- **The default is chosen from membership, never from build status.** The site's
+  own `default` wins whenever it names a registered dashboard — even a failed
+  one, whose error page at the root is the point. Otherwise the slug named
+  `dashboard`, then the first. It is resolved per REQUEST, so deleting the
+  default dashboard falls back rather than 404ing `/`.
 
 ### The seam, not the machinery
 

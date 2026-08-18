@@ -492,9 +492,10 @@ def installJson(
   *
   * Only the named entry travels: an entry importing a laptop-local `.pkl` will
   * be written but fail to build on the instance (its imports are not there) —
-  * that is what plain `push` is for. A slug the instance did not have at
-  * startup lands on disk but goes live only on its next restart; the watcher
-  * reloads the entries it already knows.
+  * that is what plain `push` is for. Writing a MODULE lands a file nothing
+  * serves until a key in the instance's `dashboard.pkl` points at it (ADR
+  * 0021); writing the entrypoint itself (`fh push --write dashboard.pkl`) is
+  * what adds, removes or renames a dashboard, and it goes live immediately.
   */
 def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   for

@@ -4,7 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Ref, Resource}
 import cats.effect.std.{Queue, Supervisor}
 import cats.syntax.all.*
-import fh.view.build.PklDump
+import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
@@ -150,31 +150,32 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test(
-    "reloadEntries repairs a broken dashboard and breaks a live one, without restart"
+    "reloadSite repairs a broken dashboard and breaks a live one, without restart"
   ) {
-    // Objective 1 — the widened ServerApp.reloadEntries seam drives the REAL
-    // eval path: a dashboard that failed at boot recovers when its source is
-    // fixed, and a live one breaks back to its error page when the source
-    // breaks. No restart, no re-boot.
+    // Objective 1 — the ServerApp.reloadSite seam drives the REAL eval path: a
+    // dashboard that failed at boot recovers when its source is fixed, and a
+    // live one breaks back to its error page when the source breaks. No
+    // restart, no re-boot.
     stageRepairWorld.use { case (ws, fake) =>
       for {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(Set("dash"))
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         refs = Map("dash" -> ref)
-        entries = List("dash" -> "dash.pkl")
         // Fix the source on disk — the ref must become Ready and serve the
         // dashboard.
-        _ <- IO.blocking(os.write.over(ws / "dash.pkl", kitchenEntry))
-        _ <- ServerApp.reloadEntries(ws, entries, refs, imports)
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
+        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
         ready <- ref.get
         fixedPage <- serve(ws, fake, refs)
         // Break it again — the ref must become Failed and serve the error page.
         _ <- IO.blocking(
-          os.write.over(ws / "dash.pkl", "this is not valid pkl")
+          os.write.over(ws / Site.EntryFile, "this is not valid pkl")
         )
-        _ <- ServerApp.reloadEntries(ws, entries, refs, imports)
+        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
         broken <- ref.get
         brokenPage <- serve(ws, fake, refs)
       } yield {
@@ -358,7 +359,7 @@ class FailedDashboardSuite extends ServerHarness {
     "the source watcher pipeline repairs a broken dashboard and breaks it again, " +
       "driven without a live OS watcher"
   ) {
-    // The [[ServerApp.watchSourcesWith]] seam: the same `events -> reloadEntries`
+    // The [[ServerApp.watchSourcesWith]] seam: the same `events -> reloadSite`
     // wiring the OS watcher drives, here fed a controlled event stream — a real
     // file edit and the WatchService event it would raise.
     stageRepairWorld.use { case (ws, _) =>
@@ -366,9 +367,9 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(Set("dash"))
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
-        refs = Map("dash" -> ref)
-        entries = List("dash" -> "dash.pkl")
         events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
         watched <- Ref[IO].of(Vector.empty[fs2.io.file.Path])
         _ <- Supervisor[IO].use { supervisor =>
@@ -377,25 +378,25 @@ class FailedDashboardSuite extends ServerHarness {
               .watchSourcesWith(
                 fs2.Stream.fromQueueUnterminated(events),
                 p => watched.update(_ :+ p).as(IO.unit),
-                ws,
-                entries,
-                refs,
+                ServerApp.reloadSite(ws, site, slugs, imports),
                 imports
               )
               .compile
               .drain
           ) *>
             // Fix the source, deliver the edit event: the ref must become Ready.
-            IO.blocking(os.write.over(ws / "dash.pkl", kitchenEntry)) *>
-            events.offer(modified(ws / "dash.pkl")) *>
+            IO.blocking(
+              os.write.over(ws / Site.EntryFile, kitchenSite())
+            ) *>
+            events.offer(modified(ws / Site.EntryFile)) *>
             awaitState(ref)(_.isInstanceOf[Server.RendererState.Ready]) *>
-            // The fixed entry's files joined the watch graph.
+            // The entrypoint's files joined the watch graph.
             awaitWatched(watched) *>
             // Break it again: the same pipeline flips the ref back to Failed.
             IO.blocking(
-              os.write.over(ws / "dash.pkl", "this is not valid pkl")
+              os.write.over(ws / Site.EntryFile, "this is not valid pkl")
             ) *>
-            events.offer(modified(ws / "dash.pkl")) *>
+            events.offer(modified(ws / Site.EntryFile)) *>
             awaitState(ref)(_.isInstanceOf[Server.RendererState.Failed])
         }
         finalState <- ref.get
@@ -408,8 +409,98 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test(
+    "membership follows the entrypoint: a key added serves, a key removed 404s " +
+      "and stops recording"
+  ) {
+    // The #141 half of ADR 0021: adding or removing a dashboard is an ordinary
+    // edit. The publisher assertion is the part that would silently rot — a
+    // removed slug that keeps its recorder still diffs every state batch
+    // forever — so it is checked through the store's subscriber count.
+    stageRepairWorld.use { case (ws, fake) =>
+      for {
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(Set("dash"))
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        store <- StateStore.inMemory(
+          Map("light.kitchen" -> es("light.kitchen", "on"))
+        )
+        sessions <- Sessions.create
+        out <- Server
+          .withSite(
+            HomeAssistantApi.fromWs(fake),
+            store,
+            site,
+            sessions,
+            AssetCache.empty,
+            fs2.concurrent.Signal.constant(true),
+            SystemPkl.empty,
+            None
+          )
+          .use { server =>
+            val reload = ServerApp.reloadSite(ws, site, slugs, imports)
+            for {
+              // One dashboard, one recorder.
+              _ <- reload
+              _ <- awaitSubscribers(store, 1)
+              // Add a key: it serves, and it records.
+              _ <- IO.blocking(
+                os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
+              )
+              _ <- reload
+              added <- site.names
+              addedPage <- page(server, "/d/second")
+              _ <- awaitSubscribers(store, 2)
+              // Remove it again: 404, and its recorder is gone.
+              _ <- IO.blocking(
+                os.write.over(ws / Site.EntryFile, kitchenSite())
+              )
+              _ <- reload
+              removed <- site.names
+              gonePage <- page(server, "/d/second")
+              _ <- awaitSubscribers(store, 1)
+            } yield {
+              assertEquals(added, List("dash", "second"))
+              assertEquals(addedPage._1, Status.Ok)
+              assertEquals(removed, List("dash"))
+              assertEquals(gonePage._1, Status.NotFound)
+            }
+          }
+      } yield out
+    }
+  }
+
+  test("the default slug falls back when the site drops it") {
+    stageRepairWorld.use { case (ws, _) =>
+      for {
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(secondKey, "second"))
+        )
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(Set("dash"))
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        chosen <- site.defaultSlug
+        // Drop the dashboard the site asked for: `/` must still answer.
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
+        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        fallback <- site.defaultSlug
+      } yield {
+        assertEquals(chosen, "second")
+        assertEquals(fallback, "dash")
+      }
+    }
+  }
+
   /** A real package-form workspace (lib + the fixture house seeded as the
-    * `@fh-home` dump) whose `dash.pkl` starts BROKEN — the same staging the
+    * `@fh-home` dump) whose entrypoint starts BROKEN — the same staging the
     * production boot produces for a bad user edit, minus the boot itself.
     */
   private def stageRepairWorld: Resource[IO, (os.Path, FakeHomeAssistant)] =
@@ -421,13 +512,29 @@ class FailedDashboardSuite extends ServerHarness {
             tmp,
             PklDump.render(HouseFixture.transformedDump)
           )
-        os.list(tmp)
-          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-          .foreach(os.remove)
-        os.write.over(tmp / "dash.pkl", "this is not valid pkl")
+        os.write.over(tmp / Site.EntryFile, "this is not valid pkl")
       }.toResource
       fake <- FakeHomeAssistant.create(Nil).toResource
     } yield (tmp, fake)
+
+  private def awaitSubscribers(store: StateStore, n: Int): IO[Unit] =
+    store.changeSubscribers
+      .filter(_ == n)
+      .head
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  private def page(server: Server, path: String): IO[(Status, String)] =
+    server.routes.orNotFound
+      .run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
+      .flatMap(resp =>
+        resp.body
+          .through(fs2.text.utf8.decode)
+          .compile
+          .string
+          .map(resp.status -> _)
+      )
 
   /** Serve `GET /d/dash` through a real Server holding `refs` — what a client
     * sees after the ref moved.
@@ -461,20 +568,34 @@ class FailedDashboardSuite extends ServerHarness {
         )
     }
 
-  /** A valid entry pinned to the fixture `light_kitchen` — builds only while
-    * the fixture house is the seeded dump, exactly like DumpRefreshSuite's.
+  /** A valid entrypoint whose `dash` dashboard is pinned to the fixture
+    * `light_kitchen` — it builds only while the fixture house is the seeded
+    * dump, exactly like DumpRefreshSuite's. `extra` adds further keys and
+    * `default` the site's preferred slug.
     */
-  private val kitchenEntry =
-    """amends "@fh-dashboard/entry.pkl"
-      |import "@fh-dashboard/components.pkl" as c
-      |import "@fh-home/dump.pkl" as dump
-      |title = "Kitchen"
-      |card = (c.grid) {
-      |  children {
-      |    c.title(dump.entities.light_kitchen.entity_id)
-      |  }
-      |}
-      |""".stripMargin
+  private def kitchenSite(extra: String = "", default: String = "") =
+    s"""amends "@fh-dashboard/site.pkl"
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |${if (default.isEmpty) "" else s"""default = "$default""""}
+       |dashboards {
+       |  ["dash"] {
+       |    title = "Kitchen"
+       |    card = (c.grid) {
+       |      children {
+       |        c.title(dump.entities.light_kitchen.entity_id)
+       |      }
+       |    }
+       |  }
+       |$extra
+       |}
+       |""".stripMargin
+
+  private val secondKey =
+    """  ["second"] {
+      |    title = "Second"
+      |    card = c.title("second")
+      |  }""".stripMargin
 
   private def awaitReload(
       seen: Ref[IO, Vector[ServerSentEvent]]
@@ -527,7 +648,7 @@ class FailedDashboardSuite extends ServerHarness {
   ): IO[Unit] =
     fs2.Stream
       .repeatEval(watched.get <* IO.sleep(10.millis))
-      .find(_.exists(_.toString.endsWith("dash.pkl")))
+      .find(_.exists(_.toString.endsWith(Site.EntryFile)))
       .compile
       .drain
       .timeout(15.seconds)
