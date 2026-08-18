@@ -267,7 +267,11 @@ object TestServer {
       // can't drift from the app. Only the renderer source (a fixed dashboard)
       // and the HA edge (a fake) are ours.
       site <- Server.LiveSite
-        .of(Map(dashboard.slug -> rendererRef), dashboard.slug)
+        .of(
+          Map(dashboard.slug -> rendererRef),
+          Map(dashboard.slug -> Right(dashboard)),
+          dashboard.slug
+        )
         .toResource
       server <- ServerApp.liveServer(
         feed,
@@ -332,7 +336,9 @@ object TestServer {
         .traverse { case (s, state) => SignallingRef[IO].of(state).map(s -> _) }
         .map(_.toMap)
         .toResource
-      site <- Server.LiveSite.of(rendererRefs, slug).toResource
+      site <- Server.LiveSite
+        .of(rendererRefs, prepared.content, slug)
+        .toResource
       server <- ServerApp.liveServer(
         feed,
         site,
@@ -371,7 +377,11 @@ object TestServer {
         )
         .toResource
       site <- Server.LiveSite
-        .of(Map(dashboard.slug -> rendererRef), dashboard.slug)
+        .of(
+          Map(dashboard.slug -> rendererRef),
+          Map(dashboard.slug -> Right(dashboard)),
+          dashboard.slug
+        )
         .toResource
       server <- ServerApp.liveServer(feed, site, assets)
       bound <- EmberServerBuilder

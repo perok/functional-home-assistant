@@ -410,17 +410,18 @@ class Server(
     *
     * '''A pushed slug is never reclaimed while the process lives''', and that
     * is deliberate — nothing else can decide that a developer is finished with
-    * one, so nothing quietly deletes it. `ServerApp` only ever removes a slug
-    * the ENTRYPOINT dropped (it diffs its own previous site membership), and a
-    * pushed slug was never in that set. The cost is paid per pushed slug and is
-    * not free: each new one holds a `Renderer` + a fragment log, and its
-    * publisher runs a diff pass on every state batch for the life of the
-    * process. A long-lived instance that is pushed to all day accumulates both.
-    * Removing one is a USER action that does not exist yet — see TODO2.md ("an
-    * overlay to drop a pushed dashboard").
+    * one, so nothing quietly deletes it. A reload only ever removes a slug the
+    * ENTRYPOINT dropped, and the registry decides that from the slug's own
+    * origin ([[Server.Origin]]) rather than from a caller's memory of what the
+    * site used to own. The cost is paid per pushed slug and is not free: each
+    * new one holds a `Renderer` + a fragment log, and its publisher runs a diff
+    * pass on every state batch for the life of the process. A long-lived
+    * instance that is pushed to all day accumulates both. Removing one is a
+    * USER action that does not exist yet — see TODO2.md ("an overlay to drop a
+    * pushed dashboard").
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
-    site.install(
+    site.installPushed(
       validated.dashboard.slug,
       Server.RendererState.Ready(Renderer.fromValidated(validated))
     )
@@ -1898,6 +1899,9 @@ object Server {
   )
 
   private[runtime] object LiveSlug {
+    def of(state: RendererState): IO[LiveSlug] =
+      SignallingRef[IO].of(state).flatMap(create)
+
     def create(renderer: SignallingRef[IO, RendererState]): IO[LiveSlug] =
       (
         freshLog.flatMap(Ref[IO].of),
@@ -1912,18 +1916,70 @@ object Server {
   private[runtime] val freshLog: IO[FragmentLog] =
     IO.randomUUID.map(id => FragmentLog(id.toString))
 
-  /** Every dashboard the instance serves right now, and which of them answers
-    * `/` — the live counterpart of the entrypoint's `dashboards` map (ADR
-    * 0021). Owned by the caller rather than by [[Server]] because the reload
-    * path (`ServerApp`) writes it while the routes read it.
+  /** Where a live slug came from — and, for one the ENTRYPOINT names, what it
+    * last evaluated to.
+    *
+    * The origin is what makes the two rules the reload path has to obey
+    * checkable rather than remembered: only a [[Origin.FromSite]] slug may be
+    * reclaimed (a [[Origin.Pushed]] one is nobody's to delete, ADR 0010), and a
+    * slug whose content is unchanged must not be re-installed (a write rotates
+    * the fragment log and repaints every open browser).
+    *
+    * The content is the `Dashboard` model, not the [[Renderer]] built from it:
+    * two evaluations of an unedited file produce equal models and different
+    * renderers.
+    */
+  private[runtime] enum Origin {
+    case FromSite(content: Either[String, Dashboard])
+    case Pushed
+  }
+
+  private[runtime] case class Entry(live: LiveSlug, origin: Origin)
+
+  /** One transition [[LiveSite]] made, and the line it is worth in the log.
+    * `None` is deliberate: a dashboard that changed and still builds is the
+    * ordinary case, already covered by the reload's summary line.
+    */
+  private[runtime] enum Change {
+    case Added(slug: String, error: Option[String])
+    case Broke(slug: String, error: String)
+    case Recovered(slug: String)
+    case Rebuilt(slug: String)
+    case Removed(slug: String)
+
+    def describe: (String, Option[String]) = this match {
+      case Added(slug, None)      => (slug, Some(s"Dashboard '$slug' added"))
+      case Added(slug, Some(err)) =>
+        (slug, Some(s"Dashboard '$slug' added, but broken: $err"))
+      case Broke(slug, err) =>
+        (slug, Some(s"Dashboard '$slug' is now broken: $err"))
+      case Recovered(slug) => (slug, Some(s"Dashboard '$slug' recovered"))
+      case Rebuilt(slug)   => (slug, None)
+      case Removed(slug)   =>
+        (slug, Some(s"Dashboard '$slug' removed (no longer in the site)"))
+    }
+  }
+
+  /** Every dashboard the instance serves right now, what each of them was built
+    * from, and which of them answers `/` — the live counterpart of the
+    * entrypoint's `dashboards` map (ADR 0021). Owned by the caller rather than
+    * by [[Server]] because the reload path (`ServerApp`) writes it while the
+    * routes read it.
     *
     * Membership is a `SignallingRef` for one reason: [[changes]] is what starts
     * and stops the per-slug recorders ([[Server.sharedPatchPublishers]]), so
     * installing or removing a slug IS starting or stopping its publisher, with
     * no second path to keep in step.
+    *
+    * '''An evaluated site is applied here, not diffed by the caller.'''
+    * [[applySite]] takes what the entrypoint evaluated to and works out the
+    * installs, the swaps and the removals itself, because that decision needs
+    * the previous content — which lives beside the slug ([[Origin]]). A caller
+    * keeping its own copy of that content is the same fact in two places, and
+    * nothing would notice the two drifting apart.
     */
   private[runtime] class LiveSite(
-      slugs: SignallingRef[IO, Map[String, LiveSlug]],
+      entries: SignallingRef[IO, Map[String, Entry]],
       // The slug the entrypoint asked to serve at `/`, re-set by every reload.
       // A preference, not an answer: it may name a slug that no longer exists.
       preferred: Ref[IO, Option[String]],
@@ -1933,57 +1989,198 @@ object Server {
       fallback: String
   ) {
 
-    def liveFor(slug: String): IO[Option[LiveSlug]] = slugs.get.map(_.get(slug))
+    def liveFor(slug: String): IO[Option[LiveSlug]] =
+      entries.get.map(_.get(slug).map(_.live))
 
-    def names: IO[List[String]] = slugs.get.map(_.keys.toList.sorted)
+    def names: IO[List[String]] = entries.get.map(_.keys.toList.sorted)
 
-    def changes: Stream[IO, Map[String, LiveSlug]] = slugs.discrete
+    def changes: Stream[IO, Map[String, LiveSlug]] =
+      entries.discrete.map(_.view.mapValues(_.live).toMap)
 
-    /** Install a state under `slug`: a swap for a slug already registered
-      * (which repaints its open connections), otherwise a new dashboard.
+    /** Install a dashboard the developer PUSHED (ADR 0010): a swap for a slug
+      * already registered (which repaints its open connections), otherwise a
+      * new dashboard. A slug the entrypoint owns keeps its origin, so the next
+      * reload restores it; a new one is [[Origin.Pushed]] and therefore outside
+      * everything [[applySite]] may reclaim.
       */
-    def install(slug: String, state: RendererState): IO[Unit] =
-      SignallingRef[IO]
-        .of(state)
-        .flatMap(LiveSlug.create)
-        .flatMap { fresh =>
-          slugs
-            .modify { rs =>
-              rs.get(slug) match {
-                case Some(existing) => (rs, Some(existing))
-                case None           => (rs + (slug -> fresh), None)
-              }
+    def installPushed(slug: String, state: RendererState): IO[Unit] =
+      LiveSlug.of(state).flatMap { fresh =>
+        entries
+          .modify { es =>
+            es.get(slug) match {
+              case Some(existing) => (es, Some(existing.live))
+              case None => (es + (slug -> Entry(fresh, Origin.Pushed)), None)
             }
-            .flatMap(_.traverse_(_.renderer.set(state)))
-        }
+          }
+          .flatMap(_.traverse_(_.renderer.set(state)))
+      }
 
-    /** Drop a dashboard: its route 404s and its recorder is cancelled by the
-      * next reconcile. Only ever called for a slug the ENTRYPOINT dropped — see
-      * the note on [[Server.push]] about pushed slugs.
+    /** Apply an evaluated entrypoint: install what is new or changed, leave
+      * what is unchanged alone, and drop the slugs the site no longer names.
+      *
+      * Only a slug this same method installed is ever dropped — a pushed one is
+      * not the entrypoint's to reclaim, which the origin decides rather than
+      * the caller remembering.
       */
-    def remove(slug: String): IO[Unit] = slugs.update(_ - slug)
-
+    /** The slug the SITE asks for at `/` — a preference, since it may name a
+      * dashboard that does not exist. Set by every reload ([[applySite]]) and
+      * by a pushed site, which names its own default the same way.
+      */
     def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
+
+    def applySite(
+        dashboards: List[(String, Either[String, Dashboard.Validated])],
+        prefer: Option[String]
+    ): IO[List[Change]] =
+      for {
+        _ <- setPreferred(prefer)
+        current <- entries.get
+        plan = planSite(current, dashboards)
+        // Only a slug that actually changes pays for a renderer, a fresh log
+        // and a cache; an unchanged one costs a comparison.
+        installs <- plan.installs.traverse { case (slug, result, change) =>
+          val state = stateOf(result)
+          val entry = Entry(_, Origin.FromSite(result.map(_.dashboard)))
+          current.get(slug) match {
+            case Some(existing) =>
+              IO.pure((slug, entry(existing.live), state, change))
+            case None =>
+              LiveSlug.of(state).map(live => (slug, entry(live), state, change))
+          }
+        }
+        _ <- entries.update { es =>
+          installs.foldLeft(es -- plan.removals) {
+            case (acc, (slug, e, _, _)) =>
+              // A slug that appeared since `entries.get` (a concurrent push) keeps
+              // ITS live slug — the fresh one built above is dropped rather than
+              // swapped in under open connections.
+              acc + (slug -> acc.get(slug).fold(e)(o => e.copy(live = o.live)))
+          }
+        }
+        _ <- installs.traverse_ { case (_, entry, state, _) =>
+          entry.live.renderer.set(state)
+        }
+      } yield installs.map(_._4) ++ plan.removals.toList.sorted.map(
+        Change.Removed(_)
+      )
+
+    /** Every dashboard the ENTRYPOINT owns shows `message`: what a site that
+      * will not EVALUATE means, since nothing can be attributed to one slug.
+      * Membership is untouched — the file no longer says what it is — and a
+      * pushed slug is not the entrypoint's to break.
+      */
+    def failSite(message: String): IO[List[Change]] =
+      entries.get.flatMap { current =>
+        val broken = current.toList.sortBy(_._1).collect {
+          case (slug, Entry(live, Origin.FromSite(was)))
+              if was != Left(message) =>
+            (
+              slug,
+              live,
+              was.fold(
+                _ => Change.Rebuilt(slug),
+                _ => Change.Broke(slug, message)
+              )
+            )
+        }
+        entries.update(es =>
+          broken.foldLeft(es) { case (acc, (slug, _, _)) =>
+            acc.updatedWith(slug)(
+              _.map(_.copy(origin = Origin.FromSite(Left(message))))
+            )
+          }
+        ) *>
+          broken
+            .traverse_ { case (_, live, _) =>
+              live.renderer.set(RendererState.Failed(message))
+            }
+            .as(broken.map(_._3))
+      }
 
     /** The slug `/` serves right now. */
     def defaultSlug: IO[String] =
       (preferred.get, names).mapN(defaultSlugFor).map(_.getOrElse(fallback))
   }
 
+  /** What [[LiveSite.applySite]] has to do, decided purely from the current
+    * entries and the evaluated site — the part worth testing without a server.
+    */
+  private[runtime] case class SitePlan(
+      installs: List[(String, Either[String, Dashboard.Validated], Change)],
+      removals: Set[String]
+  )
+
+  private[runtime] def planSite(
+      current: Map[String, Entry],
+      dashboards: List[(String, Either[String, Dashboard.Validated])]
+  ): SitePlan = {
+    val installs = dashboards.sortBy(_._1).flatMap { case (slug, result) =>
+      val content = result.map(_.dashboard)
+      current.get(slug) match {
+        case Some(Entry(_, Origin.FromSite(was))) if was == content => None
+        case Some(Entry(_, Origin.FromSite(was)))                   =>
+          Some(
+            (
+              slug,
+              result,
+              (was, content) match {
+                case (Left(_), Right(_))  => Change.Recovered(slug)
+                case (_, Left(message))   => Change.Broke(slug, message)
+                case (Right(_), Right(_)) => Change.Rebuilt(slug)
+              }
+            )
+          )
+        case Some(Entry(_, Origin.Pushed)) =>
+          Some((slug, result, Change.Rebuilt(slug)))
+        case None =>
+          Some((slug, result, Change.Added(slug, content.left.toOption)))
+      }
+    }
+    val named = dashboards.map(_._1).toSet
+    val removals = current.collect {
+      case (slug, Entry(_, Origin.FromSite(_))) if !named.contains(slug) => slug
+    }.toSet
+    SitePlan(installs, removals)
+  }
+
+  /** A dashboard that built becomes a live renderer; one that did not becomes
+    * its error page, watched and rebuilt live on a fix (ADR 0018).
+    */
+  private[runtime] def stateOf(
+      result: Either[String, Dashboard.Validated]
+  ): RendererState = result match {
+    case Right(validated) =>
+      RendererState.Ready(Renderer.fromValidated(validated))
+    case Left(message) => RendererState.Failed(message)
+  }
+
   private[runtime] object LiveSite {
     def of(
         renderers: Map[String, SignallingRef[IO, RendererState]],
+        content: Map[String, Either[String, Dashboard]],
         defaultSlug: String
     ): IO[LiveSite] =
       for {
         // Pair each seeded renderer with its own fragment log here, so the
         // caller (ServerApp, tests) never has to know the log exists.
         seeded <- renderers.toList
-          .traverse { case (slug, r) => LiveSlug.create(r).map(slug -> _) }
+          .traverse { case (slug, r) =>
+            LiveSlug
+              .create(r)
+              .map(live =>
+                slug -> Entry(
+                  live,
+                  // A boot-seeded slug came from the entrypoint; anything the
+                  // seed has no content for is treated as pushed, so a reload
+                  // installs over it rather than reclaiming it blind.
+                  content.get(slug).fold(Origin.Pushed)(Origin.FromSite(_))
+                )
+              )
+          }
           .map(_.toMap)
-        slugs <- SignallingRef[IO].of(seeded)
+        entries <- SignallingRef[IO].of(seeded)
         preferred <- Ref[IO].of(Option(defaultSlug).filter(_.nonEmpty))
-      } yield new LiveSite(slugs, preferred, defaultSlug)
+      } yield new LiveSite(entries, preferred, defaultSlug)
   }
 
   /** Which of `slugs` should be served at `/`: the authored preference when it
@@ -2035,7 +2232,9 @@ object Server {
       lingerWindow: FiniteDuration = LingerWindow
   ): Resource[IO, Server] =
     LiveSite
-      .of(renderers, defaultSlug)
+      // Nothing here is reloaded (this form exists for a fixed set of
+      // renderers), so the seed carries no evaluated content.
+      .of(renderers, Map.empty, defaultSlug)
       .toResource
       .flatMap(
         withSite(

@@ -71,9 +71,14 @@ IS stopping it. That collapsed the two start paths that existed before (a startu
 snapshot, plus a supervisor branch inside `push`) into one, which is why `push`
 is now three lines and cannot forget to start a recorder.
 
-**A pushed slug is never reclaimed.** `ServerApp` diffs against its OWN record of
-what the entrypoint owned last time, not against the registry, so a slug installed
-by `POST /system/push/<slug>` (ADR 0010) is never in the removal set. `fh push`
+**A pushed slug is never reclaimed.** Each live slug records where it came from
+(`Server.Origin`: the entrypoint, with what it last evaluated to, or a push), so
+the registry applies an evaluated site itself — `LiveSite.applySite` decides the
+installs, the swaps and the removals from that record. A slug installed by
+`POST /system/push/<slug>` (ADR 0010) is therefore outside what a reload may
+remove by construction, rather than because the caller kept a second copy of the
+site's membership and remembered to diff against that one. The same record is
+what makes an unchanged dashboard cost nothing. `fh push`
 can also send a whole evaluated site now, since `site.pkl` is the natural
 file to push; that form is all-or-nothing, because a half-installed site is not a
 state anybody asked for.
