@@ -916,7 +916,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
     // The first tab is registered as the only default-open surface.
-    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
+    assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
 
     // renderBody renders the `tabs` component (id "c") whose template contains a
     // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
@@ -954,10 +954,10 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val rr = Renderer.create(tabsDashboard)
     // A ui-state index selects that member of the bake group...
-    assertEquals(rr.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
+    assertEquals(rr.surfaces.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
     // ...and no selection picks index 0 (parity with the old defaultOpenSurfaces).
-    assertEquals(rr.selectedSurfaces(Map.empty), Set("c_t0"))
-    assertEquals(rr.selectedSurfaces(), Set("c_t0"))
+    assertEquals(rr.surfaces.selectedSurfaces(Map.empty), Set("c_t0"))
+    assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
   }
 
   test(
@@ -986,19 +986,19 @@ class RendererSuite extends munit.FunSuite {
   test("resolveActive parses, clamps, and warns on an off ui-state value") {
     val rr = Renderer.create(tabsDashboard)
     // out of range and unparseable both fall back to index 0 AND yield a warning
-    val outOfRange = rr.resolveActive("c", Map("c" -> "99"))
+    val outOfRange = rr.surfaces.resolveActive("c", Map("c" -> "99"))
     assertEquals(outOfRange._1, 0)
     assert(outOfRange._2.isDefined, clue = outOfRange)
-    val unparseable = rr.resolveActive("c", Map("c" -> "abc"))
+    val unparseable = rr.surfaces.resolveActive("c", Map("c" -> "abc"))
     assertEquals(unparseable._1, 0)
     assert(unparseable._2.isDefined, clue = unparseable)
     // a valid index and an absent key both select without a warning
-    assertEquals(rr.resolveActive("c", Map("c" -> "1")), (1, None))
-    assertEquals(rr.resolveActive("c", Map.empty), (0, None))
+    assertEquals(rr.surfaces.resolveActive("c", Map("c" -> "1")), (1, None))
+    assertEquals(rr.surfaces.resolveActive("c", Map.empty), (0, None))
     // uiStateAnomalies surfaces exactly the malformed entries
-    assertEquals(rr.uiStateAnomalies(Map("c" -> "1")), Nil)
-    assertEquals(rr.uiStateAnomalies(Map.empty), Nil)
-    assertEquals(rr.uiStateAnomalies(Map("c" -> "99")).size, 1)
+    assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "1")), Nil)
+    assertEquals(rr.surfaces.uiStateAnomalies(Map.empty), Nil)
+    assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "99")).size, 1)
   }
 
   test(
@@ -1253,15 +1253,21 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val r = Renderer.create(ifDashboard())
     // then holds -> index 0 even though the always-true else would too.
-    assertEquals(r.resolveActiveByState("c", armedStates("armed")), Some(0))
+    assertEquals(
+      r.surfaces.resolveActiveByState("c", armedStates("armed")),
+      Some(0)
+    )
     // then fails -> the condition-less-equivalent else (always predicate).
-    assertEquals(r.resolveActiveByState("c", armedStates("disarmed")), Some(1))
+    assertEquals(
+      r.surfaces.resolveActiveByState("c", armedStates("disarmed")),
+      Some(1)
+    )
   }
 
   test("resolveActiveByState: no member holds -> None; the host bakes empty") {
     val r = Renderer.create(ifDashboard(withElse = false))
     val states = armedStates("disarmed")
-    assertEquals(r.resolveActiveByState("c", states), None)
+    assertEquals(r.surfaces.resolveActiveByState("c", states), None)
     // The host still renders its wrapper — with empty branch content, so a
     // matching branch appearing later has its patch target in the DOM. Both
     // boxes: the cell (the node's own element) and the mount inside it. Through
@@ -1304,22 +1310,22 @@ class RendererSuite extends munit.FunSuite {
     val allOff = Map("l.a" -> st("l.a", "off"), "l.b" -> st("l.b", "off"))
 
     val anyR = Renderer.create(dash(count(Op.Gt, 0)))
-    assertEquals(anyR.resolveActiveByState("c", mixed), Some(0))
-    assertEquals(anyR.resolveActiveByState("c", allOff), None)
+    assertEquals(anyR.surfaces.resolveActiveByState("c", mixed), Some(0))
+    assertEquals(anyR.surfaces.resolveActiveByState("c", allOff), None)
 
     val noneR = Renderer.create(dash(count(Op.Eq, 0)))
-    assertEquals(noneR.resolveActiveByState("c", allOff), Some(0))
-    assertEquals(noneR.resolveActiveByState("c", mixed), None)
+    assertEquals(noneR.surfaces.resolveActiveByState("c", allOff), Some(0))
+    assertEquals(noneR.surfaces.resolveActiveByState("c", mixed), None)
 
     val allR = Renderer.create(dash(count(Op.Eq, 2)))
-    assertEquals(allR.resolveActiveByState("c", allOn), Some(0))
-    assertEquals(allR.resolveActiveByState("c", mixed), None)
+    assertEquals(allR.surfaces.resolveActiveByState("c", allOn), Some(0))
+    assertEquals(allR.surfaces.resolveActiveByState("c", mixed), None)
 
     // A lone entity needs no set at all: the condition names it, so the answer
     // is a lookup and an unrelated entity's state cannot decide it.
     val oneR = Renderer.create(dash(entityIs("l.a", "on")))
-    assertEquals(oneR.resolveActiveByState("c", mixed), Some(0))
-    assertEquals(oneR.resolveActiveByState("c", allOff), None)
+    assertEquals(oneR.surfaces.resolveActiveByState("c", mixed), Some(0))
+    assertEquals(oneR.surfaces.resolveActiveByState("c", allOff), None)
   }
 
   test("state members bake by condition and never enter selectedSurfaces") {
@@ -1334,13 +1340,13 @@ class RendererSuite extends munit.FunSuite {
     assert(!bodyElse.contains("<span>A</span>"), clue = bodyElse)
     // State members never seed a session's open set (their liveness is the
     // shared pass's job), and the owner splits to the state side.
-    assertEquals(r.selectedSurfaces(), Set.empty[String])
-    assertEquals(r.stateBakeOwnerIds, Set("c"))
-    assertEquals(r.userBakeOwnerIds, Set.empty[String])
+    assertEquals(r.surfaces.selectedSurfaces(), Set.empty[String])
+    assertEquals(r.surfaces.stateBakeOwnerIds, Set("c"))
+    assertEquals(r.surfaces.userBakeOwnerIds, Set.empty[String])
     // Tabs keep the exact opposite split (regression guard on the mode split).
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.userBakeOwnerIds, Set("c"))
-    assertEquals(tabs.stateBakeOwnerIds, Set.empty[String])
+    assertEquals(tabs.surfaces.userBakeOwnerIds, Set("c"))
+    assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
   }
 
   /** The shape W18's card-shape test could not see: a container that splices
@@ -1511,22 +1517,22 @@ class RendererSuite extends munit.FunSuite {
     val r = Renderer.create(d)
 
     // A user surface is its own tag — it is exactly what hides content.
-    assertEquals(r.userSurfaceOf("t0"), Some("t0"))
-    assertEquals(r.userSurfaceOf("u0"), Some("u0"))
+    assertEquals(r.surfaces.userSurfaceOf("t0"), Some("t0"))
+    assertEquals(r.surfaces.userSurfaceOf("u0"), Some("u0"))
     // A state surface hides nothing (every client sees the same branch), so the
     // walk passes THROUGH it to whatever encloses it...
-    assertEquals(r.userSurfaceOf("b0"), Some("t0"))
+    assertEquals(r.surfaces.userSurfaceOf("b0"), Some("t0"))
     // ...and reaching the main page means "no user surface above me".
-    assertEquals(r.userSurfaceOf("sx"), None)
+    assertEquals(r.surfaces.userSurfaceOf("sx"), None)
 
     // The same, entered by node: a node is tagged by the tree it was indexed
     // from, which is NOT derivable from its id (`s_b0__c` names only b0).
-    assertEquals(r.userSurfaceOfNode("s_b0__c"), Some("t0"))
-    assertEquals(r.userSurfaceOfNode("s_u0__c"), Some("u0"))
-    assertEquals(r.userSurfaceOfNode("s_sx__c"), None)
-    assertEquals(r.userSurfaceOfNode("c"), None)
+    assertEquals(r.surfaces.userSurfaceOfNode("s_b0__c"), Some("t0"))
+    assertEquals(r.surfaces.userSurfaceOfNode("s_u0__c"), Some("u0"))
+    assertEquals(r.surfaces.userSurfaceOfNode("s_sx__c"), None)
+    assertEquals(r.surfaces.userSurfaceOfNode("c"), None)
     // An id no tree owns has no tag to give.
-    assertEquals(r.userSurfaceOfNode("c_nope"), None)
+    assertEquals(r.surfaces.userSurfaceOfNode("c_nope"), None)
   }
 
   test("affectedSets surfaces the membership delta per group") {

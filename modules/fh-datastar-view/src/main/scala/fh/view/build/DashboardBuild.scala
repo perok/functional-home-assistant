@@ -99,9 +99,9 @@ object DashboardBuild {
     * id — the SAME id the renderer injects as `{{id}}` for that node
     * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
     * from the node's tree position and splices it in. Authors never type it
-    * directly — the `c.openPopup`/`c.tabs` builders embed it (so the authoring
-    * layer composes the trigger fully and only borrows the one value it cannot
-    * mint: the node's position-derived id).
+    * directly — the `c.surfaces.openPopup`/`c.tabs` builders embed it (so the
+    * authoring layer composes the trigger fully and only borrows the one value
+    * it cannot mint: the node's position-derived id).
     */
   val NodeIdToken: String = "@@NODE_ID@@"
 

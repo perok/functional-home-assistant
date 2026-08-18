@@ -509,10 +509,19 @@ The two halves are two files, and the seam between them is one sentence: **`Memb
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
 it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
 answers membership questions with no template, no mustache context and no document walk. The
-renderer re-`export`s the handful a caller asks of a slug (`syncMembers`, `affectedSets`,
-`isSetContainer`, `memberEntities`, `memberIdOf`), because a renderer is what a slug hands out. The
 `render*` half deliberately stayed behind: `renderMember`, `memberChild` and `renderSet` need
 `templates` and `identityCache`.
+
+**`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
+active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
+visibility, decided there and painted here. It reads the same `rootOfIndexed`, plus `MemberGraph`
+for the two node kinds the static index cannot place (a materialised member, a nested set
+container).
+
+Both are `private[runtime] val`s on the renderer, reached as `renderer.members.…` and
+`renderer.surfaces.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
+renderer decided these things, which is what the split exists to stop, so the call site names the
+half it is asking.
 
 | | |
 |---|---|
@@ -708,7 +717,7 @@ owing this client nothing advances the position while announcing nothing — see
 
 **Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
 have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
-client's worth of another client's tab on every frame. That test (`Renderer.visibleNode` on the
+client's worth of another client's tab on every frame. That test (`SurfaceGraph.visibleNode` on the
 container) is where the old audience tag's work now happens.
 
 Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
@@ -752,6 +761,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
 | what a cache entry is keyed by | node id -> renderer identity + one generation per SELECTION (`RenderInputs.vars`), each holding its entity versions. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops every selection at once |

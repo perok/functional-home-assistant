@@ -483,7 +483,7 @@ class SetMembershipSuite extends ServerHarness {
               log,
               List(change),
               open = Set("c_t1"),
-              ui = renderer.uiStateFrom(Set("c_t1"))
+              ui = renderer.surfaces.uiStateFrom(Set("c_t1"))
             )
             forA <- (log.get, store.current, RenderCache.create).flatMapN(
               (l, now, rc) =>
@@ -495,7 +495,7 @@ class SetMembershipSuite extends ServerHarness {
                   now.entities,
                   0L,
                   Set("c_t0"),
-                  renderer.uiStateFrom(Set("c_t0"))
+                  renderer.surfaces.uiStateFrom(Set("c_t0"))
                 )
             )
           } yield (forA, forB)

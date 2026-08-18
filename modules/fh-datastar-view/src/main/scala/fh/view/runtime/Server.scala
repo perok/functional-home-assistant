@@ -472,7 +472,7 @@ class Server(
           // one client's.
           val visible = opens
             .flatMap(o =>
-              o.filter(renderer.visibleSurface(_, o, store.entities))
+              o.filter(renderer.surfaces.visibleSurface(_, o, store.entities))
             )
             .toSet
           val req = Patches.plan(
@@ -555,7 +555,7 @@ class Server(
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
-            r.selectedSurfaces(uiState)
+            r.surfaces.selectedSurfaces(uiState)
           )
       }
       // On (re)connect, heal whatever the DOM missed while the stream was down —
@@ -807,7 +807,7 @@ class Server(
               open,
               // The LIVE selection, not the one this connection arrived with: a
               // tab select moves it mid-stream.
-              renderer.uiStateFrom(open)
+              renderer.surfaces.uiStateFrom(open)
             )
             .flatMap { patches =>
               session.holds
@@ -986,7 +986,7 @@ class Server(
           val orphan = Option
             .when(
               uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-                renderer.openPopup(uiState).isEmpty
+                renderer.surfaces.openPopup(uiState).isEmpty
             )(
               Datastar.patch(
                 s"""<div id="${Dashboard.PopupHostId}"></div>""",
@@ -1070,7 +1070,7 @@ class Server(
               // The repaint re-bakes the body (selected tabs included), so
               // re-seed the open set to match. Reuses this client's selection
               // (closed over).
-              (session.open.set(r.selectedSurfaces(uiState)) *>
+              (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
                 .flatMap { case (store, log) =>
                   val head =
@@ -1283,15 +1283,17 @@ class Server(
       )
       .void
 
-  /** Log every bake-group anomaly [[Renderer.uiStateAnomalies]] reports for
-    * this client's `uiState` (an off/hand-edited URL). Renderer stays pure — it
-    * returns the warnings, the Server logs them.
+  /** Log every bake-group anomaly [[Renderer.surfaces.uiStateAnomalies]]
+    * reports for this client's `uiState` (an off/hand-edited URL). Renderer
+    * stays pure — it returns the warnings, the Server logs them.
     */
   private def warnAnomalies(
       renderer: Renderer,
       uiState: Map[String, String]
   ): IO[Unit] =
-    renderer.uiStateAnomalies(uiState).traverse_(w => IO.println(s"[warn] $w"))
+    renderer.surfaces
+      .uiStateAnomalies(uiState)
+      .traverse_(w => IO.println(s"[warn] $w"))
 
   /** Datastar reads live updates from the persistent SSE stream, so an action
     * POST just triggers the service and returns no content.
@@ -1535,7 +1537,7 @@ class Server(
     // The popup claim is NARROWED first: a document does not show a
     // dialog this dashboard cannot serve, so it must not seed one back
     // either — on the signal or in the connect URL.
-    val restoreUi = renderer.openPopup(uiState) match {
+    val restoreUi = renderer.surfaces.openPopup(uiState) match {
       case Some(sid) => uiState.updated(Dashboard.PopupHostId, sid)
       case None      => uiState - Dashboard.PopupHostId
     }
@@ -1543,7 +1545,7 @@ class Server(
     // rule's second candidate set, and they are also what the recorder
     // reads to decide a frame is worth recording at all — hence the
     // ordering below.
-    val open = renderer.selectedSurfaces(uiState)
+    val open = renderer.surfaces.selectedSurfaces(uiState)
     for {
       // The session this document belongs to, established HERE — the
       // document is the first and largest thing that puts fragments in
@@ -1581,7 +1583,7 @@ class Server(
       painted = renderer.renderPageTraced(
         store.entities,
         uiState,
-        renderer.openPopup(uiState)
+        renderer.surfaces.openPopup(uiState)
       )
       _ <- session.holds.set(painted.own.map { case (id, p) =>
         id -> Held(Some(Digest.of(p.html)), p.signals)
@@ -2396,8 +2398,8 @@ object Server {
     * `history.replaceState`.
     *
     * The value is left opaque here — interpretation and the untrusted-value
-    * clamp live in [[Renderer.resolveActive]], so a stale or hand-edited URL
-    * can never bake a non-existent surface.
+    * clamp live in [[Renderer.surfaces.resolveActive]], so a stale or
+    * hand-edited URL can never bake a non-existent surface.
     */
   def uiStateOf(req: Request[IO]): Map[String, String] =
     uiFromQuery(req) ++ signalsOf(req).fold(Map.empty)(uiFromSignals)

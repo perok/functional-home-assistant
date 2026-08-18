@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.model.{DomId, MemberId, NodeId, SetId, SignalId}
+import fh.view.model.{DomId, NodeId, SetId, SignalId}
 import fh.view.model.DomId.selector
 import io.circe.Json
 import org.http4s.ServerSentEvent
@@ -182,13 +182,16 @@ private[runtime] object Patches {
       changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
-    val flips = (renderer.affectedStateGroups(changes, before, states) ++
-      visible.toList.flatMap(sid =>
-        renderer.affectedStateGroupsIn(sid, changes, before, states)
-      )).distinct
+    val flips =
+      (renderer.surfaces.affectedStateGroups(changes, before, states) ++
+        visible.toList.flatMap(sid =>
+          renderer.surfaces.affectedStateGroupsIn(sid, changes, before, states)
+        )).distinct
     val flipped = flips.toSet
-    val activeSids = renderer.activeStateSurfaces(states, flipped) ++
-      visible.flatMap(renderer.activeStateSurfacesIn(_, states, flipped))
+    val activeSids = renderer.surfaces.activeStateSurfaces(states, flipped) ++
+      visible.flatMap(
+        renderer.surfaces.activeStateSurfacesIn(_, states, flipped)
+      )
     val sids = (visible ++ activeSids).toList
     val staticIds = changes
       .flatMap(c =>
@@ -219,10 +222,10 @@ private[runtime] object Patches {
 
   /** Tag each selected node with the innermost user surface containing it, and
     * bundle the request. The tag comes from the node's PLACE in the tree
-    * ([[Renderer.userSurfaceOfNode]]) — not from its id, which encodes only its
-    * own surface, and not from threading the originating surface down every
-    * branch of the selection above, which goes wrong the moment the walk grows
-    * a branch.
+    * ([[Renderer.surfaces.userSurfaceOfNode]]) — not from its id, which encodes
+    * only its own surface, and not from threading the originating surface down
+    * every branch of the selection above, which goes wrong the moment the walk
+    * grows a branch.
     */
   private def request(
       renderer: Renderer,
@@ -235,7 +238,7 @@ private[runtime] object Patches {
       membership: Map[SetId, MemberDelta],
       at: Long
   ): DiffRequest = {
-    def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
+    def tag(id: NodeId) = renderer.surfaces.userSurfaceOfNode(id)
     DiffRequest(
       staticIds.map(id => id -> tag(id)),
       sets.map(gid => gid -> tag(gid)),
@@ -336,9 +339,9 @@ private[runtime] object Patches {
       at: Long
   ): FragmentLog = {
     def memberAt(snapshot: Map[String, EntityState]): Option[String] =
-      renderer
+      renderer.surfaces
         .resolveActiveByState(gid, snapshot)
-        .flatMap(renderer.bakeMembers(gid).lift)
+        .flatMap(renderer.surfaces.bakeGroup(gid).lift)
     val was = memberAt(before)
     val now = memberAt(states)
     if (was == now) log
@@ -532,9 +535,9 @@ private[runtime] object Patches {
     // now of the container itself.
     val owed = all.copy(
       moved = all.moved.filter { case (_, m) =>
-        renderer.visibleNode(m.container, open, states)
+        renderer.surfaces.visibleNode(m.container, open, states)
       },
-      refill = all.refill.filter(renderer.visibleNode(_, open, states))
+      refill = all.refill.filter(renderer.surfaces.visibleNode(_, open, states))
     )
     // Split by CONTAINER KIND, because the two mounts want different tools: a
     // candidate set's needs per-member deltas that preserve siblings, a state
@@ -655,7 +658,7 @@ private[runtime] object Patches {
       // Only what this client can actually SEE. `open` reports a selection for
       // every bake group whether or not that group is on screen, so a tab panel
       // inside a hidden `If` branch is in here and in nobody's DOM.
-      .filter(renderer.visibleSurface(_, open, states))
+      .filter(renderer.surfaces.visibleSurface(_, open, states))
       .flatMap(renderer.surfaceNodeIds)
       .distinct
       .filterNot(id =>
@@ -668,7 +671,7 @@ private[runtime] object Patches {
       // knows nothing about who is looking. A morph at an id this client's DOM
       // lacks is a silent no-op, so this only ever cost bytes; it is still one
       // client's worth of another client's tab on every reconnect.
-      .filter(renderer.visibleNode(_, open, states))
+      .filter(renderer.surfaces.visibleNode(_, open, states))
       // The log is a Map, so its order is nobody's; ids are location-derived,
       // so sorting them is document order among siblings.
       .sorted
@@ -857,7 +860,7 @@ private[runtime] object Patches {
             t.own.map { case (id, p) =>
               id -> Held(Some(Digest.of(p.html)), p.signals)
             },
-            (renderer.surfacesAt(host) ++ arriving)
+            (renderer.surfaces.surfacesAt(host) ++ arriving)
               .flatMap(renderer.surfaceNodeIds)
           ),
           t.html
@@ -872,7 +875,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       host: DomId
   ): Set[NodeId] =
-    renderer.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
+    renderer.surfaces.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
 
   /** Apply what a patch did to one client's record: forget the mounts it
     * re-supplied, then claim what its bytes placed.
