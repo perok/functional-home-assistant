@@ -104,6 +104,11 @@ val basePkl = Paths.get(".fh/base.pkl")
 val machineJson = Paths.get(".fh/machine.json")
 val pinsJson = Paths.get(".fh/pins.json")
 
+/** The workspace's one entrypoint (`Site.EntryFile` on the instance, ADR 0021):
+  * the file that names every dashboard served. Everything else is a module.
+  */
+val entryFile = "site.pkl"
+
 /** Where `update` fetches the authoritative copy of this script from (the
   * checked-in file on the repo's main branch). Env-overridable for tests.
   */
@@ -526,12 +531,13 @@ def siteSlugs(json: String): Option[List[String]] =
   * saves through), so the instance owns and re-evaluates it and the result
   * survives a restart.
   *
-  * '''The whole import set travels, not just the named file.''' A written file
-  * whose imports stayed on the laptop does not build on the instance, and since
-  * #116 that is no longer a one-dashboard problem: `site.pkl` importing a
-  * module the instance lacks fails the site's evaluation, so EVERY dashboard
-  * shows that error (ADR 0021). Sending what the entry actually reads is the
-  * only way `--write` leaves the instance in a state it can evaluate.
+  * '''The whole import set travels, not just the named file''', entrypoint LAST
+  * ([[writeSet]]). A written file whose imports stayed on the laptop does not
+  * build on the instance, and since #116 that is no longer a one-dashboard
+  * problem: `site.pkl` importing a module the instance lacks fails the site's
+  * evaluation, so EVERY dashboard shows that error (ADR 0021). Sending what the
+  * entry actually reads, in an order whose prefixes are all valid, is what
+  * leaves the instance evaluable even if a write fails part-way.
   *
   * Writing the ENTRYPOINT is therefore how a dashboard is added, removed or
   * renamed, and it goes live immediately. Writing a plain module lands a file
@@ -571,7 +577,10 @@ def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   */
 def writeSet(
     entry: Path,
-    root: Path = Paths.get("").toAbsolutePath.normalize
+    root: Path = Paths.get("").toAbsolutePath.normalize,
+    // The import analysis, injectable so a test can pin the ORDER without a
+    // resolvable workspace (analysing one needs the instance's packages).
+    imports: Path => IO[Option[Set[Path]]] = importSet
 ): IO[List[(String, Path)]] =
   def relative(p: Path): IO[(String, Path)] =
     val abs = p.toAbsolutePath.normalize
@@ -588,11 +597,19 @@ def writeSet(
           "lib/<name>.pkl only"
       )
     else IO.pure(rel -> abs)
-  importSet(entry).flatMap { local =>
+  imports(entry).flatMap { local =>
     local
       .getOrElse(Set(entry.toAbsolutePath.normalize))
       .toList
-      .sortBy(_.toString)
+      // THE ENTRYPOINT GOES LAST, and that ordering is the safety property, not
+      // a tidiness one. These are N independent PUTs, so a failure part-way
+      // through leaves whatever landed. If the entrypoint landed first, the
+      // instance would hold a `site.pkl` naming a module it does not have —
+      // which fails the whole site's evaluation (ADR 0021), taking down
+      // dashboards that were serving fine. Modules first, and a partial write
+      // leaves at worst some unreferenced files, which serve nobody and break
+      // nothing.
+      .sortBy(p => (p.getFileName.toString == entryFile, p.toString))
       .traverse(relative)
   }
 

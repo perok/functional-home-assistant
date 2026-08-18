@@ -299,12 +299,19 @@ object PklBuild {
     *
     * Glob imports are resolved here too (`import*("*.dashboard.pkl")` returns
     * each matched file), so a dashboard named by convention counts as read.
+    *
+    * **Never throws, and errs toward "read".** Loading the project can fail on
+    * a workspace mid-edit, and [[importSet]] already answers a failed analysis
+    * with the conservative all-`*.pkl` superset. Both directions matter for the
+    * caller: a false "nothing reads this file" is a confident wrong answer that
+    * would send an author looking for a bug in their own file, whereas a false
+    * "read" only withholds a hint.
     */
   def fileImports(dashboardsDir: os.Path, entryFile: String): Set[os.Path] =
     importSet(
       dashboardsDir,
       dashboardsDir / os.SubPath(entryFile),
-      loadProject(dashboardsDir)
+      Try(loadProject(dashboardsDir)).toOption.flatten
     )
 
   private def importSet(

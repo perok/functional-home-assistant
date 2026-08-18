@@ -9,7 +9,9 @@ import fh.view.build.{
   DumpPackage,
   LibPackage,
   Pins,
+  PklBuild,
   PklDump,
+  Site,
   SourceEval,
   SystemPkl
 }
@@ -118,6 +120,37 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
     val result = SourceEval.eval(ws, "mine.pkl")
     assert(result.isRight, clue = result)
+  }
+
+  test("end user on /edit: a saved file says whether the site reads it") {
+    // The editor's note after a write, on a workspace whose analysis really
+    // RUNS (the stub in EditorSuite cannot, and answers conservatively). Here
+    // `mine.pkl` is a module nothing names, so the false is the true answer —
+    // and it flips the moment the entrypoint imports it, without a reload,
+    // because the answer comes from the sources rather than the live site.
+    val ws = stageWorkspace(withDump = true)
+    os.write(ws / "mine.pkl", entryNeedingDump)
+    // One evaluation first, as a running instance has always done by the time
+    // anyone saves: it writes the lockfile the static analyser needs. Without
+    // it the analysis cannot resolve the package imports and answers with the
+    // conservative superset — everything read — which is the right failure
+    // direction but says nothing about this test's question.
+    val _ = SourceEval.eval(ws, Site.EntryFile)
+
+    def used(): Boolean =
+      PklBuild
+        .fileImports(ws, Site.EntryFile)
+        .contains(ws / "mine.pkl")
+
+    assert(!used(), clue = "an unreferenced module counted as read")
+
+    os.write.over(
+      ws / Site.EntryFile,
+      """amends "@fh-dashboard/site.pkl"
+        |dashboards { ["mine"] = import("mine.pkl") }
+        |""".stripMargin
+    )
+    assert(used(), clue = "a module the entrypoint imports counted as unread")
   }
 
   // ---------------------------------------------------------------- persona 2
@@ -622,6 +655,83 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assert(bogusBody.contains("nosuchcard"), clue = bogusBody)
 
           assertEquals(notJson.status, Status.BadRequest)
+        }
+      }
+  }
+
+  test("component developer: pushing the whole SITE installs every key") {
+    // `fh push site.pkl` is the natural thing to type since ADR 0021, so the
+    // push route takes an evaluated entrypoint as well as a single dashboard.
+    // Then the KEYS are the slugs — the URL's is ignored, because a site names
+    // its own — and it is all-or-nothing: a site whose one dashboard is
+    // invalid installs nothing, since a half-installed site is not a state
+    // anybody asked for.
+    val dir = stageWorkspace(withDump = true)
+    os.write.over(
+      dir / Site.EntryFile,
+      s"""amends "@fh-dashboard/site.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/theme.pkl" as th
+         |
+         |dashboards {
+         |  ["one"] { theme = ${PklFixture.dummyTheme}; card = c.title("first") }
+         |  ["two"] { theme = ${PklFixture.dummyTheme}; card = c.title("second") }
+         |}
+         |""".stripMargin
+    )
+    val site = SourceEval
+      .eval(dir, Site.EntryFile)
+      .fold(err => fail(s"site eval failed: $err"), _.value.noSpaces)
+
+    // The same shape with one unknown card: the push must reject it whole.
+    val broken = io.circe.parser
+      .parse(site)
+      .toOption
+      .get
+      .hcursor
+      .downField("dashboards")
+      .downField("two")
+      .downField("card")
+      .downField("card")
+      .withFocus(_ => io.circe.Json.fromString("nosuchcard"))
+      .top
+      .get
+      .noSpaces
+
+    TestServer
+      .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
+      .use { ts =>
+        val app = ts.server.routes.orNotFound
+        val push = (slug: String, body: String) =>
+          app.run(
+            Request[IO](
+              Method.POST,
+              Uri.unsafeFromString(s"/system/push/$slug")
+            ).withEntity(body)
+          )
+        for {
+          rejected <- push("ignored", broken)
+          rejectedBody <- rejected.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+          // Nothing from the rejected site landed.
+          afterReject <- app.run(Request[IO](Method.GET, uri"/d/one"))
+          pushed <- push("ignored", site)
+          one <- app.run(Request[IO](Method.GET, uri"/d/one"))
+          two <- app.run(Request[IO](Method.GET, uri"/d/two"))
+          // The URL's slug is not one of them: a site names its own.
+          urlSlug <- app.run(Request[IO](Method.GET, uri"/d/ignored"))
+        } yield {
+          assertEquals(rejected.status, Status.BadRequest)
+          assert(rejectedBody.contains("nosuchcard"), clue = rejectedBody)
+          assertEquals(afterReject.status, Status.NotFound)
+
+          assertEquals(pushed.status, Status.Ok)
+          assertEquals(one.status, Status.Ok)
+          assertEquals(two.status, Status.Ok)
+          assertEquals(urlSlug.status, Status.NotFound)
         }
       }
   }

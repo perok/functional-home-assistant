@@ -86,8 +86,8 @@ object Site {
   /** The diagnostic for an entrypoint that is really a single dashboard — it
     * amends `entry.pkl`, so it evaluates to a bare dashboard with no
     * `dashboards` key. Nothing here rewrites the file (it is the user's), so
-    * the message IS the instructions, and it reaches them as the error page
-    * the instance serves at `/`.
+    * the message IS the instructions, and it reaches them as the error page the
+    * instance serves at `/`.
     */
   private def missingDashboards: FHError =
     FHError.badCondition(

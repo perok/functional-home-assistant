@@ -176,10 +176,12 @@ class EditorSuite extends munit.FunSuite {
     // module before the key that names it — but silence would read as "it is
     // live". The answer is static analysis of the entrypoint, so it is right
     // as soon as the file is on disk, without waiting for a reload.
+    //
+    // The entrypoint here imports nothing, so the analysis answers precisely
+    // and the `false` below is the TRUE answer. It is never the confident
+    // wrong way round: an analysis that cannot run at all falls back to the
+    // conservative superset (`PklBuild.fileImports`), i.e. everything is read.
     workspace { ws =>
-      // No PklProject dependencies to resolve here, so the analysis of the
-      // stub entrypoint yields nothing but itself: the entrypoint is used, a
-      // module beside it is not.
       def put(name: String, body: String) = routes(ws).orNotFound
         .run(
           Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))

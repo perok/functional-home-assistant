@@ -487,6 +487,73 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test("a file dropped in becomes a dashboard, through the watcher") {
+    // The glob convention's whole point — and the case watching PATHS cannot
+    // see, since a new file is nobody's import yet. Two things are pinned:
+    // the workspace DIRECTORY is in the watch set (so the OS watcher would
+    // deliver this event at all), and a `Created` event for a `*.pkl` survives
+    // the filter that keeps the regenerated lockfile from feeding the reload.
+    stageRepairWorld.use { case (ws, _) =>
+      for {
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, globSite))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
+        watched <- Ref[IO].of(Vector.empty[fs2.io.file.Path])
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            ServerApp
+              .watchSourcesWith(
+                fs2.Stream.fromQueueUnterminated(events),
+                p => watched.update(_ :+ p).as(IO.unit),
+                ServerApp.reloadSite(ws, site, slugs, imports),
+                imports
+              )
+              .compile
+              .drain
+          ) *>
+            // The entrypoint globs, so this file IS a dashboard the moment it
+            // exists — nothing else is edited.
+            IO.blocking(
+              os.write.over(ws / "attic.dashboard.pkl", atticDashboard)
+            ) *>
+            events.offer(created(ws / "attic.dashboard.pkl")) *>
+            awaitSlugs(site)(_.contains("attic"))
+        }
+        names <- site.names
+        dirWatched <- watched.get
+      } yield {
+        assertEquals(names, List("attic", "dash"))
+        assert(
+          dirWatched.exists(_.toString == ws.toString),
+          clue = s"the workspace dir is not watched: $dirWatched"
+        )
+      }
+    }
+  }
+
+  test("the lockfile the reload itself rewrites does not trigger a reload") {
+    // Watching the directory means the reload's OWN output is in scope:
+    // `PklProject.deps.json` is rewritten by the evaluation a reload runs, so
+    // reacting to it would feed itself. Asserted on the filter rather than by
+    // waiting for a loop that would hang the suite.
+    val lockfile = fs2.io.file.Path("/ws/PklProject.deps.json")
+    val source = fs2.io.file.Path("/ws/kitchen.dashboard.pkl")
+    val manifest = fs2.io.file.Path("/ws/PklProject")
+    assert(!ServerApp.isSourceEvent(modified(os.Path(lockfile.toString))))
+    assert(ServerApp.isSourceEvent(created(os.Path(source.toString))))
+    assert(ServerApp.isSourceEvent(modified(os.Path(manifest.toString))))
+    // Overflow names no path and MUST pass: it means events were lost, which
+    // is exactly when a reload is owed.
+    assert(ServerApp.isSourceEvent(fs2.io.file.Watcher.Event.Overflow(1)))
+  }
+
   test("a reload that changes nothing does not touch the registry") {
     // The watcher fires on anything in the workspace — a touched file, an edit
     // to a sibling, a created one. Writing a `Ready` state anyway would rotate
@@ -659,6 +726,45 @@ class FailedDashboardSuite extends ServerHarness {
        |$extra
        |}
        |""".stripMargin
+
+  /** The same site, naming its dashboards by the `*.dashboard.pkl` convention
+    * instead of one key each — pkl's glob import, resolved on every evaluation,
+    * which is what makes a file appearing a dashboard appearing.
+    */
+  private def globSite =
+    s"""amends "@fh-dashboard/site.pkl"
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |dashboards {
+       |  ["dash"] { card = c.title(dump.entities.light_kitchen.entity_id) }
+       |  for (path, dash in import*("*.dashboard.pkl")) {
+       |    [path.replaceAll(".dashboard.pkl", "")] = dash
+       |  }
+       |}
+       |""".stripMargin
+
+  private val atticDashboard =
+    """amends "@fh-dashboard/entry.pkl"
+      |import "@fh-dashboard/components.pkl" as c
+      |title = "Attic"
+      |card = c.title("attic")
+      |""".stripMargin
+
+  private def awaitSlugs(site: Server.LiveSite)(
+      pred: List[String] => Boolean
+  ): IO[Unit] =
+    fs2.Stream
+      .repeatEval(site.names <* IO.sleep(10.millis))
+      .find(pred)
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  private def created(p: os.Path): fs2.io.file.Watcher.Event =
+    fs2.io.file.Watcher.Event.Created(
+      fs2.io.file.Path.fromNioPath(p.toNIO),
+      1
+    )
 
   private val secondKey =
     """  ["second"] {

@@ -28,8 +28,8 @@ import fs2.io.file.{Watcher, Path}
 /** Runtime phase entry point.
   *
   * Connects to Home Assistant, evaluates the workspace's ONE entrypoint
-  * (`site.pkl`) **in memory** into a slug -> dashboard map (ADR 0021),
-  * seeds live state, and serves them all with live Datastar updates. Run via
+  * (`site.pkl`) **in memory** into a slug -> dashboard map (ADR 0021), seeds
+  * live state, and serves them all with live Datastar updates. Run via
   * `fh-datastar-view/runMain fh.view.runtime.ServerApp` with `SERVER`/`SECRET`
   * set.
   */
@@ -312,8 +312,8 @@ object ServerApp extends IOApp {
     *
     * Blocks on the feed's first connect + seed (so a live template call has a
     * connection), seeds the `@fh-home` dump ONCE from the live API
-    * ([[DashboardBuild.prepareDumps]]), then evaluates `site.pkl` against
-    * it. Nothing here is fatal: a dashboard that fails to decode or validate
+    * ([[DashboardBuild.prepareDumps]]), then evaluates `site.pkl` against it.
+    * Nothing here is fatal: a dashboard that fails to decode or validate
     * becomes a registered `Failed` one, and an entrypoint that will not
     * evaluate at all registers a single failed dashboard under
     * [[Server.DefaultSlug]] — so `/` and the editor still serve the error and
@@ -436,13 +436,14 @@ object ServerApp extends IOApp {
     * Overflow has no path and must pass — it means events were LOST, which is
     * exactly when a reload is owed.
     */
-  private def isSourceEvent(event: Watcher.Event): Boolean = event match {
-    case Watcher.Event.Overflow(_)       => true
-    case Watcher.Event.NonStandard(_, _) => false
-    case _                               =>
-      val name = eventPath(event).fold("")(_.fileName.toString)
-      name.endsWith(".pkl") || name == EditorRoutes.Manifest
-  }
+  private[runtime] def isSourceEvent(event: Watcher.Event): Boolean =
+    event match {
+      case Watcher.Event.Overflow(_)       => true
+      case Watcher.Event.NonStandard(_, _) => false
+      case _                               =>
+        val name = eventPath(event).fold("")(_.fileName.toString)
+        name.endsWith(".pkl") || name == EditorRoutes.Manifest
+    }
 
   private def eventPath(event: Watcher.Event): Option[Path] = event match {
     case Watcher.Event.Created(p, _)  => Some(p)
@@ -744,8 +745,8 @@ object ServerApp extends IOApp {
     * The two path inputs come from `run.sh` on the add-on; a local `sbt
     * dashboardServe` has neither set and falls back to a local scratch dir —
     * the lib AND the starter entry are both read straight off the running jar's
-    * own resources ([[BundledLib]], [[AddonBootstrap.starterSite]]), so a
-    * dev run seeds exactly what the add-on does; iterating on library Pkl is
+    * own resources ([[BundledLib]], [[AddonBootstrap.starterSite]]), so a dev
+    * run seeds exactly what the add-on does; iterating on library Pkl is
     * `fh push` against the running instance, never a mutable workspace `lib/`.
     */
   private def bootstrap(config: Config): IO[LibPackage.Artifacts] =

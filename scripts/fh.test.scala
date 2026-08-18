@@ -155,6 +155,34 @@ object FhScriptSuite extends SimpleIOSuite:
       .map(files => expect.same(List("dashboard.pkl"), files.map(_._1)))
   }
 
+  test("writeSet: the entrypoint is written LAST, whatever it sorts as") {
+    // The ordering is the safety property: these are N independent PUTs, and
+    // an entrypoint that landed before its modules leaves the instance holding
+    // a site.pkl naming a file it does not have — which fails the WHOLE site's
+    // evaluation, taking down dashboards that were serving. Alphabetical order
+    // gets this right by luck against "pkl-demo.pkl" and wrong against
+    // "zone.pkl", so it is pinned with a name that sorts after site.pkl.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.writeString(ws.resolve("site.pkl"), "// entry")
+    Files.writeString(
+      ws.resolve("zone.pkl"),
+      "// a module, alphabetically last"
+    )
+    fh.writeSet(
+      ws.resolve("site.pkl"),
+      ws,
+      _ =>
+        IO.pure(
+          Some(
+            Set(
+              ws.resolve("site.pkl"),
+              ws.resolve("zone.pkl")
+            )
+          )
+        )
+    ).map(files => expect.same(List("zone.pkl", "site.pkl"), files.map(_._1)))
+  }
+
   test("writeSet: a file the instance could not accept is refused here") {
     // The instance takes <name>.pkl and lib/<name>.pkl only; catching it here
     // names the file instead of 403-ing halfway through a multi-file write.

@@ -177,24 +177,27 @@ final class EditorRoutes(
     * sources on disk rather than from the running site's import set, so writing
     * an entrypoint that names a module reports that module as used immediately,
     * without waiting for the reload.
+    *
+    * `used: false` therefore means the analysis RAN and did not reach this file
+    * — an analysis that cannot run answers with a conservative superset
+    * ([[PklBuild.fileImports]]), so the note is never the confident wrong way
+    * round.
     */
   private def saved(path: os.Path): IO[Response[IO]] =
-    IO.blocking(
-      scala.util
-        .Try(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
-        .getOrElse(Set.empty[os.Path])
-    ).flatMap { reads =>
-      val used = path == dashboardsDir / Site.EntryFile || reads.contains(path)
-      Ok(
-        Json
-          .obj(
-            "written" -> Json
-              .fromString(path.relativeTo(dashboardsDir).toString),
-            "used" -> Json.fromBoolean(used)
-          )
-          .noSpaces
-      ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
-    }
+    IO.blocking(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
+      .flatMap { reads =>
+        val used =
+          path == dashboardsDir / Site.EntryFile || reads.contains(path)
+        Ok(
+          Json
+            .obj(
+              "written" -> Json
+                .fromString(path.relativeTo(dashboardsDir).toString),
+              "used" -> Json.fromBoolean(used)
+            )
+            .noSpaces
+        ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
+      }
 
   /** JSON list of editable sources: `{ name, path, kind }`. `name` is the
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
