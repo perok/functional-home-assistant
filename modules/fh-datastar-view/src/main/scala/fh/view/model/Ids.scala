@@ -54,23 +54,30 @@ object NodeId {
   * NOT in the static index (it hangs off a member), so selecting from the index
   * gave correct ids and correct markup and emitted no patches at all, forever.
   *
-  * So the answer is a VALUE now, and **the constructor asks for the proof**:
-  * you cannot mint a `SetId` from an id alone, only from an id together with
-  * the [[LayoutNode.SetNode]] it names. A signature taking a `SetId` therefore
-  * cannot be satisfied by anything the static index handed back, and the bug
-  * above stops being expressible rather than merely discouraged.
+  * So the answer is a VALUE now. The way to get one for an id that arrives from
+  * somewhere else — a log key, a mutation's container — is
+  * [[fh.view.runtime.MemberGraph.setContainer]], which looks the node up and
+  * hands back `None` when there is none.
   *
-  * The way to get one for an id that arrives from somewhere else — a log key, a
-  * mutation's container — is [[fh.view.runtime.MemberGraph.setContainer]],
-  * which looks the node up and hands back `None` when there is none.
+  * '''Where the strength actually is.''' Every CONSUMER is protected: a
+  * signature taking a `SetId` cannot be satisfied by an id straight out of the
+  * static index, so the bug above is not reachable by accident. The MINT is a
+  * guardrail rather than a proof — [[SetId.of]] narrows it to callers holding a
+  * `SetNode`, which is a real narrowing (all four production mints have one in
+  * hand for an honest reason) but not an impossibility: `LayoutNode.SetNode` is
+  * an ordinary case class with all-default parameters, so anything inside
+  * `fh.view` can fabricate one. `TestIds.setId` does exactly that,
+  * deliberately. Closing that would mean no public constructor here at all,
+  * with minting folded into `MemberGraph` — worth doing only if a wrong mint
+  * ever actually happens.
   */
 opaque type SetId <: NodeId = String
 
 object SetId {
 
-  /** Mint one. `set` is not read; it is the EVIDENCE, and demanding it is the
-    * whole mechanism — every call site holds a `SetNode` it matched on or
-    * looked up, so passing it costs nothing and forging one is not possible.
+  /** Mint one. `set` is not read; it is EVIDENCE, and asking for it is what
+    * keeps the mint at sites that have a reason to be minting — see the note on
+    * [[SetId]] for what that does and does not guarantee.
     */
   private[view] def of(
       id: NodeId,
