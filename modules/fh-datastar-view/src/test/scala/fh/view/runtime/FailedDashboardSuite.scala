@@ -5,6 +5,7 @@ import cats.effect.{IO, Ref, Resource}
 import cats.effect.std.{Queue, Supervisor}
 import cats.syntax.all.*
 import fh.view.build.{PklDump, Site, SystemPkl}
+import fh.view.model.Dashboard
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
@@ -162,7 +163,11 @@ class FailedDashboardSuite extends ServerHarness {
           Server.RendererState.Failed("seeded broken")
         )
         site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(Set("dash"))
+        // What the entrypoint last evaluated to: seeded as a broken "dash", so
+        // the first reload is a real change.
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         refs = Map("dash" -> ref)
         // Fix the source on disk — the ref must become Ready and serve the
@@ -368,7 +373,11 @@ class FailedDashboardSuite extends ServerHarness {
           Server.RendererState.Failed("seeded broken")
         )
         site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(Set("dash"))
+        // What the entrypoint last evaluated to: seeded as a broken "dash", so
+        // the first reload is a real change.
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
         watched <- Ref[IO].of(Vector.empty[fs2.io.file.Path])
@@ -424,7 +433,11 @@ class FailedDashboardSuite extends ServerHarness {
           Server.RendererState.Failed("seeded broken")
         )
         site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(Set("dash"))
+        // What the entrypoint last evaluated to: seeded as a broken "dash", so
+        // the first reload is a real change.
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         store <- StateStore.inMemory(
           Map("light.kitchen" -> es("light.kitchen", "on"))
@@ -474,6 +487,54 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test("a reload that changes nothing does not touch the registry") {
+    // The watcher fires on anything in the workspace — a touched file, an edit
+    // to a sibling, a created one. Writing a `Ready` state anyway would rotate
+    // the slug's fragment log and repaint every open browser, so an unchanged
+    // dashboard must not be re-installed. Observed through the state's own
+    // identity: same value, same object, nothing emitted.
+    stageRepairWorld.use { case (ws, _) =>
+      for {
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        reload = ServerApp.reloadSite(ws, site, slugs, imports)
+        _ <- reload
+        built <- ref.get
+        // Same sources, no edit: the second reload evaluates to the same
+        // dashboard and must leave the state object alone.
+        _ <- reload
+        again <- ref.get
+        // Adding ANOTHER dashboard does not touch this one either: the
+        // comparison is per slug, so one author's edit repaints one dashboard.
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
+        )
+        _ <- reload
+        afterAdd <- ref.get
+        names <- site.names
+        // An edit to THIS dashboard does land.
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(title = "Renamed"))
+        )
+        _ <- reload
+        afterEdit <- ref.get
+      } yield {
+        assert(built.isInstanceOf[Server.RendererState.Ready], clue = built)
+        assert(again eq built, clue = "an unchanged reload replaced the state")
+        assert(afterAdd eq built, clue = "adding a sibling repainted this one")
+        assertEquals(names, List("dash", "second"))
+        assert(!(afterEdit eq built), clue = "an edit did not re-install")
+      }
+    }
+  }
+
   test("the default slug falls back when the site drops it") {
     stageRepairWorld.use { case (ws, _) =>
       for {
@@ -484,7 +545,11 @@ class FailedDashboardSuite extends ServerHarness {
           Server.RendererState.Failed("seeded broken")
         )
         site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(Set("dash"))
+        // What the entrypoint last evaluated to: seeded as a broken "dash", so
+        // the first reload is a real change.
+        slugs <- SignallingRef[IO].of(
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         _ <- ServerApp.reloadSite(ws, site, slugs, imports)
         chosen <- site.defaultSlug
@@ -573,14 +638,18 @@ class FailedDashboardSuite extends ServerHarness {
     * dump, exactly like DumpRefreshSuite's. `extra` adds further keys and
     * `default` the site's preferred slug.
     */
-  private def kitchenSite(extra: String = "", default: String = "") =
+  private def kitchenSite(
+      extra: String = "",
+      default: String = "",
+      title: String = "Kitchen"
+  ) =
     s"""amends "@fh-dashboard/site.pkl"
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-home/dump.pkl" as dump
        |${if (default.isEmpty) "" else s"""default = "$default""""}
        |dashboards {
        |  ["dash"] {
-       |    title = "Kitchen"
+       |    title = "$title"
        |    card = (c.grid) {
        |      children {
        |        c.title(dump.entities.light_kitchen.entity_id)

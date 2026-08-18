@@ -32,6 +32,18 @@ local importedSite = (siteMod) {
   }
 }
 
+// Every `*.dashboard.pkl` beside this module, keyed by its filename — the
+// glob-import recipe, which needs no support from the library: an entrypoint
+// can name its dashboards by CONVENTION rather than one line each, and pkl's
+// analyzer resolves the glob, so the server watches each matched file.
+local globbedSite = (siteMod) {
+  dashboards {
+    for (path, dash in import*("*.dashboard.pkl")) {
+      [path.replaceAll(".dashboard.pkl", "")] = dash
+    }
+  }
+}
+
 facts {
   ["an empty site names no dashboards and has no default"] {
     siteMod.dashboards.isEmpty
@@ -47,6 +59,11 @@ facts {
   ["the key is the slug, and an imported module is the same type"] {
     importedSite.dashboards.keys == Set("kitchen")
     importedSite.dashboards["kitchen"].title == "Kitchen"
+  }
+
+  ["a glob import names dashboards by filename convention"] {
+    globbedSite.dashboards.keys == Set("site-attic")
+    globbedSite.dashboards["site-attic"].title == "Attic"
   }
 
   ["every dashboard carries the entry scaffold — cards and a theme"] {

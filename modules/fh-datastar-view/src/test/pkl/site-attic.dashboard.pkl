@@ -1,0 +1,9 @@
+// A `*.dashboard.pkl` file, picked up by the glob-import recipe `site.test.pkl`
+// pins — the convention that gets "drop a file in, it becomes a dashboard"
+// back on top of the one entrypoint (ADR 0021).
+amends "../../main/resources/dashboards/lib/entry.pkl"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+
+title = "Attic"
+card = c.title("attic")

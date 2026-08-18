@@ -125,7 +125,14 @@ async function save() {
   if (!current || !view) return
   setMsg("saving…")
   const res = await fetch(cfg.basePath + "edit/file/" + current.name, { method: "PUT", body: view.state.doc.toString() })
-  setMsg(res.ok ? "saved ✓" : "save failed")
+  if (!res.ok) { setMsg("save failed"); return }
+  // Saving a file no dashboard reads is allowed (you may be writing it before
+  // the key that names it), but silence would read as "it is live" — which it
+  // is not until dashboard.pkl imports it.
+  const saved = await res.json().catch(() => null)
+  setMsg(saved && saved.used === false
+    ? "saved ✓ — but nothing in dashboard.pkl reads this file yet"
+    : "saved ✓")
   // The preview iframe repaints itself live via its SSE stream on reload.
 }
 

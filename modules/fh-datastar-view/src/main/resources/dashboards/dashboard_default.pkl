@@ -92,4 +92,15 @@ dashboards {
   // form of `import`, which is what works in a value position):
   //
   //   ["kitchen"] = import("kitchen.pkl")
+  //
+  // UNCOMMENT THE THREE LINES BELOW and every `*.dashboard.pkl` file you drop
+  // next to this one becomes a dashboard named after it — `kitchen.dashboard.pkl`
+  // serves at /d/kitchen — with no line to add here. `import*` is Pkl's glob
+  // import: it is resolved every time this file is evaluated, so adding or
+  // deleting such a file adds or removes the dashboard, live. Leave it
+  // commented to keep the list explicit; both styles work side by side.
+  //
+  //   for (path, dash in import*("*.dashboard.pkl")) {
+  //     [path.replaceAll(".dashboard.pkl", "")] = dash
+  //   }
 }

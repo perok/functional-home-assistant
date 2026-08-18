@@ -19,6 +19,7 @@ import fh.view.build.{
   Site,
   SystemPkl
 }
+import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import org.http4s.ember.server.EmberServerBuilder
@@ -189,10 +190,11 @@ object ServerApp extends IOApp {
             defaultSlugFrom(prepared.default, prepared.states.keys.toList)
           )
           .toResource
-        // The slugs the ENTRYPOINT owns, so a reload removes only what it
-        // dropped and never a slug `push` minted (ADR 0010).
-        siteSlugs <- SignallingRef[IO].of(prepared.states.keySet).toResource
-        reload = reloadSite(dashboardsDir, site, siteSlugs, importsRef)
+        // What the ENTRYPOINT last evaluated to: its keys are what a reload may
+        // remove (never a slug `push` minted, ADR 0010) and its values are what
+        // makes a reload that changed nothing repaint nothing.
+        lastSite <- SignallingRef[IO].of(prepared.content).toResource
+        reload = reloadSite(dashboardsDir, site, lastSite, importsRef)
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
         // dump and swap it in only if every currently-building dashboard still
@@ -268,16 +270,40 @@ object ServerApp extends IOApp {
     * silently absent from the server.
     */
   private[runtime] case class Prepared(
-      states: Map[String, Server.RendererState],
+      dashboards: Map[String, Either[String, Dashboard.Validated]],
       default: Option[String],
       imports: Set[os.Path]
   ) {
+
+    /** Lazy because building a renderer per slug is real work, and a caller
+      * that only wants the failures (or the membership) should not pay it.
+      */
+    lazy val states: Map[String, Server.RendererState] =
+      dashboards.map { case (slug, result) => slug -> stateOf(result) }
+
+    /** What each slug currently EVALUATES to — the proven dashboard, or the
+      * message it failed with. This is what a later reload compares against to
+      * decide whether anything actually changed ([[reloadSite]]), so it holds
+      * the model rather than the renderer built from it: two evaluations of an
+      * unedited file produce equal `Dashboard`s and different `Renderer`s.
+      */
+    def content: Map[String, Either[String, Dashboard]] =
+      dashboards.view.mapValues(_.map(_.dashboard)).toMap
+
     def built: List[(String, Renderer)] = states.toList.collect {
       case (slug, Server.RendererState.Ready(r)) => slug -> r
     }
     def failed: List[(String, String)] = states.toList.collect {
       case (slug, Server.RendererState.Failed(m)) => slug -> m
     }
+  }
+
+  private def stateOf(
+      result: Either[String, Dashboard.Validated]
+  ): Server.RendererState = result match {
+    case Right(validated) =>
+      Server.RendererState.Ready(Renderer.fromValidated(validated))
+    case Left(message) => Failed(message)
   }
 
   /** Dump and build every dashboard the entrypoint names — the source-to-
@@ -306,18 +332,13 @@ object ServerApp extends IOApp {
         .attempt
         .flatMap {
           case Right((site, imports)) =>
-            IO.pure(
-              Prepared(statesOf(site), site.default, imports)
-            )
+            IO.pure(Prepared(site.dashboards.toMap, site.default, imports))
           case Left(err) =>
             // Nothing evaluated, so nothing can be attributed to a slug: serve
             // the error under the one name `/` will look for.
             IO.pure(
               Prepared(
-                Map(
-                  Server.DefaultSlug -> Server.RendererState
-                    .Failed(Site.messageOf(err))
-                ),
+                Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
                 None,
                 Set(dashboardsDir / Site.EntryFile)
               )
@@ -333,17 +354,6 @@ object ServerApp extends IOApp {
               IO.println(s"Dashboard '$slug' failed to build: $message")
             }
         }
-
-  /** The registry state for each slug an evaluated site names. */
-  private def statesOf(
-      site: Site.Decoded
-  ): Map[String, Server.RendererState] =
-    site.dashboards.map {
-      case (slug, Right(validated)) =>
-        slug -> Server.RendererState.Ready(Renderer.fromValidated(validated))
-      case (slug, Left(message)) =>
-        slug -> Server.RendererState.Failed(message)
-    }.toMap
 
   /** The runtime KERNEL both [[run]] (production) and the test harness
     * (`TestServer`) funnel through, so the live-Server wiring cannot silently
@@ -409,8 +419,37 @@ object ServerApp extends IOApp {
       // like any other edit: the re-eval re-resolves the lockfile whenever this
       // file's mtime has moved (`PklBuild.staleLockfile`). It is editable in the
       // editor, so this is a real edit path, not a hypothetical one.
-      (dashboardsDir / EditorRoutes.Manifest))
+      (dashboardsDir / EditorRoutes.Manifest) +
+      // The workspace DIRECTORY, so a file that APPEARS is noticed. Watching
+      // paths alone cannot see one: a new file is nobody's import yet, and a
+      // glob import (`import*("*.dashboard.pkl")`) exists precisely so that
+      // dropping a file in adds a dashboard. Events are filtered to `*.pkl`
+      // ([[watchSourcesWith]]) — the directory also holds the lockfile the
+      // evaluation itself rewrites, and reloading on that would feed itself.
+      dashboardsDir)
       .map(fs2Path)
+
+  /** Which watcher events are an author edit. Since the workspace DIRECTORY is
+    * watched (so a new file is seen), the noise it carries has to be dropped
+    * here: `PklProject.deps.json` is rewritten by the evaluation this reload
+    * runs, so reloading on it would feed itself, and `.fh/` churns per boot.
+    * Overflow has no path and must pass — it means events were LOST, which is
+    * exactly when a reload is owed.
+    */
+  private def isSourceEvent(event: Watcher.Event): Boolean = event match {
+    case Watcher.Event.Overflow(_)       => true
+    case Watcher.Event.NonStandard(_, _) => false
+    case _                               =>
+      val name = eventPath(event).fold("")(_.fileName.toString)
+      name.endsWith(".pkl") || name == EditorRoutes.Manifest
+  }
+
+  private def eventPath(event: Watcher.Event): Option[Path] = event match {
+    case Watcher.Event.Created(p, _)  => Some(p)
+    case Watcher.Event.Modified(p, _) => Some(p)
+    case Watcher.Event.Deleted(p, _)  => Some(p)
+    case _                            => None
+  }
 
   private val watchedEvents = List(
     Watcher.EventType.Created,
@@ -471,7 +510,10 @@ object ServerApp extends IOApp {
         }
 
     val reloadOnChange =
-      events.debounce(200.millis).evalMap(_ => reload)
+      events
+        .filter(isSourceEvent)
+        .debounce(200.millis)
+        .evalMap(_ => reload)
 
     reloadOnChange.concurrently(reconcile)
   }
@@ -489,39 +531,64 @@ object ServerApp extends IOApp {
     * file no longer says what it is. Fixing the file restores all of them at
     * once.
     *
-    * `siteSlugs` is what the entrypoint owned last time, and it is what makes a
-    * removal safe: a slug installed by `push` was never in it, so nothing here
-    * can reclaim one (ADR 0010).
+    * `lastSite` is what the entrypoint evaluated to last time, and it does two
+    * jobs. Its KEYS make removal safe: a slug installed by `push` was never in
+    * it, so nothing here can reclaim one (ADR 0010). Its VALUES make a reload
+    * that changes nothing cost nothing — see below.
+    *
+    * '''An unchanged dashboard is not re-installed.''' The watcher fires on
+    * anything in the workspace, and a `Ready` state written to the registry is
+    * not free: it emits on the slug's `SignallingRef`, which rotates the
+    * fragment log and repaints EVERY open browser on that dashboard. So a save
+    * that did not change a dashboard — a touched file, a comment, an edit to a
+    * sibling — would still throw every viewer's DOM away. Comparing what each
+    * slug evaluates to (the `Dashboard` model, not the `Renderer` built from
+    * it, which is a fresh object every time) makes the reload idempotent, and
+    * costs one structural comparison against work we already did.
     */
   private[runtime] def reloadSite(
       dashboardsDir: os.Path,
       site: Server.LiveSite,
-      siteSlugs: SignallingRef[IO, Set[String]],
+      lastSite: SignallingRef[IO, Map[String, Either[String, Dashboard]]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[Unit] =
     DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
       case Left(err) =>
+        // Membership is NOT touched: the file no longer says what it is.
         val message = Site.messageOf(err)
-        siteSlugs.get.flatMap(
-          _.toList.sorted.traverse_(install(site, _, Failed(message)))
-        )
+        lastSite.get.flatMap { previous =>
+          previous.toList.sortBy(_._1).traverse_ { case (slug, was) =>
+            IO.whenA(was != Left(message))(install(site, slug, Failed(message)))
+          } *> lastSite.set(previous.map { case (slug, _) =>
+            slug -> Left(message)
+          })
+        }
       case Right((decoded, imports)) =>
-        val states = statesOf(decoded)
+        val prepared =
+          Prepared(decoded.dashboards.toMap, decoded.default, imports)
+        val content = prepared.content
         for {
-          previous <- siteSlugs.get
-          _ <- states.toList.sortBy(_._1).traverse_ { case (slug, state) =>
-            install(site, slug, state)
-          }
-          gone = (previous -- states.keySet).toList.sorted
+          previous <- lastSite.get
+          changed = content.filter { case (slug, now) =>
+            !previous.get(slug).contains(now)
+          }.keySet
+          _ <- prepared.states.toList
+            .sortBy(_._1)
+            .traverse_ { case (slug, state) =>
+              IO.whenA(changed(slug))(install(site, slug, state))
+            }
+          gone = (previous.keySet -- content.keySet).toList.sorted
           _ <- gone.traverse_ { slug =>
             site.remove(slug) *>
               IO.println(s"Dashboard '$slug' removed (no longer in the site)")
           }
-          _ <- siteSlugs.set(states.keySet)
+          _ <- lastSite.set(content)
           _ <- site.setPreferred(decoded.default)
           _ <- importsRef.set(watchedSet(dashboardsDir, imports))
-          _ <- IO.println(
-            s"Dashboards reloaded (${states.keys.toList.sorted.mkString(", ")})"
+          _ <- IO.whenA(changed.nonEmpty || gone.nonEmpty)(
+            IO.println(
+              s"Dashboards reloaded (${changed.toList.sorted.mkString(", ")})"
+            )
           )
         } yield ()
     }

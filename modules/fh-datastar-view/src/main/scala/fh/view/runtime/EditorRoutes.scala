@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import fh.view.build.Site
+import fh.view.build.{PklBuild, Site}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -98,7 +98,7 @@ final class EditorRoutes(
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
-              IO.blocking(os.write.over(p, body)) *> NoContent()
+              IO.blocking(os.write.over(p, body)) *> saved(p)
             }
         }
 
@@ -161,6 +161,40 @@ final class EditorRoutes(
       .getOrElseF(
         NotFound("editor index.html not found on the classpath (/editor)")
       )
+
+  /** The write response: `{ written, used }`, where `used` says whether the
+    * entrypoint actually READS this file — itself, something it imports, or a
+    * file a glob import matches ([[PklBuild.fileImports]], static analysis, no
+    * evaluation).
+    *
+    * Saving a file nothing reads is allowed and sometimes the point (writing a
+    * module before the key that names it, or the other way round), so this is a
+    * NOTE rather than a gate: the editor and `fh push --write` say so, and the
+    * author decides. A gate would have to refuse the first half of every
+    * two-file change.
+    *
+    * The answer is as of this instant, deliberately: it is re-derived from the
+    * sources on disk rather than from the running site's import set, so writing
+    * an entrypoint that names a module reports that module as used immediately,
+    * without waiting for the reload.
+    */
+  private def saved(path: os.Path): IO[Response[IO]] =
+    IO.blocking(
+      scala.util
+        .Try(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
+        .getOrElse(Set.empty[os.Path])
+    ).flatMap { reads =>
+      val used = path == dashboardsDir / Site.EntryFile || reads.contains(path)
+      Ok(
+        Json
+          .obj(
+            "written" -> Json
+              .fromString(path.relativeTo(dashboardsDir).toString),
+            "used" -> Json.fromBoolean(used)
+          )
+          .noSpaces
+      ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
+    }
 
   /** JSON list of editable sources: `{ name, path, kind }`. `name` is the
     * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`

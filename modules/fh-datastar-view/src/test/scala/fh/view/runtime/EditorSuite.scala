@@ -171,6 +171,49 @@ class EditorSuite extends munit.FunSuite {
     }
   }
 
+  test("a write says whether the site actually reads the file") {
+    // Saving a file no dashboard reads is allowed — you may be writing the
+    // module before the key that names it — but silence would read as "it is
+    // live". The answer is static analysis of the entrypoint, so it is right
+    // as soon as the file is on disk, without waiting for a reload.
+    workspace { ws =>
+      // No PklProject dependencies to resolve here, so the analysis of the
+      // stub entrypoint yields nothing but itself: the entrypoint is used, a
+      // module beside it is not.
+      def put(name: String, body: String) = routes(ws).orNotFound
+        .run(
+          Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))
+            .withEntity(body)
+        )
+        .flatMap(resp =>
+          resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .map(resp.status -> _)
+        )
+        .unsafeRunSync()
+
+      val (entryStatus, entryBody) = put("dashboard.pkl", "// the entrypoint")
+      assertEquals(entryStatus, Status.Ok)
+      assertEquals(
+        parse(entryBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(true)
+      )
+
+      val (modStatus, modBody) = put("pkl-tabs.pkl", "// nothing names me")
+      assertEquals(modStatus, Status.Ok)
+      assertEquals(
+        parse(modBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(false)
+      )
+      // It is a note, not a gate: the bytes landed either way.
+      assertEquals(os.read(ws / "pkl-tabs.pkl"), "// nothing names me")
+    }
+  }
+
   test("PklProject is readable and writable; its lockfile is neither") {
     workspace { ws =>
       assertEquals(get(ws, "/edit/file/PklProject")._1, Status.Ok)
@@ -181,7 +224,10 @@ class EditorSuite extends munit.FunSuite {
             .withEntity("amends \"edited\"")
         )
         .unsafeRunSync()
-      assertEquals(written.status, Status.NoContent)
+      // 200 + `{written, used}` — a write reports whether the site reads what
+      // it just saved (here: the manifest, which the entrypoint does not
+      // import, so `used` is false and the editor says so).
+      assertEquals(written.status, Status.Ok)
       assertEquals(os.read(ws / "PklProject"), "amends \"edited\"")
 
       // The lockfile is generated — a write would be silently undone by the next
