@@ -31,17 +31,30 @@ class ConditionsSuite extends munit.FunSuite {
 
   test("comparisons read domain, state and attributes off the subject") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
-    assert(Conditions.matches(cmp("domain", Op.Eq, Json.fromString("sensor")), s))
-    assert(!Conditions.matches(cmp("domain", Op.Eq, Json.fromString("light")), s))
+    assert(
+      Conditions.matches(cmp("domain", Op.Eq, Json.fromString("sensor")), s)
+    )
+    assert(
+      !Conditions.matches(cmp("domain", Op.Eq, Json.fromString("light")), s)
+    )
     assert(Conditions.matches(cmp("attr:battery", Op.Lt, Json.fromInt(20)), s))
-    assert(!Conditions.matches(cmp("attr:battery", Op.Gte, Json.fromInt(20)), s))
+    assert(
+      !Conditions.matches(cmp("attr:battery", Op.Gte, Json.fromInt(20)), s)
+    )
     assert(Conditions.matches(cmp("state", Op.Lte, Json.fromInt(18)), s))
   }
 
   test("the entity_id property compares the entity's own id") {
     val s = st("light.a", "on")
-    assert(Conditions.matches(cmp("entity_id", Op.Eq, Json.fromString("light.a")), s))
-    assert(!Conditions.matches(cmp("entity_id", Op.Eq, Json.fromString("light.b")), s))
+    assert(
+      Conditions.matches(cmp("entity_id", Op.Eq, Json.fromString("light.a")), s)
+    )
+    assert(
+      !Conditions.matches(
+        cmp("entity_id", Op.Eq, Json.fromString("light.b")),
+        s
+      )
+    )
   }
 
   test("and / or / not combine") {
@@ -57,7 +70,9 @@ class ConditionsSuite extends munit.FunSuite {
     assert(Conditions.matches(Predicate.Not(both), st("light.x", "18")))
     assert(
       Conditions.matches(
-        Predicate.Or(List(cmp("domain", Op.Eq, Json.fromString("light")), both)),
+        Predicate.Or(
+          List(cmp("domain", Op.Eq, Json.fromString("light")), both)
+        ),
         s
       )
     )
@@ -84,11 +99,17 @@ class ConditionsSuite extends munit.FunSuite {
   test("a guard may name a DIFFERENT entity than its subject") {
     val states = snapshot(st("light.a", "off"), st("binary_sensor.hall", "on"))
     assert(
-      Conditions.matchesIn(isOn("binary_sensor.hall"), states("light.a"), states)
+      Conditions.matchesIn(
+        isOn("binary_sensor.hall"),
+        states("light.a"),
+        states
+      )
     )
   }
 
-  test("naming an entity the snapshot lacks is FALSE, not a read of the subject") {
+  test(
+    "naming an entity the snapshot lacks is FALSE, not a read of the subject"
+  ) {
     // Saying so beats silently answering about the subject, which is what an
     // absent `entity` means.
     val subject = st("light.a", "on")
@@ -106,7 +127,9 @@ class ConditionsSuite extends munit.FunSuite {
 
   // ---- Count --------------------------------------------------------------
 
-  test("an UNGUARDED candidate counts unconditionally; a guarded one must hold") {
+  test(
+    "an UNGUARDED candidate counts unconditionally; a guarded one must hold"
+  ) {
     // Same rule a set member with an unguarded clause follows — and note the
     // unguarded candidate counts even though the snapshot has never seen it.
     val states = snapshot(st("light.a", "on"), st("light.b", "off"))
@@ -135,7 +158,9 @@ class ConditionsSuite extends munit.FunSuite {
 
   // ---- propertyOf ---------------------------------------------------------
 
-  test("propertyOf reads the four kinds it knows, and empty for anything else") {
+  test(
+    "propertyOf reads the four kinds it knows, and empty for anything else"
+  ) {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
     assertEquals(Conditions.propertyOf("domain", s), "sensor")
     assertEquals(Conditions.propertyOf("state", s), "18")
