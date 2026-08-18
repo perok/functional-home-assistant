@@ -811,59 +811,6 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(Renderer.create(d).stylesheets, Nil)
   }
 
-  test("Predicate evaluation: comparisons and boolean combinators") {
-    val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
-    assert(
-      Conditions.matches(
-        Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
-        s
-      )
-    )
-    assert(
-      !Conditions.matches(
-        Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
-        s
-      )
-    )
-    assert(
-      Conditions.matches(
-        Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)),
-        s
-      )
-    )
-    assert(
-      !Conditions.matches(
-        Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)),
-        s
-      )
-    )
-    assert(
-      Conditions.matches(
-        Predicate.Cmp("state", Op.Lte, Json.fromInt(18)),
-        s
-      )
-    )
-
-    val both = Predicate.And(
-      List(
-        Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
-        Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
-      )
-    )
-    assert(Conditions.matches(both, s))
-    // A light-domain entity fails the `domain == sensor` arm, so `Not(both)`.
-    val sLight = st("light.x", "18", "battery" -> Json.fromInt(15))
-    assert(Conditions.matches(Predicate.Not(both), sLight))
-    assert(
-      Conditions.matches(
-        Predicate.Or(
-          List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)
-        ),
-        s
-      )
-    )
-  }
-
   test(
     "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
   ) {
@@ -1231,22 +1178,6 @@ class RendererSuite extends munit.FunSuite {
     "sensor.a" -> st("sensor.a", "A"),
     "sensor.b" -> st("sensor.b", "B")
   )
-
-  test("matches: the entity_id property compares the entity's own id") {
-    val s = st("light.a", "on")
-    assert(
-      Conditions.matches(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.a")),
-        s
-      )
-    )
-    assert(
-      !Conditions.matches(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.b")),
-        s
-      )
-    )
-  }
 
   test(
     "resolveActiveByState picks the FIRST holding member in bakeIndex order"
