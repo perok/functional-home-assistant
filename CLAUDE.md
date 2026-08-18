@@ -162,6 +162,30 @@ easy to never see. Two consequences worth knowing:
   reduced to `grep "==> X|Total"` hides exactly the signal that would have said
   a helper became unreachable.
 
+## Before calling a change done
+
+Green tests are not the finish line. Make one pass over your own diff as if it were someone
+else's, checking these four specifically. Each fired at least once while landing #109, each
+survived a green suite, and three of them survived a written summary claiming the work was
+finished:
+
+- **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
+  to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
+  commit that adds the second way is usually the same one that wrote the sentence. If a claim
+  would be falsified by a `grep`, run the `grep`. (`SetId`'s doc claimed forging one was
+  impossible while the counterexample sat in `TestIds`.)
+- **Cash the justification.** If the stated reason was testability, the same change adds the
+  test. If it was "one mechanism, not two", the second is deleted here, not left for later.
+  (`SurfaceGraph` was extracted for testability and shipped with no suite.)
+- **Test the property, not the line you changed.** An assertion on the value you just fixed
+  passes for that fix and is blind to the next instance of the same bug. Ask what would have
+  caught it in the first place, and write that instead. (A unit assertion on `Member.root`
+  pinned one surface-patch leak and missed the identical one on the container.)
+- **Look at what a new type or class can SEE, not only what it does.** A constructor taking a
+  whole aggregate to read one field declares a dependency you did not mean, and it shows up
+  first as awkward test fixtures. (`SurfaceGraph` took the whole `Dashboard` for
+  `dashboard.surfaces`.)
+
 ## Comments: the code says what, a comment says why
 
 The runtime currently carries roughly as many comment lines as code lines. That is too many, and
