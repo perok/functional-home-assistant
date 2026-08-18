@@ -303,12 +303,18 @@ class Renderer(
     * their group's query, wrong once they are selected by the reverse index
     * like any other node, because a member inside a surface would then reach
     * clients who do not have it open.
+    *
+    * A NESTED SET CONTAINER needs the same treatment and for the same reason:
+    * it is not in the static index either, and patches aim at it directly (a
+    * mount fill, and the `remove` of a departing member, which names its
+    * container). The graph is the only thing that knows where it hangs.
     */
   private def rootOf(id: NodeId): Option[String] =
     allIndexed
       .get(id)
       .map { case (_, _, prefix) => prefixToRoot(prefix) }
       .orElse(members.rootOfMember(id))
+      .orElse(members.rootOfSet(id))
 
   /** A surface's place in the tree is where its host node sits, so this is just
     * [[rootOf]] applied to `bakeInto`. A popup has no `bakeInto`, hosts on the

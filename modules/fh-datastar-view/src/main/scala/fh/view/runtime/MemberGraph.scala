@@ -648,6 +648,16 @@ private[runtime] final class MemberGraph(
   def rootOfMember(id: NodeId): Option[String] =
     index.get.byId.get(id).map(_.root)
 
+  /** Which layout tree a member CONTAINER is in, for the same `rootOf`.
+    *
+    * A nested set is not in the static index either — same reason as its
+    * members — so without this a patch aimed AT the container (a fill, or the
+    * `remove` of a departing member, which names the container as its mutation
+    * target) reads as main-page and reaches clients that do not have the
+    * surface open. `None` for anything that is not a set container.
+    */
+  def rootOfSet(id: NodeId): Option[String] = sourceRoot.get(id)
+
   /** Members of sets rooted in `root` that bind `entityId`. */
   def membersBinding(entityId: String, root: String): Set[NodeId] =
     index.get.byEntity
