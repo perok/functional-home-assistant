@@ -103,7 +103,7 @@ class FragmentLogSuite extends munit.FunSuite {
   }
 
   test("a member key carries HOW to resolve it, not just its name") {
-    // The distinction a bare String refused to carry: a dynamic group's member is
+    // The distinction a bare String refused to carry: a candidate set's member is
     // an entity, a state group's is a branch surface, and each resolves
     // differently. As a sum type the caller needs no per-kind rule.
     assertEquals(

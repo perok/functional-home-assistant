@@ -12,7 +12,7 @@ import fh.view.testkit.DashboardBuilders.col
   * each against the [[Scene.registry]] (the shared [[HouseFixture]] house), so
   * a card placed in the layout brings its entity with it. `[[entity]]` adds
   * entities BEYOND what the dashboard references — a control-only test that
-  * clicks a light with no card for it, a dynamic-group member matched by query
+  * clicks a light with no card for it, a candidate-set member matched by query
   * rather than named in a slot — and doubles as a resolution source, so a test
   * can introduce (or restate) an entity the registry doesn't carry.
   *
@@ -35,7 +35,7 @@ final class Scene private (
     new Scene(children :+ node, prebuilt, extras)
 
   /** Seed one entity BEYOND what the dashboard references (a control target
-    * with no card, a dynamic-group member). Also a resolution source, so this
+    * with no card, a candidate-set member). Also a resolution source, so this
     * entity satisfies a dashboard reference the registry doesn't carry — or
     * restates one it does, overriding its seeded state.
     */
@@ -92,8 +92,9 @@ object Scene {
 
   /** Every entity id the dashboard binds: each slot's own `entityId`, each
     * component's subject `entity_id` (the card's one entity), across the main
-    * layout and every surface's content. Dynamic groups match by query rather
-    * than a named id, so their members are seeded via [[Scene.entity]].
+    * layout and every surface's content. Candidate-set members are decided by
+    * live guards rather than a named id, so their members are seeded via
+    * [[Scene.entity]].
     */
   private def referencedEntityIds(d: Dashboard): List[String] = {
     def fromSlots(

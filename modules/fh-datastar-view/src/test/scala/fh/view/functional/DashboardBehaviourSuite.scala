@@ -139,14 +139,14 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   // ---------------------------------------------------------------------------
-  // Dynamic groups end-to-end. The group matches by QUERY, so its members are
+  // Candidate sets end-to-end. Members are decided by live guards, so they are
   // named in no slot — they are seeded through the Scene's `.entities(..)`
   // extras (exactly the case that builder exists for). These pin the membership
-  // machinery `RendererSuite` unit-tests (`affectedDynamics`, per-entity render)
+  // machinery `RendererSuite` unit-tests (`affectedSets`, per-entity render)
   // at the wire: the actual SSE patch a group emits as members enter/leave.
   // ---------------------------------------------------------------------------
 
-  test("an entity entering a dynamic group streams its card in over SSE") {
+  test("an entity entering a candidate set streams its card in over SSE") {
     // beta is off (outside the `state == on` group); when it turns on the group
     // re-renders and the pushed fragment carries beta's now-visible member card.
     // (The emit carries beta's attributes so its member card keeps its name —
@@ -162,7 +162,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("an entity leaving a dynamic group is removed per-entity over SSE") {
+  test("an entity leaving a candidate set is removed per-entity over SSE") {
     // Three members on (a minority-churn group, so a single departure takes the
     // per-entity path, not a whole-group repaint). The first change establishes
     // the group in the diff cache (its first membership change always repaints);

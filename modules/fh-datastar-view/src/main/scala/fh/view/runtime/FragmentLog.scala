@@ -103,7 +103,7 @@ private[runtime] case class Resume(
   * [[Mutation.Gone]] for a member that left and never came back has nothing to
   * evict it, so it accumulates one entry per entity that has EVER been a member
   * of any group, growing with elapsed time rather than dashboard size. A
-  * `dynamic` group over "every light that is on" will, over a week, name every
+  * candidate set over "every light that is on" will, over a week, name every
   * light in the house. Hence [[pruned]] and [[horizon]].
   *
   * '''Nothing here reads a clock.''' A version orders everything, and it is the

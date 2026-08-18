@@ -14,7 +14,7 @@ what its viewer has selected).
 >   its rationale*, this file owns *the shape of the thing*. They are not alternatives to each other.
 >   ADRs [0011](adr/0011-the-live-connection.md) and
 >   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
->   [0003](adr/0003-dynamic-groups.md) (candidate sets) and
+>   [0003](adr/0003-candidate-sets.md) (candidate sets) and
 >   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a

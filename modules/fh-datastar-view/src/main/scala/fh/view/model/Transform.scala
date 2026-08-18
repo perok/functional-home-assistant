@@ -66,7 +66,7 @@ object Transform {
       "state" -> entity.state,
       // Cached on the EntityState (converted once per state version — see
       // EntityState.javaAttributes), so repeated evals on the same entity (a card
-      // with several `$attr` slots, or a dynamic group scanning a hot entity) do
+      // with several `$attr` slots, or a candidate set scanning a hot entity) do
       // not each rebuild the attribute map.
       "attr" -> entity.javaAttributes,
       "entity_id" -> entity.entityId,

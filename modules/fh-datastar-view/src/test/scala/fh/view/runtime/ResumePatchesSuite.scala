@@ -17,8 +17,8 @@ import io.circe.Json
   */
 class ResumePatchesSuite extends munit.FunSuite {
 
-  // The whole dashboard is one dynamic group at the root, so its id is "c" and a
-  // member's id is `c_<sanitized entity>` — matching Renderer.dynamicChildId.
+  // The whole dashboard is one candidate set at the root, so its id is "c" and a
+  // member's id is `c_<sanitized entity>` — matching Renderer.memberIdOf.
   private val renderer = Renderer.create(
     Dashboard(
       cards =
@@ -53,7 +53,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       .map(id => id -> on(id))
       .toMap
 
-  private def cid(entity: String) = renderer.dynamicChildId("c", entity)
+  private def cid(entity: String) = renderer.memberIdOf("c", entity)
 
   /** A FRESH cache per call: these tests are about which patches come out, not
     * about reuse, and sharing one would make a test's expectations depend on

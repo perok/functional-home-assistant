@@ -203,10 +203,10 @@ object SignalBind:
   *     a card whose root element must remain a *direct* child of a
   *     framework-structural parent (e.g. the tab anchors under BeerCSS's
   *     `.tabs > a`); such a card is never wrapped, never a morph target of its
-  *     own, and must not be used as a dynamic-group case (whose per-entity
-  *     children are always wrapped — they ARE the patch targets).
-  *     [[Dashboard.validate]] rejects the wrapper-dependent shapes on such a
-  *     card: live-entity slots, `cell` params, and dynamic-case use.
+  *     own, and must not be used as a set clause (whose per-entity children are
+  *     always wrapped — they ARE the patch targets). [[Dashboard.validate]]
+  *     rejects the wrapper-dependent shapes on such a card: live-entity slots,
+  *     `cell` params, and set-clause use.
   *   - `mount` / `self`: the two named parts of a card that HOLDS other nodes —
   *     see below.
   *
@@ -338,8 +338,8 @@ object Predicate:
 
   /** Does this read an entity it does not name? True for a `Cmp` with no
     * `entity`, which only means something where a SUBJECT is supplied — a set
-    * member's guard, a dynamic case. A [[Activation.State]] supplies none, so
-    * one there used to mean "some entity in the house" and is now rejected.
+    * member's guard, a set clause. A [[Activation.State]] supplies none, so one
+    * there used to mean "some entity in the house" and is now rejected.
     *
     * A count's guards are excluded deliberately: each is evaluated against its
     * own candidate, so an unnamed subject inside one is bound.
@@ -437,7 +437,7 @@ object LayoutNode:
     *
     * The candidates are decided at build time from the typed dump, so the
     * runtime never invents a member: it decides only PRESENCE (which candidates
-    * render) and ORDER. See `docs/adr/0003-dynamic-groups.md`.
+    * render) and ORDER. See `docs/adr/0003-candidate-sets.md`.
     *
     *   - `candidates`: entity ids, in render order. When the ordering folded to
     *     registry facts this list is already sorted and [[orderBy]] is empty —
@@ -664,9 +664,9 @@ case class Dashboard(
     *
     * All registered cards, not only the ones this tree uses: the registry is
     * one library's worth (a handful of KB), and pruning it to the cards
-    * actually rendered would have to account for surfaces and dynamic cases
-    * too. The renderer has what it would need — see ADR 0020's open work,
-    * alongside minifying the whole block at runtime instead of by hand in Pkl.
+    * actually rendered would have to account for surfaces and set clauses too.
+    * The renderer has what it would need — see ADR 0020's open work, alongside
+    * minifying the whole block at runtime instead of by hand in Pkl.
     */
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
@@ -687,7 +687,7 @@ case class Dashboard(
   ): List[String] =
     // Every required template var is a slot, satisfied by an authored slot OR a
     // backend-`injected` name: `id`/`panel` always, plus the matched `entity_id`
-    // inside a dynamic case (where the case strips the build-time one).
+    // inside a set clause (where the case strips the build-time one).
     def checkRef(
         nodeId: String,
         cardName: String,
@@ -776,7 +776,7 @@ case class Dashboard(
     // silently so at render time. Reject the combinations loudly instead:
     // live-entity slots (the pushed morphs would never match an element in the
     // DOM), cell params (there is no wrapper to carry the classes), and
-    // dynamic cases (every member IS its wrapped per-entity patch target —
+    // set clauses (every member IS its wrapped per-entity patch target —
     // Renderer.renderCase wraps unconditionally).
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)

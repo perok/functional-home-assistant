@@ -43,7 +43,7 @@ object FixtureDashboard {
       """<div class="light">{{name}}: <span>{{state}}</span></div>""",
       slots = List("state")
     ),
-    // The per-entity card a dynamic group renders each matching member through:
+    // The per-entity card a candidate set renders each matching member through:
     // the member's own live friendly_name + state (both inherited from the
     // matched entity, so one card serves every member).
     "member" -> CardDef(

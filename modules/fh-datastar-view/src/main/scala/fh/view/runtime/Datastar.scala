@@ -62,7 +62,7 @@ object Datastar {
     * example (`data: mode remove` + `data: selector #id`, no `elements`).
     * Datastar resolves the selector with `querySelectorAll`, so removing an id
     * that is already absent matches nothing and is a no-op — the per-entity
-    * dynamic group path relies on that idempotency (a duplicate/late remove is
+    * candidate set path relies on that idempotency (a duplicate/late remove is
     * harmless).
     */
   def remove(selector: String): ServerSentEvent =

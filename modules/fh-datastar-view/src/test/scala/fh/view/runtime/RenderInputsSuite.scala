@@ -82,7 +82,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   /** `c_0` binds sensor.t, `c_1` binds sensor.other, `c_2` is a banner bound to
     * sensor.t whose bake group is chosen by a condition counting the lights —
-    * inputs that appear nowhere in its `entitiesForNode`. `c_3` is a dynamic
+    * inputs that appear nowhere in its `entitiesForNode`. `c_3` is a candidate
     * group over lights.
     */
   private val dashboard = Dashboard(
@@ -175,7 +175,7 @@ class RenderInputsSuite extends munit.FunSuite {
       ),
     // An entity only c_1 binds.
     st("sensor.other", "2"),
-    // Flips c_2's bake group (the count crosses 0) AND changes a dynamic
+    // Flips c_2's bake group (the count crosses 0) AND changes a set
     // member's case.
     st("light.a", "on"),
     // THE adversarial step: an entity c_2 does not bind, whose change leaves
@@ -190,7 +190,7 @@ class RenderInputsSuite extends munit.FunSuite {
   private val line = timeline(steps)
 
   /** The nodes with a rendering of their own, and so a cache entry. `c` (the
-    * root column) and `c_3` (the dynamic root) compose rather than render, so
+    * root column) and `c_3` (the set root) compose rather than render, so
     * neither is addressable.
     */
   private val ids: List[NodeId] = List("c_0", "c_1", "c_2")
@@ -210,7 +210,7 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  test("a dynamic member's key covers everything its case dispatch reads") {
+  test("a set member's key covers everything its clause dispatch reads") {
     // A member is a NODE now, keyed and rendered by id like any other — so this
     // asks the same question of `renderInputs`/`renderNodeById` that the static
     // ids above do. One renderer per step, because a member's node is
@@ -223,7 +223,7 @@ class RenderInputsSuite extends munit.FunSuite {
       (b, j) <- line.zipWithIndex
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
-      id = ra.dynamicChildId("c_3", entity)
+      id = ra.memberIdOf("c_3", entity)
       key <- ra.renderInputs(id, a, Map.empty).toList
       if rb.renderInputs(id, b, Map.empty).contains(key)
     } assertEquals(
@@ -307,7 +307,7 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a node that composes rather than renders has no key") {
-    // The dynamic group root: its members are addressable in their own right,
+    // The candidate set root: its members are addressable in their own right,
     // and `renderNodeById` refuses it.
     assertEquals(renderer.renderInputs("c_3", line.head, Map.empty), None)
     assertEquals(renderer.renderNodeById("c_3", line.head), None)

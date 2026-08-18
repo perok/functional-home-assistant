@@ -28,7 +28,7 @@ object NodeId {
 
   /** Mint a node id. Deliberately awkward to reach: the derivations are
     * [[LayoutNode.pathId]], [[LayoutNode.surfacePrefix]] and
-    * [[fh.view.runtime.Renderer.dynamicChildId]], and a node id that came from
+    * [[fh.view.runtime.Renderer.memberIdOf]], and a node id that came from
     * anywhere else is a bug.
     */
   private[view] def derived(s: String): NodeId = s

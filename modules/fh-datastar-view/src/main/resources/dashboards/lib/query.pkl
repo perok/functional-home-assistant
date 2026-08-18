@@ -14,7 +14,7 @@
 /// and a card knows nothing about it. A `render` lambda hands back an ordinary
 /// component node, which is the only seam between the two.
 ///
-/// The shape of the thing (`docs/adr/0003-dynamic-groups.md`): the
+/// The shape of the thing (`docs/adr/0003-candidate-sets.md`): the
 /// CANDIDATES are decided here, at build time, from the typed dump. Registry
 /// facts fold away — `area_id == "stue"` selects candidates and never reaches
 /// the wire — and only conditions on live state survive, as per-member guards.

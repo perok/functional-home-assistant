@@ -8,13 +8,13 @@ class PklBuildSuite extends munit.FunSuite {
 
   /** Collect every candidate set reachable from a node, nested ones included.
     */
-  private def dynamics(node: LayoutNode): List[LayoutNode.SetNode] =
+  private def sets(node: LayoutNode): List[LayoutNode.SetNode] =
     node match {
-      case c: LayoutNode.Component => c.children.flatMap(dynamics)
+      case c: LayoutNode.Component => c.children.flatMap(sets)
       case s: LayoutNode.SetNode   =>
         s :: s.members.values.toList
           .flatMap(_.clauses)
-          .flatMap(cl => dynamics(cl.node))
+          .flatMap(cl => sets(cl.node))
     }
 
   /** Every card name reachable from a node, in document order. */
@@ -732,7 +732,7 @@ class PklBuildSuite extends munit.FunSuite {
   // ---------------------------------------------------------------------------
 
   /** A feature-rich fixture entry: containers, sectionTitle, entityCard
-    * (default + tap), a domain-checked slider, a dynamic group, a more-info
+    * (default + tap), a domain-checked slider, a candidate set, a more-info
     * tap, and both a registered and an inline popup — enough composition to
     * exercise the hoist + decode path.
     */
@@ -909,8 +909,8 @@ class PklBuildSuite extends munit.FunSuite {
         "button"
       )
     )
-    // One dynamic group in the layout.
-    assertEquals(dynamics(d.card).size, 1, clue = d.card)
+    // One candidate set in the layout.
+    assertEquals(sets(d.card).size, 1, clue = d.card)
     // Validation (card refs, required slots, JSONata compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
@@ -972,7 +972,7 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("a clause node NAMES its candidate, and bakes its label") {
-    // The inverse of what a dynamic case did. A case had to STRIP `entity_id`
+    // The inverse of what a set clause did. A case had to STRIP `entity_id`
     // (the renderer injected the matched entity per match) and leave the label
     // as a live `$attr.friendly_name` transform, because the entity was unknown
     // at build time. A clause knows its candidate: the id is a literal slot and
@@ -1471,7 +1471,7 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
-    // THE motivating measurement of the dynamics plan. A `$self` slider could
+    // THE motivating measurement of the sets plan. A `$self` slider could
     // not know its domain until a match, so `action`/`key`/`min`/`max` and the
     // live position each rode as a `reactive: false` JSONata `$lookup` over the
     // whole sliderSpec table — five transforms per member computing a BUILD-TIME

@@ -19,8 +19,8 @@ import io.circe.Json
 class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
-    private def affectedDynamicIds(change: StateChange): List[String] =
-      r.affectedDynamics(List(change))
+    private def affectedSetIds(change: StateChange): List[String] =
+      r.affectedSets(List(change))
 
   // Card templates are pure content; the backend wraps EVERY component in the
   // id'd `.fh-cell` morph target (unless the card opts out via
@@ -278,7 +278,7 @@ class RendererSuite extends munit.FunSuite {
   ) {
     // `reactive = false` promises the value is identity-only, so the renderer
     // resolves it ONCE per (entity, transform) and reuses it — this is what
-    // keeps the dynamic render path cheap (action/domain-config slots become a
+    // keeps the set render path cheap (action/domain-config slots become a
     // cache lookup, not a JSONata eval, on every re-render). We expose the memo
     // with a state-reading transform (a deliberate misuse): its value freezes
     // at the first render and ignores a later state change. A `reactive = true`
@@ -418,7 +418,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("authored cell classes ride on every wrapper kind") {
-    // Static component wrapper, dynamic group root, and per-entity case
+    // Static component wrapper, candidate set root, and per-entity case
     // members: the node-level `cell.classes` (the fh- layout contract) are
     // appended to the backend-owned wrapper's class attribute.
     val sized = LayoutNode.Component(
@@ -448,7 +448,7 @@ class RendererSuite extends munit.FunSuite {
     // The per-member in-place path emits the identical wrapper classes.
     assertEquals(
       renderer(dyn)
-        .renderDynamicChild(
+        .renderMemberById(
           "c",
           "light.a",
           Map("light.a" -> st("light.a", "on"))
@@ -667,14 +667,14 @@ class RendererSuite extends munit.FunSuite {
     assert(!html.contains("c_sensor_c"), clue = html)
     // The set is indexed under its own id, and a candidate's change selects it.
     assertEquals(
-      r.affectedDynamicIds(
+      r.affectedSetIds(
         StateChange("light.a", None, states("light.a"))
       ),
       List("c")
     )
   }
 
-  test("affectedDynamicIds selects a set only for an entity it reads") {
+  test("affectedSetIds selects a set only for an entity it reads") {
     val r = renderer(
       onSet(
         List("light.a", "light.b"),
@@ -684,14 +684,14 @@ class RendererSuite extends munit.FunSuite {
     def ch(id: String) = StateChange(id, None, st(id, "on"))
     // A candidate selects it whichever way its presence moved — WHICH way is
     // the frame's question (`syncMembers`), not one change's.
-    assertEquals(r.affectedDynamicIds(ch("light.a")), List("c"))
+    assertEquals(r.affectedSetIds(ch("light.a")), List("c"))
     // An entity the set neither holds nor names cannot move it. This is the
     // whole cost claim: a frame is O(changed), not O(candidates), and an
     // unrelated house-wide change reaches nothing.
-    assertEquals(r.affectedDynamicIds(ch("sensor.z")), Nil)
+    assertEquals(r.affectedSetIds(ch("sensor.z")), Nil)
     // One frame, several candidates: ONE entry.
     assertEquals(
-      r.affectedDynamics(List(ch("light.a"), ch("light.b"))),
+      r.affectedSets(List(ch("light.a"), ch("light.b"))),
       List("c")
     )
   }
@@ -814,31 +814,31 @@ class RendererSuite extends munit.FunSuite {
   test("Predicate evaluation: comparisons and boolean combinators") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
     assert(
-      Renderer.matches(
+      Conditions.matches(
         Predicate.Cmp("domain", Op.Eq, Json.fromString("sensor")),
         s
       )
     )
     assert(
-      !Renderer.matches(
+      !Conditions.matches(
         Predicate.Cmp("domain", Op.Eq, Json.fromString("light")),
         s
       )
     )
     assert(
-      Renderer.matches(
+      Conditions.matches(
         Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20)),
         s
       )
     )
     assert(
-      !Renderer.matches(
+      !Conditions.matches(
         Predicate.Cmp("attr:battery", Op.Gte, Json.fromInt(20)),
         s
       )
     )
     assert(
-      Renderer.matches(
+      Conditions.matches(
         Predicate.Cmp("state", Op.Lte, Json.fromInt(18)),
         s
       )
@@ -850,12 +850,12 @@ class RendererSuite extends munit.FunSuite {
         Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
       )
     )
-    assert(Renderer.matches(both, s))
+    assert(Conditions.matches(both, s))
     // A light-domain entity fails the `domain == sensor` arm, so `Not(both)`.
     val sLight = st("light.x", "18", "battery" -> Json.fromInt(15))
-    assert(Renderer.matches(Predicate.Not(both), sLight))
+    assert(Conditions.matches(Predicate.Not(both), sLight))
     assert(
-      Renderer.matches(
+      Conditions.matches(
         Predicate.Or(
           List(Predicate.Cmp("domain", Op.Eq, Json.fromString("light")), both)
         ),
@@ -1120,7 +1120,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   // ---------------------------------------------------------------------------
-  // Per-entity dynamic-group patches (Tier 1 + Tier 2)
+  // Per-entity candidate-set patches (Tier 1 + Tier 2)
   // ---------------------------------------------------------------------------
 
   // A set (as the layout root, so group id "c") shown while each candidate is
@@ -1130,26 +1130,26 @@ class RendererSuite extends munit.FunSuite {
     List((None, "card", Map("state" -> SlotSource()), None))
   )
 
-  test("dynamicChildId slugs the entity id under the group id") {
+  test("memberIdOf slugs the entity id under the group id") {
     val r = renderer(onGroup)
-    assertEquals(r.dynamicChildId("c", "light.a"), "c_light_a")
-    assertEquals(r.dynamicChildId("c", "light-b.x"), "c_light_b_x")
+    assertEquals(r.memberIdOf("c", "light.a"), "c_light_a")
+    assertEquals(r.memberIdOf("c", "light-b.x"), "c_light_b_x")
   }
 
-  test("dynamicMembers: query + case matches, in DOM (entity-id) order") {
+  test("memberEntities: query + case matches, in DOM (entity-id) order") {
     val r = renderer(onGroup)
     val states = Map(
       "light.b" -> st("light.b", "on"),
       "light.a" -> st("light.a", "on"),
       "light.c" -> st("light.c", "off") // fails the query
     )
-    assertEquals(r.dynamicMembers("c", states), List("light.a", "light.b"))
-    // unknown / non-dynamic id -> no members
-    assertEquals(r.dynamicMembers("zzz", states), Nil)
+    assertEquals(r.memberEntities("c", states), List("light.a", "light.b"))
+    // unknown / non-set id -> no members
+    assertEquals(r.memberEntities("zzz", states), Nil)
   }
 
   test(
-    "renderDynamicChild renders ONE wrapped card, or None for a non-member"
+    "renderMemberById renders ONE wrapped card, or None for a non-member"
   ) {
     val r = renderer(onGroup)
     val states = Map(
@@ -1157,14 +1157,14 @@ class RendererSuite extends munit.FunSuite {
       "light.b" -> st("light.b", "off")
     )
     assertEquals(
-      r.renderDynamicChild("c", "light.a", states).get,
+      r.renderMemberById("c", "light.a", states).get,
       """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
     )
     // fails the query -> not a member
-    assertEquals(r.renderDynamicChild("c", "light.b", states), None)
+    assertEquals(r.renderMemberById("c", "light.b", states), None)
     // unknown entity / unknown group -> None
-    assertEquals(r.renderDynamicChild("c", "light.z", states), None)
-    assertEquals(r.renderDynamicChild("zzz", "light.a", states), None)
+    assertEquals(r.renderMemberById("c", "light.z", states), None)
+    assertEquals(r.renderMemberById("zzz", "light.a", states), None)
   }
 
   // ---------------------------------------------------------------------------
@@ -1232,13 +1232,13 @@ class RendererSuite extends munit.FunSuite {
   test("matches: the entity_id property compares the entity's own id") {
     val s = st("light.a", "on")
     assert(
-      Renderer.matches(
+      Conditions.matches(
         Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.a")),
         s
       )
     )
     assert(
-      !Renderer.matches(
+      !Conditions.matches(
         Predicate.Cmp("entity_id", Op.Eq, Json.fromString("light.b")),
         s
       )
@@ -1526,7 +1526,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.userSurfaceOfNode("c_nope"), None)
   }
 
-  test("affectedDynamics surfaces the membership delta per group") {
+  test("affectedSets surfaces the membership delta per group") {
     val r = renderer(
       onSet(
         List("s.b", "s.c"),
@@ -1549,39 +1549,39 @@ class RendererSuite extends munit.FunSuite {
     // ticked is no longer asked here at all: a member that merely ticked is
     // found through the reverse index, like any other node.
     assertEquals(
-      r.affectedDynamics(
+      r.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
       List("c")
     )
     // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
-      r.affectedDynamics(
+      r.affectedSets(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
       ),
       List("c")
     )
     assertEquals(
-      r.affectedDynamics(List(StateChange("s.b", None, low("s.b")))),
+      r.affectedSets(List(StateChange("s.b", None, low("s.b")))),
       List("c")
     )
     // prev ∧ ¬cur
     assertEquals(
-      r.affectedDynamics(
+      r.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
       List("c")
     )
     // matches neither side -> untouched (no entry)
     assertEquals(
-      r.affectedDynamics(
+      r.affectedSets(
         List(StateChange("s.z", Some(high("s.z")), high("s.z")))
       ),
       Nil
     )
     // One frame, several entities: ONE entry.
     assertEquals(
-      r.affectedDynamics(
+      r.affectedSets(
         List(
           StateChange("s.b", Some(high("s.b")), low("s.b")),
           StateChange("s.c", Some(low("s.c")), high("s.c"))

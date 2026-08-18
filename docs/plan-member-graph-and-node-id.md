@@ -58,7 +58,7 @@ work (ADR 0003) removed. A reader now carries two names for one thing to follow 
 Counts to expect the compiler to walk: `Renderer` 41, `Patches` 33, `Dashboard` 7, singles in
 `FragmentLog`, `Datastar`, `StateStore`, `Ids`, `Transform`.
 
-`docs/adr/0003-dynamic-groups.md` is still filed under the retired name and is what `query.pkl`
+`docs/adr/0003-candidate-sets.md` is still filed under the retired name and is what `query.pkl`
 points at. It gets rewritten in place in the same commit — ADRs are current-state documents here.
 
 ## Item 1: extract the member graph

@@ -22,14 +22,14 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Dynamic groups on the recording pass (ADR 0003): a member ticking, arriving,
+/** Candidate sets on the recording pass (ADR 0003): a member ticking, arriving,
   * leaving, switching case, and the churn heuristic that decides between a
   * per-member delta and a whole-mount fill.
   */
-class DynamicGroupSuite extends ServerHarness {
+class SetMembershipSuite extends ServerHarness {
 
   // ---------------------------------------------------------------------------
-  // Per-entity dynamic-group patches (Tier 1 in-place + Tier 2 add/remove)
+  // Per-entity candidate-set patches (Tier 1 in-place + Tier 2 add/remove)
   // ---------------------------------------------------------------------------
 
   /** Two cases over ONE membership: an entity that stays a member while the
@@ -174,7 +174,7 @@ class DynamicGroupSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
 
-  test("dynamic in-place tick patches ONE child, not the whole group") {
+  test("in-place member tick patches ONE child, not the whole group") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     // light.b ticks (a fresh EntityState, same "on" state) -> InPlace member.
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
@@ -257,7 +257,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  /** A dynamic group the log already knows: MEMBER entries, which is what
+  /** A candidate set the log already knows: MEMBER entries, which is what
     * "established" means now that no container logs a fragment of its own.
     */
 
@@ -267,7 +267,7 @@ class DynamicGroupSuite extends ServerHarness {
     "c_light_d" -> "<d>"
   )
 
-  test("dynamic add: per-entity insert BEFORE the DOM successor") {
+  test("member add: per-entity insert BEFORE the DOM successor") {
     // a,c,d already on; b turns on -> Added, churn 1 of shown 3 -> per-entity.
     val after = Map(
       "light.a" -> on("light.a"),
@@ -301,7 +301,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test("dynamic add of the last-sorting entity APPENDS into the group") {
+  test("member add of the last-sorting entity APPENDS into the group") {
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> on("light.b"),
@@ -322,7 +322,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test("dynamic remove: per-entity remove patch (no elements), child pruned") {
+  test("member remove: per-entity remove patch (no elements), child pruned") {
     // 4 on; b turns off -> Removed, churn 1 of shown 4 -> per-entity remove.
     val after = Map(
       "light.a" -> on("light.a"),
@@ -413,7 +413,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  // A dynamic group inside an open SURFACE (id "det"); its group id is
+  // A candidate set inside an open SURFACE (id "det"); its group id is
   // surface-namespaced `s_det__c`, children `s_det__c_<slug>`.
   private def surfaceDynDash = Dashboard(
     cards = Map(

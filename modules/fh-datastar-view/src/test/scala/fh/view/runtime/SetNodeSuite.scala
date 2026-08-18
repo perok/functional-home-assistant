@@ -5,12 +5,12 @@ import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
-/** The candidate-set node (`docs/adr/0003-dynamic-groups.md`), one slice
+/** The candidate-set node (`docs/adr/0003-candidate-sets.md`), one slice
   * through the real runtime: presence decided by a member's clauses,
   * `Placed`/`Gone` as the patch pair, and the AUTHORED candidate order rather
   * than an entity-id sort.
   *
-  * The contrast with `DynamicGroupSuite` is the point — the same patch
+  * The contrast with `SetMembershipSuite` is the point — the same patch
   * machinery, but membership is a static list the runtime only filters, so
   * nothing here scans the state map to find out who the members are.
   *
@@ -31,7 +31,7 @@ class SetNodeSuite extends ServerHarness {
   private def tileNode(id: String): LayoutNode.Component =
     // A clause carries the COMPLETE node — its candidate's `entity_id`
     // included, because the build knew the candidate. Nothing is injected at
-    // render time, which is the whole difference from a dynamic case.
+    // render time, which is the whole difference from a set clause.
     LayoutNode.Component(
       "tile",
       Map(
@@ -458,7 +458,7 @@ class SetNodeSuite extends ServerHarness {
     // The failure this catches is the worst-behaved one in the whole set path:
     // the ids are right, the HTML is right, the graph syncs — and NO PATCH is
     // ever emitted, because the container the recorder maintains is not the
-    // element the browser has. It happened once already (`affectedDynamics`
+    // element the browser has. It happened once already (`affectedSets`
     // reading the static index, which cannot hold a nested set).
     //
     // The id scheme is one function now (`Renderer.innerSetId`, read by both
@@ -519,7 +519,7 @@ class SetNodeSuite extends ServerHarness {
     )
     painted.foreach(id =>
       assert(
-        r.isDynamicContainer(id),
+        r.isSetContainer(id),
         clue = s"painted group '$id' is not a registered container; html: $html"
       )
     )
