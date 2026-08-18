@@ -1,13 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{
-  Activation,
-  Dashboard,
-  DomId,
-  NodeId,
-  Predicate,
-  Surface
-}
+import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
 
 /** Which parts of a dashboard are showing, and to whom.
   *
@@ -24,6 +17,14 @@ import fh.view.model.{
   * state, identical for everyone, which is why it renders once per slug and why
   * a state surface is TRANSPARENT to visibility: it hides nothing from anybody.
   *
+  * '''Four sections, one fact.''' The branches and which mode owns them; where
+  * a node lives and who may see it; state selection and what a frame flipped;
+  * user selection, which is untrusted input. They look separable and are not:
+  * `visibleSurface` asks `stateSelected`, which asks `resolveActiveByState` —
+  * visibility DERIVES from selection rather than sitting beside it. So "which
+  * surface is showing" is one fact asked three ways (now, after this frame, to
+  * whom), and splitting it would fake one with the other.
+  *
   * @param rootOfIndexed
   *   every statically-indexed node id -> the layout tree it is in (`""` for the
   *   main page, else the surface id).
@@ -36,6 +37,8 @@ private[runtime] final class SurfaceGraph(
     rootOfIndexed: Map[NodeId, String],
     members: MemberGraph
 ) {
+
+  // ---- the branches, and which mode selects among them ---------------------
 
   /** Every bake group, computed ONCE. `dashboard.surfaces` is fixed for the
     * life of a renderer, so this is a pure inversion of it: `bakeInto` target
@@ -105,6 +108,8 @@ private[runtime] final class SurfaceGraph(
     */
   val stateBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filter(isStateGroup)
+
+  // ---- where a node lives, and who may see it ------------------------------
 
   /** `""` = the main page, `<sid>` = inside that surface. NOT recoverable from
     * the id itself: an id carries only its OWN surface prefix (`s_<sid>__c_0`),
@@ -208,6 +213,8 @@ private[runtime] final class SurfaceGraph(
       states: Map[String, EntityState]
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, states))
+
+  // ---- state selection, and what one frame flipped -------------------------
 
   /** The recursion structure of the transitive active-set and affected-flip
     * walks: a group is only reachable through the chain of active members above
@@ -366,6 +373,8 @@ private[runtime] final class SurfaceGraph(
         }
       }
       .toSet
+
+  // ---- user selection: per viewer, and untrusted ---------------------------
 
   /** `uiState` is UNTRUSTED: a value is kept only when it indexes a real
     * member, else the group's `defaultOpen` member (or 0) wins.
