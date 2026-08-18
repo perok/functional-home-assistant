@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{DomId, NodeId}
+import fh.view.model.{DomId, MemberId, NodeId, SetId}
 
 /** Node ids as literals, for suites that hand-build a
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
@@ -29,4 +29,13 @@ object TestIds {
     * (`patchTargetId("c") == "c-self"`).
     */
   given munit.Compare[DomId, String] = (a, b) => a == b
+
+  /** Same trade again, for the two refinements. [[fh.view.model.SetId]] exists
+    * to stop a caller reaching a membership question with an id it got from the
+    * static index — a distinction that only exists at RUNTIME, between two
+    * indexes. A suite naming `"c_0"` as the set it just authored is stating the
+    * spec, and has no wrong index to reach for.
+    */
+  given Conversion[String, SetId] = s => SetId.of(NodeId.derived(s))
+  given Conversion[String, MemberId] = s => MemberId.of(NodeId.derived(s))
 }

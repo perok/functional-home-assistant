@@ -10,6 +10,7 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Predicate,
+  SetId,
   SignalBind,
   SignalId,
   SlotSource,
@@ -218,9 +219,9 @@ class Renderer(
   export members.{
     affectedSets,
     affectedSurfaceSets,
-    isSetContainer,
     memberEntities,
     memberIdOf,
+    setContainer,
     syncMembers
   }
 
@@ -919,7 +920,7 @@ class Renderer(
     * the next live diff must compare against what this fill actually put there.
     */
   def renderMembers(
-      groupId: NodeId,
+      groupId: SetId,
       states: Map[String, EntityState]
   ): List[(NodeId, String)] =
     members
@@ -936,14 +937,16 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): List[(NodeId, String)] =
-    if (members.isSetContainer(container)) renderMembers(container, states)
-    else
-      resolveActiveByState(container, states)
-        .flatMap(bakeMembers(container).lift)
-        .flatMap(sid =>
-          renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
-        )
-        .toList
+    members.setContainer(container) match {
+      case Some(setId) => renderMembers(setId, states)
+      case None        =>
+        resolveActiveByState(container, states)
+          .flatMap(bakeMembers(container).lift)
+          .flatMap(sid =>
+            renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
+          )
+          .toList
+    }
 
   /** The inverse of [[selectedSurfaces]]. `open` is LIVE truth — a tab click
     * moves it mid-connection — where a connection's captured `uiState` is only
@@ -1420,7 +1423,9 @@ class Renderer(
       // A container root composes its members and so has no own rendering; the
       // members do, and they are what a fill must fingerprint.
       case s: LayoutNode.SetNode =>
-        val id = LayoutNode.nodeId(idPrefix, path)
+        // The match IS the proof: this node is a `SetNode`, which is exactly
+        // the evidence `MemberGraph` mints its root [[SetId]]s from.
+        val id = SetId.of(LayoutNode.nodeId(idPrefix, path))
         val document = renderSet(id, s.cell, states, SlotForm.Document)
         Traced(
           document,
@@ -1445,7 +1450,7 @@ class Renderer(
     }
 
   private def renderSet(
-      id: NodeId,
+      id: SetId,
       cell: Option[Cell],
       states: Map[String, EntityState],
       form: SlotForm
@@ -1466,7 +1471,7 @@ class Renderer(
     * member.
     */
   def renderMemberById(
-      setId: NodeId,
+      setId: SetId,
       entityId: String,
       states: Map[String, EntityState]
   ): Option[String] =

@@ -5,6 +5,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  SetId,
   SignalBind,
   SlotSource
 }
@@ -590,7 +591,7 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = List((NodeId.derived("c"), None)),
+        sets = List((SetId.of(NodeId.derived("c")), None)),
         flips = Nil,
         changes = Nil,
         states = gone,

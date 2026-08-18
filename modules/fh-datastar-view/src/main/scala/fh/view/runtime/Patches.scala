@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.model.{DomId, NodeId, SignalId}
+import fh.view.model.{DomId, MemberId, NodeId, SetId, SignalId}
 import fh.view.model.DomId.selector
 import io.circe.Json
 import org.http4s.ServerSentEvent
@@ -110,7 +110,7 @@ private[runtime] object Patches {
       // The affected groups. No entity list any more: a member that merely
       // TICKED is selected by the reverse index like any other node, so what is
       // left here is the membership question alone.
-      sets: List[(NodeId, Option[String])],
+      sets: List[(SetId, Option[String])],
       flips: List[(NodeId, Option[String])],
       changes: List[StateChange],
       states: Map[String, EntityState],
@@ -119,7 +119,7 @@ private[runtime] object Patches {
       // `Renderer.syncMembers` applied it to the graph. Carried rather than
       // re-derived because it IS the delta: recomputing it would ask the same
       // question a second time, of a graph that has already moved.
-      membership: Map[NodeId, MemberDelta],
+      membership: Map[SetId, MemberDelta],
       // The store version `states` was read at, applied to every fragment and
       // mutation this request records. Read atomically WITH the snapshot, so a
       // fragment can never claim a version its HTML does not reflect.
@@ -177,7 +177,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      membership: Map[NodeId, MemberDelta],
+      membership: Map[SetId, MemberDelta],
       at: Long,
       changes: List[StateChange],
       visible: Set[String]
@@ -227,12 +227,12 @@ private[runtime] object Patches {
   private def request(
       renderer: Renderer,
       staticIds: List[NodeId],
-      sets: List[NodeId],
+      sets: List[SetId],
       flips: List[NodeId],
       changes: List[StateChange],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      membership: Map[NodeId, MemberDelta],
+      membership: Map[SetId, MemberDelta],
       at: Long
   ): DiffRequest = {
     def tag(id: NodeId) = renderer.userSurfaceOfNode(id)
@@ -391,7 +391,7 @@ private[runtime] object Patches {
   private def recordSet(
       renderer: Renderer,
       log: FragmentLog,
-      gid: NodeId,
+      gid: SetId,
       delta: MemberDelta,
       at: Long
   ): FragmentLog = {
@@ -540,7 +540,7 @@ private[runtime] object Patches {
     // candidate set's needs per-member deltas that preserve siblings, a state
     // group's holds one member and is simply overwritten.
     val (memberMoves, branch) = owed.moved.partition { case (_, m) =>
-      renderer.isSetContainer(m.container)
+      renderer.setContainer(m.container).isDefined
     }
     val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
     // Replaying a flip is the whole reason it is recorded structurally: without
@@ -575,45 +575,50 @@ private[runtime] object Patches {
       .groupBy { case (_, p) => p.container }
       .toList
       .sortBy(_._1)
-      .flatTraverse { case (gid, inGroup) =>
-        val members = renderer.memberEntities(gid, states)
-        val position = members.zipWithIndex.toMap
-        inGroup
-          // Still a member; anything an ancestor is re-supplying was already
-          // dropped by `since`.
-          .flatMap { case (nodeId, p) =>
-            p.member match {
-              case MemberKey.Entity(e)  => position.get(e).map((nodeId, e, _))
-              case _: MemberKey.Surface => None
-            }
-          }
-          .sortBy { case (_, _, at) => -at }
-          .flatTraverse { case (nodeId, entityId, _) =>
-            // Rendered NOW, not read back: the snapshot is at least as fresh as
-            // anything the log could have kept, and it is what lets the log hold
-            // a version instead of bytes.
-            bytes(renderer, cache, nodeId, states, uiState).map(
-              _.toList.flatMap { case NodeBytes(html, digest) =>
-                // Every current member is a usable anchor here: emitting
-                // descending by position means a node's successor was either
-                // already in the client's DOM or placed a moment ago.
-                List(
-                  Addressed(Patch.Remove(renderer.elementId(nodeId))),
-                  Addressed(
-                    insertInto(
-                      renderer,
-                      gid,
-                      members,
-                      entityId,
-                      _ => true,
-                      html
-                    ),
-                    Map(nodeId -> Held.bytes(digest))
-                  )
-                )
+      .flatTraverse { case (container, moves) =>
+        // `memberMoves` is exactly the moves whose container the graph knows,
+        // so this always answers — and it is the one place a log key becomes a
+        // set id.
+        renderer.setContainer(container).toList.flatTraverse { gid =>
+          val members = renderer.memberEntities(gid, states)
+          val position = members.zipWithIndex.toMap
+          moves
+            // Still a member; anything an ancestor is re-supplying was already
+            // dropped by `since`.
+            .flatMap { case (nodeId, p) =>
+              p.member match {
+                case MemberKey.Entity(e)  => position.get(e).map((nodeId, e, _))
+                case _: MemberKey.Surface => None
               }
-            )
-          }
+            }
+            .sortBy { case (_, _, at) => -at }
+            .flatTraverse { case (nodeId, entityId, _) =>
+              // Rendered NOW, not read back: the snapshot is at least as fresh as
+              // anything the log could have kept, and it is what lets the log hold
+              // a version instead of bytes.
+              bytes(renderer, cache, nodeId, states, uiState).map(
+                _.toList.flatMap { case NodeBytes(html, digest) =>
+                  // Every current member is a usable anchor here: emitting
+                  // descending by position means a node's successor was either
+                  // already in the client's DOM or placed a moment ago.
+                  List(
+                    Addressed(Patch.Remove(renderer.elementId(nodeId))),
+                    Addressed(
+                      insertInto(
+                        renderer,
+                        gid,
+                        members,
+                        entityId,
+                        _ => true,
+                        html
+                      ),
+                      Map(nodeId -> Held.bytes(digest))
+                    )
+                  )
+                }
+              )
+            }
+        }
       }
     // Containers whose membership history no longer reaches this cursor: the
     // delta is uncomputable, so the mount is filled wholesale. `Inner` is
@@ -621,6 +626,7 @@ private[runtime] object Patches {
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
+      val asSet = renderer.setContainer(gid)
       val members = renderer.renderMount(gid, states, uiState)
       Addressed(
         Patch.Insert(
@@ -634,10 +640,10 @@ private[runtime] object Patches {
         // subtree under a root with no rendering of its own — a digest there
         // could never be resolved, so it claims nothing and pays a redundant
         // patch instead.
-        if (renderer.isSetContainer(gid))
+        if (asSet.isDefined)
           members.map { case (id, html) => id -> Held.of(html) }.toMap
         else Map.empty,
-        if (renderer.isSetContainer(gid)) Set(gid)
+        if (asSet.isDefined) Set(gid)
         else hostEvicts(renderer, renderer.mountId(gid))
       )
     }
@@ -800,7 +806,7 @@ private[runtime] object Patches {
     */
   private def insertInto(
       renderer: Renderer,
-      gid: NodeId,
+      gid: SetId,
       ordered: List[String],
       entity: String,
       anchorable: String => Boolean,

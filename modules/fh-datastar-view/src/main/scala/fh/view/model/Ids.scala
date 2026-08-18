@@ -17,6 +17,11 @@ import io.circe.Decoder
   * [[NodeId]] -> [[DomId]] is one-way, through
   * [[fh.view.runtime.Renderer.patchTargetId]]. Nothing travels back.
   *
+  * [[SetId]] and [[MemberId]] refine it further: same string, but the type says
+  * WHICH KIND of node it names, so "this container is a candidate set" is a
+  * value obtained once rather than a question each caller must remember to ask
+  * of the right index.
+  *
   * Both are `<: String` deliberately: a node id IS a string for interpolation,
   * prefix tests and sanitising, and widening at those uses costs nothing. What
   * the bound does NOT allow is the direction that matters — a bare `String`, or
@@ -38,6 +43,47 @@ object NodeId {
     * format, and `Dashboard.validate` is what checks the relation resolves.
     */
   given Decoder[NodeId] = Decoder[String].map(derived)
+}
+
+/** A node id KNOWN to name a candidate-set container ([[LayoutNode.SetNode]]),
+  * at any nesting depth.
+  *
+  * Every node id is a string and they all read alike, so "is this container a
+  * set?" used to be a question each caller had to remember to ask — of the
+  * right index. Getting it wrong was silent in the worst way: an inner set is
+  * NOT in the static index (it hangs off a member), so selecting from the index
+  * gave correct ids and correct markup and emitted no patches at all, forever.
+  *
+  * So the answer is a VALUE now. There is exactly one way to obtain a `SetId` —
+  * [[fh.view.runtime.MemberGraph.setContainer]], whose `Some` IS the proof that
+  * the graph knows this container, plus
+  * [[fh.view.runtime.MemberGraph.innerSetId]] for one it just enumerated. A
+  * signature that takes a `SetId` therefore cannot be reached from the static
+  * index, and the bug above is not expressible.
+  */
+opaque type SetId <: NodeId = String
+
+object SetId {
+
+  /** Mint one. `private[view]` and used at exactly the places where membership
+    * in `MemberGraph.sources` — or the enumeration that built it — is the
+    * proof.
+    */
+  private[view] def of(id: NodeId): SetId = id
+}
+
+/** A node id KNOWN to name a MATERIALISED member of a candidate set.
+  *
+  * Minted only by [[fh.view.runtime.MemberGraph.memberIdOf]]. What it buys is
+  * the other end of the nested-set id scheme: `<member>_<clause>_<child path>`
+  * is only meaningful under a member, and
+  * [[fh.view.runtime.MemberGraph.innerSetId]] now says so in its signature
+  * rather than in a comment.
+  */
+opaque type MemberId <: NodeId = String
+
+object MemberId {
+  private[view] def of(id: NodeId): MemberId = id
 }
 
 /** The id of an element a patch TARGETS — `c_2-self`, `c_2_panel`, `popups`.

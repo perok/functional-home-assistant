@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{LayoutNode, NodeId, Predicate}
+import fh.view.model.{LayoutNode, MemberId, NodeId, Predicate, SetId}
 
 /** One member of a candidate set, MATERIALISED into the node graph: a real
   * [[LayoutNode.Component]] under the id its [[MemberKey]] derives, carrying
@@ -33,14 +33,14 @@ private[runtime] object Member {
 }
 
 private[runtime] case class Member(
-    gid: NodeId,
+    gid: SetId,
     // Which layout tree the member is in — `""` for the main page, else the
     // surface id. Carried rather than looked up because it is a property of the
     // SET and never changes, and because it is what decides who a member's
     // patch may reach.
     root: String,
     key: MemberKey,
-    id: NodeId,
+    id: MemberId,
     node: LayoutNode.Component,
     // Which of the candidate's clauses produced this node. Part of the id of
     // any set nested inside it, so that two clauses holding sets cannot share
@@ -55,7 +55,7 @@ private[runtime] case class Member(
 private[runtime] case class MemberDelta(
     was: List[String],
     now: List[String],
-    replaced: Set[NodeId]
+    replaced: Set[MemberId]
 )
 
 /** One set's members in DOM order, with the entity projection the recorder
@@ -195,7 +195,7 @@ private[runtime] final class MemberGraph(
       * not get to revisit (P3).
       */
     def memberOf(
-        gid: NodeId,
+        gid: SetId,
         entityId: String,
         states: Map[String, EntityState]
     ): Option[Member] = {
@@ -264,17 +264,19 @@ private[runtime] final class MemberGraph(
     * sum, so a set whose unit of membership becomes something else needs no new
     * id story.
     */
-  private def memberId(setId: NodeId, key: MemberKey): NodeId =
-    NodeId.derived(s"${setId}_${LayoutNode.sanitize(sortKey(key))}")
+  private def memberId(setId: SetId, key: MemberKey): MemberId =
+    MemberId.of(
+      NodeId.derived(s"${setId}_${LayoutNode.sanitize(sortKey(key))}")
+    )
 
   /** [[memberId]] for the entity case — the form the Server's per-entity patch
     * path and the resume's anchors name.
     */
-  def memberIdOf(setId: NodeId, entityId: String): NodeId =
+  def memberIdOf(setId: SetId, entityId: String): MemberId =
     memberId(setId, MemberKey.Entity(entityId))
 
   private def member(
-      gid: NodeId,
+      gid: SetId,
       entityId: String,
       node: LayoutNode.Component,
       clause: Int
@@ -305,11 +307,11 @@ private[runtime] final class MemberGraph(
     * index or a child index.
     */
   def innerSetId(
-      member: NodeId,
+      member: MemberId,
       clauseIdx: Int,
       path: List[Int]
-  ): NodeId =
-    NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}")
+  ): SetId =
+    SetId.of(NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}"))
 
   /** Every member container, INCLUDING the ones nested inside a member — "a
     * tile per room", where each tile holds a set over that room's lights.
@@ -320,11 +322,11 @@ private[runtime] final class MemberGraph(
     * something materialised per frame, and it is why the inner members patch
     * themselves instead of the tile re-rendering.
     */
-  private val sources: Map[NodeId, MemberSource] = {
+  private val sources: Map[SetId, MemberSource] = {
     def nested(
-        gid: NodeId,
+        gid: SetId,
         s: LayoutNode.SetNode
-    ): List[(NodeId, MemberSource)] =
+    ): List[(SetId, MemberSource)] =
       for {
         candidate <- s.candidates
         (clause, ci) <- s.members
@@ -341,11 +343,11 @@ private[runtime] final class MemberGraph(
       } yield found
 
     def setsIn(
-        member: NodeId,
+        member: MemberId,
         clauseIdx: Int,
         node: LayoutNode,
         path: List[Int]
-    ): List[(NodeId, MemberSource)] = node match {
+    ): List[(SetId, MemberSource)] = node match {
       case c: LayoutNode.Component =>
         c.children.zipWithIndex.flatMap { case (child, i) =>
           setsIn(member, clauseIdx, child, path :+ i)
@@ -355,7 +357,8 @@ private[runtime] final class MemberGraph(
         (id -> MemberSource(inner)) :: nested(id, inner)
     }
 
-    val roots = setNodes.map { case (id, s) => id -> MemberSource(s) }
+    // The mint: the map's VALUE is the proof that this id names a SetNode.
+    val roots = setNodes.map { case (id, s) => SetId.of(id) -> MemberSource(s) }
     roots ++ roots.toList.flatMap { case (gid, src) => nested(gid, src.s) }
   }
 
@@ -363,7 +366,7 @@ private[runtime] final class MemberGraph(
     * else the surface id. A nested set inherits its tile's, because it is not
     * in the static index to be looked up in.
     */
-  private val sourceRoot: Map[NodeId, String] =
+  private val sourceRoot: Map[SetId, String] =
     sources.keys.map { gid =>
       gid -> rootOfIndexed.getOrElse(
         gid,
@@ -390,7 +393,7 @@ private[runtime] final class MemberGraph(
     * `light.a_b`) from a member of a set called `c_1_light_a`, and once sets
     * nest inside members it cannot tell an inner member from an outer one.
     */
-  private val memberOwner: Map[NodeId, NodeId] =
+  private val memberOwner: Map[NodeId, SetId] =
     sources.toList.flatMap { case (gid, src) =>
       src.candidates.map(e => memberId(gid, MemberKey.Entity(e)) -> gid)
     }.toMap
@@ -413,16 +416,27 @@ private[runtime] final class MemberGraph(
       MemberIndex(Map.empty, Map.empty, Map.empty)
     )
 
-  /** Whether `id` names a member container — a candidate set, at any nesting
-    * depth. Read off [[sources]] rather than the static index, because a set
-    * NESTED inside a member is not in the static index.
+  /** Does `id` name a member container — a candidate set, at any nesting depth?
+    * `Some` IS the answer AND the proof: it is the only way to obtain a
+    * [[SetId]] for an id that came from somewhere else (a log key, a mutation's
+    * container), and every membership question takes one.
     *
-    * This is what decides how a mount is patched. A state group's mount holds
-    * at most ONE member (a bake group has one hole), so there are no siblings
-    * to preserve and no position to fix: overwriting it IS the delta. A set's
-    * is the opposite, and gets per-member `remove`/`before`.
+    * Answered off [[sources]] rather than the static index, because a set
+    * NESTED inside a member is not in the static index — it hangs off a member,
+    * which is the live half. That distinction is the whole reason the type
+    * exists: asking the index instead was silent when wrong.
+    *
+    * It is also what decides how a mount is patched. A state group's mount
+    * holds at most ONE member (a bake group has one hole), so there are no
+    * siblings to preserve and no position to fix: overwriting it IS the delta.
+    * A set's is the opposite, and gets per-member `remove`/`before`.
     */
-  def isSetContainer(id: NodeId): Boolean = sources.contains(id)
+  def setContainer(id: NodeId): Option[SetId] =
+    Option.when(sourceIds.contains(id))(SetId.of(id))
+
+  // [[sources]]'s keys widened, so the membership test above runs BEFORE the
+  // mint rather than after it.
+  private val sourceIds: Set[NodeId] = sources.keySet.toSet[NodeId]
 
   /** A set's members in DOM order — from the graph once the stream has reached
     * the set, and derived from `states` until then.
@@ -441,7 +455,7 @@ private[runtime] final class MemberGraph(
     * existed.
     */
   def membersOf(
-      gid: NodeId,
+      gid: SetId,
       states: Map[String, EntityState]
   ): Vector[Member] = groupOf(gid, states).members
 
@@ -453,12 +467,12 @@ private[runtime] final class MemberGraph(
     * [[membersOf]] gives. Unknown / non-set id ⇒ empty.
     */
   def memberEntities(
-      gid: NodeId,
+      gid: SetId,
       states: Map[String, EntityState]
   ): List[String] = groupOf(gid, states).entities
 
   private def groupOf(
-      gid: NodeId,
+      gid: SetId,
       states: Map[String, EntityState]
   ): GroupMembers =
     sources.get(gid) match {
@@ -468,7 +482,7 @@ private[runtime] final class MemberGraph(
     }
 
   private def materialise(
-      gid: NodeId,
+      gid: SetId,
       src: MemberSource,
       states: Map[String, EntityState]
   ): GroupMembers =
@@ -505,7 +519,7 @@ private[runtime] final class MemberGraph(
       changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): Map[NodeId, MemberDelta] =
+  ): Map[SetId, MemberDelta] =
     sources.map { case (gid, src) =>
       val was = groupOf(gid, before)
       val touched = changes.iterator.flatMap(src.affected).distinct.toList
@@ -516,7 +530,7 @@ private[runtime] final class MemberGraph(
         // list — O(candidates) for a container this frame actually touched,
         // which is bounded and static, where the query group it replaced
         // rescanned the whole house.
-        if (touched.isEmpty) (was, Set.empty[NodeId])
+        if (touched.isEmpty) (was, Set.empty[MemberId])
         else if (!src.stable) {
           val rebuilt = materialise(gid, src, states)
           // A rebuild has to report the same thing `applyOne` does: a member
@@ -538,7 +552,7 @@ private[runtime] final class MemberGraph(
           if (rebuilt.members == was.members) (was, swapped)
           else (rebuilt, swapped)
         } else
-          touched.foldLeft((was, Set.empty[NodeId])) {
+          touched.foldLeft((was, Set.empty[MemberId])) {
             case ((group, swapped), entityId) =>
               applyOne(gid, src, group, swapped, entityId, states)
           }
@@ -559,13 +573,13 @@ private[runtime] final class MemberGraph(
     * has its own element.
     */
   private def applyOne(
-      gid: NodeId,
+      gid: SetId,
       src: MemberSource,
       group: GroupMembers,
-      replaced: Set[NodeId],
+      replaced: Set[MemberId],
       entityId: String,
       states: Map[String, EntityState]
-  ): (GroupMembers, Set[NodeId]) = {
+  ): (GroupMembers, Set[MemberId]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
     val arriving = src.memberOf(gid, entityId, states)
@@ -643,14 +657,14 @@ private[runtime] final class MemberGraph(
     * index now, so the only question left here is which sets to ask about
     * membership.
     */
-  def affectedSets(changes: List[StateChange]): List[NodeId] =
+  def affectedSets(changes: List[StateChange]): List[SetId] =
     containersIn("", changes)
 
   /** Like [[affectedSets]], scoped to one open surface. */
   def affectedSurfaceSets(
       surfaceId: String,
       changes: List[StateChange]
-  ): List[NodeId] = containersIn(surfaceId, changes)
+  ): List[SetId] = containersIn(surfaceId, changes)
 
   /** Read off [[sources]] rather than the static index, because a set NESTED
     * inside a member is not in the static index — it hangs off a member, which
@@ -660,7 +674,7 @@ private[runtime] final class MemberGraph(
   private def containersIn(
       root: String,
       changes: List[StateChange]
-  ): List[NodeId] =
+  ): List[SetId] =
     sources.iterator
       .collect {
         case (gid, src)

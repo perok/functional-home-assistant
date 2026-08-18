@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{LayoutNode, NodeId, Op, Predicate, SlotSource}
+import fh.view.model.{
+  LayoutNode,
+  MemberId,
+  NodeId,
+  Op,
+  Predicate,
+  SetId,
+  SlotSource
+}
 import fh.view.testkit.DashboardBuilders.{lit, st}
 import io.circe.Json
 
@@ -15,9 +23,9 @@ import io.circe.Json
   */
 class MemberGraphSuite extends munit.FunSuite {
 
-  private val gid: NodeId = NodeId.derived("c_0")
+  private val gid: SetId = SetId.of(NodeId.derived("c_0"))
 
-  private def card(e: String, kind: String = "entity"): LayoutNode.Component =
+  private def card(e: String, kind: String): LayoutNode.Component =
     LayoutNode.Component(kind, Map("entity_id" -> lit(e)))
 
   private def clause(
@@ -37,7 +45,8 @@ class MemberGraphSuite extends munit.FunSuite {
   ): LayoutNode.SetNode =
     LayoutNode.SetNode(
       candidates = candidates,
-      members = candidates.map(e => e -> LayoutNode.SetMember(clauses(e))).toMap,
+      members =
+        candidates.map(e => e -> LayoutNode.SetMember(clauses(e))).toMap,
       orderBy = orderBy,
       limit = limit
     )
@@ -98,14 +107,18 @@ class MemberGraphSuite extends munit.FunSuite {
     val g = graphOf(
       set(List("light.ghost"), e => List(clause(e, Some(isOn("sensor.hall")))))
     )
-    assertEquals(g.memberEntities(gid, snapshot(st("sensor.hall", "on"))), List("light.ghost"))
+    assertEquals(
+      g.memberEntities(gid, snapshot(st("sensor.hall", "on"))),
+      List("light.ghost")
+    )
   }
 
   test("the FIRST matching clause decides which node a member is") {
     val g = graphOf(
       set(
         List("light.a"),
-        e => List(clause(e, Some(isOn(e)), as = "slider"), clause(e, as = "pill"))
+        e =>
+          List(clause(e, Some(isOn(e)), as = "slider"), clause(e, as = "pill"))
       )
     )
     def cardOf(s: Map[String, EntityState]) =
@@ -125,7 +138,9 @@ class MemberGraphSuite extends munit.FunSuite {
   }
 
   test("a numeric property sorts numerically, not lexicographically") {
-    val g = graphOf(set(List("light.a", "light.b"), orderBy = List(prop("attr:brightness"))))
+    val g = graphOf(
+      set(List("light.a", "light.b"), orderBy = List(prop("attr:brightness")))
+    )
     val states = snapshot(
       st("light.a", "on", "brightness" -> Json.fromInt(10)),
       st("light.b", "on", "brightness" -> Json.fromInt(2))
@@ -135,7 +150,12 @@ class MemberGraphSuite extends munit.FunSuite {
 
   test("desc reverses it") {
     val g =
-      graphOf(set(List("light.a", "light.b"), orderBy = List(prop("attr:brightness", "desc"))))
+      graphOf(
+        set(
+          List("light.a", "light.b"),
+          orderBy = List(prop("attr:brightness", "desc"))
+        )
+      )
     val states = snapshot(
       st("light.a", "on", "brightness" -> Json.fromInt(10)),
       st("light.b", "on", "brightness" -> Json.fromInt(2))
@@ -147,7 +167,9 @@ class MemberGraphSuite extends munit.FunSuite {
     val g = graphOf(
       set(
         List("light.a", "light.b"),
-        orderBy = List(LayoutNode.SortTerm(LayoutNode.SortKey.Holds(isOn("light.b")), "asc"))
+        orderBy = List(
+          LayoutNode.SortTerm(LayoutNode.SortKey.Holds(isOn("light.b")), "asc")
+        )
       )
     )
     // The predicate names light.b explicitly, so it is what separates them.
@@ -210,7 +232,7 @@ class MemberGraphSuite extends munit.FunSuite {
       g.syncMembers(List(change(before, after, "light.b")), before, after)(gid)
     assertEquals(delta.was, List("light.a", "light.c"))
     assertEquals(delta.now, List("light.a", "light.b", "light.c"))
-    assertEquals(delta.replaced, Set.empty[NodeId])
+    assertEquals(delta.replaced, Set.empty[MemberId])
   }
 
   test("a clause switch is reported as REPLACED, not as a departure") {
@@ -219,7 +241,8 @@ class MemberGraphSuite extends munit.FunSuite {
     val g = graphOf(
       set(
         List("light.a"),
-        e => List(clause(e, Some(isOn(e)), as = "slider"), clause(e, as = "pill"))
+        e =>
+          List(clause(e, Some(isOn(e)), as = "slider"), clause(e, as = "pill"))
       )
     )
     val before = snapshot(st("light.a", "on"))
@@ -238,19 +261,25 @@ class MemberGraphSuite extends munit.FunSuite {
     val delta =
       g.syncMembers(List(change(before, after, "light.a")), before, after)(gid)
     assertEquals(delta.was, delta.now)
-    assertEquals(delta.replaced, Set.empty[NodeId])
+    assertEquals(delta.replaced, Set.empty[MemberId])
   }
 
   test("affectedSets wakes a set for a GUARD's entity, not only a candidate") {
     val g = graphOf(
-      set(List("light.a"), e => List(clause(e, Some(isOn("binary_sensor.hall")))))
+      set(
+        List("light.a"),
+        e => List(clause(e, Some(isOn("binary_sensor.hall"))))
+      )
     )
     val s = snapshot(st("light.a", "on"), st("binary_sensor.hall", "on"))
     def touched(e: String) =
       g.affectedSets(List(StateChange(e, None, s(e))))
     assertEquals(touched("binary_sensor.hall"), List(gid))
     assertEquals(touched("light.a"), List(gid))
-    assertEquals(g.affectedSets(List(StateChange("sensor.z", None, st("sensor.z", "1")))), Nil)
+    assertEquals(
+      g.affectedSets(List(StateChange("sensor.z", None, st("sensor.z", "1")))),
+      Nil
+    )
   }
 
   test("affectedSets is scoped to the layout tree the set lives in") {
@@ -263,7 +292,10 @@ class MemberGraphSuite extends munit.FunSuite {
   // ---- ids ----------------------------------------------------------------
 
   test("a member id is derived from its KEY, sanitized") {
-    assertEquals(g0.memberIdOf(gid, "light.kitchen_1"): String, "c_0_light_kitchen_1")
+    assertEquals(
+      g0.memberIdOf(gid, "light.kitchen_1"): String,
+      "c_0_light_kitchen_1"
+    )
   }
 
   private val g0 = graphOf(set(List("light.kitchen_1")))
@@ -288,14 +320,19 @@ class MemberGraphSuite extends munit.FunSuite {
     )
     val g = graphOf(outer, root = "detail")
     val innerId = g.innerSetId(g.memberIdOf(gid, "light.a"), 0, List(0))
-    assert(g.isSetContainer(innerId), s"$innerId should be a set container")
+    assert(
+      g.setContainer(innerId).isDefined,
+      s"$innerId should be a set container"
+    )
 
     val states = snapshot(st("light.a", "on"), st("light.b", "on"))
     val innerMember = g.membersOf(innerId, states).head
     assertEquals(innerMember.root, "detail")
   }
 
-  test("a member's entities are its own AND its children's, but stop at a nested set") {
+  test(
+    "a member's entities are its own AND its children's, but stop at a nested set"
+  ) {
     val nested = LayoutNode.Component(
       "tile",
       Map(
@@ -305,7 +342,10 @@ class MemberGraphSuite extends munit.FunSuite {
         "state" -> SlotSource(entityId = Some("light.a"))
       ),
       List(
-        LayoutNode.Component("row", Map("x" -> SlotSource(entityId = Some("sensor.k")))),
+        LayoutNode.Component(
+          "row",
+          Map("x" -> SlotSource(entityId = Some("sensor.k")))
+        ),
         set(List("light.deep"))
       )
     )
