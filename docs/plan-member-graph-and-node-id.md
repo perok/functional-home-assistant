@@ -1,7 +1,14 @@
 # Plan: extract the member graph, then type `NodeId`
 
 Issue [#109](https://github.com/perok/functional-home-assistant/issues/109), items **1** and **2**.
-This is a deferred design plan — nothing here is implemented yet.
+
+**Status: executed.** Both items landed on `cleanup/member-graph-extraction-and-node-id`. Two
+deliberate deviations from the order of work below, each recorded in the commit that made it:
+predicate evaluation came out as its own `Conditions` object rather than riding along in
+`MemberGraph` (three unrelated callers, none about membership), and `dynamicMembers` became
+`memberEntities` rather than `membersOf`, which would have collided with the member-returning one.
+The design reasoning is what this file is still for; the current-state record is ADR 0003 and
+`docs/architecture-rendering-pipeline.md`.
 
 ## Is it still worth doing? Yes, more than when it was filed
 
