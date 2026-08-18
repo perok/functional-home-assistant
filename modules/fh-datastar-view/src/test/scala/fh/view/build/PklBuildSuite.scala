@@ -604,9 +604,17 @@ class PklBuildSuite extends munit.FunSuite {
         .exists(_.exists(_.contains("beercss"))),
       clue = result
     )
+    // A theme's `styles` is the PAINT layer now (ADR 0020): the layout contract
+    // lives in `core/css.pkl` and each card's structure in its own `cardDef.css`,
+    // so what a theme must still carry is its palette — including the `--fh-*`
+    // re-pointing that decides what the cards' colours resolve to.
     assert(
-      theme.get[String]("styles").toOption.exists(_.contains(".fh-row")),
+      theme.get[String]("styles").toOption.exists(_.contains("--fh-text-dim:")),
       clue = result
+    )
+    assert(
+      !theme.get[String]("styles").toOption.exists(_.contains(".fh-row{")),
+      clue = "the layout contract must not be back in the theme: " + result
     )
     // The gesture half of the CSS: authored in the theme, not the server.
     assert(
@@ -1826,8 +1834,24 @@ class PklBuildSuite extends munit.FunSuite {
     PklFixture
       .eval(slug, entry)
       .value
-      .mapObject(_.remove("theme"))
+      .mapObject { o =>
+        val bare = o.remove("theme").remove("css")
+        o("cards").fold(bare)(cards => bare.add("cards", stripCardCss(cards)))
+      }
       .spaces2SortKeys
+
+  /** CSS is stripped for the same reason `theme` is: this snapshot pins the
+    * authoring/composition contract, and CSS is neither. Since ADR 0020 it
+    * arrives in three places (the dashboard's base `css`, each card's `css`,
+    * the theme's `styles`), and leaving any of them in would make every rule
+    * tweak a wire-snapshot churn that buries the structure this file exists to
+    * protect. What the CSS layers actually contain is asserted in
+    * `src/test/pkl` — no JVM, and per card.
+    */
+  private def stripCardCss(cards: Json): Json =
+    cards.asObject.fold(cards)(o =>
+      Json.fromJsonObject(o.mapValues(_.mapObject(_.remove("css"))))
+    )
 
   /** Compare `actual` against the checked-in snapshot `name.json`. With
     * `FH_UPDATE_SNAPSHOTS=1` it (re)writes the resource file and passes; else

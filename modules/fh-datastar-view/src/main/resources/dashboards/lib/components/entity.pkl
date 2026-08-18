@@ -20,10 +20,19 @@ class EntityCard extends nodes.Node {
         data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{/tappable}}{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>
         <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}{{label}}</header>
         <span class="state" \(slotMod.signalBind("value"))>{{value}}</span>{{#secondary}}
-        <span class="slider-group-sub">{{secondary}}</span>{{/secondary}}
+        <span class="secondary">{{secondary}}</span>{{/secondary}}
       </article>
       """
     slots { "label"; "value"; "entity_id" }
+    // The card's own structure. The icon rules are metrics only — which FONT
+    // draws the glyph is the theme's (it ships the icon set), and so is the
+    // spinner badge's paint.
+    css = """
+      .card.tappable{cursor:pointer}
+      .entity header i.mdi{font-size:1.25rem;line-height:1;vertical-align:text-bottom;
+      margin-inline-end:.375rem;color:var(--fh-accent)}
+      .entity .secondary{display:block;font-size:.8em;color:var(--fh-text-dim)}
+      """
   }
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null

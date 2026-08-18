@@ -174,5 +174,12 @@ const modules: List<Module> = List(
 /// Assemble a card registry by reflecting over `mods` — see [[modules]].
 function cardsOf(mods: List<Module>): Mapping<String, nodes.CardDef> = nodes.cardsOf(mods)
 
+/// [[cardsOf]] with a theme's class names filled into the card markup — what
+/// `entry.pkl` calls, passing `theme.classes`. See `core/node.pkl`.
+function cardsWith(
+  mods: List<Module>,
+  classes: Mapping<String, String>
+): Mapping<String, nodes.CardDef> = nodes.cardsWith(mods, classes)
+
 /// This library's own cards — the registry an entry gets by default.
 cards: Mapping<String, nodes.CardDef> = nodes.cardsOf(modules)

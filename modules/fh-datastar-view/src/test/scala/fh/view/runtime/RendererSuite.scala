@@ -741,6 +741,48 @@ class RendererSuite extends munit.FunSuite {
     assert(!page.contains("prefers-color-scheme"), clue = page)
   }
 
+  test("the style block layers base CSS, then cards, then the theme") {
+    // Cascade order IS the layering (ADR 0020): a theme overrides a card and a
+    // card overrides the base only because each arrives later in one <style>.
+    // Get this backwards and every override silently inverts, which is why the
+    // ORDER is asserted here rather than the content (that is `pkl test`'s).
+    val d = Dashboard(
+      Map(
+        "b" -> CardDef("<b></b>", css = ".b{color:blue}"),
+        "a" -> CardDef("<i></i>", css = ".a{color:green}")
+      ),
+      LayoutNode.Component(card = "a"),
+      theme = Theme(styles = ".card{color:red}"),
+      css = ":root{--fh-accent:teal}"
+    )
+    val style = Renderer.create(d).themeStyleTag
+    assertEquals(
+      style,
+      """<style id="fh-theme">:root{--fh-accent:teal}.a{color:green}""" +
+        "\n" + """.b{color:blue}.card{color:red}</style>"""
+    )
+  }
+
+  test("a card's CSS is part of the patchable style hash") {
+    // The style tag is re-sent on a reconnect whose styleHash moved
+    // (`Server.headPatches`). A card's CSS rides in that tag, so a change to it
+    // that did not move the hash would leave a stale stylesheet in place.
+    val base = Dashboard(
+      Map("a" -> CardDef("<i></i>")),
+      LayoutNode.Component(card = "a")
+    )
+    val styled =
+      base.copy(cards = Map("a" -> CardDef("<i></i>", css = ".a{color:green}")))
+    assertNotEquals(
+      Renderer.styleFingerprint(base),
+      Renderer.styleFingerprint(styled)
+    )
+    assertNotEquals(
+      Renderer.styleFingerprint(base),
+      Renderer.styleFingerprint(base.copy(css = ":root{--fh-accent:teal}"))
+    )
+  }
+
   test("dark token overrides go under prefers-color-scheme: dark") {
     val d = Dashboard(
       cards,

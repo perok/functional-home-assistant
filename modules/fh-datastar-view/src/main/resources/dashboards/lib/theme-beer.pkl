@@ -5,9 +5,12 @@
 ///
 /// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
 /// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
-/// templates emit — so this theme needs no bespoke card CSS: BeerCSS supplies
-/// the MD3 look under the contract classes, and `styles` below carries only
-/// the color bridge + the residual contract CSS BeerCSS doesn't cover.
+/// templates emit — so this theme needs no bespoke card CSS. What `styles`
+/// carries is the PAINT (ADR 0020): the two colour bridges, and the handful of
+/// rules that name something BeerCSS owns rather than something a card emits
+/// (`--_padding`, `.shape`, the MDI font). The layout contract arrives from
+/// `core/css.pkl` and each card's structure from its own `cardDef.css`, both
+/// ahead of this, so anything here overrides them by document order.
 ///
 /// THEMING — the color variables are BeerCSS's own MD3 roles, documented in
 /// https://github.com/beercss/beercss/blob/main/docs/SETTINGS.md. They live
@@ -213,6 +216,13 @@ class BeerTheme extends themeMod.Theme {
     <div id="popups">{{{popups}}}</div>
     """
 
+  // The class names this theme wants in card markup — BeerCSS's own spinner
+  // pair, an SVG mask that morphs itself, in place of the `fh-busy-spin` ring
+  // `core/css.pkl` falls back to. See theme.pkl's `classes` and ADR 0020.
+  classes {
+    ["busySpin"] = "shape loading-indicator"
+  }
+
   styles = """
     /* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body
        specificity + all three class states + declaration order: see the
@@ -238,31 +248,32 @@ class BeerTheme extends themeMod.Theme {
       --surface-container-low:var(--card-background-color);
       --surface-container-high:var(--card-background-color);
     }
+    /* The other direction: the variables the CARDS read (core/css.pkl defaults
+       them from the HA tokens) pointed at this framework's roles, so a card
+       written against `--fh-surface-alt` gets the MD3 tier rather than the
+       nearest HA token — which for the container tiers there is none of. Body
+       specificity again, so this beats core's `:root` block. */
+    body,body.light,body.dark{
+      --fh-accent:var(--primary);
+      --fh-on-accent:var(--on-primary);
+      --fh-text:var(--on-surface);
+      --fh-text-dim:var(--on-surface-variant);
+      --fh-surface-alt:var(--surface-container-highest);
+      --fh-surface-sunken:var(--surface-container);
+      --fh-error:var(--error);
+      --fh-on-error:var(--on-error);
+    }
 
-    /* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it
-       styles as elements). The fh- LAYOUT contract (grid/row/col/cell spans)
-       is the shared framework-agnostic default from theme.pkl. */
-    \(themeMod.layoutCss)
-    .section{color:var(--primary)}
-    .state{color:var(--on-surface-variant)}
-    .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}
+    /* What is left is what BeerCSS itself needs, plus paint. The layout
+       contract and every card's own structure arrive ahead of this (ADR 0020),
+       so nothing below restates them. */
     /* Entity icon in the card header. MDI, not the Material Symbols the
        BeerCSS dist bundles — HA's own `icon` attribute is an MDI name, so this
        is the set that can render what an author actually chose. The
        `font-family` is restated because BeerCSS styles a bare `<i>` as Material
-       Symbols and would otherwise win the cascade over `.mdi:before`. */
-    .entity header i.mdi{font-family:"Material Design Icons";font-size:1.25rem;line-height:1;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
-    .card.tappable{cursor:pointer}
-    /* The busy state a guarded action toggles while its POST is in flight (see
-       docs/adr/0019-an-action-in-flight.md). `fh-disabled`/`fh-loading` say "your tap
-       landed, this control is inert", so they are IMMEDIATE and plain — no
-       animation, nothing to time. The spinner is the only delayed half, and
-       its delay is a derived signal in `tap.pkl`, not CSS: `shape` gives the
-       element a box as well as paint, and no `animation-delay` can defer a
-       layout change. So by the time these rules see the class, showing is
-       already the decision. */
-    .fh-disabled{opacity:.5}
-    .fh-loading{cursor:progress}
+       Symbols and would otherwise win the cascade over `.mdi:before`; the
+       metrics beside it belong to the entity card. */
+    .entity header i.mdi{font-family:"Material Design Icons"}
     /* BeerCSS's own `.shape.loading-indicator` — an SVG mask that morphs
        itself (internal `<animate>`, no CSS animation needed to spin it) —
        painted around the `i.mdi` glyph rather than replacing it. It lands on
@@ -288,27 +299,7 @@ class BeerTheme extends themeMod.Theme {
          still, so the badge becomes a plain filled disc instead. */
       .shape.loading-indicator{mask-image:none;border-radius:50%}
     }
-    /* A button FILLS its layout cell. BeerCSS sizes buttons to their label
-       (inline-flex, content-box), which inside a cell — always a full share of
-       its row or an n/12 grid span — left-aligns a short pill in a wide box:
-       three nav buttons on one row came out ragged, spaced by leftover cell
-       rather than by the gap. Every other card already fills its cell, so this
-       is the cell contract catching up with them, not a button special case.
-       `border-box` because BeerCSS buttons are content-box, so a bare 100%
-       would add 2rem of padding on top of it and overflow. Only a cell's own
-       root: the popup ✕ and the offline-banner button live outside the layout
-       and keep hugging their labels. */
-    .fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box}
-    /* The slider card's label line (class contract, like .card): label left,
-       live state right. It is PAINTED OVER the track (`.slider.max` is an
-       absolutely-positioned overlay filling the card), so it must not take the
-       pointer — without this the label and the live value are two dead strips
-       the user has to aim around. */
-    /* The readout is pushed right rather than the line being `space-between`,
-       because the line has THREE items once a slider carries its entity's icon
-       badge — and "spread evenly" would centre the label between the badge and
-       the readout instead of keeping it next to what it names. */
-    /* Half of BeerCSS's 1rem, matched by the line's own .5rem below: a slider's
+    /* Half of BeerCSS's 1rem, matched by the line's own .5rem: a slider's
        card is a track edge to edge with text over it, so the inset the eye reads
        is the LINE's, and the card's job is only to keep a member row's pill
        clear of the corner radius. The pair reads tighter than the default
@@ -317,172 +308,17 @@ class BeerTheme extends themeMod.Theme {
        rules read it (fixed header/footer bleed, the `.padding` utilities), so
        overriding `padding` instead would leave those on the 1rem default. */
     .slider-card{--_padding:.5rem}
-    /* An explicit line-height, because `normal` is the FONT's own figure: the
-       line box then changes size with whatever font resolved, which is half of
-       how the same markup ends up looking different per engine. 1.5 is what the
-       current stack already computed, so this pins today's rhythm rather than
-       changing it. */
-    .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
-    .slider-head>.state{margin-inline-start:auto}
-    /* A slider is dragged sideways, so say so: BeerCSS's grab hand reads as
-       "pick this up and move it anywhere". */
-    .slider.max,.slider.max>input{cursor:ew-resize}
-    .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
-    .slider.max>input::-moz-range-thumb{cursor:ew-resize}
-    /* The loading commit overrides the drag affordance once a slider's value
-       POST has held past the loading delay: the wrapper and the input each set
-       their own ew-resize, so `.fh-loading` alone (which matches the input
-       only by inheritance) never beats them. Pairs with `.fh-disabled`'s dim
-       (which lands instantly, before this), so the whole control says "wait"
-       together. */
-    .slider.max.fh-loading,.slider.max.fh-loading>input{cursor:progress}
-    .slider.max.fh-loading>input::-webkit-slider-thumb{cursor:progress}
-    .slider.max.fh-loading>input::-moz-range-thumb{cursor:progress}
-    /* Slide the fill to a state change instead of snapping. `inset` is what
-       BeerCSS derives from `--_start`/`--_end`, so animating it covers every
-       writer of those props alike; `background` covers a light changing
-       colour. Suppressed while the slider is being dragged — there the
-       fill must track the thumb frame by frame, and a transition reads as lag.
-       :active alone is not enough: a pointer drag ends with the input still
-       focused, and the echoed state should land where the user let go. */
-    .slider.max>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
-    .slider.max:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
-    /* Touch: the CSS half of the axis-intent gate (themeMod.sliderHoldScript
-       owns the timing). The range input is inert so a swipe that starts
-       on a card scrolls the list instead of setting a value, and `pan-y` keeps
-       that scroll native; the script drives the value itself once armed. */
-    @media (pointer:coarse){
-      .slider.max{touch-action:pan-y}
-      .slider.max>input{pointer-events:none}
-      .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--primary)}
-    }
-    /* The card's two structural wrappers. `display:contents` on the self
-       wrapper is deliberate: it is the patch target (`{{selfId}}`), and a
-       boxless one leaves the head and the track laid out by the CARD exactly as
-       they were before the card split into self + mount. The mount is an empty
-       div on every childless slider, which is the whole reason `:empty` is
-       here. */
-    .slider-body{display:contents}
-    .slider-members:empty{display:none}
-    /* A slider that HOLDS sliders. The master's fill is the whole card's
-       background, painted BEHIND the member rows, which is what makes the group
-       read as one control rather than a titled list — `.slider.max` already
-       fills the card, so the group only has to keep the rows on top of it and
-       the drag surface off them.
-
-       The head is the same markup a plain row has: the badge, the second line
-       and the button are pieces a plain row simply does not carry, so only the
-       arrangement changes — a two-row grid with the badge and the button
-       spanning both rows. */
-    .slider-group{overflow:hidden}
-    /* Scoped through `.slider-body` on purpose: `display:contents` removes its
-       BOX, not its place in the DOM, so it still has to appear in a selector —
-       and every one of these rules must miss the members' own heads and
-       tracks, which are `.slider-head`/`.slider.max` too. */
-    /* Rows are DECLARED, not implicit, so the label and its second line are one
-       block of ordinary text: an implicit grid sizes its rows to whatever spans
-       them, and the badge (taller than two lines together) pushed the two lines
-       apart to fill itself. Declaring them makes the text keep its own rhythm
-       and the badge centre against the pair. Same reason the spans say `1/3`
-       rather than `1/-1`: `-1` is the last line of the EXPLICIT grid, which is
-       only well defined now that there is one. */
-    .slider-group>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
-      grid-template-rows:auto auto;align-items:center;align-content:center;gap:0 .75rem;
-      min-block-size:4.5rem;box-sizing:border-box}
-    .slider-group>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
-    .slider-group>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
-    .slider-group>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
-    .slider-group>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
-    .slider-group>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/3}
-    .slider-icon{display:flex;align-items:center;justify-content:center;
-      inline-size:2rem;block-size:2rem;border-radius:50%;
-      background:var(--surface-container-highest);color:var(--primary)}
-    .slider-icon>i{font-size:1.25rem}
-    /* Bigger on a group's head alone, where the badge reads as a card header
-       rather than a row's icon. */
-    .slider-group>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
-    .slider-group>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
-    .slider-sub{font-size:.8rem;color:var(--on-surface-variant)}
-    /* The one thing in the head that IS a control has to take the pointer back
-       from `.slider-head`'s `pointer-events:none`. */
-    .slider-action{pointer-events:auto;background:var(--surface-container-highest);color:var(--on-surface)}
-    .slider-action.lit{background:var(--primary);color:var(--on-primary)}
-    /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the
-       card, so the master's track — and its painted span — span the WHOLE card,
-       members included. Nothing constrains the master's range input to the head
-       strip either, and it should not: the member rows are painted over it
-       (opaque, stacked below), so a drag lands on the master exactly where its
-       own fill is what the finger is on. */
-    .slider-group>.slider-body>.slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
-    /* Above the master's painted `<span>`, which is positioned and would
-       otherwise cover the member rows' own backgrounds — the fill belongs
-       AROUND the rows, not through them. */
-    /* Indented to start where the head's BADGE does, not where its card does —
-       so the rows read as belonging to the head rather than as a second list.
-       It also lands each row's own label at the head's label, since the row is
-       inset by exactly the difference between the two badge sizes. */
-    .slider-members{display:flex;flex-direction:column;gap:.25rem;
-      padding:0 .5rem .5rem;z-index:2}
-    /* A member is an ordinary slider card collapsed onto its own track: card
-       and track share one grid cell, so the label and the live value ride ON
-       the fill instead of sitting in a line above it. Members carry their own
-       surface and no elevation — a shadow over the master's coloured fill reads
-       as grime. */
-    .slider-members .card{display:grid;min-block-size:3rem;margin:0;--_padding:0;
-      background:var(--surface-container);box-shadow:none;border-radius:1.5rem;overflow:hidden}
-    .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
-    /* Block padding off: a row is sized by `min-block-size`, so its own padding
-       would only make it taller than the pill it is. */
-    .slider-members .slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
-    .slider-members .slider.max{margin:0;block-size:100%}
-    .slider-members .slider.max>input{block-size:100%}
-    .slider-members .slider.max:before{display:none}
-    .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
+    /* A member row's card, on the same BeerCSS knob: the row is sized by its own
+       `min-block-size`, so the card's padding would only make it taller. */
+    .slider-members .card{--_padding:0}
+    /* The ✕ is a bare `<button>`, which BeerCSS sizes as a filled pill; the rest
+       of un-filling it is the popup card's own CSS. */
+    .popup-close{block-size:auto}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels
        was tried and REVERTED: it detached the active underline from the
-       anchor). Only the panel wrapper is ours. */
-    .tab-panel{display:contents}
-
-    /* Popup: BeerCSS's <dialog> styling (fixed, centered, elevated,
-       surface-container-high) does the chrome; cap the width and unfill the ✕
-       (a bare <button> is a filled primary pill by default). */
-    dialog.popup{max-inline-size:min(90vw,32rem)}
-    .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
-      color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
-
-    /* More-info facts (c.entityInfo): the entity id, then its live attributes as
-       ONE preformatted block — a template cannot loop over attributes, so the
-       lines arrive as text. It scrolls INSIDE its own box, capped, so a chatty
-       entity (a media player reports dozens) cannot push the dialog's controls
-       and ✕ off the screen. */
-    .entity-info{display:flex;flex-direction:column;gap:.5rem}
-    .entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
-      color:var(--on-surface-variant)}
-    .entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
-      line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
-      color:var(--on-surface-variant)}
-
-    /* Connection banners. Structure/behavior are emitted by the server shell
-       (Server.page); this owns the look. Shared layout, then a colour per failure
-       kind — SSE transport (MD3 error role, flips in dark mode) vs upstream HA
-       feed (warning amber) — so the two are visually distinct. A fixed bar
-       overlaying the top; `data-show` keeps them hidden while healthy. */
-    .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;text-align:center;
-      padding:.5rem 1rem;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-    .fh-offline-sse{background:var(--error,#ba1a1a);color:var(--on-error,#fff)}
-    .fh-offline-ha{background:var(--warning-color,#ffa600);color:#000}
-    .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
-      border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
-
-    /* The failure toast for a rejected action POST (shell.ts): a small fixed
-       bar, error role, auto-dismissed ~4s (later toasts replace earlier ones).
-       Structure/behavior live in the shell; the LOOK is theme-owned, like the
-       banners above. */
-    .fh-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
-      z-index:1100;background:var(--error);color:var(--on-error);padding:.75rem 1rem;
-      border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+       anchor). The panel wrapper is the Tabs card's own CSS. */
     """
 }
 

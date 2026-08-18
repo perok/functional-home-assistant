@@ -137,6 +137,16 @@ abstract class CardDef {
   /// a container that is nothing but its mount.
   template: String = "{{{self}}}{{{mount}}}"
   slots: Listing<String> = new {}
+  /// The CSS this card's markup needs to work — its own class names, their box,
+  /// flow and spacing — collected from every card in the registry and emitted
+  /// ahead of the theme's `styles` (see `Renderer.themeStyleTag`), so a theme
+  /// overrides any of it by ordinary cascade order.
+  ///
+  /// Structure, not paint: colour goes through the `--fh-*` variables
+  /// `core/css.pkl` defines, never a framework's own role name, so the card
+  /// still reads correctly under a theme that never loaded that framework.
+  /// A rule keyed on a class the card does NOT emit belongs in the theme.
+  css: String = ""
   // Whether the renderer wraps this card's HTML in the id'd `.fh-cell` layout
   // wrapper. Null (dropped by omitNullProperties, backend defaults TRUE) for
   // every normal card; set `false` only for a card whose root must stay a
@@ -211,15 +221,78 @@ const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
 /// keyed by its card name. Two modules claiming the SAME card name is a Pkl
 /// error ("Duplicate definition of member"), so a component module cannot
 /// silently shadow a library card.
-function cardsOf(mods: List<Module>): Mapping<String, CardDef> = new {
+///
+/// Uses [[defaultClasses]] for the theme-class holes; a dashboard goes through
+/// [[cardsWith]] instead (`entry.pkl` does), which is where the chosen theme's
+/// names land.
+function cardsOf(mods: List<Module>): Mapping<String, CardDef> =
+  cardsWith(mods, defaultClasses)
+
+/// [[cardsOf]] with the theme's class names filled into the [[CLASS_BIND]]
+/// holes — the one point where a THEME reaches a card's markup.
+///
+/// It has to happen here, and it took a moment to see why. A card's markup is a
+/// class-level `cardDef` default read by `pkl:reflect`, so it can only reference
+/// `const` members of its own module's imports — never the theme, which the
+/// ENTRY picks much later. But the registry is assembled by an ordinary function
+/// call, in the entry, where the theme is in scope. So the theme reaches the
+/// templates one step after they are written, by rewriting the holes.
+function cardsWith(
+  mods: List<Module>,
+  classes: Mapping<String, String>
+): Mapping<String, CardDef> = new {
   for (m in mods) {
     for (clsName, cls in reflect.Module(m).classes) {
       when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
-        [cardNameOf(clsName, cls)] = cardDefOf(clsName, cls)
+        [cardNameOf(clsName, cls)] = injectClasses(cardDefOf(clsName, cls), classes)
       }
     }
   }
 }
+
+/// The hole a card leaves for a class name only the THEME knows —
+/// `@@CLASSBIND:<key>:<signal>@@`, replaced by [[cardsWith]] with one
+/// `data-class:<name>="<signal>"` per name the theme lists under `<key>`
+/// (space-separated, so one key can name several). An unknown key expands to
+/// nothing, which is the right answer for a theme that does not want the
+/// binding at all.
+///
+/// Written by `core/tap.pkl` (the busy spinner), not by hand. The same
+/// splice-a-token-and-fill-it-later shape as [[NODE_ID]].
+const CLASS_BIND: Regex = Regex(#"@@CLASSBIND:(\w+):([^@]*)@@"#)
+
+/// What the holes expand to when nobody names a class — the `fh-` fallback
+/// every theme inherits and `core/css.pkl` styles.
+const defaultClasses: Mapping<String, String> = new {
+  ["busySpin"] = "fh-busy-spin"
+}
+
+const local function bindClasses(
+  key: String,
+  signal: String,
+  classes: Mapping<String, String>
+): String =
+  (classes.getOrNull(key) ?? "")
+    .split(" ")
+    .filter((c) -> c != "")
+    .map((c) -> #"data-class:\#(c)="\#(signal)""#)
+    .join(" ")
+
+const local function fillHoles(s: String, classes: Mapping<String, String>): String =
+  s.replaceAllMapped(CLASS_BIND, (m) ->
+    bindClasses(m.groups[1].value, m.groups[2].value, classes))
+
+// Every part of a card that can carry markup. `css` is left alone: a class
+// binding is an attribute, and a selector naming a theme's class belongs in
+// that theme's own styles.
+const local function injectClasses(d: CardDef, classes: Mapping<String, String>): CardDef =
+  if (d is ContainerCard)
+    (d) {
+      template = fillHoles(d.template, classes)
+      mount = fillHoles(d.mount, classes)
+      self = if (d.self != null) fillHoles(d.self!!, classes) else null
+    }
+  else (d) { template = fillHoles(d.template, classes) }
 
 
 

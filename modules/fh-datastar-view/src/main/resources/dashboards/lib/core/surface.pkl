@@ -78,6 +78,14 @@ class Popup extends nodes.Node {
   // close. Ported verbatim from components.libsonnet:511.
   cardDef = new nodes.ContainerCard {
     mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
+    // styling; ours is the width cap and un-filling the ✕, which a framework
+    // that styles bare buttons would otherwise render as a primary pill.
+    css = """
+      dialog.popup{max-inline-size:min(90vw,32rem)}
+      .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
+      color:var(--fh-text-dim);padding:.25rem .5rem;font-size:1rem}
+      """
   }
 }
 /// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).

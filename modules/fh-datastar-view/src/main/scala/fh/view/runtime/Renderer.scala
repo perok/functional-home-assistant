@@ -1268,10 +1268,20 @@ class Renderer(
   /** `None` falls back to the slug, at the caller. */
   def title: Option[String] = dashboard.title
 
-  /** The theme as one id'd `<style>` element: design tokens as `:root` custom
-    * properties (dark overrides under `@media (prefers-color-scheme: dark)`, so
-    * the page follows the browser) followed by the theme's inline `styles`.
-    * Empty when the theme carries no tokens or styles.
+  /** The page's whole stylesheet as one id'd `<style>` element, in the order
+    * that makes the cascade work (ADR 0020):
+    *
+    *   1. design tokens as `:root` custom properties (dark overrides under
+    *      `@media (prefers-color-scheme: dark)`, so the page follows the
+    *      browser),
+    *   2. `dashboard.css` — the base every dashboard gets: the `fh-` layout
+    *      contract, the `--fh-*` variables, the runtime's own classes,
+    *   3. every card's own `css`, the structure its markup needs,
+    *   4. the theme's `styles`.
+    *
+    * Later beats earlier by document order, so a theme overrides a card and a
+    * card overrides the base — without either of the two lower layers having to
+    * know it might be overridden. Empty when there is nothing in any of them.
     *
     * Deliberately OUTSIDE `#dashboard`, i.e. not part of [[renderBody]]. Riding
     * inside the repainted body would let a reload or navigate swap it too, but
@@ -1296,6 +1306,8 @@ class Renderer(
       if (theme.tokensDark.isEmpty) ""
       else
         s"@media (prefers-color-scheme:dark){:root{${vars(theme.tokensDark)}}}",
+      dashboard.css,
+      dashboard.cardCss,
       theme.styles
     ).filter(_.nonEmpty)
 
@@ -2475,6 +2487,11 @@ object Renderer {
         dashboard.theme.tokens,
         dashboard.theme.tokensDark,
         dashboard.theme.styles,
+        // The other two layers of the same `<style>` element: a card's CSS
+        // changing is exactly as patchable as the theme's, and leaving them out
+        // would let a reconnect keep a stale stylesheet that still hashes equal.
+        dashboard.css,
+        dashboard.cardCss,
         dashboard.title
       ).toString
     )

@@ -8,6 +8,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
@@ -225,6 +226,59 @@ facts {
       .contains("nothing happens on click")
     // A toggle whose domain cannot be toggled is the same mistake.
     module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
+  }
+
+  // ---- CSS ownership (ADR 0020) ----
+
+  ["the base CSS carries the layout contract and the variables cards read"] {
+    // It is a dashboard property, not a theme one, so this is what every
+    // dashboard gets whatever look it wears.
+    cssMod.baseCss.contains(".fh-grid{display:flex")
+    cssMod.baseCss.contains(".fh-cols-12{")
+    cssMod.baseCss.contains("--fh-text-dim:var(--secondary-text-color)")
+    // The classes the RUNTIME emits, which no card owns.
+    cssMod.baseCss.contains(".fh-toast{")
+    cssMod.baseCss.contains(".fh-disabled{opacity:.5}")
+  }
+
+  ["a card's structure travels with the card"] {
+    // The registry is what the renderer concatenates, so the assertion is on
+    // the registry rather than on the class: a card whose `css` never reaches
+    // it renders unstyled.
+    local cards = c.cards
+    cards["slider"].css.contains(".slider-head{display:flex")
+    cards["entityCard"].css.contains(".card.tappable{cursor:pointer}")
+    cards["entityInfo"].css.contains(".entity-info-attrs{")
+    cards["popup"].css.contains("dialog.popup{")
+    cards["tabs"].css.contains(".tab-panel{display:contents}")
+    // Colour goes through the `--fh-*` contract, never a framework's own role
+    // name — that is what makes a card portable to another theme.
+    !cards["slider"].css.contains("--surface-container")
+    !cards["slider"].css.contains("var(--primary)")
+  }
+
+  ["a theme's own class names reach card markup through the registry"] {
+    // The one channel a theme has into a template (`cardsWith`, called by
+    // entry.pkl with `theme.classes`): the spinner's class is BeerCSS's under
+    // the BeerCSS theme...
+    local beer = c.cardsWith(c.modules, new Mapping { ["busySpin"] = "shape loading-indicator" })
+    beer["entityCard"].template.contains(#"data-class:shape="$_{{id}}__busy_slow""#)
+    beer["entityCard"].template.contains(#"data-class:loading-indicator="$_{{id}}__busy_slow""#)
+    // ...and the framework-free fallback otherwise. No hole survives either way.
+    local plain = c.cards
+    plain["entityCard"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
+    !plain["entityCard"].template.contains("@@CLASSBIND")
+    !beer["entityCard"].template.contains("@@CLASSBIND")
+    // The slider binds its own commit signal, in `self` rather than `template`.
+    beer["slider"].self.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
+  }
+
+  ["a theme that names no spinner binds nothing at all"] {
+    local none = c.cardsWith(c.modules, new Mapping {})
+    !none["entityCard"].template.contains("data-class:fh-busy-spin")
+    !none["entityCard"].template.contains("@@CLASSBIND")
+    // The guard and its immediate dim are NOT a theme's to decline.
+    none["entityCard"].template.contains("data-class:fh-disabled")
   }
 
   ["`informative` reads the card's OWN entity"] {

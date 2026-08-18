@@ -239,9 +239,10 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   change that is the whole point of the action) replaces the element and resets
   the signal — that is the NORMAL clear. The busy LOOK is TWO timings (ADR
   0019). `fh-disabled` (dim) and `fh-loading` (`cursor:progress`) bind straight
-  to the signal and are IMMEDIATE — they answer the tap. The spinner (BeerCSS's
-  `.shape.loading-indicator`, a self-morphing SVG mask around any `i.mdi` glyph
-  the element carries) binds to `_<id>__busy_slow`, which a
+  to the signal and are IMMEDIATE — they answer the tap. The spinner (whatever
+  class the THEME named under `busySpin` — BeerCSS's `.shape.loading-indicator`,
+  a self-morphing SVG mask around any `i.mdi` glyph the element carries; ADR
+  0020) binds to `_<id>__busy_slow`, which a
   `data-on-signal-patch__delay.300ms` handler on the same element copies from
   the busy signal after the threshold — so a fast action never adds the class at
   all. The gate is that signal, NOT CSS: a class carries layout as well as
