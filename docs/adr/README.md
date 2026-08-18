@@ -38,3 +38,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0019 — An action in flight: the guard is the feature, the spinner is the afterthought](0019-an-action-in-flight.md)
 - [0020 — Components carry their own CSS; the theme is the paint](0020-components-carry-their-own-css.md)
 - [0021 — One entrypoint: dashboards are data](0021-one-entrypoint-dashboards-are-data.md)
+- [0022 — An id carries what kind of thing it names](0022-ids-carry-what-they-name.md)

@@ -3,7 +3,9 @@ package fh.view.model
 import io.circe.Decoder
 
 /** The kinds of id the runtime moves around, separated so one cannot be
-  * mistaken for another.
+  * mistaken for another. `docs/adr/0022-ids-carry-what-they-name.md` owns the
+  * decision, the three failures that motivated it, and what the mint does and
+  * does not guarantee.
   *
   * They were both `String` until the self/mount split
   * (docs/adr/0012-each-session-renders-what-it-is-owed.md) made the distinction
