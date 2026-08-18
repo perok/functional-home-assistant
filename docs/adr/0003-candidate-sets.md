@@ -66,7 +66,7 @@ same dashboard had two entity lifecycles, and the dynamic one was silently the
 weaker: it could not filter on area, could not bake a label, could not know a
 light's colour modes.
 
-The cost was visible on the wire. A `slider` in a dynamic case carried four
+The cost was visible on the wire. A `slider` in a clause carried four
 `reactive: false` JSONata transforms whose only job was to switch on `$domain`:
 
 ```json
@@ -122,7 +122,7 @@ arrival" — what an `insert before` needs — is a lookup rather than a sort.
 
 The frame boundary is still where the question is asked, because two entities
 can move in opposite directions in one tick and each single-entity view of that
-reports a change the frame did not make (`Renderer.syncMembers`, and
+reports a change the frame did not make (`MemberGraph.syncMembers`, and
 `architecture-rendering-pipeline.md` §4b).
 
 **What a membership change costs.** The recorder writes a delta where it can:
@@ -136,7 +136,7 @@ each changed member. A set inside a surface no session has open is not recorded
 at all, and one inside an inactive state branch (ADR 0007) is structurally
 silent.
 
-Two silent failure modes are worth naming, because both were real bugs:
+Three silent failure modes are worth naming, because all three were real bugs:
 
 - **A clause switch whose arriving card binds nothing live** contributes no
   reverse-index edge, so nothing would name it while its bytes moved. The
@@ -144,10 +144,22 @@ Two silent failure modes are worth naming, because both were real bugs:
   `validate` rejects a `wrapAsCell = false` card as a clause precisely so every
   member has its own element — so `syncMembers` reports the members it REPLACED
   and the recorder touches those by id.
-- **Container selection reads `memberSources`, not the static index.** A nested
+- **Container selection reads `MemberGraph.sources`, not the static index.** A nested
   set is not in the static index — it hangs off a member — so selecting from the
   index meant the inner set synced, its members moved, and nothing recorded it:
   correct ids, correct HTML, zero patches.
+- **Where a nested set LIVES comes from `MemberGraph.sourceRoot`, not from the
+  static index — for the members AND for the container.** That root decides
+  which clients a patch may reach, and a nested set is (again) absent from the
+  static index, so both halves read as `""` — the main page — and went to every
+  connected client whether or not they had the surface open. Two distinct
+  leaks, found one after the other: the member's, which the reverse index
+  selects, and the container's, which a mount fill and a departing member's
+  `remove` both name directly. `Renderer.rootOf` now falls through to the graph
+  for each. Worth noting how they were found, because it generalises: a unit
+  assertion on `Member.root` pinned the first and was blind to the second; the
+  two-viewer test in `SetMembershipSuite` — one tab open, one not, one frame —
+  is what states the actual property and caught the rest.
 
 One cost remains: **a re-rendered card re-evaluates its slots**, though the
 identity slots are memoized (ADR 0004).
@@ -232,4 +244,4 @@ measured at ~2.5×, and reverted.
 - Verified by `PklBuildSuite` (Pkl → wire, including the shipped starter entry),
   `query.test.pkl` (the fold, the authoring surface), `SetNodeSuite` (presence,
   order, limit, nesting, cross-entity guards end-to-end through the real
-  `Server`) and `DynamicGroupSuite` (the per-member patch machinery).
+  `Server`) and `SetMembershipSuite` (the per-member patch machinery).

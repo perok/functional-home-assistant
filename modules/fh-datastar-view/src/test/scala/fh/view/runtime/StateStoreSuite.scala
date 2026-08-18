@@ -57,7 +57,7 @@ class StateStoreSuite extends munit.FunSuite {
     } yield out.flatten).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(changes.map(_.entityId), List("b", "c"))
-    // The change carries the pre-outage value, so a dynamic group can tell it
+    // The change carries the pre-outage value, so a candidate set can tell it
     // crossed a boundary.
     assertEquals(changes.head.previous.map(_.state), Some("on"))
     assertEquals(changes.head.current.state, "off")

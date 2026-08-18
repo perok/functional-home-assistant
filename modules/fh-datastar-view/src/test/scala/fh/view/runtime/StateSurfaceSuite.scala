@@ -135,7 +135,7 @@ class StateSurfaceSuite extends ServerHarness {
     *
     * Found in the running app before this test existed: `Patches.resume`
     * grouped placements by container and looked each member up by POSITION in
-    * `dynamicMembers`, which is empty for a state group — so a `Placed`
+    * `memberEntities`, which is empty for a state group — so a `Placed`
     * carrying a `Surface` member matched nothing and was dropped. The client
     * got the `Gone`, its branch vanished, and nothing ever put one back.
     * Silent, and permanent until an unrelated change moved something.

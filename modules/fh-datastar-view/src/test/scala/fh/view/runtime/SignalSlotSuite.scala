@@ -5,6 +5,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  SetId,
   SignalBind,
   SlotSource
 }
@@ -570,7 +571,7 @@ class SignalSlotSuite extends ServerHarness {
     // The graph has to have SEEN the members before it can report one leaving,
     // and the LOG has to know them or the group is not "established" and a
     // departure fills the mount wholesale instead of emitting a delta.
-    val _ = r.syncMembers(Nil, on, on)
+    val _ = r.members.syncMembers(Nil, on, on)
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
       id -> Held(Some(Digest.of(p.html)), p.signals)
     }
@@ -578,7 +579,7 @@ class SignalSlotSuite extends ServerHarness {
       .foldLeft(FragmentLog("test"))((l, id) =>
         l.touched(NodeId.derived(id), 0L)
       )
-    val delta = r.syncMembers(
+    val delta = r.members.syncMembers(
       List(
         StateChange("light.a", Some(st("light.a", "on")), st("light.a", "off"))
       ),
@@ -590,7 +591,8 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        dynamics = List((NodeId.derived("c"), None)),
+        sets =
+          List((SetId.of(NodeId.derived("c"), LayoutNode.SetNode()), None)),
         flips = Nil,
         changes = Nil,
         states = gone,

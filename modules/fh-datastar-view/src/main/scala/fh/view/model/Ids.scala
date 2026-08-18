@@ -3,7 +3,9 @@ package fh.view.model
 import io.circe.Decoder
 
 /** The kinds of id the runtime moves around, separated so one cannot be
-  * mistaken for another.
+  * mistaken for another. `docs/adr/0022-ids-carry-what-they-name.md` owns the
+  * decision, the three failures that motivated it, and what the mint does and
+  * does not guarantee.
   *
   * They were both `String` until the self/mount split
   * (docs/adr/0012-each-session-renders-what-it-is-owed.md) made the distinction
@@ -17,6 +19,11 @@ import io.circe.Decoder
   * [[NodeId]] -> [[DomId]] is one-way, through
   * [[fh.view.runtime.Renderer.patchTargetId]]. Nothing travels back.
   *
+  * [[SetId]] and [[MemberId]] refine it further: same string, but the type says
+  * WHICH KIND of node it names, so "this container is a candidate set" is a
+  * value obtained once rather than a question each caller must remember to ask
+  * of the right index.
+  *
   * Both are `<: String` deliberately: a node id IS a string for interpolation,
   * prefix tests and sanitising, and widening at those uses costs nothing. What
   * the bound does NOT allow is the direction that matters — a bare `String`, or
@@ -28,7 +35,7 @@ object NodeId {
 
   /** Mint a node id. Deliberately awkward to reach: the derivations are
     * [[LayoutNode.pathId]], [[LayoutNode.surfacePrefix]] and
-    * [[fh.view.runtime.Renderer.dynamicChildId]], and a node id that came from
+    * [[fh.view.runtime.MemberGraph.memberIdOf]], and a node id that came from
     * anywhere else is a bug.
     */
   private[view] def derived(s: String): NodeId = s
@@ -38,6 +45,60 @@ object NodeId {
     * format, and `Dashboard.validate` is what checks the relation resolves.
     */
   given Decoder[NodeId] = Decoder[String].map(derived)
+}
+
+/** A node id KNOWN to name a candidate-set container ([[LayoutNode.SetNode]]),
+  * at any nesting depth.
+  *
+  * Every node id is a string and they all read alike, so "is this container a
+  * set?" used to be a question each caller had to remember to ask — of the
+  * right index. Getting it wrong was silent in the worst way: an inner set is
+  * NOT in the static index (it hangs off a member), so selecting from the index
+  * gave correct ids and correct markup and emitted no patches at all, forever.
+  *
+  * So the answer is a VALUE now. The way to get one for an id that arrives from
+  * somewhere else — a log key, a mutation's container — is
+  * [[fh.view.runtime.MemberGraph.setContainer]], which looks the node up and
+  * hands back `None` when there is none.
+  *
+  * '''Where the strength actually is.''' Every CONSUMER is protected: a
+  * signature taking a `SetId` cannot be satisfied by an id straight out of the
+  * static index, so the bug above is not reachable by accident. The MINT is a
+  * guardrail rather than a proof — [[SetId.of]] narrows it to callers holding a
+  * `SetNode`, which is a real narrowing (all four production mints have one in
+  * hand for an honest reason) but not an impossibility: `LayoutNode.SetNode` is
+  * an ordinary case class with all-default parameters, so anything inside
+  * `fh.view` can fabricate one. `TestIds.setId` does exactly that,
+  * deliberately. Closing that would mean no public constructor here at all,
+  * with minting folded into `MemberGraph` — worth doing only if a wrong mint
+  * ever actually happens.
+  */
+opaque type SetId <: NodeId = String
+
+object SetId {
+
+  /** Mint one. `set` is not read; it is EVIDENCE, and asking for it is what
+    * keeps the mint at sites that have a reason to be minting — see the note on
+    * [[SetId]] for what that does and does not guarantee.
+    */
+  private[view] def of(
+      id: NodeId,
+      @annotation.unused set: LayoutNode.SetNode
+  ): SetId = id
+}
+
+/** A node id KNOWN to name a MATERIALISED member of a candidate set.
+  *
+  * Minted only by [[fh.view.runtime.MemberGraph.memberIdOf]]. What it buys is
+  * the other end of the nested-set id scheme: `<member>_<clause>_<child path>`
+  * is only meaningful under a member, and
+  * [[fh.view.runtime.MemberGraph.innerSetId]] now says so in its signature
+  * rather than in a comment.
+  */
+opaque type MemberId <: NodeId = String
+
+object MemberId {
+  private[view] def of(id: NodeId): MemberId = id
 }
 
 /** The id of an element a patch TARGETS — `c_2-self`, `c_2_panel`, `popups`.

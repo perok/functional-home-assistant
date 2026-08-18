@@ -14,7 +14,7 @@ what its viewer has selected).
 >   its rationale*, this file owns *the shape of the thing*. They are not alternatives to each other.
 >   ADRs [0011](adr/0011-the-live-connection.md) and
 >   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
->   [0003](adr/0003-dynamic-groups.md) (candidate sets) and
+>   [0003](adr/0003-candidate-sets.md) (candidate sets) and
 >   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
@@ -39,8 +39,8 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    SYNC["Renderer.syncMembers<br/>apply the frame to every set's MEMBER GRAPH<br/>before the gate, and for every set:<br/>the graph tracks the stream, not who is watching"]
-    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · dynamics · flips"]
+    SYNC["MemberGraph.syncMembers<br/>apply the frame to every set's MEMBER GRAPH<br/>before the gate, and for every set:<br/>the graph tracks the stream, not who is watching"]
+    PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · sets · flips"]
     REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
   end
@@ -340,12 +340,12 @@ every slug's recorder wakes
       one that document already contains
     visible = surfaces some session can actually SEE  // widens what is considered
   plan    -> staticIds (members included — they are in the reverse index),
-             dynamics (which sets to ask about PRESENCE/ORDER), flips
+             sets (which to ask about PRESENCE/ORDER), flips
   record  -> the changelog, and nothing else:
       flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version    // members are in here: they are in
                                            // the reverse index like any node
-      dynamics       -> the members whose CLAUSE was replaced (no entity edge can
+      sets           -> the members whose CLAUSE was replaced (no entity edge can
                         name a card binding nothing live), then Gone/Placed per
                         membership move, or a filled mount
                         (a fill is recorded as `filled`, which raises the
@@ -421,7 +421,7 @@ server itself last sent.
 ## 3. Inside `Patches.record` — the three kinds, and what each writes
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
-and membership arrives already applied — `Renderer.syncMembers` moves the member graph for every
+and membership arrives already applied — `MemberGraph.syncMembers` moves the member graph for every
 member container before the gate, and hands `record` each container's list before and after plus
 the members whose case it replaced.
 
@@ -431,7 +431,7 @@ flowchart TB
 
   REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
   REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["DYNAMICS<br/>a candidate set whose PRESENCE or ORDER may have moved"]
+  REQ --> DYN["SETS<br/>a candidate set whose PRESENCE or ORDER may have moved"]
 
   FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
 
@@ -499,11 +499,29 @@ the container's id is the right root.
 ## 4b. The member graph — a member container's members ARE nodes
 
 The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
-from the `Dashboard`: every authored node, keyed by its location-derived id. The **dynamic** half
+from the `Dashboard`: every authored node, keyed by its location-derived id. The **live** half
 (`MemberGraph`) is a container's members, and it is maintained by the state stream rather than
 computed.
 
-**One kind of container feeds it**: `LayoutNode.SetNode`, via `Renderer.MemberSource`.
+**One kind of container feeds it**: `LayoutNode.SetNode`, via `MemberGraph.MemberSource`.
+
+The two halves are two files, and the seam between them is one sentence: **`MemberGraph` decides
+presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
+it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
+answers membership questions with no template, no mustache context and no document walk. The
+`render*` half deliberately stayed behind: `renderMember`, `memberChild` and `renderSet` need
+`templates` and `identityCache`.
+
+**`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
+active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
+visibility, decided there and painted here. It reads the same `rootOfIndexed`, plus `MemberGraph`
+for the two node kinds the static index cannot place (a materialised member, a nested set
+container).
+
+Both are `private[runtime] val`s on the renderer, reached as `renderer.members.…` and
+`renderer.surfaces.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
+renderer decided these things, which is what the split exists to stop, so the call site names the
+half it is asking.
 
 | | |
 |---|---|
@@ -521,17 +539,17 @@ not place them by anything but entity id, and had to rescan the whole state map 
 
 **Sets NEST.** A set inside a member — "a tile per room" — is an ordinary container with an ordinary
 id, because a set's candidates are static and so the whole tree of them is enumerated at renderer
-construction (`Renderer.memberSources`), before any state arrives. Its id says where it hangs:
+construction (`MemberGraph.sources`), before any state arrives. Its id says where it hangs:
 `<member>_<clause>_<child path>`, every segment static. The inner members are graph nodes like any
 other, so a bulb patches its own element and its tile is never re-rendered — which is the point of
 nesting rather than composing bytes.
 
 Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
-would wake the tile on every bulb inside it), and container selection reads `memberSources` rather
+would wake the tile on every bulb inside it), and container selection reads `MemberGraph.sources` rather
 than the static index (a nested set is not in the index — it hangs off a member, which is the
-dynamic half). The second was a real bug: correct ids, correct HTML, zero patches.
+live half). The second was a real bug: correct ids, correct HTML, zero patches.
 
-The id scheme itself is ONE function, `Renderer.innerSetId`, read from both ends — `memberSources`
+The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends — `MemberGraph.sources`
 registers a container under it, `memberChild` paints an element under it. It used to be written out
 once per end with a comment asking the two to agree, which is the same silent failure again: the
 recorder maintains a container the browser does not have. `SetNodeSuite` pins the property that
@@ -699,7 +717,7 @@ owing this client nothing advances the position while announcing nothing — see
 
 **Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
 have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
-client's worth of another client's tab on every frame. That test (`Renderer.visibleNode` on the
+client's worth of another client's tab on every frame. That test (`SurfaceGraph.visibleNode` on the
 container) is where the old audience tag's work now happens.
 
 Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
@@ -724,7 +742,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
 | which slugs exist, where each came from, and which is `/` | `runtime/Server.scala` · `LiveSite` (`applySite`/`failSite`/`installPushed`/`defaultSlug`), the pure `planSite`, `Origin`, `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` evaluates and reports |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
-| what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
+| what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordSet` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
 | the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
@@ -742,7 +760,9 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | scroll across a document load | `src/js/shell.ts` · `fhScroll` (`sessionStorage`, keyed by slug), inlined via `runtime/Server.scala` · `UrlSyncScript` |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
-| the member graph | `runtime/Renderer.scala` · `Member`, `MemberGraph`, `syncMembers`, `membersOf` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
+| evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
 | what a cache entry is keyed by | node id -> renderer identity + one generation per SELECTION (`RenderInputs.vars`), each holding its entity versions. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops every selection at once |
 

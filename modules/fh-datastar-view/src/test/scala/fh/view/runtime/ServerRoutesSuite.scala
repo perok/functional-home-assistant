@@ -96,20 +96,20 @@ class ServerRoutesSuite extends ServerHarness {
     val r = tabsRenderer
     val uiState = Server.uiStateOf(get("ui.c" -> "1"))
     // The server seeds the open set (and bakes) from this selection.
-    assertEquals(r.selectedSurfaces(uiState), Set("c_t1"))
+    assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t1"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 1"))
     assert(
-      r.uiStateAnomalies(uiState).isEmpty,
-      clue = r.uiStateAnomalies(uiState)
+      r.surfaces.uiStateAnomalies(uiState).isEmpty,
+      clue = r.surfaces.uiStateAnomalies(uiState)
     )
   }
 
   test("ui-state round-trip: a malformed value falls back to index 0 + warns") {
     val r = tabsRenderer
     val uiState = Server.uiStateOf(get("ui.c" -> "abc"))
-    assertEquals(r.selectedSurfaces(uiState), Set("c_t0"))
+    assertEquals(r.surfaces.selectedSurfaces(uiState), Set("c_t0"))
     assert(r.renderBody(Map.empty, uiState).contains("tab_c: 0"))
-    assertEquals(r.uiStateAnomalies(uiState).size, 1)
+    assertEquals(r.surfaces.uiStateAnomalies(uiState).size, 1)
   }
 
   test("parseValue picks the most specific JSON type") {
@@ -454,16 +454,16 @@ class ServerRoutesSuite extends ServerHarness {
         )
       )
     )
-    assertEquals(r.openPopup(Map("popups" -> "det")), Some("det"))
+    assertEquals(r.surfaces.openPopup(Map("popups" -> "det")), Some("det"))
     // Closed, unknown (renamed/removed/another dashboard's), and a baked panel
     // id are all refused — adopting one would put the session in a state its
     // renderer cannot serve.
-    assertEquals(r.openPopup(Map("popups" -> "")), None)
-    assertEquals(r.openPopup(Map("popups" -> "nope")), None)
-    assertEquals(r.openPopup(Map("popups" -> "panel")), None)
-    assertEquals(r.openPopup(Map.empty), None)
+    assertEquals(r.surfaces.openPopup(Map("popups" -> "")), None)
+    assertEquals(r.surfaces.openPopup(Map("popups" -> "nope")), None)
+    assertEquals(r.surfaces.openPopup(Map("popups" -> "panel")), None)
+    assertEquals(r.surfaces.openPopup(Map.empty), None)
     // ...and an adopted one joins the open set through the ordinary path.
-    assert(r.selectedSurfaces(Map("popups" -> "det")).contains("det"))
+    assert(r.surfaces.selectedSurfaces(Map("popups" -> "det")).contains("det"))
   }
 
   test("page <title> uses the dashboard's authored title when present") {

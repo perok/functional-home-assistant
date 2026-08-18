@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{DomId, NodeId}
+import fh.view.model.{DomId, LayoutNode, NodeId, SetId}
 
 /** Node ids as literals, for suites that hand-build a
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
@@ -29,4 +29,23 @@ object TestIds {
     * (`patchTargetId("c") == "c-self"`).
     */
   given munit.Compare[DomId, String] = (a, b) => a == b
+
+  /** [[fh.view.model.SetId]] and [[fh.view.model.MemberId]] get NAMED helpers
+    * rather than the blanket conversion above, and the difference is not
+    * stylistic.
+    *
+    * [[NodeId]]'s conversion is safe because the confusion it guards against —
+    * a DOM id used as a log key — is not available to a test at all: the
+    * literal IS the spec. These two guard something else. A `SetId` asserts
+    * that the graph knows this container, which is a RUNTIME fact about which
+    * of two indexes was asked, and a suite can be wrong about it. An implicit
+    * conversion would make every `String` in the file silently claim it, which
+    * is the property the type was introduced to remove.
+    *
+    * So the mint stays visible at the call site. The `SetNode()` below is a
+    * stand-in — the only evidence a suite naming an id out of thin air can
+    * offer — which is another reason to have to type it.
+    */
+  def setId(s: String): SetId =
+    SetId.of(NodeId.derived(s), LayoutNode.SetNode())
 }

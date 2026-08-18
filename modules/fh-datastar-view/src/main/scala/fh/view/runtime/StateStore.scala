@@ -63,7 +63,7 @@ object EntityState {
 
   /** The subject supplied where there is none to supply — a surface's state
     * condition, which names every entity it reads. Nothing reads this; it
-    * exists because `Renderer.matchesIn` takes a subject, and
+    * exists because `Conditions.matchesIn` takes a subject, and
     * `Dashboard.validate` rejects the comparison that would fall back to it.
     */
   val none: EntityState = EntityState("", "", Map.empty)
@@ -126,7 +126,7 @@ object EntityState {
 
 /** One applied state change: the entity, its `previous` value (None if newly
   * seen), and its `current` value. Carrying both lets a consumer decide whether
-  * a change affects a data-dependent view (a dynamic group) by testing the
+  * a change affects a data-dependent view (a candidate set) by testing the
   * group's query against the before AND after state — so an add, a remove, or
   * an in-place update all register, while an unrelated entity is skipped,
   * without any per-consumer membership tracking.
@@ -231,7 +231,7 @@ class StateStore private (
 
   /** Apply a batch of ingests in ONE ref update, publishing a [[StateChange]]
     * per entity whose content actually changed. The previous value rides along
-    * so a dynamic group can tell whether the change crossed its membership
+    * so a candidate set can tell whether the change crossed its membership
     * boundary.
     *
     * A newer-but-identical state is stored (to advance the timestamp) but not

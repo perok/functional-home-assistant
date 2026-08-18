@@ -22,14 +22,14 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Dynamic groups on the recording pass (ADR 0003): a member ticking, arriving,
+/** Candidate sets on the recording pass (ADR 0003): a member ticking, arriving,
   * leaving, switching case, and the churn heuristic that decides between a
   * per-member delta and a whole-mount fill.
   */
-class DynamicGroupSuite extends ServerHarness {
+class SetMembershipSuite extends ServerHarness {
 
   // ---------------------------------------------------------------------------
-  // Per-entity dynamic-group patches (Tier 1 in-place + Tier 2 add/remove)
+  // Per-entity candidate-set patches (Tier 1 in-place + Tier 2 add/remove)
   // ---------------------------------------------------------------------------
 
   /** Two cases over ONE membership: an entity that stays a member while the
@@ -174,7 +174,7 @@ class DynamicGroupSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
 
-  test("dynamic in-place tick patches ONE child, not the whole group") {
+  test("in-place member tick patches ONE child, not the whole group") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     // light.b ticks (a fresh EntityState, same "on" state) -> InPlace member.
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
@@ -257,7 +257,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  /** A dynamic group the log already knows: MEMBER entries, which is what
+  /** A candidate set the log already knows: MEMBER entries, which is what
     * "established" means now that no container logs a fragment of its own.
     */
 
@@ -267,7 +267,7 @@ class DynamicGroupSuite extends ServerHarness {
     "c_light_d" -> "<d>"
   )
 
-  test("dynamic add: per-entity insert BEFORE the DOM successor") {
+  test("member add: per-entity insert BEFORE the DOM successor") {
     // a,c,d already on; b turns on -> Added, churn 1 of shown 3 -> per-entity.
     val after = Map(
       "light.a" -> on("light.a"),
@@ -301,7 +301,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test("dynamic add of the last-sorting entity APPENDS into the group") {
+  test("member add of the last-sorting entity APPENDS into the group") {
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> on("light.b"),
@@ -322,7 +322,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  test("dynamic remove: per-entity remove patch (no elements), child pruned") {
+  test("member remove: per-entity remove patch (no elements), child pruned") {
     // 4 on; b turns off -> Removed, churn 1 of shown 4 -> per-entity remove.
     val after = Map(
       "light.a" -> on("light.a"),
@@ -413,7 +413,7 @@ class DynamicGroupSuite extends ServerHarness {
     }
   }
 
-  // A dynamic group inside an open SURFACE (id "det"); its group id is
+  // A candidate set inside an open SURFACE (id "det"); its group id is
   // surface-namespaced `s_det__c`, children `s_det__c_<slug>`.
   private def surfaceDynDash = Dashboard(
     cards = Map(
@@ -483,7 +483,7 @@ class DynamicGroupSuite extends ServerHarness {
               log,
               List(change),
               open = Set("c_t1"),
-              ui = renderer.uiStateFrom(Set("c_t1"))
+              ui = renderer.surfaces.uiStateFrom(Set("c_t1"))
             )
             forA <- (log.get, store.current, RenderCache.create).flatMapN(
               (l, now, rc) =>
@@ -495,7 +495,7 @@ class DynamicGroupSuite extends ServerHarness {
                   now.entities,
                   0L,
                   Set("c_t0"),
-                  renderer.uiStateFrom(Set("c_t0"))
+                  renderer.surfaces.uiStateFrom(Set("c_t0"))
                 )
             )
           } yield (forA, forB)
@@ -567,6 +567,142 @@ class DynamicGroupSuite extends ServerHarness {
           Some(
             """<div class="fh-cell" id="s_det__c_light_b"><span>on</span></div>"""
           )
+        )
+      }
+  }
+
+  /** A set NESTED inside a member, inside a surface — a tile per room, on a
+    * tab.
+    *
+    * A member carries the layout tree it lives in, and that is what decides
+    * which clients its patch may reach. Only the OUTER set is in the static
+    * index; an inner one hangs off a member, so a `root` read from the index
+    * answered `""` — the main page — and every inner member's patch went to
+    * every connected client, tab open or not.
+    *
+    * Asserted at the level the bug actually shows: two viewers, one frame. The
+    * unit test on `Member.root` in `MemberGraphSuite` pins the fix; this pins
+    * the PROPERTY, which is what would have caught it in the first place.
+    */
+  private def nestedSurfaceDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+    ),
+    card = LayoutNode.Component("col"),
+    surfaces = Map(
+      "det" -> Surface(
+        LayoutNode.SetNode(
+          candidates = List("area.stue"),
+          members = Map(
+            "area.stue" -> LayoutNode.SetMember(
+              List(
+                LayoutNode.SetClause(
+                  None,
+                  LayoutNode.Component(
+                    "col",
+                    children = List(
+                      onSet(
+                        List("light.a", "light.b"),
+                        List((None, "dot", Map("state" -> SlotSource())))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      "other" -> Surface(LayoutNode.Component("col"))
+    )
+  )
+
+  test("a member of a set nested in a surface never reaches a closed tab") {
+    val lit = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
+    // A bulb goes out: a membership departure inside the INNER set.
+    val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
+    val after = lit.updated("light.b", off("light.b"))
+    (for {
+      store <- StateStore.inMemory(after)
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(nestedSurfaceDash))
+      )
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions
+        )
+        .use { server =>
+          for {
+            watching <- Session.create("dashboard")
+            _ <- watching.open.set(Set("det"))
+            _ <- sessions.register("watching", watching)
+            elsewhere <- Session.create("dashboard")
+            _ <- elsewhere.open.set(Set("other"))
+            _ <- sessions.register("elsewhere", elsewhere)
+            renderer <- ref.get.map(_.rendererOf.get)
+            // Establish the inner mount, so the frame produces a per-member
+            // delta rather than a wholesale fill — the delta is the path that
+            // has to get `root` right per member.
+            seed = seeded(
+              renderer,
+              lit,
+              List(
+                "s_det__c_area_stue_0_0_light_a",
+                "s_det__c_area_stue_0_0_light_b"
+              )
+            )
+            log <- Ref[IO].of(seed._1)
+            // Recorded once for the slug; then each viewer pulls its own.
+            forWatching <- recordAndPull(
+              server,
+              sessions,
+              store,
+              renderer,
+              log,
+              List(change),
+              open = Set("det"),
+              holds = seed._2
+            )
+            // Same DOM, same cursor — the OPEN SET is the only difference, so
+            // anything the second viewer receives is receiving it for that
+            // reason alone.
+            forElsewhere <- (log.get, store.current, RenderCache.create)
+              .flatMapN((l, now, rc) =>
+                Patches.resume(
+                  renderer,
+                  rc,
+                  l,
+                  seed._2,
+                  now.entities,
+                  0L,
+                  Set("other"),
+                  Map.empty
+                )
+              )
+          } yield (forWatching, forElsewhere)
+        }
+    } yield out)
+      .timeout(30.seconds)
+      .map { case (forWatching, forElsewhere) =>
+        val seen = events(forWatching).map(_.renderString)
+        val unseen = events(forElsewhere).map(_.renderString)
+        // The viewer WITH the tab open gets the departure. Without this half
+        // the assertion below would pass just as well if nobody got anything.
+        assert(
+          seen.exists(_.contains("s_det__c_area_stue_0_0_light_b")),
+          clue = seen
+        )
+        // The viewer on another tab gets nothing that names the nested set.
+        assert(
+          !unseen.exists(_.contains("s_det__c_area_stue")),
+          clue = unseen
         )
       }
   }

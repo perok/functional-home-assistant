@@ -9,7 +9,7 @@ import io.circe.Json
   * Kept deliberately small (readable at a glance) but spanning the render paths
   * that matter: an on light with brightness, an off light (exercises the
   * off/absent-brightness default), a numeric sensor with a unit, a climate
-  * entity, a binary sensor (dynamic-group membership), and a generic media
+  * entity, a binary sensor (candidate-set membership), and a generic media
   * player (the domain fallback).
   */
 object HouseFixture {
