@@ -35,8 +35,6 @@ import fs2.io.file.{Watcher, Path}
   */
 object ServerApp extends IOApp {
 
-  import Server.RendererState.Failed
-
   // All relative to the module directory (the forked `run` working dir).
   //
   // Last-resort fallback when `DASHBOARDS_DIR` is unset (build.sbt sets it for
@@ -181,20 +179,17 @@ object ServerApp extends IOApp {
           .of(watchedSet(dashboardsDir, prepared.imports))
           .toResource
 
-        // The live site: what is served, and which slug answers `/`. Built
-        // BEFORE the Server because the reload path writes it and the routes
-        // read it — one registry, two owners.
+        // The live site: what is served, what each slug was built from, and
+        // which slug answers `/`. Built BEFORE the Server because the reload
+        // path writes it and the routes read it.
         site <- Server.LiveSite
           .of(
             rendererRefs,
+            prepared.content,
             defaultSlugFrom(prepared.default, prepared.states.keys.toList)
           )
           .toResource
-        // What the ENTRYPOINT last evaluated to: its keys are what a reload may
-        // remove (never a slug `push` minted, ADR 0010) and its values are what
-        // makes a reload that changed nothing repaint nothing.
-        lastSite <- SignallingRef[IO].of(prepared.content).toResource
-        reload = reloadSite(dashboardsDir, site, lastSite, importsRef)
+        reload = reloadSite(dashboardsDir, site, importsRef)
 
         // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
         // dump and swap it in only if every currently-building dashboard still
@@ -300,11 +295,7 @@ object ServerApp extends IOApp {
 
   private def stateOf(
       result: Either[String, Dashboard.Validated]
-  ): Server.RendererState = result match {
-    case Right(validated) =>
-      Server.RendererState.Ready(Renderer.fromValidated(validated))
-    case Left(message) => Failed(message)
-  }
+  ): Server.RendererState = Server.stateOf(result)
 
   /** Dump and build every dashboard the entrypoint names — the source-to-
     * renderer path that precedes serving, extracted so [[run]] (production) and
@@ -532,98 +523,50 @@ object ServerApp extends IOApp {
     * file no longer says what it is. Fixing the file restores all of them at
     * once.
     *
-    * `lastSite` is what the entrypoint evaluated to last time, and it does two
-    * jobs. Its KEYS make removal safe: a slug installed by `push` was never in
-    * it, so nothing here can reclaim one (ADR 0010). Its VALUES make a reload
-    * that changes nothing cost nothing — see below.
+    * What the site owned last time is not tracked here: the registry records it
+    * per slug ([[Server.Origin]]), so nothing this function does can drift from
+    * what is actually installed. That record does two jobs. It makes removal
+    * safe — a slug installed by `push` is not the entrypoint's, so nothing here
+    * can reclaim one (ADR 0010) — and it makes a reload that changes nothing
+    * cost nothing.
     *
     * '''An unchanged dashboard is not re-installed.''' The watcher fires on
     * anything in the workspace, and a `Ready` state written to the registry is
     * not free: it emits on the slug's `SignallingRef`, which rotates the
     * fragment log and repaints EVERY open browser on that dashboard. So a save
     * that did not change a dashboard — a touched file, a comment, an edit to a
-    * sibling — would still throw every viewer's DOM away. Comparing what each
-    * slug evaluates to (the `Dashboard` model, not the `Renderer` built from
-    * it, which is a fresh object every time) makes the reload idempotent, and
-    * costs one structural comparison against work we already did.
+    * sibling — would still throw every viewer's DOM away.
     */
   private[runtime] def reloadSite(
       dashboardsDir: os.Path,
       site: Server.LiveSite,
-      lastSite: SignallingRef[IO, Map[String, Either[String, Dashboard]]],
       importsRef: SignallingRef[IO, Set[Path]]
   ): IO[Unit] =
     DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
       case Left(err) =>
         // Membership is NOT touched: the file no longer says what it is.
-        val message = Site.messageOf(err)
-        lastSite.get.flatMap { previous =>
-          previous.toList.sortBy(_._1).traverse_ { case (slug, was) =>
-            IO.whenA(was != Left(message))(install(site, slug, Failed(message)))
-          } *> lastSite.set(previous.map { case (slug, _) =>
-            slug -> Left(message)
-          })
-        }
+        site.failSite(Site.messageOf(err)).flatMap(report)
       case Right((decoded, imports)) =>
-        val prepared =
-          Prepared(decoded.dashboards.toMap, decoded.default, imports)
-        val content = prepared.content
         for {
-          previous <- lastSite.get
-          changed = content.filter { case (slug, now) =>
-            !previous.get(slug).contains(now)
-          }.keySet
-          _ <- prepared.states.toList
-            .sortBy(_._1)
-            .traverse_ { case (slug, state) =>
-              IO.whenA(changed(slug))(install(site, slug, state))
-            }
-          gone = (previous.keySet -- content.keySet).toList.sorted
-          _ <- gone.traverse_ { slug =>
-            site.remove(slug) *>
-              IO.println(s"Dashboard '$slug' removed (no longer in the site)")
-          }
-          _ <- lastSite.set(content)
-          _ <- site.setPreferred(decoded.default)
+          changes <- site.applySite(decoded.dashboards, decoded.default)
+          _ <- report(changes)
           _ <- importsRef.set(watchedSet(dashboardsDir, imports))
-          _ <- IO.whenA(changed.nonEmpty || gone.nonEmpty)(
-            IO.println(
-              s"Dashboards reloaded (${changed.toList.sorted.mkString(", ")})"
-            )
+          reloaded = changes.collect {
+            case c @ (_: Server.Change.Added | _: Server.Change.Broke |
+                _: Server.Change.Recovered | _: Server.Change.Rebuilt) =>
+              c.describe._1
+          }
+          _ <- IO.whenA(changes.nonEmpty)(
+            IO.println(s"Dashboards reloaded (${reloaded.mkString(", ")})")
           )
         } yield ()
     }
 
-  /** Install one slug's state, announcing only the TRANSITIONS worth a log
-    * line: a dashboard that started serving, one that broke, one that
-    * recovered.
+  /** Announce the TRANSITIONS worth a log line: a dashboard that started
+    * serving, one that broke, one that recovered, one that is gone.
     */
-  private def install(
-      site: Server.LiveSite,
-      slug: String,
-      state: Server.RendererState
-  ): IO[Unit] =
-    site.liveFor(slug).flatMap {
-      case None =>
-        site.install(slug, state) *> IO.println(state match {
-          case Failed(message) =>
-            s"Dashboard '$slug' added, but broken: $message"
-          case _ => s"Dashboard '$slug' added"
-        })
-      case Some(live) =>
-        live.renderer
-          .modify[Option[String]] { prev =>
-            val note = (prev, state) match {
-              case (Failed(_), Failed(_)) => None
-              case (Failed(_), _)       => Some(s"Dashboard '$slug' recovered")
-              case (_, Failed(message)) =>
-                Some(s"Dashboard '$slug' is now broken: $message")
-              case _ => None
-            }
-            (state, note)
-          }
-          .flatMap(_.traverse_(IO.println))
-    }
+  private def report(changes: List[Server.Change]): IO[Unit] =
+    changes.traverse_(_.describe._2.traverse_(IO.println))
 
   /** One full dump refresh: fetch + render the live dump, validate-then-swap
     * ([[DumpRefresh.refresh]]), and on a swap hot-reload every renderer (the

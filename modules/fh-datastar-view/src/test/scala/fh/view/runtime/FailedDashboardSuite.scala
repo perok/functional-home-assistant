@@ -162,25 +162,26 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        // What the entrypoint last evaluated to: seeded as a broken "dash", so
-        // the first reload is a real change.
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        // The registry records what each slug last evaluated to: "dash" is
+        // seeded as broken, so the first reload is a real change.
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         refs = Map("dash" -> ref)
         // Fix the source on disk — the ref must become Ready and serve the
         // dashboard.
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
-        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        _ <- ServerApp.reloadSite(ws, site, imports)
         ready <- ref.get
         fixedPage <- serve(ws, fake, refs)
         // Break it again — the ref must become Failed and serve the error page.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, "this is not valid pkl")
         )
-        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        _ <- ServerApp.reloadSite(ws, site, imports)
         broken <- ref.get
         brokenPage <- serve(ws, fake, refs)
       } yield {
@@ -372,11 +373,12 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        // What the entrypoint last evaluated to: seeded as a broken "dash", so
-        // the first reload is a real change.
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        // The registry records what each slug last evaluated to: "dash" is
+        // seeded as broken, so the first reload is a real change.
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
@@ -387,7 +389,7 @@ class FailedDashboardSuite extends ServerHarness {
               .watchSourcesWith(
                 fs2.Stream.fromQueueUnterminated(events),
                 p => watched.update(_ :+ p).as(IO.unit),
-                ServerApp.reloadSite(ws, site, slugs, imports),
+                ServerApp.reloadSite(ws, site, imports),
                 imports
               )
               .compile
@@ -432,11 +434,12 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        // What the entrypoint last evaluated to: seeded as a broken "dash", so
-        // the first reload is a real change.
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        // The registry records what each slug last evaluated to: "dash" is
+        // seeded as broken, so the first reload is a real change.
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         store <- StateStore.inMemory(
@@ -455,7 +458,7 @@ class FailedDashboardSuite extends ServerHarness {
             None
           )
           .use { server =>
-            val reload = ServerApp.reloadSite(ws, site, slugs, imports)
+            val reload = ServerApp.reloadSite(ws, site, imports)
             for {
               // One dashboard, one recorder.
               _ <- reload
@@ -499,9 +502,10 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         events <- Queue.unbounded[IO, fs2.io.file.Watcher.Event]
@@ -512,7 +516,7 @@ class FailedDashboardSuite extends ServerHarness {
               .watchSourcesWith(
                 fs2.Stream.fromQueueUnterminated(events),
                 p => watched.update(_ :+ p).as(IO.unit),
-                ServerApp.reloadSite(ws, site, slugs, imports),
+                ServerApp.reloadSite(ws, site, imports),
                 imports
               )
               .compile
@@ -566,12 +570,13 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
-        reload = ServerApp.reloadSite(ws, site, slugs, imports)
+        reload = ServerApp.reloadSite(ws, site, imports)
         _ <- reload
         built <- ref.get
         // Same sources, no edit: the second reload evaluates to the same
@@ -611,23 +616,113 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        site <- Server.LiveSite.of(Map("dash" -> ref), "dash")
-        // What the entrypoint last evaluated to: seeded as a broken "dash", so
-        // the first reload is a real change.
-        slugs <- SignallingRef[IO].of(
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard]))
+        // The registry records what each slug last evaluated to: "dash" is
+        // seeded as broken, so the first reload is a real change.
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
-        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        _ <- ServerApp.reloadSite(ws, site, imports)
         chosen <- site.defaultSlug
         // Drop the dashboard the site asked for: `/` must still answer.
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
-        _ <- ServerApp.reloadSite(ws, site, slugs, imports)
+        _ <- ServerApp.reloadSite(ws, site, imports)
         fallback <- site.defaultSlug
       } yield {
         assertEquals(chosen, "second")
         assertEquals(fallback, "dash")
       }
+    }
+  }
+
+  test("a reload never reclaims a PUSHED slug, and never drops one it kept") {
+    // ADR 0010's rule, checked against the registry rather than against a
+    // caller's memory of what the site used to own: a slug the developer pushed
+    // is not in any entrypoint, so every reload sees it as unnamed — and must
+    // still leave it serving.
+    stageRepairWorld.use { case (ws, _) =>
+      for {
+        ref <- SignallingRef[IO].of(
+          Server.RendererState.Failed("seeded broken")
+        )
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          "dash"
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        _ <- site.installPushed(
+          "preview",
+          Server.RendererState.Ready(Renderer.create(liveLeafDash))
+        )
+        // Two reloads of a site that names only "dash": the first also drops
+        // "second", so the removal path definitely ran.
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(secondKey, "second"))
+        )
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        withSecond <- site.names
+        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        after <- site.names
+        preview <- site.liveFor("preview").flatMap(_.get.renderer.get)
+      } yield {
+        assertEquals(withSecond, List("dash", "preview", "second"))
+        assertEquals(after, List("dash", "preview"))
+        assert(
+          preview.isInstanceOf[Server.RendererState.Ready],
+          clue = preview
+        )
+      }
+    }
+  }
+
+  test("planSite: what changes, what is left alone, what is reclaimed") {
+    // The reload's whole decision, without a server: the registry's record of
+    // where each slug came from is the only input besides the new site.
+    val dash = liveLeafDash
+    def validated(d: Dashboard) = Right(Dashboard.Validated(d, Map.empty))
+    val renamed = dash.copy(title = Some("Renamed"))
+    for {
+      live <- Server.LiveSlug.of(Server.RendererState.Failed("x"))
+      current = Map(
+        "same" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "edited" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "broken" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "fixed" -> Server.Entry(live, Server.Origin.FromSite(Left("was bad"))),
+        "dropped" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "pushed" -> Server.Entry(live, Server.Origin.Pushed)
+      )
+      plan = Server.planSite(
+        current,
+        List(
+          "same" -> validated(dash),
+          "edited" -> validated(renamed),
+          "broken" -> Left("it broke"),
+          "fixed" -> validated(dash),
+          "added" -> validated(dash)
+        )
+      )
+    } yield {
+      // An unchanged dashboard is not re-installed: installing rotates the
+      // fragment log and repaints every open browser.
+      assertEquals(
+        plan.installs.map(_._1),
+        List("added", "broken", "edited", "fixed")
+      )
+      assertEquals(
+        plan.installs.map(_._3),
+        List(
+          Server.Change.Added("added", None),
+          Server.Change.Broke("broken", "it broke"),
+          Server.Change.Rebuilt("edited"),
+          Server.Change.Recovered("fixed")
+        )
+      )
+      // Only a slug the ENTRYPOINT owned is reclaimed.
+      assertEquals(plan.removals, Set("dropped"))
     }
   }
 

@@ -139,6 +139,7 @@ class ServerAppSuite extends munit.CatsEffectSuite {
       site <- Server.LiveSite
         .of(
           refs,
+          prepared.content,
           ServerApp.defaultSlugFrom(prepared.default, refs.keys.toList)
         )
         .toResource

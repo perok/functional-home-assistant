@@ -129,6 +129,7 @@ evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
       // error page, and rebuilds live when the source is fixed
   per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
 create ONE Sessions registry, and ONE LiveSite holding all of the above
+  // plus, per slug, what it evaluated to and whether the entrypoint owns it
 recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
                                    // toCancel against LiveSite.changes
   // a recorder STARTS IMMEDIATELY, and runs whether or not a browser connects
@@ -143,13 +144,14 @@ lifecycle — there is no second path that could disagree:
 flowchart LR
   EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
   DUMP["dump swapped in<br/>DumpRefresh"] --> RE
-  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"per slug, vs what<br/>was last installed"}
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
   DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
-  DIFF -->|new or changed| INS["LiveSite.install"]
-  DIFF -->|gone from the site| RM["LiveSite.remove"]
-  PUSH["POST /system/push/:slug<br/>no source at all"] --> INS
-  INS --> REG[("LiveSite<br/>SignallingRef of slug -> LiveSlug")]
+  DIFF -->|new or changed| INS["install<br/>origin = FromSite(content)"]
+  DIFF -->|"gone, and the site's<br/>to reclaim"| RM["remove"]
+  INS --> REG[("LiveSite<br/>SignallingRef of<br/>slug -> LiveSlug + Origin")]
   RM --> REG
+  PUSH["POST /system/push/:slug<br/>no source at all"] --> PSH["installPushed<br/>origin = Pushed"]
+  PSH --> REG
   REG -->|discrete| RECON["sharedPatchPublishers<br/>toAdd / toCancel"]
   RECON -->|toAdd| START["start that slug's recorder"]
   RECON -->|toCancel| STOP["cancel it"]
@@ -164,9 +166,10 @@ Three properties worth stating, because each is silent when broken:
 
 - **Installing a slug IS starting its recorder**, and removing one IS stopping
   it. A removed slug cannot leave a fiber diffing every state batch forever.
-- **Removal only ever reclaims a slug the ENTRYPOINT dropped**: `ServerApp`
-  diffs against its own record of what the site owned last time, so a pushed
-  slug (ADR 0010) is never in the removal set.
+- **Removal only ever reclaims a slug the ENTRYPOINT dropped**: every live slug
+  records its `Origin`, so a pushed one (ADR 0010) cannot be in the removal set —
+  it is not the entrypoint's to drop, and no second copy of the membership has to
+  be kept in step to know that.
 - **An unchanged dashboard is not re-installed.** The watcher fires on anything
   in the workspace; writing a `Ready` state anyway emits on the slug's
   `SignallingRef`, which rotates its log identity and repaints every open
@@ -719,7 +722,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
 | per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
-| which slugs exist, and which is `/` | `runtime/Server.scala` · `LiveSite` (`install`/`remove`/`defaultSlug`), `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` diffs membership |
+| which slugs exist, where each came from, and which is `/` | `runtime/Server.scala` · `LiveSite` (`applySite`/`failSite`/`installPushed`/`defaultSlug`), the pure `planSite`, `Origin`, `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` evaluates and reports |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
 | what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
