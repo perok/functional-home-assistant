@@ -14,12 +14,10 @@ import fh.api.FHApi
   * `dashboard.json` artifact (validating it decodes into the runtime model
   * along the way), and writes it.
   *
-  * **The entry is an argument, and there is no default**:
-  * `sbt 'dashboardBuild overetasje.pkl'`, with `SERVER`/`SECRET` set. It used
-  * to default to `dashboard.pkl`, a file no workspace actually has, so the
-  * no-argument form failed with a Pkl "cannot find module" stack trace naming a
-  * path the user never chose. A workspace has several entries and the build
-  * produces one artifact, so which one is genuinely the caller's to say.
+  * There is nothing to choose: a workspace has ONE entrypoint
+  * ([[Site.EntryFile]]) naming every dashboard it serves (ADR 0021), so
+  * `sbt dashboardBuild` with `SERVER`/`SECRET` set builds the whole site into
+  * one artifact.
   *
   * The artifact is for inspection/CI; the runtime
   * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
@@ -37,9 +35,6 @@ object BuildApp extends IOApp {
     for {
       dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
-      // The `.pkl` entry file, relative to the dashboards dir. Required — see
-      // the class doc.
-      entry <- requireEntry(args, dashboardsDir)
 
       // Bring the workspace to a package-form state (lib package in the cache,
       // static base.pkl, seeded entries) before anything evaluates — but NO
@@ -48,7 +43,7 @@ object BuildApp extends IOApp {
       // bundled lib artifacts are threaded down so that first dump can pin its
       // `@fh-dashboard` dependency before any pins exist. The lib AND the
       // starter entry are both the running jar's own classpath resources
-      // ([[BundledLib]], [[AddonBootstrap.defaultDashboard]]) — no seed path.
+      // ([[BundledLib]], [[AddonBootstrap.starterSite]]) — no seed path.
       cacheDir <- pathFromEnv(
         "FH_PKL_CACHE_DIR",
         AddonBootstrap.defaultCacheDir
@@ -68,52 +63,33 @@ object BuildApp extends IOApp {
         .flatMap(_.traverse_(IO.println))
 
       result <- FHApi.fromEnv.use(
-        DashboardBuild.evaluate(_, dashboardsDir, entry, Some(bundled))
+        DashboardBuild.evaluate(_, dashboardsDir, Site.EntryFile, Some(bundled))
       )
-      dashboardJson = result.value
+      siteJson = result.value
 
-      // Validate it decodes into the runtime model before writing it.
-      _ <- DashboardBuild.decode(dashboardJson)
-
-      _ <- IO.blocking(os.write.over(outputPath, dashboardJson.spaces2))
-      _ <- IO.println(s"Wrote dashboard artifact to $outputPath")
-    } yield ExitCode.Success
-
-  /** The entry to build, or a failure that NAMES the entries this workspace
-    * actually has — the question "which of these did you mean" is answerable
-    * here and nowhere downstream, where it surfaces as a Pkl module-resolution
-    * error.
-    *
-    * Listing runs before the workspace is bootstrapped, so a not-yet-seeded
-    * directory simply lists nothing rather than erroring; the message still
-    * says what to do.
-    */
-  private def requireEntry(
-      args: List[String],
-      dashboardsDir: os.Path
-  ): IO[String] =
-    args match {
-      case entry :: _ => IO.pure(entry)
-      case Nil        =>
-        IO.blocking {
-          if (os.exists(dashboardsDir))
-            os.list(dashboardsDir)
-              .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-              .map(_.last)
-              .sorted
-          else Nil
-        }.flatMap { entries =>
-          val available =
-            if (entries.isEmpty) s"no *.pkl entries found in $dashboardsDir"
-            else s"entries in $dashboardsDir: ${entries.mkString(", ")}"
+      // Validate every dashboard it names decodes into the runtime model
+      // before writing it — including the per-slug failures, which are
+      // reported rather than carried here: the artifact is for inspection and
+      // CI, so a site that only half-builds should fail the build.
+      decoded <- Site.decode(siteJson, result.imports)
+      _ <- decoded.dashboards.collect { case (slug, Left(err)) =>
+        s"'$slug': $err"
+      } match {
+        case Nil    => IO.unit
+        case errors =>
           IO.raiseError(
-            new IllegalArgumentException(
-              s"dashboardBuild needs the entry to build, e.g. " +
-                s"sbt 'dashboardBuild ${entries.headOption.getOrElse("my-dashboard.pkl")}' — $available"
+            new IllegalStateException(
+              s"${errors.size} dashboard(s) failed to build:\n" +
+                errors.mkString("\n")
             )
           )
-        }
-    }
+      }
+
+      _ <- IO.blocking(os.write.over(outputPath, siteJson.spaces2))
+      _ <- IO.println(
+        s"Wrote site artifact (${decoded.slugs.mkString(", ")}) to $outputPath"
+      )
+    } yield ExitCode.Success
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]

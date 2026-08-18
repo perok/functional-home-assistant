@@ -135,16 +135,30 @@ object AddonBootstrap {
     if (!os.exists(dashboardsDir / ".gitignore"))
       os.write(dashboardsDir / ".gitignore", GitignoreTemplate)
 
-    // A starter entry only when the user has none at all — entries are the
-    // user's files from the moment they exist. Bundled straight into the jar's
-    // own resources, so there is no seed directory to keep in sync or copy
-    // into the image.
-    val hasEntries = os
-      .list(dashboardsDir)
-      .exists(p => os.isFile(p) && p.last.endsWith(".pkl"))
-    if (!hasEntries) {
-      os.write(dashboardsDir / "dashboard.pkl", defaultDashboard)
-      log += "seeded starter dashboard: dashboard.pkl"
+    // A starter site only when there is no entrypoint at all — it is the user's
+    // file from the moment it exists (a workspace with other `*.pkl` modules
+    // but no entrypoint still gets one; those modules are not dashboards until
+    // it names them). Bundled straight into the jar's own resources, so there
+    // is no seed directory to keep in sync or copy into the image.
+    if (!os.exists(dashboardsDir / Site.EntryFile)) {
+      os.write(dashboardsDir / Site.EntryFile, starterSite)
+      log += s"seeded starter site: ${Site.EntryFile}"
+      // Loose `*.pkl` files in a workspace that had no entrypoint are modules,
+      // not dashboards (ADR 0021) — nothing is moved or rewritten, and serving
+      // one is a key away. Say so HERE, where their names are known, rather
+      // than leaving the user to infer it from an instance that looks empty.
+      val loose = os
+        .list(dashboardsDir)
+        .filter(p =>
+          os.isFile(p) && p.last.endsWith(".pkl") && p.last != Site.EntryFile
+        )
+        .map(_.last)
+        .sorted
+      if (loose.nonEmpty)
+        log +=
+          s"${loose.length} other *.pkl here are ordinary modules " +
+            s"(${loose.mkString(", ")}) — serve one by naming it in " +
+            s"${Site.EntryFile}: dashboards { [\"home\"] = import(\"${loose.head}\") }"
     }
 
     // The lockfile is a generated artifact; `PklBuild.staleLockfile` would
@@ -185,21 +199,21 @@ object AddonBootstrap {
     s"${net.harawata.appdirs.AppDirsFactory.getInstance
         .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
 
-  private val DefaultDashboardResource = "dashboards/dashboard_default.pkl"
+  private val StarterSiteResource = "dashboards/site_default.pkl"
 
-  /** The starter entry's text, read straight off the running jar's own
-    * classpath resources — the same [[BundledLib]] sourcing style, but for a
-    * single file rather than a whole directory. Public so tests can assert
-    * against the exact seeded content without a seed directory of their own.
+  /** The starter SITE's text, read straight off the running jar's own classpath
+    * resources — the same [[BundledLib]] sourcing style, but for a single file
+    * rather than a whole directory. Public so tests can assert against the
+    * exact seeded content without a seed directory of their own.
     */
-  def defaultDashboard: String = {
+  def starterSite: String = {
     val cl = Option(getClass.getClassLoader).getOrElse(
       ClassLoader.getSystemClassLoader
     )
-    val is = Option(cl.getResourceAsStream(DefaultDashboardResource))
+    val is = Option(cl.getResourceAsStream(StarterSiteResource))
       .getOrElse(
         sys.error(
-          s"default dashboard not on the classpath ($DefaultDashboardResource missing)"
+          s"starter site not on the classpath ($StarterSiteResource missing)"
         )
       )
     try new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)

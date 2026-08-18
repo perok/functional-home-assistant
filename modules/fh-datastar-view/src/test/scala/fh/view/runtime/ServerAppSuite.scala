@@ -2,24 +2,23 @@ package fh.view.runtime
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import fh.view.build.SystemPkl
+import fh.view.build.{Site, SystemPkl}
 import fh.view.testkit.{FakeHomeAssistant, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.implicits.*
 
-/** The startup path (objectives 2, 3 of the failed-dashboard plan): an
-  * all-broken workspace still boots, every failed entry is REGISTERED (its ref
-  * holds `Failed`, serving the error page), and the configured default stays
-  * the default even when it is the broken one. Real eval path — the same
-  * `prepareRenderers` -> `liveServer` sequence production's `run` uses.
+/** The startup path (objectives 2, 3 of the failed-dashboard plan): a workspace
+  * whose entrypoint cannot evaluate still boots, the failure is REGISTERED
+  * (serving the error page at `/`), and the site's own `default` decides which
+  * slug that is. Real eval path — the same `prepareRenderers` -> `liveServer`
+  * sequence production's `run` uses.
   */
 class ServerAppSuite extends munit.CatsEffectSuite {
 
-  test("defaultSlugFrom: the configured default wins, even a failed one") {
-    // Objective 3 — a broken configured default STAYS the default (its error
-    // page is the fix path), it is not silently swapped for a dashboard that
-    // built.
+  test("defaultSlugFrom: the site's default wins, even a failed one") {
+    // Objective 3 — a broken default STAYS the default (its error page is the
+    // fix path), it is not silently swapped for a dashboard that built.
     assertEquals(
       ServerApp.defaultSlugFrom(Some("broken"), List("a", "broken")),
       "broken"
@@ -29,7 +28,7 @@ class ServerAppSuite extends munit.CatsEffectSuite {
       ServerApp.defaultSlugFrom(Some("b"), List("b", "dashboard")),
       "b"
     )
-    // A configured default that names no entry falls through to the normal
+    // A default that names no dashboard falls through to the normal
     // preference order.
     assertEquals(
       ServerApp.defaultSlugFrom(Some("nope"), List("a", "b")),
@@ -37,51 +36,46 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     )
   }
 
-  test("defaultSlugFrom: pure discovery order, never build status") {
-    // The entry NAMED "dashboard" wins even when broken: a failed dashboard
+  test("defaultSlugFrom: membership order, never build status") {
+    // The dashboard NAMED "dashboard" wins even when broken: a failed one
     // serves its error page, so there is nothing to prefer a buildable one for.
     assertEquals(
       ServerApp.defaultSlugFrom(None, List("a", "dashboard", "c")),
       "dashboard"
     )
-    // No "dashboard" at all: the first discovered entry, built or not.
-    assertEquals(
-      ServerApp.defaultSlugFrom(None, List("b", "a")),
-      "b"
-    )
-    // All-fail: the first entry, so the root still serves something editable.
-    assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a")), "b")
+    // No "dashboard" at all: the first slug, built or not.
+    assertEquals(ServerApp.defaultSlugFrom(None, List("b", "a")), "a")
+    // Nothing at all — a site that never evaluated: the name the boot
+    // registers its failure under, so `/` still serves the error page.
+    assertEquals(ServerApp.defaultSlugFrom(None, Nil), Server.DefaultSlug)
   }
 
-  test("prepareRenderers on an all-failed workspace returns the failures") {
+  test("a broken entrypoint registers one failed dashboard") {
     allFailed.use { case (prepared, _) =>
       IO {
         assertEquals(prepared.built, Nil)
-        assertEquals(prepared.failed.map(_._1), List("a", "b"))
+        // Nothing evaluated, so nothing can be attributed to a slug: ONE
+        // failure, under the name the root looks for.
+        assertEquals(prepared.failed.map(_._1), List(Server.DefaultSlug))
         assert(prepared.failed.forall(_._2.nonEmpty))
       }
     }
   }
 
-  test("an all-failed workspace still boots: error page at / and /d/:slug") {
+  test("a broken entrypoint still boots: error page at / and /d/:slug") {
     allFailed.use { case (prepared, app) =>
-      val failedMsg = prepared.failed.collectFirst { case ("a", m) => m }.get
+      val failedMsg = prepared.failed.head._2
       for {
         root <- get(app, "/")
-        broken <- get(app, "/d/a")
+        broken <- get(app, s"/d/${Server.DefaultSlug}")
         unknown <- get(app, "/d/unknown")
         base <- get(app, "/system/pkl/base.pkl")
         edit <- get(app, "/edit")
       } yield {
-        // The root default is a failed entry (all-fail -> first entry "a") and
-        // serves its error page — the root must not 404.
+        // The root serves the failure's error page — it must not 404.
         assertEquals(root._1, Status.Ok)
         assert(root._2.contains("failed to build"), clue = root._2)
         assertEquals(broken._1, Status.Ok)
-        assert(
-          broken._2.contains("Dashboard a failed to build"),
-          clue = broken._2
-        )
         assert(broken._2.contains(htmlEscape(failedMsg)), clue = broken._2)
         // Unknown slugs are still 404, exactly as with a healthy server.
         assertEquals(unknown._1, Status.NotFound)
@@ -92,43 +86,69 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** Stage an all-broken workspace (the real eval path: bootstrap ->
+  test("a site.pkl that is really a dashboard says what it should be") {
+    // Renaming the entrypoint to `site.pkl` means an upgrade rarely hits this
+    // — an old `dashboard.pkl` is simply an unread module beside the seeded
+    // starter. It is still reachable by hand (rename the wrong file, paste the
+    // wrong body), and then the diagnostic IS the instructions: it reaches the
+    // user as the error page at `/`.
+    staged(
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |card = c.title("hi")
+        |""".stripMargin
+    ).use { case (prepared, app) =>
+      get(app, "/").map { case (status, body) =>
+        assertEquals(status, Status.Ok)
+        val message = prepared.failed.head._2
+        assert(message.contains("has no `dashboards`"), clue = message)
+        assert(message.contains("@fh-dashboard/site.pkl"), clue = message)
+        assert(body.contains("failed to build"), clue = body)
+      }
+    }
+  }
+
+  /** Stage a workspace whose entrypoint cannot evaluate at all. */
+  private def allFailed: Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
+    staged("this is not valid pkl")
+
+  /** Stage a workspace carrying `entrypoint` (the real eval path: bootstrap ->
     * `prepareRenderers` -> `liveServer`) and compose the production route set
     * (server + editor) over it.
     */
-  private def allFailed: Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
+  private def staged(
+      entrypoint: String
+  ): Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
     for {
       tmp <- IO.blocking(os.temp.dir(prefix = "fh-all-failed")).toResource
       _ <- IO.blocking {
         // Bootstrap a package-form workspace (lib + dump packages seeded), then
-        // replace its entries with two that cannot possibly evaluate.
+        // replace its entrypoint with the one under test.
         val _ = PklWorkspace.bootstrap(tmp)
-        os.list(tmp)
-          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-          .foreach(os.remove)
-        os.write.over(tmp / "a.pkl", "this is not valid pkl")
-        os.write.over(tmp / "b.pkl", "neither is this")
+        os.write.over(tmp / Site.EntryFile, entrypoint)
       }.toResource
       fake <- FakeHomeAssistant.create(Nil).toResource
       feed <- HaFeed.resource(connect(fake))
       prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      stateOf = prepared.failed.map { case (slug, message) =>
-        slug -> Server.RendererState.Failed(message)
-      }.toMap
-      refs <- prepared.entries
-        .traverse { case (slug, _) =>
-          SignallingRef[IO].of(stateOf(slug)).map(slug -> _)
+      refs <- prepared.states.toList
+        .traverse { case (slug, state) =>
+          SignallingRef[IO].of(state).map(slug -> _)
         }
         .map(_.toMap)
         .toResource
-      default = ServerApp.defaultSlugFrom(None, prepared.entries.map(_._1))
+      site <- Server.LiveSite
+        .of(
+          refs,
+          ServerApp.defaultSlugFrom(prepared.default, refs.keys.toList)
+        )
+        .toResource
       server <- ServerApp.liveServer(
         feed,
-        refs,
-        default,
+        site,
         systemPkl = SystemPkl.fromDisk(tmp)
       )
-      editor = new EditorRoutes(tmp, None, default).routes(null)
+      editor = new EditorRoutes(tmp, None, site.defaultSlug, site.names)
+        .routes(null)
     } yield (prepared, (server.routes <+> editor).orNotFound)
 
   private def connect(fake: FakeHomeAssistant): HaFeed.Connect =

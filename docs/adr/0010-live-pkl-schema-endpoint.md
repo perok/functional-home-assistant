@@ -87,7 +87,7 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 | **Repo developer** | laptop, local server | the repo's `lib/`, seeded on start/`fh push` | `prepareDumps` vs a dev HA | works |
 | **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
-**End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
+**End user, `/edit` on the server.** Edits `site.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
@@ -158,13 +158,25 @@ there instead of the JSON to `/system/push`, and no new route, write path or
 reload mechanism exists for it. The two modes stay honestly different: `push`
 delivers a RESULT the instance could never derive (ephemeral, works for cards
 the server has no source for), `--write` delivers a SOURCE the instance
-re-derives itself (persistent, and fails on the instance if the entry imports a
-file that only exists on the laptop). Both evaluate locally first, so `--write`
-cannot overwrite a working file with one that does not build. A slug the
-instance did not have at startup lands on disk but goes live on its next
-restart — the watcher reconciles the import sets of the entries it already
-knows, and minting a renderer from a written file is not something `--write`
-should quietly do behind the server's own discovery.
+re-derives itself (persistent). Both evaluate locally first, so `--write`
+cannot overwrite a working file with one that does not build.
+
+**`--write` sends the whole local import set**, not just the named file:
+the entry plus its transitive `file:` imports (the same `Analyzer.importGraph`
+call `--watch` uses), each at its workspace-relative path. Writing one file
+whose imports stayed on the laptop leaves the instance holding a source it
+cannot evaluate, and since ADR 0021 that is no longer a one-dashboard problem
+— an entrypoint importing a missing module fails the whole site's evaluation,
+so every dashboard shows that error. The instance accepts `<name>.pkl` and
+`lib/<name>.pkl` only, so a file outside the workspace or nested deeper is
+refused on the laptop, naming it, rather than as a `403` halfway through the
+set.
+
+Writing the ENTRYPOINT is what adds, removes or renames a dashboard, and it
+goes live immediately — membership is data the reload re-reads (ADR 0021).
+`--slug` stays a `push`-only option: a source file's name is not a slug, so
+combining it with `--write` would rename the file while claiming to rename the
+dashboard, and it is rejected.
 
 For their cards to exist at all, the entry must name their module in
 `componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
@@ -289,8 +301,9 @@ scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
 files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
 URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
 just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
-(several entries in one invocation, `--slug` renaming a single one, `--write`
-sending the source instead, `--watch` repeating either on every `*.pkl` change
+(several entries in one invocation, `--slug` renaming a single pushed one,
+`--write` sending the source + its local imports instead, `--watch` repeating
+either on every `*.pkl` change
 in the workspace — polled size+mtime, since these workspaces sit on synced
 filesystems). `--watch` re-sends only the entries a change actually reaches:
 `fh push --watch *.pkl` is the normal invocation, so re-sending every dashboard
@@ -382,8 +395,8 @@ The split is what makes the publish story true rather than aspirational: with th
 dump inside `@fh-dashboard`, publishing would have forced it out at exactly the
 moment the schema became remote — the riskiest possible time to discover the
 identity constraint above. Splitting now costs one manifest and proves the
-arrangement works, and the dump lives only as a package — never a top-level
-`*.pkl` that `discoverEntries` would scan as an entry.
+arrangement works, and the dump lives only as a package — never a file in the
+workspace the author could edit or a key could point at.
 
 `PklBuild.resolveProjectDeps` resolves the mapping **in-process**, writes the
 `PklProject.deps.json` lockfile (gitignored; re-resolved whenever a `PklProject`
@@ -493,9 +506,10 @@ package cache** under `/data/pkl-cache` that survives image upgrades.
    to a dated `.fh/pins.json.backup.<stamp>`, pruned to the newest 50 — the dump
    refresh rewrites the pin constantly, so the trail is capped rather than
    unbounded.
-4. **Seed a starter entry** (`AddonBootstrap.defaultDashboard`, read straight
+4. **Seed the starter SITE** (`AddonBootstrap.starterSite`, read straight
    off the jar's own classpath resources like the lib — no seed directory)
-   only into a workspace with no top-level `*.pkl`.
+   only into a workspace with no `site.pkl` — other `*.pkl` are modules and
+   do not stand in for one (ADR 0021); the boot log names them.
 
 `PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
 whenever a `PklProject` is newer than the lockfile (and boot deletes it
@@ -619,10 +633,11 @@ one → no-op (no file compare — same content is the same `fh-home@…-g<hash>
 Otherwise the whole workspace is copied to a temp dir (lockfiles dropped so
 dependencies re-resolve; the package cache is not copied — `moduleCacheDir` is an
 absolute path shared with the real workspace), the new dump **seeded there as its
-package** with the staged pin moved to it, and every entry evaluated against it.
-An entry failing under the new dump blocks the swap **only if it builds under the
-current one** — a dashboard the user has mid-edit must not veto registry changes
-forever. On green the real `.fh/pins.json` moves to the new snapshot and the
+package** with the staged pin moved to it, and the ENTRYPOINT evaluated against
+it. A dashboard failing under the new dump blocks the swap **only if it builds
+under the current one** — a dashboard the user has mid-edit must not veto
+registry changes forever — and the same rule applies one level up, to an
+entrypoint that will not evaluate at all (ADR 0021). On green the real `.fh/pins.json` moves to the new snapshot and the
 renderers hot-swap; the **previous immutable package version stays in the cache**
 — the snapshot itself is the trail (still resolvable for any laptop pinned to
 it), so there is no dated backup file. On rejection nothing moves and the server

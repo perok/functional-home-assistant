@@ -1,0 +1,8 @@
+// A dashboard in its own file, as `site.test.pkl` imports it into a key —
+// the form a big dashboard takes instead of being inlined in the entrypoint.
+amends "../../main/resources/dashboards/lib/entry.pkl"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+
+title = "Kitchen"
+card = c.title("kitchen")

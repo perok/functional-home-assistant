@@ -1,0 +1,108 @@
+// The starter site, seeded as `site.pkl` into a workspace that has no
+// entrypoint of its own (add-on first boot or a fresh local
+// `dashboard-local-dev`) — from then on it is YOURS to edit; every change
+// hot-reloads, including adding or removing a dashboard. Bundled straight into
+// the jar's own resources ([[AddonBootstrap]]), so there is no seed directory
+// to keep in sync or copy into the image.
+//
+// THIS FILE IS THE ONE ENTRYPOINT (ADR 0021), which is why it is named after
+// the SITE rather than after a dashboard. Every dashboard the instance serves
+// is a key in `dashboards` below, and the key is the route: `["home"]` serves
+// at `/d/home`. Anything else in this directory is an ordinary module — a file
+// becomes a dashboard only when a key points at it, e.g.
+// `["home"] = import("my-dashboard.pkl")`.
+//
+// It names NO concrete entity: every section is a query over one of the dump's
+// house-wide lists (`dump.lights`, `dump.switches`, `dump.sensors`, `dump.all`),
+// so it renders on any installation. WHICH entities exist is decided when the
+// dump is built; what the query decides live is which of them are shown, and
+// how. For entity-specific cards, reference `dump.entities.<your_entity>` —
+// see the lib/ modules for the full card set.
+//
+// Three aliases, split by lifecycle (ADR 0010): `@fh-dashboard` is the shared
+// authoring library — a versioned PACKAGE (`package://fh.invalid/fh-dashboard@…`)
+// resolved from the persistent package cache, never files in this directory —
+// `@fh-dashboard/query.pkl` is its query surface, and `@fh-home` is YOUR home's
+// generated dump. The sibling `PklProject` (seeded at first boot, then yours)
+// holds the @fh-dashboard pin; the machine's own wiring lives in
+// `.fh/base.pkl`, machine-managed.
+
+amends "@fh-dashboard/site.pkl"
+
+import "@fh-dashboard/components.pkl" as c
+import "@fh-dashboard/query.pkl" as q
+import "@fh-home/dump.pkl" as dump
+
+// The slug served at `/`. Drop this line and the key named `dashboard` wins,
+// else the first key.
+default = "home"
+
+dashboards {
+  ["home"] {
+    title = "Home"
+
+    // The GRID is the default container (HA "sections" feel): full-width
+    // section titles break the flow, and each group spans the grid while its
+    // members flow two-up in the group's own 12-column grid (HA's default card
+    // size). Size a card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl
+    // for the fh- layout contract).
+    card = (c.grid) {
+      children {
+        c.title("Lights").fullWidth()
+        // Lights that are on get a brightness slider; the rest a plain card.
+        // Both renderings ride the wire and the runtime picks per light, so a
+        // light changing swaps its own card and touches nothing else. The card
+        // needs no `tap`: `light/toggle` is what its domain implies (issue
+        // #106).
+        q.from(dump.lights)
+          .caseOf(q.eq(q.stateProp, "on"), c.slider)
+          .`else`(c.entityCard)
+          .build()
+          .fullWidth()
+
+        c.title("Switches").fullWidth()
+        q.from(dump.switches).render(c.entityCard).build().fullWidth()
+
+        c.title("Low battery").fullWidth()
+        // `device_class` is registry data, so it SELECTS the candidates at
+        // build time and never reaches the runtime — `optional` because most
+        // sensors do not report one, and without it a name only some
+        // candidates carry is an error rather than a silent live attribute.
+        // The charge level is the sensor's own state, so that half stays live.
+        q.from(dump.sensors)
+          .where(q.eq(q.optional(q.prop("device_class")), "battery"))
+          .where(q.lt(q.stateProp, 20))
+          .render((e) -> (c.entityCard(e)) {
+            label = c.expr(#"$attr.friendly_name & " — " & $state & "%""#)
+            secondary = "device_class"
+          })
+          .build()
+          .fullWidth()
+      }
+    }
+  }
+
+  // A SECOND dashboard is one more key. Inline, like `home` above:
+  //
+  //   ["kitchen"] {
+  //     title = "Kitchen"
+  //     card = (c.grid) { children { q.from(dump.lights).render(c.entityCard).build() } }
+  //   }
+  //
+  // …or in its own file, for a big one — write `kitchen.pkl` starting with
+  // `amends "@fh-dashboard/entry.pkl"` and point a key at it (note the CALL
+  // form of `import`, which is what works in a value position):
+  //
+  //   ["kitchen"] = import("kitchen.pkl")
+  //
+  // UNCOMMENT THE THREE LINES BELOW and every `*.dashboard.pkl` file you drop
+  // next to this one becomes a dashboard named after it — `kitchen.dashboard.pkl`
+  // serves at /d/kitchen — with no line to add here. `import*` is Pkl's glob
+  // import: it is resolved every time this file is evaluated, so adding or
+  // deleting such a file adds or removes the dashboard, live. Leave it
+  // commented to keep the list explicit; both styles work side by side.
+  //
+  //   for (path, dash in import*("*.dashboard.pkl")) {
+  //     [path.replaceAll(".dashboard.pkl", "")] = dash
+  //   }
+}

@@ -806,23 +806,23 @@ class PklBuildSuite extends munit.FunSuite {
        |}
        |""".stripMargin
 
-  /** The SHIPPED starter entry, not a fixture — it is what every fresh install
-    * evaluates on its first boot, and nothing else here would notice it
+  /** The SHIPPED starter entrypoint, not a fixture — it is what every fresh
+    * install evaluates on its first boot, and nothing else here would notice it
     * breaking. Deliberately checked against a dump it was not written for
     * (`HouseFixture` has no switches at all): "renders on any installation" is
     * its whole design property, so an empty domain list must build, not throw.
     */
   test("the bundled starter dashboard builds against an arbitrary house") {
-    val d = PklFixture.buildDashboard(
-      "dashboard",
-      fh.view.build.AddonBootstrap.defaultDashboard
+    val d = PklFixture.buildSiteDashboard(
+      "home",
+      fh.view.build.AddonBootstrap.starterSite
     )
     assertEquals(d.validate(), Nil)
     // The LAYOUT names no concrete entity — the sections are queries over the
     // dump's house-wide lists, so the candidates come from whatever HA has.
     // (The header comment mentions `dump.entities.` as the way to name one, so
     // only the code after `card =` is checked.)
-    val layout = AddonBootstrap.defaultDashboard.dropWhile(_ != '\n')
+    val layout = AddonBootstrap.starterSite.dropWhile(_ != '\n')
     assert(
       !layout.substring(layout.indexOf("card =")).contains("dump.entities")
     )

@@ -6,6 +6,7 @@ import fh.view.build.{
   LibPackage,
   Pins,
   PklDump,
+  Site,
   SourceEval
 }
 import fh.view.testkit.{HouseFixture, PklFixture}
@@ -45,7 +46,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     // The user's dir holds only user files: entries + the manifests. No lib/ —
     // that was the littering the package form exists to remove.
     assert(!os.exists(box.ws / "lib"), clue = os.list(box.ws))
-    assert(os.exists(box.ws / "dashboard.pkl"))
+    assert(os.exists(box.ws / "site.pkl"))
 
     // Ownership splits along the amends chain: the user's PklProject amends the
     // machine-owned .fh/base.pkl and is seeded WITHOUT a dependencies block (no
@@ -99,7 +100,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
         PklDump.render(HouseFixture.transformedDump),
         Some(bundled)
       )
-    val result = SourceEval.eval(box.ws, "dashboard.pkl")
+    val result = SourceEval.eval(box.ws, "site.pkl")
     assert(result.isRight, clue = result)
   }
 
@@ -158,18 +159,36 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write(box.ws / "PklProject.deps.json", """{"stale": true}""")
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
-    val _ =
+    val bootLog =
       AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
 
-    // Nothing user-authored is touched: lib/, the consumer + entry all stay, and
-    // no backup is made. The stale lockfile IS removed (generated artifact), and
-    // there is no starter seeding (the user HAS an entry).
+    // Nothing user-authored is touched: lib/, the consumer + their module all
+    // stay, and no backup is made. The stale lockfile IS removed (generated
+    // artifact). A starter entrypoint IS seeded, because this workspace has
+    // none — a loose `*.pkl` is an ordinary module now, not a dashboard (ADR
+    // 0021), so it cannot stand in for one.
     assert(os.exists(box.ws / "lib"))
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
     assertEquals(os.read(box.ws / "PklProject"), oldConsumer)
     assertEquals(os.read(box.ws / "mine.pkl"), "// the user's own entry\n")
     assert(!os.exists(box.ws / "PklProject.deps.json"))
-    assert(!os.exists(box.ws / "dashboard.pkl"))
+    assertEquals(
+      os.read(box.ws / Site.EntryFile),
+      AddonBootstrap.starterSite
+    )
+    // ...and the boot SAYS what became of the user's old entries, naming them.
+    // This is the whole upgrade path (ADR 0021): nothing is moved or rewritten,
+    // their old files are modules now, and serving one is a key away — which
+    // they would otherwise have to infer from an instance that looks empty.
+    assert(
+      bootLog.exists(l =>
+        l.contains("mine.pkl") && l.contains("ordinary modules")
+      ),
+      clue = bootLog
+    )
+    // Said once, on the boot that seeded the entrypoint — not every start.
+    val second = AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+    assert(!second.exists(_.contains("mine.pkl")), clue = second)
 
     // Recovery: deleting the machine-era consumer opts into a fresh, package-form
     // re-seed — then it evaluates.
@@ -181,8 +200,8 @@ class AddonBootstrapSuite extends munit.FunSuite {
       PklDump.render(HouseFixture.transformedDump),
       Some(bundled)
     )
-    os.write.over(box.ws / "mine.pkl", AddonBootstrap.defaultDashboard)
-    assert(SourceEval.eval(box.ws, "mine.pkl").isRight)
+    os.write.over(box.ws / Site.EntryFile, AddonBootstrap.starterSite)
+    assert(SourceEval.eval(box.ws, Site.EntryFile).isRight)
   }
 
   test("a user-customized manifest is never rewritten") {

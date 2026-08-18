@@ -46,7 +46,10 @@ families in the card registry.
 
 `entry.pkl` stays at the package root: every dashboard's first line is
 `amends "@fh-dashboard/entry.pkl"`, and `internal/entry.pkl` would say the
-opposite of what is true.
+opposite of what is true. `site.pkl` (ADR 0021) sits beside it for the same
+reason — it is what the workspace's own `site.pkl` amends, the entry point to
+the entry points, and the two are the only modules an author names without
+having gone looking for the library.
 
 ### Grouped where grouping reads better
 

@@ -292,6 +292,28 @@ object PklBuild {
     * cache-backed `package:` imports and are filtered out of the `file:` set —
     * they are immutable per version, not hot-reloaded.
     */
+  /** [[importSet]] WITHOUT evaluating: the local `*.pkl` files `entryFile`
+    * reads, from static analysis alone. Cheap (no evaluation, no HA), so it can
+    * answer a request — the editor asks it after a write to say whether the
+    * file it just saved is one the site actually reads.
+    *
+    * Glob imports are resolved here too (`import*("*.dashboard.pkl")` returns
+    * each matched file), so a dashboard named by convention counts as read.
+    *
+    * **Never throws, and errs toward "read".** Loading the project can fail on
+    * a workspace mid-edit, and [[importSet]] already answers a failed analysis
+    * with the conservative all-`*.pkl` superset. Both directions matter for the
+    * caller: a false "nothing reads this file" is a confident wrong answer that
+    * would send an author looking for a bug in their own file, whereas a false
+    * "read" only withholds a hint.
+    */
+  def fileImports(dashboardsDir: os.Path, entryFile: String): Set[os.Path] =
+    importSet(
+      dashboardsDir,
+      dashboardsDir / os.SubPath(entryFile),
+      Try(loadProject(dashboardsDir)).toOption.flatten
+    )
+
   private def importSet(
       dashboardsDir: os.Path,
       entry: os.Path,

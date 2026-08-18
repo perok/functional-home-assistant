@@ -12,6 +12,7 @@ import fh.view.build.{
   DashboardBuild,
   DumpRefresh,
   LibPackage,
+  Site,
   SystemPkl
 }
 import fh.view.FHError
@@ -48,22 +49,22 @@ import scala.concurrent.duration.*
   * is why there is no audience tag on a patch and no per-client filter at the
   * wire edge: a patch exists only because the session that will send it asked.
   *
-  * The slug set is NOT fixed at startup: [[push]] installs a dashboard at
-  * runtime (ADR 0010), which is why the registry is a `Ref`.
+  * The slug set is NOT fixed at startup ([[Server.LiveSite]]): the entrypoint's
+  * `dashboards` map is re-read on every reload (ADR 0021) and [[push]] installs
+  * one at runtime (ADR 0010).
   */
 class Server(
     api: HomeAssistantApi[IO],
     stateStore: StateStore,
-    // One hot-swappable renderer STATE per dashboard slug ([[RendererState]]:
-    // `Ready` or `Failed`), paired with that slug's fragment log (live reload
-    // swaps the state in place; `.discrete` drives a body repaint over SSE). A
-    // `Ref` because the slug set is not fixed at startup: `push` mints one at
-    // runtime (ADR 0010).
-    renderers: Ref[IO, Map[String, Server.LiveSlug]],
-    defaultSlug: String,
+    // Every dashboard this instance currently serves and which one answers `/`
+    // ([[Server.LiveSite]]) — one hot-swappable renderer STATE per slug, paired
+    // with that slug's fragment log. Membership is LIVE: a key added to the
+    // entrypoint appears on the next reload, a removed one disappears, and
+    // `push` mints one at runtime.
+    site: Server.LiveSite,
     sessions: Sessions,
-    // Starts the per-slug recorder for a slug minted by `push`. Scoped to
-    // `Server.resource`, so those fibers die with the server.
+    // Starts the per-slug recorder for a slug that enters the registry after
+    // startup. Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
     // Local cache of the themes' external assets ([[AssetCache]]): page URLs
     // are rewritten through it and `/assets/:name` serves from it. The empty
@@ -93,7 +94,9 @@ class Server(
 ) {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
-    case req @ GET -> Root              => pageResponse(defaultSlug, req)
+    // Resolved per REQUEST, not at construction: the entrypoint can rename or
+    // delete the dashboard `/` used to serve, and `/` must still answer.
+    case req @ GET -> Root => site.defaultSlug.flatMap(pageResponse(_, req))
     case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
 
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
@@ -285,7 +288,7 @@ class Server(
     liveFor(slug).map(_.getOrElse(sys.error(s"no live slug '$slug'")))
 
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
-    renderers.get.map(_.get(slug))
+    site.liveFor(slug)
 
   /** One background RECORDING loop per slug: one subscription to the state
     * stream, writing what each frame did to the slug's changelog and then
@@ -305,8 +308,9 @@ class Server(
     * harmless, because every connection does a full body repaint on reload
     * ([[reloadRepaints]]).
     *
-    * Started once per slug — at startup by [[Server.resource]], or on demand by
-    * [[push]] for a slug minted at runtime.
+    * Started once per slug, by [[sharedPatchPublishers]] reconciling against
+    * the registry — whether the slug was there at startup, added by an edit to
+    * the entrypoint, or minted by [[push]].
     *
     * The narrowing here bounds *what* is recorded, never *how often* — see the
     * event-coalescing entry in TODO2.md.
@@ -349,20 +353,39 @@ class Server(
           )
     }.drain
 
-  /** Start every currently-registered slug's publisher. Slugs pushed later get
-    * theirs from [[push]] via the supervisor.
+  /** Keep exactly one publisher running per registered slug, for as long as it
+    * is registered — the ONE place a recorder is started or stopped.
+    *
+    * It reconciles against the registry rather than starting from a startup
+    * snapshot, which is what makes membership live: a slug added by an edit to
+    * the entrypoint, or by [[push]], gets its recorder here; a slug the
+    * entrypoint dropped has its recorder cancelled here. (The same `toAdd` /
+    * `toCancel` shape as `ServerApp.watchSourcesWith`'s import reconcile.)
     */
   def sharedPatchPublishers: Stream[IO, Nothing] =
     Stream
-      .eval(renderers.get)
-      .flatMap(rs =>
-        Stream
-          .emits(rs.toList.map { case (slug, live) =>
-            publisherFor(slug, live)
-          })
-          .covary[IO]
-          .parJoinUnbounded
-      )
+      .eval(Ref[IO].of(Map.empty[String, IO[Unit]]))
+      .flatMap { active =>
+        site.changes.evalMap { registered =>
+          active.get.flatMap { current =>
+            val toAdd =
+              registered.toList.filterNot { case (slug, _) =>
+                current.contains(slug)
+              }
+            val toCancel = current.keySet -- registered.keySet
+            for {
+              added <- toAdd.traverse { case (slug, live) =>
+                supervisor
+                  .supervise(publisherFor(slug, live).compile.drain)
+                  .map(slug -> _.cancel)
+              }
+              _ <- toCancel.toList.traverse_(current.getOrElse(_, IO.unit))
+              _ <- active.set((current ++ added) -- toCancel)
+            } yield ()
+          }
+        }
+      }
+      .drain
 
   /** Readiness seam for tests (mirroring [[StateStore.changeSubscribers]]):
     * await a connection's session before moving an entity, so the frame is
@@ -378,45 +401,29 @@ class Server(
     *
     * An EXISTING slug reuses its `SignallingRef` — setting it repaints open
     * connections exactly as live reload does, which is the push/look/edit loop.
-    * A NEW slug also needs its publisher started, hence the supervisor.
+    * A NEW slug is simply installed; its publisher follows from the registry
+    * ([[sharedPatchPublishers]]), the same way a slug the entrypoint added
+    * does.
     *
     * Ephemeral by design: this touches no file, so a restart returns the
     * instance to its on-disk dashboards.
     *
     * '''A pushed slug is never reclaimed while the process lives''', and that
     * is deliberate — nothing else can decide that a developer is finished with
-    * one, so nothing quietly deletes it (the source watcher does not touch this
-    * registry; it only `set`s the renderers it was built with). The cost is
-    * paid per pushed slug and is not free: each new one holds a `Renderer` + a
-    * fragment log, and its supervised publisher runs a diff pass on every state
-    * batch for the life of the process. A long-lived instance that is pushed to
-    * all day accumulates both. Removing one is a USER action that does not
-    * exist yet — see TODO2.md ("an overlay to drop a pushed dashboard").
+    * one, so nothing quietly deletes it. `ServerApp` only ever removes a slug
+    * the ENTRYPOINT dropped (it diffs its own previous site membership), and a
+    * pushed slug was never in that set. The cost is paid per pushed slug and is
+    * not free: each new one holds a `Renderer` + a fragment log, and its
+    * publisher runs a diff pass on every state batch for the life of the
+    * process. A long-lived instance that is pushed to all day accumulates both.
+    * Removing one is a USER action that does not exist yet — see TODO2.md ("an
+    * overlay to drop a pushed dashboard").
     */
   def push(validated: Dashboard.Validated): IO[Unit] =
-    SignallingRef[IO]
-      .of(Server.RendererState.Ready(Renderer.fromValidated(validated)))
-      .flatMap(Server.LiveSlug.create)
-      .flatMap { fresh =>
-        val slug = validated.dashboard.slug
-        renderers
-          .modify { rs =>
-            rs.get(slug) match {
-              case Some(existing) => (rs, Some(existing))
-              case None           => (rs + (slug -> fresh), None)
-            }
-          }
-          .flatMap {
-            case Some(existing) =>
-              existing.renderer.set(
-                Server.RendererState.Ready(Renderer.fromValidated(validated))
-              )
-            case None =>
-              supervisor
-                .supervise(publisherFor(slug, fresh).compile.drain)
-                .void
-          }
-      }
+    site.install(
+      validated.dashboard.slug,
+      Server.RendererState.Ready(Renderer.fromValidated(validated))
+    )
 
   /** The imperative shell around [[Patches.plan]] + [[Patches.record]]: read
     * the snapshot and the open sets, run the pure pass, write the changelog,
@@ -672,7 +679,7 @@ class Server(
         // permanent staleness.
         .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
       // The 404 gate is on THIS stream's own (single) lookup, not in the route:
-      // a route-side `renderers.get` and this read could disagree (a slug
+      // a route-side registry read and this one could disagree (a slug
       // removed between them) and answer a 200 empty-body SSE instead of a
       // 404. Nothing has been registered for an absent slug by this point —
       // registration is bracketed to `stream`, which never runs — and the
@@ -1360,6 +1367,12 @@ class Server(
     * The slug comes from the URL, not the body: it is the address the developer
     * asked for, and forcing it keeps `/d/<slug>` and the registry key in step
     * (the same `copy(slug = ...)` the eval path applies at decode time).
+    *
+    * A whole SITE may be pushed too — an evaluated `site.pkl` carries a
+    * `dashboards` map, and that is now the natural file to push. Then the keys
+    * are the slugs (the URL's is ignored, since a site names its own) and it is
+    * all-or-nothing: any dashboard that fails to validate fails the push,
+    * because a half-installed site is not a state the developer asked for.
     */
   private def pushResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     req.bodyText.compile.string
@@ -1367,6 +1380,9 @@ class Server(
       .flatMap {
         case Left(err) =>
           BadRequest(s"push body is not JSON: ${err.getMessage}")
+        case Right(json)
+            if json.asObject.exists(_.contains(Site.DashboardsKey)) =>
+          pushSite(json)
         case Right(json) =>
           DashboardBuild
             .decode(json)
@@ -1385,6 +1401,35 @@ class Server(
               case e: FHError => FHError.logged(e)
               case err        => InternalServerError(err.getMessage)
             }
+      }
+
+  /** Install every dashboard a pushed SITE names, plus its default slug. */
+  private def pushSite(json: Json): IO[Response[IO]] =
+    Site
+      .decode(json)
+      .flatMap { site =>
+        site.dashboards.collect { case (slug, Left(err)) =>
+          s"'$slug': $err"
+        } match {
+          case Nil =>
+            val ready = site.dashboards.collect { case (slug, Right(v)) =>
+              slug -> v
+            }
+            ready.traverse_ { case (_, v) => push(v) } *>
+              this.site.setPreferred(site.default) *>
+              Ok(
+                s"pushed ${ready.size} dashboard(s): ${site.slugs.mkString(", ")}"
+              )
+          case errors =>
+            BadRequest(
+              s"site push rejected (${errors.size} dashboard(s) failed):\n" +
+                errors.mkString("\n")
+            )
+        }
+      }
+      .handleErrorWith {
+        case e: FHError => FHError.logged(e)
+        case err        => InternalServerError(err.getMessage)
       }
 
   /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
@@ -1619,7 +1664,7 @@ class Server(
          |    <h1>Dashboard $title failed to build</h1>
          |    <pre>${Server.escapeHtml(message)}</pre>
          |    <p>Fix the source in the editor — the dashboard reloads automatically.</p>
-         |    <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |    <p><a href="edit/file/${Site.EntryFile}">Edit ${Site.EntryFile}</a></p>
          |  </div>
          |</body>
          |</html>""".stripMargin
@@ -1867,15 +1912,114 @@ object Server {
   private[runtime] val freshLog: IO[FragmentLog] =
     IO.randomUUID.map(id => FragmentLog(id.toString))
 
+  /** Every dashboard the instance serves right now, and which of them answers
+    * `/` — the live counterpart of the entrypoint's `dashboards` map (ADR
+    * 0021). Owned by the caller rather than by [[Server]] because the reload
+    * path (`ServerApp`) writes it while the routes read it.
+    *
+    * Membership is a `SignallingRef` for one reason: [[changes]] is what starts
+    * and stops the per-slug recorders ([[Server.sharedPatchPublishers]]), so
+    * installing or removing a slug IS starting or stopping its publisher, with
+    * no second path to keep in step.
+    */
+  private[runtime] class LiveSite(
+      slugs: SignallingRef[IO, Map[String, LiveSlug]],
+      // The slug the entrypoint asked to serve at `/`, re-set by every reload.
+      // A preference, not an answer: it may name a slug that no longer exists.
+      preferred: Ref[IO, Option[String]],
+      // Served at `/` when the instance has nothing at all — a workspace whose
+      // entrypoint has never evaluated. It is the slug the boot registered its
+      // `Failed` state under, so `/` shows the error rather than a 404.
+      fallback: String
+  ) {
+
+    def liveFor(slug: String): IO[Option[LiveSlug]] = slugs.get.map(_.get(slug))
+
+    def names: IO[List[String]] = slugs.get.map(_.keys.toList.sorted)
+
+    def changes: Stream[IO, Map[String, LiveSlug]] = slugs.discrete
+
+    /** Install a state under `slug`: a swap for a slug already registered
+      * (which repaints its open connections), otherwise a new dashboard.
+      */
+    def install(slug: String, state: RendererState): IO[Unit] =
+      SignallingRef[IO]
+        .of(state)
+        .flatMap(LiveSlug.create)
+        .flatMap { fresh =>
+          slugs
+            .modify { rs =>
+              rs.get(slug) match {
+                case Some(existing) => (rs, Some(existing))
+                case None           => (rs + (slug -> fresh), None)
+              }
+            }
+            .flatMap(_.traverse_(_.renderer.set(state)))
+        }
+
+    /** Drop a dashboard: its route 404s and its recorder is cancelled by the
+      * next reconcile. Only ever called for a slug the ENTRYPOINT dropped — see
+      * the note on [[Server.push]] about pushed slugs.
+      */
+    def remove(slug: String): IO[Unit] = slugs.update(_ - slug)
+
+    def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
+
+    /** The slug `/` serves right now. */
+    def defaultSlug: IO[String] =
+      (preferred.get, names).mapN(defaultSlugFor).map(_.getOrElse(fallback))
+  }
+
+  private[runtime] object LiveSite {
+    def of(
+        renderers: Map[String, SignallingRef[IO, RendererState]],
+        defaultSlug: String
+    ): IO[LiveSite] =
+      for {
+        // Pair each seeded renderer with its own fragment log here, so the
+        // caller (ServerApp, tests) never has to know the log exists.
+        seeded <- renderers.toList
+          .traverse { case (slug, r) => LiveSlug.create(r).map(slug -> _) }
+          .map(_.toMap)
+        slugs <- SignallingRef[IO].of(seeded)
+        preferred <- Ref[IO].of(Option(defaultSlug).filter(_.nonEmpty))
+      } yield new LiveSite(slugs, preferred, defaultSlug)
+  }
+
+  /** Which of `slugs` should be served at `/`: the authored preference when it
+    * still names a registered dashboard, else the one named `dashboard`, else
+    * the first. `None` only when nothing is registered.
+    *
+    * The preference is honoured even when that dashboard FAILED to build — its
+    * error page is the point (it stays fixable in the editor rather than
+    * silently bouncing to a different dashboard), which is why this reads
+    * membership and never build status.
+    */
+  private[runtime] def defaultSlugFor(
+      preferred: Option[String],
+      slugs: List[String]
+  ): Option[String] =
+    preferred
+      .filter(slugs.contains)
+      .orElse(Option.when(slugs.contains(DefaultSlug))(DefaultSlug))
+      .orElse(slugs.sorted.headOption)
+
+  /** The slug a site with no stated preference serves at `/` when it has one by
+    * that name — and the name a boot with nothing to serve registers its
+    * failure under.
+    */
+  val DefaultSlug: String = "dashboard"
+
   /** Build the server and run the per-slug recorders
     * ([[Server.sharedPatchPublishers]]) for the life of the resource. The
     * single construction point (ServerApp and tests), so the changelog is never
     * accidentally left un-written — with nothing recording, every session's
     * pull would find an empty log and the dashboard would simply stop moving.
     *
-    * `renderers` seeds the registry; it is not the final word — [[Server.push]]
-    * adds to it at runtime, and the supervisor here owns the publishers those
-    * pushed slugs start, so they end with the resource like the seeded ones.
+    * `site` is not the final word on what is served — it is written after
+    * construction by every reload and by [[Server.push]], and the supervisor
+    * here owns the publishers those slugs start, so they end with the resource
+    * like the ones present at startup.
     */
   def resource(
       api: HomeAssistantApi[IO],
@@ -1890,20 +2034,45 @@ object Server {
       adoptionWindow: FiniteDuration = AdoptionWindow,
       lingerWindow: FiniteDuration = LingerWindow
   ): Resource[IO, Server] =
+    LiveSite
+      .of(renderers, defaultSlug)
+      .toResource
+      .flatMap(
+        withSite(
+          api,
+          stateStore,
+          _,
+          sessions,
+          assets,
+          healthy,
+          systemPkl,
+          dumpRefresh,
+          adoptionWindow,
+          lingerWindow
+        )
+      )
+
+  /** [[resource]] against a site the CALLER owns — what production uses, since
+    * the reload path writes the same registry the routes read.
+    */
+  def withSite(
+      api: HomeAssistantApi[IO],
+      stateStore: StateStore,
+      site: LiveSite,
+      sessions: Sessions,
+      assets: AssetCache,
+      healthy: Signal[IO, Boolean],
+      systemPkl: SystemPkl,
+      dumpRefresh: Option[IO[DumpRefresh.Result]],
+      adoptionWindow: FiniteDuration = AdoptionWindow,
+      lingerWindow: FiniteDuration = LingerWindow
+  ): Resource[IO, Server] =
     for {
-      // Pair each seeded renderer with its own fragment log here, so the caller
-      // (ServerApp, tests) never has to know the log exists.
-      seeded <- renderers.toList
-        .traverse { case (slug, r) => LiveSlug.create(r).map(slug -> _) }
-        .map(_.toMap)
-        .toResource
-      registry <- Ref[IO].of(seeded).toResource
       supervisor <- Supervisor[IO]
       server = new Server(
         api,
         stateStore,
-        registry,
-        defaultSlug,
+        site,
         sessions,
         supervisor,
         assets,
@@ -1926,18 +2095,16 @@ object Server {
     */
   def fromFeed(
       feed: HaFeed,
-      renderers: Map[String, SignallingRef[IO, RendererState]],
-      defaultSlug: String,
+      site: LiveSite,
       sessions: Sessions,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
   ): Resource[IO, Server] =
-    resource(
+    withSite(
       feed.api,
       feed.store,
-      renderers,
-      defaultSlug,
+      site,
       sessions,
       assets,
       feed.healthy,

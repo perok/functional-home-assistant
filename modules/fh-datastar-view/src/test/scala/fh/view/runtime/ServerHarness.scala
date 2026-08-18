@@ -483,13 +483,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
         // call still raises); the store is driven in-memory, so the empty seed
         // is inert.
         fake <- FakeHomeAssistant.create(Nil)
-        live <- Server.LiveSlug.create(ref)
-        registry <- Ref[IO].of(Map("dashboard" -> live))
+        site <- Server.LiveSite.of(Map("dashboard" -> ref), "dashboard")
+        live <- site.liveFor("dashboard").map(_.get)
         server = new Server(
           HomeAssistantApi.fromWs(fake),
           store,
-          registry,
-          "dashboard",
+          site,
           sessions,
           suiteSupervisor
         )

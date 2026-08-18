@@ -6,7 +6,7 @@ package fh.view.runtime
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.build.{PklDump, SystemPkl}
+import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.Dashboard
 import fh.view.testkit.{
   FakeConfig,
@@ -266,10 +266,12 @@ object TestServer {
       // Server.fromFeed) to the SAME kernel production uses, so the harness
       // can't drift from the app. Only the renderer source (a fixed dashboard)
       // and the HA edge (a fake) are ours.
+      site <- Server.LiveSite
+        .of(Map(dashboard.slug -> rendererRef), dashboard.slug)
+        .toResource
       server <- ServerApp.liveServer(
         feed,
-        Map(dashboard.slug -> rendererRef),
-        dashboard.slug,
+        site,
         systemPkl = systemPkl
       )
     } yield new TestServer(fake, feed.store, server, dashboard.slug)
@@ -282,14 +284,14 @@ object TestServer {
     * NOTHING stubbed but the HA socket.
     *
     * A package-form workspace is staged ([[PklWorkspace.bootstrap]]) with the
-    * `@fh-home` dump seeded from `entities`; `entrySource` is written as the
-    * one `<slug>.pkl` there (any starter entry the bootstrap left is removed so
-    * discovery finds exactly this one). The feed's own `prepareDumps` then
-    * RE-fetches that dump from the fake's `render_template` — the same fixtures
-    * `get_states` serves — so the dashboard is authored against, built from,
-    * and rendered with one source of state. `entities` must cover every entity
-    * the entry references (`dump.entities.<key>`); the whole set is also the
-    * fake's seed.
+    * `@fh-home` dump seeded from `entities`; `entrySource` is written as its
+    * own module and the workspace's ONE entrypoint (ADR 0021) is generated to
+    * name it under `slug` — the imported-dashboard authoring form, exercised
+    * here on every call. The feed's own `prepareDumps` then RE-fetches that
+    * dump from the fake's `render_template` — the same fixtures `get_states`
+    * serves — so the dashboard is authored against, built from, and rendered
+    * with one source of state. `entities` must cover every entity the entry
+    * references (`dump.entities.<key>`); the whole set is also the fake's seed.
     */
   def fromWorkspace(
       slug: String,
@@ -308,28 +310,32 @@ object TestServer {
           "entities" -> Json.fromFields(entities.map(_.toDumpEntry))
         )
         val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dumpJson))
-        // Exactly one dashboard: drop any starter entry bootstrap seeded.
-        os.list(tmp)
-          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-          .foreach(os.remove)
-        os.write.over(tmp / s"$slug.pkl", entrySource)
+        val module = s"$slug-entry.pkl"
+        os.write.over(tmp / module, entrySource)
+        // Exactly one dashboard, named by the entrypoint the bootstrap seeded
+        // (overwritten: the starter site is not what this test is about).
+        os.write.over(
+          tmp / Site.EntryFile,
+          s"""amends "@fh-dashboard/site.pkl"
+             |
+             |dashboards {
+             |  ["$slug"] = import("$module")
+             |}
+             |""".stripMargin
+        )
       }.toResource
       fake <- FakeHomeAssistant.create(entities).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
-      // The REAL entry-to-renderer path — the same one production's `run` uses.
+      // The REAL source-to-renderer path — the same one production's `run` uses.
       prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      rendererRefs <- prepared.built
-        .traverse { case (s, (renderer, _)) =>
-          SignallingRef[IO]
-            .of(Server.RendererState.Ready(renderer))
-            .map(s -> _)
-        }
+      rendererRefs <- prepared.states.toList
+        .traverse { case (s, state) => SignallingRef[IO].of(state).map(s -> _) }
         .map(_.toMap)
         .toResource
+      site <- Server.LiveSite.of(rendererRefs, slug).toResource
       server <- ServerApp.liveServer(
         feed,
-        rendererRefs,
-        slug,
+        site,
         systemPkl = SystemPkl.fromDisk(tmp)
       )
     } yield new TestServer(fake, feed.store, server, slug)
@@ -364,12 +370,10 @@ object TestServer {
           JdkHttpClient[IO](httpClient)
         )
         .toResource
-      server <- ServerApp.liveServer(
-        feed,
-        Map(dashboard.slug -> rendererRef),
-        dashboard.slug,
-        assets
-      )
+      site <- Server.LiveSite
+        .of(Map(dashboard.slug -> rendererRef), dashboard.slug)
+        .toResource
+      server <- ServerApp.liveServer(feed, site, assets)
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")

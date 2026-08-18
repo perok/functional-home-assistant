@@ -32,10 +32,8 @@ ports_description:
 map:
   - homeassistant_config:rw
 options:
-  default_dashboard: ""
   watch_registry: true
 schema:
-  default_dashboard: str?
   # Rebuild the typed entity dump automatically when the HA registry changes
   # (device/entity/area/floor added, renamed or removed, integration loaded).
   # The swap is validated first: it never lands if it would break a dashboard

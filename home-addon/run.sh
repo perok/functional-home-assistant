@@ -48,18 +48,17 @@ export DASHBOARDS_DIR="$DASH_DIR"
 # editing, unlike the dashboards.
 export FH_ASSETS_DIR=/data/assets-cache
 
-# AddonBootstrap inputs (ADR 0010): a starter entry seeds an empty workspace;
-# old copy-if-empty installs are migrated with dated backups. Both the
-# authoring lib and the starter entry are streamed from the jar's own
-# resources (BundledLib / AddonBootstrap.defaultDashboard) — no seed path, no
+# AddonBootstrap inputs (ADR 0010): a starter entrypoint seeds a workspace
+# that has none; old copy-if-empty installs are migrated with dated backups.
+# Both the authoring lib and the starter are streamed from the jar's own
+# resources (BundledLib / AddonBootstrap.starterSite) — no seed path, no
 # FH_BUNDLED_LIB path.
 export FH_PKL_CACHE_DIR=/data/pkl-cache
 
+# There is no `default_dashboard` option: the slug served at `/` is `default`
+# in the workspace's own `site.pkl` (ADR 0021), where the dashboards it
+# chooses between are declared.
 if [ -f /data/options.json ]; then
-  DEFAULT_DASHBOARD="$(jq -r '.default_dashboard // empty' /data/options.json)"
-  if [ -n "$DEFAULT_DASHBOARD" ]; then
-    export DEFAULT_DASHBOARD
-  fi
   # Registry-driven dump refresh toggle (on unless the option is set to false).
   if [ "$(jq -r '.watch_registry' /data/options.json)" = "false" ]; then
     export FH_WATCH_REGISTRY=false

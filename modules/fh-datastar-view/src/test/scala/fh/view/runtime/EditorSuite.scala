@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
@@ -92,14 +93,15 @@ class EditorSuite extends munit.FunSuite {
     assert(!FrontendAssets.serves("../application.conf"))
   }
 
-  /** A workspace shaped like a real one: two entries, the manifest, its
-    * generated lockfile, a machine-specific `.fh/`, and a `lib/` source.
+  /** A workspace shaped like a real one: the entrypoint, a module beside it,
+    * the manifest, its generated lockfile, a machine-specific `.fh/`, and a
+    * `lib/` source.
     */
   private def workspace(f: os.Path => Unit): Unit = {
     val ws = os.temp.dir() / "ws"
     os.makeDir.all(ws / "lib")
     os.makeDir.all(ws / ".fh")
-    os.write(ws / "pkl-demo.pkl", "// demo")
+    os.write(ws / "site.pkl", "// the entrypoint")
     os.write(ws / "pkl-tabs.pkl", "// tabs")
     os.write(ws / "PklProject", "amends \"...\"")
     os.write(ws / "PklProject.deps.json", "{}")
@@ -109,7 +111,12 @@ class EditorSuite extends munit.FunSuite {
   }
 
   private def routes(ws: os.Path) =
-    new EditorRoutes(ws, None, "pkl-demo").routes(null)
+    new EditorRoutes(
+      ws,
+      None,
+      IO.pure("home"),
+      IO.pure(List("home", "kitchen"))
+    ).routes(null)
 
   private def get(ws: os.Path, path: String): (Status, String) = {
     val resp = routes(ws).orNotFound
@@ -121,35 +128,91 @@ class EditorSuite extends munit.FunSuite {
     )
   }
 
-  test("the file list carries the entries, the lib sources, and PklProject") {
+  test("the file list carries the sources, each with its kind") {
     workspace { ws =>
       val (status, body) = get(ws, "/edit/files")
       assertEquals(status, Status.Ok)
-      val names = parse(body).toOption
-        .flatMap(_.asArray)
-        .toList
-        .flatten
-        .flatMap(_.hcursor.get[String]("name").toOption)
-      assertEquals(
-        names,
-        List("pkl-demo.pkl", "pkl-tabs.pkl", "lib/components.pkl", "PklProject")
-      )
-      // Only a dashboard entry carries a slug — that is what the editor previews,
-      // and what dims everything else in the list.
-      val slugged = parse(body).toOption
+      val entries = parse(body).toOption
         .flatMap(_.asArray)
         .toList
         .flatten
         .flatMap(e =>
-          e.hcursor
-            .get[String]("slug")
-            .toOption
-            .map(_ => e.hcursor.get[String]("name").toOption.get)
+          (
+            e.hcursor.get[String]("name").toOption,
+            e.hcursor.get[String]("kind").toOption
+          ).tupled
         )
-      assertEquals(slugged, List("pkl-demo.pkl", "pkl-tabs.pkl"))
+      // Exactly ONE file is the entrypoint; everything else is an ordinary
+      // source, which is what dims it in the list (ADR 0021).
+      assertEquals(
+        entries,
+        List(
+          "pkl-tabs.pkl" -> "module",
+          "site.pkl" -> "entry",
+          "lib/components.pkl" -> "lib",
+          "PklProject" -> "manifest"
+        )
+      )
       // The generated lockfile and the machine-specific files stay hidden.
+      val names = entries.map(_._1)
       assert(!names.contains("PklProject.deps.json"), clue = names)
       assert(!names.exists(_.startsWith(".fh")), clue = names)
+    }
+  }
+
+  test("the dashboard list is the LIVE slugs, not the files") {
+    workspace { ws =>
+      val (status, body) = get(ws, "/edit/dashboards")
+      assertEquals(status, Status.Ok)
+      assertEquals(
+        parse(body).flatMap(_.as[List[String]]).toOption,
+        Some(List("home", "kitchen"))
+      )
+    }
+  }
+
+  test("a write says whether the site actually reads the file") {
+    // Saving a file no dashboard reads is allowed — you may be writing the
+    // module before the key that names it — but silence would read as "it is
+    // live". The answer is static analysis of the entrypoint, so it is right
+    // as soon as the file is on disk, without waiting for a reload.
+    //
+    // The entrypoint here imports nothing, so the analysis answers precisely
+    // and the `false` below is the TRUE answer. It is never the confident
+    // wrong way round: an analysis that cannot run at all falls back to the
+    // conservative superset (`PklBuild.fileImports`), i.e. everything is read.
+    workspace { ws =>
+      def put(name: String, body: String) = routes(ws).orNotFound
+        .run(
+          Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))
+            .withEntity(body)
+        )
+        .flatMap(resp =>
+          resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .map(resp.status -> _)
+        )
+        .unsafeRunSync()
+
+      val (entryStatus, entryBody) = put("site.pkl", "// the entrypoint")
+      assertEquals(entryStatus, Status.Ok)
+      assertEquals(
+        parse(entryBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(true)
+      )
+
+      val (modStatus, modBody) = put("pkl-tabs.pkl", "// nothing names me")
+      assertEquals(modStatus, Status.Ok)
+      assertEquals(
+        parse(modBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(false)
+      )
+      // It is a note, not a gate: the bytes landed either way.
+      assertEquals(os.read(ws / "pkl-tabs.pkl"), "// nothing names me")
     }
   }
 
@@ -163,7 +226,10 @@ class EditorSuite extends munit.FunSuite {
             .withEntity("amends \"edited\"")
         )
         .unsafeRunSync()
-      assertEquals(written.status, Status.NoContent)
+      // 200 + `{written, used}` — a write reports whether the site reads what
+      // it just saved (here: the manifest, which the entrypoint does not
+      // import, so `used` is false and the editor says so).
+      assertEquals(written.status, Status.Ok)
       assertEquals(os.read(ws / "PklProject"), "amends \"edited\"")
 
       // The lockfile is generated — a write would be silently undone by the next

@@ -1,0 +1,39 @@
+/// The ONE entrypoint a workspace has: `site.pkl` amends this module and
+/// names every dashboard this instance serves, plus the settings that apply
+/// across them. A dashboard is DATA here, not a file — which is what lets you
+/// generate a hundred of them in a loop, and what makes adding or removing one
+/// an ordinary edit that hot-reloads (ADR 0021).
+///
+///     amends "@fh-dashboard/site.pkl"
+///     import "@fh-dashboard/components.pkl" as c
+///
+///     default = "home"
+///     dashboards {
+///       ["home"] { title = "Home"; card = (c.grid) { children { ... } } }
+///       ["kitchen"] = import("kitchen.pkl")   // a module that amends entry.pkl
+///     }
+///
+/// Nothing else in the directory is a dashboard: a `*.pkl` beside this one is
+/// an ordinary module, reachable only if something imports it.
+module site
+
+import "entry.pkl"
+
+/// Every dashboard this instance serves, keyed by SLUG — the key IS the route
+/// (`/d/<slug>`), so renaming a key moves the dashboard.
+///
+/// Two forms, both [[entry]]:
+///   - INLINE — amend the key into existence (the mapping default is an
+///     `entry`, so no `new` is needed): `["home"] { card = ... }`
+///   - IMPORTED — assign a module that `amends "@fh-dashboard/entry.pkl"`:
+///     `["kitchen"] = import("kitchen.pkl")`. Note the CALL form: `import "x"`
+///     is a declaration and will not parse in a value position.
+///
+/// Generated dashboards are just an entry per key, so the usual comprehension
+/// works: `for (f in dump.floors) { ["\(f.id)"] { card = floorCard(f) } }`.
+dashboards: Mapping<String, entry> = new { default = (_) -> (entry) {} }
+
+/// The slug served at `/`. Null (the default) means the dashboard keyed
+/// `dashboard`, else the first key. Naming a slug that isn't in [[dashboards]]
+/// is ignored the same way.
+default: String? = null

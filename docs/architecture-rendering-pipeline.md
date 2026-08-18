@@ -119,17 +119,59 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 open ONE WebSocket to Home Assistant, subscribe_entities
   the opening frame IS the full entity set, so there is no separate seeding step
 create ONE StateStore              // for every dashboard, not one each
-evaluate every *.pkl entry         // slug = filename; a broken entry does NOT
-                                   // crash the boot — it registers too
+evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
+                                   // decoded PER SLUG, and neither a broken
+                                   // dashboard nor a broken entrypoint crashes
+                                   // the boot — both register
   per slug: one RendererState in a SignallingRef
       Ready(renderer) when it built, Failed(message) when it did not
-      // hot-swapped on file edit; a failed entry is watched, serves an
+      // hot-swapped on edit; a failed dashboard is watched, serves an
       // error page, and rebuilds live when the source is fixed
   per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
-create ONE Sessions registry
-for each slug: start a recorder fiber
-  // STARTS IMMEDIATELY, and runs whether or not a browser ever connects
+create ONE Sessions registry, and ONE LiveSite holding all of the above
+recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
+                                   // toCancel against LiveSite.changes
+  // a recorder STARTS IMMEDIATELY, and runs whether or not a browser connects
 ```
+
+### Membership moves while it runs
+
+The slug set is not fixed at boot, and the registry write IS the recorder's
+lifecycle — there is no second path that could disagree:
+
+```mermaid
+flowchart LR
+  EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
+  DUMP["dump swapped in<br/>DumpRefresh"] --> RE
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"per slug, vs what<br/>was last installed"}
+  DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
+  DIFF -->|new or changed| INS["LiveSite.install"]
+  DIFF -->|gone from the site| RM["LiveSite.remove"]
+  PUSH["POST /system/push/:slug<br/>no source at all"] --> INS
+  INS --> REG[("LiveSite<br/>SignallingRef of slug -> LiveSlug")]
+  RM --> REG
+  REG -->|discrete| RECON["sharedPatchPublishers<br/>toAdd / toCancel"]
+  RECON -->|toAdd| START["start that slug's recorder"]
+  RECON -->|toCancel| STOP["cancel it"]
+
+  classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
+  class NOOP,START,STOP ok
+  class REG store
+```
+
+Three properties worth stating, because each is silent when broken:
+
+- **Installing a slug IS starting its recorder**, and removing one IS stopping
+  it. A removed slug cannot leave a fiber diffing every state batch forever.
+- **Removal only ever reclaims a slug the ENTRYPOINT dropped**: `ServerApp`
+  diffs against its own record of what the site owned last time, so a pushed
+  slug (ADR 0010) is never in the removal set.
+- **An unchanged dashboard is not re-installed.** The watcher fires on anything
+  in the workspace; writing a `Ready` state anyway emits on the slug's
+  `SignallingRef`, which rotates its log identity and repaints every open
+  browser. The comparison is per slug, so one author's edit repaints one
+  dashboard.
 
 ### A browser opens a dashboard
 
@@ -676,7 +718,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
-| per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadEntries` sets every ref on re-eval |
+| per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
+| which slugs exist, and which is `/` | `runtime/Server.scala` · `LiveSite` (`install`/`remove`/`defaultSlug`), `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` diffs membership |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
 | what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordDynamic` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
