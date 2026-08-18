@@ -25,6 +25,12 @@ import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
   * surface is showing" is one fact asked three ways (now, after this frame, to
   * whom), and splitting it would fake one with the other.
   *
+  * @param surfaces
+  *   the dashboard's surfaces, by id — and NOT the `Dashboard` they came from.
+  *   Every question here is about surfaces; taking the whole aggregate would
+  *   declare a dependency on cards, css, theme and slug that this cannot use
+  *   and should not see. Same reason [[MemberGraph]] takes its `SetNode`s
+  *   rather than the index they were collected from.
   * @param rootOfIndexed
   *   every statically-indexed node id -> the layout tree it is in (`""` for the
   *   main page, else the surface id).
@@ -33,23 +39,23 @@ import fh.view.model.{Activation, Dashboard, DomId, NodeId, Predicate, Surface}
   *   answer for: a materialised member, and a nested set container.
   */
 private[runtime] final class SurfaceGraph(
-    dashboard: Dashboard,
+    surfaces: Map[String, Surface],
     rootOfIndexed: Map[NodeId, String],
     members: MemberGraph
 ) {
 
   // ---- the branches, and which mode selects among them ---------------------
 
-  /** Every bake group, computed ONCE. `dashboard.surfaces` is fixed for the
-    * life of a renderer, so this is a pure inversion of it: `bakeInto` target
-    * -> member surface ids.
+  /** Every bake group, computed ONCE. `surfaces` is fixed for the life of a
+    * renderer, so this is a pure inversion of it: `bakeInto` target -> member
+    * surface ids.
     *
     * It has to be a `val`. As a `def` it re-scanned every surface on each call,
     * and `mountId` calls it for EVERY node on EVERY render — so a paint cost
     * O(nodes × surfaces) for an answer that cannot change.
     */
   private val bakeGroups: Map[NodeId, List[String]] =
-    dashboard.surfaces.toList
+    surfaces.toList
       .flatMap { case (sid, s) =>
         s.bakeInto.map(gid => (gid, sid, s.bakeIndex))
       }
@@ -94,7 +100,7 @@ private[runtime] final class SurfaceGraph(
     * which is the one place a node id enters from outside the tree walk.
     */
   private val bakeOwnerIds: Set[NodeId] =
-    dashboard.surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
+    surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
 
   /** Tabs. Their own rendering is shared like any other node — the
     * client-selected member lives in the MOUNT, which a patch never carries.
@@ -139,7 +145,7 @@ private[runtime] final class SurfaceGraph(
     * main page, and is therefore absent here.
     */
   private val surfaceParent: Map[String, String] =
-    dashboard.surfaces.flatMap { case (sid, s) =>
+    surfaces.flatMap { case (sid, s) =>
       s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
     }
 
@@ -160,7 +166,7 @@ private[runtime] final class SurfaceGraph(
     rootOf(id).filter(_.nonEmpty).flatMap(userSurfaceOf)
 
   private def isStateSurface(sid: String): Boolean =
-    dashboard.surfaces
+    surfaces
       .get(sid)
       .exists(_.activation match {
         case _: Activation.State => true
@@ -172,7 +178,7 @@ private[runtime] final class SurfaceGraph(
       sid: String,
       states: Map[String, EntityState]
   ): Boolean =
-    dashboard.surfaces.get(sid).flatMap(_.bakeInto).exists { gid =>
+    surfaces.get(sid).flatMap(_.bakeInto).exists { gid =>
       resolveActiveByState(gid, states)
         .flatMap(bakeGroup(gid).lift)
         .contains(sid)
@@ -253,7 +259,7 @@ private[runtime] final class SurfaceGraph(
       states: Map[String, EntityState]
   ): Option[Int] = {
     val idx = bakeGroup(gid).indexWhere(sid =>
-      dashboard.surfaces
+      surfaces
         .get(sid)
         .exists(_.activation match {
           case Activation.State(condition) =>
@@ -274,7 +280,7 @@ private[runtime] final class SurfaceGraph(
   private lazy val stateGroupEntities: Map[NodeId, Set[String]] =
     stateBakeOwnerIds.map { gid =>
       gid -> bakeGroup(gid).flatMap { sid =>
-        dashboard.surfaces
+        surfaces
           .get(sid)
           .toList
           .flatMap(_.activation match {
@@ -392,7 +398,7 @@ private[runtime] final class SurfaceGraph(
     val n = branches.size
     val fallback =
       branches.indexWhere(sid =>
-        dashboard.surfaces.get(sid).exists(defaultOpenUser)
+        surfaces.get(sid).exists(defaultOpenUser)
       ) match {
         case -1 => 0
         case i  => i
@@ -426,7 +432,7 @@ private[runtime] final class SurfaceGraph(
       uiState: Map[String, String] = Map.empty
   ): Set[String] = {
     val (baked, unbaked) =
-      dashboard.surfaces.toList.partition(_._2.bakeInto.isDefined)
+      surfaces.toList.partition(_._2.bakeInto.isDefined)
     val fromGroups =
       baked
         .flatMap(_._2.bakeInto)
@@ -455,7 +461,7 @@ private[runtime] final class SurfaceGraph(
       .get(Dashboard.PopupHostId)
       .filter(_.nonEmpty)
       .filter(sid =>
-        dashboard.surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
+        surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
       )
 
   /** Returns data rather than logging, so the renderer stays side-effect-free.
@@ -463,7 +469,7 @@ private[runtime] final class SurfaceGraph(
     * there to be malformed.
     */
   def uiStateAnomalies(uiState: Map[String, String]): List[String] =
-    dashboard.surfaces.toList
+    surfaces.toList
       .flatMap(_._2.bakeInto)
       .distinct
       .filterNot(isStateGroup)
@@ -473,7 +479,7 @@ private[runtime] final class SurfaceGraph(
     * replaces.
     */
   def surfacesAt(host: DomId): Set[String] =
-    dashboard.surfaces.collect {
+    surfaces.collect {
       case (sid, s) if s.hostId == host => sid
     }.toSet
 

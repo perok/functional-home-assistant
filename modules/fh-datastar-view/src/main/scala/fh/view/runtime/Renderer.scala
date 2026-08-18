@@ -230,7 +230,7 @@ class Renderer(
     * [[members]] and for the same reason.
     */
   private[runtime] val surfaces: SurfaceGraph =
-    new SurfaceGraph(dashboard, rootOfIndexed, members)
+    new SurfaceGraph(dashboard.surfaces, rootOfIndexed, members)
 
   /** The main page's nodes binding `entityId` — materialised members included,
     * which is the whole point of materialising them: a member re-renders

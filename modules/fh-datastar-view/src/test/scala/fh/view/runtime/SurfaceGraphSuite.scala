@@ -74,7 +74,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
   ): SurfaceGraph =
     new SurfaceGraph(
-      Dashboard(Map.empty, col(), surfaces = surfaces),
+      surfaces,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
       members
     )
